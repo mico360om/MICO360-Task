@@ -424,7 +424,7 @@ async function main(): Promise<void> {
         dueDate: t.dueDate,
         columnCategory: t.column?.category ?? null,
         // Watchers get due/overdue reminders too, deduped with assignees.
-        assigneeIds: [...new Set([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)])],
+        assigneeIds: Array.from(new Set([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)])),
       })),
       { leadMinutesFor: (id) => leadByUser.get(id) },
     );
@@ -604,7 +604,7 @@ async function main(): Promise<void> {
       tasks.map((t) => ({
         id: t.id, key: t.key, title: t.title, dueDate: t.dueDate,
         columnCategory: t.column?.category ?? null,
-        recipientIds: [...new Set([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)])],
+        recipientIds: Array.from(new Set([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)])),
       })),
     );
     const userById = new Map((await prisma.user.findMany({ where: { deletedAt: null }, select: { id: true, email: true, firstName: true, notificationPrefs: true } })).map((u) => [u.id, u]));
@@ -638,9 +638,9 @@ async function main(): Promise<void> {
     const plans = planEscalations(tasks.map((t) => ({ id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, projectId: t.projectId, columnCategory: t.column?.category ?? null })));
     if (plans.length === 0) return;
     // Recipients = each project's owner + managers.
-    const projectIds = [...new Set(plans.map((p) => p.projectId))];
+    const projectIds = Array.from(new Set(plans.map((p) => p.projectId)));
     const projects = await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, ownerId: true, members: { where: { role: 'MANAGER' }, select: { userId: true } } } });
-    const recipientsByProject = new Map(projects.map((p) => [p.id, [...new Set([...(p.ownerId ? [p.ownerId] : []), ...p.members.map((m) => m.userId)])]]));
+    const recipientsByProject = new Map(projects.map((p) => [p.id, Array.from(new Set([...(p.ownerId ? [p.ownerId] : []), ...p.members.map((m) => m.userId)]))]));
     const planned = plans.flatMap((plan) =>
       (recipientsByProject.get(plan.projectId) ?? []).map((userId) => ({
         userId,
