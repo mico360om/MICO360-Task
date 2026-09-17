@@ -4,6 +4,6 @@
   "flavors": {
     "development": { "nameSuffix": " (Dev)", "pkgSuffix": ".dev", "apiBaseUrl": "http://10.0.2.2:4000/api/v1" },
     "preview": { "nameSuffix": " (Preview)", "pkgSuffix": ".preview", "apiBaseUrl": "https://staging.mico360.example/api/v1" },
-    "production": { "nameSuffix": "", "pkgSuffix": "", "apiBaseUrl": "https://api.mico360.example/api/v1" }
+    "production": { "nameSuffix": "", "pkgSuffix": "", "apiBaseUrl": "https://task.mico360.com/api/v1" }
   }
 }

@@ -58,7 +58,7 @@ const TAB_ICON: Record<keyof TabsParamList, string> = {
 
 /** URL deep links (A0.3): mico360://task/<id>, mico360://project/<id>, mico360://notifications. */
 const linking: LinkingOptions<AppStackParamList> = {
-  prefixes: ['mico360://', 'https://app.mico360.test'],
+  prefixes: ['mico360://', 'https://task.mico360.com'],
   config: {
     screens: {
       Tabs: { screens: { Notifications: 'notifications', Dashboard: 'home' } },

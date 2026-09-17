@@ -39,7 +39,7 @@ describe('flavorConfig', () => {
   it('provides a distinct default API base URL per flavor', () => {
     expect(flavorConfig('development').apiBaseUrl).toBe('http://10.0.2.2:4000/api/v1');
     expect(flavorConfig('preview').apiBaseUrl).toContain('staging');
-    expect(flavorConfig('production').apiBaseUrl).toContain('api.mico360');
+    expect(flavorConfig('production').apiBaseUrl).toBe('https://task.mico360.com/api/v1');
   });
 
   it('lets an explicit apiUrl override the flavor default (trailing slash trimmed)', () => {
