@@ -194,7 +194,9 @@ describe('TaskDrawer', () => {
       />,
     );
     const link = screen.getByRole('link', { name: /spec\.pdf/ });
-    expect(link).toHaveAttribute('href', 'http://localhost:4000/uploads/a1.pdf');
+    // Resolves to the uploads path + filename; the origin is absolute or same-origin depending on
+    // VITE_API_URL (same-origin behind the task.mico360.com / dev proxy), so match the path suffix.
+    expect(link.getAttribute('href')).toMatch(/\/uploads\/a1\.pdf$/);
     expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
   });
 
