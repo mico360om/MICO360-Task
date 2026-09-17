@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "MICO360 Tasks",
+    "slug": "mico360-tasks",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "mico360",
+    "userInterfaceStyle": "automatic",
+    "primaryColor": "#8B1E1E",
+    "icon": "./assets/icon.png",
+    "android": {
+      "package": "com.mico360.tasks",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#8B1E1E"
+      },
+      "permissions": ["INTERNET", "POST_NOTIFICATIONS"]
+    },
+    "plugins": ["expo-secure-store", "expo-notifications", "@sentry/react-native/expo"]
+  }
+}

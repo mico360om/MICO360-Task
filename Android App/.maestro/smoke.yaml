@@ -1,0 +1,14 @@
+# Smoke E2E (A9.1): the app launches and renders the sign-in screen. Needs no credentials, so it
+# runs against any build on a device/emulator. Run:  maestro test .maestro/smoke.yaml
+# Uses the dev flavor's app id; override for other flavors with:  -e APP_ID=com.mico360.tasks
+appId: ${APP_ID}
+env:
+  APP_ID: com.mico360.tasks.dev
+---
+- launchApp:
+    clearState: true
+- assertVisible: 'Welcome back'
+- assertVisible: 'Sign in to MICO360 Tasks'
+- assertVisible: 'Email or username'
+- assertVisible: 'Password'
+- assertVisible: 'Sign in'

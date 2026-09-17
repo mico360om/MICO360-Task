@@ -1,0 +1,59 @@
+name: Android Release (EAS)
+
+# Release pipeline (A9.2). Triggered by a version tag (v1.2.3) or run manually. Builds the
+# production App Bundle and submits it to Google Play on the track configured in eas.json
+# (internal / draft), so nothing goes public without a human promoting it in Play Console.
+#
+# Required repo secrets:
+#   EXPO_TOKEN              — Expo access token (https://expo.dev/settings/access-tokens)
+#   EXPO_PUBLIC_SENTRY_DSN  — set as an EAS secret (eas secret:create) so builds enable crash reporting
+# Google Play submission also needs the service-account JSON configured in EAS (eas.json / credentials).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        default: 'production'
+        type: choice
+        options: [production, preview]
+
+defaults:
+  run:
+    working-directory: Android App
+
+jobs:
+  release:
+    name: Build & submit to Play
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: Android App/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Gate the release on the same checks CI runs on every PR.
+      - name: Verify (type-check, lint, test)
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test
+
+      # --auto-submit sends the finished build to Play using submit.production in eas.json
+      # (track: internal, releaseStatus: draft).
+      - name: Build & submit
+        run: eas build --platform android --profile ${{ github.event.inputs.profile || 'production' }} --auto-submit --non-interactive

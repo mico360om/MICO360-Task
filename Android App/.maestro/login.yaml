@@ -1,0 +1,29 @@
+# Login → Dashboard E2E (A9.1). Signs in with password and lands on the Dashboard + tab bar.
+# Provide credentials at run time (never hard-code real ones):
+#   maestro test .maestro/login.yaml -e EMAIL=you@org.example -e PASSWORD=secret
+# Requires a reachable backend for the flavor under test (dev → 10.0.2.2:4000 on the emulator).
+appId: ${APP_ID}
+env:
+  APP_ID: com.mico360.tasks.dev
+  EMAIL: admin@mico360.test
+  PASSWORD: Password1!
+---
+- launchApp:
+    clearState: true
+- assertVisible: 'Welcome back'
+# The identifier + password fields — tap the placeholder to focus, then type.
+- tapOn: 'you@company.com'
+- inputText: ${EMAIL}
+- hideKeyboard
+- tapOn:
+    id: 'login-password'
+    optional: true
+- tapOn: '••••••••'
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: 'Sign in'
+# Dashboard greeting + bottom tabs prove we're signed in.
+- assertVisible: 'Home'
+- assertVisible: 'My Tasks'
+- assertVisible: 'Projects'
+- assertVisible: 'Chat'

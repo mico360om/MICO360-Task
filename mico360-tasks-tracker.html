@@ -1,0 +1,614 @@
+<title>MICO360 Tasks Tracker</title>
+<meta name="description" content="Build tracker for the MICO360 Tasks Chrome extension — 103 tasks across 21 modules with live status and token rollups.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#F4F2F0; --surface:#FFFFFF; --surface-2:#FBF8F7; --surface-3:#F3EFED;
+  --border:#E6DFDC; --border-strong:#D6CCC8;
+  --ink:#211B1A; --ink-2:#6C625F; --ink-3:#948985;
+  --accent:#8B1E1E; --accent-2:#A83326; --accent-ink:#FFFFFF; --accent-soft:#F6E7E5;
+  --todo:#9A918D; --prog:#B87611; --review:#3A6EA5; --done:#2E7D53; --blocked:#CB4632;
+  --todo-soft:#ECE8E6; --prog-soft:#F7ECD8; --review-soft:#E4EDF6; --done-soft:#E1F0E7; --blocked-soft:#F9E4DF;
+  --p0:#8B1E1E; --p1:#3A6EA5; --p2:#948985; --android:#2C7A78;
+  --shadow:0 1px 2px rgba(33,27,26,.04),0 6px 20px -8px rgba(33,27,26,.10);
+  --shadow-sm:0 1px 2px rgba(33,27,26,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#171312; --surface:#211B1A; --surface-2:#28211F; --surface-3:#2F2724;
+    --border:#392F2C; --border-strong:#4A3E3A;
+    --ink:#F1EBE9; --ink-2:#B3A8A4; --ink-3:#7E736F;
+    --accent:#D45A48; --accent-2:#E0705E; --accent-ink:#1A1211; --accent-soft:#3A211D;
+    --todo:#8C837F; --prog:#E0A93B; --review:#6FA0D0; --done:#4FB07E; --blocked:#E5715F;
+    --todo-soft:#2C2523; --prog-soft:#33291A; --review-soft:#1E2A36; --done-soft:#1B2E23; --blocked-soft:#331F1B;
+    --p0:#D45A48; --p1:#6FA0D0; --p2:#9A8F8B; --android:#4FB3AE;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -10px rgba(0,0,0,.5);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#171312; --surface:#211B1A; --surface-2:#28211F; --surface-3:#2F2724;
+  --border:#392F2C; --border-strong:#4A3E3A;
+  --ink:#F1EBE9; --ink-2:#B3A8A4; --ink-3:#7E736F;
+  --accent:#D45A48; --accent-2:#E0705E; --accent-ink:#1A1211; --accent-soft:#3A211D;
+  --todo:#8C837F; --prog:#E0A93B; --review:#6FA0D0; --done:#4FB07E; --blocked:#E5715F;
+  --todo-soft:#2C2523; --prog-soft:#33291A; --review-soft:#1E2A36; --done-soft:#1B2E23; --blocked-soft:#331F1B;
+  --p0:#D45A48; --p1:#6FA0D0; --p2:#9A8F8B;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -10px rgba(0,0,0,.5);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1280px;margin:0 auto;padding:0 20px 64px}
+h1,h2,h3{font-family:"Archivo",system-ui,sans-serif;margin:0;text-wrap:balance;line-height:1.15}
+.mono{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+
+/* Header */
+.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--ground) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.top-in{max-width:1280px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:2px;font-family:"Archivo";font-weight:800;font-size:26px;letter-spacing:-.02em;line-height:1}
+.brand .m{color:var(--accent)}
+.brand .n{color:var(--ink)}
+.brand sup{font-size:.5em;font-weight:700;color:var(--accent);top:-.9em}
+.top .div{width:1px;height:26px;background:var(--border-strong)}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.top .sub{font-size:12.5px;color:var(--ink-2);margin-top:1px}
+.top .spacer{flex:1}
+.tbtn{font:inherit;font-size:13px;color:var(--ink-2);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:7px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.tbtn:hover{color:var(--ink);border-color:var(--border-strong)}
+.tbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Intro / KPI band */
+.band{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:center;padding:24px 0 18px}
+.ring{--pct:0;width:118px;height:118px;border-radius:50%;display:grid;place-items:center;
+  background:conic-gradient(var(--done) calc(var(--pct)*1%), var(--surface-3) 0);
+  box-shadow:var(--shadow-sm);flex:none}
+.ring .hole{width:88px;height:88px;border-radius:50%;background:var(--surface);display:grid;place-items:center;text-align:center;box-shadow:inset 0 0 0 1px var(--border)}
+.ring .pct{font-family:"Archivo";font-weight:800;font-size:26px;line-height:1}
+.ring .lbl{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);margin-top:2px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:13px 14px;box-shadow:var(--shadow-sm)}
+.kpi .v{font-family:"Archivo";font-weight:700;font-size:22px;letter-spacing:-.01em}
+.kpi .v small{font-size:13px;font-weight:600;color:var(--ink-2)}
+.kpi .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin-top:3px}
+.kpi.accent{background:linear-gradient(180deg,var(--accent-soft),var(--surface));border-color:color-mix(in srgb,var(--accent) 30%,var(--border))}
+
+/* distribution bar */
+.dist{display:flex;height:12px;border-radius:7px;overflow:hidden;border:1px solid var(--border);margin:4px 0 10px}
+.dist span{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:14px 20px;font-size:12.5px;color:var(--ink-2);align-items:center}
+.legend b{color:var(--ink);font-weight:600}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* release cards */
+.rels{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:18px 0 6px}
+.rel{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:14px 15px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+.rel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
+.rel .rk{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);display:flex;justify-content:space-between}
+.rel .rk b{color:var(--c);font-weight:700}
+.rel .rv{font-family:"Archivo";font-weight:700;font-size:19px;margin-top:5px}
+.rel .rv small{font-size:12.5px;color:var(--ink-2);font-weight:600}
+.rel .rbar{height:6px;border-radius:4px;background:var(--surface-3);margin-top:9px;overflow:hidden}
+.rel .rbar i{display:block;height:100%;background:var(--c);width:0}
+.rel .rd{font-size:11.5px;color:var(--ink-3);margin-top:6px}
+
+.sec-title{font-family:"Archivo";font-weight:700;font-size:13px;letter-spacing:.02em;color:var(--ink);margin:26px 0 10px;display:flex;align-items:center;gap:9px}
+.sec-title::after{content:"";flex:1;height:1px;background:var(--border)}
+
+/* toolbar */
+.toolbar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:11px 12px;box-shadow:var(--shadow-sm);position:sticky;top:60px;z-index:10}
+.search{flex:1;min-width:190px;position:relative}
+.search input{width:100%;font:inherit;font-size:13.5px;color:var(--ink);background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:8px 11px 8px 32px}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-3)}
+.search input:focus{outline:none;border-color:var(--accent);background:var(--surface)}
+select.f{font:inherit;font-size:13px;color:var(--ink);background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:8px 9px;cursor:pointer}
+select.f:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);cursor:pointer;user-select:none;padding:6px 4px}
+.chk input{accent-color:var(--accent);width:15px;height:15px}
+.tool-sp{flex:1}
+.linkbtn{font:inherit;font-size:12.5px;color:var(--ink-2);background:none;border:none;cursor:pointer;padding:6px 8px;border-radius:7px}
+.linkbtn:hover{color:var(--accent);background:var(--surface-3)}
+.count{font-size:12.5px;color:var(--ink-2)}
+.count b{color:var(--ink);font-weight:600}
+
+/* table */
+.tablecard{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);margin-top:12px;overflow:hidden}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:840px}
+thead th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);padding:11px 12px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+thead th.no{cursor:default}
+thead th .ar{opacity:0;margin-left:3px;font-size:10px}
+thead th.sorted .ar{opacity:1;color:var(--accent)}
+thead th[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;color:var(--ink)}
+tbody td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+.id{font-family:"IBM Plex Mono";font-size:12px;font-weight:500;color:var(--ink-2);white-space:nowrap}
+.tt{font-weight:500;color:var(--ink);max-width:560px}
+.tt .v2{font-family:"IBM Plex Mono";font-size:10.5px;font-weight:600;color:var(--blocked);border:1px solid var(--blocked);border-radius:5px;padding:0 4px;margin-left:6px;vertical-align:1px}
+.mod{font-family:"IBM Plex Mono";font-size:11px;font-weight:600;color:var(--ink-2);background:var(--surface-3);border-radius:6px;padding:2px 6px;white-space:nowrap}
+.pri{font-size:11px;font-weight:700;font-family:"IBM Plex Mono";padding:2px 7px;border-radius:6px;white-space:nowrap;border:1px solid transparent}
+.pri.P0{color:var(--p0);background:var(--accent-soft);border-color:color-mix(in srgb,var(--p0) 30%,transparent)}
+.pri.P1{color:var(--p1);background:var(--review-soft)}
+.pri.P2{color:var(--p2);background:var(--todo-soft)}
+.rel-chip{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:20px;white-space:nowrap}
+.rel-chip.MVP{color:#fff;background:var(--accent)}
+.rel-chip.v1{color:var(--review);background:var(--review-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--review) 30%,transparent)}
+.rel-chip.v2{color:var(--ink-2);background:var(--surface-3);box-shadow:inset 0 0 0 1px var(--border-strong)}
+.rel-chip.AND{color:var(--android);background:color-mix(in srgb,var(--android) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--android) 38%,transparent)}
+td.est{text-align:right}
+.est .mono{font-size:12.5px;color:var(--ink)}
+.st{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;font-weight:600;padding:5px 11px 5px 9px;border-radius:20px;cursor:pointer;border:1px solid transparent;white-space:nowrap;transition:background .12s}
+.st:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.st .sd{width:8px;height:8px;border-radius:50%;flex:none}
+.st.todo{color:var(--todo);background:var(--todo-soft)} .st.todo .sd{background:var(--todo)}
+.st.in_progress{color:var(--prog);background:var(--prog-soft)} .st.in_progress .sd{background:var(--prog)}
+.st.in_review{color:var(--review);background:var(--review-soft)} .st.in_review .sd{background:var(--review)}
+.st.done{color:var(--done);background:var(--done-soft)} .st.done .sd{background:var(--done)}
+.st.blocked{color:var(--blocked);background:var(--blocked-soft)} .st.blocked .sd{background:var(--blocked)}
+tr.is-done .tt{color:var(--ink-2)}
+tr.is-done .id{text-decoration:line-through}
+/* group headers */
+tr.grp td{background:var(--surface-3);padding:9px 12px;position:sticky}
+.grp .gh{display:flex;align-items:center;gap:10px;font-family:"Archivo";font-weight:700;font-size:12.5px;color:var(--ink)}
+.grp .gc{font-family:"IBM Plex Mono";font-size:11px;font-weight:600;color:var(--accent-ink);background:var(--accent);border-radius:6px;padding:1px 6px}
+.grp .gmeta{margin-left:auto;font-size:11.5px;color:var(--ink-2);font-weight:400}
+.grp .gmeta .mono{color:var(--ink)}
+
+/* footer panels */
+.panels{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:26px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow-sm)}
+.panel h3{font-size:14px;margin-bottom:4px}
+.panel .eyebrow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;font-family:"IBM Plex Mono"}
+.panel ul{margin:10px 0 0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+.panel li{font-size:13px;color:var(--ink-2);padding-left:22px;position:relative}
+.panel li::before{content:"";position:absolute;left:2px;top:7px;width:7px;height:7px;border-radius:2px;background:var(--accent)}
+.panel li b{color:var(--ink);font-weight:600}
+.dod li::before{background:var(--done);border-radius:50%}
+.warn{margin-top:14px;font-size:12.5px;color:var(--ink);background:var(--blocked-soft);border:1px solid color-mix(in srgb,var(--blocked) 35%,transparent);border-radius:11px;padding:11px 13px}
+.warn b{color:var(--blocked)}
+.foot{margin-top:28px;font-size:12px;color:var(--ink-3);text-align:center;line-height:1.7}
+.foot .mono{color:var(--ink-2)}
+@media (max-width:880px){
+  .band{grid-template-columns:1fr;justify-items:start}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .rels{grid-template-columns:1fr}
+  .panels{grid-template-columns:1fr}
+  .toolbar{position:static}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="top">
+  <div class="top-in">
+    <div class="brand"><span class="m">MICO</span><span class="n">360</span><sup>°</sup></div>
+    <div class="div"></div>
+    <div>
+      <h1>Tasks — Development Tracker</h1>
+      <div class="sub">Web app · Chrome extension · Node/TS API · MySQL · Android app — planning &amp; build status</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="tbtn" id="themeBtn" aria-label="Toggle colour theme"><span id="themeIcon">◐</span><span id="themeTxt">Theme</span></button>
+  </div>
+</div>
+
+<div class="wrap">
+  <section class="band">
+    <div class="ring" id="ring"><div class="hole"><div><div class="pct" id="ringPct">0%</div><div class="lbl">Complete</div></div></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="kTasks">129</div><div class="k">Total tasks · 2 phases</div></div>
+      <div class="kpi"><div class="v" id="kDone">0 <small>/ 129</small></div><div class="k">Done</div></div>
+      <div class="kpi accent"><div class="v mono" id="kEst">19.88M</div><div class="k">Est. tokens (mid)</div></div>
+      <div class="kpi"><div class="v mono" id="kCont">~28M</div><div class="k">With 1.4× buffer</div></div>
+      <div class="kpi"><div class="v mono" id="kMvp">4.67M</div><div class="k">MVP slice · 32 tasks</div></div>
+    </div>
+  </section>
+
+  <div class="dist" id="distBar" aria-hidden="true"></div>
+  <div class="legend" id="legend"></div>
+
+  <div class="sec-title">Release breakdown</div>
+  <div class="rels" id="rels"></div>
+
+  <div class="sec-title">All tasks — 31 modules · Phase 1 (web + extension) &amp; Phase 2 (Android)</div>
+  <div class="toolbar">
+    <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="q" type="search" placeholder="Search tasks, IDs, modules…" aria-label="Search tasks"></label>
+    <select class="f" id="fPhase" aria-label="Filter by phase"><option value="">All phases</option><option value="1">Phase 1 · Web+Ext</option><option value="2">Phase 2 · Android</option></select>
+    <select class="f" id="fMod" aria-label="Filter by module"><option value="">All modules</option></select>
+    <select class="f" id="fRel" aria-label="Filter by release"><option value="">All releases</option><option>MVP</option><option>v1</option><option>v2</option><option value="AND">Android</option></select>
+    <select class="f" id="fPri" aria-label="Filter by priority"><option value="">All priorities</option><option>P0</option><option>P1</option><option>P2</option></select>
+    <select class="f" id="fSt" aria-label="Filter by status"><option value="">All statuses</option><option value="todo">Not Started</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option><option value="done">Done</option><option value="blocked">Blocked</option></select>
+    <label class="chk"><input type="checkbox" id="grp" checked> Group by module</label>
+    <span class="tool-sp"></span>
+    <span class="count" id="count"></span>
+    <button class="linkbtn" id="csvBtn">Copy CSV</button>
+    <button class="linkbtn" id="resetBtn">Reset status</button>
+  </div>
+
+  <div class="tablecard"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th data-k="id" class="no">ID</th>
+        <th data-k="title">Task <span class="ar">▾</span></th>
+        <th data-k="mod">Module <span class="ar">▾</span></th>
+        <th data-k="pri">Pri <span class="ar">▾</span></th>
+        <th data-k="rel">Release <span class="ar">▾</span></th>
+        <th data-k="est" style="text-align:right">Est. <span class="ar">▾</span></th>
+        <th data-k="status" class="no">Status</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div></div>
+  <p style="font-size:12px;color:var(--ink-3);margin:9px 2px 0">Click a <b style="color:var(--ink-2)">status pill</b> to cycle Not Started → In Progress → In Review → Done → Blocked. Changes save in this browser only. Column headers sort.</p>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="eyebrow">This revision</div>
+      <h3>Analysis &amp; improvements applied</h3>
+      <ul>
+        <li><b>Contingency budget added</b> — plan against <b>~21M</b> (1.4× the 15.15M midpoint), not the optimistic figure.</li>
+        <li><b>MVP defined &amp; v2 deferred</b> — a 32-task thin slice (~4.7M) ships first; dependencies, recurring, watchers &amp; conflict-handling pushed to v2.</li>
+        <li><b>Mobile-ready API</b> — versioned <span class="mono">/api/v1</span>, header JWT, OpenAPI 3, channel-agnostic notifications so mobile push slots in later.</li>
+        <li><b>Email module (Mailjet)</b> — full send + templates + Event-API webhooks + per-user/admin on-off toggles (M20).</li>
+        <li><b>New gap tasks</b> — T2.9 first-admin bootstrap, T19.6 backup/retention/PII, upload malware-scan, wireframe step, a11y audit, CI/observability.</li>
+        <li><b>Auth expanded</b> — login by <b>email or username</b>, passwordless <b>email OTP</b>, and a <b>5-strike lockout</b> that forces a password reset (T2.2, T2.10, T2.11, T5.5).</li>
+        <li><b>Phase 2 added</b> — a native <b>Android app</b> (23 tasks · ~4.38M) on the mobile-ready API + FCM push; whole program now <b>~19.9M / 129 tasks</b>.</li>
+        <li><b>Cross-cutting rules</b> — timezone-correct dates (UTC store / user-tz compute), MySQL FULLTEXT search, and a 7-point Definition of Done.</li>
+      </ul>
+      <div class="warn">⚠ <b>Act now:</b> the Mailjet API/secret keys were shared in plaintext — keep them in backend env vars only and <b>rotate the secret</b> in Mailjet before go-live. Decisions <b>D1</b> (Project-Manager tier) and <b>D5</b> (Android stack → <b>React Native + Expo</b>) are now resolved.</div>
+    </div>
+    <div class="panel">
+      <div class="eyebrow">Quality gate</div>
+      <h3>Definition of Done (every task)</h3>
+      <ul class="dod">
+        <li>Wired to backend/DB — <b>no hardcoded/mock data</b>.</li>
+        <li>Authorization enforced <b>server-side</b> (employee blocked from admin routes).</li>
+        <li>Input validated; friendly errors — no raw stack traces.</li>
+        <li>Responsive 1024–1920px; works in <b>light &amp; dark</b>.</li>
+        <li>No console errors, no dead buttons, no broken routes.</li>
+        <li>Covered by a test <b>or</b> a written manual-QA check.</li>
+        <li><span class="mono">Act.</span> tokens recorded &amp; status updated.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">MICO360 Tasks · build tracker · <span class="mono">129 tasks / 31 modules / ~19.88M est. tokens · Phase 1 ~15.5M + Phase 2 ~4.38M</span><br>Estimates are AI-agent development tokens (context + writing + tests + iteration) — planning aids, not guarantees. Status is stored locally in your browser.</p>
+</div>
+
+<script>
+const MOD={M0:"Setup, Foundations & Wireframes",M1:"Database & Data Layer",M2:"Backend Core, Auth, Security & API",M3:"Backend Domain APIs",M4:"Real-time Sync & Conflict Handling",M5:"Frontend Foundations",M6:"Frontend Shell / Shared UI",M7:"Kanban Board",M8:"Task Management UI",M9:"Projects Module UI",M10:"Dashboard & Charts",M11:"My Tasks / Calendar",M12:"Reports & Export",M13:"Notifications & Activity/Audit UI",M14:"Settings (Personal + Admin)",M15:"User / Team Management",M16:"Chrome Extension (MV3)",M17:"Testing, QA & Accessibility",M18:"Documentation & Deployment",M19:"Observability, CI/CD & Ops",M20:"Email Notifications (Mailjet)",A0:"Mobile Foundations",A1:"Mobile Auth",A2:"Mobile API / Data Layer",A3:"Dashboard & My Tasks (mobile)",A4:"Kanban & Task Detail (mobile)",A5:"Projects & Calendar (mobile)",A6:"Notifications & Push (FCM)",A7:"Settings & Profile (mobile)",A8:"Offline & Sync",A9:"Testing, Release & Mobile Ops"};
+// [id, module, title, estK, pri, release]
+const RAW=[
+["T0.1","M0","Monorepo structure (extension/frontend/backend/prisma/database) + workspaces",50,"P0","MVP"],
+["T0.2","M0","Tooling: TS, ESLint, Prettier, Vite, env config, .env.example (Mailjet placeholders)",60,"P0","MVP"],
+["T0.3","M0","Brand/design tokens: MICO360 palette, Tailwind theme, typography, logo assets",80,"P0","MVP"],
+["T0.4","M0","README scaffold, dev scripts, base package.json",40,"P1","v1"],
+["T0.5","M0","Wireframes / screen flows for key screens vs MICO360 brand (before M6–M8)",150,"P0","MVP"],
+["T1.1","M1","Prisma schema: users, roles, user_roles, departments",120,"P0","MVP"],
+["T1.2","M1","Prisma schema: projects, project_members, tags, task_tags",120,"P0","MVP"],
+["T1.3","M1","Prisma schema: tasks, task_assignees, task_watchers, kanban_columns",150,"P0","MVP"],
+["T1.4","M1","Prisma schema: comments, checklists, dependencies, attachments, activity",130,"P1","v1"],
+["T1.5","M1","Prisma schema: notifications, settings, refresh_tokens, audit_logs, email_log",110,"P1","v1"],
+["T1.6","M1","Indexes, FKs, constraints, soft-delete, timestamps + raw mysql.sql export",100,"P0","MVP"],
+["T1.7","M1","Migrations + seed.ts (1 admin, 10 employees, 5 projects, 50+ tasks…)",200,"P0","MVP"],
+["T2.1","M2","Server bootstrap (Express/Fastify), middleware, error handler, config, logging",100,"P0","MVP"],
+["T2.2","M2","Auth: login, JWT access + refresh (header-based), hashing, logout, Remember Me",180,"P0","MVP"],
+["T2.3","M2","Forgot-password / reset-password flow (email via M20)",100,"P1","v1"],
+["T2.4","M2","RBAC middleware (admin/employee), route guards, user-status enforcement",120,"P0","MVP"],
+["T2.5","M2","Security: validation, rate limiting, headers, CORS, SQLi/XSS/CSRF, upload checks",150,"P0","MVP"],
+["T2.6","M2","Upload safety: malware scan (ClamAV), storage quotas, deep MIME verification",120,"P1","v1"],
+["T2.7","M2","Project Manager permission tier — conditional on D1 (project-scoped rights)",120,"P2","v1"],
+["T2.8","M2","API versioning (/api/v1) + mobile-ready contract (OpenAPI 3, JSON envelope, header auth)",90,"P0","MVP"],
+["T2.9","M2","First-admin bootstrap / installer for production (seed is dev-only)",80,"P1","v1"],
+["T2.10","M2","Email OTP login (passwordless): request → email code → verify → JWT; hashed, expiring, single-use, rate-limited",150,"P1","v1"],
+["T2.11","M2","Account lockout: lock after 5 failed attempts; unlock only via password reset; audit + email alert",120,"P1","v1"],
+["T3.1","M3","Users CRUD + activate/deactivate/suspend",130,"P0","MVP"],
+["T3.2","M3","Projects CRUD + members + archive + per-project resources",180,"P0","MVP"],
+["T3.3","M3","Tasks CRUD + filtering + pagination + status/priority/dates/progress",250,"P0","MVP"],
+["T3.4","M3","Task assignees (many-to-many) add/remove (watchers → v2)",120,"P0","MVP"],
+["T3.5","M3","Comments + @mentions",130,"P1","v1"],
+["T3.6","M3","Checklists/subtasks + auto % complete",100,"P1","v1"],
+["T3.7","M3","Task dependencies (blocking / blocked-by + validation)",120,"P2","v2"],
+["T3.8","M3","Recurring tasks engine (daily/weekly/monthly/yearly/custom)",200,"P2","v2"],
+["T3.9","M3","Attachments (upload, S3-ready storage, absolute URLs, metadata)",150,"P1","v1"],
+["T3.10","M3","Notifications service — channel-agnostic (in-app + email + future push)",160,"P1","v1"],
+["T3.11","M3","Activity timeline + Audit log recording",150,"P1","v1"],
+["T3.12","M3","Settings APIs (user + system) + Kanban column management",130,"P1","v1"],
+["T3.13","M3","Reports APIs (task, workload, project, due-date, productivity)",300,"P1","v1"],
+["T3.14","M3","Global search API (FULLTEXT indexes: tasks/IDs/projects/users/comments/tags)",100,"P1","v1"],
+["T4.1","M4","Socket.IO server + auth handshake + rooms (per board/project)",150,"P1","v1"],
+["T4.2","M4","Broadcast events: task/assignment/comment/checklist/status/notification",150,"P1","v1"],
+["T4.3","M4","Optimistic concurrency (updated_at/version) + conflict resolution",130,"P2","v2"],
+["T5.1","M5","React + TS + Vite scaffold + React Router",90,"P0","MVP"],
+["T5.2","M5","API client + TanStack Query + token-refresh interceptors",120,"P0","MVP"],
+["T5.3","M5","Auth store, protected routes, login + forgot-password pages",160,"P0","MVP"],
+["T5.4","M5","Theme system (light/dark/system) + brand tokens + Tailwind",100,"P0","MVP"],
+["T5.5","M5","Login UX: email-or-username field, email-OTP flow + code entry, account-locked/reset messaging",80,"P1","v1"],
+["T6.1","M6","App layout: role-aware sidebar, top header, profile menu",160,"P0","MVP"],
+["T6.2","M6","Global search UI (debounced, results dropdown)",100,"P1","v1"],
+["T6.3","M6","Notifications bell + dropdown + unread count",110,"P1","v1"],
+["T6.4","M6","Reusable components: buttons, modals, drawers, multi-select, avatars, tables, toasts",250,"P0","MVP"],
+["T6.5","M6","Quick Add Task global modal",100,"P1","v1"],
+["T7.1","M7","Board layout + columns (Backlog→Completed, colors/order)",150,"P0","MVP"],
+["T7.2","M7","Task cards (title, ID, project, priority, due, progress, avatars)",120,"P0","MVP"],
+["T7.3","M7","dnd-kit drag-drop between columns + persist status to API",250,"P0","MVP"],
+["T7.4","M7","Realtime board updates + optimistic move + rollback",180,"P1","v1"],
+["T7.5","M7","Column management UI (add/rename/reorder/disable/color)",130,"P1","v1"],
+["T8.1","M8","Task details drawer/modal (view + inline edit + auto-save)",250,"P0","MVP"],
+["T8.2","M8","Assignee multi-select (avatar/name/email/dept, select all, remove)",150,"P0","MVP"],
+["T8.3","M8","Checklist UI + live progress",100,"P1","v1"],
+["T8.4","M8","Comments UI + @mentions + edit/delete own",160,"P1","v1"],
+["T8.5","M8","Attachments UI (upload/list/preview/remove, type/size validation)",130,"P1","v1"],
+["T8.6","M8","Dependencies UI + block warnings",110,"P2","v2"],
+["T8.7","M8","Recurrence UI",100,"P2","v2"],
+["T9.1","M9","Projects list + create/edit form (all fields, status, color, tags, notes)",200,"P0","MVP"],
+["T9.2","M9","Project detail (Board / Tasks / Team / Dashboard / Activity tabs)",220,"P1","v1"],
+["T9.3","M9","Team member management within a project",120,"P1","v1"],
+["T10.1","M10","Dashboard layout + My Work widgets",180,"P1","v1"],
+["T10.2","M10","Admin overall-statistics widgets",150,"P1","v1"],
+["T10.3","M10","Charts (status, priority, completed-over-time, by-project, workload)",220,"P1","v1"],
+["T10.4","M10","Dashboard filters (date/project/employee/status/priority)",130,"P2","v1"],
+["T11.1","M11","My Tasks page (Today/Overdue/Upcoming/…; list + kanban; filters)",220,"P1","v1"],
+["T11.2","M11","Calendar (month/week/day; by start/due; filters; click→details)",250,"P2","v1"],
+["T12.1","M12","Report pages (task/workload/project/due-date/productivity) + filters",300,"P1","v1"],
+["T12.2","M12","Export to CSV / Excel / PDF",200,"P2","v1"],
+["T13.1","M13","Notifications page + mark read + preferences (in-app + email toggles)",130,"P1","v1"],
+["T13.2","M13","Activity timeline UI",100,"P2","v1"],
+["T13.3","M13","Audit log viewer (admin) with filters",130,"P1","v1"],
+["T14.1","M14","Personal settings (profile, password, language, tz, theme, email prefs)",180,"P1","v1"],
+["T14.2","M14","Admin/system settings (company, logo, statuses, columns, email master on/off…)",220,"P1","v1"],
+["T15.1","M15","User management CRUD UI + status + role assignment",200,"P0","MVP"],
+["T15.2","M15","Team directory page",100,"P2","v1"],
+["T16.1","M16","manifest.json (MV3) + permissions + branded icons",80,"P1","v1"],
+["T16.2","M16","Popup UI (Today/Overdue/In-Progress/Completed + ~5 upcoming + actions)",150,"P1","v1"],
+["T16.3","M16","Background service worker (auth/session, badge count, alarms)",150,"P1","v1"],
+["T16.4","M16","Open Full app tab + hosted-URL config + Quick Add from popup",120,"P1","v1"],
+["T16.5","M16","Chrome notifications integration",90,"P2","v1"],
+["T16.6","M16","Extension ↔ API security: token storage, CORS, polling-vs-push, rate-limit-friendly sync",130,"P0","v1"],
+["T17.1","M17","Backend unit/integration tests (auth, RBAC, tasks, assignees, reports, email)",300,"P1","v1"],
+["T17.2","M17","Frontend component/integration tests",250,"P1","v1"],
+["T17.3","M17","E2E workflows (login, task lifecycle, kanban, multi-user, realtime, permissions)",300,"P1","v1"],
+["T17.4","M17","Manual QA pass + bug fixing (console/API/routes/permission issues)",250,"P1","v1"],
+["T17.5","M17","Accessibility (a11y) audit — WCAG AA, keyboard, ARIA, dnd screen-reader",180,"P1","v1"],
+["T18.1","M18","API documentation — OpenAPI 3 + published contract for the mobile team",120,"P1","v1"],
+["T18.2","M18","README, install, dev commands, Chrome extension install guide",100,"P1","v1"],
+["T18.3","M18","Production deployment guide + env (Mailjet) + storage (S3-ready)",130,"P1","v1"],
+["T19.1","M19","Structured logging (JSON) + centralized log aggregation",100,"P1","v1"],
+["T19.2","M19","Error tracking (Sentry) — frontend + backend",100,"P1","v1"],
+["T19.3","M19","Health checks, metrics, uptime monitoring",90,"P1","v1"],
+["T19.4","M19","CI pipeline (lint / type-check / test / build on PR)",120,"P0","MVP"],
+["T19.5","M19","CD / deploy automation + Redis adapter for Socket.IO scaling",130,"P1","v1"],
+["T19.6","M19","Backup, data-retention & PII policy: DB backups, log retention, user export/erasure",120,"P1","v1"],
+["T20.1","M20","Mailjet integration layer: env config, SMTP + Send API v3.1, sandbox, retry/backoff",130,"P1","v1"],
+["T20.2","M20","Branded MICO360 email templates (all notification types + reset + welcome)",180,"P1","v1"],
+["T20.3","M20","Dispatch service tied to notifications: async queue, fan-out, email_log",150,"P1","v1"],
+["T20.4","M20","Activation/deactivation: system master on/off + per-user per-event email prefs",120,"P1","v1"],
+["T20.5","M20","Mailjet Event API webhook receiver: delivery/open/bounce/spam → suppression",150,"P1","v1"],
+["T20.6","M20","Email testing & deliverability verification (send-test, tests, SPF/DKIM)",120,"P1","v1"],
+["A0.1","A0","Project scaffold (RN+Expo/TS or Kotlin+Compose), Gradle/build config, env & build flavors",200,"P0","AND"],
+["A0.2","A0","Design-system port: MICO360 brand tokens, typography, light/dark theming, components",220,"P0","AND"],
+["A0.3","A0","Navigation (stack/tab/drawer) + deep links (open task/project from push)",120,"P0","AND"],
+["A1.1","A1","Login (email/username + password) + secure token storage (Keystore/EncryptedSharedPrefs)",180,"P0","AND"],
+["A1.2","A1","Email OTP login flow (request code → enter code → session)",120,"P1","AND"],
+["A1.3","A1","Forgot/reset password + account-locked messaging + biometric unlock (fingerprint/face)",150,"P1","AND"],
+["A2.1","A2","API client generated from OpenAPI + auth/refresh interceptors + error handling",150,"P0","AND"],
+["A2.2","A2","Offline read cache (React Query persist / Room) + optimistic updates",200,"P1","AND"],
+["A2.3","A2","Realtime (Socket.IO client) for board & notifications",150,"P1","AND"],
+["A3.1","A3","Dashboard (My Work widgets, mobile layout)",180,"P1","AND"],
+["A3.2","A3","My Tasks (Today/Overdue/Upcoming lists + filters)",200,"P0","AND"],
+["A4.1","A4","Kanban board (mobile columns, swipe/drag, status persist to API)",300,"P0","AND"],
+["A4.2","A4","Task detail (view/edit, assignees, checklist, comments, attachments)",300,"P0","AND"],
+["A4.3","A4","Quick Add Task (mobile)",100,"P1","AND"],
+["A5.1","A5","Projects list + detail (mobile)",200,"P1","AND"],
+["A5.2","A5","Calendar (mobile agenda / month view)",180,"P2","AND"],
+["A6.1","A6","In-app notifications screen + preferences (incl. push toggles)",130,"P1","AND"],
+["A6.2","A6","Push (FCM): device_tokens endpoint + backend sender (extends T3.10) + receive + deep-link",250,"P1","AND"],
+["A7.1","A7","Personal settings, profile, theme, notification prefs (in-app / email / push)",150,"P1","AND"],
+["A8.1","A8","Offline queue for task/status changes + conflict handling + sync-on-reconnect",250,"P2","AND"],
+["A9.1","A9","Testing (unit + UI/instrumented + E2E on device/emulator)",300,"P1","AND"],
+["A9.2","A9","Play Store release: signing, Play Console, privacy policy, listing, staged rollout",200,"P0","AND"],
+["A9.3","A9","Crash/analytics (Crashlytics/Sentry) + CI for mobile builds",150,"P1","AND"]
+];
+const TASKS=RAW.map(r=>({id:r[0],mod:r[1],title:r[2],est:r[3],pri:r[4],rel:r[5]}));
+const ST_ORDER=["todo","in_progress","in_review","done","blocked"];
+const ST_LABEL={todo:"Not Started",in_progress:"In Progress",in_review:"In Review",done:"Done",blocked:"Blocked"};
+const ST_VAR={todo:"--todo",in_progress:"--prog",in_review:"--review",done:"--done",blocked:"--blocked"};
+const KEY="mico360-tracker-status-v2";
+// Baseline progress from the build session (done = built + tested; in_progress = built, DB-verify pending).
+const DEFAULT_STATUS={
+  "T0.1":"done","T0.2":"done","T0.3":"done","T0.4":"done",
+  "T1.1":"done","T1.2":"done","T1.3":"done","T1.4":"done","T1.5":"done",
+  "T2.1":"done","T2.2":"done","T2.4":"done","T2.10":"done","T2.11":"done","T20.1":"done","T20.2":"done",
+  "T3.1":"done","T3.2":"done","T3.3":"done","T3.4":"done","T3.5":"done","T3.6":"done","T3.10":"done","T3.11":"done","T3.13":"done","T3.14":"done",
+  "T15.1":"done","T13.1":"done","T12.1":"done","T9.1":"done","T3.14":"done","T3.11":"done","T13.2":"done","T13.3":"done","T15.2":"done",
+  "T1.6":"done","T1.7":"done",
+  "T2.5":"done","T2.8":"done","T2.3":"done","T20.3":"done","T20.4":"done","T18.2":"done",
+  "T5.1":"done","T5.2":"done","T5.3":"done","T5.4":"done",
+  "T6.1":"done","T6.4":"done","T6.5":"done",
+  "T7.1":"done","T7.2":"done","T7.3":"done",
+  "T10.1":"done","T3.12":"done","T14.1":"done","T11.1":"done",
+  "T16.1":"done","T16.2":"done","T16.3":"done",
+  "T4.1":"done","T4.2":"done",
+  "T8.1":"done","T11.2":"done","T14.2":"done",
+  "T3.9":"done","T8.5":"done",
+  "T3.7":"done","T8.6":"done","T12.2":"done",
+  "T3.8":"done","T8.7":"done","T5.5":"done",
+  "T8.2":"done","T8.3":"done","T8.4":"done","T6.2":"done","T6.3":"done","T7.5":"done",
+  "T17.1":"done","T17.2":"done",
+  "T10.2":"done","T10.3":"done","T10.4":"done","T7.4":"done",
+  "T19.1":"done","T19.3":"done","T19.4":"done",
+  "T2.6":"done","T2.9":"done","T18.1":"done","T18.3":"done","T19.6":"done",
+  "T4.3":"done",
+  "T16.4":"done","T16.5":"done","T16.6":"done","T20.5":"done","T20.6":"done","T19.2":"done","T19.5":"done",
+  "T9.2":"done","T9.3":"done","T17.3":"done","T17.4":"done","T17.5":"done","T0.5":"done",
+  "T2.7":"done",
+  // Phase 2 · Android app — A0–A8 built + unit-tested (RN+Expo, 171 unit tests, clean prod bundle).
+  // A0–A3 re-verified & finished 2026-09-16: A0 scaffold/flavors/design-system/nav; A1 login+OTP+biometric
+  // (Keystore-backed session); A2 API client w/ refresh, offline read-through cache + optimistic moves,
+  // realtime (board via useBoardRealtime + chat via new useChatRealtime — notif-list realtime is push+poll,
+  // not a backend socket event); A3 Dashboard + My Tasks (widgets, groups, filters, error states).
+  // A9 completed 2026-09-16 (all in-repo engineering + CI/CD wired):
+  //  • A9.1 — unit/logic tests (171) + Maestro E2E flows that run on an Android emulator in CI
+  //    (.github/workflows/android-e2e.yml); npm run e2e locally.
+  //  • A9.2 — tagged release pipeline (.github/workflows/android-release.yml: eas build --auto-submit)
+  //    + EAS-managed signing, privacy policy (store/PRIVACY.md), store listing (store/listing.md),
+  //    Data-safety answers & release runbook (RELEASE.md).
+  //  • A9.3 — real Sentry crash sink via the tested reporter seam (DSN-gated) + build CI.
+  // Human/credential-gated residual only (not code): create the Play Console listing + Google
+  // service account, set EXPO_TOKEN / EXPO_PUBLIC_SENTRY_DSN / E2E creds as secrets, then trigger.
+  "A0.1":"done","A0.2":"done","A0.3":"done",
+  "A1.1":"done","A1.2":"done","A1.3":"done",
+  "A2.1":"done","A2.2":"done","A2.3":"done",
+  "A3.1":"done","A3.2":"done",
+  "A4.1":"done","A4.2":"done","A4.3":"done",
+  "A5.1":"done","A5.2":"done",
+  "A6.1":"done","A6.2":"done",
+  "A7.1":"done",
+  "A8.1":"done",
+  "A9.1":"done","A9.2":"done","A9.3":"done"
+};
+let statusMap={...DEFAULT_STATUS};
+try{const s=localStorage.getItem(KEY); if(s) statusMap={...DEFAULT_STATUS,...JSON.parse(s)};}catch(e){statusMap={...DEFAULT_STATUS}}
+const stOf=id=>statusMap[id]||"todo";
+const phaseOf=t=>t.mod.charAt(0)==="A"?2:1;
+function save(){try{localStorage.setItem(KEY,JSON.stringify(statusMap))}catch(e){}}
+const fmt=k=>k>=1000?(k/1000).toFixed(2).replace(/\.00$/,"")+"M":k+"K";
+
+let sortKey=null,sortDir=1;
+const $=s=>document.querySelector(s);
+const tbody=$("#tbody");
+
+// populate module filter
+const fMod=$("#fMod");
+[...new Set(TASKS.map(t=>t.mod))].forEach(m=>{const o=document.createElement("option");o.value=m;o.textContent=m+" · "+MOD[m];fMod.appendChild(o)});
+
+function filtered(){
+  const q=$("#q").value.trim().toLowerCase(),m=fMod.value,r=$("#fRel").value,p=$("#fPri").value,s=$("#fSt").value,ph=$("#fPhase").value;
+  return TASKS.filter(t=>{
+    if(ph&&String(phaseOf(t))!==ph)return false;
+    if(m&&t.mod!==m)return false;
+    if(r&&t.rel!==r)return false;
+    if(p&&t.pri!==p)return false;
+    if(s&&stOf(t.id)!==s)return false;
+    if(q&&!(t.id.toLowerCase().includes(q)||t.title.toLowerCase().includes(q)||t.mod.toLowerCase().includes(q)||MOD[t.mod].toLowerCase().includes(q)))return false;
+    return true;
+  });
+}
+function rowHtml(t){
+  const s=stOf(t.id);const v2=t.rel==="v2"?' <span class="v2">v2</span>':'';
+  return `<tr class="${s==='done'?'is-done':''}" data-id="${t.id}">
+    <td class="id">${t.id}</td>
+    <td class="tt">${esc(t.title)}${v2}</td>
+    <td><span class="mod" title="${esc(MOD[t.mod])}">${t.mod}</span></td>
+    <td><span class="pri ${t.pri}">${t.pri}</span></td>
+    <td><span class="rel-chip ${t.rel}">${t.rel}</span></td>
+    <td class="est"><span class="mono">${fmt(t.est)}</span></td>
+    <td><button class="st ${s}" data-id="${t.id}" aria-label="Status: ${ST_LABEL[s]}. Click to change."><span class="sd"></span>${ST_LABEL[s]}</button></td>
+  </tr>`;
+}
+function esc(x){return x.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+
+function render(){
+  let list=filtered();
+  const grouped=$("#grp").checked;
+  if(sortKey){
+    const cmp={id:(a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}),title:(a,b)=>a.title.localeCompare(b.title),mod:(a,b)=>a.mod.localeCompare(b.mod,undefined,{numeric:true}),pri:(a,b)=>a.pri.localeCompare(b.pri),rel:(a,b)=>a.rel.localeCompare(b.rel),est:(a,b)=>a.est-b.est,status:(a,b)=>ST_ORDER.indexOf(stOf(a.id))-ST_ORDER.indexOf(stOf(b.id))}[sortKey];
+    list=[...list].sort((a,b)=>cmp(a,b)*sortDir);
+  }
+  let html="";
+  if(grouped&&!sortKey){
+    const order=[...new Set(TASKS.map(t=>t.mod))];
+    order.forEach(m=>{
+      const rows=list.filter(t=>t.mod===m);if(!rows.length)return;
+      const est=rows.reduce((a,t)=>a+t.est,0);
+      const done=rows.filter(t=>stOf(t.id)==="done").length;
+      html+=`<tr class="grp"><td colspan="7"><div class="gh"><span class="gc">${m}</span>${esc(MOD[m])}<span class="gmeta">${done}/${rows.length} done · <span class="mono">${fmt(est)}</span></span></div></td></tr>`;
+      html+=rows.map(rowHtml).join("");
+    });
+  }else{
+    html=list.map(rowHtml).join("");
+  }
+  tbody.innerHTML=html||`<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--ink-3)">No tasks match these filters.</td></tr>`;
+  $("#count").innerHTML=`<b>${list.length}</b> of ${TASKS.length} shown`;
+  document.querySelectorAll("thead th").forEach(th=>{
+    const active=th.dataset.k===sortKey;th.classList.toggle("sorted",active);
+    if(th.matches("[data-k]:not(.no)"))th.setAttribute("aria-sort",active?(sortDir===1?"ascending":"descending"):"none");
+  });
+}
+
+function computeStats(){
+  const by={todo:0,in_progress:0,in_review:0,done:0,blocked:0};
+  let est=0,doneEst=0;
+  TASKS.forEach(t=>{const s=stOf(t.id);by[s]++;est+=t.est;if(s==="done")doneEst+=t.est});
+  const done=by.done,pct=Math.round(done/TASKS.length*100);
+  $("#ring").style.setProperty("--pct",pct);
+  $("#ringPct").textContent=pct+"%";
+  $("#kDone").innerHTML=`${done} <small>/ ${TASKS.length}</small>`;
+  // distribution
+  const seg=ST_ORDER.map(s=>by[s]?`<span style="width:${by[s]/TASKS.length*100}%;background:var(${ST_VAR[s]})" title="${ST_LABEL[s]}: ${by[s]}"></span>`:"").join("");
+  $("#distBar").innerHTML=seg;
+  $("#legend").innerHTML=ST_ORDER.map(s=>`<span><span class="dot" style="background:var(${ST_VAR[s]})"></span>${ST_LABEL[s]} <b>${by[s]}</b></span>`).join("")
+    +`<span style="margin-left:auto"><span class="dot" style="background:var(--done)"></span>Done tokens <b class="mono">${fmt(doneEst)}</b> / ${fmt(est)}</span>`;
+  // releases
+  const relColor={MVP:"var(--accent)",v1:"var(--review)",v2:"var(--ink-3)",AND:"var(--android)"};
+  const relName={MVP:"MVP · thin slice",v1:"Release v1",v2:"Release v2",AND:"Phase 2 · Android"};
+  const relDesc={MVP:"Web+Ext — ship first",v1:"Feature-complete web + extension",v2:"Deferred high-variance features",AND:"Native Android app · reuses the API"};
+  const rels=["MVP","v1","v2","AND"].map(rk=>{
+    const rows=TASKS.filter(t=>t.rel===rk);const est=rows.reduce((a,t)=>a+t.est,0);
+    const dn=rows.filter(t=>stOf(t.id)==="done").length;const p=rows.length?Math.round(dn/rows.length*100):0;
+    return `<div class="rel" style="--c:${relColor[rk]}"><div class="rk"><span>${relName[rk]}</span><b>${rows.length} tasks</b></div>
+      <div class="rv mono">${fmt(est)} <small>est.</small></div>
+      <div class="rbar"><i style="width:${p}%"></i></div>
+      <div class="rd">${dn}/${rows.length} done · ${relDesc[rk]}</div></div>`;
+  }).join("");
+  $("#rels").innerHTML=rels;
+}
+
+// events
+tbody.addEventListener("click",e=>{
+  const b=e.target.closest(".st");if(!b)return;
+  const id=b.dataset.id;const cur=stOf(id);
+  const next=ST_ORDER[(ST_ORDER.indexOf(cur)+1)%ST_ORDER.length];
+  if(next==="todo")delete statusMap[id];else statusMap[id]=next;
+  save();computeStats();
+  // if a status filter is active a row may drop out → re-render; else patch row
+  if($("#fSt").value){render()}else{
+    const tr=b.closest("tr");tr.classList.toggle("is-done",next==="done");
+    b.className="st "+next;b.setAttribute("aria-label",`Status: ${ST_LABEL[next]}. Click to change.`);
+    b.innerHTML=`<span class="sd"></span>${ST_LABEL[next]}`;
+    if($("#grp").checked&&!sortKey)render();
+  }
+});
+["q","fPhase","fMod","fRel","fPri","fSt"].forEach(id=>$("#"+id).addEventListener("input",render));
+$("#grp").addEventListener("change",render);
+document.querySelectorAll("thead th[data-k]:not(.no)").forEach(th=>{
+  th.setAttribute("role","button");th.setAttribute("tabindex","0");th.setAttribute("aria-sort","none");
+  const doSort=()=>{const k=th.dataset.k;if(sortKey===k){sortDir*=-1}else{sortKey=k;sortDir=1}render();};
+  th.addEventListener("click",doSort);
+  th.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();doSort();}});
+});
+$("#resetBtn").addEventListener("click",()=>{if(confirm("Reset statuses to the build-session baseline?")){statusMap={...DEFAULT_STATUS};save();computeStats();render()}});
+$("#csvBtn").addEventListener("click",()=>{
+  const rows=[["ID","Task","Module","ModuleName","Priority","Release","EstTokensK","Status"]];
+  filtered().forEach(t=>rows.push([t.id,'"'+t.title.replace(/"/g,'""')+'"',t.mod,'"'+MOD[t.mod]+'"',t.pri,t.rel,t.est,ST_LABEL[stOf(t.id)]]));
+  const csv=rows.map(r=>r.join(",")).join("\n");
+  navigator.clipboard.writeText(csv).then(()=>{const b=$("#csvBtn");const o=b.textContent;b.textContent="Copied ✓";setTimeout(()=>b.textContent=o,1400)}).catch(()=>alert("Copy failed — clipboard blocked."));
+});
+
+// theme toggle
+const root=document.documentElement;
+function applyThemeLabel(){const t=root.getAttribute("data-theme");$("#themeTxt").textContent=t==="dark"?"Dark":t==="light"?"Light":"Auto";$("#themeIcon").textContent=t==="dark"?"●":t==="light"?"○":"◐"}
+try{const sv=localStorage.getItem("mico360-theme");if(sv)root.setAttribute("data-theme",sv)}catch(e){}
+applyThemeLabel();
+$("#themeBtn").addEventListener("click",()=>{
+  const cur=root.getAttribute("data-theme");const nx=cur==="dark"?"light":cur==="light"?"":"dark";
+  if(nx)root.setAttribute("data-theme",nx);else root.removeAttribute("data-theme");
+  try{nx?localStorage.setItem("mico360-theme",nx):localStorage.removeItem("mico360-theme")}catch(e){}
+  applyThemeLabel();
+});
+
+computeStats();render();
+</script>

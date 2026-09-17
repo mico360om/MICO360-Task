@@ -1,0 +1,243 @@
+openapi: 3.0.3
+info:
+  title: MICO360 Tasks API
+  version: 1.0.0
+  description: >-
+    REST API for MICO360 Tasks (web app, Chrome extension, and the Phase 2 Android
+    app). All responses use a JSON envelope: success is `{ "data": ... }`, errors
+    are `{ "error": { "code": string, "message": string, "details"?: any } }`.
+    Authenticate by sending `Authorization: Bearer <accessToken>`.
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local development
+  - url: https://api.example.com/api/v1
+    description: Production (replace with your host)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: INVALID_CREDENTIALS }
+            message: { type: string }
+            details: {}
+    Session:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        accessToken: { type: string }
+        refreshToken: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        username: { type: string }
+        roles: { type: array, items: { type: string, enum: [ADMIN, EMPLOYEE] } }
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        key: { type: string, example: MICO-142 }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        projectId: { type: string }
+        columnId: { type: string }
+        position: { type: integer }
+        priority: { type: string, enum: [LOW, NORMAL, HIGH, URGENT] }
+        dueDate: { type: string, format: date-time, nullable: true }
+        progress: { type: integer }
+        recurrenceRule:
+          nullable: true
+          $ref: '#/components/schemas/RecurrenceRule'
+    RecurrenceRule:
+      type: object
+      properties:
+        freq: { type: string, enum: [DAILY, WEEKLY, MONTHLY, YEARLY] }
+        interval: { type: integer, minimum: 1 }
+        count: { type: integer, nullable: true }
+        until: { type: string, nullable: true }
+        weekdays: { type: array, items: { type: integer, minimum: 0, maximum: 6 } }
+        dayOfMonth: { type: integer, minimum: 1, maximum: 31 }
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        code: { type: string }
+        name: { type: string }
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      security: []
+      summary: Liveness probe (status + uptime)
+      responses:
+        '200': { description: OK }
+  /metrics:
+    get:
+      security: []
+      summary: Process metrics (uptime, memory)
+      responses:
+        '200': { description: OK }
+
+  /auth/login:
+    post:
+      security: []
+      summary: Log in with email-or-username + password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier: { type: string, description: email or username }
+                password: { type: string }
+      responses:
+        '200':
+          description: Session issued
+          content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/Session' } } } } }
+        '401': { description: Invalid credentials }
+        '423': { description: Account locked (5 failed attempts) — reset password to unlock }
+  /auth/otp/request:
+    post:
+      security: []
+      summary: Request a passwordless email login code
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [identifier], properties: { identifier: { type: string } } } } }
+      responses: { '200': { description: A code is emailed if the account exists } }
+  /auth/otp/verify:
+    post:
+      security: []
+      summary: Verify an email login code
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [identifier, code], properties: { identifier: { type: string }, code: { type: string } } } } }
+      responses: { '200': { description: Session issued }, '401': { description: Invalid/expired code } }
+  /auth/password/forgot:
+    post:
+      security: []
+      summary: Request a password-reset link (never reveals account existence)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [identifier], properties: { identifier: { type: string } } } } }
+      responses: { '200': { description: '{ sent: true }' } }
+  /auth/password/reset:
+    post:
+      security: []
+      summary: Reset a password with a token (also unlocks the account)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [token, password], properties: { token: { type: string }, password: { type: string } } } } }
+      responses: { '200': { description: '{ reset: true }' }, '400': { description: Invalid token / weak password } }
+
+  /projects:
+    get:
+      summary: List projects
+      responses: { '200': { description: OK }, '401': { $ref: '#/components/responses/Unauthorized' } }
+    post:
+      summary: Create a project (admin)
+      responses: { '201': { description: Created }, '403': { description: Forbidden } }
+  /projects/{id}/columns:
+    get:
+      summary: List a project's Kanban columns
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK } }
+
+  /tasks:
+    get:
+      summary: List tasks (optionally filtered by projectId/columnId)
+      parameters:
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: columnId, in: query, schema: { type: string } }
+      responses: { '200': { description: OK } }
+    post:
+      summary: Create a task
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } }
+      responses: { '201': { description: Created } }
+  /tasks/mine:
+    get:
+      summary: Tasks assigned to the current user
+      responses: { '200': { description: OK } }
+  /tasks/{id}:
+    get:
+      summary: Get a task
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK }, '404': { description: Not found } }
+    put:
+      summary: Update a task
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK } }
+    delete:
+      summary: Delete a task (admin)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '204': { description: Deleted } }
+  /tasks/{id}/move:
+    patch:
+      summary: Move a task to a column (Kanban drag-drop persistence)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [columnId], properties: { columnId: { type: string }, position: { type: integer } } } } }
+      responses: { '200': { description: OK } }
+  /tasks/{id}/assignees:
+    get: { summary: List assignees, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
+    post:
+      summary: Assign users (many-to-many)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [userIds], properties: { userIds: { type: array, items: { type: string } } } } } } }
+      responses: { '200': { description: OK } }
+  /tasks/{id}/checklist:
+    get: { summary: List checklist items, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
+    post: { summary: Add a checklist item, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '201': { description: Created } } }
+  /tasks/{id}/comments:
+    get: { summary: List comments, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
+    post: { summary: Add a comment (supports @mentions), parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '201': { description: Created } } }
+  /tasks/{id}/attachments:
+    get: { summary: List attachments, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
+    post:
+      summary: Upload an attachment (multipart)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody: { content: { multipart/form-data: { schema: { type: object, properties: { file: { type: string, format: binary } } } } } }
+      responses: { '201': { description: Created }, '400': { description: Too large / disallowed / spoofed type } }
+  /tasks/{id}/dependencies:
+    get: { summary: List blocked-by / blocks, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
+    post:
+      summary: Add a dependency (server rejects cycles)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [dependsOnTaskId], properties: { dependsOnTaskId: { type: string } } } } } }
+      responses: { '201': { description: Created }, '409': { description: DEPENDENCY_CYCLE / DEPENDENCY_EXISTS } }
+
+  /search:
+    get:
+      summary: Global search across tasks / projects / users
+      parameters: [ { name: q, in: query, schema: { type: string } } ]
+      responses: { '200': { description: OK } }
+  /notifications:
+    get: { summary: Current user's notifications, responses: { '200': { description: OK } } }
+  /notifications/unread-count:
+    get: { summary: Unread notification count, responses: { '200': { description: OK } } }
+  /reports/projects:
+    get: { summary: Project performance report (admin), responses: { '200': { description: OK }, '403': { description: Forbidden } } }
+  /reports/projects.csv:
+    get: { summary: Project performance as CSV (also .xls, .pdf), responses: { '200': { description: File download } } }

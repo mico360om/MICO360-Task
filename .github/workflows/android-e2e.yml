@@ -1,0 +1,66 @@
+name: Android E2E (Maestro)
+
+# End-to-end tests on a real Android emulator (A9.1). Boots an emulator, builds + installs the dev
+# app, and runs the Maestro flows in .maestro/. Manual/scheduled by default because an emulator
+# build is heavy; wire it into the release gate once it's green.
+#
+# The smoke flow (.maestro/smoke.yaml) needs no backend. The login flow needs a reachable backend and
+# credentials — pass them as repo secrets E2E_EMAIL / E2E_PASSWORD (and point the dev flavor at a
+# reachable API), or it will fail at sign-in.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1' # weekly, Monday 03:00 UTC
+
+defaults:
+  run:
+    working-directory: Android App
+
+jobs:
+  e2e:
+    name: Maestro flows on emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: Android App/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # Hardware acceleration for a usable emulator on the runner.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run flows on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          working-directory: Android App
+          script: |
+            # Build + install the dev app on the booted emulator (Metro runs in the background).
+            npx expo run:android --no-install &
+            # Wait until the dev-flavor package is actually installed before driving it.
+            timeout 900 bash -c 'until adb shell pm list packages | grep -q com.mico360.tasks.dev; do sleep 5; done'
+            maestro test .maestro

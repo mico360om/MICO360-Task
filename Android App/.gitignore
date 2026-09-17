@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+.expo-export-check/
+dist/
+web-build/
+*.log
+.DS_Store
+*.orig.*
+# Local env — never commit; .env.example is the template
+.env
+.env.local
+.env.*.local

@@ -1,0 +1,906 @@
+// MICO360 Tasks — database schema (MySQL 8)
+// Modules M1 (T1.1–T1.6). Normalized; many-to-many via explicit join tables
+// (task_assignees, task_watchers, project_members, task_tags) — never CSV columns.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextIndex"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ColumnCategory {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  REVIEW
+  DONE
+}
+
+enum OtpPurpose {
+  LOGIN
+  PASSWORD_RESET
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  SPAM
+  BLOCKED
+  FAILED
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access
+// ---------------------------------------------------------------------------
+
+model User {
+  id                  String     @id @default(cuid())
+  email               String     @unique
+  username            String     @unique
+  passwordHash        String
+  firstName           String
+  lastName            String
+  avatarUrl           String?
+  status              UserStatus @default(ACTIVE)
+  lastActiveAt        DateTime? // last time the user held a live socket (drives presence "last active" + chat delivered)
+  departmentId        String?
+  // Lockout (M2 / T2.11)
+  failedLoginAttempts Int        @default(0)
+  lockedUntil         DateTime?
+  // Preferences
+  timezone            String     @default("UTC")
+  locale              String     @default("en")
+  dateFormat          String     @default("YYYY-MM-DD")
+  theme               Theme      @default(SYSTEM)
+  defaultProjectId    String?
+  // Per-user notification preferences, e.g. { "muted": ["TASK_COMMENT"] } (null = all enabled).
+  notificationPrefs   Json?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  deletedAt           DateTime?
+
+  department       Department?      @relation(fields: [departmentId], references: [id])
+  roles            UserRole[]
+  memberships      ProjectMember[]
+  managedProjects  Project[]        @relation("ProjectManager")
+  createdProjects  Project[]        @relation("ProjectCreator")
+  createdTasks     Task[]           @relation("TaskCreator")
+  assignments      TaskAssignee[]
+  watching         TaskWatcher[]
+  comments         Comment[]
+  attachments      Attachment[]
+  activities       Activity[]
+  notifications    Notification[]
+  refreshTokens    RefreshToken[]
+  auditLogs        AuditLog[]
+  loginOtps        LoginOtp[]
+  deviceTokens     DeviceToken[]
+  settings         UserSetting?
+
+  @@index([status])
+  @@index([departmentId])
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  name        String     @unique // ADMIN | EMPLOYEE
+  description String?
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Department {
+  id    String @id @default(cuid())
+  name  String @unique
+  users User[]
+
+  @@map("departments")
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+model Project {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  name        String
+  description String?       @db.Text
+  clientName  String?
+  managerId   String?
+  ownerId     String? // project owner — new tasks default-assign to them
+  status      ProjectStatus @default(PLANNING)
+  priority    Priority      @default(NORMAL)
+  color       String        @default("#8B1E1E")
+  imageUrl    String?
+  startDate   DateTime?
+  targetDate  DateTime?
+  notes       String?       @db.Text
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  manager   User?           @relation("ProjectManager", fields: [managerId], references: [id])
+  createdBy User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  members   ProjectMember[]
+  columns   KanbanColumn[]
+  tasks     Task[]
+  activities Activity[]
+
+  @@index([status])
+  @@index([managerId])
+  @@map("projects")
+}
+
+enum ProjectMemberRole {
+  MEMBER
+  MANAGER
+}
+
+model ProjectMember {
+  projectId String
+  userId    String
+  role      ProjectMemberRole @default(MEMBER)
+  addedAt   DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model KanbanColumn {
+  id        String         @id @default(cuid())
+  projectId String
+  name      String
+  category  ColumnCategory @default(TODO)
+  position  Int
+  color     String         @default("#948985")
+  enabled   Boolean        @default(true)
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@unique([projectId, position])
+  @@index([projectId])
+  @@map("kanban_columns")
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+model Task {
+  id             String    @id @default(cuid())
+  key            String    @unique // e.g. MICO-142
+  title          String
+  description    String?   @db.Text
+  projectId      String
+  columnId       String
+  position       Int       @default(0)
+  priority       Priority  @default(NORMAL)
+  startDate      DateTime?
+  dueDate        DateTime?
+  estimatedHours Float?
+  actualHours    Float?
+  progress       Int       @default(0)
+  createdById    String
+  completedAt    DateTime?
+  boardDate       DateTime?  // per-date boards: the calendar day this task appears on (noon-UTC anchor)
+  carryForwardLog Json?      // append-only carry-forward history [{ from, to, at }]
+  recurrenceRule     Json?    // RecurrenceRule for a recurring task (null = one-off)
+  recurrenceParentId String?  // links a generated instance back to its series template
+  version        Int       @default(0) // optimistic concurrency (T4.3)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  column       KanbanColumn     @relation(fields: [columnId], references: [id])
+  createdBy    User             @relation("TaskCreator", fields: [createdById], references: [id])
+  assignees    TaskAssignee[]
+  watchers     TaskWatcher[]
+  tags         TaskTag[]
+  comments     Comment[]
+  checklist    ChecklistItem[]
+  attachments  Attachment[]
+  dependencies TaskDependency[] @relation("DependentTask")
+  dependedOnBy TaskDependency[] @relation("BlockingTask")
+  activities   Activity[]
+
+  @@index([projectId])
+  @@index([columnId])
+  @@index([dueDate])
+  @@index([priority])
+  @@index([boardDate])
+  @@fulltext([title, description])
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  taskId     String
+  userId     String
+  assignedAt DateTime @default(now())
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@index([userId])
+  @@map("task_assignees")
+}
+
+model TaskWatcher {
+  taskId String
+  userId String
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@index([userId])
+  @@map("task_watchers")
+}
+
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  color String    @default("#3A6EA5")
+  tasks TaskTag[]
+
+  @@map("tags")
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@index([tagId])
+  @@map("task_tags")
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  taskId    String
+  userId    String
+  body      String    @db.Text
+  parentId  String?   // set when this comment is a reply to another (threaded replies)
+  editedAt  DateTime?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+
+  @@index([taskId])
+  @@index([parentId])
+  @@map("task_comments")
+}
+
+model ChecklistItem {
+  id        String   @id @default(cuid())
+  taskId    String
+  text      String
+  done      Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("task_checklists")
+}
+
+model TaskDependency {
+  id              String @id @default(cuid())
+  taskId          String // the dependent (blocked) task
+  dependsOnTaskId String // the blocking task
+  task      Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("BlockingTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  taskId       String
+  uploadedById String
+  filename     String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String
+  url          String
+  createdAt    DateTime @default(now())
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
+
+  @@index([taskId])
+  @@map("task_attachments")
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  taskId    String?
+  projectId String?
+  userId    String
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([projectId])
+  @@index([createdAt])
+  @@map("task_activity")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications, settings, auth artifacts, audit
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  body       String?   @db.Text
+  entityType String?
+  entityId   String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model UserSetting {
+  userId       String  @id
+  notifyInApp  Json?
+  notifyEmail  Json?
+  notifyPush   Json?
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  userAgent String?
+  ip        String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// Idempotency marker for deadline reminders — one row per (reminder type, task, user, period).
+/// A persisted marker (vs. an in-memory guard) means a process restart or a second instance
+/// never re-sends the same reminder. `dedupeKey` is the reminder's stable per-period key.
+model ReminderLog {
+  id        String   @id @default(cuid())
+  dedupeKey String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("reminder_logs")
+}
+
+/// Lease-based lock so a scheduled sweep (reminders, carry-forward) runs on only ONE instance
+/// at a time. A holder claims `name` until `lockedUntil`; expired leases are reclaimable, so a
+/// crashed holder never deadlocks the job.
+model JobLock {
+  name        String   @id
+  lockedUntil DateTime
+  holder      String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("job_locks")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  module    String
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  ip        String?
+  createdAt DateTime @default(now())
+  user      User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([module])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model EmailLog {
+  id                String      @id @default(cuid())
+  toAddress         String
+  template          String
+  subject           String
+  status            EmailStatus @default(QUEUED)
+  providerMessageId String?
+  error             String?     @db.Text
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([status])
+  @@index([toAddress])
+  @@map("email_log")
+}
+
+model LoginOtp {
+  id         String     @id @default(cuid())
+  userId     String
+  codeHash   String
+  purpose    OtpPurpose @default(LOGIN)
+  attempts   Int        @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime   @default(now())
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("login_otps")
+}
+
+model DeviceToken {
+  id         String         @id @default(cuid())
+  userId     String
+  token      String         @unique
+  platform   DevicePlatform @default(ANDROID)
+  createdAt  DateTime       @default(now())
+  lastSeenAt DateTime       @default(now())
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+// ── Chat (M-chat): project channels + 1:1 direct messages ────────────────────
+enum ConversationKind {
+  PROJECT
+  DIRECT
+}
+
+model Conversation {
+  id           String                    @id @default(cuid())
+  kind         ConversationKind
+  projectId    String? // set for PROJECT channels; null for DIRECT
+  createdAt    DateTime                  @default(now())
+  participants ConversationParticipant[]
+  messages     ChatMessage[]
+
+  @@unique([projectId]) // one channel per project (multiple NULLs allowed for DIRECT)
+  @@index([projectId])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+  lastReadAt     DateTime?
+  addedAt        DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  userId         String
+  body           String           @db.Text
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime         @default(now())
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  reactions      ChatReaction[]
+  attachments    ChatAttachment[]
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatReaction {
+  id        String      @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("chat_reactions")
+}
+
+model ChatAttachment {
+  id         String      @id @default(cuid())
+  messageId  String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  storageKey String
+  createdAt  DateTime    @default(now())
+  message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("chat_attachments")
+}
+
+// ─────────────────────────────── Meetings module ───────────────────────────────
+// User/Project references are scalar id columns (resolved via the directory, like chat) so the
+// User/Project models stay untouched; real relations exist only within the module (with cascades).
+enum MeetingStatus {
+  DRAFT
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendeeRole {
+  REQUIRED
+  OPTIONAL
+}
+
+enum AttendanceStatus {
+  INVITED
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum MeetingNoteType {
+  DISCUSSION
+  DECISION
+  ACTION
+  ISSUE
+  QUESTION
+  INFORMATION
+}
+
+enum ActionItemStatus {
+  OPEN
+  IN_PROGRESS
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum DecisionStatus {
+  PROPOSED
+  DECIDED
+  SUPERSEDED
+  CANCELLED
+}
+
+enum MinutesStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  SENT
+}
+
+model Meeting {
+  id                 String        @id @default(cuid())
+  title              String
+  description        String?       @db.Text
+  category           String?
+  status             MeetingStatus @default(DRAFT)
+  projectId          String?
+  organizerId        String
+  location           String?
+  onlineLink         String?
+  startAt            DateTime
+  endAt              DateTime?
+  timeZone           String?
+  recurrenceRule     Json?
+  recurrenceParentId String?
+  templateId         String?
+  transcript         String?       @db.Text
+  invitesSentAt      DateTime?
+  reminderSentAt     DateTime?
+  createdById        String
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+
+  attendees   MeetingAttendee[]
+  agendaItems AgendaItem[]
+  notes       MeetingNote[]
+  actionItems ActionItem[]
+  decisions   Decision[]
+  minutes     MeetingMinutes?
+
+  @@index([projectId])
+  @@index([organizerId])
+  @@index([status])
+  @@index([startAt])
+  @@map("meetings")
+}
+
+model MeetingAttendee {
+  id            String           @id @default(cuid())
+  meetingId     String
+  userId        String?
+  externalName  String?
+  externalEmail String?
+  role          AttendeeRole     @default(REQUIRED)
+  attendance    AttendanceStatus @default(INVITED)
+  department    String?
+  createdAt     DateTime         @default(now())
+  meeting       Meeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@index([userId])
+  @@map("meeting_attendees")
+}
+
+model AgendaItem {
+  id                 String        @id @default(cuid())
+  meetingId          String
+  title              String
+  ownerId            String?
+  expectedMinutes    Int?
+  position           Int           @default(0)
+  completed          Boolean       @default(false)
+  linkedPrevActionId String?
+  createdAt          DateTime      @default(now())
+  meeting            Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  notes              MeetingNote[]
+  actionItems        ActionItem[]
+
+  @@index([meetingId])
+  @@map("agenda_items")
+}
+
+model MeetingNote {
+  id           String                     @id @default(cuid())
+  meetingId    String
+  agendaItemId String?
+  authorId     String
+  type         MeetingNoteType            @default(DISCUSSION)
+  body         String                     @db.Text
+  highlighted  Boolean                    @default(false)
+  taskId       String?
+  actionItemId String?
+  decisionId   String?
+  createdAt    DateTime                   @default(now())
+  editedAt     DateTime?
+  meeting      Meeting                    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  agendaItem   AgendaItem?                @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
+  attachments  MeetingNoteAttachment[]
+  comments     MeetingNoteComment[]
+  checklist    MeetingNoteChecklistItem[]
+
+  @@index([meetingId])
+  @@index([agendaItemId])
+  @@index([type])
+  @@map("meeting_notes")
+}
+
+model MeetingNoteAttachment {
+  id           String      @id @default(cuid())
+  noteId       String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String
+  uploadedById String
+  createdAt    DateTime    @default(now())
+  note         MeetingNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
+  @@map("meeting_note_attachments")
+}
+
+model MeetingNoteComment {
+  id        String      @id @default(cuid())
+  noteId    String
+  authorId  String
+  body      String      @db.Text
+  createdAt DateTime    @default(now())
+  note      MeetingNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
+  @@map("meeting_note_comments")
+}
+
+model MeetingNoteChecklistItem {
+  id       String      @id @default(cuid())
+  noteId   String
+  text     String
+  done     Boolean     @default(false)
+  position Int         @default(0)
+  note     MeetingNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
+  @@map("meeting_note_checklist_items")
+}
+
+model ActionItem {
+  id           String           @id @default(cuid())
+  meetingId    String?
+  agendaItemId String?
+  sourceNoteId String?
+  projectId    String?
+  description  String           @db.Text
+  assigneeId   String?
+  priority     Priority         @default(NORMAL)
+  status       ActionItemStatus @default(OPEN)
+  dueDate      DateTime?
+  progress     Int              @default(0)
+  completedAt  DateTime?
+  taskId       String?
+  createdById  String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  meeting      Meeting?         @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  agendaItem   AgendaItem?      @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
+
+  @@index([meetingId])
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+  @@map("action_items")
+}
+
+model Decision {
+  id           String                @id @default(cuid())
+  title        String
+  description  String?               @db.Text
+  decidedOn    DateTime              @default(now())
+  meetingId    String?
+  projectId    String?
+  ownerId      String?
+  status       DecisionStatus        @default(DECIDED)
+  createdById  String
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  meeting      Meeting?              @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  participants DecisionParticipant[]
+  attachments  DecisionAttachment[]
+
+  @@index([meetingId])
+  @@index([projectId])
+  @@index([status])
+  @@map("decisions")
+}
+
+model DecisionParticipant {
+  decisionId String
+  userId     String
+  decision   Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, userId])
+  @@index([userId])
+  @@map("decision_participants")
+}
+
+model DecisionAttachment {
+  id           String   @id @default(cuid())
+  decisionId   String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String
+  uploadedById String
+  createdAt    DateTime @default(now())
+  decision     Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@index([decisionId])
+  @@map("decision_attachments")
+}
+
+model MeetingMinutes {
+  id           String        @id @default(cuid())
+  meetingId    String        @unique
+  content      String        @db.Text
+  status       MinutesStatus @default(DRAFT)
+  generatedAt  DateTime      @default(now())
+  approvedById String?
+  approvedAt   DateTime?
+  sentAt       DateTime?
+  meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("meeting_minutes")
+}
+
+model MeetingTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  projectId   String?
+  defaults    Json
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@map("meeting_templates")
+}

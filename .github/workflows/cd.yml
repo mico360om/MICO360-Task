@@ -1,0 +1,34 @@
+name: CD
+
+# Deploy on a version tag (v*), after CI passes. Fill in the deploy step for your host.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: |
+          npm run prisma:generate --workspace @mico360/backend
+          npm run build
+
+      - name: Apply database migrations
+        run: npx --workspace @mico360/backend prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # Replace with your platform's deploy (Docker push, Fly, Render, SSH, etc.).
+      - name: Deploy
+        run: 'echo Deploy "Web Portal/backend/dist" and "Web Portal/frontend/dist" to your host'

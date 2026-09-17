@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+.expo/
+.expo-export-check/
+
+# Environment / secrets — NEVER commit real secrets; only .env.example is tracked
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Vite dev artifacts
+*.timestamp-*.mjs
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Runtime user uploads
+uploads/

@@ -1,0 +1,10 @@
+{
+  "name": "@mico360/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MICO360 Tasks Chrome extension (Manifest V3).",
+  "scripts": {
+    "test": "vitest run"
+  }
+}

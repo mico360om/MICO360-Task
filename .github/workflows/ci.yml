@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    name: Type-check, lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate --workspace @mico360/backend
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests (all workspaces)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  integration:
+    name: Prisma integration tests (MySQL)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: mico
+          MYSQL_DATABASE: mico360_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pmico"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      DATABASE_URL: 'mysql://root:mico@127.0.0.1:3306/mico360_test'
+      TEST_DATABASE_URL: 'mysql://root:mico@127.0.0.1:3306/mico360_test'
+      JWT_ACCESS_SECRET: ci-access-secret-value
+      JWT_REFRESH_SECRET: ci-refresh-secret-value
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      # Apply committed migrations (not db push) so CI validates the exact SQL that prod's
+      # `migrate deploy` will run against real MySQL 8 — a build failure here means the
+      # migrations have drifted from schema.prisma.
+      - name: Apply migrations to the test database
+        run: npm run prisma:generate --workspace @mico360/backend && npx --workspace @mico360/backend prisma migrate deploy
+      - name: Integration tests
+        run: npm run test:db --workspace @mico360/backend

@@ -1,0 +1,238 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  /* Light palette (space-separated RGB) — identical to the original hex values. */
+  --c-brand: 139 30 30;
+  --c-brand-2: 168 51 38;
+  --c-brand-3: 199 81 63;
+  --c-brand-ink: 94 20 20;
+  --c-ink: 33 27 26;
+  --c-ink-2: 108 98 95;
+  --c-ink-3: 122 111 107; /* #7A6F6B — ~4.5:1 on white, meets WCAG AA (was 148 137 133 ≈ 3.3:1) */
+  --c-line: 230 223 220;
+  --c-line-2: 239 234 231;
+  --c-surface: 255 255 255;
+  --c-surface-2: 251 250 249;
+  --c-ground: 244 242 240;
+  --c-ground-2: 239 236 233;
+  --c-danger: 203 70 50;
+  --c-danger-soft: 251 237 234;
+  --c-success: 46 125 83;
+  --c-success-soft: 233 244 238;
+  --c-warning: 184 118 17;
+  --c-warning-soft: 251 241 225;
+  --c-info: 58 110 165;
+  --c-info-soft: 233 240 247;
+  --c-cat-backlog: 148 137 133;
+  --c-cat-todo: 154 145 141;
+  --c-cat-progress: 184 118 17;
+  --c-cat-blocked: 203 70 50;
+  --c-cat-review: 58 110 165;
+  --c-cat-done: 46 125 83;
+}
+
+/* Dark palette — warm near-black grounds, lifted text, brightened accents. Applied both when the
+   OS prefers dark (unless the user forced light) and when the user explicitly chose dark. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --c-brand: 218 106 85;
+    --c-brand-2: 199 81 63;
+    --c-brand-3: 216 108 90;
+    --c-brand-ink: 120 30 30;
+    --c-ink: 244 240 238;
+    --c-ink-2: 178 168 163;
+    --c-ink-3: 138 127 122;
+    --c-line: 58 50 47;
+    --c-line-2: 48 41 39;
+    --c-surface: 36 31 29;
+    --c-surface-2: 44 38 36;
+    --c-ground: 24 20 19;
+    --c-ground-2: 32 27 25;
+    --c-danger: 232 106 87;
+    --c-danger-soft: 58 35 32;
+    --c-success: 74 176 122;
+    --c-success-soft: 30 46 38;
+    --c-warning: 220 158 66;
+    --c-warning-soft: 54 42 24;
+    --c-info: 108 160 214;
+    --c-info-soft: 28 38 50;
+    --c-cat-backlog: 168 157 152;
+    --c-cat-todo: 172 163 158;
+    --c-cat-progress: 214 152 60;
+    --c-cat-blocked: 226 100 82;
+    --c-cat-review: 104 156 210;
+    --c-cat-done: 70 172 118;
+  }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --c-brand: 218 106 85;
+  --c-brand-2: 199 81 63;
+  --c-brand-3: 216 108 90;
+  --c-brand-ink: 120 30 30;
+  --c-ink: 244 240 238;
+  --c-ink-2: 178 168 163;
+  --c-ink-3: 138 127 122;
+  --c-line: 58 50 47;
+  --c-line-2: 48 41 39;
+  --c-surface: 36 31 29;
+  --c-surface-2: 44 38 36;
+  --c-ground: 24 20 19;
+  --c-ground-2: 32 27 25;
+  --c-danger: 232 106 87;
+  --c-danger-soft: 58 35 32;
+  --c-success: 74 176 122;
+  --c-success-soft: 30 46 38;
+  --c-warning: 220 158 66;
+  --c-warning-soft: 54 42 24;
+  --c-info: 108 160 214;
+  --c-info-soft: 28 38 50;
+  --c-cat-backlog: 168 157 152;
+  --c-cat-todo: 172 163 158;
+  --c-cat-progress: 214 152 60;
+  --c-cat-blocked: 226 100 82;
+  --c-cat-review: 104 156 210;
+  --c-cat-done: 70 172 118;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    margin: 0;
+    background-color: rgb(var(--c-ground));
+    background-image: radial-gradient(1100px 480px at 100% -8%, rgba(168, 51, 38, 0.06), transparent 60%);
+    background-attachment: fixed;
+    color: rgb(var(--c-ink));
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3 {
+    letter-spacing: -0.01em;
+  }
+  /* Keyboard focus only — visible, on-brand, never on mouse click. */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(139, 30, 30, 0.2);
+    border-radius: 0.5rem;
+  }
+  ::selection {
+    background: rgba(139, 30, 30, 0.16);
+  }
+  /* Slim, unobtrusive scrollbars (theme-aware). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--c-line)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--c-line));
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--c-ink-3));
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Clearer, always-present horizontal scrollbar for the Kanban board. */
+  .kanban-scroll {
+    scrollbar-width: auto;
+    scrollbar-color: rgb(var(--c-brand) / 0.5) rgb(var(--c-ground));
+  }
+  .kanban-scroll::-webkit-scrollbar {
+    height: 12px;
+  }
+  .kanban-scroll::-webkit-scrollbar-track {
+    background: rgb(var(--c-ground));
+    border-radius: 999px;
+  }
+  .kanban-scroll::-webkit-scrollbar-thumb {
+    background: rgb(var(--c-brand) / 0.45);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  .kanban-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--c-brand) / 0.7);
+    background-clip: content-box;
+  }
+  /* Elevated surface used across cards, panels and tiles. */
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-card;
+  }
+  /* Interactive card — lifts and brightens its border on hover. */
+  .card-hover {
+    @apply transition-all duration-300 ease-emphasized hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-lift;
+  }
+  /* Small uppercase eyebrow/section label. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-ink-2;
+  }
+  .gradient-text {
+    @apply bg-brand-sheen bg-clip-text text-transparent;
+  }
+  /* Loading skeleton shimmer. */
+  .skeleton {
+    @apply rounded-lg bg-line/70;
+    background-image: linear-gradient(90deg, transparent 0%, rgb(var(--c-surface) / 0.7) 50%, transparent 100%);
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+  /* Frosted top bar (theme-aware). */
+  .glass {
+    background-color: rgb(var(--c-surface) / 0.78);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px);
+    backdrop-filter: saturate(1.4) blur(12px);
+  }
+}
+
+@layer utilities {
+  /* Scroll-reveal: hidden until .is-visible is added by the useInView hook. */
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+  /* Stagger helper for grids/lists. */
+  .reveal[data-delay='1'] { transition-delay: 60ms; }
+  .reveal[data-delay='2'] { transition-delay: 120ms; }
+  .reveal[data-delay='3'] { transition-delay: 180ms; }
+  .reveal[data-delay='4'] { transition-delay: 240ms; }
+  .reveal[data-delay='5'] { transition-delay: 300ms; }
+}
+
+/* Respect users who prefer reduced motion: no transforms, no infinite loops, instant reveals. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}

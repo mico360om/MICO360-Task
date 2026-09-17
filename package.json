@@ -1,0 +1,22 @@
+{
+  "name": "mico360-tasks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MICO360 Tasks — Kanban task & project management (web app + Chrome extension + Node/TS API + MySQL).",
+  "workspaces": [
+    "Web Portal/backend",
+    "Web Portal/frontend",
+    "Extension"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:up": "docker compose -f \"Web Portal/backend/docker-compose.yml\" up -d mysql",
+    "db:down": "docker compose -f \"Web Portal/backend/docker-compose.yml\" down"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

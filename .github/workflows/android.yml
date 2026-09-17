@@ -1,0 +1,41 @@
+name: Android App CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['Android App/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['Android App/**', '.github/workflows/android.yml']
+
+defaults:
+  run:
+    working-directory: Android App
+
+jobs:
+  verify:
+    name: Type-check, lint, test, bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: Android App/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Bundle (expo export, Android)
+        run: npx expo export --platform android --output-dir .expo-export-check
