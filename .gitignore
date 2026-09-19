@@ -34,3 +34,9 @@ uploads/
 
 # Generated archives / zips
 *.zip
+
+# Built Android APKs (build artifacts)
+*.apk
+# Signing keystores (KEEP PRIVATE, never commit)
+*.keystore
+*.jks
