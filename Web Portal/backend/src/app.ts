@@ -135,7 +135,10 @@ export interface AppDeps extends AuthRouteDeps {
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false, disableRequestLogging: true });
+  // `logger: false` disables all Fastify logging (incl. request logs), so the
+  // former `disableRequestLogging` option is redundant — and it's deprecated in
+  // fastify 5. We log via deps.logger (structured JSON) instead.
+  const app = Fastify({ logger: false });
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: deps.corsOrigins ?? true, credentials: true });
@@ -170,7 +173,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       deps.errorReporter?.captureException(err, { method: req.method, url: req.url });
     }
     return reply.status(status).send({
-      error: { code: status >= 500 ? 'INTERNAL' : 'REQUEST_ERROR', message: status >= 500 ? 'Something went wrong.' : err.message },
+      error: { code: status >= 500 ? 'INTERNAL' : 'REQUEST_ERROR', message: status >= 500 ? 'Something went wrong.' : (err as Error).message },
     });
   });
 
