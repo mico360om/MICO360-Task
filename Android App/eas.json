@@ -27,6 +27,15 @@
         "APP_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://task.mico360.com/api/v1"
       }
+    },
+    "production-apk": {
+      "autoIncrement": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://task.mico360.com/api/v1"
+      }
     }
   },
   "submit": {

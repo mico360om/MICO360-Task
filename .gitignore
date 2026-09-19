@@ -31,3 +31,6 @@ Thumbs.db
 
 # Runtime user uploads
 uploads/
+
+# Generated archives / zips
+*.zip
