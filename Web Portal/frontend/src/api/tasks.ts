@@ -33,6 +33,8 @@ export interface ApiTask {
   carryForwardLog?: { from: string; to: string; at: string }[] | null;
   createdAt: string;
   updatedAt: string;
+  /** Optimistic-concurrency version (bumped on every update/move). */
+  version?: number;
   recurrenceRule?: RecurrenceRule | null;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
@@ -49,6 +51,16 @@ export interface NewTaskInput {
   dueDate?: string;
   /** Board day (YYYY-MM-DD) for per-date boards; defaults to today server-side. */
   boardDate?: string;
+  /**
+   * People to assign, applied in the same request as the create. Omit to let the server apply the
+   * project's default (its owner); an explicit list — even [] — is used as-is.
+   */
+  assigneeIds?: string[];
+}
+
+export interface CreateTaskOptions {
+  /** Stable `Idempotency-Key`, so a retried/replayed create never makes a second task. */
+  idempotencyKey?: string;
 }
 
 export function tasksApi(client: ApiClient) {
@@ -62,7 +74,10 @@ export function tasksApi(client: ApiClient) {
     },
     mine: () => client.get<{ data: ApiTask[] }>('/tasks/mine').then((r) => r.data),
     get: (id: string) => client.get<{ data: ApiTask }>(`/tasks/${id}`).then((r) => r.data),
-    create: (input: NewTaskInput) => client.post<{ data: ApiTask }>('/tasks', input).then((r) => r.data),
+    create: (input: NewTaskInput, opts?: CreateTaskOptions) =>
+      client
+        .post<{ data: ApiTask }>('/tasks', input, opts?.idempotencyKey ? { headers: { 'Idempotency-Key': opts.idempotencyKey } } : undefined)
+        .then((r) => r.data),
     update: (
       id: string,
       patch: Omit<Partial<NewTaskInput>, 'dueDate'> & {
@@ -72,6 +87,8 @@ export function tasksApi(client: ApiClient) {
         recurrenceRule?: RecurrenceRule | null;
         /** 'series' applies the edit to every occurrence of a recurring task. */
         scope?: 'one' | 'series';
+        /** Reject with 409 VERSION_CONFLICT if the task changed since this version was read. */
+        expectedVersion?: number;
       },
     ) => client.put<{ data: ApiTask }>(`/tasks/${id}`, patch).then((r) => r.data),
     move: (id: string, columnId: string, position?: number) =>

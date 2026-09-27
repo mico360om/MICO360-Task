@@ -2,14 +2,14 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
-import type { TagService } from './tag-service';
+import { normalizeTagNames, type TagService } from './tag-service';
 import type { AssigneeService } from './assignee-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import { filterAndSortTasks, SORT_FIELDS, type TaskFilterCriteria } from './task-filter';
 import { boardDateFromKey } from './board-date';
+import { calendarDay, dateInput, hours, idString, longText, queryBoolean, requiredText, VARCHAR_MAX } from './validation';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
-const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 
 /** CSV → trimmed non-empty string[] (for repeatable filter params like priority/category/tag). */
 function csv(value: unknown): string[] | undefined {
@@ -19,69 +19,74 @@ function csv(value: unknown): string[] | undefined {
 }
 
 const listQuerySchema = z.object({
-  projectId: z.string().optional(),
-  columnId: z.string().optional(),
-  assigneeId: z.string().optional(),
-  q: z.string().optional(),
+  projectId: idString.optional(),
+  columnId: idString.optional(),
+  assigneeId: idString.optional(),
+  q: z.string().max(VARCHAR_MAX).optional(),
   priority: z.string().optional(),
   category: z.string().optional(),
   tag: z.string().optional(),
-  dueBefore: z.coerce.date().optional(),
-  dueAfter: z.coerce.date().optional(),
-  overdue: z.coerce.boolean().optional(),
-  boardDate: dateKey.optional(),
+  dueBefore: dateInput.optional(),
+  dueAfter: dateInput.optional(),
+  overdue: queryBoolean.optional(),
+  boardDate: calendarDay.optional(),
   sort: z.enum(SORT_FIELDS).optional(),
   order: z.enum(['asc', 'desc']).optional(),
+  /** Optional paging over the filtered, sorted list. */
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 });
 
 const recurrenceSchema = z.object({
   freq: z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY']),
-  interval: z.number().int().min(1),
-  count: z.number().int().min(1).nullable().optional(),
-  until: z.string().nullable().optional(),
-  weekdays: z.array(z.number().int().min(0).max(6)).optional(),
+  interval: z.number().int().min(1).max(1000),
+  count: z.number().int().min(1).max(10_000).nullable().optional(),
+  until: z.string().max(40).nullable().optional(),
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
   dayOfMonth: z.number().int().min(1).max(31).optional(),
+  anchorDay: z.number().int().min(1).max(31).optional(),
   paused: z.boolean().optional(),
 });
 
 const createSchema = z.object({
-  title: z.string().min(1),
-  description: z.string().optional(),
-  projectId: z.string().min(1),
-  columnId: z.string().min(1),
+  title: requiredText,
+  description: longText.optional(),
+  projectId: idString,
+  columnId: idString,
   priority: priorityEnum.optional(),
-  startDate: z.coerce.date().optional(),
-  dueDate: z.coerce.date().optional(),
-  estimatedHours: z.number().optional(),
-  progress: z.number().min(0).max(100).optional(),
+  startDate: dateInput.optional(),
+  /** A calendar day, 'YYYY-MM-DD'. */
+  dueDate: dateInput.optional(),
+  estimatedHours: hours.optional(),
+  progress: z.number().int().min(0).max(100).optional(),
   recurrenceRule: recurrenceSchema.nullable().optional(),
   /** Optional board day (YYYY-MM-DD) for per-date boards; defaults to today. */
-  boardDate: dateKey.optional(),
+  boardDate: calendarDay.optional(),
   /** Optional tag names to apply on creation (find-or-create). */
-  tags: z.array(z.string()).optional(),
-  /** Optional user ids to assign on creation. */
-  assigneeIds: z.array(z.string().min(1)).optional(),
+  tags: z.array(z.string().max(VARCHAR_MAX)).max(50).optional(),
+  /** Users to assign on creation. Present (even `[]`) means exactly these; absent defaults to the project owner. */
+  assigneeIds: z.array(idString).max(100).optional(),
 });
 
 const updateSchema = z.object({
-  title: z.string().min(1).optional(),
-  description: z.string().optional(),
-  columnId: z.string().optional(),
-  position: z.number().optional(),
+  title: requiredText.optional(),
+  description: longText.nullable().optional(),
+  columnId: idString.optional(),
+  position: z.number().int().min(0).optional(),
   priority: priorityEnum.optional(),
-  startDate: z.coerce.date().nullable().optional(),
-  dueDate: z.coerce.date().nullable().optional(),
-  estimatedHours: z.number().nullable().optional(),
-  actualHours: z.number().nullable().optional(),
-  progress: z.number().min(0).max(100).optional(),
+  startDate: dateInput.nullable().optional(),
+  dueDate: dateInput.nullable().optional(),
+  estimatedHours: hours.nullable().optional(),
+  actualHours: hours.nullable().optional(),
+  progress: z.number().int().min(0).max(100).optional(),
   recurrenceRule: recurrenceSchema.nullable().optional(),
   expectedVersion: z.number().int().optional(),
   /** 'series' applies the edit to every occurrence of a recurring task. */
   scope: z.enum(['one', 'series']).optional(),
 });
 
-const moveSchema = z.object({ columnId: z.string().min(1), position: z.number().optional() });
-const reorderSchema = z.object({ orderedIds: z.array(z.string().min(1)).min(1) });
+const moveSchema = z.object({ columnId: idString, position: z.number().int().min(0).optional() });
+const reorderSchema = z.object({ orderedIds: z.array(idString).min(1).max(1000) });
 
 export interface TaskRouteDeps {
   taskService: TaskService;
@@ -95,9 +100,9 @@ export interface TaskRouteDeps {
   accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
   /** When provided, `tags` supplied on create are applied to the new task. */
   tagService?: TagService;
-  /** When provided, `assigneeIds` supplied on create are assigned to the new task. */
+  /** When provided, `assigneeIds` supplied on create are checked and the assignees notified. */
   assigneeService?: AssigneeService;
-  /** Resolve a project's owner; a new task with no explicit assignees defaults to the owner. */
+  /** Resolve a project's owner; a new task sent without `assigneeIds` defaults to the owner. */
   projectOwnerOf?: (projectId: string) => Promise<string | null>;
   /** When provided, exposes an admin endpoint to run the per-date carry-forward sweep on demand. */
   carryForwardService?: CarryForwardService;
@@ -105,26 +110,18 @@ export interface TaskRouteDeps {
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
   const { taskService, guard } = deps;
+  const forbidden = { error: { code: 'FORBIDDEN', message: 'You do not have access to this project.' } };
+
+  /** The caller's project scope: `null` for an admin (or when unscoped), else their project ids. */
+  async function scopeOf(req: FastifyRequest): Promise<string[] | null> {
+    return deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []) : null;
+  }
 
   app.get('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
     const params = listQuerySchema.parse(req.query);
     // Object-level scope: a non-admin only ever sees tasks in projects they belong to.
-    let allowedIds: string[] | null = null;
-    if (deps.accessibleProjectIds) {
-      allowedIds = await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []);
-      if (allowedIds && params.projectId && !allowedIds.includes(params.projectId)) {
-        return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to this project.' } });
-      }
-    }
-    // Repository-level scope filters (project / column / assignee) hit the DB…
-    const tasks = await taskService.listTasks({
-      projectId: params.projectId,
-      columnId: params.columnId,
-      assigneeId: params.assigneeId,
-      ...(params.boardDate ? { boardDate: boardDateFromKey(params.boardDate) } : {}),
-    });
-    const scoped = allowedIds ? tasks.filter((t) => allowedIds!.includes(t.projectId)) : tasks;
-    // …then combined keyword / priority / status / tag / date filters + sorting.
+    const allowedIds = await scopeOf(req);
+    if (allowedIds && params.projectId && !allowedIds.includes(params.projectId)) return reply.status(403).send(forbidden);
     const criteria: TaskFilterCriteria = {
       q: params.q,
       priorities: csv(params.priority),
@@ -135,13 +132,34 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       overdue: params.overdue,
       sort: params.sort,
       order: params.order,
+      timeZone: taskService.timeZone,
     };
-    return { data: filterAndSortTasks(scoped, criteria) };
+    // Scope and the simple filters run in the database; keyword (Arabic-aware) and overdue
+    // (company calendar day) run in memory on the already-narrowed rows.
+    const tasks = await taskService.listTasks({
+      projectId: params.projectId,
+      ...(allowedIds ? { projectIds: allowedIds } : {}),
+      columnId: params.columnId,
+      assigneeId: params.assigneeId,
+      ...(params.boardDate ? { boardDate: boardDateFromKey(params.boardDate) } : {}),
+      priorities: criteria.priorities,
+      categories: criteria.categories,
+      tagIds: criteria.tagIds,
+      dueBefore: criteria.dueBefore,
+      dueAfter: criteria.dueAfter,
+    });
+    const scoped = allowedIds ? tasks.filter((t) => allowedIds.includes(t.projectId)) : tasks;
+    const data = filterAndSortTasks(scoped, criteria);
+    if (params.limit === undefined && params.offset === undefined) return { data };
+    const offset = params.offset ?? 0;
+    const limit = params.limit ?? data.length;
+    return { data: data.slice(offset, offset + limit), meta: { total: data.length, offset, limit } };
   });
 
-  // Tasks assigned to the current user (My Tasks).
+  // Tasks assigned to the current user (My Tasks) — only in projects they can still see.
   app.get('/tasks/mine', { preHandler: guard.authenticate }, async (req) => {
-    return { data: await taskService.listTasks({ assigneeId: req.user!.id }) };
+    const allowedIds = await scopeOf(req);
+    return { data: await taskService.listTasks({ assigneeId: req.user!.id, ...(allowedIds ? { projectIds: allowedIds } : {}) }) };
   });
 
   // Per-date boards: run the carry-forward sweep on demand (admin) — the automatic sweep runs nightly.
@@ -168,34 +186,38 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
     const { tags, assigneeIds, boardDate, ...body } = createSchema.parse(req.body);
     // Object-level authorization: a non-admin may only create tasks in projects they belong to.
-    if (deps.accessibleProjectIds) {
-      const allowed = await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []);
-      if (allowed && !allowed.includes(body.projectId)) {
-        return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to this project.' } });
-      }
+    const allowed = await scopeOf(req);
+    if (allowed && !allowed.includes(body.projectId)) return reply.status(403).send(forbidden);
+
+    // Everything is validated before anything is written: tag names, and the assignees (who must
+    // be active members of the project). An explicit list — even an empty one — is used as is;
+    // only a request without `assigneeIds` falls back to the project owner.
+    const tagNames = tags && tags.length > 0 ? normalizeTagNames(tags) : [];
+    let assignees: string[] = [];
+    if (assigneeIds !== undefined) {
+      assignees = deps.assigneeService ? await deps.assigneeService.assertAssignable(body.projectId, assigneeIds) : [...new Set(assigneeIds)];
+    } else if (deps.assigneeService && deps.projectOwnerOf) {
+      const ownerId = await deps.projectOwnerOf(body.projectId);
+      if (ownerId) assignees = await deps.assigneeService.eligibleAssignees(body.projectId, [ownerId]);
     }
+
+    // The task, its tags and its assignees are created in one write.
     const created = await taskService.createTask({
       ...body,
       ...(boardDate ? { boardDate: boardDateFromKey(boardDate) } : {}),
       createdById: req.user!.id,
+      tagNames,
+      assigneeIds: assignees,
     });
-    // Apply tags + assignees in the same request so lightweight clients can create-with-them in one call.
-    let appliedTags;
-    if (deps.tagService && tags && tags.length > 0) {
-      appliedTags = await deps.tagService.setTaskTags(created.id, tags);
-    }
     let appliedAssignees;
-    if (deps.assigneeService && assigneeIds && assigneeIds.length > 0) {
-      appliedAssignees = await deps.assigneeService.assignUsers(created.id, assigneeIds, req.user!.id);
-    } else if (deps.assigneeService && deps.projectOwnerOf) {
-      // No explicit assignees → default-assign the task to the project owner (if one is set).
-      const ownerId = await deps.projectOwnerOf(created.projectId);
-      if (ownerId) appliedAssignees = await deps.assigneeService.assignUsers(created.id, [ownerId], req.user!.id);
+    if (deps.assigneeService && assignees.length > 0) {
+      await deps.assigneeService.notifyAssigned(created.id, assignees, req.user!.id);
+      appliedAssignees = await deps.assigneeService.listAssignees(created.id);
     }
     deps.broadcast?.(created.projectId, 'task:created', created);
     const data = {
       ...created,
-      ...(appliedTags ? { tags: appliedTags } : {}),
+      ...(tagNames.length > 0 ? { tags: created.tags ?? [] } : {}),
       ...(appliedAssignees ? { assignees: appliedAssignees } : {}),
     };
     return reply.status(201).send({ data });
@@ -207,7 +229,8 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } });
     }
     const { expectedVersion, scope, ...patch } = updateSchema.parse(req.body);
-    const task = await taskService.updateTask(id, patch, expectedVersion, scope);
+    // A `columnId` here is handled as a move (same project only, completion status follows).
+    const task = await taskService.updateTask(id, patch, expectedVersion, scope, req.user!.id);
     deps.broadcast?.(task.projectId, 'task:updated', task);
     return { data: task };
   });
@@ -224,23 +247,19 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     return { data: task };
   });
 
-  // Intra-column drag reordering: re-sequence a column's tasks to `orderedIds`.
+  // Intra-column drag reordering: re-sequence a column's live tasks to `orderedIds`.
   app.put('/columns/:columnId/tasks/reorder', { preHandler: guard.authenticate }, async (req, reply) => {
+    const { columnId } = req.params as { columnId: string };
     const { orderedIds } = reorderSchema.parse(req.body);
-    // Every task in a column shares its project, so gating on the first id covers the whole batch.
-    if (!(await assertTaskView(req, orderedIds[0]!))) {
+    // Authorize against the column in the URL — only its own live tasks are touched.
+    const column = await taskService.getColumn(columnId);
+    const allowed = await scopeOf(req);
+    if (allowed && !allowed.includes(column.projectId)) {
       return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } });
     }
-    await taskService.reorderColumn(orderedIds);
-    // Nudge other board viewers to refetch (best-effort — scope the room by the first task's project).
-    if (deps.broadcast) {
-      try {
-        const first = await taskService.getTask(orderedIds[0]!);
-        deps.broadcast(first.projectId, 'task:moved', { id: first.id });
-      } catch {
-        /* ignore broadcast issues */
-      }
-    }
+    await taskService.reorderColumn(columnId, orderedIds);
+    // Nudge other board viewers to refetch.
+    deps.broadcast?.(column.projectId, 'task:moved', { id: orderedIds[0], columnId });
     return { data: { ok: true } };
   });
 

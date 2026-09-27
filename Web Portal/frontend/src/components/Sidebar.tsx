@@ -7,6 +7,8 @@ interface NavItem {
   label: string;
   to: string;
   icon: ReactNode;
+  /** Only shown to admins (the page's API is admin-only). */
+  adminOnly?: boolean;
 }
 
 // Compact 24x24 stroke icons (no external dependency).
@@ -105,7 +107,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'Calendar', to: '/calendar', icon: I.calendar },
   { label: 'Meetings', to: '/meetings', icon: I.meetings },
   { label: 'My Action Items', to: '/my-action-items', icon: I.tasks },
-  { label: 'Reports', to: '/reports', icon: I.reports },
+  { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
 ];
 const COMMUNICATION: NavItem[] = [
   { label: 'Chat', to: '/chat', icon: I.chat },
@@ -190,7 +192,7 @@ export function SidebarBody({ isAdmin, onNavigate }: SidebarProps & { onNavigate
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-3">
-        <NavGroup label="Workspace" items={WORKSPACE} onNavigate={onNavigate} />
+        <NavGroup label="Workspace" items={WORKSPACE.filter((i) => isAdmin || !i.adminOnly)} onNavigate={onNavigate} />
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} />
         {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} /> : null}
       </div>

@@ -1,7 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNotifications, useMarkNotificationRead } from '../core/queries';
+import { notificationToTarget } from '../lib/deep-link';
+import { targetToAction } from '../navigation/nav-actions';
 import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
@@ -19,13 +22,20 @@ function timeAgo(iso: string): string {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-export function NotificationsScreen(_props: TabScreenProps<'Notifications'>) {
+/** Does tapping this alert open something besides the alert list? */
+function hasTarget(n: ApiNotification): boolean {
+  return notificationToTarget({ entityType: n.entityType, entityId: n.entityId }).screen !== 'Notifications';
+}
+
+export function NotificationsScreen({ navigation }: TabScreenProps<'Notifications'>) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const { data: items, isLoading, isError, refetch, isRefetching } = useNotifications();
   const markRead = useMarkNotificationRead();
   const { resources } = useServices();
+  const qc = useQueryClient();
   const [markingAll, setMarkingAll] = useState(false);
+  const [markAllErr, setMarkAllErr] = useState<string | null>(null);
 
   if (isLoading) return <Loader />;
 
@@ -33,10 +43,22 @@ export function NotificationsScreen(_props: TabScreenProps<'Notifications'>) {
   const hasUnread = list.some((n) => !n.readAt);
   const markAll = () => {
     setMarkingAll(true);
+    setMarkAllErr(null);
     void resources.notifications
       .markAllRead()
-      .then(() => refetch())
+      // Refresh the list AND the unread badge (both live under ['notifications']).
+      .then(() => qc.invalidateQueries({ queryKey: ['notifications'] }))
+      .catch(() => setMarkAllErr('Couldn’t mark everything as read. Please try again.'))
       .finally(() => setMarkingAll(false));
+  };
+
+  /** Tapping an alert marks it read and opens what it is about — e.g. the task (WEB-18). */
+  const open = (n: ApiNotification) => {
+    if (!n.readAt) markRead.mutate(n.id);
+    const action = targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId }));
+    if (action.type === 'stack' && action.screen === 'TaskDetail') navigation.navigate('TaskDetail', action.params);
+    else if (action.type === 'stack' && action.screen === 'Board') navigation.navigate('Board', action.params);
+    else if (action.type === 'tab' && action.tab !== 'Notifications') navigation.navigate('Tabs', { screen: action.tab });
   };
 
   return (
@@ -49,17 +71,19 @@ export function NotificationsScreen(_props: TabScreenProps<'Notifications'>) {
           <Button title="Mark all as read" variant="secondary" loading={markingAll} onPress={markAll} />
         ) : null}
 
+        {markAllErr ? <ErrorNote message={markAllErr} /> : null}
         {isError && !items ? (
-          <ErrorNote message="Couldn't load your notifications. Pull down to retry." />
+          <ErrorNote message="Couldn't load your notifications." onRetry={() => void refetch()} retrying={isRefetching} />
         ) : list.length === 0 ? (
           <EmptyState title="You're all caught up" subtitle="New notifications will show up here." />
         ) : (
           list.map((n: ApiNotification) => (
             <Pressable
               key={n.id}
-              onPress={() => !n.readAt && markRead.mutate(n.id)}
+              onPress={() => open(n)}
               accessibilityRole="button"
               accessibilityLabel={`${n.readAt ? '' : 'Unread. '}${n.title}${n.body ? '. ' + n.body : ''}, ${timeAgo(n.createdAt)}`}
+              accessibilityHint={hasTarget(n) ? 'Opens the related item' : undefined}
               style={[styles.item, !n.readAt && styles.unread]}
             >
               {!n.readAt ? <View style={styles.dot} /> : <View style={styles.dotSpacer} />}

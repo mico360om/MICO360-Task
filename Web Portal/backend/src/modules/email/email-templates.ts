@@ -265,10 +265,12 @@ export function alertEmail(
 
 /** Catch-all branded notification for any automated email not covered above. */
 export function genericNotificationEmail(
-  params: { heading: string; message: string; preheader?: string; actionLabel?: string; actionLink?: string },
+  params: { heading: string; message: string; preheader?: string; items?: string[]; actionLabel?: string; actionLink?: string },
   opts?: TemplateOptions,
 ): EmailContent {
   const blocks: Block[] = [{ kind: 'text', text: params.message }];
+  // Line items (e.g. the digest's tasks) render as a real list, one per line, in HTML and text.
+  if (params.items?.length) blocks.push({ kind: 'list', items: params.items });
   if (params.actionLabel && params.actionLink) blocks.push({ kind: 'button', label: params.actionLabel, href: params.actionLink });
   return build(params.heading, params.preheader ?? params.message, params.heading, blocks, opts);
 }

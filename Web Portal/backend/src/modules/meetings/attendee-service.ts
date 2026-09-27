@@ -5,6 +5,7 @@ import type {
   AttendeeRole,
   AttendanceStatus,
 } from './attendee-repository';
+import type { CanEditMeeting } from './meeting-access';
 
 const ROLES: AttendeeRole[] = ['REQUIRED', 'OPTIONAL'];
 const STATUSES: AttendanceStatus[] = ['INVITED', 'PRESENT', 'ABSENT', 'LATE', 'EXCUSED'];
@@ -22,10 +23,17 @@ export interface AttendeeServiceDeps {
   attendees: AttendeeRepository;
   /** Fired after the attendee roster changes, so the meeting aggregate can broadcast. */
   onChanged?: (meetingId: string) => void;
+  /** Fired after an attendee is removed (server.ts retracts their calendar invitation). */
+  onRemoved?: (meetingId: string, attendee: AttendeeRecord) => void;
+  /** Who may change the roster (organizer / creator / project manager / admin). Open when not wired. */
+  canEditMeeting?: CanEditMeeting;
 }
 
 export interface AttendeeService {
+  /** May this user change the meeting's roster? */
+  canEditMeeting: CanEditMeeting;
   listAttendees(meetingId: string): Promise<AttendeeRecord[]>;
+  getAttendee(meetingId: string, attendeeId: string): Promise<AttendeeRecord>;
   addAttendee(meetingId: string, input: AddAttendeeInput): Promise<AttendeeRecord>;
   setAttendance(meetingId: string, attendeeId: string, attendance: AttendanceStatus): Promise<AttendeeRecord>;
   updateAttendee(meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; department?: string | null }): Promise<AttendeeRecord>;
@@ -49,8 +57,14 @@ export function createAttendeeService(deps: AttendeeServiceDeps): AttendeeServic
   }
 
   return {
+    canEditMeeting: (userId, roles, meetingId) => (deps.canEditMeeting ? deps.canEditMeeting(userId, roles, meetingId) : Promise.resolve(true)),
+
     async listAttendees(meetingId) {
       return attendees.listByMeeting(meetingId);
+    },
+
+    async getAttendee(meetingId, attendeeId) {
+      return requireInMeeting(meetingId, attendeeId);
     },
 
     async addAttendee(meetingId, input) {
@@ -100,9 +114,10 @@ export function createAttendeeService(deps: AttendeeServiceDeps): AttendeeServic
     },
 
     async removeAttendee(meetingId, attendeeId) {
-      await requireInMeeting(meetingId, attendeeId);
+      const rec = await requireInMeeting(meetingId, attendeeId);
       await attendees.remove(attendeeId);
       deps.onChanged?.(meetingId);
+      deps.onRemoved?.(meetingId, rec);
     },
 
     async suggestAttendees(meetingId, previousMeetingIds) {

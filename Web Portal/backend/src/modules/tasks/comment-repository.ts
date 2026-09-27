@@ -15,4 +15,9 @@ export interface CommentRepository {
   list(taskId: string): Promise<CommentRecord[]>;
   update(id: string, body: string): Promise<CommentRecord>;
   delete(id: string): Promise<void>;
+  /**
+   * Usernames of the active users who can open the task (its project's audience) — the only
+   * people an @mention in its comments may notify. When absent, mentions are parsed loosely.
+   */
+  listMentionableUsernames?(taskId: string): Promise<string[]>;
 }

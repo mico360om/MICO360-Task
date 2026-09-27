@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard } from './board';
+import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex } from './board';
 import type { ApiColumn } from '../api/columns';
 import type { ApiTask } from '../api/tasks';
 
@@ -19,6 +19,12 @@ describe('composeBoard', () => {
     expect(board.map((c) => c.name)).toEqual(['To Do', 'Done']);
     expect(board[0]!.tasks[0]!.key).toBe('MICO-1');
     expect(board[1]!.tasks[0]!.key).toBe('MICO-2');
+  });
+
+  it('marks tasks in a DONE column (or completed) as done, so they are never shown overdue', () => {
+    const board = composeBoard(columns, tasks);
+    expect(board[1]!.tasks[0]!.done).toBe(true); // MICO-2 sits in "Done"
+    expect(board[0]!.tasks[0]!.done).toBe(false);
   });
 
   it('produces empty task lists for columns with no tasks', () => {
@@ -66,6 +72,11 @@ describe('moveTaskInBoard', () => {
   it('returns the columns unchanged when the task is not found', () => {
     expect(moveTaskInBoard(board, 'nope', 'c2')).toBe(board);
   });
+
+  it('inserts the task where it was dropped in the target column', () => {
+    const next = moveTaskInBoard(board, 'MICO-1', 'c2', 0);
+    expect(next.find((c) => c.id === 'c2')!.tasks.map((t) => t.key)).toEqual(['MICO-1', 'MICO-2']);
+  });
 });
 
 describe('reorderColumnInBoard', () => {
@@ -84,5 +95,18 @@ describe('reorderColumnInBoard', () => {
   it('appends any task missing from the order (safety net)', () => {
     const next = reorderColumnInBoard(cols, 'c1', ['MICO-3']);
     expect(next.find((c) => c.id === 'c1')!.tasks.map((t) => t.key)).toEqual(['MICO-3', 'MICO-1']);
+  });
+});
+
+describe('dropIndex', () => {
+  const dest = { id: 'c2', name: 'Doing', color: '#000', tasks: ['A', 'B', 'C'].map((k) => ({ key: k, title: k, priority: 'NORMAL' as const, progress: 0, assignees: [] })) };
+
+  it('lands on the slot of the card it was dropped on (before it, or after it in its lower half)', () => {
+    expect(dropIndex(dest, 'B', 'X', false)).toBe(1);
+    expect(dropIndex(dest, 'B', 'X', true)).toBe(2);
+  });
+
+  it('lands at the end when dropped on the column’s empty space', () => {
+    expect(dropIndex(dest, 'c2', 'X', false)).toBe(3);
   });
 });

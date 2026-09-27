@@ -1,6 +1,6 @@
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
-import { summarizeTasks } from '../../src/summary.js';
-import { taskRow, isDone, PRIORITY_LABEL } from '../components.js';
+import { groupTasksByDue } from '../../src/summary.js';
+import { taskRow, PRIORITY_LABEL } from '../components.js';
 
 /**
  * My Tasks — every task assigned to me, with a client-side keyword search and priority
@@ -90,36 +90,23 @@ export function MyTasksScreen(ctx) {
       return;
     }
 
-    // summarizeTasks gives the Overdue / Due today counts (mirroring the web dashboard);
-    // the actual task arrays are computed here with the same date logic (like dashboard.js).
-    const s = summarizeTasks(tasks);
-    const now = Date.now();
-    const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(now); endOfDay.setHours(23, 59, 59, 999);
-    const startMs = startOfDay.getTime();
-    const endMs = endOfDay.getTime();
-    const dueMs = (t) => new Date(t.dueDate).getTime();
-
-    const overdue = tasks.filter((t) => !isDone(t) && t.dueDate && dueMs(t) < startMs);
-    const dueToday = tasks.filter((t) => !isDone(t) && t.dueDate && dueMs(t) >= startMs && dueMs(t) <= endMs);
-    const upcoming = tasks.filter((t) => !isDone(t) && t.dueDate && dueMs(t) > endMs).sort((a, b) => dueMs(a) - dueMs(b));
-    const noDue = tasks.filter((t) => !isDone(t) && !t.dueDate);
-    const completed = tasks.filter((t) => isDone(t));
+    // Calendar days in the company time zone; finished tasks are never overdue (XP-03).
+    const g = groupTasksByDue(tasks, { timeZone: ctx.timeZone });
 
     mount(resultsEl,
-      section('Overdue', s.overdue, overdue),
-      section('Due today', s.dueToday, dueToday),
-      section('Upcoming', upcoming.length, upcoming),
-      section('No due date', noDue.length, noDue),
-      section('Completed', completed.length, completed),
+      section('Overdue', g.overdue),
+      section('Due today', g.dueToday),
+      section('Upcoming', g.upcoming),
+      section('No due date', g.noDue),
+      section('Completed', g.completed),
     );
   }
 
-  function section(label, n, tasks) {
+  function section(label, tasks) {
     if (!tasks.length) return null;
     return el('div', { style: { marginTop: '20px' } },
-      el('div', { class: 'section-title' }, `${label} · ${n}`),
-      el('div', { class: 'list' }, tasks.map((t) => taskRow(t, () => ctx.openTask(t.id)))),
+      el('div', { class: 'section-title' }, `${label} · ${tasks.length}`),
+      el('div', { class: 'list' }, tasks.map((t) => taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone }))),
     );
   }
 }

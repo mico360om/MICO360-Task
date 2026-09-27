@@ -138,7 +138,7 @@ export function ActivityPage() {
                       <Avatar name={a.actor?.name ?? '?'} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm leading-snug text-ink">
-                          <span className="font-semibold">{a.actor?.name ?? 'Someone'}</span>{' '}
+                          <span dir="auto" className="font-semibold">{a.actor?.name ?? 'Someone'}</span>{' '}
                           <span className={ACTION_TONE[a.action] ?? 'text-ink-2'}>{ACTION_VERB[a.action] ?? a.action.toLowerCase().replace(/_/g, ' ')}</span>{' '}
                           {a.task ? (
                             <button onClick={() => setOpenTaskId(a.task!.id)} className="font-mono text-xs font-semibold text-brand hover:underline">{a.task.key}</button>
@@ -146,7 +146,7 @@ export function ActivityPage() {
                             <span className="text-ink-2">a task</span>
                           )}
                         </p>
-                        <p className="truncate text-xs text-ink-2">
+                        <p dir="auto" className="truncate text-start text-xs text-ink-2">
                           {a.task?.title ?? ''}
                           {detailOf(a) ? <span className="text-ink-3"> · {detailOf(a)}</span> : null}
                           {a.project ? <span className="text-ink-3"> · {a.project.name}</span> : null}

@@ -40,3 +40,7 @@ uploads/
 # Signing keystores (KEEP PRIVATE, never commit)
 *.keystore
 *.jks
+
+# Release packages built by tools/release (Installer/README.md is tracked)
+/Installer/*
+!/Installer/README.md

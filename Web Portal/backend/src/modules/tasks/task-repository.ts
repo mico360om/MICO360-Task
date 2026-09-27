@@ -25,7 +25,7 @@ export interface TaskRecord {
   recurrenceParentId: string | null;
   /** The calendar day this task appears on (per-date boards). Stored as a noon-UTC anchor. */
   boardDate: Date | null;
-  /** Append-only history of carry-forward moves (from→to date). */
+  /** Append-only history of carry-forward moves (from→to date). Left out of list responses. */
   carryForwardLog?: CarryLogEntry[] | null;
   version: number;
   createdAt: Date;
@@ -53,6 +53,27 @@ export interface CreateTaskData {
   recurrenceRule?: RecurrenceRule | null;
   recurrenceParentId?: string | null;
   boardDate?: Date | null;
+  /** Set when the task is created straight into a DONE column. */
+  completedAt?: Date | null;
+  /** Normalised tag names to attach (find-or-create) in the same write as the task. */
+  tagNames?: string[];
+  /** Users to assign in the same write as the task (already validated). */
+  assigneeIds?: string[];
+}
+
+/** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */
+export class TaskKeyConflictError extends Error {
+  constructor(key: string) {
+    super(`Task key ${key} is already in use.`);
+    this.name = 'TaskKeyConflictError';
+  }
+}
+
+/** A board column as the task service needs it: which project it belongs to and its stage. */
+export interface ColumnInfo {
+  id: string;
+  projectId: string;
+  category: string;
 }
 
 export interface UpdateTaskData {
@@ -75,13 +96,30 @@ export interface UpdateTaskData {
 
 export interface TaskListFilter {
   projectId?: string;
+  /** Restrict to these projects (the caller's accessible projects); applied in the query. */
+  projectIds?: string[];
   columnId?: string;
   assigneeId?: string;
   /** Restrict to tasks on a specific board day (a noon-UTC date anchor). */
   boardDate?: Date;
+  priorities?: string[];
+  /** Column categories (status). */
+  categories?: string[];
+  /** Tasks carrying at least one of these tags. */
+  tagIds?: string[];
+  dueBefore?: Date;
+  dueAfter?: Date;
+}
+
+export interface SeriesUpdateOptions {
+  /** Leave this member out (it gets its own full update). */
+  excludeId?: string;
+  /** Only touch open occurrences — never completed ones. */
+  openOnly?: boolean;
 }
 
 export interface TaskRepository {
+  /** Create a task (plus its tags/assignees in the same write); throws TaskKeyConflictError on a taken key. */
   create(data: CreateTaskData): Promise<TaskRecord>;
   findById(id: string): Promise<TaskRecord | null>;
   list(filter: TaskListFilter): Promise<TaskRecord[]>;
@@ -89,13 +127,19 @@ export interface TaskRepository {
   softDelete(id: string): Promise<void>;
   countByProject(projectId: string): Promise<number>;
   /**
-   * Apply a patch to every member of a recurring series — the origin task (`id === seriesId`)
-   * and all its generated occurrences (`recurrenceParentId === seriesId`) — in ONE atomic
-   * statement. Avoids scanning the whole task table and keeps the series edit all-or-nothing.
+   * Apply a patch to the members of a recurring series — the origin task (`id === seriesId`)
+   * and its generated occurrences (`recurrenceParentId === seriesId`) — in ONE atomic statement.
    */
-  updateSeries(seriesId: string, patch: UpdateTaskData): Promise<void>;
+  updateSeries(seriesId: string, patch: UpdateTaskData, opts?: SeriesUpdateOptions): Promise<void>;
   /** Soft-delete every member of a recurring series in one atomic statement. */
   softDeleteSeries(seriesId: string): Promise<void>;
+  /** A column's project and category, or null when it doesn't exist. */
+  findColumn(columnId: string): Promise<ColumnInfo | null>;
+  /**
+   * Re-number the live tasks of one column to match `orderedIds` (position 0..n) in one
+   * transaction. Ids that aren't live tasks of that column are ignored.
+   */
+  reorderInColumn(columnId: string, orderedIds: string[]): Promise<void>;
 }
 
 /** Minimal project lookup the task service needs (to build task keys and validate the project). */

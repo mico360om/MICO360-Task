@@ -12,4 +12,7 @@ export const asyncStore: KeyValueStore = {
   async deleteItem(key) {
     await AsyncStorage.removeItem(key);
   },
+  async keys() {
+    return [...(await AsyncStorage.getAllKeys())];
+  },
 };

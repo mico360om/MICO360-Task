@@ -4,14 +4,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMyTasks } from '../core/queries';
 import { useColors } from '../core/theme';
 import { groupTasksByDueDate } from '../lib/calendar';
+import { companyTodayKey } from '../lib/due-date';
 import { TaskRow } from '../components/TaskRow';
 import { Loader, EmptyState, ErrorNote } from '../components/ui';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 
+/** Label a 'YYYY-MM-DD' calendar day without letting the phone's time zone shift it. */
 function formatDay(date: string): string {
-  const d = new Date(`${date}T00:00:00`);
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
@@ -19,7 +20,8 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   const styles = useMemo(() => makeStyles(c), [c]);
   const { data: tasks, isLoading, isError, refetch, isRefetching } = useMyTasks();
   const days = useMemo(() => groupTasksByDueDate(tasks ?? []), [tasks]);
-  const today = new Date().toISOString().slice(0, 10);
+  // "Today" is the company-time-zone date (XP-03) — UTC would still say "yesterday" until 04:00 in Muscat.
+  const today = companyTodayKey();
 
   if (isLoading) return <Loader />;
 
@@ -30,7 +32,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
       >
         {isError && !tasks ? (
-          <ErrorNote message="Couldn't load your schedule. Pull down to retry." />
+          <ErrorNote message="Couldn't load your schedule." onRetry={() => void refetch()} retrying={isRefetching} />
         ) : days.length === 0 ? (
           <EmptyState title="Nothing scheduled" subtitle="Tasks with a due date will show up on your calendar." />
         ) : (

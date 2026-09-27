@@ -88,8 +88,8 @@ export function ProjectsList({ projects, canManage, onChangeStatus, meta }: Proj
                     </span>
                   )}
                   <div className="min-w-0">
-                    <h3 className="truncate font-display text-base font-bold text-ink transition-colors group-hover:text-brand">{p.name}</h3>
-                    {p.clientName ? <p className="truncate text-xs text-ink-2">{p.clientName}</p> : <p className="truncate text-xs text-ink-3">Internal</p>}
+                    <h3 dir="auto" className="truncate text-start font-display text-base font-bold text-ink transition-colors group-hover:text-brand">{p.name}</h3>
+                    {p.clientName ? <p dir="auto" className="truncate text-xs text-ink-2">{p.clientName}</p> : <p className="truncate text-xs text-ink-3">Internal</p>}
                   </div>
                 </div>
 
@@ -137,7 +137,7 @@ export function ProjectsList({ projects, canManage, onChangeStatus, meta }: Proj
                 {m?.ownerName ? (
                   <div className="flex items-center gap-2 text-xs text-ink-2">
                     <Avatar name={m.ownerName} size="sm" src={m.ownerAvatar} />
-                    <span className="truncate">Owner · <span className="font-medium text-ink">{m.ownerName}</span></span>
+                    <span className="truncate">Owner · <span dir="auto" className="font-medium text-ink">{m.ownerName}</span></span>
                   </div>
                 ) : null}
               </Link>

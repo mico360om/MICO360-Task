@@ -1,8 +1,8 @@
 import { HttpError } from '../../lib/http-errors';
 
 export class AuthError extends HttpError {
-  constructor(message: string, code: string, status: number) {
-    super(message, code, status);
+  constructor(message: string, code: string, status: number, details?: unknown) {
+    super(message, code, status, details);
   }
 }
 
@@ -13,8 +13,15 @@ export class InvalidCredentialsError extends AuthError {
 }
 
 export class AccountLockedError extends AuthError {
-  constructor() {
-    super('Account locked after too many failed attempts. Reset your password to unlock.', 'ACCOUNT_LOCKED', 423);
+  /** `until` is when the lock expires on its own; it is echoed as `details.retryAfterSeconds`. */
+  constructor(until?: Date | null, now: Date = new Date()) {
+    const retryAfterSeconds = until ? Math.max(1, Math.ceil((until.getTime() - now.getTime()) / 1000)) : undefined;
+    super(
+      'Too many failed sign-in attempts. Try again later, sign in with an emailed code, or reset your password.',
+      'ACCOUNT_LOCKED',
+      423,
+      retryAfterSeconds ? { retryAfterSeconds } : undefined,
+    );
   }
 }
 
@@ -49,8 +56,8 @@ export class OtpExpiredError extends AuthError {
 }
 
 export class TooManyOtpAttemptsError extends AuthError {
-  constructor() {
-    super('Too many attempts. Request a new code.', 'OTP_TOO_MANY_ATTEMPTS', 429);
+  constructor(message = 'Too many attempts. Request a new code.') {
+    super(message, 'OTP_TOO_MANY_ATTEMPTS', 429);
   }
 }
 
@@ -63,5 +70,12 @@ export class InvalidResetTokenError extends AuthError {
 export class WeakPasswordError extends AuthError {
   constructor() {
     super('Password must be at least 8 characters and include a letter and a number.', 'WEAK_PASSWORD', 400);
+  }
+}
+
+/** Email-based sign-in / recovery can't work because no mail provider is configured (same for every account). */
+export class EmailUnavailableError extends AuthError {
+  constructor() {
+    super('Email sign-in isn’t available right now. Sign in with your password or contact an administrator.', 'EMAIL_NOT_CONFIGURED', 503);
   }
 }

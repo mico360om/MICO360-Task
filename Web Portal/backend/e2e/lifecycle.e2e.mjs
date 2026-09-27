@@ -40,8 +40,14 @@ async function main() {
   ck('create task returns a task with an auto key', created.status === 201 && /^[A-Z0-9]+-\d+$/.test(task.key), task.key);
 
   const omar = (await (await fetch(`${BASE}/users`, { headers: auth(tok) })).json()).data.find((u) => u.username === 'omar');
+  // Only people on the project can be assigned: make sure omar isn't, try, then add him and retry.
+  await fetch(`${BASE}/projects/${project.id}/members/${omar.id}`, { method: 'DELETE', headers: auth(tok) });
+  const outsider = await fetch(`${BASE}/tasks/${task.id}/assignees`, { method: 'POST', headers: jh(tok), body: JSON.stringify({ userIds: [omar.id] }) });
+  ck('assigning someone outside the project is refused (400)', outsider.status === 400);
+  const join = await fetch(`${BASE}/projects/${project.id}/members`, { method: 'POST', headers: jh(tok), body: JSON.stringify({ userIds: [omar.id] }) });
+  ck('add the user to the project (2xx)', join.status >= 200 && join.status < 300);
   const assign = await fetch(`${BASE}/tasks/${task.id}/assignees`, { method: 'POST', headers: jh(tok), body: JSON.stringify({ userIds: [omar.id] }) });
-  ck('assign a user (200)', assign.status === 200 && (await assign.json()).data.some((u) => u.id === omar.id));
+  ck('assign a project member (200)', assign.status === 200 && (await assign.json()).data.some((u) => u.id === omar.id));
 
   const item = await fetch(`${BASE}/tasks/${task.id}/checklist`, { method: 'POST', headers: jh(tok), body: JSON.stringify({ text: 'step 1' }) });
   ck('add a checklist item (201)', item.status === 201);

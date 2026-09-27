@@ -24,7 +24,7 @@ describe('NotificationsPage', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{ id: 'n1', type: 'TASK_ASSIGNED', title: 'You were assigned a task', body: null, readAt: null, createdAt: '' }] })));
   });
   it('lists notifications from the API', async () => {
-    renderWithQuery(<NotificationsPage />);
+    renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText('You were assigned a task')).toBeInTheDocument());
   });
 });
@@ -83,7 +83,7 @@ describe('ProjectDetailPage', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const u = String(url);
       if (u.includes('/members')) return json({ data: [{ id: 'u9', username: 'omar', email: 'o@x', firstName: 'Omar', lastName: 'A' }] });
-      if (u.endsWith('/users')) return json({ data: [{ id: 'u9', username: 'omar', email: 'o@x', firstName: 'Omar', lastName: 'A' }, { id: 'u5', username: 'ada', email: 'a@x', firstName: 'Ada', lastName: 'L' }] });
+      if (u.endsWith('/users') || u.endsWith('/users/directory')) return json({ data: [{ id: 'u9', username: 'omar', email: 'o@x', firstName: 'Omar', lastName: 'A' }, { id: 'u5', username: 'ada', email: 'a@x', firstName: 'Ada', lastName: 'L' }] });
       return json({ data: { id: 'p1', code: 'MICO', name: 'MICO Platform', description: 'Desc', clientName: null, status: 'ACTIVE', priority: 'HIGH', color: '#8B1E1E', createdAt: '', updatedAt: '' } });
     }));
   });

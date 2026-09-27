@@ -9,6 +9,12 @@ export function createPrismaChecklistRepository(prisma: PrismaClient): Checklist
     async add(taskId, text, position) {
       return toRecord(await prisma.checklistItem.create({ data: { taskId, text, position } }));
     },
+    async get(itemId) {
+      const item = await prisma.checklistItem.findFirst({
+        where: { id: itemId, task: { deletedAt: null, project: { is: { deletedAt: null } } } },
+      });
+      return item ? toRecord(item) : null;
+    },
     async toggle(itemId, done) {
       return toRecord(await prisma.checklistItem.update({ where: { id: itemId }, data: { done } }));
     },

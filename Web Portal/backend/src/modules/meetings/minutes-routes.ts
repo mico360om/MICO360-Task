@@ -50,7 +50,7 @@ export interface MinutesRouteDeps {
   /** Resolve a project id to its details for the header (null when unknown/standalone). */
   resolveProject?: (projectId: string) => Promise<MinutesProjectSource | null>;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
-  notify?: { sendMinutes: (meetingId: string, pdf: Buffer) => Promise<{ sent: number }> };
+  notify?: { sendMinutes: (meetingId: string, pdf: Buffer) => Promise<{ sent: number; failed?: number }> };
 }
 
 export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesRouteDeps): Promise<void> {
@@ -155,6 +155,10 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
   app.post('/meetings/:id/minutes/send', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to this meeting.' } });
+    // Emailing everyone is the organizer's call, not any attendee's.
+    if (!(await meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id))) {
+      return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Only the organizer, the project manager or an admin can send the minutes.' } });
+    }
     if (!deps.notify) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
     const { pdf } = await buildPdf(req, id);
     const result = await deps.notify.sendMinutes(id, pdf);

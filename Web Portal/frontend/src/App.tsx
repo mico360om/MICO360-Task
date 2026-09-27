@@ -1,6 +1,6 @@
 import { lazy, Suspense, type ComponentType } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { ProtectedRoute } from './features/auth/ProtectedRoute';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { ProtectedRoute, returnPathFrom } from './features/auth/ProtectedRoute';
 import { AdminRoute } from './features/auth/AdminRoute';
 import { AppShell } from './components/AppShell';
 import { LoginPage } from './pages/LoginPage';
@@ -43,13 +43,18 @@ function RouteFallback() {
   );
 }
 
-export function App() {
+/** /login: once signed in, continue to the page that was originally asked for (deep links survive sign-in). */
+function LoginRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const location = useLocation();
+  return isAuthenticated ? <Navigate to={returnPathFrom(location.state)} replace /> : <LoginPage />;
+}
 
+export function App() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+        <Route path="/login" element={<LoginRoute />} />
         <Route path="/forgot" element={<ForgotPasswordPage />} />
         <Route path="/reset" element={<ResetPasswordPage />} />
         <Route element={<ProtectedRoute />}>
@@ -66,10 +71,10 @@ export function App() {
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/activity" element={<ActivityPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route element={<AdminRoute />}>
+              <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />
               <Route path="/admin/ai" element={<AiSettingsPage />} />
               <Route path="/admin/audit" element={<AuditPage />} />

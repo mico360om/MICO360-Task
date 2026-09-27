@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
 import { Avatar } from './ui/Avatar';
@@ -6,6 +6,12 @@ import { fieldClass } from './ui/Field';
 import { recurrenceSummary } from '../lib/recurrence-summary';
 import { statusMeta } from '../lib/taskStatus';
 import { RecurrenceEditor } from './RecurrenceEditor';
+import { isOverdue } from '../lib/due-date';
+import { dueInputValue, formatDueDay, isTaskDone } from '../lib/due-display';
+import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
+
+/** The task title column's limit (VARCHAR 191) — enforced in the form so a save can't be rejected for it. */
+const TITLE_MAX = 191;
 
 /** "3m", "2h", "5d" for recent, else a short date. Full timestamp lives in the title attribute. */
 function commentTime(iso: string): string {
@@ -65,6 +71,11 @@ export interface DrawerActivity {
 
 export interface TaskDrawerProps {
   task: ApiTask;
+  /** Company time zone: a task is overdue only once its due day is before today there. */
+  timeZone?: string;
+  /** A failed action (assign, upload, delete, status…) to show at the top of the drawer. */
+  actionError?: string | null;
+  onDismissError?: () => void;
   checklist: DrawerChecklistItem[];
   comments: DrawerComment[];
   onToggleChecklistItem?: (id: string, done: boolean) => void;
@@ -91,11 +102,15 @@ export interface TaskDrawerProps {
   onChangeStatus?: (columnId: string) => void;
   /** Task activity history (newest first). */
   activity?: DrawerActivity[];
-  /** Save edits to the task's core fields — with `'series'` on a recurring task, apply to every occurrence. */
+  /**
+   * Save edits to the task's core fields — with `'series'` on a recurring task, apply to every
+   * occurrence. Return a promise: the form closes when it resolves and shows the error message (keeping
+   * the user's edits) when it rejects.
+   */
   onSaveEdit?: (
     patch: { title?: string; description?: string; priority?: Priority; dueDate?: string | null },
     scope?: 'series',
-  ) => void;
+  ) => void | Promise<void>;
   /** Whether an edit save is in flight — disables the Save button and shows a spinner to block double-submit. */
   savePending?: boolean;
   /** Delete the task — with `'series'` on a recurring task, delete the whole series. */
@@ -181,6 +196,9 @@ function StatusPill({ category }: { category?: string | null }) {
 
 export function TaskDrawer({
   task,
+  timeZone = DEFAULT_TIME_ZONE,
+  actionError,
+  onDismissError,
   checklist,
   comments,
   onToggleChecklistItem,
@@ -213,14 +231,7 @@ export function TaskDrawer({
 }: TaskDrawerProps) {
   const done = checklist.filter((c) => c.done).length;
   const pct = checklist.length ? Math.round((done / checklist.length) * 100) : 0;
-  // The drawer is the app's one large modal overlay — Escape must close it like every other dialog.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [blockerToAdd, setBlockerToAdd] = useState('');
   const [newItem, setNewItem] = useState('');
@@ -230,8 +241,10 @@ export function TaskDrawer({
   const [editTitle, setEditTitle] = useState(task.title);
   const [editPriority, setEditPriority] = useState<Priority>(task.priority);
   const [editDesc, setEditDesc] = useState(task.description ?? '');
-  const [editDue, setEditDue] = useState(task.dueDate ? task.dueDate.slice(0, 10) : '');
+  const [editDue, setEditDue] = useState(dueInputValue(task.dueDate, timeZone));
   const [editScope, setEditScope] = useState<'one' | 'series'>('one');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // AI helpers — a shared busy flag keyed by which action is running, plus a scoped error + priority reason.
   const [aiBusy, setAiBusy] = useState<null | 'checklist' | 'priority'>(null);
   const [aiError, setAiError] = useState<{ scope: 'checklist' | 'priority'; message: string } | null>(null);
@@ -270,36 +283,44 @@ export function TaskDrawer({
     setEditTitle(task.title);
     setEditPriority(task.priority);
     setEditDesc(task.description ?? '');
-    setEditDue(task.dueDate ? task.dueDate.slice(0, 10) : '');
+    setEditDue(dueInputValue(task.dueDate, timeZone));
     setEditScope('one');
+    setSaveError(null);
     setEditing(true);
   }
-  function handleSaveEdit(e: FormEvent) {
+  const busy = saving || savePending;
+  async function handleSaveEdit(e: FormEvent) {
     e.preventDefault();
     const title = editTitle.trim();
-    if (!title || savePending) return;
-    onSaveEdit?.(
-      { title, priority: editPriority, description: editDesc, dueDate: editDue || null },
-      task.recurrenceRule && editScope === 'series' ? 'series' : undefined,
-    );
-    // Keep the form open (with the Save button busy) until the save resolves; the effect below
-    // closes it once savePending falls back to false, so the spinner is actually seen.
+    if (!title || busy) return;
+    if (title.length > TITLE_MAX) {
+      setSaveError(`Titles can be at most ${TITLE_MAX} characters.`);
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // Keep the form open (Save busy) until the save resolves; close only if it succeeded.
+      await onSaveEdit?.(
+        { title, priority: editPriority, description: editDesc, dueDate: editDue || null },
+        task.recurrenceRule && editScope === 'series' ? 'series' : undefined,
+      );
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof Error && err.message ? err.message : 'Couldn’t save your changes. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
-  // Close the edit form when an in-flight save finishes (success or failure).
-  const wasSaving = useRef(false);
-  useEffect(() => {
-    if (wasSaving.current && !savePending) setEditing(false);
-    wasSaving.current = savePending;
-  }, [savePending]);
 
   const alreadyBlocking = new Set((dependencies?.blockedBy ?? []).map((d) => d.id));
   const addable = availableTasks.filter((t) => t.id !== task.id && !alreadyBlocking.has(t.id));
   const assignedIds = new Set((assignees ?? []).map((a) => a.id));
   const assignable = assignableUsers.filter((u) => !assignedIds.has(u.id));
 
-  const dueOverdue =
-    !!task.dueDate && new Date(task.dueDate).getTime() < Date.now() && (task.columnCategory ?? 'TODO') !== 'DONE' && !task.completedAt;
-  const dueText = task.dueDate ? new Date(task.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'No due date';
+  // Calendar-day rule in the company zone; a finished task is never overdue.
+  const dueOverdue = !isTaskDone(task) && isOverdue(task.dueDate, timeZone);
+  const dueText = formatDueDay(task.dueDate, timeZone) || 'No due date';
 
   return (
     <div
@@ -341,7 +362,7 @@ export function TaskDrawer({
             </button>
           </div>
         </div>
-        <h2 className="mt-2 font-display text-xl font-bold leading-snug text-ink">{task.title}</h2>
+        <h2 dir="auto" className="mt-2 text-start font-display text-xl font-bold leading-snug text-ink">{task.title}</h2>
         {task.recurrenceRule || (task.carryForwardLog && task.carryForwardLog.length > 0) ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {task.recurrenceRule ? (
@@ -361,11 +382,21 @@ export function TaskDrawer({
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+        {actionError ? (
+          <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+            <span>{actionError}</span>
+            {onDismissError ? (
+              <button onClick={onDismissError} className="flex-none text-xs font-semibold underline">
+                Dismiss
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {editing ? (
           <form onSubmit={handleSaveEdit} className="mb-6 flex flex-col gap-3 rounded-2xl border border-line bg-ground/40 p-4">
             <label className="flex flex-col gap-1">
               <span className="eyebrow">Title</span>
-              <input aria-label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className={fieldClass(false)} />
+              <input aria-label="Title" dir="auto" maxLength={TITLE_MAX} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className={fieldClass(false)} />
             </label>
             <div className="flex gap-3">
               <div className="flex flex-1 flex-col gap-1">
@@ -386,7 +417,7 @@ export function TaskDrawer({
             {aiError?.scope === 'priority' ? <p className="-mt-1 rounded-lg bg-danger/10 px-2.5 py-1.5 text-xs text-danger">{aiError.message}</p> : null}
             <label className="flex flex-col gap-1">
               <span className="eyebrow">Description</span>
-              <textarea aria-label="Description" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={3} className={fieldClass(false)} />
+              <textarea aria-label="Description" dir="auto" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={3} className={fieldClass(false)} />
             </label>
             {task.recurrenceRule ? (
               <fieldset className="flex flex-col gap-1">
@@ -399,18 +430,23 @@ export function TaskDrawer({
                 </label>
               </fieldset>
             ) : null}
+            {saveError ? (
+              <p role="alert" className="rounded-lg bg-danger/10 px-2.5 py-1.5 text-sm text-danger">
+                {saveError}
+              </p>
+            ) : null}
             <div className="flex gap-2">
-              <button type="submit" disabled={editTitle.trim() === '' || savePending} className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-50">
-                {savePending ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden /> : null}
-                {savePending ? 'Saving…' : 'Save'}
+              <button type="submit" disabled={editTitle.trim() === '' || busy} className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-50">
+                {busy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden /> : null}
+                {busy ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" onClick={() => setEditing(false)} disabled={savePending} className="rounded-lg px-3 py-1.5 text-sm font-medium text-ink-2 transition-colors hover:bg-ground disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={() => setEditing(false)} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm font-medium text-ink-2 transition-colors hover:bg-ground disabled:opacity-50">Cancel</button>
             </div>
           </form>
         ) : (
           <section className="mb-6">
             <SectionHead>Description</SectionHead>
-            {task.description ? <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{task.description}</p> : <p className="text-sm italic text-ink-3">No description.</p>}
+            {task.description ? <p dir="auto" className="whitespace-pre-wrap text-start text-sm leading-relaxed text-ink-2">{task.description}</p> : <p className="text-sm italic text-ink-3">No description.</p>}
           </section>
         )}
 
@@ -427,7 +463,7 @@ export function TaskDrawer({
                     assignees.map((a) => (
                       <span key={a.id} className="inline-flex items-center gap-1.5 rounded-full bg-ground py-0.5 pl-0.5 pr-2 text-xs text-ink">
                         <Avatar name={a.name} size="sm" />
-                        {a.name}
+                        <span dir="auto">{a.name}</span>
                         {onUnassignUser ? (
                           <button onClick={() => onUnassignUser(a.id)} aria-label={`Remove ${a.name}`} className="text-ink-2 transition-colors hover:text-danger">×</button>
                         ) : null}
@@ -459,13 +495,13 @@ export function TaskDrawer({
                       <li key={c.id} className="text-sm">
                         <label className="flex items-center gap-2">
                           <input type="checkbox" checked={c.done} aria-label={c.text} onChange={() => onToggleChecklistItem(c.id, !c.done)} className="h-4 w-4 accent-brand" />
-                          <span className={c.done ? 'text-ink-2 line-through' : 'text-ink'}>{c.text}</span>
+                          <span dir="auto" className={c.done ? 'text-ink-2 line-through' : 'text-ink'}>{c.text}</span>
                         </label>
                       </li>
                     ) : (
                       <li key={c.id} className="flex items-center gap-2 text-sm text-ink">
                         <span aria-hidden="true">{c.done ? '☑' : '☐'}</span>
-                        <span className={c.done ? 'line-through text-ink-2' : ''}>{c.text}</span>
+                        <span dir="auto" className={c.done ? 'line-through text-ink-2' : ''}>{c.text}</span>
                       </li>
                     ),
                   )
@@ -473,7 +509,7 @@ export function TaskDrawer({
               </ul>
               {onAddChecklistItem ? (
                 <form className="mt-2 flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); const text = newItem.trim(); if (text) { onAddChecklistItem(text); setNewItem(''); } }}>
-                  <input value={newItem} onChange={(e) => setNewItem(e.target.value)} placeholder="Add an item…" className={fieldClass(false, 'min-w-0 flex-1')} />
+                  <input dir="auto" value={newItem} onChange={(e) => setNewItem(e.target.value)} placeholder="Add an item…" className={fieldClass(false, 'min-w-0 flex-1')} />
                   <button type="submit" disabled={newItem.trim() === ''} className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-brand transition-colors hover:border-brand disabled:opacity-50">Add item</button>
                 </form>
               ) : null}
@@ -489,17 +525,17 @@ export function TaskDrawer({
                     <div key={c.id} className="rounded-xl border border-line bg-ground/40 p-2.5 text-sm text-ink">
                       <div className="mb-1 flex items-center gap-2">
                         <Avatar name={c.authorName ?? 'Unknown'} size="sm" src={c.authorAvatar} />
-                        <span className="font-semibold text-ink">{c.authorName ?? 'Unknown'}</span>
+                        <span dir="auto" className="font-semibold text-ink">{c.authorName ?? 'Unknown'}</span>
                         {c.createdAt ? <span className="text-xs text-ink-2" title={new Date(c.createdAt).toLocaleString()}>{commentTime(c.createdAt)}</span> : null}
                       </div>
-                      <div className="whitespace-pre-wrap break-words pl-8 text-ink">{c.body}</div>
+                      <div dir="auto" className="whitespace-pre-wrap break-words ps-8 text-start text-ink">{c.body}</div>
                     </div>
                   ))
                 )}
               </div>
               {onAddComment ? (
                 <form className="mt-2 flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); const body = newComment.trim(); if (body) { onAddComment(body); setNewComment(''); } }}>
-                  <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a comment… use @name to mention" rows={2} className={fieldClass(false)} />
+                  <textarea dir="auto" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a comment… use @name to mention" rows={2} className={fieldClass(false)} />
                   <button type="submit" disabled={newComment.trim() === ''} className="self-end rounded-lg bg-brand px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-50">Comment</button>
                 </form>
               ) : null}
@@ -568,7 +604,7 @@ export function TaskDrawer({
                 ) : (
                   attachments.map((a) => (
                     <li key={a.id} className="flex items-center gap-2 text-sm">
-                      <a href={`${API_ORIGIN}${a.url}`} target="_blank" rel="noreferrer" className="truncate text-brand hover:underline">{a.filename}</a>
+                      <a href={`${API_ORIGIN}${a.url}`} target="_blank" rel="noreferrer" dir="auto" className="truncate text-brand hover:underline">{a.filename}</a>
                       <span className="text-xs text-ink-2">{formatSize(a.sizeBytes)}</span>
                       {onDeleteAttachment ? (
                         <button onClick={() => onDeleteAttachment(a.id)} aria-label={`Remove ${a.filename}`} className="ml-auto rounded px-1 text-ink-2 transition-colors hover:bg-ground hover:text-danger">×</button>
@@ -596,7 +632,7 @@ export function TaskDrawer({
                     dependencies.blockedBy.map((d) => (
                       <li key={d.id} className="flex items-center gap-2 text-sm">
                         <span className="font-mono text-xs text-ink-2">{d.key}</span>
-                        <span className="truncate text-ink">{d.title}</span>
+                        <span dir="auto" className="truncate text-ink">{d.title}</span>
                         {onRemoveDependency ? (
                           <button onClick={() => onRemoveDependency(d.id)} aria-label={`Remove blocker ${d.key}`} className="ml-auto rounded px-1 text-ink-2 transition-colors hover:bg-ground hover:text-danger">×</button>
                         ) : null}
@@ -620,7 +656,7 @@ export function TaskDrawer({
                       {dependencies.blocks.map((d) => (
                         <li key={d.id} className="flex items-center gap-2 text-sm">
                           <span className="font-mono text-xs text-ink-2">{d.key}</span>
-                          <span className="truncate text-ink">{d.title}</span>
+                          <span dir="auto" className="truncate text-ink">{d.title}</span>
                         </li>
                       ))}
                     </ul>

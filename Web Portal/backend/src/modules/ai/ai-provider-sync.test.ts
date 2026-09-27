@@ -16,6 +16,13 @@ describe('extractModelKeys', () => {
   it('dedupes + drops blanks', () => {
     expect(extractModelKeys('openai', { data: [{ id: 'a' }, { id: 'a' }, { id: '' }, {}] })).toEqual(['a']);
   });
+  it('keeps only plausible ids and caps the list (the answer comes from an external server)', () => {
+    const many = Array.from({ length: 800 }, (_, i) => ({ id: `m${i}` }));
+    expect(extractModelKeys('openai', { data: many })).toHaveLength(500);
+    expect(extractModelKeys('openai', { data: [{ id: 'x'.repeat(201) }, { id: 'bad\u0000id' }, { id: 42 }, null, { id: 'ok' }] })).toEqual(['ok']);
+    expect(extractModelKeys('openai', { data: 'nope' })).toEqual([]);
+    expect(extractModelKeys('openai', null)).toEqual([]);
+  });
 });
 
 describe('fetchProviderModels', () => {
@@ -38,11 +45,26 @@ describe('fetchProviderModels', () => {
     expect((init!.headers as Record<string, string>)['anthropic-version']).toBeTruthy();
   });
 
-  it('calls Ollama /api/tags', async () => {
+  it('calls Ollama /api/tags (a local server needs private hosts allowed)', async () => {
     const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ models: [{ name: 'llama3' }] }));
-    const keys = await fetchProviderModels({ kind: 'ollama', apiBaseUrl: 'http://localhost:11434', apiKey: '' }, fetchImpl as unknown as typeof fetch);
+    const keys = await fetchProviderModels({ kind: 'ollama', apiBaseUrl: 'http://localhost:11434', apiKey: '' }, fetchImpl as unknown as typeof fetch, { allowPrivateHosts: true });
     expect(keys).toEqual(['llama3']);
     expect(fetchImpl.mock.calls[0]![0]).toBe('http://localhost:11434/api/tags');
+  });
+
+  it('refuses an internal address by default', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ models: [] }));
+    await expect(
+      fetchProviderModels({ kind: 'ollama', apiBaseUrl: 'http://localhost:11434', apiKey: '' }, fetchImpl as unknown as typeof fetch),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('reports a non-JSON answer as a ValidationError', async () => {
+    const fetchImpl = vi.fn(async () => new Response('<html>login page</html>', { status: 200 }));
+    await expect(
+      fetchProviderModels({ kind: 'openai', apiBaseUrl: 'https://api.example.com', apiKey: '' }, fetchImpl as unknown as typeof fetch),
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 
   it('throws a ValidationError on a non-2xx response', async () => {
@@ -57,7 +79,7 @@ describe('fetchProviderModels', () => {
       throw new Error('ECONNREFUSED');
     });
     await expect(
-      fetchProviderModels({ kind: 'openai', apiBaseUrl: 'https://x', apiKey: '' }, fetchImpl as unknown as typeof fetch),
+      fetchProviderModels({ kind: 'openai', apiBaseUrl: 'https://api.example.com', apiKey: '' }, fetchImpl as unknown as typeof fetch),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 });

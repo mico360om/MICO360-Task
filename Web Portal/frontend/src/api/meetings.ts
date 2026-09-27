@@ -37,6 +37,11 @@ export interface Meeting {
   createdById: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Whether the signed-in user may manage this meeting (edit, cancel, delete, invitations, minutes
+   * email, attendees, agenda). Missing on older servers — treat that as `true`.
+   */
+  canEdit?: boolean;
 }
 
 export interface Attendee {
@@ -279,7 +284,8 @@ export function meetingsApi(client: ApiClient) {
 
     /** ⭐ Promote a note into a board task; returns the created task and the back-linked note. */
     createTaskFromNote: (meetingId: string, noteId: string, input: CreateTaskFromNoteInput) =>
-      client.post<{ data: { task: NoteTask; note: MeetingNote } }>(`/meetings/${meetingId}/notes/${noteId}/task`, input).then((r) => r.data),
+      // `assigneeError`: the task was created, but assigning it failed (e.g. the person can't see the project).
+      client.post<{ data: { task: NoteTask; note: MeetingNote; assigneeError?: string } }>(`/meetings/${meetingId}/notes/${noteId}/task`, input).then((r) => r.data),
 
     /** Download the Minutes of Meeting as a PDF blob. */
     exportMinutesPdf: (meetingId: string) => client.getBlob(`/meetings/${meetingId}/minutes.pdf`),

@@ -1,3 +1,6 @@
+import { useAuthStore } from '../stores/auth-store';
+import { userStorageKey } from './user-storage';
+
 /** The full My Tasks filter state a saved view captures. */
 export interface TaskFilters {
   project: string;
@@ -25,7 +28,23 @@ export const BUILT_IN_VIEWS: SavedView[] = [
   { id: 'builtin:urgent', name: 'Urgent open', builtIn: true, filters: { ...EMPTY_FILTERS, priority: 'URGENT', sort: 'due' } },
 ];
 
-const KEY = 'mico360.mytasks.views';
+/** Pre-per-user builds stored everyone's views under one key; the first signed-in reader adopts them. */
+const LEGACY_KEY = 'mico360.mytasks.views';
+
+/** Views belong to the signed-in person (`mico360.u.<id>.mytasks.views`) so the next user never sees them. */
+function storageKey(): string {
+  const userId = useAuthStore.getState().user?.id;
+  if (!userId) return LEGACY_KEY;
+  const key = userStorageKey(userId, 'mytasks.views');
+  try {
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy !== null && localStorage.getItem(key) === null) localStorage.setItem(key, legacy);
+    if (legacy !== null) localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+  return key;
+}
 const FIELDS: (keyof TaskFilters)[] = ['project', 'status', 'priority', 'assignee', 'due', 'sort'];
 const ACTIVE_FIELDS: (keyof TaskFilters)[] = ['project', 'status', 'priority', 'assignee', 'due'];
 
@@ -39,7 +58,7 @@ function newId(): string {
 /** Read the user's saved custom views from localStorage (never throws). */
 export function loadCustomViews(): SavedView[] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -53,7 +72,7 @@ export function loadCustomViews(): SavedView[] {
 
 function persist(views: SavedView[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(views));
+    localStorage.setItem(storageKey(), JSON.stringify(views));
   } catch { /* storage unavailable — presets are a convenience */ }
 }
 

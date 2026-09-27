@@ -1,4 +1,5 @@
 import type { ApiTask } from './types';
+import { daysUntilDue } from './due-date';
 
 export interface TaskSummary {
   total: number;
@@ -11,12 +12,14 @@ export interface TaskSummary {
   upcoming: ApiTask[];
 }
 
-const startOfDay = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 const dueTime = (t: ApiTask): number => new Date(t.dueDate as string).getTime();
 
-/** Bucket a user's tasks for the Dashboard / My Tasks screens (A3). */
+/**
+ * Bucket a user's tasks for the Dashboard / My Tasks screens (A3, XP-03). "Today" is the company
+ * time-zone date and a due date is its own calendar day, so a task due today is "Due today" all
+ * day long (not overdue from 04:00), matching the web portal and the API.
+ */
 export function summarizeTasks(tasks: ApiTask[], now: Date): TaskSummary {
-  const today = startOfDay(now);
   const overdue: ApiTask[] = [];
   const dueToday: ApiTask[] = [];
   const upcoming: ApiTask[] = [];
@@ -27,10 +30,10 @@ export function summarizeTasks(tasks: ApiTask[], now: Date): TaskSummary {
       completed += 1;
       continue;
     }
-    if (!task.dueDate) continue;
-    const day = startOfDay(new Date(task.dueDate));
-    if (day < today) overdue.push(task);
-    else if (day === today) dueToday.push(task);
+    const days = daysUntilDue(task.dueDate, now);
+    if (days === null) continue;
+    if (days < 0) overdue.push(task);
+    else if (days === 0) dueToday.push(task);
     else upcoming.push(task);
   }
 

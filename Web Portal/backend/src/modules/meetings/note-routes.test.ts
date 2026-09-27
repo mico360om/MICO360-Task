@@ -8,7 +8,7 @@ import type { NoteRepository, NoteRecord, CreateNoteData, UpdateNoteData } from 
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 
-function meetingRepo(): MeetingRepository {
+function meetingRepo(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
   let seq = 0;
   return {
@@ -30,7 +30,7 @@ function meetingRepo(): MeetingRepository {
     async markInvitesSent() {},
     async markReminderSent() {},
     async listUpcomingWithoutReminder() { return []; },
-    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: [] } : null; },
+    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: attendeesOf[id] ?? [] } : null; },
   };
 }
 
@@ -51,6 +51,8 @@ function noteRepo(): NoteRepository {
     async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
     async remove(id) { rows.delete(id); },
+    async claimTask(id, marker) { const r = rows.get(id); if (!r || r.taskId) return false; rows.set(id, { ...r, taskId: marker }); return true; },
+    async releaseTaskClaim(id, marker) { const r = rows.get(id); if (r && r.taskId === marker) rows.set(id, { ...r, taskId: null }); },
   };
 }
 
@@ -60,15 +62,15 @@ const tokenService = createTokenService({
 });
 const tokenFor = async (id: string, roles: string[]) => (await tokenService.issueTokens({ id, roles })).accessToken;
 
-async function makeApp() {
+async function makeApp(attendeesOf: Record<string, string[]> = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  const meetings = meetingRepo();
+  const meetings = meetingRepo(attendeesOf);
   const meetingService = createMeetingService({ meetings });
   const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return false; }, async accessibleProjectIds() { return []; } } });
-  const noteService = createNoteService({ notes: noteRepo() });
+  const noteService = createNoteService({ notes: noteRepo(), canEditMeeting: meetingAccess.canEditMeeting });
   return buildApp({ authService, tokenService, meetingService, meetingAccess, noteService });
 }
 
@@ -132,5 +134,31 @@ describe('Note routes', () => {
     expect(res.statusCode).toBe(204);
     const list = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/notes`, headers: { authorization: auth } });
     expect(list.json().data).toHaveLength(0);
+  });
+});
+
+describe('Note routes — authorship (SEC-06)', () => {
+  it('lets only the author edit a note; the organizer may highlight or remove it; other attendees neither', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const app = await makeApp(attendeesOf);
+    const id = await ownedMeeting(app, 'u1');
+    attendeesOf[id] = ['u2', 'u3'];
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const author = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+    const other = { authorization: `Bearer ${await tokenFor('u3', ['EMPLOYEE'])}` };
+    const noteId = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/notes`, headers: author, payload: { body: 'Budget approved' } })).json().data.id;
+    const patch = (headers: Record<string, string>, payload: Record<string, unknown>) =>
+      app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers, payload });
+
+    expect((await patch(other, { body: 'Budget rejected' })).statusCode).toBe(403);
+    expect((await patch(other, { highlighted: true })).statusCode).toBe(403);
+    expect((await patch(organizer, { body: 'Budget rejected' })).statusCode).toBe(403);
+    const lit = await patch(organizer, { highlighted: true });
+    expect(lit.statusCode).toBe(200);
+    expect(lit.json().data).toMatchObject({ highlighted: true, body: 'Budget approved', editedAt: null });
+    expect((await patch(author, { body: 'Budget approved (with cuts)' })).json().data.editedAt).toBeTruthy();
+
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: other })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: organizer })).statusCode).toBe(204);
   });
 });

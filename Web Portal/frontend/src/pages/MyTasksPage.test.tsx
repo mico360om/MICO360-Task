@@ -57,4 +57,51 @@ describe('MyTasksPage', () => {
     // this is the wiring that was missing (the card had no onClick / no drawer).
     await waitFor(() => expect(calls.some((u) => /\/tasks\/t1(\?|$)/.test(u))).toBe(true));
   });
+
+  it('Space on a row checkbox selects the row instead of opening the task', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const box = await screen.findByRole('checkbox', { name: 'Select MICO-1' });
+    box.focus();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.keyboard(' ');
+    expect(box).toBeChecked();
+    expect(screen.getByText(/1 selected/i)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /task/i })).not.toBeInTheDocument();
+  });
+
+  it('says "Due today" (not overdue) for a task due today in the company time zone, and never flags done work', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-30T10:00:00Z')); // 14:00 Muscat
+    try {
+      const t = (id: string, extra: Record<string, unknown>) => ({ id, key: id.toUpperCase(), title: `Task ${id}`, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', ...extra });
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+        if (u.includes('/tasks/mine')) return json({ data: [
+          t('a', { dueDate: '2026-09-30T00:00:00.000Z' }),
+          t('b', { dueDate: '2026-09-01T00:00:00.000Z', columnCategory: 'DONE' }),
+        ] });
+        return json({ data: [] });
+      }));
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <MyTasksPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      expect(await screen.findByText('Due today')).toBeInTheDocument();
+      expect(screen.queryByText(/overdue ·/i)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

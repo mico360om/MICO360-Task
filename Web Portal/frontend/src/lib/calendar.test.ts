@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupTasksByDueDate, monthGrid, weekDays } from './calendar';
+import { groupTasksByDueDate, monthGrid, weekDays, shiftMonth, monthOf } from './calendar';
 import type { ApiTask } from '../api/tasks';
 
 const dow = (key: string) => new Date(`${key}T00:00:00Z`).getUTCDay();
@@ -64,5 +64,27 @@ describe('weekDays', () => {
     expect(dow(days[0]!)).toBe(0);
     expect(consecutive(days)).toBe(true);
     expect(days).toContain('2026-09-09');
+  });
+});
+
+describe('shiftMonth', () => {
+  it('steps to the 1st of the next/previous month even from the 29th–31st (no skipped months)', () => {
+    expect(shiftMonth('2026-10-31', 1)).toBe('2026-11-01');
+    expect(shiftMonth('2026-01-31', 1)).toBe('2026-02-01');
+    expect(shiftMonth('2026-01-29', 1)).toBe('2026-02-01');
+    expect(shiftMonth('2026-03-31', -1)).toBe('2026-02-01');
+    expect(shiftMonth('2026-12-15', 1)).toBe('2027-01-01');
+  });
+
+  it('reads the year and month of a key', () => {
+    expect(monthOf('2026-11-01')).toEqual({ year: 2026, month0: 10 });
+  });
+});
+
+describe('groupTasksByDueDate in the company zone', () => {
+  it('keeps a date-only (UTC-midnight) due date on its own day in any zone', () => {
+    const t: ApiTask = { ...base, id: '1', key: 'A', dueDate: '2026-09-30T00:00:00.000Z' };
+    expect(groupTasksByDueDate([t], 'America/New_York')[0]!.date).toBe('2026-09-30');
+    expect(groupTasksByDueDate([t], 'Asia/Muscat')[0]!.date).toBe('2026-09-30');
   });
 });

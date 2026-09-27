@@ -94,6 +94,17 @@ describe('ActionItemService', () => {
     expect(mine[0]!.overdue).toBe(false);
   });
 
+  it('treats the due date as a calendar day in the company zone (XP-03)', async () => {
+    // Due 2026-10-01 (stored as UTC midnight = 04:00 in Muscat).
+    const due = at('2026-10-01T00:00:00Z');
+    const lateOnDueDay = createActionItemService({ actionItems: inMemory(), timeZone: 'Asia/Muscat', now: () => at('2026-10-01T19:59:00Z') }); // 23:59 Muscat
+    const a = await lateOnDueDay.addItem('m1', 'u1', { description: 'Today', assigneeId: 'u2', dueDate: due });
+    expect((await lateOnDueDay.listMine('u2')).find((x) => x.id === a.id)!.overdue).toBe(false);
+    const nextDay = createActionItemService({ actionItems: inMemory(), timeZone: 'Asia/Muscat', now: () => at('2026-10-01T20:00:00Z') }); // 00:00 Muscat, Oct 2
+    await nextDay.addItem('m1', 'u1', { description: 'Yesterday', assigneeId: 'u2', dueDate: due });
+    expect((await nextDay.listMine('u2'))[0]!.overdue).toBe(true);
+  });
+
   it('removes an item', async () => {
     const svc = createActionItemService({ actionItems: inMemory() });
     const a = await svc.addItem('m1', 'u1', { description: 'Temp' });

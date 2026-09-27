@@ -16,6 +16,9 @@ import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Avatar } from '../components/ui/Avatar';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
+import { isOverdue as isPastDue } from '../lib/due-date';
+import { formatDueDay } from '../lib/due-display';
+import { useCompanyTimeZone } from '../lib/company-clock';
 
 type Tab = 'overview' | 'tasks' | 'team';
 
@@ -38,12 +41,14 @@ export function ProjectDetailPage() {
   const myId = useAuthStore((s) => s.user?.id);
   const [tab, setTab] = useState<Tab>('overview');
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const timeZone = useCompanyTimeZone();
 
   const projectQ = useQuery({ queryKey: ['project', id], queryFn: () => projectsApi(apiClient).get(id), enabled: !!id });
   const columnsQ = useQuery({ queryKey: ['columns', id], queryFn: () => columnsApi(apiClient).list(id), enabled: !!id });
   const tasksQ = useQuery({ queryKey: ['project-tasks', id], queryFn: () => tasksApi(apiClient).list(id), enabled: !!id });
   const membersQ = useQuery({ queryKey: ['members', id], queryFn: () => membersApi(apiClient).list(id), enabled: !!id });
-  const usersQ = useQuery({ queryKey: ['users'], queryFn: () => usersApi(apiClient).list(), enabled: isAdmin && tab === 'team' });
+  // The people directory (any signed-in user may read it) — powers owner names and, for admins and this
+  // project's managers, the "Add a member" picker (the admin-only /users list would fail for managers).
   const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
 
   const invalidateMembers = () => qc.invalidateQueries({ queryKey: ['members', id] });
@@ -87,23 +92,27 @@ export function ProjectDetailPage() {
   const columnById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
   const tasks = useMemo(() => (Array.isArray(tasksQ.data) ? tasksQ.data : []), [tasksQ.data]);
 
+  /** Finished = in a DONE column or completed. */
+  const isDone = (t: ApiTask) => (columnById.get(t.columnId)?.category ?? t.columnCategory ?? 'TODO') === 'DONE' || !!t.completedAt;
+  /** Overdue = not finished and its due day is before today in the company time zone. */
+  const isOverdue = (t: ApiTask) => !isDone(t) && isPastDue(t.dueDate, timeZone);
+
   const stats = useMemo(() => {
-    const now = Date.now();
     let completed = 0;
     let inProgress = 0;
     let overdue = 0;
     for (const t of tasks) {
       const cat = columnById.get(t.columnId)?.category ?? 'TODO';
-      if (cat === 'DONE') {
+      if (isDone(t)) {
         completed += 1;
         continue;
       }
       if (cat === 'IN_PROGRESS') inProgress += 1;
-      if (t.dueDate && new Date(t.dueDate).getTime() < now) overdue += 1;
+      if (isPastDue(t.dueDate, timeZone)) overdue += 1;
     }
     const total = tasks.length;
     return { total, completed, inProgress, overdue, pct: total ? Math.round((completed / total) * 100) : 0 };
-  }, [tasks, columnById]);
+  }, [tasks, columnById, timeZone]);
 
   // Tasks grouped by their status column (in board order), plus any orphaned tasks.
   const groups = useMemo(() => {
@@ -114,8 +123,6 @@ export function ProjectDetailPage() {
     return base;
   }, [columns, tasks]);
 
-  const isOverdue = (t: ApiTask) =>
-    !!t.dueDate && new Date(t.dueDate).getTime() < Date.now() && (columnById.get(t.columnId)?.category ?? 'TODO') !== 'DONE';
 
   // AI: a plain-language status summary from the live task stats + a few open task titles.
   const summarizeProject = () => {
@@ -177,13 +184,13 @@ export function ProjectDetailPage() {
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-2xl font-bold text-ink">{project?.name ?? 'Project'}</h1>
+            <h1 dir="auto" className="font-display text-2xl font-bold text-ink">{project?.name ?? 'Project'}</h1>
             {project ? <Badge tone={PROJECT_STATUS_TONE[project.status] ?? 'neutral'} dot>{statusLabel(project.status)}</Badge> : null}
           </div>
           {project ? (
             <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-ink-2">
               <span className="font-mono">{project.code}</span>
-              {project.clientName ? <><span aria-hidden>·</span><span>{project.clientName}</span></> : null}
+              {project.clientName ? <><span aria-hidden>·</span><span dir="auto">{project.clientName}</span></> : null}
               <span aria-hidden>·</span>
               <span>Owner: {ownerName(project.ownerId)}</span>
             </p>
@@ -247,7 +254,7 @@ export function ProjectDetailPage() {
               <div className="space-y-4 lg:col-span-2">
                 <section className="card p-5">
                   <h2 className="eyebrow mb-2">About</h2>
-                  <p className="text-sm text-ink-2">{project.description || 'No description yet.'}</p>
+                  <p dir="auto" className="text-start text-sm text-ink-2">{project.description || 'No description yet.'}</p>
                   <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
                     <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Owner</span>
                     {canManage ? (
@@ -266,7 +273,7 @@ export function ProjectDetailPage() {
                     <span className="text-xs text-ink-3">New tasks default-assign to the owner.</span>
                   </div>
                   <div className="mt-4 flex gap-2">
-                    <Link to="/board" className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand">Open board</Link>
+                    <Link to={`/board?project=${encodeURIComponent(id)}`} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand">Open board</Link>
                     <button onClick={() => setTab('tasks')} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-ground">View all tasks</button>
                   </div>
                 </section>
@@ -331,7 +338,7 @@ export function ProjectDetailPage() {
                   </div>
                   <div className="card divide-y divide-line overflow-hidden">
                     {g.tasks.map((t) => (
-                      <TaskRow key={t.id} task={t} statusName={g.name} statusColor={g.color} overdue={isOverdue(t)} onOpen={() => setOpenTaskId(t.id)} />
+                      <TaskRow key={t.id} task={t} statusName={g.name} statusColor={g.color} overdue={isOverdue(t)} dueText={formatDueDay(t.dueDate, timeZone)} onOpen={() => setOpenTaskId(t.id)} />
                     ))}
                   </div>
                 </section>
@@ -346,7 +353,7 @@ export function ProjectDetailPage() {
             <h2 className="eyebrow mb-3">Team members</h2>
             <ProjectMembers
               members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
-              addableUsers={(usersQ.data ?? []).map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const }))}
+              addableUsers={canManage ? directory.map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const })) : []}
               canManage={canManage}
               onAdd={(userId) => addM.mutate(userId)}
               onRemove={(userId) => removeM.mutate(userId)}
@@ -391,9 +398,11 @@ interface TaskRowProps {
   statusName: string;
   statusColor: string;
   overdue: boolean;
+  /** The due date's calendar day, already formatted. */
+  dueText: string;
   onOpen: () => void;
 }
-function TaskRow({ task, statusName, statusColor, overdue, onOpen }: TaskRowProps) {
+function TaskRow({ task, statusName, statusColor, overdue, dueText, onOpen }: TaskRowProps) {
   const assignees = task.assignees ?? [];
   return (
     <button
@@ -402,7 +411,7 @@ function TaskRow({ task, statusName, statusColor, overdue, onOpen }: TaskRowProp
       className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ground/60"
     >
       <span className="w-16 flex-none font-mono text-xs text-ink-3">{task.key}</span>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{task.title}</span>
+      <span dir="auto" className="min-w-0 flex-1 truncate text-start text-sm font-medium text-ink">{task.title}</span>
 
       {/* Status pill */}
       <span className="hidden items-center gap-1.5 rounded-md bg-ground px-2 py-0.5 text-xs font-medium text-ink-2 sm:inline-flex">
@@ -424,7 +433,7 @@ function TaskRow({ task, statusName, statusColor, overdue, onOpen }: TaskRowProp
 
       {/* Due date */}
       <span className={`hidden w-24 flex-none text-right text-xs tabular-nums sm:block ${overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>
-        {task.dueDate ? fmtDate(task.dueDate) : '—'}
+        {dueText || '—'}
       </span>
     </button>
   );

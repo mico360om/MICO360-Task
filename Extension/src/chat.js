@@ -4,6 +4,36 @@
  * that raw data into display rows and an unread total for the toolbar badge.
  */
 
+/** Inbox preview shown for a conversation whose latest message was deleted. */
+export const DELETED_PREVIEW = 'Message deleted';
+
+/**
+ * A chat message that is safe to store and show: a deleted message keeps no text and no
+ * attachments (CHAT-01), whatever an older server sent. Applied before anything is cached.
+ */
+export function sanitizeMessage(m) {
+  if (!m || !m.deletedAt) return m;
+  return { ...m, body: '', attachments: [] };
+}
+
+export function sanitizeMessages(list) {
+  return Array.isArray(list) ? list.map(sanitizeMessage) : list;
+}
+
+/** Inbox summaries with each `lastMessage` sanitized. */
+export function sanitizeSummaries(list) {
+  return Array.isArray(list)
+    ? list.map((s) => (s && s.lastMessage ? { ...s, lastMessage: sanitizeMessage(s.lastMessage) } : s))
+    : list;
+}
+
+/** One-line inbox preview of a conversation's latest message — never a deleted message's text. */
+export function messagePreview(m) {
+  if (!m) return '';
+  if (m.deletedAt) return DELETED_PREVIEW;
+  return m.body || '';
+}
+
 /** Total unread messages across all of the user's conversations (for the badge). */
 export function unreadTotal(summaries) {
   return (summaries ?? []).reduce((sum, s) => sum + (s?.unread || 0), 0);
@@ -33,7 +63,7 @@ export function describeConversations(summaries, { directory = [], myId, project
         kind: conv.kind,
         title,
         unread: s.unread || 0,
-        preview: (s.lastMessage && s.lastMessage.body) || '',
+        preview: messagePreview(s.lastMessage),
       };
     })
     .sort((a, b) => b.unread - a.unread);

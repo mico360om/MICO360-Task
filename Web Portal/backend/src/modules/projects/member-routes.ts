@@ -5,8 +5,9 @@ import type { ProjectAuthz } from './project-authz';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
 import { ForbiddenError } from '../../lib/http-errors';
+import { idString } from '../tasks/validation';
 
-const addSchema = z.object({ userIds: z.array(z.string().min(1)).min(1) });
+const addSchema = z.object({ userIds: z.array(idString).min(1).max(500) });
 const roleSchema = z.object({ role: z.enum(['MEMBER', 'MANAGER']) });
 
 export interface MemberRouteDeps {

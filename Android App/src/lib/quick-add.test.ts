@@ -52,6 +52,12 @@ describe('buildCreateTaskInput (A4.3 quick add)', () => {
     if (none.ok) expect(none.value.assigneeIds).toBeUndefined();
   });
 
+  it('carries the board date so an offline-queued create lands on the right day (XP-06)', () => {
+    const r = buildCreateTaskInput({ ...form, boardDate: '2026-09-27' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.boardDate).toBe('2026-09-27');
+  });
+
   it('rejects an empty title', () => {
     const r = buildCreateTaskInput({ ...form, title: '   ' });
     expect(r).toEqual({ ok: false, error: 'A task title is required.' });
@@ -66,6 +72,10 @@ describe('buildCreateTaskInput (A4.3 quick add)', () => {
 describe('parseTags', () => {
   it('splits on commas, trims, drops blanks and de-duplicates case-insensitively', () => {
     expect(parseTags('urgent, Backend ,urgent,, UX Review')).toEqual(['urgent', 'Backend', 'UX Review']);
+  });
+  it('splits on the Arabic comma and semicolons too (ARB-04)', () => {
+    expect(parseTags('عاجل، مالية')).toEqual(['عاجل', 'مالية']);
+    expect(parseTags('a;b؛c,d')).toEqual(['a', 'b', 'c', 'd']);
   });
   it('returns an empty array for blank input', () => {
     expect(parseTags('   ')).toEqual([]);

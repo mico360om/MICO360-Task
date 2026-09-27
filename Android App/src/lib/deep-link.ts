@@ -3,7 +3,8 @@ export type LinkTarget =
   | { screen: 'TaskDetail'; params: { taskId: string } }
   | { screen: 'Board'; params: { projectId: string } }
   | { screen: 'Chat' }
-  | { screen: 'Notifications' };
+  | { screen: 'Notifications' }
+  | { screen: 'Reset'; params: { token: string } };
 
 /**
  * Parse an incoming URL (custom scheme `mico360://…` or an https universal link)
@@ -12,8 +13,15 @@ export type LinkTarget =
 export function parseDeepLink(url: string): LinkTarget | null {
   const match = /^(?:mico360:\/\/|https?:\/\/[^/]+\/)(.*)$/i.exec(url.trim());
   if (!match) return null;
-  const path = (match[1] ?? '').replace(/^\/+/, '').replace(/[?#].*$/, '');
+  const rest = (match[1] ?? '').replace(/^\/+/, '');
+  const path = rest.replace(/[?#].*$/, '');
   const [segment, id] = path.split('/');
+
+  // Password-reset e-mail link: https://task.mico360.com/reset?token=… (MOB-09).
+  if (segment === 'reset' && !id) {
+    const token = extractResetToken(rest);
+    return token && token !== rest ? { screen: 'Reset', params: { token } } : null;
+  }
 
   if (segment === 'task' && id) return { screen: 'TaskDetail', params: { taskId: id } };
   if (segment === 'project' && id) return { screen: 'Board', params: { projectId: id } };
@@ -35,4 +43,20 @@ export function notificationToTarget(data: Record<string, unknown>): LinkTarget 
   if (entityType === 'project' && entityId) return { screen: 'Board', params: { projectId: entityId } };
   if (entityType === 'conversation') return { screen: 'Chat' };
   return { screen: 'Notifications' };
+}
+
+/**
+ * The reset token from whatever the user has: the full e-mail link
+ * (`https://task.mico360.com/reset?token=…`), a query fragment (`reset?token=…`), or the bare
+ * token they copied (MOB-09). Returns '' for blank input.
+ */
+export function extractResetToken(input: string): string {
+  const s = input.trim();
+  const m = /[?&]token=([^&#\s]+)/.exec(s);
+  if (!m) return s;
+  try {
+    return decodeURIComponent(m[1]!).trim();
+  } catch {
+    return m[1]!;
+  }
 }

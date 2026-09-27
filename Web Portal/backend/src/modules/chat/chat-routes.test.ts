@@ -32,9 +32,11 @@ function makeRepos() {
     async createProject(pid) { const c: Conversation = { id: id('conv'), kind: 'PROJECT', projectId: pid, createdAt: new Date() }; convs.set(c.id, c); return c; },
     async createDirect() { const c: Conversation = { id: id('conv'), kind: 'DIRECT', projectId: null, createdAt: new Date() }; convs.set(c.id, c); return c; },
     async listByIds(ids) { return ids.map((i) => convs.get(i)).filter((c): c is Conversation => !!c); },
+    async listProjectConversations(pids) { return [...convs.values()].filter((c) => c.kind === 'PROJECT' && c.projectId !== null && pids.includes(c.projectId)); },
   };
   const participants: ParticipantRepository = {
     async add(conversationId, userId) { let p = parts.find((x) => x.conversationId === conversationId && x.userId === userId); if (!p) { p = { conversationId, userId, lastReadAt: null, addedAt: new Date() }; parts.push(p); } return p; },
+    async remove(conversationId, userId) { const i = parts.findIndex((x) => x.conversationId === conversationId && x.userId === userId); if (i >= 0) parts.splice(i, 1); },
     async find(conversationId, userId) { return parts.find((x) => x.conversationId === conversationId && x.userId === userId) ?? null; },
     async listByConversation(conversationId) { return parts.filter((x) => x.conversationId === conversationId); },
     async listConversationIdsForUser(userId) { return [...new Set(parts.filter((x) => x.userId === userId).map((x) => x.conversationId))]; },
@@ -45,7 +47,7 @@ function makeRepos() {
     async findById(mid) { return msgs.get(mid) ?? null; },
     async list(conversationId, o) { let l = [...msgs.values()].filter((m) => m.conversationId === conversationId); if (o.before) l = l.filter((m) => m.createdAt < o.before!); return l.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, o.limit); },
     async update(mid, body) { const m = { ...msgs.get(mid)!, body, editedAt: new Date() }; msgs.set(mid, m); return m; },
-    async softDelete(mid) { const m = { ...msgs.get(mid)!, deletedAt: new Date() }; msgs.set(mid, m); return m; },
+    async softDelete(mid) { const m = { ...msgs.get(mid)!, body: '', deletedAt: new Date() }; msgs.set(mid, m); return m; },
     async countAfter(cid, after, ex) { return [...msgs.values()].filter((m) => m.conversationId === cid && !m.deletedAt && m.userId !== ex && (!after || m.createdAt > after)).length; },
     async latest(cid) { return [...msgs.values()].filter((m) => m.conversationId === cid).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null; },
   };
@@ -55,8 +57,9 @@ function makeRepos() {
     async listByMessages(ids) { return reactions.filter((r) => ids.includes(r.messageId)); },
   };
   const memberLookup: ChatMemberLookup = {
-    async isProjectMember(pid, uid) { return (members[pid] ?? []).includes(uid); },
-    async projectIdsForUser(uid) { return Object.keys(members).filter((pid) => members[pid]!.includes(uid)); },
+    async canAccessProject(pid, uid) { return (members[pid] ?? []).includes(uid); },
+    async accessibleProjectIds(uid) { return Object.keys(members).filter((pid) => members[pid]!.includes(uid)); },
+    async isActiveUser(uid) { return ['u1', 'u2', 'u3'].includes(uid); },
   };
   return { conversations, participants, messages, reactions: reactionRepo, members: memberLookup };
 }
@@ -69,17 +72,43 @@ const tokenService = createTokenService({
 const projectEvents: { projectId: string; event: string; payload: unknown }[] = [];
 const userEvents: { userId: string; event: string; payload: unknown }[] = [];
 
+/** Fake disk: records saved and removed keys so tests can assert nothing is orphaned. */
+function fakeStorage() {
+  const saved: string[] = [];
+  const removed: string[] = [];
+  let seq = 0;
+  return {
+    saved,
+    removed,
+    async save() { const storageKey = `file-${seq++}`; saved.push(storageKey); return { storageKey, url: `/uploads/${storageKey}`, sizeBytes: 5 }; },
+    async remove(key: string) { removed.push(key); },
+  };
+}
+let storage = fakeStorage();
+
 async function makeApp() {
   const chatService = createMessageService(makeRepos());
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
+  storage = fakeStorage();
   return buildApp({
-    authService, tokenService, chatService,
+    authService, tokenService, chatService, chatAttachmentStorage: storage,
     onTaskEvent: (projectId, event, payload) => { projectEvents.push({ projectId, event, payload }); },
     onChatUserEvent: (userId, event, payload) => { userEvents.push({ userId, event, payload }); },
   });
+}
+
+/** A multipart body with an optional `body` caption field before a small text file. */
+function multipart(caption?: string) {
+  const boundary = '----mico360test';
+  const parts = [
+    ...(caption !== undefined ? [`--${boundary}\r\nContent-Disposition: form-data; name="body"\r\n\r\n${caption}\r\n`] : []),
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="notes.txt"\r\nContent-Type: text/plain\r\n\r\nhello\r\n`,
+    `--${boundary}--\r\n`,
+  ];
+  return { payload: parts.join(''), headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
 }
 async function token(id: string) { return (await tokenService.issueTokens({ id, roles: ['EMPLOYEE'] })).accessToken; }
 
@@ -139,5 +168,91 @@ describe('Chat routes — direct messages', () => {
     await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers: await auth('u1'), payload: { body: 'hey' } });
     const recipients = userEvents.filter((e) => e.event === 'chat:message').map((e) => e.userId).sort();
     expect(recipients).toEqual(['u1', 'u2']);
+  });
+
+  it('refuses a DM with a user who does not exist (404)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers: await auth('u1'), payload: { userId: 'ghost' } });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('Chat routes — validation and deleted messages (CHAT-01/04)', () => {
+  it('rejects bad paging parameters with 400 instead of 500', async () => {
+    const headers = await auth('u1');
+    const convId = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    for (const q of ['before=yesterday', 'limit=abc', 'limit=0', 'limit=1000']) {
+      expect((await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages?${q}`, headers })).statusCode).toBe(400);
+    }
+    const ok = await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages?limit=10&before=${encodeURIComponent(new Date().toISOString())}`, headers });
+    expect(ok.statusCode).toBe(200);
+  });
+
+  it('rejects a whitespace-only message (400)', async () => {
+    const headers = await auth('u1');
+    const convId = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    expect((await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers, payload: { body: '   ' } })).statusCode).toBe(400);
+  });
+
+  it('returns a deleted message with an empty body through the API', async () => {
+    const headers = await auth('u1');
+    const convId = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const msgId = (await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers, payload: { body: 'pw: hunter2' } })).json().data.id;
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/messages/${msgId}`, headers })).statusCode).toBe(204);
+    const history = (await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages`, headers: await auth('u2') })).json().data;
+    expect(history[0]).toMatchObject({ id: msgId, body: '', attachments: [] });
+    expect(history[0].deletedAt).toBeTruthy();
+    const inbox = (await app.inject({ method: 'GET', url: '/api/v1/conversations', headers: await auth('u2') })).json().data;
+    expect(JSON.stringify(inbox)).not.toContain('hunter2');
+  });
+});
+
+describe('Chat routes — attachments (SEC-14)', () => {
+  it('checks access before storing anything', async () => {
+    const headers = await auth('u1');
+    const convId = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const mp = multipart('hi');
+    const missing = await app.inject({ method: 'POST', url: '/api/v1/conversations/made-up/attachments', headers: { ...(await auth('u1')), ...mp.headers }, payload: mp.payload });
+    expect(missing.statusCode).toBe(404);
+    const forbidden = await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...(await auth('stranger')), ...mp.headers }, payload: mp.payload });
+    expect(forbidden.statusCode).toBe(403);
+    expect(storage.saved).toHaveLength(0);
+  });
+
+  it('stores the file and posts the message for a member', async () => {
+    const headers = await auth('u1');
+    const convId = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const mp = multipart('  the notes  ');
+    const res = await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.body).toBe('the notes');
+    expect(storage.saved).toHaveLength(1);
+    expect(storage.removed).toHaveLength(0);
+  });
+
+  it('removes the stored file when the message cannot be saved', async () => {
+    const repos = makeRepos();
+    const chatService = createMessageService({ ...repos, messages: { ...repos.messages, async create() { throw new Error('db down'); } } });
+    const disk = fakeStorage();
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const failing = await buildApp({ authService, tokenService, chatService, chatAttachmentStorage: disk });
+    const headers = await auth('u1');
+    const convId = (await failing.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const mp = multipart();
+    const res = await failing.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(res.statusCode).toBe(500);
+    expect(disk.saved).toHaveLength(1);
+    expect(disk.removed).toEqual(disk.saved);
+  });
+
+  it('applies the 4,000-character limit to captions before storing the file', async () => {
+    const headers = await auth('u1');
+    const convId = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const mp = multipart('x'.repeat(4001));
+    const res = await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, ...mp.headers }, payload: mp.payload });
+    expect(res.statusCode).toBe(400);
+    expect(storage.saved).toHaveLength(0);
   });
 });

@@ -45,6 +45,26 @@ describe('mutationRequest (offline write mapping)', () => {
     expect(body(cs)).toEqual({ body: 'yo' });
   });
 
+  it('adds the Idempotency-Key header to POSTs only', () => {
+    const withKey = (kind, payload) => mutationRequest({ kind, payload, idempotencyKey: 'k-9' });
+    for (const [kind, payload] of [
+      ['task.create', { title: 'x' }],
+      ['task.assign', { id: 't1', userIds: ['u1'] }],
+      ['comment.add', { id: 't1', body: 'b' }],
+      ['checklist.add', { id: 't1', text: 's' }],
+      ['chat.send', { conversationId: 'c', body: 'b' }],
+    ]) {
+      expect(withKey(kind, payload).init.headers).toEqual({ 'Idempotency-Key': 'k-9' });
+    }
+    expect(withKey('task.move', { id: 't1', columnId: 'c', position: 0 }).init.headers).toBeUndefined();
+    expect(withKey('task.unassign', { id: 't1', userId: 'u1' }).init).toEqual({ method: 'DELETE' });
+  });
+
+  it('body-less requests (unassign, mark read) carry no body, so no JSON Content-Type is declared (EXT-02)', () => {
+    expect(mutationRequest({ kind: 'task.unassign', payload: { id: 't1', userId: 'u1' } }).init.body).toBeUndefined();
+    expect(mutationRequest({ kind: 'notification.read', payload: { id: 'n1' } }).init.body).toBeUndefined();
+  });
+
   it('returns null for an unknown kind', () => {
     expect(mutationRequest({ kind: 'nope', payload: {} })).toBeNull();
   });

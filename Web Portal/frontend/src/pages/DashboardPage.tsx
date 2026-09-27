@@ -15,6 +15,9 @@ import { Avatar } from '../components/ui/Avatar';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
+import { daysUntilDue } from '../lib/due-date';
+import { isTaskDone } from '../lib/due-display';
+import { useCompanyTimeZone } from '../lib/company-clock';
 
 // Category colours reference the shared design tokens (rgb(var(--…))) so the
 // charts adapt to light/dark theme instead of being pinned to light-mode hex.
@@ -61,13 +64,9 @@ function timeAgo(iso: string): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-/** How a task's due date reads relative to today. */
-function dueMeta(due: string): { label: string; overdue: boolean } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(due);
-  d.setHours(0, 0, 0, 0);
-  const days = Math.round((d.getTime() - today.getTime()) / 86_400_000);
+/** How a task's due date reads relative to today — calendar days in the company time zone. */
+function dueMeta(due: string, timeZone: string): { label: string; overdue: boolean } {
+  const days = daysUntilDue(due, timeZone) ?? 0;
   if (days < 0) return { label: `${-days}d overdue`, overdue: true };
   if (days === 0) return { label: 'Due today', overdue: false };
   if (days === 1) return { label: 'Due tomorrow', overdue: false };
@@ -79,6 +78,7 @@ export function DashboardPage() {
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const [projectFilter, setProjectFilter] = useState('');
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const timeZone = useCompanyTimeZone();
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const myTasksQ = useQuery({ queryKey: ['my-tasks'], queryFn: () => tasksApi(apiClient).mine() });
@@ -98,18 +98,25 @@ export function DashboardPage() {
   const perfFiltered = projectFilter ? perf.filter((p) => p.projectId === projectFilter) : perf;
   const perfData = perfFiltered.map((p) => ({ label: p.projectName, value: p.completionPct, color: completionColor(p.completionPct) }));
 
-  // Upcoming + overdue work needing attention, earliest first.
+  // Upcoming + overdue work needing attention, earliest first (finished work never counts).
   const dueSoon = useMemo(
     () =>
       [...(allTasksQ.data ?? [])]
-        .filter((t) => t.dueDate && !t.completedAt)
+        .filter((t) => t.dueDate && !isTaskDone(t))
         .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
         .slice(0, 6),
     [allTasksQ.data],
   );
+  const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t)), [myTasksQ.data]);
   const recent = (activityQ.data ?? []).slice(0, 6);
 
-  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const today = (() => {
+    try {
+      return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone });
+    } catch {
+      return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    }
+  })();
 
   return (
     <div className="flex flex-col gap-6">
@@ -179,12 +186,16 @@ export function DashboardPage() {
                   <h2 className="eyebrow">Your open tasks</h2>
                   <Link to="/my-tasks" className="text-xs font-semibold text-brand hover:underline">View all</Link>
                 </div>
-                {(myTasksQ.data ?? []).length === 0 ? (
-                  <EmptyState bare title="Nothing assigned to you" description="Tasks assigned to you will appear here." />
+                {myTasksQ.isLoading ? (
+                  <div className="skeleton h-24 rounded-lg" aria-label="Loading your tasks" />
+                ) : myTasksQ.isError ? (
+                  <LoadError what="your tasks" onRetry={() => void myTasksQ.refetch()} />
+                ) : openTasks.length === 0 ? (
+                  <EmptyState bare title="Nothing open assigned to you" description="Open tasks assigned to you will appear here." />
                 ) : (
                   <ul className="flex flex-col">
-                    {(myTasksQ.data ?? []).slice(0, 8).map((t) => (
-                      <TaskRow key={t.id} task={t} onOpen={() => setOpenTaskId(t.id)} />
+                    {openTasks.slice(0, 8).map((t) => (
+                      <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => setOpenTaskId(t.id)} />
                     ))}
                   </ul>
                 )}
@@ -201,12 +212,17 @@ export function DashboardPage() {
                 <h2 className="eyebrow">Due soon</h2>
                 <Link to="/calendar" className="text-xs font-semibold text-brand hover:underline">Calendar</Link>
               </div>
-              {dueSoon.length === 0 ? (
+              {allTasksQ.isLoading ? (
+                <div className="skeleton h-24 rounded-lg" aria-label="Loading due tasks" />
+              ) : allTasksQ.isError ? (
+                // An outage must never read as "all clear".
+                <LoadError what="due tasks" onRetry={() => void allTasksQ.refetch()} />
+              ) : dueSoon.length === 0 ? (
                 <p className="py-4 text-center text-sm text-ink-2">Nothing due — you’re all clear. 🎉</p>
               ) : (
                 <ul className="flex flex-col">
                   {dueSoon.map((t) => (
-                    <TaskRow key={t.id} task={t} onOpen={() => setOpenTaskId(t.id)} showDue />
+                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => setOpenTaskId(t.id)} showDue />
                   ))}
                 </ul>
               )}
@@ -219,8 +235,10 @@ export function DashboardPage() {
                 <h2 className="eyebrow">Recent activity</h2>
                 <Link to="/activity" className="text-xs font-semibold text-brand hover:underline">View all</Link>
               </div>
-              {recent.length === 0 ? (
-                <p className="py-4 text-center text-sm text-ink-2">No activity yet.</p>
+              {activityQ.isError ? (
+                <LoadError what="recent activity" onRetry={() => void activityQ.refetch()} />
+              ) : recent.length === 0 ? (
+                <p className="py-4 text-center text-sm text-ink-2">{activityQ.isLoading ? 'Loading…' : 'No activity yet.'}</p>
               ) : (
                 <ul className="flex flex-col gap-3">
                   {recent.map((a) => (
@@ -238,8 +256,19 @@ export function DashboardPage() {
   );
 }
 
-function TaskRow({ task, onOpen, showDue }: { task: ApiTask; onOpen: () => void; showDue?: boolean }) {
-  const due = showDue && task.dueDate ? dueMeta(task.dueDate) : null;
+function LoadError({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <p role="alert" className="py-4 text-center text-sm text-danger">
+      Couldn’t load {what}.{' '}
+      <button onClick={onRetry} className="font-semibold underline">
+        Retry
+      </button>
+    </p>
+  );
+}
+
+function TaskRow({ task, onOpen, showDue, timeZone }: { task: ApiTask; onOpen: () => void; showDue?: boolean; timeZone: string }) {
+  const due = showDue && task.dueDate ? dueMeta(task.dueDate, timeZone) : null;
   return (
     <li>
       <button
@@ -247,7 +276,7 @@ function TaskRow({ task, onOpen, showDue }: { task: ApiTask; onOpen: () => void;
         className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors hover:bg-ground"
       >
         <span className="rounded-md bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
-        <span className="min-w-0 flex-1 truncate text-ink">{task.title}</span>
+        <span dir="auto" className="min-w-0 flex-1 truncate text-start text-ink">{task.title}</span>
         {due ? (
           <span className={`whitespace-nowrap text-xs font-medium ${due.overdue ? 'text-danger' : 'text-ink-2'}`}>{due.label}</span>
         ) : (
@@ -265,11 +294,11 @@ function ActivityRow({ a, onOpenTask }: { a: ApiActivity; onOpenTask: (taskId: s
       <Avatar name={who} size="sm" />
       <div className="min-w-0 flex-1">
         <p className="leading-snug text-ink">
-          <span className="font-semibold">{who}</span> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}
+          <span dir="auto" className="font-semibold">{who}</span> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}
           {a.task ? (
             <button onClick={() => onOpenTask(a.task!.id)} className="font-mono text-xs text-brand hover:underline">{a.task.key}</button>
           ) : a.project ? (
-            <span className="text-ink-2">{a.project.name}</span>
+            <span dir="auto" className="text-ink-2">{a.project.name}</span>
           ) : null}
         </p>
         <p className="text-[11px] text-ink-2">{timeAgo(a.createdAt)}</p>

@@ -25,5 +25,9 @@ export interface CreateActivityData {
 export interface ActivityRepository {
   create(data: CreateActivityData): Promise<ActivityRecord>;
   listForTask(taskId: string): Promise<ActivityRecord[]>;
-  listRecent(limit?: number): Promise<ActivityRecord[]>;
+  /**
+   * The newest activity, newest first. With `projectIds`, only activity in those projects — the
+   * filter runs in the query, before the limit, so quiet projects still fill their feed.
+   */
+  listRecent(limit?: number, projectIds?: string[] | null): Promise<ActivityRecord[]>;
 }

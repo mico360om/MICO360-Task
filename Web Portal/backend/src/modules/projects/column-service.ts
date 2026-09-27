@@ -1,3 +1,4 @@
+import { ConflictError } from '../../lib/http-errors';
 import type { ColumnCategory, ColumnRecord, ColumnRepository, UpdateColumnData } from './column-repository';
 
 export interface AddColumnInput {
@@ -33,7 +34,15 @@ export function createColumnService({ columns }: ColumnServiceDeps) {
     return columns.update(id, patch);
   }
 
+  /** Delete a column — only once it's empty, so no task is ever left without a column. */
   async function removeColumn(id: string): Promise<{ projectId: string } | null> {
+    const live = await columns.countLiveTasks(id);
+    if (live > 0) {
+      throw new ConflictError(
+        `This column still has ${live} task${live === 1 ? '' : 's'}. Move ${live === 1 ? 'it' : 'them'} to another column first.`,
+        'COLUMN_NOT_EMPTY',
+      );
+    }
     return columns.remove(id);
   }
 

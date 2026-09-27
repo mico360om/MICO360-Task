@@ -1,4 +1,5 @@
 import type { ApiClient } from './api-client';
+import { idempotencyHeaders } from './idempotency';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -46,9 +47,16 @@ function queryString(params: Record<string, string | undefined>): string {
   return '?' + pairs.map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`).join('&');
 }
 
+/** Optional per-call write options. `idempotencyKey` is sent as the `Idempotency-Key` header. */
+export interface WriteOptions {
+  idempotencyKey?: string;
+}
+
 /**
  * Typed resource functions over the API client (A2). Each unwraps the `{ data }`
  * envelope so callers work with the payload directly. Paths mirror `/api/v1`.
+ * POSTs that create something accept an idempotency key so a retried / replayed write is
+ * de-duplicated by the server (XP-06).
  */
 export function resourcesApi(client: ApiClient) {
   const data = <T>(p: Promise<Envelope<T>>) => p.then((r) => r.data);
@@ -94,7 +102,8 @@ export function resourcesApi(client: ApiClient) {
           tags?: string[];
           assigneeIds?: string[];
         },
-      ) => data(client.post<Envelope<ApiTask>>('/tasks', body)),
+        opts?: WriteOptions,
+      ) => data(client.post<Envelope<ApiTask>>('/tasks', body, idempotencyHeaders(opts?.idempotencyKey))),
       update: (id: string, body: Partial<ApiTask> & { scope?: 'one' | 'series' }) =>
         data(client.put<Envelope<ApiTask>>(`/tasks/${id}`, body)),
       move: (id: string, columnId: string, position?: number) =>
@@ -106,11 +115,13 @@ export function resourcesApi(client: ApiClient) {
       removeTag: (id: string, tagId: string) => client.del<void>(`/tasks/${id}/tags/${tagId}`),
       // Assignees: list, add one or more (idempotent), or remove one.
       assignees: (id: string) => data(client.get<Envelope<ApiAssignee[]>>(`/tasks/${id}/assignees`)),
-      assign: (id: string, userIds: string[]) => data(client.post<Envelope<ApiAssignee[]>>(`/tasks/${id}/assignees`, { userIds })),
+      assign: (id: string, userIds: string[], opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiAssignee[]>>(`/tasks/${id}/assignees`, { userIds }, idempotencyHeaders(opts?.idempotencyKey))),
       unassign: (id: string, userId: string) => client.del<void>(`/tasks/${id}/assignees/${userId}`),
       // Checklist (subtasks): list with progress, add, toggle/edit, reorder, remove.
       checklist: (id: string) => data(client.get<Envelope<ApiChecklist>>(`/tasks/${id}/checklist`)),
-      addChecklistItem: (id: string, text: string) => data(client.post<Envelope<ApiChecklistItem>>(`/tasks/${id}/checklist`, { text })),
+      addChecklistItem: (id: string, text: string, opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiChecklistItem>>(`/tasks/${id}/checklist`, { text }, idempotencyHeaders(opts?.idempotencyKey))),
       updateChecklistItem: (itemId: string, patch: { done?: boolean; text?: string }) =>
         data(client.put<Envelope<ApiChecklistItem>>(`/checklist/${itemId}`, patch)),
       reorderChecklist: (id: string, orderedIds: string[]) =>
@@ -118,8 +129,14 @@ export function resourcesApi(client: ApiClient) {
       removeChecklistItem: (itemId: string) => client.del<void>(`/checklist/${itemId}`),
       // Comments: list, add (supports @mentions), edit (own), remove (own/admin).
       comments: (id: string) => data(client.get<Envelope<ApiComment[]>>(`/tasks/${id}/comments`)),
-      addComment: (id: string, body: string, parentId?: string) =>
-        data(client.post<Envelope<ApiComment>>(`/tasks/${id}/comments`, parentId ? { body, parentId } : { body })),
+      addComment: (id: string, body: string, parentId?: string, opts?: WriteOptions) =>
+        data(
+          client.post<Envelope<ApiComment>>(
+            `/tasks/${id}/comments`,
+            parentId ? { body, parentId } : { body },
+            idempotencyHeaders(opts?.idempotencyKey),
+          ),
+        ),
       editComment: (commentId: string, body: string) => data(client.put<Envelope<ApiComment>>(`/comments/${commentId}`, { body })),
       removeComment: (commentId: string) => client.del<void>(`/comments/${commentId}`),
     },
@@ -146,8 +163,14 @@ export function resourcesApi(client: ApiClient) {
       startDirect: (userId: string) => data(client.post<Envelope<ApiConversation>>('/conversations/direct', { userId })),
       messages: (conversationId: string, before?: string) =>
         data(client.get<Envelope<ApiChatMessage[]>>(`/conversations/${conversationId}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`)),
-      send: (conversationId: string, body: string) =>
-        data(client.post<Envelope<ApiChatMessage>>(`/conversations/${conversationId}/messages`, { body })),
+      send: (conversationId: string, body: string, opts?: WriteOptions) =>
+        data(
+          client.post<Envelope<ApiChatMessage>>(
+            `/conversations/${conversationId}/messages`,
+            { body },
+            idempotencyHeaders(opts?.idempotencyKey),
+          ),
+        ),
       edit: (messageId: string, body: string) => data(client.patch<Envelope<ApiChatMessage>>(`/messages/${messageId}`, { body })),
       remove: (messageId: string) => client.del<void>(`/messages/${messageId}`),
       addReaction: (messageId: string, emoji: string) => client.post<void>(`/messages/${messageId}/reactions`, { emoji }),

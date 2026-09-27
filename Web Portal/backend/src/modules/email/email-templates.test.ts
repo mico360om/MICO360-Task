@@ -129,6 +129,17 @@ describe('new notification templates', () => {
     expect(e.html).toContain('Details here');
   });
 
+  it('genericNotificationEmail renders line items as a list, one per line (digest)', () => {
+    const e = genericNotificationEmail({ heading: 'Your task digest', message: 'You have 2 tasks.', items: ['MOB-1 Fix login (overdue)', 'MOB-2 تجهيز العرض (due today)'] });
+    expect(e.html).toMatch(/<(ul|li|table)[\s>]/);
+    expect(e.html).toContain('MOB-1 Fix login (overdue)');
+    expect(e.html).toContain('تجهيز العرض');
+    const textLines = e.text.split('\n');
+    expect(textLines.some((l) => l.includes('MOB-1 Fix login'))).toBe(true);
+    expect(textLines.some((l) => l.includes('MOB-2'))).toBe(true);
+    expect(textLines.find((l) => l.includes('MOB-1'))).not.toContain('MOB-2');
+  });
+
   it('every template ships an HTML + non-empty text part', () => {
     const samples = [
       otpCodeEmail('1'),

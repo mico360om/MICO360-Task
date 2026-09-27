@@ -36,9 +36,11 @@ describe('flavorConfig', () => {
     expect(prod.isProduction).toBe(true);
   });
 
-  it('provides a distinct default API base URL per flavor', () => {
+  it('provides a default API base URL per flavor', () => {
     expect(flavorConfig('development').apiBaseUrl).toBe('http://10.0.2.2:4000/api/v1');
-    expect(flavorConfig('preview').apiBaseUrl).toContain('staging');
+    // There is no staging server yet, so the preview flavor talks to production (never a
+    // placeholder host that cannot resolve).
+    expect(flavorConfig('preview').apiBaseUrl).toBe('https://task.mico360.com/api/v1');
     expect(flavorConfig('production').apiBaseUrl).toBe('https://task.mico360.com/api/v1');
   });
 

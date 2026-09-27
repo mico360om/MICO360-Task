@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useServices } from '../../core/providers';
+import { useServices, useServer } from '../../core/providers';
 import { useColors } from '../../core/theme';
 import { Button, TextField, ErrorNote } from '../../components/ui';
-import { ApiError } from '../../lib/api-client';
+import { ApiError, isNetworkError } from '../../lib/api-client';
+import { authErrorMessage, isAccountLocked } from '../../lib/auth-errors';
+import { parseServerAddress, probeServer, serverLabel } from '../../lib/server-address';
 import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
 import type { AuthScreenProps } from '../../navigation/types';
 import logo from '../../../assets/logo.png';
@@ -14,7 +16,7 @@ type Mode = 'password' | 'otp';
 export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { auth, session, push, biometric, biometricLogin } = useServices();
+  const { auth, session, biometric, biometricLogin } = useServices();
   const [mode, setMode] = useState<Mode>('password');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -26,25 +28,24 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const [canBio, setCanBio] = useState(false);
   const [bioLabel, setBioLabel] = useState<string | undefined>(undefined);
 
-  // Offer biometric sign-in when a credential was remembered + biometrics are on.
+  // Offer biometric sign-in only when a credential is remembered and biometrics are on. Reading
+  // the marker never shows a prompt; the token itself sits behind a biometric-bound key (MOB-01).
   useEffect(() => {
     let active = true;
     (async () => {
       const armed = (await biometricLogin.isArmed()) && (await biometric.isEnabled());
       if (!active) return;
       setCanBio(armed);
-      if (armed) setBioLabel((await biometricLogin.getCredential())?.label);
+      if (armed) setBioLabel(await biometricLogin.getLabel());
     })();
     return () => { active = false; };
   }, [biometric, biometricLogin]);
 
   function handleError(e: unknown) {
-    if (e instanceof ApiError) {
-      setLocked(e.code === 'ACCOUNT_LOCKED' || e.status === 423);
-      setError(e.message);
-    } else {
-      setError('Something went wrong. Please try again.');
-    }
+    // Lockout shows "try again in N minutes"; missing email config, rate limits and being
+    // offline get their own clear messages (auth-errors.ts).
+    setLocked(isAccountLocked(e));
+    setError(authErrorMessage(e));
   }
 
   async function afterLogin(promise: Promise<Awaited<ReturnType<typeof auth.login>>>) {
@@ -53,10 +54,8 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
     setLocked(false);
     try {
       const s = await promise;
+      // Push registration happens once the signed-in app mounts (every launch + token rotation).
       await session.setSession(s);
-      // Remember the session for biometric login when the user has biometrics enabled.
-      if (await biometric.isEnabled()) await biometricLogin.arm(s.refreshToken, identifier.trim() || undefined);
-      void push.register().catch(() => {}); // best-effort push registration
     } catch (e) {
       handleError(e);
     } finally {
@@ -69,26 +68,31 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
     setError(null);
     setLocked(false);
     try {
-      const res = await biometric.unlock();
-      if (!res.ok) {
-        setError(res.reason === 'unavailable' ? 'Biometrics are unavailable — sign in with your password.' : 'Biometric authentication failed.');
-        return;
-      }
+      // Reading the biometric-bound key shows the strong-biometric prompt (no device-PIN fallback).
       const cred = await biometricLogin.getCredential();
       if (!cred) {
-        setCanBio(false);
-        setError('No saved biometric sign-in. Please sign in with your password.');
+        const stillArmed = await biometricLogin.isArmed();
+        setCanBio(stillArmed);
+        setError(stillArmed ? 'Fingerprint not confirmed.' : 'No saved biometric sign-in. Please sign in with your password.');
         return;
       }
       const s = await auth.refresh(cred.refreshToken);
-      await session.setSession(s);
-      await biometricLogin.arm(s.refreshToken, cred.label); // rotate the remembered token
-      void push.register().catch(() => {});
-    } catch {
-      // The remembered token is expired/invalid → forget it and fall back to password.
+      // The remembered token was just spent (single use) and re-saving it would need another
+      // prompt, so this sign-in is one-shot; turn it back on in Settings.
       await biometricLogin.disarm();
-      setCanBio(false);
-      setError('Your biometric sign-in has expired. Please sign in with your password.');
+      await session.setSession(s);
+    } catch (e) {
+      if (isNetworkError(e)) {
+        setError('Can’t reach the server. Check your connection and try again.');
+      } else if (e instanceof ApiError && e.status !== 401 && e.status !== 400) {
+        // 429 / 5xx: the credential may still be good — keep it.
+        setError('The server is busy. Please try again in a minute.');
+      } else {
+        // The remembered token is expired/revoked → forget it and fall back to password.
+        await biometricLogin.disarm();
+        setCanBio(false);
+        setError('Your biometric sign-in has expired. Please sign in with your password.');
+      }
     } finally {
       setBusy(false);
     }
@@ -111,6 +115,37 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   }
 
   const submitCode = () => afterLogin(auth.verifyOtp(identifier.trim(), code.trim()));
+
+  // Server choice: task.mico360.com by default, or e.g. a self-hosted server on the office network.
+  const server = useServer();
+  const [editingServer, setEditingServer] = useState(false);
+  const [serverInput, setServerInput] = useState('');
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [checkingServer, setCheckingServer] = useState(false);
+
+  function startServerEdit() {
+    setServerInput(server.baseUrl.replace(/\/api\/v\d+$/, ''));
+    setServerError(null);
+    setEditingServer(true);
+  }
+
+  async function applyServer() {
+    const parsed = parseServerAddress(serverInput);
+    if (!parsed.ok) {
+      setServerError(parsed.error);
+      return;
+    }
+    setCheckingServer(true);
+    setServerError(null);
+    const reachable = await probeServer(parsed.apiBase);
+    setCheckingServer(false);
+    if (!reachable) {
+      setServerError(`Can’t reach a MICO360 Tasks server at ${serverLabel(parsed.apiBase)}. Check the address and that the server is running.`);
+      return;
+    }
+    setEditingServer(false);
+    await server.setServer(parsed.apiBase);
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -140,11 +175,10 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
           </View>
 
           {locked ? (
-            <View style={styles.lockedNote}>
+            <View style={styles.lockedNote} accessibilityRole="alert" accessibilityLiveRegion="assertive">
               <Text style={styles.lockedTitle}>Account locked</Text>
-              <Text style={styles.lockedBody}>
-                Too many failed attempts. Reset your password to unlock your account.
-              </Text>
+              {/* Includes "Try again in N minutes" when the server sends retryAfterSeconds. */}
+              <Text style={styles.lockedBody}>{error ?? 'Too many failed attempts. Reset your password to unlock your account.'}</Text>
               <Button title="Reset password" variant="secondary" onPress={() => navigation.navigate('Forgot')} />
             </View>
           ) : error ? (
@@ -173,7 +207,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                 placeholder="••••••••"
               />
               <Button title="Sign in" onPress={submitPassword} loading={busy} disabled={!identifier || !password} />
-              <Pressable onPress={() => navigation.navigate('Forgot')} style={styles.forgot}>
+              <Pressable onPress={() => navigation.navigate('Forgot')} style={styles.forgot} accessibilityRole="link">
                 <Text style={styles.forgotText}>Forgot your password?</Text>
               </Pressable>
             </>
@@ -191,7 +225,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                     maxLength={6}
                   />
                   <Button title="Verify & sign in" onPress={submitCode} loading={busy} disabled={code.length < 6} />
-                  <Pressable onPress={requestCode} style={styles.forgot}>
+                  <Pressable onPress={requestCode} style={styles.forgot} accessibilityRole="button" accessibilityLabel="Resend code">
                     <Text style={styles.forgotText}>Resend code</Text>
                   </Pressable>
                 </>
@@ -200,6 +234,42 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
               )}
             </>
           )}
+
+          <View style={styles.serverBox}>
+            {editingServer ? (
+              <>
+                <TextField
+                  label="Server address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  value={serverInput}
+                  onChangeText={setServerInput}
+                  placeholder="https://task.mico360.com or 192.168.1.20:4000"
+                  error={serverError}
+                />
+                <Button title="Use this server" onPress={applyServer} loading={checkingServer} disabled={!serverInput.trim()} />
+                {server.baseUrl !== server.defaultBaseUrl ? (
+                  <Pressable onPress={() => void server.setServer(null)} style={styles.forgot} accessibilityRole="button">
+                    <Text style={styles.forgotText}>Use the default server ({serverLabel(server.defaultBaseUrl)})</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable onPress={() => setEditingServer(false)} style={styles.forgot} accessibilityRole="button">
+                  <Text style={styles.serverText}>Cancel</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                onPress={startServerEdit}
+                accessibilityRole="button"
+                accessibilityLabel={`Server: ${serverLabel(server.baseUrl)}. Change server`}
+              >
+                <Text style={styles.serverText}>
+                  Server: {serverLabel(server.baseUrl)} · <Text style={styles.forgotText}>Change</Text>
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -251,4 +321,6 @@ const makeStyles = (c: Palette) =>
     },
     lockedTitle: { color: c.danger, fontSize: fontSize.md, fontWeight: '700' },
     lockedBody: { color: c.ink, fontSize: fontSize.sm },
+    serverBox: { marginTop: spacing.xl, paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: c.line, alignItems: 'stretch', gap: spacing.sm },
+    serverText: { textAlign: 'center', color: c.ink3, fontSize: fontSize.xs },
   });

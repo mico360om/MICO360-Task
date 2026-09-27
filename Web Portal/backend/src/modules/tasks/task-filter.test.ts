@@ -70,6 +70,32 @@ describe('filterAndSortTasks', () => {
     expect(filterAndSortTasks(tasks, { overdue: true, now }).map((t) => t.id)).toEqual(['past']);
   });
 
+  it('counts a task as overdue only from the day after its due day (company time)', () => {
+    const tasks = [
+      task({ id: 'today', dueDate: new Date('2026-09-30T00:00:00Z') }),
+      task({ id: 'yesterday', dueDate: new Date('2026-09-29T00:00:00Z') }),
+      task({ id: 'completed', dueDate: new Date('2026-09-29T00:00:00Z'), columnCategory: 'IN_PROGRESS', completedAt: new Date('2026-09-29T10:00:00Z') }),
+    ];
+    // 10:00 on 30 Sep in Muscat — past 04:00, which is when UTC-midnight comparisons went wrong.
+    const muscatMorning = new Date('2026-09-30T06:00:00Z');
+    expect(filterAndSortTasks(tasks, { overdue: true, now: muscatMorning, timeZone: 'Asia/Muscat' }).map((t) => t.id)).toEqual(['yesterday']);
+    // 00:30 on 1 Oct in Muscat (still 30 Sep in UTC): the 30th is now overdue too.
+    const afterMidnight = new Date('2026-09-30T20:30:00Z');
+    expect(filterAndSortTasks(tasks, { overdue: true, now: afterMidnight, timeZone: 'Asia/Muscat' }).map((t) => t.id)).toEqual(['today', 'yesterday']);
+  });
+
+  it('matches Arabic keywords across hamza/alef, ta marbuta, alef maksura and diacritics', () => {
+    const tasks = [
+      task({ id: 'a', title: 'إدارة المشروع' }),
+      task({ id: 'b', title: 'مُراجَعة العقد' }),
+      task({ id: 'c', title: 'مبنى المستشفى' }),
+      task({ id: 'd', title: 'unrelated' }),
+    ];
+    expect(filterAndSortTasks(tasks, { q: 'ادارة' }).map((t) => t.id)).toEqual(['a']);
+    expect(filterAndSortTasks(tasks, { q: 'مراجعه' }).map((t) => t.id)).toEqual(['b']);
+    expect(filterAndSortTasks(tasks, { q: 'مبني' }).map((t) => t.id)).toEqual(['c']);
+  });
+
   it('sorts by priority (desc) and due date (asc, nulls last)', () => {
     const tasks = [
       task({ id: 'low', priority: 'LOW' }),

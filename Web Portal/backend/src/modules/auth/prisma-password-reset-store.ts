@@ -5,9 +5,13 @@ import type { PasswordResetStore } from './password-reset-service';
 export function createPrismaPasswordResetStore(prisma: PrismaClient): PasswordResetStore {
   return {
     async create(data) {
-      await prisma.loginOtp.create({
-        data: { userId: data.userId, codeHash: data.tokenHash, expiresAt: data.expiresAt, attempts: 0, purpose: 'PASSWORD_RESET' },
-      });
+      // Only the newest link works: issuing one invalidates the earlier unused ones.
+      await prisma.$transaction([
+        prisma.loginOtp.updateMany({ where: { userId: data.userId, purpose: 'PASSWORD_RESET', consumedAt: null }, data: { consumedAt: new Date() } }),
+        prisma.loginOtp.create({
+          data: { userId: data.userId, codeHash: data.tokenHash, expiresAt: data.expiresAt, attempts: 0, purpose: 'PASSWORD_RESET' },
+        }),
+      ]);
     },
     async findActiveByHash(tokenHash) {
       const r = await prisma.loginOtp.findFirst({
@@ -16,8 +20,15 @@ export function createPrismaPasswordResetStore(prisma: PrismaClient): PasswordRe
       });
       return r ? { id: r.id, userId: r.userId, tokenHash: r.codeHash, expiresAt: r.expiresAt, consumedAt: r.consumedAt } : null;
     },
+    async countIssuedSince(userId, since) {
+      return prisma.loginOtp.count({ where: { userId, purpose: 'PASSWORD_RESET', createdAt: { gte: since } } });
+    },
     async consume(id) {
-      await prisma.loginOtp.update({ where: { id }, data: { consumedAt: new Date() } });
+      const { count } = await prisma.loginOtp.updateMany({ where: { id, consumedAt: null }, data: { consumedAt: new Date() } });
+      return count === 1;
+    },
+    async consumeAllForUser(userId) {
+      await prisma.loginOtp.updateMany({ where: { userId, purpose: 'PASSWORD_RESET', consumedAt: null }, data: { consumedAt: new Date() } });
     },
   };
 }

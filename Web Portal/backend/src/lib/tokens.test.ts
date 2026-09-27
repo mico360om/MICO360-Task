@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import jwt from 'jsonwebtoken';
 import { signToken, verifyToken } from './tokens';
 
 const secret = 'unit-test-secret-key';
@@ -19,5 +20,10 @@ describe('jwt tokens', () => {
   it('rejects an expired token', () => {
     const token = signToken({ sub: 'u' }, secret, -1);
     expect(() => verifyToken(token, secret)).toThrow();
+  });
+
+  it('only accepts HS256-signed tokens', () => {
+    const other = jwt.sign({ sub: 'u' }, secret, { algorithm: 'HS512', expiresIn: 60 });
+    expect(() => verifyToken(other, secret)).toThrow();
   });
 });

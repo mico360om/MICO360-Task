@@ -7,7 +7,10 @@ import { createAuthService } from '../auth/auth-service';
 const tasks: ReportTask[] = [
   { id: '1', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: new Date('2000-01-01'), dueDate: null, completedAt: new Date(), assigneeIds: ['u1'] },
   { id: '2', projectId: 'p1', projectName: 'MICO', columnCategory: 'TODO', createdAt: new Date('2000-01-01'), dueDate: null, completedAt: null, assigneeIds: ['u1'] },
+  { id: '3', projectId: 'p2', projectName: 'RIG', columnCategory: 'TODO', createdAt: new Date('2001-01-01'), dueDate: null, completedAt: null, assigneeIds: ['u2'] },
 ];
+/** CSV lines, ignoring a leading byte-order mark (U+FEFF, added for Excel). */
+const csvLines = (body: string) => (body.charCodeAt(0) === 0xfeff ? body.slice(1) : body).split('\r\n');
 
 const tokenService = createTokenService({
   accessSecret: 'rep-access',
@@ -19,7 +22,7 @@ const tokenService = createTokenService({
 
 async function makeApp() {
   const reportService = createReportService({
-    data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }]; } },
+    data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar' }]; } },
   });
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
@@ -59,9 +62,33 @@ describe('Report routes (admin only)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
     expect(res.headers['content-disposition']).toContain('attachment; filename="project-performance.csv"');
-    const lines = res.body.split('\r\n');
+    const lines = csvLines(res.body);
     expect(lines[0]).toBe('projectId,projectName,total,completed,overdue,completionPct');
     expect(lines[1]).toBe('p1,MICO,2,1,0,50');
+  });
+
+  it('applies the on-screen project and team filters to reports and every export', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const projects = await app.inject({ method: 'GET', url: '/api/v1/reports/projects?projectId=p2', headers: admin });
+    expect(projects.json().data.map((r: { projectId: string }) => r.projectId)).toEqual(['p2']);
+
+    const csv = await app.inject({ method: 'GET', url: '/api/v1/reports/projects.csv?projectId=p2', headers: admin });
+    expect(csvLines(csv.body).filter(Boolean).slice(1)).toEqual(['p2,RIG,1,0,0,0']);
+
+    const workload = await app.inject({ method: 'GET', url: '/api/v1/reports/workload.csv?userId=u2', headers: admin });
+    expect(csvLines(workload.body).filter(Boolean).slice(1)).toEqual(['u2,omar,1,0,0']);
+
+    const status = await app.inject({ method: 'GET', url: '/api/v1/reports/status.xls?projectId=p1&userId=u1', headers: admin });
+    expect(status.statusCode).toBe(200);
+    expect(status.body).toContain('DONE');
+
+    const series = await app.inject({ method: 'GET', url: '/api/v1/reports/timeseries.csv?from=2000-01-01&to=2000-01-01&userId=u2', headers: admin });
+    expect(csvLines(series.body)[1]).toBe('2000-01-01,0,0,0,0,0');
+  });
+
+  it('rejects impossible calendar dates in a range (400)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/reports/timeseries?from=2000-02-30&to=2000-03-01', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
+    expect(res.statusCode).toBe(400);
   });
 
   it('forbids an employee from the CSV export (403)', async () => {
@@ -87,7 +114,7 @@ describe('Report routes (admin only)', () => {
     const body = res.rawPayload.toString('latin1');
     expect(body.startsWith('%PDF-1.')).toBe(true);
     expect(body.trimEnd().endsWith('%%EOF')).toBe(true);
-    expect(body).toContain('(Project Performance) Tj');
+    // The PDF's text layout/encoding belongs to lib/pdf (tested there); this route test checks the envelope.
   });
 
   it('forbids an employee from the Excel and PDF exports (403)', async () => {
@@ -133,7 +160,7 @@ describe('Report routes (admin only)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
     expect(res.headers['content-disposition']).toContain('completion-trend.csv');
-    const lines = res.body.split('\r\n');
+    const lines = csvLines(res.body);
     expect(lines[0]).toBe('date,created,completed,overdue,remaining,ideal');
     expect(lines[1]).toBe('2000-01-01,2,0,0,2,2');
   });

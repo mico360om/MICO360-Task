@@ -38,6 +38,14 @@ describe('createPushSender (A6.2 push sender)', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('prunes tokens the provider reports as unregistered (NTF-01)', async () => {
+    const deleted: string[] = [];
+    const repo = { ...repoWith(['live', 'dead']), async deleteByToken(token: string) { deleted.push(token); } };
+    const sender = createPushSender({ deviceTokens: repo, transport: { send: async () => ({ invalidTokens: ['dead'] }) } });
+    expect(await sender.sendToUser('u1', { title: 'x' })).toBe(1);
+    expect(deleted).toEqual(['dead']);
+  });
+
   it('never throws if the transport fails (push is best-effort)', async () => {
     const send = vi.fn(async () => {
       throw new Error('FCM down');

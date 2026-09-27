@@ -1,4 +1,6 @@
 import { PdfDocument, type RGB } from '../../lib/pdf-document';
+import { isolate, textDirection } from '../../lib/pdf-text';
+import { isValidTimeZone } from './meeting-validation';
 
 export interface MinutesMeeting {
   title: string;
@@ -67,28 +69,49 @@ export interface MinutesData {
   notes: MinutesNote[];
   generatedAt: string; // ISO
   generatedByName?: string | null;
+  /**
+   * The company time zone (the server's COMPANY_TIMEZONE), used when the meeting has
+   * no valid zone of its own. Falls back to the COMPANY_TIMEZONE env var, then Asia/Muscat.
+   */
+  companyTimeZone?: string | null;
 }
 
 const MUTED: RGB = [0.42, 0.4, 0.38];
 const INK: RGB = [0.11, 0.1, 0.09];
 
-function fmtDay(iso: string | null | undefined, timeZone: string | null): string {
+/** The company's home zone (Oman) when nothing more specific is configured. */
+export const DEFAULT_COMPANY_TIMEZONE = 'Asia/Muscat';
+
+/**
+ * The zone every time in the minutes is shown in: the meeting's own zone, else the
+ * company zone passed by the caller, else COMPANY_TIMEZONE from the environment, else
+ * Asia/Muscat. Invalid names are skipped. Never silently UTC.
+ */
+export function resolveMinutesTimeZone(meetingTimeZone?: string | null, companyTimeZone?: string | null): string {
+  for (const tz of [meetingTimeZone, companyTimeZone, process.env.COMPANY_TIMEZONE, DEFAULT_COMPANY_TIMEZONE]) {
+    const name = tz?.trim();
+    if (name && isValidTimeZone(name)) return name;
+  }
+  return DEFAULT_COMPANY_TIMEZONE;
+}
+
+function fmtDay(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: timeZone || 'UTC' }).format(d);
+  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone }).format(d);
 }
 
-function fmtDate(iso: string, timeZone: string | null): string {
+export function fmtDate(iso: string, timeZone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   return new Intl.DateTimeFormat('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: timeZone || 'UTC',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone,
   }).format(d);
 }
 
-function fmtTimeRange(startIso: string, endIso: string | null, timeZone: string | null): string {
-  const tz = timeZone || 'UTC';
+/** "10:00 AM – 11:30 AM (GMT+4)" in the given zone. */
+export function fmtTimeRange(startIso: string, endIso: string | null, tz: string): string {
   const start = new Date(startIso);
   if (Number.isNaN(start.getTime())) return '—';
   const time = (d: Date) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(d);
@@ -99,23 +122,29 @@ function fmtTimeRange(startIso: string, endIso: string | null, timeZone: string 
   return `${time(start)} – ${time(end)} (${zone})`;
 }
 
-function fmtTimestamp(iso: string, timeZone: string | null): string {
+export function fmtTimestamp(iso: string, timeZone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: timeZone || 'UTC' }).format(d);
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone }).format(d);
 }
 
-/** Compose a polished, multi-page Minutes of Meeting PDF from assembled data. */
+/**
+ * Compose a polished, multi-page Minutes of Meeting PDF from assembled data. Arabic
+ * titles, names and notes render with real joined glyphs in right-to-left order; all
+ * times are shown in the meeting's zone (see `resolveMinutesTimeZone`).
+ */
 export function buildMinutesPdf(data: MinutesData): Buffer {
   const { meeting, brand, project } = data;
-  const tz = meeting.timeZone;
+  const tz = resolveMinutesTimeZone(meeting.timeZone, data.companyTimeZone);
 
   // Branded footer: company · website · support on line 1, address on line 2, generated credit on line 3.
-  const footerBits = [brand.companyName, brand.websiteUrl, brand.supportEmail].filter(Boolean);
-  const generated = `Generated ${fmtTimestamp(data.generatedAt, tz)}${data.generatedByName ? ` by ${data.generatedByName}` : ''} · ${brand.productName}`;
+  // Each user-supplied fragment is bidi-isolated so an Arabic name can't reorder its neighbours.
+  const footerBits = [brand.companyName, brand.websiteUrl, brand.supportEmail].filter((b): b is string => Boolean(b)).map(isolate);
+  const generated = `Generated ${isolate(fmtTimestamp(data.generatedAt, tz))}${data.generatedByName ? ` by ${isolate(data.generatedByName)}` : ''} · ${isolate(brand.productName)}`;
   const footerLeft = [footerBits.join('  ·  '), brand.companyAddress, generated].filter(Boolean).join('\n');
 
   const doc = new PdfDocument({
+    title: `Minutes of Meeting: ${meeting.title}`,
     palette: {
       brand: brand.colors?.brand,
       ink: brand.colors?.ink,
@@ -128,7 +157,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   // Branded masthead: logo mark + product name + tagline + eyebrow.
   doc.brandHeader({ eyebrow: 'Minutes of Meeting', title: brand.productName, subtitle: brand.tagline });
 
-  // Meeting title
+  // Meeting title (an Arabic title is set right-to-left, flush right)
   doc.text(meeting.title, { bold: true, size: 20, color: INK, gap: 4 });
 
   // Meeting metadata
@@ -148,7 +177,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     if (project.ownerName) doc.keyValue('Owner', project.ownerName);
     if (project.statusLabel) doc.keyValue('Status', project.statusLabel);
     if (project.startDate || project.targetDate) {
-      doc.keyValue('Timeline', `${fmtDay(project.startDate, tz)}  →  ${fmtDay(project.targetDate, tz)}`);
+      doc.keyValue('Timeline', `${fmtDay(project.startDate, tz)}  –  ${fmtDay(project.targetDate, tz)}`);
     }
   }
 
@@ -158,7 +187,8 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     doc.text(meeting.description.trim());
   }
 
-  // Attendees
+  // Attendees — the line reads in the direction of the person's name; the English tags
+  // and the e-mail are isolated so they stay intact on either side of an Arabic name.
   doc.heading('Attendees');
   if (data.attendees.length === 0) {
     doc.text('No attendees recorded.', { color: MUTED });
@@ -168,8 +198,8 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     for (const a of data.attendees) {
       const tags = [a.roleLabel, a.attendanceLabel];
       if (a.external) tags.unshift('Guest');
-      const suffix = a.email ? `  <${a.email}>` : '';
-      doc.bullet(`${a.name}${suffix}  —  ${tags.join(' · ')}`);
+      const suffix = a.email ? `  ${isolate(`<${a.email}>`)}` : '';
+      doc.bullet(`${a.name}${suffix}  —  ${isolate(tags.join(' · '))}`, { direction: textDirection(a.name) });
     }
   }
 
@@ -183,8 +213,8 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       if (item.presenterName) meta.push(item.presenterName);
       if (item.expectedMinutes != null) meta.push(`${item.expectedMinutes} min`);
       if (item.completed) meta.push('done');
-      const suffix = meta.length ? `  (${meta.join(' · ')})` : '';
-      doc.numbered(`${i + 1}.`, `${item.title}${suffix}`);
+      const suffix = meta.length ? `  (${meta.map(isolate).join(' · ')})` : '';
+      doc.numbered(`${i + 1}.`, `${item.title}${suffix}`, { direction: textDirection(item.title) });
     });
   }
 
@@ -192,11 +222,14 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const actions = data.notes.filter((n) => n.type === 'ACTION');
   const discussion = data.notes.filter((n) => n.type !== 'DECISION' && n.type !== 'ACTION');
 
+  // Attribution line under a note, aligned with the note (right for an Arabic note).
+  const byline = (n: MinutesNote): string => `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}`;
+
   if (decisions.length > 0) {
     doc.heading('Decisions');
     for (const n of decisions) {
       doc.bullet(n.body);
-      doc.text(`— ${n.authorName} · ${fmtTimestamp(n.createdAt, tz)}`, { color: MUTED, size: 8.5, indent: 12, gap: 1 });
+      doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction: textDirection(n.body) });
     }
   }
 
@@ -204,7 +237,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     doc.heading('Action Items');
     for (const n of actions) {
       doc.bullet(n.body);
-      doc.text(`— ${n.authorName} · ${fmtTimestamp(n.createdAt, tz)}`, { color: MUTED, size: 8.5, indent: 12, gap: 1 });
+      doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction: textDirection(n.body) });
     }
   }
 
@@ -213,8 +246,9 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     doc.text('No discussion notes were recorded.', { color: MUTED });
   } else {
     for (const n of discussion) {
-      doc.text(`[${n.typeLabel}] ${n.body}`, { gap: 0 });
-      doc.text(`— ${n.authorName} · ${fmtTimestamp(n.createdAt, tz)}`, { color: MUTED, size: 8.5, gap: 2 });
+      const direction = textDirection(n.body);
+      doc.text(`${isolate(`[${n.typeLabel}]`)} ${n.body}`, { gap: 0, direction });
+      doc.text(byline(n), { color: MUTED, size: 8.5, gap: 2, direction });
     }
   }
 

@@ -6,7 +6,7 @@ export interface ProjectAccessRepo {
   listForUser(userId: string): Promise<{ id: string }[]>;
 }
 
-/** Lets a user always view a task they're assigned to, even in a project they don't belong to. */
+/** @deprecated Being assigned no longer grants access on its own; kept so older wiring still compiles. */
 export interface TaskAssigneeLookup {
   isAssignee(taskId: string, userId: string): Promise<boolean>;
 }
@@ -14,16 +14,17 @@ export interface TaskAssigneeLookup {
 /**
  * Object-level view authorization (T2.7 companion to ProjectAuthz's manage checks). Admins see
  * everything; otherwise a user may see a project — and every task/column/comment under it — only
- * when they own, manage, created, or belong to that project. Resolves the owning project from a
- * task/column id via the shared manager lookup.
+ * when they own, manage, created, or belong to that project. Task access follows the task's
+ * project: being assigned is not a way in (assignees must be project members, and someone who
+ * leaves the project loses its tasks). Deleted projects and tasks resolve to nothing.
  */
 export function createProjectAccess({
   projects,
   managers,
-  assignees,
 }: {
   projects: ProjectAccessRepo;
   managers: Pick<ProjectManagerLookup, 'projectIdOfTask' | 'projectIdOfColumn'>;
+  /** @deprecated Ignored — see TaskAssigneeLookup. */
   assignees?: TaskAssigneeLookup;
 }) {
   const isAdmin = (roles: string[]) => roles.includes('ADMIN');
@@ -34,8 +35,6 @@ export function createProjectAccess({
   }
   async function canViewTask(userId: string, roles: string[], taskId: string): Promise<boolean> {
     if (isAdmin(roles)) return true;
-    // A user assigned to a task can always see it, even in a project they don't otherwise belong to.
-    if (assignees && (await assignees.isAssignee(taskId, userId))) return true;
     const projectId = await managers.projectIdOfTask(taskId);
     return projectId ? projects.isAccessibleTo(projectId, userId) : false;
   }

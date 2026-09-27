@@ -10,10 +10,14 @@ const rows: ActivityRecord[] = [
   { id: 'a1', taskId: 't1', projectId: 'p1', userId: 'u1', action: 'CREATED', meta: null, createdAt: new Date() },
   { id: 'a2', taskId: 't2', projectId: 'p2', userId: 'u2', action: 'MOVED', meta: null, createdAt: new Date() },
 ];
+const scopes: (string[] | null | undefined)[] = [];
 const activities: ActivityRepository = {
   async create(data) { return { id: 'x', taskId: data.taskId ?? null, projectId: data.projectId ?? null, userId: data.userId, action: data.action, meta: data.meta ?? null, createdAt: new Date() }; },
   async listForTask(taskId) { return rows.filter((r) => r.taskId === taskId); },
-  async listRecent() { return rows; },
+  async listRecent(limit, projectIds) {
+    scopes.push(projectIds);
+    return rows.filter((r) => !projectIds || projectIds.includes(r.projectId ?? '')).slice(0, limit ?? 50);
+  },
 };
 
 const tokenService = createTokenService({
@@ -52,6 +56,22 @@ describe('Activity routes — object-level scope', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/activity', headers: await tokenFor('u1', ['EMPLOYEE']) });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.map((r: { id: string }) => r.id)).toEqual(['a1']);
+  });
+
+  it('scopes the feed in the query (before the 50-row limit), not after it', async () => {
+    const app = await makeApp();
+    scopes.length = 0;
+    await app.inject({ method: 'GET', url: '/api/v1/activity', headers: await tokenFor('u1', ['EMPLOYEE']) });
+    await app.inject({ method: 'GET', url: '/api/v1/activity', headers: await tokenFor('admin', ['ADMIN']) });
+    expect(scopes).toEqual([['p1'], null]);
+  });
+
+  it('returns an empty feed to a user with no projects without querying', async () => {
+    const app = await makeApp();
+    scopes.length = 0;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/activity', headers: await tokenFor('loner', ['EMPLOYEE']) });
+    expect(res.json().data).toEqual([]);
+    expect(scopes).toEqual([]);
   });
 
   it('shows an admin the whole feed', async () => {

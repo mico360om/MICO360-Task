@@ -3,10 +3,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
 import { columnsApi } from '../api/columns';
-import { tasksApi } from '../api/tasks';
+import { tasksApi, type NewTaskInput } from '../api/tasks';
 import { membersApi } from '../api/members';
-import { assigneesApi } from '../api/assignees';
 import { aiApi } from '../api/ai';
+import { ApiError } from '../lib/api-client';
+import { todayKey } from '../lib/due-date';
+import { useCompanyTimeZone } from '../lib/company-clock';
+import { enqueueOffline } from '../lib/offline-replay';
+import { newIdempotencyKey } from '../lib/offline-queue';
+import { invalidateTaskQueries } from '../lib/task-cache';
 import { QuickAddTaskForm, type QuickAddValues } from './QuickAddTaskForm';
 import { FieldLabel } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
@@ -60,29 +65,42 @@ export function NewTaskModal({ onClose, onCreated, projectId: fixedProjectId }: 
     label: [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username,
   }));
 
+  const timeZone = useCompanyTimeZone();
+
+  // One request creates the task with its due date and chosen assignees (so the project owner isn't
+  // added on top, and nothing is left half-done if a second call fails). The Idempotency-Key is reused
+  // by the offline queue, so a create that did reach the server is never duplicated on replay.
   const createMut = useMutation({
-    mutationFn: async (v: QuickAddValues) => {
-      const task = await tasksApi(apiClient).create({
-        projectId,
-        columnId,
-        title: v.title,
-        priority: v.priority,
-        ...(v.description ? { description: v.description } : {}),
-        ...(v.dueDate ? { dueDate: v.dueDate } : {}),
-      });
-      if (v.assigneeIds.length) await assigneesApi(apiClient).assignMany(task.id, v.assigneeIds);
-      return task;
-    },
+    mutationFn: ({ input, idempotencyKey }: { input: NewTaskInput; idempotencyKey: string }) =>
+      tasksApi(apiClient).create(input, { idempotencyKey }),
     onSuccess: () => {
-      // Refresh everything the new task could appear in.
-      qc.invalidateQueries({ queryKey: ['board', projectId] });
-      qc.invalidateQueries({ queryKey: ['my-tasks'] });
-      qc.invalidateQueries({ queryKey: ['report-status'] });
-      qc.invalidateQueries({ queryKey: ['report-projects'] });
+      // Refresh everything the new task could appear in (board, My Tasks, calendar, project, dashboard…).
+      void invalidateTaskQueries(qc);
       onCreated?.();
       onClose();
     },
+    onError: (e, vars) => {
+      // Offline: keep the task and send it when the connection returns (server errors stay on screen).
+      if (!(e instanceof ApiError) && enqueueOffline('task.create', vars.input, { idempotencyKey: vars.idempotencyKey })) {
+        onClose();
+      }
+    },
   });
+
+  function submit(v: QuickAddValues) {
+    if (!columnId) return;
+    const input: NewTaskInput = {
+      projectId,
+      columnId,
+      title: v.title,
+      priority: v.priority,
+      ...(v.description ? { description: v.description } : {}),
+      ...(v.dueDate ? { dueDate: v.dueDate } : {}),
+      // Only when someone was picked — otherwise the project's default (its owner) applies.
+      ...(v.assigneeIds.length ? { assigneeIds: v.assigneeIds } : {}),
+    };
+    createMut.mutate({ input, idempotencyKey: newIdempotencyKey() });
+  }
 
   const noProjects = !fixedProjectId && projectsQ.isSuccess && projects.length === 0;
 
@@ -98,7 +116,7 @@ export function NewTaskModal({ onClose, onCreated, projectId: fixedProjectId }: 
           <>
             {createMut.isError ? (
               <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-                Couldn’t create the task. Please try again.
+                {createMut.error instanceof ApiError && createMut.error.message ? createMut.error.message : 'Couldn’t create the task. Please try again.'}
               </p>
             ) : null}
 
@@ -129,10 +147,9 @@ export function NewTaskModal({ onClose, onCreated, projectId: fixedProjectId }: 
             <QuickAddTaskForm
               submitting={createMut.isPending}
               assignees={assigneeOptions}
-              onParse={(text) => aiApi(apiClient).parseTask(text)}
-              onSubmit={(v) => {
-                if (columnId) createMut.mutate(v);
-              }}
+              // "today" in the company time zone, so "tomorrow" means the company's tomorrow.
+              onParse={(text) => aiApi(apiClient).parseTask(text, todayKey(timeZone))}
+              onSubmit={submit}
             />
           </>
         )}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createNotificationService } from './notification-service';
 import type { NotificationRecord, NotificationRepository } from './notification-repository';
 import { NotFoundError } from '../../lib/http-errors';
@@ -81,5 +81,26 @@ describe('NotificationService', () => {
     const allowed = await withPrefs.notify({ userId: 'u1', type: 'TASK_ASSIGNED', title: 'Assigned' });
     expect(allowed).not.toBeNull();
     expect(await withPrefs.listForUser('u1')).toHaveLength(1); // only the allowed one was stored
+  });
+
+  it('pushes each delivered notification to the phone, but not muted ones (NTF-01)', async () => {
+    const sendToUser = vi.fn(async () => 1);
+    const withPush = createNotificationService({
+      notifications: inMemory(),
+      preferences: { async get() { return { muted: ['TASK_COMMENT'] }; }, async set(_u, p) { return p; } },
+      push: { sendToUser },
+    });
+    await withPush.notify({ userId: 'u1', type: 'TASK_ASSIGNED', title: 'You were assigned a task', body: 'Fix login', entityType: 'task', entityId: 't1' });
+    await withPush.notify({ userId: 'u1', type: 'TASK_COMMENT', title: 'New comment' });
+    expect(sendToUser).toHaveBeenCalledTimes(1);
+    expect(sendToUser).toHaveBeenCalledWith('u1', { title: 'You were assigned a task', body: 'Fix login', entityType: 'task', entityId: 't1' });
+  });
+
+  it('never fails the in-app notification when the push fails', async () => {
+    const logger = { error: vi.fn() };
+    const withPush = createNotificationService({ notifications: inMemory(), push: { sendToUser: async () => { throw new Error('FCM down'); } }, logger });
+    await expect(withPush.notify({ userId: 'u1', type: 'X', title: 'a' })).resolves.not.toBeNull();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(logger.error).toHaveBeenCalledWith('push notification failed', expect.objectContaining({ userId: 'u1' }));
   });
 });

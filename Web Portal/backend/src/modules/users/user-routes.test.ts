@@ -1,49 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildApp } from '../../app';
 import { createUserService } from './user-service';
+import { createMemoryUserRepository } from './memory-user-repository';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
-import type { CreateUserData, UserRepository, UserSummary } from './user-repository';
-
-function inMemory(): UserRepository {
-  const rows = new Map<string, UserSummary>();
-  const hashes: Record<string, string> = {};
-  let seq = 0;
-  return {
-    async create(data: CreateUserData) {
-      const u: UserSummary = {
-        id: `u${seq++}`,
-        email: data.email,
-        username: data.username,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        avatarUrl: null,
-        status: 'ACTIVE',
-        departmentId: data.departmentId ?? null,
-        roles: data.roleNames,
-      };
-      rows.set(u.id, u);
-      hashes[u.id] = data.passwordHash;
-      return u;
-    },
-    async findById(id) { return rows.get(id) ?? null; },
-    async findByEmailOrUsername(email, username) {
-      return [...rows.values()].find((u) => u.email === email || u.username === username) ?? null;
-    },
-    async list() { return [...rows.values()]; },
-    async update(id, patch) {
-      const { roleNames, ...rest } = patch;
-      const u = { ...rows.get(id)!, ...rest, ...(roleNames ? { roles: roleNames } : {}) };
-      rows.set(id, u);
-      return u;
-    },
-    async setStatus(id, status) { const u = { ...rows.get(id)!, status }; rows.set(id, u); return u; },
-    async setAvatar(id, avatarUrl) { const u = { ...rows.get(id)!, avatarUrl }; rows.set(id, u); return u; },
-    async setPassword(id, passwordHash) { hashes[id] = passwordHash; },
-    async getPasswordHash(id) { return hashes[id] ?? null; },
-    async softDelete(id) { rows.delete(id); },
-  };
-}
+import type { AuditService } from '../audit/audit-service';
 
 const tokenService = createTokenService({
   accessSecret: 'usr-access',
@@ -53,13 +14,30 @@ const tokenService = createTokenService({
   refreshStore: { async save() {}, async findValid() { return null; }, async revoke() {}, async revokeAllForUser() {} },
 });
 
+let mem: ReturnType<typeof createMemoryUserRepository>;
+let audited: { action: string; entityId: string | null }[];
+
 async function makeApp() {
-  const userService = createUserService({ users: inMemory() });
+  mem = createMemoryUserRepository();
+  audited = [];
+  const auditService = {
+    async record(d: { action: string; entityId?: string | null }) {
+      audited.push({ action: d.action, entityId: d.entityId ?? null });
+      return {} as never;
+    },
+    async list() {
+      return [];
+    },
+  } as unknown as AuditService;
+  const userService = createUserService({
+    users: mem.repo,
+    issueSession: (user) => tokenService.issueTokens(user),
+  });
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  return buildApp({ authService, tokenService, userService });
+  return buildApp({ authService, tokenService, userService, auditService });
 }
 async function token(roles: string[]) {
   return (await tokenService.issueTokens({ id: 'admin', roles })).accessToken;
@@ -80,6 +58,13 @@ describe('User routes (admin only)', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers: { authorization: `Bearer ${await token(['ADMIN'])}` }, payload: newUser });
     expect(res.statusCode).toBe(201);
     expect(res.json().data.username).toBe('sara');
+    expect(res.json().data.roles).toEqual(['EMPLOYEE']);
+  });
+
+  it('rejects a weak password on create (400 WEAK_PASSWORD)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers: { authorization: `Bearer ${await token(['ADMIN'])}` }, payload: { ...newUser, password: '123456' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('WEAK_PASSWORD');
   });
 
   it('forbids an employee from creating a user (403)', async () => {
@@ -98,12 +83,20 @@ describe('User routes (admin only)', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers, payload: { ...newUser, username: 'sara2' } });
     expect(res.statusCode).toBe(409);
   });
+
+  it('re-creates a deleted user’s account with the same email (201, not 500)', async () => {
+    const headers = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const { id } = (await app.inject({ method: 'POST', url: '/api/v1/users', headers, payload: newUser })).json().data;
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/users/${id}`, headers })).statusCode).toBe(204);
+    const again = await app.inject({ method: 'POST', url: '/api/v1/users', headers, payload: newUser });
+    expect(again.statusCode).toBe(201);
+  });
 });
 
 describe('User profile & role editing', () => {
-  async function createSara() {
+  async function createSara(roleNames?: string[]) {
     const headers = { authorization: `Bearer ${await token(['ADMIN'])}` };
-    const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers, payload: newUser });
+    const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers, payload: { ...newUser, ...(roleNames ? { roleNames } : {}) } });
     return res.json().data as { id: string };
   }
 
@@ -123,6 +116,25 @@ describe('User profile & role editing', () => {
     expect(d.roles).toEqual(['MANAGER']);
   });
 
+  it('rejects removing every role (400)', async () => {
+    const headers = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const { id } = await createSara();
+    const res = await app.inject({ method: 'PUT', url: `/api/v1/users/${id}`, headers, payload: { roleNames: [] } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('refuses to demote or deactivate the last active admin (409 LAST_ADMIN)', async () => {
+    const headers = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const { id } = await createSara(['ADMIN']);
+    const demote = await app.inject({ method: 'PUT', url: `/api/v1/users/${id}`, headers, payload: { roleNames: ['EMPLOYEE'] } });
+    expect(demote.statusCode).toBe(409);
+    expect(demote.json().error.code).toBe('LAST_ADMIN');
+    const deactivate = await app.inject({ method: 'PATCH', url: `/api/v1/users/${id}/status`, headers, payload: { status: 'INACTIVE' } });
+    expect(deactivate.statusCode).toBe(409);
+    const remove = await app.inject({ method: 'DELETE', url: `/api/v1/users/${id}`, headers });
+    expect(remove.statusCode).toBe(409);
+  });
+
   it('forbids a non-admin from editing a user (403)', async () => {
     const { id } = await createSara();
     const res = await app.inject({
@@ -131,6 +143,27 @@ describe('User profile & role editing', () => {
       headers: { authorization: `Bearer ${await token(['EMPLOYEE'])}` },
       payload: { firstName: 'Nope' },
     });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('Account lockout (admin view + unlock)', () => {
+  it('shows the lock state in the user list and lets an admin unlock (audited)', async () => {
+    const headers = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const { id } = (await app.inject({ method: 'POST', url: '/api/v1/users', headers, payload: newUser })).json().data;
+    mem.lock(id, new Date(Date.now() + 15 * 60_000));
+
+    const list = await app.inject({ method: 'GET', url: '/api/v1/users', headers });
+    expect(list.json().data.find((u: { id: string }) => u.id === id).locked).toBe(true);
+
+    const res = await app.inject({ method: 'POST', url: `/api/v1/users/${id}/unlock`, headers });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.locked).toBe(false);
+    expect(audited).toContainEqual({ action: 'user.unlock', entityId: id });
+  });
+
+  it('forbids a non-admin from unlocking (403)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/users/u0/unlock', headers: { authorization: `Bearer ${await token(['EMPLOYEE'])}` } });
     expect(res.statusCode).toBe(403);
   });
 });
@@ -160,14 +193,16 @@ describe('Password management', () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it('rejects an admin reset with too-short a password (400)', async () => {
+  it('rejects an admin reset with a password that fails the policy (400)', async () => {
     const headers = { authorization: `Bearer ${await token(['ADMIN'])}` };
     const { id } = await createSara();
-    const res = await app.inject({ method: 'POST', url: `/api/v1/users/${id}/password`, headers, payload: { password: '123' } });
-    expect(res.statusCode).toBe(400);
+    for (const password of ['123', '123456', 'aaaaaaaa']) {
+      const res = await app.inject({ method: 'POST', url: `/api/v1/users/${id}/password`, headers, payload: { password } });
+      expect(res.statusCode).toBe(400);
+    }
   });
 
-  it('lets a user change their own password with the correct current one (204)', async () => {
+  it('changes your own password and returns a fresh session (200)', async () => {
     const { id } = await createSara();
     const res = await app.inject({
       method: 'POST',
@@ -175,7 +210,24 @@ describe('Password management', () => {
       headers: { authorization: `Bearer ${await tokenFor(id, ['EMPLOYEE'])}` },
       payload: { currentPassword: 'Password1!', newPassword: 'NextPass1!' },
     });
-    expect(res.statusCode).toBe(204);
+    expect(res.statusCode).toBe(200);
+    const { accessToken, refreshToken } = res.json().data;
+    expect(typeof refreshToken).toBe('string');
+    const claims = tokenService.verifyAccess(accessToken);
+    expect(claims.sub).toBe(id);
+    expect(claims.ver).toBe(mem.tokenVersion(id));
+  });
+
+  it('rejects a weak new password on self change (400 WEAK_PASSWORD)', async () => {
+    const { id } = await createSara();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/users/me/password',
+      headers: { authorization: `Bearer ${await tokenFor(id, ['EMPLOYEE'])}` },
+      payload: { currentPassword: 'Password1!', newPassword: 'aaaaaa' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('WEAK_PASSWORD');
   });
 
   it('rejects a self password change when the current password is wrong (400)', async () => {

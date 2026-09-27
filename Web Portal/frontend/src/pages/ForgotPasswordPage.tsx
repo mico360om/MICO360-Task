@@ -27,7 +27,11 @@ export function ForgotPasswordPage() {
       await authApi(apiClient).forgotPassword(identifier);
       setSent(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to reach the server. Try again.');
+      if (err instanceof ApiError && err.code === 'EMAIL_NOT_CONFIGURED') {
+        setError('Password reset emails aren’t available right now. Ask an administrator to reset your password for you.');
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Unable to reach the server. Try again.');
+      }
     } finally {
       setLoading(false);
     }

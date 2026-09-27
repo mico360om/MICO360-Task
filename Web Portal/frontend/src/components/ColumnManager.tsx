@@ -124,6 +124,7 @@ export function ColumnManager({
           <input
             id="new-column-name"
             ref={nameRef}
+            dir="auto"
             value={newName}
             required
             aria-required="true"
@@ -201,6 +202,7 @@ function ColumnRow({ col, first, last, confirming, onRename, onSetColor, onSetCa
       {/* Name */}
       <input
         aria-label={`Name of ${col.name}`}
+        dir="auto"
         defaultValue={col.name}
         onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== col.name) onRename(col.id, v); }}
         className={fieldClass(false, 'min-w-0 flex-1 font-medium')}

@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { createRecurrenceService, type RecurringTask, type RecurrenceTaskPort } from './recurrence-service';
+import type { RecurrenceRule } from './recurrence';
 
 function port(instanceCount = 1) {
-  const spawned: { sourceTaskId: string; nextDueDate: Date }[] = [];
+  const spawned: { sourceTaskId: string; nextDueDate: Date; rule: RecurrenceRule }[] = [];
   const p: RecurrenceTaskPort = {
-    async spawnNext(sourceTaskId, nextDueDate) {
-      spawned.push({ sourceTaskId, nextDueDate });
+    async spawnNext(sourceTaskId, nextDueDate, rule) {
+      spawned.push({ sourceTaskId, nextDueDate, rule });
       return { id: `new-${spawned.length}` };
     },
     async countInstances() {
@@ -81,6 +82,19 @@ describe('RecurrenceService.onTaskCompleted', () => {
     const result = await svc.onTaskCompleted(task);
     expect(result).toBeNull();
     expect(spawned).toHaveLength(0);
+  });
+
+  it('carries the anchor day forward so a month-end series returns to the 31st', async () => {
+    const { p, spawned } = port();
+    const svc = createRecurrenceService({ tasks: p });
+    const midnight = (s: string) => new Date(`${s}T00:00:00.000Z`);
+    // First completion: due 31 Jan, rule has no day yet → anchored to 31, next is 28 Feb.
+    await svc.onTaskCompleted({ id: 't1', dueDate: midnight('2026-01-31'), recurrenceRule: { freq: 'MONTHLY', interval: 1 }, recurrenceParentId: null });
+    expect(spawned[0]!.nextDueDate.toISOString()).toBe('2026-02-28T00:00:00.000Z');
+    expect(spawned[0]!.rule).toEqual({ freq: 'MONTHLY', interval: 1, anchorDay: 31 });
+    // The February occurrence carries that rule → March goes back to the 31st.
+    await svc.onTaskCompleted({ id: 'new-1', dueDate: midnight('2026-02-28'), recurrenceRule: spawned[0]!.rule, recurrenceParentId: 't1' });
+    expect(spawned[1]!.nextDueDate.toISOString()).toBe('2026-03-31T00:00:00.000Z');
   });
 
   it('falls back to now() when the task has no due date', async () => {

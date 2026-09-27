@@ -22,9 +22,10 @@ export function NotificationsScreen(ctx) {
     n.readAt = new Date().toISOString();
     render(current, false);
     try {
-      await ctx.api.notifications.markRead(n.id);
-    } catch (e) {
-      if (!(e && e.name === 'ApiError')) await ctx.enqueue('notification.read', { id: n.id });
+      await ctx.write('notification.read', { id: n.id }); // sent now or queued for later
+    } catch {
+      n.readAt = null; // couldn't be sent or saved — show it as unread again
+      render(current, false);
     }
     ctx.afterMutation();
   }

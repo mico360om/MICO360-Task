@@ -59,10 +59,14 @@ export interface ConversationRepository {
   createProject(projectId: string): Promise<Conversation>;
   createDirect(): Promise<Conversation>;
   listByIds(ids: string[]): Promise<Conversation[]>;
+  /** The channels of these projects (those that have been opened at least once). */
+  listProjectConversations(projectIds: string[]): Promise<Conversation[]>;
 }
 
 export interface ParticipantRepository {
   add(conversationId: string, userId: string): Promise<Participant>;
+  /** Drop a user's participant row (e.g. after they leave the channel's project). */
+  remove(conversationId: string, userId: string): Promise<void>;
   find(conversationId: string, userId: string): Promise<Participant | null>;
   listByConversation(conversationId: string): Promise<Participant[]>;
   /** Conversation ids the user is an explicit participant of (DIRECT conversations). */
@@ -83,6 +87,7 @@ export interface MessageRepository {
   /** Newest-first page of a conversation's messages (callers reverse for display). */
   list(conversationId: string, opts: MessageListOptions): Promise<Message[]>;
   update(id: string, body: string): Promise<Message>;
+  /** Tombstone a message: stamp deletedAt and blank its body so the text can't be read back. */
   softDelete(id: string): Promise<Message>;
   /** Count messages after `after` (null = all) excluding those authored by `excludeUserId`. */
   countAfter(conversationId: string, after: Date | null, excludeUserId: string): Promise<number>;
@@ -110,9 +115,15 @@ export interface ChatAttachmentRepository {
   deleteByMessage(messageId: string): Promise<void>;
 }
 
-/** Facts about project membership the chat service needs but doesn't own. */
+/**
+ * Facts about project visibility and users the chat service needs but doesn't own. A project's
+ * channel follows project visibility: its owner, manager, creator and members — and any admin.
+ */
 export interface ChatMemberLookup {
-  isProjectMember(projectId: string, userId: string): Promise<boolean>;
-  /** Project ids the user belongs to (for building the conversation inbox). */
-  projectIdsForUser(userId: string): Promise<string[]>;
+  /** May the user open this project's channel? False for deleted projects. */
+  canAccessProject(projectId: string, userId: string): Promise<boolean>;
+  /** Projects whose channel the user may open (for building the conversation inbox). */
+  accessibleProjectIds(userId: string): Promise<string[]>;
+  /** Is this an existing, active user — someone a DM can be started with? */
+  isActiveUser(userId: string): Promise<boolean>;
 }

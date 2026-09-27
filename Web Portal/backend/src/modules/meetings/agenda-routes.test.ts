@@ -8,7 +8,7 @@ import type { AgendaRepository, AgendaItemRecord, CreateAgendaData, UpdateAgenda
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 
-function meetingRepo(): MeetingRepository {
+function meetingRepo(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
   let seq = 0;
   return {
@@ -30,7 +30,7 @@ function meetingRepo(): MeetingRepository {
     async markInvitesSent() {},
     async markReminderSent() {},
     async listUpcomingWithoutReminder() { return []; },
-    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: [] } : null; },
+    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: attendeesOf[id] ?? [] } : null; },
   };
 }
 
@@ -61,15 +61,15 @@ const tokenService = createTokenService({
 });
 const tokenFor = async (id: string, roles: string[]) => (await tokenService.issueTokens({ id, roles })).accessToken;
 
-async function makeApp() {
+async function makeApp(attendeesOf: Record<string, string[]> = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  const meetings = meetingRepo();
+  const meetings = meetingRepo(attendeesOf);
   const meetingService = createMeetingService({ meetings });
   const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return false; }, async accessibleProjectIds() { return []; } } });
-  const agendaService = createAgendaService({ agenda: agendaRepo() });
+  const agendaService = createAgendaService({ agenda: agendaRepo(), canEditMeeting: meetingAccess.canEditMeeting });
   const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, agendaService });
   return app;
 }
@@ -138,5 +138,30 @@ describe('Agenda routes', () => {
     expect(res.statusCode).toBe(204);
     const list = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/agenda`, headers: { authorization: auth } });
     expect(list.json().data).toHaveLength(0);
+  });
+});
+
+describe('Agenda routes — only meeting editors change the agenda (SEC-06)', () => {
+  it('lets an attendee read but not add, reorder, edit or delete; a presenter may tick off their item', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const app = await makeApp(attendeesOf);
+    const id = await ownedMeeting(app, 'u1');
+    attendeesOf[id] = ['u2', 'u3'];
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const attendee = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+    const presenter = { authorization: `Bearer ${await tokenFor('u3', ['EMPLOYEE'])}` };
+    const item = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/agenda`, headers: organizer, payload: { title: 'Budget', ownerId: 'u3' } })).json().data.id;
+
+    expect((await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/agenda`, headers: attendee })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/agenda`, headers: attendee, payload: { title: 'Mine' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/meetings/${id}/agenda/reorder`, headers: attendee, payload: { orderedIds: [item] } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/agenda/${item}`, headers: attendee, payload: { completed: true } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/agenda/${item}`, headers: attendee })).statusCode).toBe(403);
+
+    // The presenter can mark their own item done, but not rename it.
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/agenda/${item}`, headers: presenter, payload: { title: 'Renamed' } })).statusCode).toBe(403);
+    const done = await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/agenda/${item}`, headers: presenter, payload: { completed: true } });
+    expect(done.statusCode).toBe(200);
+    expect(done.json().data.completed).toBe(true);
   });
 });

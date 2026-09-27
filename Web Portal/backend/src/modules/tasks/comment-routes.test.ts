@@ -106,4 +106,32 @@ describe('Comment routes', () => {
     expect(names).toContain('comment:deleted');
     expect(events.every((e) => e.projectId === 'p1')).toBe(true);
   });
+
+  it('rejects a blank comment (400) and 404s an unknown comment', async () => {
+    const headers = { authorization: `Bearer ${await token('u1')}` };
+    expect((await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/comments', headers, payload: { body: '   ' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/comments/ghost', headers, payload: { body: 'x' } })).statusCode).toBe(404);
+  });
+});
+
+describe('Comment routes — authors who lost access to the task', () => {
+  it('403s editing or deleting your own comment once you can no longer see its task', async () => {
+    let canSee = true;
+    const projectAccess = {
+      async canViewProject() { return true; },
+      async canViewTask() { return canSee; },
+      async canViewColumn() { return true; },
+      async accessibleProjectIds() { return null; },
+    };
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const a = await buildApp({ authService, tokenService, commentService: createCommentService(inMemory()), projectAccess });
+    const headers = { authorization: `Bearer ${await token('u1')}` };
+    const id = (await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/comments', headers, payload: { body: 'mine' } })).json().data.id;
+    canSee = false; // e.g. removed from the project
+    expect((await a.inject({ method: 'PUT', url: `/api/v1/comments/${id}`, headers, payload: { body: 'edited' } })).statusCode).toBe(403);
+    expect((await a.inject({ method: 'DELETE', url: `/api/v1/comments/${id}`, headers })).statusCode).toBe(403);
+  });
 });

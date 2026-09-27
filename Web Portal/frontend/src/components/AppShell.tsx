@@ -11,6 +11,7 @@ import { NewTaskButton } from './NewTaskButton';
 import { SyncStatus } from './SyncStatus';
 import { ProfileMenu } from './ProfileMenu';
 import { flushOfflineQueue } from '../lib/offline-replay';
+import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
 
 /** Authenticated app layout: role-aware sidebar + glass top header + routed content (T6.1). */
@@ -33,17 +34,25 @@ export function AppShell() {
     );
   };
 
-  // Offline sync (Epic C): replay any mutations queued while disconnected — on load and when
-  // the browser comes back online — then refresh the data they changed.
+  // Offline sync (Epic C): replay the signed-in user's queued changes — on load, when the browser
+  // comes back online and when the tab is shown again — then refresh the task views they changed.
+  // (Only one tab flushes at a time; see flushOfflineQueue.)
   useEffect(() => {
     async function flush() {
       if (!navigator.onLine) return;
       const res = await flushOfflineQueue();
-      if (res.synced > 0 || res.dropped > 0) void qc.invalidateQueries();
+      if (res.synced > 0) void invalidateTaskQueries(qc);
     }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void flush();
+    };
     void flush();
     window.addEventListener('online', flush);
-    return () => window.removeEventListener('online', flush);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', flush);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [qc]);
 
   return (

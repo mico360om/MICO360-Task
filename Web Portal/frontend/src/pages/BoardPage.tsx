@@ -1,65 +1,90 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
 import { columnsApi } from '../api/columns';
-import { tasksApi } from '../api/tasks';
+import { tasksApi, type NewTaskInput } from '../api/tasks';
 import { membersApi } from '../api/members';
-import { assigneesApi } from '../api/assignees';
-import { configApi } from '../api/config';
-import { dateKey, shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
+import { shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
+import { todayKey as companyTodayKey } from '../lib/due-date';
+import { useCompanyTimeZone } from '../lib/company-clock';
 import { ApiError } from '../lib/api-client';
 import { enqueueOffline } from '../lib/offline-replay';
-import { useCallback } from 'react';
+import { newIdempotencyKey } from '../lib/offline-queue';
+import { invalidateTaskQueries } from '../lib/task-cache';
+import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { composeBoard, moveTaskInBoard, reorderColumnInBoard } from '../lib/board';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { ColumnManager } from '../components/ColumnManager';
-import { QuickAddTaskForm } from '../components/QuickAddTaskForm';
+import { QuickAddTaskForm, type AssigneeOption, type QuickAddValues } from '../components/QuickAddTaskForm';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { FieldLabel } from '../components/ui/Field';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
-import { useBoardRealtime } from '../lib/useBoardRealtime';
+import { useBoardRealtime, type BoardEvent } from '../lib/useBoardRealtime';
+import { useDialog } from '../hooks/useDialog';
 import { useAuthStore } from '../stores/auth-store';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
+type CreateVars = { input: NewTaskInput; idempotencyKey: string };
+type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
 
-const PROJECT_KEY = 'mico360.board.projectId';
+/** Per-user (see lib/user-storage) memory of the last project viewed on the board. */
+const PROJECT_PREF = 'board.projectId';
+
+const errorText = (e: unknown, fallback: string) => (e instanceof ApiError && e.message ? e.message : fallback);
 // Admin-triggered carry-forward runs at most once per app session (the server sweep handles the rest).
 let carriedThisSession = false;
 
 export function BoardPage() {
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const userId = useAuthStore((s) => s.user?.id);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [manageColumns, setManageColumns] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskColumn, setNewTaskColumn] = useState('');
   const [moveError, setMoveError] = useState(false);
-  const [offlineNote, setOfflineNote] = useState<string | null>(null);
-  // Remember the last-viewed project across reloads/navigation (persisted per browser).
-  const [selectedProjectId, setSelectedProjectId] = useState(() => {
-    try { return localStorage.getItem(PROJECT_KEY) ?? ''; } catch { return ''; }
-  });
-  const chooseProject = (id: string) => {
-    setSelectedProjectId(id);
-    try { localStorage.setItem(PROJECT_KEY, id); } catch { /* storage may be unavailable */ }
-  };
+  const [columnError, setColumnError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // A link like /board?project=<id> (e.g. "Open board" on a project page) wins; otherwise the
+  // last project this user viewed (remembered per user), else the first.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlProjectId = searchParams.get('project') ?? '';
+  const [selectedProjectId, setSelectedProjectId] = useState(() => readUserValue(useAuthStore.getState().user?.id, PROJECT_PREF) ?? '');
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const projects = projectsQ.data ?? [];
-  // Board shows one project at a time; honour the remembered project if it still exists, else the first.
-  const projectId = (selectedProjectId && projects.some((p) => p.id === selectedProjectId))
-    ? selectedProjectId
-    : projects[0]?.id;
+  const has = (id: string) => !!id && projects.some((p) => p.id === id);
+  // Board shows one project at a time.
+  const projectId = has(urlProjectId) ? urlProjectId : has(selectedProjectId) ? selectedProjectId : projects[0]?.id;
   const project = projects.find((p) => p.id === projectId);
+  const urlProjectValid = has(urlProjectId);
+  useEffect(() => {
+    // Remember a project opened by link too, so returning to /board shows it again.
+    if (projectId && urlProjectValid) writeUserValue(userId, PROJECT_PREF, projectId);
+  }, [projectId, urlProjectValid, userId]);
+  const chooseProject = (id: string) => {
+    setSelectedProjectId(id);
+    writeUserValue(userId, PROJECT_PREF, id);
+    if (urlProjectId) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('project', id);
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  };
 
   // Per-date boards: view one calendar day at a time (default today, in the company time zone).
-  const cfgQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
-  const timeZone = cfgQ.data?.timeZone ?? 'Asia/Muscat';
+  const timeZone = useCompanyTimeZone();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const todayKey = dateKey(new Date(), timeZone);
+  const todayKey = companyTodayKey(timeZone);
   const boardDate = selectedDate ?? todayKey;
 
   // Auto carry-forward: when an admin opens today's board, run the sweep once so any still-open tasks
@@ -83,6 +108,17 @@ export function BoardPage() {
     qc.invalidateQueries({ queryKey: ['columns', projectId] });
     qc.invalidateQueries({ queryKey: ['board', projectId] });
   };
+  /** Run a column change; a rejection (e.g. deleting a column that still has tasks) is shown, never swallowed. */
+  async function columnAction(fn: () => Promise<unknown>) {
+    setColumnError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setColumnError(errorText(e, 'Couldn’t save that column change. Check your connection and try again.'));
+    } finally {
+      refreshBoard();
+    }
+  }
   async function reorderColumn(id: string, dir: 'up' | 'down') {
     const cols = [...(columnsQ.data ?? [])].sort((a, b) => a.position - b.position);
     const idx = cols.findIndex((c) => c.id === id);
@@ -94,7 +130,6 @@ export function BoardPage() {
     await columnsApi(apiClient).update(a.id, { position: -1 - a.position });
     await columnsApi(apiClient).update(b.id, { position: a.position });
     await columnsApi(apiClient).update(a.id, { position: b.position });
-    refreshBoard();
   }
   /** Persist a full drag-reorder. Two phases (park at unique negatives, then final indices) so the
       [projectId, position] unique index never collides mid-update. */
@@ -105,7 +140,6 @@ export function BoardPage() {
     for (let i = 0; i < orderedIds.length; i++) {
       await columnsApi(apiClient).update(orderedIds[i]!, { position: i });
     }
-    refreshBoard();
   }
 
   const boardQ = useQuery({
@@ -121,17 +155,20 @@ export function BoardPage() {
   });
 
   const moveMut = useMutation({
-    mutationFn: ({ id, toColumnId }: { id: string; toColumnId: string; taskKey: string }) =>
-      tasksApi(apiClient).move(id, toColumnId),
-    // Optimistically move the card so it lands instantly instead of snapping back to its
-    // origin column until the refetch returns; roll back and surface an error if it fails.
-    onMutate: async ({ taskKey, toColumnId }) => {
+    // Move to the column, then re-sequence it so the card stays where it was dropped.
+    mutationFn: async ({ id, toColumnId, orderedIds }: MoveVars) => {
+      await tasksApi(apiClient).move(id, toColumnId);
+      if (orderedIds.length > 1) await tasksApi(apiClient).reorder(toColumnId, orderedIds);
+    },
+    // Optimistically move the card so it lands instantly (at the drop position) instead of snapping
+    // back to its origin column until the refetch returns; roll back and surface an error if it fails.
+    onMutate: async ({ taskKey, toColumnId, toIndex }) => {
       setMoveError(false);
       const key = ['board', projectId, boardDate];
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<BoardData>(key);
       if (prev) {
-        qc.setQueryData<BoardData>(key, { ...prev, columns: moveTaskInBoard(prev.columns, taskKey, toColumnId) });
+        qc.setQueryData<BoardData>(key, { ...prev, columns: moveTaskInBoard(prev.columns, taskKey, toColumnId, toIndex) });
       }
       return { prev, key };
     },
@@ -143,12 +180,12 @@ export function BoardPage() {
       } else {
         // Offline (network failure) — keep the optimistic move and queue it to replay on reconnect.
         enqueueOffline('task.move', { id: vars.id, toColumnId: vars.toColumnId });
-        setOfflineNote('You’re offline — the move was saved and will sync when you reconnect.');
+        setNotice('You’re offline — the move was saved and will sync when you reconnect.');
       }
     },
     onSettled: (_d, e) => {
       // A network failure kept an optimistic move — don't clobber it by refetching a stale board.
-      if (e instanceof ApiError || e == null) qc.invalidateQueries({ queryKey: ['board', projectId] });
+      if (e instanceof ApiError || e == null) void invalidateTaskQueries(qc);
     },
   });
 
@@ -176,59 +213,97 @@ export function BoardPage() {
     enabled: Boolean(projectId) && addingTask,
     queryFn: () => membersApi(apiClient).list(projectId as string),
   });
-  const assigneeOptions = (membersQ.data ?? []).map((m) => ({
+  const assigneeOptions: AssigneeOption[] = (membersQ.data ?? []).map((m) => ({
     id: m.id,
     label: [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username,
   }));
 
+  // One request creates the task with its due date and assignees (no second call that can fail
+  // half-way, and no project-owner default when people were picked). The Idempotency-Key is shared
+  // with the offline queue, so if the request did reach the server a replay can't duplicate it.
   const createMut = useMutation({
-    mutationFn: async (input: { title: string; priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'; description: string; assigneeIds: string[] }) => {
-      const task = await tasksApi(apiClient).create({
-        projectId: projectId as string,
-        columnId: newTaskColumn || boardColumns[0]?.id || '',
-        title: input.title,
-        priority: input.priority,
-        boardDate, // land on the day currently being viewed
-        ...(input.description ? { description: input.description } : {}),
-      });
-      if (input.assigneeIds.length) await assigneesApi(apiClient).assignMany(task.id, input.assigneeIds);
-      return task;
-    },
+    mutationFn: ({ input, idempotencyKey }: CreateVars) => tasksApi(apiClient).create(input, { idempotencyKey }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['board', projectId] });
+      void invalidateTaskQueries(qc);
       setAddingTask(false);
     },
     onError: (e, vars) => {
       // Offline — queue the create so it appears after the next sync (server errors keep the banner).
       if (!(e instanceof ApiError)) {
-        enqueueOffline('task.create', {
-          projectId: projectId as string,
-          columnId: newTaskColumn || boardColumns[0]?.id || '',
-          title: vars.title,
-          priority: vars.priority,
-          boardDate,
-          ...(vars.description ? { description: vars.description } : {}),
-        });
+        enqueueOffline('task.create', vars.input, { idempotencyKey: vars.idempotencyKey });
         setAddingTask(false);
-        setOfflineNote('You’re offline — the task was saved and will sync when you reconnect.');
+        setNotice('You’re offline — the task was saved and will sync when you reconnect.');
       }
     },
   });
+
+  function submitNewTask(v: QuickAddValues) {
+    const input: NewTaskInput = {
+      projectId: projectId as string,
+      columnId: newTaskColumn || boardColumns[0]?.id || '',
+      title: v.title,
+      priority: v.priority,
+      boardDate, // land on the day currently being viewed
+      ...(v.description ? { description: v.description } : {}),
+      ...(v.dueDate ? { dueDate: v.dueDate } : {}),
+      // Only when someone was picked — otherwise the project's default (its owner) applies.
+      ...(v.assigneeIds.length ? { assigneeIds: v.assigneeIds } : {}),
+    };
+    createMut.mutate({ input, idempotencyKey: newIdempotencyKey() });
+  }
 
   function openAddTask() {
     setNewTaskColumn(boardColumns[0]?.id ?? '');
     setAddingTask(true);
   }
 
-  // Live board: refetch when another client creates/moves/updates a task in this project (T7.4).
-  const onLiveEvent = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ['board', projectId] });
-  }, [qc, projectId]);
+  // Live board: refetch when another client creates/moves/updates/deletes/reassigns a task (T7.4).
+  const onLiveEvent = useCallback(
+    (event: BoardEvent, payload?: unknown) => {
+      if (event === 'project:removed') {
+        // This user was taken off a project: drop it from the list and leave its board if it's open.
+        const removedId = (payload as { projectId?: string } | undefined)?.projectId;
+        void qc.invalidateQueries({ queryKey: ['projects'] });
+        if (removedId && removedId === projectId) {
+          setNotice(`You were removed from ${project?.name ?? 'this project'}, so its board was closed.`);
+          setOpenTaskId(null);
+          setAddingTask(false);
+          setSelectedProjectId('');
+          writeUserValue(userId, PROJECT_PREF, null);
+          if (urlProjectId) {
+            setSearchParams(
+              (prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete('project');
+                return next;
+              },
+              { replace: true },
+            );
+          }
+        }
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: ['board', projectId] });
+      const p = (payload ?? {}) as { id?: string; taskId?: string };
+      // A deleted/changed task open in a drawer refetches (and shows "not found" once deleted).
+      if (p.id && event !== 'task:created') void qc.invalidateQueries({ queryKey: ['task', p.id] });
+      if (event === 'task:assignees' && p.taskId) void qc.invalidateQueries({ queryKey: ['assignees', p.taskId] });
+      // After a reconnect we may have missed anything — refresh every task view.
+      if (event === 'resync') void invalidateTaskQueries(qc);
+    },
+    [qc, projectId, project?.name, userId, urlProjectId, setSearchParams],
+  );
   useBoardRealtime(projectId, onLiveEvent);
 
-  function onMove(taskKey: string, toColumnId: string) {
-    const id = boardQ.data?.idByKey[taskKey];
-    if (id) moveMut.mutate({ id, toColumnId, taskKey });
+  function onMove(taskKey: string, toColumnId: string, toIndex: number) {
+    const data = boardQ.data;
+    const id = data?.idByKey[taskKey];
+    if (!data || !id) return;
+    const after = moveTaskInBoard(data.columns, taskKey, toColumnId, toIndex);
+    const orderedIds = (after.find((c) => c.id === toColumnId)?.tasks ?? [])
+      .map((t) => data.idByKey[t.key])
+      .filter((x): x is string => Boolean(x));
+    moveMut.mutate({ id, toColumnId, taskKey, toIndex, orderedIds });
   }
 
   function onReorder(columnId: string, orderedKeys: string[]) {
@@ -244,7 +319,7 @@ export function BoardPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Kanban Board"
-        subtitle={project ? project.name : 'Drag tasks across columns to update their status.'}
+        subtitle={project ? <span dir="auto">{project.name}</span> : 'Drag tasks across columns to update their status.'}
         actions={
           projectId ? (
             <>
@@ -319,15 +394,20 @@ export function BoardPage() {
           <h2 className="eyebrow mb-3">Columns</h2>
           <ColumnManager
             columns={columnsQ.data ?? []}
-            onAdd={async (name) => { await columnsApi(apiClient).add(projectId, { name }); refreshBoard(); }}
-            onRename={async (id, name) => { await columnsApi(apiClient).update(id, { name }); refreshBoard(); }}
-            onSetColor={async (id, color) => { await columnsApi(apiClient).update(id, { color }); refreshBoard(); }}
-            onSetCategory={async (id, category) => { await columnsApi(apiClient).update(id, { category }); refreshBoard(); }}
-            onToggleEnabled={async (id, enabled) => { await columnsApi(apiClient).update(id, { enabled }); refreshBoard(); }}
-            onDelete={async (id) => { await columnsApi(apiClient).remove(id); refreshBoard(); }}
-            onMove={reorderColumn}
-            onReorder={reorderColumnsTo}
+            onAdd={(name) => void columnAction(() => columnsApi(apiClient).add(projectId, { name }))}
+            onRename={(id, name) => void columnAction(() => columnsApi(apiClient).update(id, { name }))}
+            onSetColor={(id, color) => void columnAction(() => columnsApi(apiClient).update(id, { color }))}
+            onSetCategory={(id, category) => void columnAction(() => columnsApi(apiClient).update(id, { category }))}
+            onToggleEnabled={(id, enabled) => void columnAction(() => columnsApi(apiClient).update(id, { enabled }))}
+            onDelete={(id) => void columnAction(() => columnsApi(apiClient).remove(id))}
+            onMove={(id, dir) => void columnAction(() => reorderColumn(id, dir))}
+            onReorder={(ids) => void columnAction(() => reorderColumnsTo(ids))}
           />
+          {columnError ? (
+            <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+              {columnError}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -337,10 +417,10 @@ export function BoardPage() {
         </p>
       ) : null}
 
-      {offlineNote ? (
+      {notice ? (
         <p role="status" className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
-          <span>{offlineNote}</span>
-          <button onClick={() => setOfflineNote(null)} className="text-xs font-semibold underline">Dismiss</button>
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} className="text-xs font-semibold underline">Dismiss</button>
         </p>
       ) : null}
 
@@ -355,6 +435,7 @@ export function BoardPage() {
       ) : (
         <KanbanBoard
           columns={boardQ.data?.columns ?? []}
+          timeZone={timeZone}
           onMove={onMove}
           onReorder={onReorder}
           onTaskClick={(key) => {
@@ -367,34 +448,57 @@ export function BoardPage() {
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
 
       {addingTask ? (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4">
-          <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={() => setAddingTask(false)} aria-hidden="true" />
-          <div role="dialog" aria-label="New task" className="card relative w-full max-w-md animate-scale-in p-6">
-            <h2 className="mb-4 font-display text-xl font-bold text-ink">New task</h2>
-            {createMut.isError ? (
-              <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-                Couldn’t create the task. Please try again.
-              </p>
-            ) : null}
-            <div className="mb-3 flex flex-col gap-1.5">
-              <FieldLabel>Column</FieldLabel>
-              <SearchableSelect
-                ariaLabel="Column"
-                value={newTaskColumn}
-                onChange={(v) => setNewTaskColumn(v)}
-                options={boardColumns.map((c) => ({ value: c.id, label: c.name }))}
-              />
-            </div>
-            <QuickAddTaskForm submitting={createMut.isPending} assignees={assigneeOptions} onSubmit={(v) => createMut.mutate(v)} />
-            <button
-              onClick={() => setAddingTask(false)}
-              className="mt-3 w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <NewTaskDialog
+          columns={boardColumns.map((c) => ({ value: c.id, label: c.name }))}
+          column={newTaskColumn}
+          onColumnChange={setNewTaskColumn}
+          assignees={assigneeOptions}
+          submitting={createMut.isPending}
+          error={createMut.isError ? errorText(createMut.error, 'Couldn’t create the task. Please try again.') : null}
+          onSubmit={submitNewTask}
+          onClose={() => setAddingTask(false)}
+        />
       ) : null}
+    </div>
+  );
+}
+
+interface NewTaskDialogProps {
+  columns: { value: string; label: string }[];
+  column: string;
+  onColumnChange: (id: string) => void;
+  assignees: AssigneeOption[];
+  submitting: boolean;
+  error: string | null;
+  onSubmit: (v: QuickAddValues) => void;
+  onClose: () => void;
+}
+
+/** The board's "New task" dialog: focus moves in, Tab stays inside, Escape closes, focus returns. */
+function NewTaskDialog({ columns, column, onColumnChange, assignees, submitting, error, onSubmit, onClose }: NewTaskDialogProps) {
+  const dialogRef = useDialog(onClose);
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New task" className="card relative w-full max-w-md animate-scale-in p-6">
+        <h2 className="mb-4 font-display text-xl font-bold text-ink">New task</h2>
+        {error ? (
+          <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <div className="mb-3 flex flex-col gap-1.5">
+          <FieldLabel>Column</FieldLabel>
+          <SearchableSelect ariaLabel="Column" value={column} onChange={onColumnChange} options={columns} />
+        </div>
+        <QuickAddTaskForm submitting={submitting} assignees={assignees} onSubmit={onSubmit} />
+        <button
+          onClick={onClose}
+          className="mt-3 w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

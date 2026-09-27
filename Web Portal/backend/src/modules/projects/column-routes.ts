@@ -4,15 +4,19 @@ import type { ColumnService } from './column-service';
 import type { ProjectAuthz } from './project-authz';
 import type { AuthGuard } from '../auth/auth-guard';
 import { ForbiddenError } from '../../lib/http-errors';
+import { requiredText } from '../tasks/validation';
 
 const categoryEnum = z.enum(['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE']);
-const addSchema = z.object({ name: z.string().min(1), category: categoryEnum.optional(), color: z.string().optional() });
+const colorSchema = z.string().trim().min(1).max(64);
+const addSchema = z.object({ name: requiredText, category: categoryEnum.optional(), color: colorSchema.optional() });
 const updateSchema = z.object({
-  name: z.string().min(1).optional(),
+  name: requiredText.optional(),
   category: categoryEnum.optional(),
-  color: z.string().optional(),
+  color: colorSchema.optional(),
   enabled: z.boolean().optional(),
-  position: z.number().optional(),
+  // Whole numbers only; negatives are allowed because clients swap columns through temporary
+  // negative positions (the (projectId, position) unique index forbids a direct swap).
+  position: z.number().int().min(-1_000_000).max(1_000_000).optional(),
 });
 
 export interface ColumnRouteDeps {

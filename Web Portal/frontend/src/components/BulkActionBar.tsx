@@ -9,6 +9,7 @@ export interface BulkActionBarProps {
   /** Move targets — only supplied when the selection is scoped to a single project. */
   columns?: { value: string; label: string }[];
   onComplete: () => void;
+  /** Set (a complete YYYY-MM-DD date) or clear (null, after confirmation) the due date of every selected task. */
   onSetDueDate: (date: string | null) => void;
   onSetPriority: (priority: Priority) => void;
   onAssign: (userId: string) => void;
@@ -27,8 +28,12 @@ const selectClass =
   'rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none transition-colors focus:border-brand disabled:opacity-50';
 
 /** Floating bar of bulk actions for a multi-selected set of tasks (My Tasks). */
+/** A complete, plausible calendar date — never a half-typed year like 0002. */
+const isCompleteDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number(v.slice(0, 4)) >= 2000 && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
+
 export function BulkActionBar({ count, busy = false, assignees, columns, onComplete, onSetDueDate, onSetPriority, onAssign, onMove, onClear }: BulkActionBarProps) {
   const [due, setDue] = useState('');
+  const [confirmClear, setConfirmClear] = useState(false);
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
@@ -48,17 +53,40 @@ export function BulkActionBar({ count, busy = false, assignees, columns, onCompl
           Complete
         </button>
 
-        <label className="inline-flex items-center gap-1 text-xs text-ink-2">
-          <span className="sr-only">Set due date</span>
+        {/* The date only applies on "Set date" — typing (e.g. a half-entered year) never touches the tasks. */}
+        <span className="inline-flex items-center gap-1 text-xs text-ink-2">
           <input
             type="date"
-            aria-label="Set due date"
+            aria-label="Due date for selected tasks"
             value={due}
             disabled={busy}
-            onChange={(e) => { setDue(e.target.value); onSetDueDate(e.target.value || null); }}
+            onChange={(e) => { setDue(e.target.value); setConfirmClear(false); }}
             className={selectClass}
           />
-        </label>
+          <button
+            type="button"
+            onClick={() => { onSetDueDate(due); setDue(''); }}
+            disabled={busy || !isCompleteDate(due)}
+            className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-brand transition-colors hover:border-brand disabled:opacity-50"
+          >
+            Set date
+          </button>
+          {confirmClear ? (
+            <span role="alert" className="inline-flex items-center gap-1">
+              <span className="text-danger">Clear the due date on {count} task{count === 1 ? '' : 's'}?</span>
+              <button type="button" onClick={() => { setConfirmClear(false); onSetDueDate(null); }} disabled={busy} className="rounded-lg bg-danger px-2 py-1 font-semibold text-white">
+                Clear dates
+              </button>
+              <button type="button" onClick={() => setConfirmClear(false)} className="rounded-lg px-1.5 py-1 font-medium text-ink-2 hover:bg-ground">
+                Keep
+              </button>
+            </span>
+          ) : (
+            <button type="button" onClick={() => setConfirmClear(true)} disabled={busy} className="rounded-lg px-1.5 py-1 font-medium text-ink-2 hover:bg-ground hover:text-danger disabled:opacity-50">
+              Clear date…
+            </button>
+          )}
+        </span>
 
         <select aria-label="Set priority" disabled={busy} value="" onChange={(e) => { if (e.target.value) onSetPriority(e.target.value as Priority); }} className={selectClass}>
           <option value="">Priority…</option>

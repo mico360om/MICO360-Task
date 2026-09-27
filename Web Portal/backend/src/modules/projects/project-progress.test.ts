@@ -42,6 +42,20 @@ describe('computeProjectProgress', () => {
     expect(p.overdue).toBe(1);
   });
 
+  it('does not count a task due today as overdue, even after 04:00 Muscat (UTC midnight)', () => {
+    const due = new Date('2026-09-30T00:00:00.000Z');
+    const tenAmMuscat = new Date('2026-09-30T06:00:00.000Z');
+    expect(computeProjectProgress([{ columnCategory: 'TODO', dueDate: due }], tenAmMuscat, 'Asia/Muscat').overdue).toBe(0);
+    const nextDayMuscat = new Date('2026-09-30T20:30:00.000Z'); // 00:30 on 1 Oct in Muscat
+    expect(computeProjectProgress([{ columnCategory: 'TODO', dueDate: due }], nextDayMuscat, 'Asia/Muscat').overdue).toBe(1);
+  });
+
+  it('counts a task with a completion time as done (the shared rule), never overdue', () => {
+    const p = computeProjectProgress([{ columnCategory: 'IN_PROGRESS', dueDate: past, completedAt: past }], now);
+    expect(p.completed).toBe(1);
+    expect(p.overdue).toBe(0);
+  });
+
   it('treats a missing column category as TODO', () => {
     const p = computeProjectProgress([{}, {}], now);
     expect(p.todo).toBe(2);

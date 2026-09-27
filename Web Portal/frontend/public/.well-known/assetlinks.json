@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mico360.tasks",
+      "sha256_cert_fingerprints": [
+        "82:91:DD:AB:4A:7D:C7:CE:E9:7E:31:87:34:DB:B3:A3:88:71:F5:61:C6:3C:1C:28:BD:10:29:AB:99:AF:0F:AF"
+      ]
+    }
+  }
+]

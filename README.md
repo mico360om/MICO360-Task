@@ -11,14 +11,16 @@ Organised by product surface:
 
 ```
 Web Portal/          The web product (deployed together)
-  backend/           Fastify + Prisma + MySQL API + Socket.IO + Mailjet   (15 modules)
+  backend/           Fastify + Prisma + MySQL API + Socket.IO + Mailjet
     database/        MySQL init scripts
     docker-compose.yml   MySQL 8 for local dev
     .env.example     backend env template (copy to .env)
-  frontend/          React + Vite + Tailwind web app                       (login → wired pages)
-Extension/           Chrome MV3 extension (popup + service worker)         — a client of the API
-Android App/         Phase 2 native mobile app (planned; see the plan)     — a client of the API
-docs/                OpenAPI spec, deployment, data policy, email, CD, QA, a11y, screen flows
+  frontend/          React + Vite + Tailwind web app
+Extension/           Chrome MV3 extension                                   — a client of the API
+Android App/         React Native (Expo) Android app                        — a client of the API
+tools/release/       Release builds: Windows installer, Hostinger package, extension zip, APK
+Installer/           Built release packages (see Installer/README.md; binaries are not committed)
+docs/                OpenAPI spec, deployment (Hostinger, Windows server), data policy, email, QA, a11y
 ```
 
 npm workspaces: `Web Portal/backend`, `Web Portal/frontend`, `Extension` (workspace names
@@ -26,22 +28,18 @@ npm workspaces: `Web Portal/backend`, `Web Portal/frontend`, `Extension` (worksp
 
 ## Test status
 
-`npm test` (root, all workspaces) → **413 passing**:
-**backend 278 · frontend 128 · extension 7.** Typecheck and lint are clean everywhere.
-Plus `npm run test:db` (Prisma integration) and `npm run test:e2e` (live-API lifecycle E2E).
-**All 106 Phase-1 tasks are done.**
-Every nav route is a real, API-wired page — no placeholders, no dead links.
+`npm test` in each app → **2,089 passing** (backend 1,120 · web 490 · Android 310 · extension 169),
+with typecheck and lint clean everywhere. Plus `npm run test:db` (Prisma integration on MySQL 8)
+and `npm run test:e2e` (live-API lifecycle), and the release acceptance test
+`tools/release/verify-server.mjs` (48 checks against a freshly installed server — web app, sign-in,
+users, Arabic projects/tasks, files, reports, chat + realtime, meetings, permissions).
 
-**End-to-end verified against a live database:** `npm run test:db` → **5/5** Prisma integration
-tests, plus a live-server API smoke test of **14/14** flows (login by email+username, RBAC,
-auto task keys, kanban move, multi-user assignees, checklist auto-%, comments, reports, search,
-5-strike lockout) — and an **11/11** cross-cutting check that file attachments upload/download/delete,
-that assignment fires a notification + activity row, and that a comment `@mention` notifies the
-mentioned user (all asserted directly against the DB). Production targets **MySQL 8**; because this machine only had PostgreSQL,
-local verification ran on Postgres via `prisma/schema.postgres.prisma` (schema identical minus
-the MySQL-only fulltext index — no code queries it). See `Web Portal/backend/.env` for the local setup.
-Every task was built strict-TDD (red → green). `npm run test:db` (Prisma integration tests) is
-written and ready — it just needs a running MySQL.
+## Release packages (v0.2.0)
+
+`node tools/release/build-release.mjs` builds the Windows installer, the Hostinger server package and
+the Chrome extension zip into `Installer/`; `bash tools/release/build-apk.sh` builds the signed APK.
+What each package is and how to install it: [`Installer/README.md`](Installer/README.md).
+The self-contained Windows server is documented in [`docs/WINDOWS-SERVER.md`](docs/WINDOWS-SERVER.md).
 
 ## What's implemented
 

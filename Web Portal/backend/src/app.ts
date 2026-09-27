@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -6,10 +6,11 @@ import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
 import { HttpError } from './lib/http-errors';
 import type { Logger } from './lib/logger';
+import { registerIdempotency, type IdempotencyStore } from './lib/idempotency';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
-import { createAuthGuard } from './modules/auth/auth-guard';
+import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
 import { registerProjectRoutes } from './modules/projects/project-routes';
 import type { ProjectService } from './modules/projects/project-service';
 import { registerTaskRoutes } from './modules/tasks/task-routes';
@@ -70,11 +71,17 @@ import { registerAiRoutes } from './modules/ai/ai-config-routes';
 import type { AiConfigService } from './modules/ai/ai-config-service';
 import { registerAiFeatureRoutes } from './modules/ai/ai-feature-routes';
 import type { AiFeatureService } from './modules/ai/ai-feature-service';
+import type { CorsOriginMatcher } from './lib/cors-origins';
 
 export interface AppDeps extends AuthRouteDeps {
-  corsOrigins?: string[] | boolean;
-  /** Public app config surfaced at GET /api/v1/config (company time zone, names). */
-  appConfig?: { timeZone: string; productName: string; companyName: string };
+  corsOrigins?: string[] | boolean | CorsOriginMatcher;
+  /** Public app config surfaced at GET /api/v1/config (company time zone, names, whether email works). */
+  appConfig?: { timeZone: string; productName: string; companyName: string; emailEnabled?: boolean };
+  /**
+   * Live account state for the auth guard (token version, status, current roles). When set, a
+   * suspended / deleted / demoted user loses access at once instead of when their token expires.
+   */
+  userState?: UserStateLookup;
   projectService?: ProjectService;
   columnService?: ColumnService;
   memberService?: MemberService;
@@ -132,17 +139,91 @@ export interface AppDeps extends AuthRouteDeps {
   errorReporter?: { captureException: (err: unknown, context?: Record<string, unknown>) => void };
   emailWebhookService?: EmailWebhookService;
   mailjetWebhookToken?: string;
+  /**
+   * Which proxies to trust for the client IP (Fastify `trustProxy`). Behind nginx / Hostinger's
+   * proxy this must be set, otherwise every request appears to come from the proxy and all users
+   * share one rate-limit bucket. Accepts true, a hop count, IPs/CIDRs, or 'loopback'.
+   */
+  trustProxy?: boolean | number | string | string[];
+  /** Requests per minute per signed-in user (or per IP when signed out). Default 600. */
+  rateLimitMax?: number;
+  /** Requests per minute per IP for sign-in, code and password-reset endpoints. Default 20. */
+  authRateLimitMax?: number;
+  /** Enables `Idempotency-Key` support on POST routes (replay-safe offline queues). */
+  idempotencyStore?: IdempotencyStore;
+}
+
+/** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
+function isRateLimitExempt(url: string): boolean {
+  return !url.startsWith('/api/') || url === '/api/v1/health';
+}
+
+/** Sign-in and recovery endpoints get a stricter per-IP limit (brute force / email flooding). */
+const SENSITIVE_AUTH_ROUTES = ['/api/v1/auth/login', '/api/v1/auth/otp/', '/api/v1/auth/password/'];
+
+/** Map Prisma errors that come from bad input or races to clear 4xx responses. */
+function prismaErrorResponse(err: unknown): { status: number; code: string; message: string } | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const e = err as { name?: string; code?: string };
+  if (e.name === 'PrismaClientValidationError') return { status: 400, code: 'VALIDATION', message: 'Invalid input.' };
+  if (e.name !== 'PrismaClientKnownRequestError') return null;
+  switch (e.code) {
+    case 'P2000':
+      return { status: 400, code: 'VALUE_TOO_LONG', message: 'A value is too long.' };
+    case 'P2002':
+      return { status: 409, code: 'CONFLICT', message: 'That value is already in use.' };
+    case 'P2003':
+      return { status: 409, code: 'REFERENCE_CONFLICT', message: 'A related record is missing or still in use.' };
+    case 'P2025':
+      return { status: 404, code: 'NOT_FOUND', message: 'Not found.' };
+    default:
+      return null;
+  }
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // `logger: false` disables all Fastify logging (incl. request logs), so the
   // former `disableRequestLogging` option is redundant — and it's deprecated in
   // fastify 5. We log via deps.logger (structured JSON) instead.
-  const app = Fastify({ logger: false });
+  // Fastify accepts a hop count at runtime, but its typings only list boolean | string | string[].
+  const app = Fastify({ logger: false, trustProxy: (deps.trustProxy ?? false) as boolean | string | string[] });
+
+  // The verified user of a request (HMAC check only — no database), used to key rate limits
+  // and idempotency records per user instead of per IP (a whole office can share one IP).
+  const userIdOf = (req: FastifyRequest): string | null => {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) return null;
+    try {
+      const claims = deps.tokenService.verifyAccess(header.slice('Bearer '.length).trim());
+      return claims.type === 'access' && typeof claims.sub === 'string' ? claims.sub : null;
+    } catch {
+      return null;
+    }
+  };
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: deps.corsOrigins ?? true, credentials: true });
-  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  // Must be added before the rate-limit plugin so its per-route config is in place when the
+  // plugin's own onRoute hook reads it.
+  app.addHook('onRoute', (route) => {
+    if (SENSITIVE_AUTH_ROUTES.some((p) => route.url.startsWith(p))) {
+      route.config = {
+        ...(route.config ?? {}),
+        rateLimit: { max: deps.authRateLimitMax ?? 20, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `auth:${req.ip}` },
+      } as typeof route.config;
+    }
+  });
+  await app.register(rateLimit, {
+    global: true,
+    max: deps.rateLimitMax ?? 600,
+    timeWindow: '1 minute',
+    keyGenerator: (req) => {
+      const userId = userIdOf(req);
+      return userId ? `user:${userId}` : `ip:${req.ip}`;
+    },
+    allowList: (req) => isRateLimitExempt(req.url),
+  });
+  if (deps.idempotencyStore) registerIdempotency(app, { store: deps.idempotencyStore, userIdOf });
 
   // Uploaded files (avatars, task/chat attachments, project images) and brand assets
   // are public and embedded cross-origin — by the SPA on a different origin/port and by
@@ -165,7 +246,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: 'VALIDATION', message: 'Invalid input.', details: err.flatten() } });
     }
+    const mapped = prismaErrorResponse(err);
+    if (mapped) return reply.status(mapped.status).send({ error: { code: mapped.code, message: mapped.message } });
     const status = (err as { statusCode?: number }).statusCode ?? 500;
+    if (status === 429) {
+      return reply.status(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many requests. Please wait a moment and try again.' } });
+    }
     if (status >= 500) {
       // Fastify's own logger is disabled; log structured JSON (or console fallback).
       if (deps.logger) deps.logger.error('request failed', { method: req.method, url: req.url, status, err });
@@ -189,11 +275,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
       productName: deps.appConfig?.productName ?? 'MICO360 Tasks',
       companyName: deps.appConfig?.companyName ?? 'MICO360',
+      // Lets sign-in screens hide "email me a code" / password reset when email isn't set up.
+      emailEnabled: deps.appConfig?.emailEnabled ?? true,
       serverTime: new Date().toISOString(),
     },
   }));
-  // Lightweight liveness metrics for uptime monitoring (T19.3).
-  app.get('/api/v1/metrics', async () => {
+  // Process metrics for monitoring (T19.3). Admin-only: pid, Node version and memory are
+  // internal details that anonymous callers shouldn't see (uptime checks use /health).
+  // One guard for every route, so its short account-state cache is shared.
+  const guard = createAuthGuard(deps.tokenService, { userState: deps.userState });
+  app.get('/api/v1/metrics', { preHandler: guard.requireRoles('ADMIN') }, async () => {
     const mem = process.memoryUsage();
     return {
       data: {
@@ -209,7 +300,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(
     async (api) => {
       await registerAuthRoutes(api, deps);
-      const guard = createAuthGuard(deps.tokenService);
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
       if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage) {
         await api.register(multipart, { limits: { fileSize: deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024, files: 1 } });
@@ -233,6 +323,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           projectService: deps.projectService,
           guard,
           listProjectTasks: deps.taskService ? (projectId) => deps.taskService!.listTasks({ projectId }) : undefined,
+          timeZone: deps.appConfig?.timeZone,
           audit: deps.auditService,
           storage: deps.chatAttachmentStorage,
           imageMaxBytes: deps.attachmentMaxSizeBytes,
@@ -401,10 +492,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerActivityRoutes(api, { activityService: deps.activityService, guard, canViewTask, accessibleProjectIds });
       }
       if (deps.auditService) {
-        await registerAuditRoutes(api, { auditService: deps.auditService, guard });
+        await registerAuditRoutes(api, { auditService: deps.auditService, guard, timeZone: deps.appConfig?.timeZone });
       }
       if (deps.settingsService) {
-        await registerSettingsRoutes(api, { settingsService: deps.settingsService, guard });
+        await registerSettingsRoutes(api, { settingsService: deps.settingsService, guard, audit: deps.auditService });
       }
       if (deps.aiConfigService) {
         await registerAiRoutes(api, { aiConfigService: deps.aiConfigService, guard });

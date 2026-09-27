@@ -7,6 +7,8 @@ export interface AppConfig {
   companyName: string;
   /** Server clock at the time of the response (ISO) — used to anchor the client clock. */
   serverTime: string;
+  /** False when outbound email isn't configured — email sign-in codes and reset emails can't be sent. */
+  emailEnabled?: boolean;
 }
 
 export function configApi(client: ApiClient) {

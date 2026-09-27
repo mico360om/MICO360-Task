@@ -7,7 +7,16 @@ function fakes(meeting: { id: string; title: string; projectId: string | null })
   const noteService = {
     getNote: vi.fn(async (mid: string, nid: string) => {
       if (mid !== meeting.id || nid !== note.id) throw new Error('not found');
-      return note as never;
+      return { ...note } as never;
+    }),
+    // Mirrors the repository's conditional update: only a note without a task can be claimed.
+    claimForTask: vi.fn(async () => {
+      if (note.taskId) throw Object.assign(new Error('A task has already been created from this note.'), { status: 409 });
+      note.taskId = 'pending:x';
+      return 'pending:x';
+    }),
+    releaseTaskClaim: vi.fn(async (_nid: string, claim: string) => {
+      if (note.taskId === claim) note.taskId = null;
     }),
     linkTask: vi.fn(async (_mid: string, nid: string, taskId: string) => {
       note.taskId = taskId;
@@ -51,10 +60,10 @@ describe('createTaskFromNote', () => {
     const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
     const svc = createNoteTaskService(f as never);
     await svc.createTaskFromNote('m1', 'n1', 'u1', {
-      title: 'Custom title', projectId: 'p2', columnId: 'c-x', priority: 'HIGH', dueDate: '2026-11-01T00:00:00.000Z',
+      title: 'Custom title', projectId: 'p2', columnId: 'c-doing', priority: 'HIGH', dueDate: '2026-11-01T00:00:00.000Z',
     });
     expect(f.taskService.createTask).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Custom title', projectId: 'p2', columnId: 'c-x', priority: 'HIGH',
+      title: 'Custom title', projectId: 'p2', columnId: 'c-doing', priority: 'HIGH',
     }));
     const arg = f.taskService.createTask.mock.calls[0]![0] as { dueDate: Date };
     expect(arg.dueDate).toBeInstanceOf(Date);
@@ -75,5 +84,49 @@ describe('createTaskFromNote', () => {
     const svc = createNoteTaskService({ ...f, assignees: { assignUsers } } as never);
     const { task } = await svc.createTaskFromNote('m1', 'n1', 'u1', { assigneeId: 'u2' });
     expect(assignUsers).toHaveBeenCalledWith((task as { id: string }).id, ['u2'], 'u1');
+  });
+
+  it('rejects a column from another project’s board (400) without creating anything', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const svc = createNoteTaskService(f as never);
+    await expect(svc.createTaskFromNote('m1', 'n1', 'u1', { columnId: 'someone-elses-column' })).rejects.toThrow(/column/i);
+    expect(f.taskService.createTask).not.toHaveBeenCalled();
+    expect(f.note.taskId).toBeNull();
+  });
+
+  it('refuses to convert the same note twice (409) — no duplicate task', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const svc = createNoteTaskService(f as never);
+    await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+    await expect(svc.createTaskFromNote('m1', 'n1', 'u2', {})).rejects.toMatchObject({ status: 409 });
+    expect(f.taskService.createTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks access to the meeting’s own project, not only an explicitly chosen one', async () => {
+    const f = fakes({ id: 'm1', title: 'Board sync', projectId: 'secret' });
+    const svc = createNoteTaskService(f as never);
+    const canUseProject = vi.fn(async (projectId: string) => projectId !== 'secret');
+    await expect(svc.createTaskFromNote('m1', 'n1', 'u1', {}, { canUseProject })).rejects.toMatchObject({ status: 403 });
+    expect(canUseProject).toHaveBeenCalledWith('secret');
+    expect(f.taskService.createTask).not.toHaveBeenCalled();
+  });
+
+  it('releases the claim when the task cannot be created, so the note can be retried', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    f.taskService.createTask.mockRejectedValueOnce(new Error('db down'));
+    const svc = createNoteTaskService(f as never);
+    await expect(svc.createTaskFromNote('m1', 'n1', 'u1', {})).rejects.toThrow('db down');
+    expect(f.note.taskId).toBeNull();
+    const { note } = await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+    expect((note as { taskId: string }).taskId).toMatch(/^t/);
+  });
+
+  it('keeps the task linked when assignment fails, reporting the assignment error', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const assignUsers = vi.fn(async () => { throw new Error('Assignees must be project members.'); });
+    const svc = createNoteTaskService({ ...f, assignees: { assignUsers } } as never);
+    const res = await svc.createTaskFromNote('m1', 'n1', 'u1', { assigneeId: 'outsider' });
+    expect(res.assigneeError).toMatch(/project members/);
+    expect(f.note.taskId).toBe((res.task as { id: string }).id);
   });
 });

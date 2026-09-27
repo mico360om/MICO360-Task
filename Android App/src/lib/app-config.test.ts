@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ConfigContext, ExpoConfig } from 'expo/config';
-import appConfig from '../../app.config';
+import appConfig, { resolveBuildAppEnv, isReleaseBuild, resolveGoogleServicesFile } from '../../app.config';
 import { flavorConfig, type AppEnv } from './app-env';
 
 /**
@@ -22,16 +22,16 @@ const baseConfig: ExpoConfig = {
 const run = (base: Partial<ExpoConfig> = baseConfig): ExpoConfig =>
   appConfig({ config: { ...baseConfig, ...base } } as ConfigContext);
 
-const savedEnv = { APP_ENV: process.env.APP_ENV, EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL };
+const ENV_KEYS = ['APP_ENV', 'EXPO_PUBLIC_API_URL', 'EAS_BUILD', 'GOOGLE_SERVICES_JSON'] as const;
+const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 beforeEach(() => {
-  delete process.env.APP_ENV;
-  delete process.env.EXPO_PUBLIC_API_URL;
+  for (const k of ENV_KEYS) delete process.env[k];
 });
 afterEach(() => {
-  process.env.APP_ENV = savedEnv.APP_ENV;
-  process.env.EXPO_PUBLIC_API_URL = savedEnv.EXPO_PUBLIC_API_URL;
-  if (savedEnv.APP_ENV === undefined) delete process.env.APP_ENV;
-  if (savedEnv.EXPO_PUBLIC_API_URL === undefined) delete process.env.EXPO_PUBLIC_API_URL;
+  for (const k of ENV_KEYS) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
 });
 
 describe('app.config dynamic Expo config', () => {
@@ -85,5 +85,30 @@ describe('app.config dynamic Expo config', () => {
     // slug falls back when the base omits it
     const cfg2 = appConfig({ config: { ...baseConfig, slug: undefined as unknown as string } } as ConfigContext);
     expect(cfg2.slug).toBe('mico360-tasks');
+  });
+
+  it('fails a release build (EAS or production bundle) that does not name its flavor (MOB-12)', () => {
+    expect(() => resolveBuildAppEnv({ EAS_BUILD: 'true' })).toThrow(/APP_ENV/);
+    expect(() => resolveBuildAppEnv({ NODE_ENV: 'production' })).toThrow(/APP_ENV/);
+    expect(() => resolveBuildAppEnv({ NODE_ENV: 'production', APP_ENV: 'staging' })).toThrow(/APP_ENV/);
+    expect(resolveBuildAppEnv({ EAS_BUILD: 'true', APP_ENV: 'production' })).toBe('production');
+    // local development may still omit it
+    expect(resolveBuildAppEnv({ NODE_ENV: 'development' })).toBe('development');
+    expect(isReleaseBuild({ NODE_ENV: 'test' })).toBe(false);
+  });
+
+  it('the dynamic config refuses to build a release without APP_ENV', () => {
+    process.env.EAS_BUILD = 'true';
+    expect(() => run()).toThrow(/APP_ENV/);
+  });
+
+  it('wires the Firebase google-services.json only when it is provided (NTF-01)', () => {
+    expect(resolveGoogleServicesFile({}, '/nonexistent-dir')).toBeUndefined();
+    expect(resolveGoogleServicesFile({ GOOGLE_SERVICES_JSON: '/secrets/gs.json' })).toBe('/secrets/gs.json');
+    process.env.APP_ENV = 'production';
+    process.env.GOOGLE_SERVICES_JSON = '/secrets/gs.json';
+    expect(run().android?.googleServicesFile).toBe('/secrets/gs.json');
+    delete process.env.GOOGLE_SERVICES_JSON;
+    expect(run().android?.googleServicesFile).toBeUndefined();
   });
 });

@@ -111,6 +111,19 @@ describe('Action item routes', () => {
     expect(forbidden.statusCode).toBe(403);
   });
 
+  it('lets the assignee and creator work on their item even without meeting access (MTG-05)', async () => {
+    const app = await makeApp();
+    const id = await ownedMeeting(app, 'u1');
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const aid = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/action-items`, headers: { authorization: auth }, payload: { description: 'Follow up', assigneeId: 'u2' } })).json().data.id;
+    // u2 never attended the meeting but owns the item.
+    const res = await app.inject({ method: 'PATCH', url: `/api/v1/action-items/${aid}`, headers: { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` }, payload: { status: 'COMPLETED' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.status).toBe('COMPLETED');
+    // …but may not delete someone else's item.
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/action-items/${aid}`, headers: { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` } })).statusCode).toBe(403);
+  });
+
   it('deletes an item (204)', async () => {
     const app = await makeApp();
     const id = await ownedMeeting(app, 'u1');

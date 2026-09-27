@@ -1,7 +1,11 @@
-import { el, mount, Loader, ErrorState, Empty, fmtDay } from '../dom.js';
+import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
 import { taskRow } from '../components.js';
+import { dueDayKey, todayKey, formatDayKey } from '../../src/due-date.js';
 
-/** Calendar — an agenda of your due tasks grouped by day (ascending). Tasks with no due date are omitted. */
+/**
+ * Calendar — an agenda of your due tasks grouped by due day (ascending). Due days are calendar days
+ * and "Today" is today in the company time zone (XP-03). Tasks with no due date are omitted.
+ */
 export function CalendarScreen(ctx) {
   const root = el('div');
   load();
@@ -18,12 +22,11 @@ export function CalendarScreen(ctx) {
   }
 
   function render(tasks, stale) {
-    const today = dayKey(Date.now());
-    // Group tasks that have a due date by their local calendar day (YYYY-MM-DD).
+    const today = todayKey(ctx.timeZone);
     const byDay = new Map();
     for (const t of tasks) {
-      if (!t.dueDate) continue;
-      const key = dayKey(t.dueDate);
+      const key = dueDayKey(t.dueDate, ctx.timeZone);
+      if (!key) continue;
       if (!byDay.has(key)) byDay.set(key, []);
       byDay.get(key).push(t);
     }
@@ -40,16 +43,8 @@ export function CalendarScreen(ctx) {
   function daySection(key, tasks, isToday) {
     return el('div', { style: { marginTop: '20px' } },
       el('div', { class: 'section-title', style: isToday ? { color: 'var(--brand)' } : null },
-        fmtDay(key), isToday ? ' · Today' : null),
-      el('div', { class: 'list' }, tasks.map((t) => taskRow(t, () => ctx.openTask(t.id)))),
+        formatDayKey(key), isToday ? ' · Today' : null),
+      el('div', { class: 'list' }, tasks.map((t) => taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone }))),
     );
-  }
-
-  function dayKey(value) {
-    const d = new Date(value);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
   }
 }

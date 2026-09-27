@@ -21,7 +21,10 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         columnCategory: t.column.category,
         createdAt: t.createdAt,
         dueDate: t.dueDate,
-        completedAt: t.completedAt,
+        // Older rows can sit in a DONE column without a completion time (created straight into
+        // Done, or moved there via an edit); their last update is the best stand-in, so the trend
+        // and the snapshot reports agree they are done.
+        completedAt: t.completedAt ?? (t.column.category === 'DONE' ? t.updatedAt : null),
         assigneeIds: t.assignees.map((a) => a.userId),
       }));
     },

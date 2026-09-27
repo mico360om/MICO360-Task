@@ -1,5 +1,6 @@
 import { ValidationError } from '../../lib/http-errors';
 import type { AiModelParameters, AiProvider } from './ai-config';
+import { createSafeFetch, providerFetch, readProviderJson } from './ai-network';
 
 /** A resolved model ready to invoke: its provider connection + the provider's model key. */
 export interface ChatModel {
@@ -17,12 +18,24 @@ export interface CompletionInput {
   maxTokens?: number;
 }
 
+export interface CompletionOptions {
+  /** Abort a provider call that takes longer than this. Default 60 seconds. */
+  timeoutMs?: number;
+  /** Allow private / internal provider hosts (a local model server). Default false. */
+  allowPrivateHosts?: boolean;
+}
+
 /**
  * Single-turn text completion against a configured provider. Speaks each provider kind's
  * chat API (Anthropic Messages, OpenAI/custom chat-completions, Ollama chat) and returns the
  * assistant's text. `fetchImpl` is injected so features are fully testable without a network.
  */
-export async function complete(model: ChatModel, input: CompletionInput, fetchImpl: typeof fetch = fetch): Promise<string> {
+export async function complete(
+  model: ChatModel,
+  input: CompletionInput,
+  fetchImpl?: typeof fetch,
+  opts: CompletionOptions = {},
+): Promise<string> {
   const base = model.provider.apiBaseUrl.replace(/\/+$/, '');
   const maxTokens = input.maxTokens ?? model.parameters?.maxTokens ?? 1024;
   const temperature = model.parameters?.temperature ?? 0.3;
@@ -66,16 +79,19 @@ export async function complete(model: ChatModel, input: CompletionInput, fetchIm
       break;
   }
 
-  let res: Response;
-  try {
-    res = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body) });
-  } catch {
-    throw new ValidationError('Could not reach the AI provider. Check the API URL and network.');
-  }
+  const res = await providerFetch(
+    url,
+    { method: 'POST', headers, body: JSON.stringify(body) },
+    {
+      fetchImpl: fetchImpl ?? createSafeFetch({ allowPrivateHosts: opts.allowPrivateHosts }),
+      timeoutMs: opts.timeoutMs ?? 60_000,
+      allowPrivateHosts: opts.allowPrivateHosts,
+    },
+  );
   if (!res.ok) {
     throw new ValidationError(`The AI provider rejected the request (HTTP ${res.status}).`);
   }
-  const json = (await res.json()) as unknown;
+  const json = await readProviderJson(res);
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');
   return text;
@@ -83,16 +99,19 @@ export async function complete(model: ChatModel, input: CompletionInput, fetchIm
 
 /** Pull the assistant text out of each provider's response shape. */
 export function extractText(kind: AiProvider['kind'], json: unknown): string {
-  const b = json as {
-    content?: Array<{ type?: string; text?: string }>;
-    message?: { content?: string };
-    choices?: Array<{ message?: { content?: string } }>;
+  // The body comes from an external server: tolerate any shape instead of throwing a 500.
+  const b = (json && typeof json === 'object' ? json : {}) as {
+    content?: unknown;
+    message?: { content?: unknown };
+    choices?: Array<{ message?: { content?: unknown } }>;
   };
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
   if (kind === 'anthropic') {
-    return (b.content ?? []).filter((p) => p?.type === 'text').map((p) => p.text ?? '').join('').trim();
+    const parts = Array.isArray(b.content) ? (b.content as Array<{ type?: string; text?: unknown } | null>) : [];
+    return parts.filter((p) => p?.type === 'text').map((p) => str(p?.text)).join('').trim();
   }
   if (kind === 'ollama') {
-    return (b.message?.content ?? '').trim();
+    return str(b.message?.content).trim();
   }
-  return (b.choices?.[0]?.message?.content ?? '').trim();
+  return str(Array.isArray(b.choices) ? b.choices[0]?.message?.content : undefined).trim();
 }

@@ -46,8 +46,15 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
   const { noteService, guard } = deps;
   const forbidden = { error: { code: 'FORBIDDEN', message: 'You do not have access to this meeting.' } };
   const notFound = { error: { code: 'NOT_FOUND', message: 'Meeting not found.' } };
+  const notAuthor = { error: { code: 'FORBIDDEN', message: 'You can only change your own notes.' } };
   const canView = (req: FastifyRequest, id: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
+  const canModerate = (req: FastifyRequest, id: string): Promise<boolean> => noteService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
+  const canUseProject = async (req: FastifyRequest, projectId: string): Promise<boolean> => {
+    if (!deps.accessibleProjectIds) return true;
+    const allowed = await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []);
+    return !allowed || allowed.includes(projectId);
+  };
 
   app.get('/meetings/:id/notes', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -65,12 +72,21 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
   app.patch('/meetings/:id/notes/:noteId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id, noteId } = req.params as { id: string; noteId: string };
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
-    return { data: await noteService.updateNote(id, noteId, patchSchema.parse(req.body)) };
+    const patch = patchSchema.parse(req.body);
+    const note = await noteService.getNote(id, noteId);
+    if (note.authorId !== req.user!.id) {
+      // Only the author edits a note's content; the organizer may still highlight it.
+      const highlightOnly = Object.keys(patch).every((k) => k === 'highlighted');
+      if (!highlightOnly || !(await canModerate(req, id))) return reply.status(403).send(notAuthor);
+    }
+    return { data: await noteService.updateNote(id, noteId, patch) };
   });
 
   app.delete('/meetings/:id/notes/:noteId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id, noteId } = req.params as { id: string; noteId: string };
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
+    const note = await noteService.getNote(id, noteId);
+    if (note.authorId !== req.user!.id && !(await canModerate(req, id))) return reply.status(403).send(notAuthor);
     await noteService.removeNote(id, noteId);
     return reply.status(204).send();
   });
@@ -82,14 +98,14 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
       const { id, noteId } = req.params as { id: string; noteId: string };
       if (!(await canView(req, id))) return reply.status(403).send(forbidden);
       const body = createTaskFromNoteSchema.parse(req.body);
-      // A chosen target project must be one the caller can access.
-      if (body.projectId && deps.accessibleProjectIds) {
-        const allowed = await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []);
-        if (allowed && !allowed.includes(body.projectId)) {
-          return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to that project.' } });
-        }
+      // A chosen target project must be one the caller can access (fail fast before any lookups).
+      if (body.projectId && !(await canUseProject(req, body.projectId))) {
+        return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to that project.' } });
       }
-      const result = await noteTaskService.createTaskFromNote(id, noteId, req.user!.id, body);
+      // The service re-checks whichever project it resolves to — including the meeting's own.
+      const result = await noteTaskService.createTaskFromNote(id, noteId, req.user!.id, body, {
+        canUseProject: (projectId) => canUseProject(req, projectId),
+      });
       return reply.status(201).send({ data: result });
     });
   }

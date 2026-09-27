@@ -23,6 +23,8 @@ describe('Sidebar', () => {
     renderSidebar(false);
     expect(screen.queryByRole('link', { name: /user management/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /audit logs/i })).not.toBeInTheDocument();
+    // Reports is admin-only on the API, so employees never see a link that can't open.
+    expect(screen.queryByRole('link', { name: /reports/i })).not.toBeInTheDocument();
   });
 
   it('shows admin-only items to admins', () => {
@@ -31,5 +33,6 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /ai management/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /system settings/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /audit logs/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /reports/i })).toBeInTheDocument();
   });
 });

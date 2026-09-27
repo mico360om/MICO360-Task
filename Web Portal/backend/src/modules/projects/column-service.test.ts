@@ -1,11 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createColumnService } from './column-service';
 import type { ColumnRecord, ColumnRepository, CreateColumnData } from './column-repository';
+import { ConflictError } from '../../lib/http-errors';
+
+/** Live task counts per column id, so tests can fill a column. */
+const liveTasks = new Map<string, number>();
 
 function inMemory(): ColumnRepository {
   const rows: ColumnRecord[] = [];
   let seq = 0;
   return {
+    async countLiveTasks(id) {
+      return liveTasks.get(id) ?? 0;
+    },
     async listForProject(projectId) {
       return rows.filter((c) => c.projectId === projectId).sort((a, b) => a.position - b.position);
     },
@@ -38,6 +45,7 @@ function inMemory(): ColumnRepository {
 
 let svc: ReturnType<typeof createColumnService>;
 beforeEach(() => {
+  liveTasks.clear();
   svc = createColumnService({ columns: inMemory() });
 });
 
@@ -77,5 +85,13 @@ describe('ColumnService', () => {
     const removed = await svc.removeColumn(c.id);
     expect(removed).toEqual({ projectId: 'p1' });
     expect(await svc.listColumns('p1')).toHaveLength(0);
+  });
+
+  it('refuses (409) to delete a column that still has live tasks', async () => {
+    const c = await svc.addColumn('p1', { name: 'Busy' });
+    liveTasks.set(c.id, 2);
+    await expect(svc.removeColumn(c.id)).rejects.toBeInstanceOf(ConflictError);
+    await expect(svc.removeColumn(c.id)).rejects.toMatchObject({ code: 'COLUMN_NOT_EMPTY' });
+    expect(await svc.listColumns('p1')).toHaveLength(1);
   });
 });

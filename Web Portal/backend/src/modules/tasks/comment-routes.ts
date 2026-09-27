@@ -2,9 +2,11 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { CommentService } from './comment-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { idString, longText } from './validation';
 
-const bodySchema = z.object({ body: z.string().min(1) });
-const createSchema = z.object({ body: z.string().min(1), parentId: z.string().optional() });
+const commentBody = longText.refine((s) => s.trim().length > 0, { message: 'A comment cannot be empty.' });
+const bodySchema = z.object({ body: commentBody });
+const createSchema = z.object({ body: commentBody, parentId: idString.optional() });
 
 export interface CommentRouteDeps {
   commentService: CommentService;
@@ -44,9 +46,13 @@ export async function registerCommentRoutes(app: FastifyInstance, deps: CommentR
     return reply.status(201).send({ data: comment });
   });
 
-  app.put('/comments/:commentId', { preHandler: guard.authenticate }, async (req) => {
+  // Editing or deleting also needs access to the comment's task — authorship alone isn't enough
+  // once someone has left the project.
+  app.put('/comments/:commentId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { commentId } = req.params as { commentId: string };
     const { body } = bodySchema.parse(req.body);
+    const existing = await commentService.getComment(commentId);
+    if (!(await canView(req, existing.taskId))) return reply.status(403).send(denied);
     const comment = await commentService.editComment(commentId, req.user!.id, body);
     await announce(comment.taskId, 'comment:updated', { taskId: comment.taskId, comment });
     return { data: comment };
@@ -54,6 +60,8 @@ export async function registerCommentRoutes(app: FastifyInstance, deps: CommentR
 
   app.delete('/comments/:commentId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { commentId } = req.params as { commentId: string };
+    const existing = await commentService.getComment(commentId);
+    if (!(await canView(req, existing.taskId))) return reply.status(403).send(denied);
     const isAdmin = (req.user!.roles ?? []).includes('ADMIN');
     const removed = await commentService.deleteComment(commentId, req.user!.id, isAdmin);
     if (removed) await announce(removed.taskId, 'comment:deleted', { taskId: removed.taskId, id: commentId });

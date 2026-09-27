@@ -34,4 +34,19 @@ describe('meeting access', () => {
   it('returns false for an unknown meeting', async () => {
     expect(await access.canViewMeeting('u1', [], 'ghost')).toBe(false);
   });
+
+  it('lets only the organizer, creator, project manager or an admin edit (SEC-06)', async () => {
+    const managed = createMeetingAccess({
+      meetings,
+      projectAccess: { ...projectAccess, async canManageProject(userId: string, _roles: string[], projectId: string) { return projectId === 'p2' && userId === 'pm2'; } },
+    });
+    expect(await managed.canEditMeeting('u1', [], 'm1')).toBe(true); // organizer
+    expect(await managed.canEditMeeting('u2', [], 'm1')).toBe(false); // attendee: view only
+    expect(await managed.canEditMeeting('member2', [], 'm2')).toBe(false); // project member: view only
+    expect(await managed.canEditMeeting('pm2', [], 'm2')).toBe(true); // project manager
+    expect(await managed.canEditMeeting('admin', ['ADMIN'], 'm2')).toBe(true);
+    expect(await managed.canEditMeeting('admin', ['ADMIN'], 'ghost')).toBe(false);
+    // Without a manager lookup, project membership never grants edit rights.
+    expect(await access.canEditMeeting('pm2', [], 'm2')).toBe(false);
+  });
 });

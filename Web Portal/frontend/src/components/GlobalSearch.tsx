@@ -7,6 +7,7 @@ import { columnsApi } from '../api/columns';
 import { tasksApi } from '../api/tasks';
 import { assigneesApi } from '../api/assignees';
 import { matchNavCommands, parseCommand } from '../lib/commands';
+import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
 
 interface PaletteItem {
@@ -65,9 +66,11 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   });
 
   // ── Action executors ──
+  // Commands act only on the task whose key matches exactly — search is a substring match, so
+  // "complete WEB-5" must never fall back to WEB-50 when WEB-5 is gone or not visible to you.
   const resolveTask = async (key: string) => {
     const r = await searchApi(apiClient).search(key);
-    return r.tasks.find((t) => t.key.toLowerCase() === key.toLowerCase()) ?? r.tasks[0] ?? null;
+    return r.tasks.find((t) => t.key.toLowerCase() === key.toLowerCase()) ?? null;
   };
   const openTask = (id: string) => {
     setSearchParams((prev) => {
@@ -91,38 +94,38 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const completeCmd = (key: string) =>
     withStatus(`Completing ${key}`, async () => {
       const task = await resolveTask(key);
-      if (!task) throw new Error(`No task matching ${key}.`);
+      if (!task) throw new Error(`No task ${key}.`);
       const cols = await columnsApi(apiClient).list(task.projectId);
       const done = cols.find((c) => c.category === 'DONE' && c.enabled) ?? cols.find((c) => c.category === 'DONE');
       if (!done) throw new Error(`${task.key}: this project has no “Done” column.`);
       await tasksApi(apiClient).move(task.id, done.id);
-      // Targeted refresh — a single task action must not refetch the entire cache (reports, audit, chat…).
-      for (const key of ['board', 'my-tasks', 'project-tasks', 'tasks', 'task', 'search']) void qc.invalidateQueries({ queryKey: [key] });
+      // Targeted refresh — every task view, but not the entire cache (audit, chat…).
+      void invalidateTaskQueries(qc);
       return `Completed ${task.key} ✓`;
     });
   const assignCmd = (key: string, name: string) =>
     withStatus(`Assigning ${key}`, async () => {
       const task = await resolveTask(key);
-      if (!task) throw new Error(`No task matching ${key}.`);
+      if (!task) throw new Error(`No task ${key}.`);
       const users = (await searchApi(apiClient).search(name)).users;
       if (users.length === 0) throw new Error(`No teammate matching “${name}”.`);
       const user = users[0]!;
       await assigneesApi(apiClient).assign(task.id, user.id);
-      // Targeted refresh — a single task action must not refetch the entire cache (reports, audit, chat…).
-      for (const key of ['board', 'my-tasks', 'project-tasks', 'tasks', 'task', 'search']) void qc.invalidateQueries({ queryKey: [key] });
+      // Targeted refresh — every task view, but not the entire cache (audit, chat…).
+      void invalidateTaskQueries(qc);
       return `Assigned ${task.key} to ${[user.firstName, user.lastName].filter(Boolean).join(' ') || user.username} ✓`;
     });
   const moveCmd = (key: string, statusText: string) =>
     withStatus(`Moving ${key}`, async () => {
       const task = await resolveTask(key);
-      if (!task) throw new Error(`No task matching ${key}.`);
+      if (!task) throw new Error(`No task ${key}.`);
       const cols = await columnsApi(apiClient).list(task.projectId);
       const s = statusText.toLowerCase();
       const col = cols.find((c) => c.name.toLowerCase() === s) ?? cols.find((c) => c.name.toLowerCase().includes(s)) ?? cols.find((c) => c.category.toLowerCase().includes(s.replace(/\s+/g, '_')));
       if (!col) throw new Error(`${task.key}: no column matching “${statusText}”.`);
       await tasksApi(apiClient).move(task.id, col.id);
-      // Targeted refresh — a single task action must not refetch the entire cache (reports, audit, chat…).
-      for (const key of ['board', 'my-tasks', 'project-tasks', 'tasks', 'task', 'search']) void qc.invalidateQueries({ queryKey: [key] });
+      // Targeted refresh — every task view, but not the entire cache (audit, chat…).
+      void invalidateTaskQueries(qc);
       return `Moved ${task.key} → ${col.name} ✓`;
     });
 
@@ -140,7 +143,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     const parsed = raw ? parseCommand(raw, isAdmin) : null;
     if (parsed) {
       if (parsed.type === 'navigate') out.push({ id: 'cmd-nav', group: 'Command', primary: `Go to ${parsed.label}`, run: () => { navigate(parsed.to); reset(); } });
-      else if (parsed.type === 'open') out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${parsed.taskKey}`, run: async () => { const t = await resolveTask(parsed.taskKey); if (t) openTask(t.id); else setStatus(`No task matching ${parsed.taskKey}.`); } });
+      else if (parsed.type === 'open') out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${parsed.taskKey}`, run: async () => { const t = await resolveTask(parsed.taskKey); if (t) openTask(t.id); else setStatus(`No task ${parsed.taskKey}.`); } });
       else if (parsed.type === 'complete') out.push({ id: 'cmd-complete', group: 'Command', primary: `Complete ${parsed.taskKey}`, run: () => completeCmd(parsed.taskKey) });
       else if (parsed.type === 'assign') out.push({ id: 'cmd-assign', group: 'Command', primary: `Assign ${parsed.taskKey} to ${parsed.assignee}`, run: () => assignCmd(parsed.taskKey, parsed.assignee) });
       else if (parsed.type === 'move') out.push({ id: 'cmd-move', group: 'Command', primary: `Move ${parsed.taskKey} to ${parsed.status}`, run: () => moveCmd(parsed.taskKey, parsed.status) });
@@ -181,6 +184,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           type="search"
           role="searchbox"
           aria-label="Search"
+          dir="auto"
           placeholder="Search or type a command…"
           value={term}
           onChange={(e) => { setTerm(e.target.value); setStatus(null); }}
@@ -224,8 +228,8 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                       >
                         {it.hint ? <span className="font-mono text-xs text-ink-2">{it.hint}</span> : null}
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate">{it.primary}</span>
-                          {it.secondary ? <span className="block truncate text-xs text-ink-3">{it.secondary}</span> : null}
+                          <span dir="auto" className="block truncate text-start">{it.primary}</span>
+                          {it.secondary ? <span dir="auto" className="block truncate text-start text-xs text-ink-3">{it.secondary}</span> : null}
                         </span>
                       </button>
                     );

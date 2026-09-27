@@ -42,8 +42,8 @@ describe('GlobalSearch', () => {
   it('offers a "go to" navigation command', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);
-    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'go to reports');
-    expect(await screen.findByText(/Go to Reports/i)).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'go to calendar');
+    expect(await screen.findByText(/Go to Calendar/i)).toBeInTheDocument();
   });
 
   it('offers an "open" command for a bare task key', async () => {
@@ -51,5 +51,18 @@ describe('GlobalSearch', () => {
     setup(<GlobalSearch debounceMs={0} />);
     await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'MICO-7');
     expect(await screen.findByText(/Open MICO-7/i)).toBeInTheDocument();
+  });
+
+  it('never acts on a different task when the typed key has no exact match (WEB-5 vs WEB-50)', async () => {
+    const fetchMock = vi.fn((url: string, _init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/search')) return Promise.resolve(json({ data: { tasks: [{ id: 't50', key: 'WEB-50', title: 'Other task', projectId: 'p1' }], projects: [], users: [] } }));
+      return Promise.resolve(json({ data: [] }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'complete WEB-5{Enter}');
+    expect(await screen.findByText('No task WEB-5.')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/move') || String(c[0]).includes('/columns'))).toBe(false);
   });
 });

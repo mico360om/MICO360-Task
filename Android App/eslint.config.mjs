@@ -18,8 +18,9 @@ export default tseslint.config(
     },
   },
   {
-    // CommonJS config files (babel.config.js).
+    // CommonJS config files (babel.config.js, Expo config plugins) load with require().
     files: ['**/*.js'],
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 );

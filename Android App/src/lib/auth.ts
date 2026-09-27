@@ -11,6 +11,10 @@ export function authApi(client: ApiClient) {
     refresh: (refreshToken: string) =>
       client.post<Envelope<Session>>('/auth/refresh', { refreshToken }).then((r) => r.data),
 
+    /** Server-side sign-out: revoke the refresh token so it can never mint a session again (MOB-01). */
+    logout: (refreshToken: string) =>
+      client.post<Envelope<{ ok: true }>>('/auth/logout', { refreshToken }).then((r) => r.data),
+
     requestOtp: (identifier: string) =>
       client.post<Envelope<{ sent: true }>>('/auth/otp/request', { identifier }).then((r) => r.data),
     verifyOtp: (identifier: string, code: string) =>

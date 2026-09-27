@@ -1,5 +1,6 @@
 import { el, mount, Loader, ErrorState, Empty, timeAgo } from '../dom.js';
-import { describeConversations, badgeText } from '../../src/chat.js';
+import { describeConversations, badgeText, messagePreview } from '../../src/chat.js';
+import { writeErrorMessage } from '../components.js';
 
 /**
  * Chat — two modes chosen by ctx.params.conversationId:
@@ -55,7 +56,8 @@ export function ChatScreen(ctx) {
       const summary = conversations.find(
         (s) => s.conversation && s.conversation.kind === 'PROJECT' && s.conversation.projectId === p.id,
       );
-      const preview = summary && summary.lastMessage && summary.lastMessage.body;
+      // Never a deleted message's text (CHAT-01).
+      const preview = summary ? messagePreview(summary.lastMessage) : '';
       return inboxRow(`# ${p.name}`, preview, summary ? summary.unread : 0, () => openChannel(p));
     });
 
@@ -127,7 +129,7 @@ export function ChatScreen(ctx) {
   }
 
   function msgBlock(m) {
-    const deleted = !!m.deletedAt;
+    const deleted = !!m.deletedAt; // body is never shown for a deleted message (CHAT-01)
     const edited = !!m.editedAt && !deleted;
     return el('div', { class: 'msg' },
       el('div', { class: 'mh' },
@@ -145,12 +147,12 @@ export function ChatScreen(ctx) {
     if (!body) return;
     sendError = '';
     try {
-      await ctx.api.chat.send(conversationId, body);
+      // Sent now, or saved on this device and sent later (same Idempotency-Key → never twice).
+      await ctx.write('chat.send', { conversationId, body });
       draft = '';
       messages = [...messages, optimistic(body)];
     } catch (e) {
-      if (e && e.name === 'ApiError') sendError = 'Message could not be sent. Please try again.';
-      else { await ctx.enqueue('chat.send', { conversationId, body }); draft = ''; messages = [...messages, optimistic(body)]; }
+      sendError = writeErrorMessage(e, 'Message could not be sent. Please try again.');
     } finally {
       ctx.afterMutation();
     }

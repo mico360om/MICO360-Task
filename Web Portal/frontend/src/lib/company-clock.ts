@@ -2,8 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
+import { DEFAULT_COMPANY_TIME_ZONE, useCompanyTimeZone } from './useCompanyTimeZone';
 
-const FALLBACK_TZ = 'Asia/Muscat';
+const FALLBACK_TZ = DEFAULT_COMPANY_TIME_ZONE;
+/** The company time zone used until /config answers (the product's home zone). */
+export const DEFAULT_TIME_ZONE = DEFAULT_COMPANY_TIME_ZONE;
+
+/**
+ * The company IANA time zone (from the public /config endpoint). Every "today", "overdue" and
+ * "due today" decision uses this zone — never the device's — so all users agree on the day.
+ * (One implementation, shared with the rest of the app — see lib/useCompanyTimeZone.)
+ */
+export { useCompanyTimeZone };
 
 export interface CompanyClock {
   /** e.g. "08 Aug 2026" */

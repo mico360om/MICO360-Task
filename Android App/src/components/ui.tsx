@@ -14,6 +14,7 @@ import {
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { typeStyle, type TypeRole } from '../lib/typography';
 import { toneStyle, type Tone } from '../lib/tone';
+import { fieldA11y } from '../lib/a11y';
 import { useColors } from '../core/theme';
 
 /** Build the themed stylesheet for the current palette. */
@@ -77,6 +78,7 @@ function makeStyles(c: Palette) {
       marginBottom: spacing.md,
     },
     errorNoteText: { color: c.danger, fontSize: fontSize.sm, fontWeight: '500' },
+    errorRetry: { marginTop: spacing.sm, alignSelf: 'flex-start', minHeight: 40, paddingHorizontal: spacing.md },
     badge: { borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, alignSelf: 'flex-start' },
     pill: { borderRadius: radius.pill, borderWidth: 1, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' },
   });
@@ -115,6 +117,7 @@ export function Button({
   loading,
   disabled,
   style,
+  accessibilityLabel,
 }: {
   title: string;
   onPress: () => void;
@@ -122,6 +125,7 @@ export function Button({
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
+  accessibilityLabel?: string;
 }) {
   const c = useColors();
   const s = useUiStyles();
@@ -129,6 +133,9 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
+      // Keep the name while the spinner replaces the text, and announce busy/disabled (MOB-10).
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityState={{ disabled: !!isDisabled, busy: !!loading }}
       disabled={isDisabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -158,10 +165,18 @@ export function TextField({
 }: TextInputProps & { label?: string; error?: string | null; required?: boolean }) {
   const c = useColors();
   const s = useUiStyles();
+  // TalkBack names the field after its visible label and reads the error with it (MOB-10).
+  const a11y = fieldA11y({
+    label,
+    placeholder: props.placeholder,
+    required,
+    error,
+    explicitLabel: props.accessibilityLabel,
+  });
   return (
     <View style={s.fieldWrap}>
       {label ? (
-        <Text style={s.fieldLabel}>
+        <Text style={s.fieldLabel} importantForAccessibility="no">
           {label}
           {required ? <Text style={{ color: c.danger }}> *</Text> : null}
         </Text>
@@ -170,8 +185,13 @@ export function TextField({
         placeholderTextColor={c.ink3}
         style={[s.input, error ? s.inputError : null, style]}
         {...props}
+        {...a11y}
       />
-      {error ? <Text style={s.fieldError}>{error}</Text> : null}
+      {error ? (
+        <Text style={s.fieldError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -253,11 +273,27 @@ export function EmptyState({ title, subtitle }: { title: string; subtitle?: stri
   );
 }
 
-export function ErrorNote({ message }: { message: string }) {
+/**
+ * An error message that screen readers announce as soon as it appears (MOB-10), optionally with a
+ * Retry button for load failures (MOB-08).
+ */
+export function ErrorNote({ message, onRetry, retrying }: { message: string; onRetry?: () => void; retrying?: boolean }) {
   const s = useUiStyles();
   return (
-    <View style={s.errorNote}>
+    <View style={s.errorNote} accessibilityRole="alert" accessibilityLiveRegion="assertive">
       <Text style={s.errorNoteText}>{message}</Text>
+      {onRetry ? <Button title="Retry" variant="secondary" onPress={onRetry} loading={retrying} style={s.errorRetry} /> : null}
+    </View>
+  );
+}
+
+/** A neutral, non-error status line (e.g. "Saved offline — will sync"), announced politely. */
+export function NoticeNote({ message }: { message: string }) {
+  const c = useColors();
+  const s = useUiStyles();
+  return (
+    <View style={[s.errorNote, { backgroundColor: c.brandWash, borderColor: c.brand }]} accessibilityLiveRegion="polite">
+      <Text style={[s.errorNoteText, { color: c.brand }]}>{message}</Text>
     </View>
   );
 }

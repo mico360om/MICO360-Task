@@ -14,6 +14,9 @@ describe('parseMentions', () => {
   it('returns an empty array when there are no mentions', () => {
     expect(parseMentions('no mentions here')).toEqual([]);
   });
+  it('reads whole dotted/hyphenated and Arabic names', () => {
+    expect(parseMentions('@ahmed.ali @أحمد')).toEqual(['ahmed.ali', 'أحمد']);
+  });
 });
 
 function inMemory(tasks: string[]) {
@@ -88,6 +91,31 @@ describe('CommentService', () => {
     });
     await svc.addComment('t1', 'u1', 'ping @ada and @omar');
     expect(calls).toEqual([{ taskId: 't1', authorId: 'u1', usernames: ['ada', 'omar'] }]);
+  });
+
+  it('matches mentions against the usernames of people who can open the task', async () => {
+    const calls: string[][] = [];
+    const mem = inMemory(['t1']);
+    const svc = createCommentService({
+      ...mem,
+      // Who can open t1 — "zed" (not listed) has no access to the task's project.
+      repo: { ...mem.repo, async listMentionableUsernames() { return ['ahmed', 'ahmed.ali', 'mico']; } },
+      onMention: (_taskId, _authorId, usernames) => { calls.push(usernames); },
+    });
+    await svc.addComment('t1', 'u1', 'ping @ahmed.ali and @zed, mail sales@mico.om');
+    expect(calls).toEqual([['ahmed.ali']]);
+  });
+
+  it('does not fire onMention when nobody with access is mentioned', async () => {
+    let fired = false;
+    const mem = inMemory(['t1']);
+    const svc = createCommentService({
+      ...mem,
+      repo: { ...mem.repo, async listMentionableUsernames() { return ['ada']; } },
+      onMention: () => { fired = true; },
+    });
+    await svc.addComment('t1', 'u1', 'hello @stranger');
+    expect(fired).toBe(false);
   });
 
   it('does not fire onMention when there are no mentions', async () => {

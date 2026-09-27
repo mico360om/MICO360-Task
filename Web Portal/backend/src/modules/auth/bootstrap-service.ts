@@ -10,7 +10,7 @@ export interface BootstrapAdminInput {
 }
 
 export interface BootstrapUserRepo {
-  /** True if at least one user with the ADMIN role already exists. */
+  /** True if at least one ACTIVE, non-deleted user with the ADMIN role exists. */
   anyAdminExists(): Promise<boolean>;
   createAdmin(data: {
     email: string;

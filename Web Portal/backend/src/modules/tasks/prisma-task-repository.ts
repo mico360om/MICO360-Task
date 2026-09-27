@@ -1,12 +1,22 @@
-import { Prisma, type PrismaClient, type Task } from '@prisma/client';
-import type { CreateTaskData, ProjectLookup, TaskRecord, TaskRepository, UpdateTaskData } from './task-repository';
+import { Prisma, type ColumnCategory, type PrismaClient, type Task } from '@prisma/client';
+import {
+  TaskKeyConflictError,
+  type CreateTaskData,
+  type ProjectLookup,
+  type TaskRecord,
+  type TaskRepository,
+  type UpdateTaskData,
+} from './task-repository';
 import type { RecurrenceRule } from './recurrence';
 import type { CarryForwardRepo } from './carry-forward-service';
 import type { CarryLogEntry } from './board-date';
+import { paletteColorFor } from './tag-repository';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
-type EnrichedTask = Task & {
+type EnrichedTask = Omit<Task, 'carryForwardLog'> & {
+  /** Absent on list rows — the carry-forward history is only returned for a single task. */
+  carryForwardLog?: Prisma.JsonValue;
   column?: { category: string } | null;
   tags?: TagRelation[];
   assignees?: AssigneeRelation[];
@@ -35,7 +45,7 @@ function toRecord(t: EnrichedTask): TaskRecord {
     createdById: t.createdById,
     completedAt: t.completedAt,
     boardDate: t.boardDate ?? null,
-    carryForwardLog: (t.carryForwardLog as unknown as CarryLogEntry[] | null) ?? null,
+    ...(t.carryForwardLog !== undefined ? { carryForwardLog: (t.carryForwardLog as unknown as CarryLogEntry[] | null) ?? null } : {}),
     recurrenceRule: (t.recurrenceRule as unknown as RecurrenceRule | null) ?? null,
     recurrenceParentId: t.recurrenceParentId,
     version: t.version,
@@ -55,51 +65,95 @@ function toRecord(t: EnrichedTask): TaskRecord {
   };
 }
 
+/** Live tasks only: not deleted, and not in a deleted project. */
+export const liveTaskWhere = { deletedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+
+/** True for a unique-constraint violation on the task key (a concurrent create took it). */
+export function isTaskKeyConflict(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const target = (err.meta as { target?: unknown } | undefined)?.target;
+  const text = Array.isArray(target) ? target.join(',') : String(target ?? '');
+  return /key/i.test(text);
+}
+
+// Every scalar except the carry-forward history, which can grow long and is left out of lists.
+const listScalars = {
+  id: true, key: true, title: true, description: true, projectId: true, columnId: true, position: true,
+  priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true,
+  createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true,
+  version: true, createdAt: true, updatedAt: true, deletedAt: true,
+} as const;
+
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {
   // Always join the column's category (Kanban stage) and the task's tags so every
   // task payload carries them (used for status classification, tag filtering + display).
   const withColumn = { column: { select: { category: true } }, tags: { include: { tag: true } } } as const;
   return {
     async create(data: CreateTaskData) {
-      const t = await prisma.task.create({
-        include: withColumn,
-        data: {
-          key: data.key,
-          title: data.title,
-          projectId: data.projectId,
-          columnId: data.columnId,
-          createdById: data.createdById,
-          description: data.description ?? undefined,
-          priority: data.priority ?? undefined,
-          startDate: data.startDate ?? undefined,
-          dueDate: data.dueDate ?? undefined,
-          estimatedHours: data.estimatedHours ?? undefined,
-          progress: data.progress ?? undefined,
-          boardDate: data.boardDate ?? undefined,
-          recurrenceRule: (data.recurrenceRule ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
-          recurrenceParentId: data.recurrenceParentId ?? undefined,
-        },
-      });
-      return toRecord(t);
+      const tagNames = data.tagNames ?? [];
+      const assigneeIds = [...new Set(data.assigneeIds ?? [])];
+      try {
+        // Task, tags and assignees are one nested write — all of it lands or none of it does.
+        const t = await prisma.task.create({
+          include: withColumn,
+          data: {
+            key: data.key,
+            title: data.title,
+            projectId: data.projectId,
+            columnId: data.columnId,
+            createdById: data.createdById,
+            description: data.description ?? undefined,
+            priority: data.priority ?? undefined,
+            startDate: data.startDate ?? undefined,
+            dueDate: data.dueDate ?? undefined,
+            estimatedHours: data.estimatedHours ?? undefined,
+            progress: data.progress ?? undefined,
+            completedAt: data.completedAt ?? undefined,
+            boardDate: data.boardDate ?? undefined,
+            recurrenceRule: (data.recurrenceRule ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
+            recurrenceParentId: data.recurrenceParentId ?? undefined,
+            ...(tagNames.length
+              ? {
+                  tags: {
+                    create: tagNames.map((name) => ({
+                      tag: { connectOrCreate: { where: { name }, create: { name, color: paletteColorFor(name) } } },
+                    })),
+                  },
+                }
+              : {}),
+            ...(assigneeIds.length ? { assignees: { create: assigneeIds.map((userId) => ({ userId })) } } : {}),
+          },
+        });
+        return toRecord(t);
+      } catch (err) {
+        if (isTaskKeyConflict(err)) throw new TaskKeyConflictError(data.key);
+        throw err;
+      }
     },
     async findById(id) {
-      const t = await prisma.task.findFirst({ where: { id, deletedAt: null }, include: withColumn });
+      const t = await prisma.task.findFirst({ where: { id, ...liveTaskWhere }, include: withColumn });
       return t ? toRecord(t) : null;
     },
     async list(filter) {
+      const and: Prisma.TaskWhereInput[] = [];
+      if (filter.projectId) and.push({ projectId: filter.projectId });
+      if (filter.projectIds) and.push({ projectId: { in: filter.projectIds } });
+      if (filter.columnId) and.push({ columnId: filter.columnId });
+      if (filter.assigneeId) and.push({ assignees: { some: { userId: filter.assigneeId } } });
+      if (filter.boardDate) and.push({ boardDate: filter.boardDate });
+      if (filter.priorities?.length) and.push({ priority: { in: filter.priorities as Task['priority'][] } });
+      if (filter.categories?.length) and.push({ column: { category: { in: filter.categories as ColumnCategory[] } } });
+      if (filter.tagIds?.length) and.push({ tags: { some: { tagId: { in: filter.tagIds } } } });
+      if (filter.dueBefore) and.push({ dueDate: { lte: filter.dueBefore } });
+      if (filter.dueAfter) and.push({ dueDate: { gte: filter.dueAfter } });
       const ts = await prisma.task.findMany({
-        where: {
-          deletedAt: null,
-          ...(filter.projectId ? { projectId: filter.projectId } : {}),
-          ...(filter.columnId ? { columnId: filter.columnId } : {}),
-          ...(filter.assigneeId ? { assignees: { some: { userId: filter.assigneeId } } } : {}),
-          ...(filter.boardDate ? { boardDate: filter.boardDate } : {}),
-        },
+        where: { ...liveTaskWhere, AND: and },
         // Enrich list rows for card display: assignees + lightweight aggregate counts. `_count`
         // + a `select`-only checklist keep this a single query (no N+1) with minimal payload.
-        include: {
+        select: {
+          ...listScalars,
           ...withColumn,
-          assignees: { include: { user: { select: { id: true, username: true, firstName: true, lastName: true } } } },
+          assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } } },
           checklist: { select: { done: true } },
           _count: { select: { comments: true, attachments: true } },
         },
@@ -123,8 +177,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
     async softDelete(id) {
       await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
     },
-    async updateSeries(seriesId, patch) {
-      // One atomic UPDATE over the origin + all its occurrences — no full-table scan, no loop.
+    async updateSeries(seriesId, patch, opts = {}) {
+      // One atomic UPDATE over the series members — no full-table scan, no loop.
       const { recurrenceRule, carryForwardLog, ...rest } = patch;
       const data: Prisma.TaskUpdateManyMutationInput = { ...rest, version: { increment: 1 } };
       if (recurrenceRule !== undefined) {
@@ -134,7 +188,12 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
         data.carryForwardLog = carryForwardLog === null ? Prisma.DbNull : (carryForwardLog as unknown as Prisma.InputJsonValue);
       }
       await prisma.task.updateMany({
-        where: { deletedAt: null, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }] },
+        where: {
+          deletedAt: null,
+          OR: [{ id: seriesId }, { recurrenceParentId: seriesId }],
+          ...(opts.excludeId ? { id: { not: opts.excludeId } } : {}),
+          ...(opts.openOnly ? { completedAt: null, column: { category: { not: 'DONE' } } } : {}),
+        },
         data,
       });
     },
@@ -148,6 +207,19 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       // Count every task ever created (incl. soft-deleted) so keys never repeat.
       return prisma.task.count({ where: { projectId } });
     },
+    async findColumn(columnId) {
+      const c = await prisma.kanbanColumn.findUnique({ where: { id: columnId }, select: { id: true, projectId: true, category: true } });
+      return c ?? null;
+    },
+    async reorderInColumn(columnId, orderedIds) {
+      // Scoped to live tasks of this column, so stray ids (other columns/projects, deleted tasks)
+      // are ignored. Position isn't content, so the version stays put (no false edit conflicts).
+      await prisma.$transaction(
+        orderedIds.map((id, index) =>
+          prisma.task.updateMany({ where: { id, columnId, deletedAt: null }, data: { position: index } }),
+        ),
+      );
+    },
   };
 }
 
@@ -157,7 +229,7 @@ export function createPrismaCarryForwardRepo(prisma: PrismaClient): CarryForward
     async listCarryCandidates(beforeAnchor) {
       const ts = await prisma.task.findMany({
         where: {
-          deletedAt: null,
+          ...liveTaskWhere,
           completedAt: null,
           boardDate: { lt: beforeAnchor },
           column: { category: { not: 'DONE' } },
@@ -167,12 +239,14 @@ export function createPrismaCarryForwardRepo(prisma: PrismaClient): CarryForward
       return ts.map((t) => ({ id: t.id, columnCategory: t.column.category, completedAt: t.completedAt, boardDate: t.boardDate! }));
     },
     async applyCarry(id, toAnchor, entry) {
-      // Read-modify-write the append-only JSON history, then move the board day.
-      const cur = await prisma.task.findUnique({ where: { id }, select: { carryForwardLog: true } });
-      const log = Array.isArray(cur?.carryForwardLog) ? (cur!.carryForwardLog as unknown[]) : [];
+      // Read-modify-write the append-only JSON history, then move the board day. The nightly
+      // move is bookkeeping, not an edit, so it keeps the task's updatedAt.
+      const cur = await prisma.task.findUnique({ where: { id }, select: { carryForwardLog: true, updatedAt: true } });
+      if (!cur) return;
+      const log = Array.isArray(cur.carryForwardLog) ? (cur.carryForwardLog as unknown[]) : [];
       await prisma.task.update({
         where: { id },
-        data: { boardDate: toAnchor, carryForwardLog: [...log, entry] as unknown as Prisma.InputJsonValue },
+        data: { boardDate: toAnchor, carryForwardLog: [...log, entry] as unknown as Prisma.InputJsonValue, updatedAt: cur.updatedAt },
       });
     },
   };

@@ -15,7 +15,17 @@ const FIELD = 'input:not([disabled]), select:not([disabled]), textarea:not([disa
  * element (not `document`), so a portaled child that manages its own Escape — e.g. an
  * open SearchableSelect panel — closes only itself, never the whole dialog.
  */
-export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () => void) {
+export interface UseDialogOptions {
+  /**
+   * Where focus goes on open: `'field'` (default) = the first form field; `'container'` = the dialog
+   * element itself (give it tabIndex={-1}) — for panels like the task drawer whose content loads in
+   * after opening, so Escape and the Tab trap work from the first moment.
+   */
+  initialFocus?: 'field' | 'container';
+}
+
+export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () => void, options: UseDialogOptions = {}) {
+  const initialFocus = options.initialFocus ?? 'field';
   const dialogRef = useRef<T>(null);
   // Keep the latest onClose without re-running the mount effect (which would steal focus mid-edit).
   const onCloseRef = useRef(onClose);
@@ -29,7 +39,9 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () =>
 
     // Focus the first field (or, failing that, the first focusable element) on open.
     const initial =
-      dialog.querySelector<HTMLElement>(FIELD) ?? dialog.querySelector<HTMLElement>(FOCUSABLE);
+      initialFocus === 'container'
+        ? dialog
+        : dialog.querySelector<HTMLElement>(FIELD) ?? dialog.querySelector<HTMLElement>(FOCUSABLE);
     initial?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {

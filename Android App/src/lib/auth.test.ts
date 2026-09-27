@@ -38,6 +38,12 @@ describe('authApi', () => {
     expect(calls[1]!.body).toEqual({ identifier: 'ada@x', code: '123456' });
   });
 
+  it('logout posts the refresh token to /auth/logout so the server revokes it', async () => {
+    const { client, calls } = stubClient();
+    await authApi(client).logout('rt-9');
+    expect(calls[0]).toEqual({ method: 'POST', path: '/auth/logout', body: { refreshToken: 'rt-9' } });
+  });
+
   it('forgot/reset password hit the reset endpoints', async () => {
     const { client, calls } = stubClient();
     const sent = await authApi(client).forgotPassword('ada@x');

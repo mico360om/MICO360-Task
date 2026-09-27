@@ -22,12 +22,13 @@ export async function registerActivityRoutes(app: FastifyInstance, deps: Activit
   });
 
   app.get('/activity', { preHandler: guard.authenticate }, async (req) => {
-    const rows = await activityService.listRecent(50);
-    // Object-level scope: a non-admin only sees activity from projects they belong to.
-    if (!deps.accessibleProjectIds) return { data: rows };
-    const allowed = await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []);
+    // Object-level scope: a non-admin only sees activity from projects they belong to. The scope
+    // goes into the query, so the 50 rows are the newest *they* may see.
+    const allowed = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []) : null;
+    if (allowed !== null && allowed.length === 0) return { data: [] };
+    const rows = await activityService.listRecent(50, allowed);
     if (allowed === null) return { data: rows };
     const allowedSet = new Set(allowed);
-    return { data: rows.filter((r) => allowedSet.has((r as { projectId?: string | null }).projectId ?? '')) };
+    return { data: rows.filter((r) => allowedSet.has(r.projectId ?? '')) };
   });
 }

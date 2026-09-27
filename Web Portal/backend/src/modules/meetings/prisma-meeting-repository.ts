@@ -1,4 +1,4 @@
-import type { PrismaClient, Prisma, Meeting } from '@prisma/client';
+import { Prisma, type PrismaClient, type Meeting } from '@prisma/client';
 import type {
   MeetingRepository,
   MeetingRecord,
@@ -71,6 +71,7 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
       const where: Prisma.MeetingWhereInput = { deletedAt: null };
       if (filter.projectId) where.projectId = filter.projectId;
       if (filter.status) where.status = filter.status;
+      if (filter.organizerId) where.organizerId = filter.organizerId;
       // Object-level scope: non-admins see meetings they organize/attend or in their accessible projects.
       const scope = filter.scope;
       if (scope && scope.projectIds !== null) {
@@ -100,7 +101,10 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
           ...(patch.startAt !== undefined ? { startAt: patch.startAt } : {}),
           ...(patch.endAt !== undefined ? { endAt: patch.endAt } : {}),
           ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
-          ...(patch.recurrenceRule !== undefined ? { recurrenceRule: (patch.recurrenceRule ?? undefined) as Prisma.InputJsonValue | undefined } : {}),
+          // null clears the rule (a series made one-off again); undefined leaves it unchanged.
+          ...(patch.recurrenceRule !== undefined
+            ? { recurrenceRule: patch.recurrenceRule === null ? Prisma.DbNull : (patch.recurrenceRule as unknown as Prisma.InputJsonValue) }
+            : {}),
         },
       });
       return toRecord(row);

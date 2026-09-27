@@ -215,6 +215,18 @@ describe('Project routes', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('validates project input (trimmed names, length limits)', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const post = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: '/api/v1/projects', headers: admin, payload });
+    expect((await post({ code: 'A', name: '   ' })).statusCode).toBe(400);
+    expect((await post({ code: 'A', name: 'x'.repeat(192) })).statusCode).toBe(400);
+    expect((await post({ code: 'A'.repeat(21), name: 'ok' })).statusCode).toBe(400);
+    expect((await post({ code: 'A', name: 'ok', description: 'ع'.repeat(33_000) })).statusCode).toBe(400);
+    const ok = await post({ code: ' OK ', name: '  Trimmed  ' });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().data).toMatchObject({ code: 'OK', name: 'Trimmed' });
+  });
+
   it('writes an audit record (user + action + module + entity) on project create, update, archive, delete', async () => {
     const id = await createProject();
     await app.inject({ method: 'PUT', url: `/api/v1/projects/${id}`, headers: { authorization: `Bearer ${await token(['ADMIN'])}` }, payload: { name: 'Renamed' } });

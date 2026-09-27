@@ -10,37 +10,40 @@ export interface AiRouteDeps {
 }
 
 const capability = z.enum(AI_CAPABILITIES);
+const providerName = z.string().min(1).max(100);
+const baseUrl = z.string().min(1).max(500);
+const apiKey = z.string().max(1000);
 const providerCreate = z.object({
-  name: z.string().min(1),
+  name: providerName,
   kind: z.enum(PROVIDER_KINDS),
-  apiBaseUrl: z.string().min(1),
-  apiKey: z.string().optional(),
+  apiBaseUrl: baseUrl,
+  apiKey: apiKey.optional(),
   enabled: z.boolean().optional(),
 });
 const providerUpdate = z.object({
-  name: z.string().min(1).optional(),
-  apiBaseUrl: z.string().min(1).optional(),
-  apiKey: z.string().optional(),
+  name: providerName.optional(),
+  apiBaseUrl: baseUrl.optional(),
+  apiKey: apiKey.optional(),
   enabled: z.boolean().optional(),
 });
-const parameters = z.record(z.unknown());
+const parameters = z.record(z.unknown()).refine((p) => Object.keys(p).length <= 20, 'Too many parameters.');
 const modelCreate = z.object({
-  providerId: z.string().min(1),
-  modelKey: z.string().min(1),
-  displayName: z.string().optional(),
+  providerId: z.string().min(1).max(100),
+  modelKey: z.string().min(1).max(200),
+  displayName: z.string().max(200).optional(),
   capabilities: z.array(capability).min(1),
   parameters: parameters.optional(),
   concurrencyLimit: z.number().optional(),
   enabled: z.boolean().optional(),
 });
 const modelUpdate = z.object({
-  displayName: z.string().optional(),
+  displayName: z.string().max(200).optional(),
   capabilities: z.array(capability).min(1).optional(),
   parameters: parameters.optional(),
   concurrencyLimit: z.number().optional(),
   enabled: z.boolean().optional(),
 });
-const defaultBody = z.object({ modelId: z.string().nullable() });
+const defaultBody = z.object({ modelId: z.string().max(100).nullable() });
 
 function actorOf(req: FastifyRequest) {
   return { userId: req.user?.id ?? null, ip: req.ip ?? null };

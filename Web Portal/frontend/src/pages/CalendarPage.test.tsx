@@ -19,7 +19,10 @@ beforeEach(() => {
     }),
   );
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -46,5 +49,39 @@ describe('CalendarPage', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Agenda' })).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: 'Agenda' }));
     await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+  });
+
+  it('steps from 31 October to November (not December)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-31T08:00:00Z'));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('October 2026')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('November 2026')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(screen.getByText('September 2026')).toBeInTheDocument();
+  });
+
+  it('uses the company-zone "today" (already the next day in Muscat late in the UTC evening)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-30T21:00:00Z')); // 01:00 on 1 July in Muscat
+    renderPage();
+    await waitFor(() => expect(screen.getByText('July 2026')).toBeInTheDocument());
+  });
+
+  it('never shows a completed task as overdue', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-20T08:00:00Z'));
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/tasks')) {
+        return json({ data: [{ id: 't1', key: 'MICO-1', title: 'Shipped report', description: null, projectId: 'p1', columnId: 'c9', columnCategory: 'DONE', position: 0, priority: 'HIGH', startDate: null, dueDate: '2026-06-15T00:00:00.000Z', progress: 100, completedAt: null, createdAt: '', updatedAt: '' }] });
+      }
+      return json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO360', description: null, clientName: null, status: 'ACTIVE', priority: 'HIGH', color: '#8B1E1E', createdAt: '', updatedAt: '' }] });
+    });
+    renderPage();
+    const chip = await screen.findByRole('button', { name: /Shipped report/ });
+    expect(chip.className).not.toMatch(/text-danger/);
   });
 });

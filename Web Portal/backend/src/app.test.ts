@@ -22,9 +22,13 @@ describe('health + metrics', () => {
     expect(Number.isNaN(Date.parse(d.timestamp))).toBe(false);
   });
 
-  it('exposes liveness metrics', async () => {
+  it('exposes process metrics to admins only', async () => {
     const app = await buildApp({ authService, tokenService });
-    const res = await app.inject({ method: 'GET', url: '/api/v1/metrics' });
+    expect((await app.inject({ method: 'GET', url: '/api/v1/metrics' })).statusCode).toBe(401);
+    const member = (await tokenService.issueTokens({ id: 'm1', roles: ['EMPLOYEE'] })).accessToken;
+    expect((await app.inject({ method: 'GET', url: '/api/v1/metrics', headers: { authorization: `Bearer ${member}` } })).statusCode).toBe(403);
+    const admin = (await tokenService.issueTokens({ id: 'a1', roles: ['ADMIN'] })).accessToken;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/metrics', headers: { authorization: `Bearer ${admin}` } });
     expect(res.statusCode).toBe(200);
     const d = res.json().data;
     expect(typeof d.rssMb).toBe('number');
@@ -85,5 +89,71 @@ describe('structured error logging', () => {
     expect(captured).toHaveLength(1);
     expect((captured[0]!.err as Error).message).toBe('nope');
     expect(captured[0]!.ctx?.url).toBe('/api/v1/reports/status');
+  });
+});
+
+describe('rate limiting behind a proxy', () => {
+  it('keys anonymous requests by the real client IP (X-Forwarded-For) when the proxy is trusted', async () => {
+    const app = await buildApp({ authService, tokenService, trustProxy: 'loopback', rateLimitMax: 3 });
+    const hit = (ip: string) => app.inject({ method: 'GET', url: '/api/v1/config', remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': ip } });
+    for (let i = 0; i < 3; i++) expect((await hit('203.0.113.1')).statusCode).toBe(200);
+    const limited = await hit('203.0.113.1');
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe('RATE_LIMITED');
+    // A different client behind the same proxy has its own budget.
+    expect((await hit('203.0.113.2')).statusCode).toBe(200);
+  });
+
+  it('keys signed-in requests by user, so colleagues behind one office IP do not share a budget', async () => {
+    const app = await buildApp({ authService, tokenService, trustProxy: 'loopback', rateLimitMax: 2 });
+    const a = (await tokenService.issueTokens({ id: 'user-a', roles: [] })).accessToken;
+    const b = (await tokenService.issueTokens({ id: 'user-b', roles: [] })).accessToken;
+    const hit = (token: string) =>
+      app.inject({ method: 'GET', url: '/api/v1/config', remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.7', authorization: `Bearer ${token}` } });
+    expect((await hit(a)).statusCode).toBe(200);
+    expect((await hit(a)).statusCode).toBe(200);
+    expect((await hit(a)).statusCode).toBe(429);
+    expect((await hit(b)).statusCode).toBe(200);
+  });
+
+  it('never rate limits uploads, web-app files or the health check', async () => {
+    const app = await buildApp({ authService, tokenService, rateLimitMax: 1 });
+    for (let i = 0; i < 3; i++) {
+      expect((await app.inject({ method: 'GET', url: '/api/v1/health' })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/uploads/x.png' })).statusCode).not.toBe(429);
+      expect((await app.inject({ method: 'GET', url: '/assets/index-abc.js' })).statusCode).not.toBe(429);
+    }
+    // The API itself is still limited.
+    expect((await app.inject({ method: 'GET', url: '/api/v1/config' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/config' })).statusCode).toBe(429);
+  });
+
+  it('applies a stricter per-IP limit to sign-in endpoints', async () => {
+    const app = await buildApp({ authService, tokenService, trustProxy: 'loopback', authRateLimitMax: 2 });
+    const login = () =>
+      app.inject({ method: 'POST', url: '/api/v1/auth/login', remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '192.0.2.9' }, payload: { identifier: 'x', password: 'y' } });
+    expect((await login()).statusCode).toBe(401);
+    expect((await login()).statusCode).toBe(401);
+    expect((await login()).statusCode).toBe(429);
+  });
+});
+
+describe('database error mapping', () => {
+  it('turns Prisma input and race errors into clear 4xx responses instead of 500', async () => {
+    const app = await buildApp({ authService, tokenService });
+    const prismaError = (code: string) => Object.assign(new Error(`prisma ${code}`), { name: 'PrismaClientKnownRequestError', code });
+    app.get('/t/:code', async (req) => {
+      throw prismaError((req.params as { code: string }).code);
+    });
+    app.get('/t-validation', async () => {
+      throw Object.assign(new Error('bad arg'), { name: 'PrismaClientValidationError' });
+    });
+    const status = async (url: string) => (await app.inject({ method: 'GET', url })).statusCode;
+    expect(await status('/t/P2002')).toBe(409);
+    expect(await status('/t/P2025')).toBe(404);
+    expect(await status('/t/P2003')).toBe(409);
+    expect(await status('/t/P2000')).toBe(400);
+    expect(await status('/t-validation')).toBe(400);
+    expect(await status('/t/P9999')).toBe(500);
   });
 });

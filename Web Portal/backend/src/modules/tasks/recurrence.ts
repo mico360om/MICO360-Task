@@ -12,6 +12,11 @@ export interface RecurrenceRule {
   weekdays?: number[];
   /** MONTHLY/QUARTERLY only: day of month (1–31), clamped to the month's length. */
   dayOfMonth?: number;
+  /**
+   * The series' original day of month (set by the server for MONTHLY/QUARTERLY/YEARLY rules
+   * without `dayOfMonth`), so a 31st or 29 Feb that had to be clamped comes back when it can.
+   */
+  anchorDay?: number;
   /** When true the series is paused — no new occurrences are generated until resumed. */
   paused?: boolean;
 }
@@ -25,8 +30,19 @@ export function isValidRule(rule: RecurrenceRule): boolean {
   if (rule.count != null && (!Number.isInteger(rule.count) || rule.count < 1)) return false;
   if (rule.weekdays && rule.weekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) return false;
   if (rule.dayOfMonth != null && (!Number.isInteger(rule.dayOfMonth) || rule.dayOfMonth < 1 || rule.dayOfMonth > 31)) return false;
+  if (rule.anchorDay != null && (!Number.isInteger(rule.anchorDay) || rule.anchorDay < 1 || rule.anchorDay > 31)) return false;
   if (rule.until != null && Number.isNaN(Date.parse(rule.until))) return false;
   return true;
+}
+
+/**
+ * Pin a month-based rule to the day of `start` (its first due date) unless it already names a
+ * day, so later occurrences don't drift to the clamped day (31 Jan → 28 Feb → 28 Mar …).
+ */
+export function withAnchorDay(rule: RecurrenceRule, start: Date | null | undefined): RecurrenceRule {
+  if (!start || rule.dayOfMonth != null || rule.anchorDay != null) return rule;
+  if (rule.freq !== 'MONTHLY' && rule.freq !== 'QUARTERLY' && rule.freq !== 'YEARLY') return rule;
+  return { ...rule, anchorDay: start.getUTCDate() };
 }
 
 function daysInMonth(year: number, monthIndex: number): number {
@@ -60,18 +76,22 @@ export function nextOccurrence(from: Date, rule: RecurrenceRule): Date {
         const set = new Set(rule.weekdays);
         for (let i = 1; i <= 7; i++) {
           const candidate = addDays(from, i);
-          if (set.has(candidate.getUTCDay())) return candidate;
+          if (!set.has(candidate.getUTCDay())) continue;
+          // Weeks run Sunday→Saturday. Still in `from`'s week: take it. Wrapped into the next
+          // week: skip (interval − 1) further weeks, so "every 2 weeks on Monday" is fortnightly.
+          const wrapped = candidate.getUTCDay() <= from.getUTCDay();
+          return wrapped ? addDays(candidate, 7 * (interval - 1)) : candidate;
         }
-        return addDays(from, 7); // unreachable given a non-empty set, but safe
+        return addDays(from, 7 * interval); // unreachable given a non-empty set, but safe
       }
       return addDays(from, 7 * interval);
     }
     case 'MONTHLY':
-      return addMonthsClamped(from, interval, rule.dayOfMonth);
+      return addMonthsClamped(from, interval, rule.dayOfMonth ?? rule.anchorDay);
     case 'QUARTERLY':
-      return addMonthsClamped(from, 3 * interval, rule.dayOfMonth);
+      return addMonthsClamped(from, 3 * interval, rule.dayOfMonth ?? rule.anchorDay);
     case 'YEARLY':
-      return addMonthsClamped(from, 12 * interval);
+      return addMonthsClamped(from, 12 * interval, rule.anchorDay);
   }
 }
 

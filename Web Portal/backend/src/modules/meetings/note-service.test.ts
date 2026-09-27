@@ -19,6 +19,8 @@ function inMemory(): NoteRepository {
     async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
     async remove(id) { rows.delete(id); },
+    async claimTask(id, marker) { const r = rows.get(id); if (!r || r.taskId) return false; rows.set(id, { ...r, taskId: marker }); return true; },
+    async releaseTaskClaim(id, marker) { const r = rows.get(id); if (r && r.taskId === marker) rows.set(id, { ...r, taskId: null }); },
   };
 }
 
@@ -55,6 +57,26 @@ describe('NoteService', () => {
     expect(up.type).toBe('DECISION');
     expect(up.highlighted).toBe(true);
     expect(up.editedAt).toBeInstanceOf(Date);
+  });
+
+  it('does not mark a note edited when it is only highlighted (WEB-19)', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const n = await svc.addNote('m1', 'u1', { body: 'Decision: ship' });
+    const lit = await svc.updateNote('m1', n.id, { highlighted: true });
+    expect(lit.highlighted).toBe(true);
+    expect(lit.editedAt).toBeNull();
+    // Re-saving identical content isn't an edit either.
+    expect((await svc.updateNote('m1', n.id, { body: ' Decision: ship ' })).editedAt).toBeNull();
+    expect((await svc.updateNote('m1', n.id, { body: 'Decision: ship Friday' })).editedAt).toBeInstanceOf(Date);
+  });
+
+  it('claims a note for task conversion once; a second claim is a 409', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const n = await svc.addNote('m1', 'u1', { body: 'Follow up' });
+    const claim = await svc.claimForTask('m1', n.id);
+    await expect(svc.claimForTask('m1', n.id)).rejects.toMatchObject({ status: 409 });
+    await svc.releaseTaskClaim(n.id, claim);
+    await expect(svc.claimForTask('m1', n.id)).resolves.toMatch(/^pending:/);
   });
 
   it('rejects editing/removing a note from another meeting', async () => {

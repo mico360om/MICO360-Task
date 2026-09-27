@@ -17,7 +17,7 @@
       "android": { "buildType": "apk" },
       "env": {
         "APP_ENV": "preview",
-        "EXPO_PUBLIC_API_URL": "https://staging.mico360.example/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://task.mico360.com/api/v1"
       }
     },
     "production": {

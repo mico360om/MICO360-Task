@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProjects, useConversations, useDirectory } from '../core/queries';
 import { useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote } from '../components/ui';
+import { ApiError, isNetworkError } from '../lib/api-client';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 
@@ -17,6 +18,8 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
   const { resources } = useServices();
   const session = useSession();
   const myId = session?.user?.id;
+  const [opening, setOpening] = useState<string | null>(null);
+  const [openErr, setOpenErr] = useState<string | null>(null);
 
   const nameOf = (userId: string): string => {
     const u = (dirQ.data ?? []).find((d) => d.id === userId);
@@ -32,12 +35,28 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
   };
 
   async function openChannel(projectId: string, name: string) {
-    const { conversation } = await resources.chat.openProjectChannel(projectId);
-    void resources.chat.markRead(conversation.id).then(() => inboxQ.refetch());
-    navigation.navigate('ChatThread', { conversationId: conversation.id, title: name, kind: 'PROJECT' });
+    if (opening) return;
+    setOpenErr(null);
+    setOpening(projectId);
+    try {
+      const { conversation } = await resources.chat.openProjectChannel(projectId);
+      void resources.chat.markRead(conversation.id).then(() => inboxQ.refetch(), () => {});
+      navigation.navigate('ChatThread', { conversationId: conversation.id, title: name, kind: 'PROJECT' });
+    } catch (e) {
+      // Opening a channel offline used to fail silently (MOB-08).
+      setOpenErr(
+        isNetworkError(e)
+          ? `Couldn't open #${name} — you're offline. Try again when connected.`
+          : e instanceof ApiError && e.message
+            ? e.message
+            : `Couldn't open #${name}. Please try again.`,
+      );
+    } finally {
+      setOpening(null);
+    }
   }
   function openDm(conversationId: string, title: string) {
-    void resources.chat.markRead(conversationId).then(() => inboxQ.refetch());
+    void resources.chat.markRead(conversationId).then(() => inboxQ.refetch(), () => {});
     navigation.navigate('ChatThread', { conversationId, title, kind: 'DIRECT' });
   }
 
@@ -51,8 +70,16 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void projectsQ.refetch(); void inboxQ.refetch(); }} />}
       >
         {(projectsQ.isError && !projectsQ.data) || (inboxQ.isError && !inboxQ.data) ? (
-          <ErrorNote message="Couldn't load your chats. Pull down to retry." />
+          <ErrorNote
+            message="Couldn't load your chats."
+            onRetry={() => {
+              void projectsQ.refetch();
+              void inboxQ.refetch();
+            }}
+            retrying={refreshing}
+          />
         ) : null}
+        {openErr ? <ErrorNote message={openErr} /> : null}
 
         <Text style={styles.section}>Channels</Text>
         {(projectsQ.data ?? []).map((p) => {
@@ -62,8 +89,10 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
               key={p.id}
               style={styles.row}
               onPress={() => void openChannel(p.id, p.name)}
+              disabled={opening !== null}
               accessibilityRole="button"
               accessibilityLabel={`${p.name} channel${unread ? `, ${unread} unread` : ''}`}
+              accessibilityState={{ busy: opening === p.id, disabled: opening !== null }}
             >
               <View style={[styles.hashTile, { backgroundColor: c.brand }]}><Text style={styles.hashText}>#</Text></View>
               <Text style={[styles.rowTitle, unread ? styles.bold : null]} numberOfLines={1}>{p.name}</Text>

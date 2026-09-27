@@ -21,15 +21,28 @@ export function resolveDrop(
 }
 
 /**
+ * Index in `dest` where a card dropped on `overId` should land: the slot of the card it was dropped
+ * on (after it when dropped on its lower half), or the end when dropped on the column's empty space.
+ */
+export function dropIndex(dest: KanbanColumnData, overId: string, activeKey: string, belowOver: boolean): number {
+  const keys = dest.tasks.map((t) => t.key).filter((k) => k !== activeKey);
+  const at = keys.indexOf(overId);
+  if (at === -1) return keys.length;
+  return belowOver ? at + 1 : at;
+}
+
+/**
  * Move a task to another column in the board view model, for an optimistic UI update
- * (so the card lands instantly instead of snapping back until the refetch). Pure — returns
- * new column objects and leaves the input untouched; returns the same reference if the task
- * isn't found so callers can skip a needless re-render.
+ * (so the card lands instantly instead of snapping back until the refetch). `toIndex` is where it
+ * was dropped in the target column (default: the end). Pure — returns new column objects and leaves
+ * the input untouched; returns the same reference if the task isn't found so callers can skip a
+ * needless re-render.
  */
 export function moveTaskInBoard(
   columns: KanbanColumnData[],
   taskKey: string,
   toColumnId: string,
+  toIndex?: number,
 ): KanbanColumnData[] {
   let moved: KanbanColumnData['tasks'][number] | undefined;
   const without = columns.map((col) => {
@@ -39,7 +52,13 @@ export function moveTaskInBoard(
     return { ...col, tasks: col.tasks.filter((_, i) => i !== idx) };
   });
   if (!moved) return columns;
-  return without.map((col) => (col.id === toColumnId ? { ...col, tasks: [...col.tasks, moved!] } : col));
+  return without.map((col) => {
+    if (col.id !== toColumnId) return col;
+    const tasks = [...col.tasks];
+    const at = toIndex === undefined ? tasks.length : Math.max(0, Math.min(toIndex, tasks.length));
+    tasks.splice(at, 0, moved!);
+    return { ...col, tasks };
+  });
 }
 
 /**
@@ -61,7 +80,7 @@ export function reorderColumnInBoard(
   });
 }
 
-/** Compose API columns + tasks into the KanbanBoard's view model (columns ordered, tasks grouped). */
+/** Compose API columns + tasks into the KanbanBoard's view model (columns ordered, tasks grouped, in position order). */
 export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColumnData[] {
   return [...columns]
     .sort((a, b) => a.position - b.position)
@@ -71,6 +90,7 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
       color: col.color,
       tasks: tasks
         .filter((t) => t.columnId === col.id)
+        .sort((a, b) => a.position - b.position)
         .map((t) => ({
           key: t.key,
           title: t.title,
@@ -81,6 +101,8 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           counts: t.counts,
           accentColor: col.color,
           blocked: col.category === 'BLOCKED',
+          // A finished task (DONE column, or completed) is never shown as overdue.
+          done: col.category === 'DONE' || !!t.completedAt,
         })),
     }));
 }

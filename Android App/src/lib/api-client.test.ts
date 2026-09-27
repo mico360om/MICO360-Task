@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createApiClient, ApiError } from './api-client';
+import { createApiClient, ApiError, NetworkError, isNetworkError, classifyRefreshStatus } from './api-client';
 import { resolveApiBaseUrl, DEFAULT_API_BASE } from './config';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -137,6 +137,101 @@ describe('api-client', () => {
     });
     await expect(api.get('/tasks')).rejects.toBeInstanceOf(ApiError);
     expect(onUnauthorized).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT log out when the refresh is transient (offline / 5xx / 429) and reports a NetworkError', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401));
+    const onUnauthorized = vi.fn();
+    const api = createApiClient({
+      baseUrl: 'http://api.test',
+      getToken: () => 'stale',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      refreshTokens: async () => 'transient',
+      onUnauthorized,
+    });
+    const err = await api.get('/tasks').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect(isNetworkError(err)).toBe(true);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('treats a refresh that throws as transient (never a logout)', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401));
+    const onUnauthorized = vi.fn();
+    const api = createApiClient({
+      baseUrl: 'http://api.test',
+      getToken: () => 'stale',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      refreshTokens: async () => {
+        throw new TypeError('Network request failed');
+      },
+      onUnauthorized,
+    });
+    await expect(api.get('/tasks')).rejects.toBeInstanceOf(NetworkError);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('never logs out on a 429 RATE_LIMITED response', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'RATE_LIMITED', message: 'slow down' } }, 429));
+    const onUnauthorized = vi.fn();
+    const refreshTokens = vi.fn(async () => 'ok' as const);
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens, onUnauthorized });
+    const err = await api.post('/tasks', {}).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).code).toBe('RATE_LIMITED');
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(refreshTokens).not.toHaveBeenCalled();
+  });
+
+  it('wraps a fetch failure in a NetworkError', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('Network request failed');
+    });
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const err = await api.get('/tasks').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect((err as NetworkError).timedOut).toBe(false);
+  });
+
+  it('aborts a hung request after the timeout and reports it as a timed-out NetworkError', async () => {
+    const fetchImpl = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    );
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 20 });
+    const err = await api.get('/slow').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect((err as NetworkError).timedOut).toBe(true);
+  });
+
+  it('sends per-request headers (Idempotency-Key) and reports reachability', async () => {
+    const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: {} })));
+    const onReachable = vi.fn();
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch, onReachable });
+    await api.post('/tasks', { title: 'x' }, { headers: { 'Idempotency-Key': 'k-1' } });
+    const headers = fetchImpl.mock.calls[0]![1]!.headers as Record<string, string>;
+    expect(headers['Idempotency-Key']).toBe('k-1');
+    expect(headers['Authorization']).toBe('Bearer t');
+    expect(onReachable).toHaveBeenCalledOnce();
+  });
+
+  it('exposes the single-flight refresh for sockets', async () => {
+    const refreshTokens = vi.fn(async () => 'ok' as const);
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', refreshTokens });
+    const [a, b] = await Promise.all([api.refreshSession(), api.refreshSession()]);
+    expect([a, b]).toEqual(['ok', 'ok']);
+    expect(refreshTokens).toHaveBeenCalledOnce();
+  });
+
+  it('classifies /auth/refresh statuses: only 401/400 end the session', () => {
+    expect(classifyRefreshStatus(200)).toBe('ok');
+    expect(classifyRefreshStatus(401)).toBe('invalid');
+    expect(classifyRefreshStatus(400)).toBe('invalid');
+    expect(classifyRefreshStatus(429)).toBe('transient');
+    expect(classifyRefreshStatus(500)).toBe('transient');
+    expect(classifyRefreshStatus(503)).toBe('transient');
   });
 
   it('does not attempt refresh on the refresh endpoint itself', async () => {

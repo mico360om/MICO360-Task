@@ -6,6 +6,8 @@ import type {
   Priority,
   AssigneeListFilter,
 } from './action-item-repository';
+import type { CanEditMeeting } from './meeting-access';
+import { isOverdue } from '../../lib/due-date';
 
 const STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
@@ -36,9 +38,15 @@ export interface ActionItemServiceDeps {
   actionItems: ActionItemRepository;
   onChanged?: (meetingId: string | null) => void;
   now?: () => Date;
+  /** Company time zone: an item is overdue once its due day is before today there. */
+  timeZone?: string;
+  /** Meeting editors may delete any of the meeting's items. Open when not wired. */
+  canEditMeeting?: CanEditMeeting;
 }
 
 export interface ActionItemService {
+  /** May this user manage the given meeting's action items? */
+  canEditMeeting: CanEditMeeting;
   getItem(id: string): Promise<ActionItemRecord>;
   listByMeeting(meetingId: string): Promise<ActionItemView[]>;
   listMine(userId: string, filter?: AssigneeListFilter): Promise<ActionItemView[]>;
@@ -57,8 +65,11 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
   const { actionItems } = deps;
   const now = deps.now ?? (() => new Date());
 
-  const isOverdue = (a: ActionItemRecord): boolean => !!a.dueDate && !CLOSED.includes(a.status) && a.dueDate.getTime() < now().getTime();
-  const view = (a: ActionItemRecord): ActionItemView => ({ ...a, overdue: isOverdue(a) });
+  const timeZone = deps.timeZone ?? 'UTC';
+
+  // Due dates are calendar days: an item due today is not overdue until tomorrow (company time).
+  const overdue = (a: ActionItemRecord): boolean => !CLOSED.includes(a.status) && isOverdue(a.dueDate, timeZone, now());
+  const view = (a: ActionItemRecord): ActionItemView => ({ ...a, overdue: overdue(a) });
 
   async function require(id: string): Promise<ActionItemRecord> {
     const a = await actionItems.findById(id);
@@ -67,6 +78,8 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
   }
 
   return {
+    canEditMeeting: (userId, roles, meetingId) => (deps.canEditMeeting ? deps.canEditMeeting(userId, roles, meetingId) : Promise.resolve(true)),
+
     async getItem(id) {
       return require(id);
     },

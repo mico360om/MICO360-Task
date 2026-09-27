@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskDrawer } from './TaskDrawer';
 import type { ApiTask } from '../api/tasks';
@@ -294,5 +294,63 @@ describe('TaskDrawer', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: /remove blocker MICO-2/i }));
     expect(onRemoveDependency).toHaveBeenCalledWith('t2');
+  });
+
+  it('keeps the edit form open with the error when the save fails, and closes it on success', async () => {
+    const onSaveEdit = vi.fn().mockRejectedValueOnce(new Error('Title is too long.')).mockResolvedValueOnce(undefined);
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onSaveEdit={onSaveEdit} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    const title = screen.getByLabelText(/^title$/i);
+    await userEvent.clear(title);
+    await userEvent.type(title, 'My edited title');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Title is too long.');
+    // the user's edit is still there
+    expect(screen.getByLabelText(/^title$/i)).toHaveValue('My edited title');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(screen.queryByLabelText(/^title$/i)).not.toBeInTheDocument());
+  });
+
+  it('limits the title to 191 characters', async () => {
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onSaveEdit={vi.fn()} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    expect(screen.getByLabelText(/^title$/i)).toHaveAttribute('maxLength', '191');
+  });
+
+  it('shows an action error passed by the container', async () => {
+    const onDismissError = vi.fn();
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} actionError="That file is too large to upload." onDismissError={onDismissError} onClose={vi.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('That file is too large to upload.');
+    await userEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+    expect(onDismissError).toHaveBeenCalled();
+  });
+
+  it('does not show a completed task as overdue, and uses the company-zone calendar day', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-30T10:00:00Z'));
+    try {
+      const { unmount } = render(<TaskDrawer task={{ ...task, dueDate: '2026-09-30T00:00:00.000Z', columnCategory: 'TODO', completedAt: null }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />);
+      expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument(); // due today, not overdue at 14:00 Muscat
+      expect(screen.getByText('Sep 30, 2026')).toBeInTheDocument();
+      unmount();
+      render(<TaskDrawer task={{ ...task, dueDate: '2026-09-01T00:00:00.000Z', columnCategory: 'DONE', completedAt: '2026-09-02T00:00:00.000Z' }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />);
+      expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('marks user text (title, description, comments) dir="auto" for Arabic', () => {
+    render(
+      <TaskDrawer
+        task={{ ...task, title: 'مهمة جديدة', description: 'وصف المهمة' }}
+        checklist={[]}
+        comments={[{ id: 'c1', body: 'تعليق', authorName: 'سارة' }]}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('heading', { name: 'مهمة جديدة' })).toHaveAttribute('dir', 'auto');
+    expect(screen.getByText('وصف المهمة')).toHaveAttribute('dir', 'auto');
+    expect(screen.getByText('تعليق')).toHaveAttribute('dir', 'auto');
   });
 });

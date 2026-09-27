@@ -11,7 +11,7 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import * as Notifications from 'expo-notifications';
-import { useSession } from '../core/providers';
+import { useServices, useUserId } from '../core/providers';
 import { useProjects } from '../core/queries';
 import { useChatRealtime } from '../core/useChatRealtime';
 import { useTheme } from '../core/theme';
@@ -19,8 +19,11 @@ import { spacing } from '../lib/theme';
 import { notificationToTarget } from '../lib/deep-link';
 import { useDrawerStore } from '../lib/drawer-store';
 import { asyncStore } from '../adapters/async-storage';
+import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
-import { targetToAction, type NavAction } from './nav-actions';
+import { targetToAction, requiresSession, type NavAction } from './nav-actions';
+import { createPendingAction } from './pending-action';
+import { LINKING_PREFIXES, linkingConfig } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
 import { AppDrawer } from '../components/AppDrawer';
 
@@ -43,6 +46,9 @@ const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
 const Tabs = createBottomTabNavigator<TabsParamList>();
 
+// Show pushes that arrive while the app is open and create the Android channel (NTF-01).
+configureNotifications();
+
 /** Cold-start dedupe: the id of the push whose tap already routed us, so a later plain launch
  *  (getLastNotificationResponseAsync keeps returning the last tap) does not re-navigate. */
 const LAST_HANDLED_KEY = 'mico360.lastHandledNotifId';
@@ -56,23 +62,30 @@ const TAB_ICON: Record<keyof TabsParamList, string> = {
   Settings: '⚙️',
 };
 
-/** URL deep links (A0.3): mico360://task/<id>, mico360://project/<id>, mico360://notifications. */
-const linking: LinkingOptions<AppStackParamList> = {
-  prefixes: ['mico360://', 'https://task.mico360.com'],
-  config: {
-    screens: {
-      Tabs: { screens: { Notifications: 'notifications', Dashboard: 'home' } },
-      Board: 'project/:projectId',
-      TaskDetail: 'task/:taskId',
-    },
-  },
-};
+/**
+ * URL deep links (A0.3, MOB-09): mico360://task/<id>, mico360://project/<id>,
+ * mico360://notifications and the e-mailed https://task.mico360.com/reset?token=… link.
+ */
+// Typed against the app stack (the container ref's param list); the config also names the
+// signed-out auth screens, which React Navigation resolves when that stack is mounted.
+const linking = {
+  prefixes: LINKING_PREFIXES,
+  config: linkingConfig,
+} as unknown as LinkingOptions<AppStackParamList>;
 
 /** Perform a navigation action against the root container (imperative: push taps, deep links, drawer). */
 function applyAction(action: NavAction): void {
   if (!navigationRef.isReady()) return;
   if (action.type === 'tab') {
     navigationRef.navigate('Tabs', { screen: action.tab });
+    return;
+  }
+  if (action.type === 'auth') {
+    // The ref is typed for the app stack; Reset lives in the (signed-out) auth stack.
+    (navigationRef as unknown as { navigate: (name: 'Reset', params: AuthStackParamList['Reset']) => void }).navigate(
+      'Reset',
+      action.params,
+    );
     return;
   }
   switch (action.screen) {
@@ -96,6 +109,26 @@ function applyAction(action: NavAction): void {
 function ChatRealtimeMount() {
   const { data: projects } = useProjects();
   useChatRealtime((projects ?? []).map((p) => p.id));
+  return null;
+}
+
+/**
+ * Keeps this phone's push token registered to the signed-in user (NTF-01, MOB-11): on every launch
+ * while signed in and right after sign-in (mount), and whenever FCM rotates the token. A denied
+ * permission or a build without Firebase simply yields no token — Settings shows how to turn
+ * notifications on.
+ */
+function PushRegistrationMount() {
+  const { push } = useServices();
+  useEffect(() => {
+    void push.register().catch(() => {
+      /* offline — retried on the next launch / rotation */
+    });
+    const sub = addPushTokenListener((token) => {
+      void push.register(token).catch(() => {});
+    });
+    return () => sub.remove();
+  }, [push]);
   return null;
 }
 
@@ -140,18 +173,37 @@ function MainTabs() {
 }
 
 export function RootNavigator() {
-  const session = useSession();
+  const userId = useUserId();
+  const signedIn = !!userId;
+  const signedInRef = useRef(signedIn);
+  signedInRef.current = signedIn;
   const { colors, scheme } = useTheme();
 
-  // An action resolved before the container is ready (cold start) waits here for onReady to flush it.
-  const pendingActionRef = useRef<NavAction | null>(null);
+  // An action that cannot run yet waits here: the container is not ready (cold start), or a push
+  // was tapped while signed out — it is kept until the user signs in (WEB-18).
+  const pending = useRef(createPendingAction()).current;
   const flushPending = useCallback(() => {
-    const action = pendingActionRef.current;
-    if (action && navigationRef.isReady()) {
-      pendingActionRef.current = null;
-      applyAction(action);
-    }
-  }, []);
+    const action = pending.peek();
+    if (!action || !navigationRef.isReady()) return;
+    if (requiresSession(action) !== signedInRef.current) return; // wrong stack mounted — wait
+    pending.take();
+    applyAction(action);
+  }, [pending]);
+
+  /** Run now if possible, otherwise keep it until the right stack is mounted. */
+  const dispatch = useCallback(
+    (action: NavAction) => {
+      pending.set(action);
+      flushPending();
+    },
+    [pending, flushPending],
+  );
+
+  // Signing in (or out) swaps the mounted stack: run whatever was waiting for it.
+  useEffect(() => {
+    const t = setTimeout(flushPending, 0);
+    return () => clearTimeout(t);
+  }, [signedIn, flushPending]);
 
   const navTheme: NavTheme = {
     ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
@@ -175,34 +227,33 @@ export function RootNavigator() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
-      applyAction(targetToAction(notificationToTarget(data)));
+      dispatch(targetToAction(notificationToTarget(data)));
     });
     return () => sub.remove();
-  }, []);
+  }, [dispatch]);
 
   // Cold start: the app was launched by tapping a push while it was killed (A6.2).
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const response = await Notifications.getLastNotificationResponseAsync();
+      const response = await Notifications.getLastNotificationResponseAsync().catch(() => null);
       if (!response || cancelled) return;
       const id = response.notification.request.identifier;
       const last = await asyncStore.getItem(LAST_HANDLED_KEY).catch(() => null);
       if (last === id) return; // already routed for this notification on a previous launch
       await asyncStore.setItem(LAST_HANDLED_KEY, id).catch(() => {});
       const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
-      pendingActionRef.current = targetToAction(notificationToTarget(data));
-      flushPending(); // applies now if ready, else onReady flushes it
+      dispatch(targetToAction(notificationToTarget(data))); // runs now, onReady, or after sign-in
     })();
     return () => {
       cancelled = true;
     };
-  }, [flushPending]);
+  }, [dispatch]);
 
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} onReady={flushPending}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      {session ? (
+      {signedIn ? (
         <>
           <AppStack.Navigator screenOptions={appHeader}>
             <AppStack.Screen name="Tabs" component={MainTabs} options={{ headerShown: false }} />
@@ -222,6 +273,7 @@ export function RootNavigator() {
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />
           <ChatRealtimeMount />
+          <PushRegistrationMount />
         </>
       ) : (
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>

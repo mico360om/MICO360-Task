@@ -149,6 +149,10 @@ export interface ApiNotification {
   body: string | null;
   readAt: string | null;
   createdAt: string;
+  /** What the notification is about (lowercase, e.g. `task` / `project` / `conversation` / `digest`). */
+  entityType?: string | null;
+  /** The id of that item — lets a tap open the related task (WEB-18). */
+  entityId?: string | null;
 }
 
 // ── Chat ─────────────────────────────────────────────────────────────────────

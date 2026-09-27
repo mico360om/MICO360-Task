@@ -51,4 +51,34 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Projects')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('7')).toBeInTheDocument()); // all-tasks total (unique)
   });
+
+  it('lists only open tasks under “Your open tasks”, with company-zone due labels', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u2', email: 'e@b.c', username: 'emp', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    const task = (id: string, title: string, extra: Record<string, unknown>) => ({
+      id, key: id.toUpperCase(), title, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', ...extra,
+    });
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/tasks/mine')) return json({ data: [task('t1', 'Still open', { columnCategory: 'TODO' }), task('t2', 'Already shipped', { columnCategory: 'DONE' })] });
+      if (u.endsWith('/tasks')) return json({ data: [task('t3', 'Finished early', { columnCategory: 'DONE', dueDate: '2026-01-01T00:00:00.000Z' })] });
+      return json({ data: [] });
+    });
+    renderPage();
+    expect(await screen.findByText('Still open')).toBeInTheDocument();
+    expect(screen.queryByText('Already shipped')).not.toBeInTheDocument();
+    // a finished task is never "due soon"/overdue
+    await waitFor(() => expect(screen.getByText(/nothing due/i)).toBeInTheDocument());
+    expect(screen.queryByText('Finished early')).not.toBeInTheDocument();
+  });
+
+  it('shows an error with Retry — not “all clear” — when the task list fails to load', async () => {
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/tasks')) return new Response(JSON.stringify({ error: { code: 'ERROR', message: 'down' } }), { status: 500 });
+      return json({ data: [] });
+    });
+    renderPage();
+    expect(await screen.findByText(/couldn’t load due tasks/i)).toBeInTheDocument();
+    expect(screen.queryByText(/you’re all clear/i)).not.toBeInTheDocument();
+  });
 });

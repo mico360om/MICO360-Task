@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyTaskEvent } from './realtime';
+import { applyTaskEvent, taskEventInvalidationKeys, TASK_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from './realtime';
 import type { ApiTask } from './types';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
@@ -54,5 +54,35 @@ describe('applyTaskEvent (A2 realtime)', () => {
     const list = [t('a')];
     const next = applyTaskEvent(list, { type: 'noise' as never, payload: {} as never });
     expect(next).toBe(list);
+  });
+});
+
+describe('taskEventInvalidationKeys (MOB-04)', () => {
+  it('refreshes every board date of the project, the task detail, My tasks and progress', () => {
+    expect(taskEventInvalidationKeys('p1', { id: 't9' })).toEqual([
+      ['tasks', 'project', 'p1'],
+      ['tasks', 'mine'],
+      ['project', 'p1', 'progress'],
+      ['task', 't9'],
+    ]);
+  });
+
+  it('skips the task key when the payload has no id', () => {
+    expect(taskEventInvalidationKeys('p1', {})).toHaveLength(3);
+    expect(taskEventInvalidationKeys('p1', null)).toHaveLength(3);
+  });
+
+  it('listens to create / update / move / delete', () => {
+    expect([...TASK_EVENTS]).toEqual(['task:created', 'task:updated', 'task:moved', 'task:deleted']);
+  });
+});
+
+describe('project:removed', () => {
+  it('matches only a removal from this project', () => {
+    expect(PROJECT_REMOVED_EVENT).toBe('project:removed');
+    expect(isProjectRemoval({ projectId: 'p1' }, 'p1')).toBe(true);
+    expect(isProjectRemoval({ projectId: 'p2' }, 'p1')).toBe(false);
+    expect(isProjectRemoval(undefined, 'p1')).toBe(false);
+    expect(isProjectRemoval({ projectId: 'p1' }, '')).toBe(false);
   });
 });

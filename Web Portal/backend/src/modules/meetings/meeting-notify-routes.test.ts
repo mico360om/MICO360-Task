@@ -44,10 +44,11 @@ async function makeApp(withNotify: boolean) {
   const meetingService = createMeetingService({ meetings });
   const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return false; }, async accessibleProjectIds() { return []; } } });
   const notify = {
-    sendInvites: vi.fn(async () => ({ sent: 3 })),
-    sendCancellation: vi.fn(async () => ({ sent: 3 })),
-    sendMinutes: vi.fn(async () => ({ sent: 3 })),
-    runReminderSweep: vi.fn(async () => ({ meetings: 0, sent: 0 })),
+    sendInvites: vi.fn(async () => ({ sent: 3, failed: 0 })),
+    sendCancellation: vi.fn(async () => ({ sent: 3, failed: 0 })),
+    sendAttendeeRemoved: vi.fn(async () => ({ sent: 1, failed: 0 })),
+    sendMinutes: vi.fn(async () => ({ sent: 3, failed: 0 })),
+    runReminderSweep: vi.fn(async () => ({ meetings: 0, sent: 0, failed: 0 })),
   } as unknown as MeetingNotifyService;
   const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, ...(withNotify ? { meetingNotifyService: notify } : {}) });
   return { app, notify, meetings };
@@ -94,5 +95,43 @@ describe('Meeting invite/cancel routes', () => {
     await meetings.markInvitesSent(withInvites, new Date());
     await app.inject({ method: 'POST', url: `/api/v1/meetings/${withInvites}/cancel`, headers: { authorization: auth } });
     expect(notify.sendCancellation).toHaveBeenCalledWith(withInvites);
+  });
+
+  it('sends an updated invitation when an invited meeting is rescheduled, but not for internal edits (MTG-02)', async () => {
+    const { app, notify, meetings } = await makeApp(true);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = await makeMeeting(app, 'u1');
+    // Before invitations go out, edits send nothing.
+    await app.inject({ method: 'PUT', url: `/api/v1/meetings/${id}`, headers: { authorization: auth }, payload: { startAt: '2026-10-06T09:00:00Z' } });
+    expect(notify.sendInvites).not.toHaveBeenCalled();
+    await meetings.markInvitesSent(id, new Date());
+    await app.inject({ method: 'PUT', url: `/api/v1/meetings/${id}`, headers: { authorization: auth }, payload: { category: 'Internal' } });
+    expect(notify.sendInvites).not.toHaveBeenCalled();
+    await app.inject({ method: 'PUT', url: `/api/v1/meetings/${id}`, headers: { authorization: auth }, payload: { startAt: '2026-10-07T09:00:00Z' } });
+    expect(notify.sendInvites).toHaveBeenCalledWith(id);
+  });
+
+  it('sends a cancellation when an invited meeting is cancelled through Edit or deleted (MTG-02)', async () => {
+    const { app, notify, meetings } = await makeApp(true);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const viaEdit = await makeMeeting(app, 'u1');
+    await meetings.markInvitesSent(viaEdit, new Date());
+    await app.inject({ method: 'PUT', url: `/api/v1/meetings/${viaEdit}`, headers: { authorization: auth }, payload: { status: 'CANCELLED' } });
+    expect(notify.sendCancellation).toHaveBeenCalledWith(viaEdit);
+    expect(notify.sendInvites).not.toHaveBeenCalled();
+
+    const deleted = await makeMeeting(app, 'u1');
+    await meetings.markInvitesSent(deleted, new Date());
+    const res = await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${deleted}`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(204);
+    expect(notify.sendCancellation).toHaveBeenCalledWith(deleted, { meeting: expect.objectContaining({ id: deleted, title: 'Weekly' }) });
+  });
+
+  it('returns per-recipient results from the invite endpoint (NTF-02)', async () => {
+    const { app, notify } = await makeApp(true);
+    (notify.sendInvites as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ sent: 6, failed: 2 });
+    const id = await makeMeeting(app, 'u1');
+    const res = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/invites`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.json().data).toEqual({ sent: 6, failed: 2 });
   });
 });

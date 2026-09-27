@@ -75,6 +75,42 @@ describe('AiConfigService', () => {
     expect(entries.some((e) => e.action === 'ai.provider.sync')).toBe(true);
   });
 
+  it('keeps both of two concurrent admin edits (atomic read-modify-write)', async () => {
+    const { svc } = make();
+    await svc.addProvider({ name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'k' }, actor);
+    await Promise.all([
+      svc.addModel({ providerId: 'id1', modelKey: 'gpt-4o', capabilities: ['chat'] }, actor),
+      svc.addModel({ providerId: 'id1', modelKey: 'o1-mini', capabilities: ['chat'] }, actor),
+      svc.updateProvider('id1', { name: 'OpenAI (prod)' }, actor),
+    ]);
+    const cfg = await svc.getConfig();
+    expect(cfg.models.map((m) => m.modelKey).sort()).toEqual(['gpt-4o', 'o1-mini']);
+    expect(cfg.providers[0]!.name).toBe('OpenAI (prod)');
+  });
+
+  it('applies a sync to the latest config, not a copy taken before the network call', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchImpl = (async () => {
+      await gate; // the provider is slow to answer
+      return new Response(JSON.stringify({ data: [{ id: 'gpt-4o' }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { svc } = make(fetchImpl);
+    await svc.addProvider({ name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'k' }, actor);
+    const syncing = svc.syncProvider('id1', actor);
+    await svc.addModel({ providerId: 'id1', modelKey: 'manual-model', capabilities: ['chat'] }, actor); // edit during the sync
+    release();
+    const res = await syncing;
+    expect(res.config.models.map((m) => m.modelKey).sort()).toEqual(['gpt-4o', 'manual-model']);
+  });
+
+  it('refuses a private provider address on add and on edit', async () => {
+    const { svc } = make();
+    await expect(svc.addProvider({ name: 'x', kind: 'custom', apiBaseUrl: 'http://10.0.0.8:8080' }, actor)).rejects.toThrow(/public address/);
+    const cfg = await svc.addProvider({ name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'k' }, actor);
+    await expect(svc.updateProvider(cfg.providers[0]!.id, { apiBaseUrl: 'http://localhost:6379' }, actor)).rejects.toThrow(/public address/);
+  });
+
   it('changes apply immediately (next read reflects the update — no restart)', async () => {
     const { svc } = make();
     await svc.addProvider({ name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'k' }, actor);

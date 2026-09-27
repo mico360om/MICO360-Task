@@ -1,4 +1,7 @@
 import type { TaskRecord } from './task-repository';
+import { isOverdue } from '../../lib/due-date';
+import { defaultCompanyTimeZone, isTaskDone } from './task-status';
+import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
 
 const PRIORITY_RANK: Record<string, number> = { LOW: 0, NORMAL: 1, HIGH: 2, URGENT: 3 };
 
@@ -7,7 +10,7 @@ export type SortField = (typeof SORT_FIELDS)[number];
 export type SortOrder = 'asc' | 'desc';
 
 export interface TaskFilterCriteria {
-  /** Keyword matched against title, description and key (case-insensitive). */
+  /** Keyword matched against title, description and key (case-insensitive, Arabic-variant aware). */
   q?: string;
   /** Keep only these priorities. */
   priorities?: string[];
@@ -19,22 +22,17 @@ export interface TaskFilterCriteria {
   dueBefore?: Date;
   /** Due on/after this instant. */
   dueAfter?: Date;
-  /** Keep only overdue (past due + not done) tasks. */
+  /** Keep only overdue tasks (due day before today in the company time zone, not done). */
   overdue?: boolean;
   sort?: SortField;
   order?: SortOrder;
   now?: Date;
+  /** Company time zone that defines "today" for the overdue filter. */
+  timeZone?: string;
 }
 
-function isDone(t: TaskRecord): boolean {
-  return t.columnCategory === 'DONE' || t.completedAt != null;
-}
-
-function matches(t: TaskRecord, c: TaskFilterCriteria, nowMs: number): boolean {
-  if (c.q) {
-    const hay = `${t.title} ${t.description ?? ''} ${t.key}`.toLowerCase();
-    if (!hay.includes(c.q.trim().toLowerCase())) return false;
-  }
+function matches(t: TaskRecord, c: TaskFilterCriteria, q: string, now: Date, timeZone: string): boolean {
+  if (q && !matchesNormalized(q, t.title, t.description, t.key)) return false;
   if (c.priorities?.length && !c.priorities.includes(t.priority)) return false;
   if (c.categories?.length) {
     const cat = t.columnCategory ?? null;
@@ -46,7 +44,7 @@ function matches(t: TaskRecord, c: TaskFilterCriteria, nowMs: number): boolean {
   }
   if (c.dueBefore && (!t.dueDate || new Date(t.dueDate).getTime() > c.dueBefore.getTime())) return false;
   if (c.dueAfter && (!t.dueDate || new Date(t.dueDate).getTime() < c.dueAfter.getTime())) return false;
-  if (c.overdue && !(t.dueDate && new Date(t.dueDate).getTime() < nowMs && !isDone(t))) return false;
+  if (c.overdue && !(isOverdue(t.dueDate, timeZone, now) && !isTaskDone(t))) return false;
   return true;
 }
 
@@ -76,8 +74,10 @@ function compare(a: TaskRecord, b: TaskRecord, field: SortField): number {
  * keyword, priority, status, tag, date-range and overdue filters plus sorting.
  */
 export function filterAndSortTasks(tasks: TaskRecord[], criteria: TaskFilterCriteria = {}): TaskRecord[] {
-  const nowMs = (criteria.now ?? new Date()).getTime();
-  const filtered = tasks.filter((t) => matches(t, criteria, nowMs));
+  const now = criteria.now ?? new Date();
+  const timeZone = criteria.timeZone ?? defaultCompanyTimeZone();
+  const q = normalizeForSearch(criteria.q);
+  const filtered = tasks.filter((t) => matches(t, criteria, q, now, timeZone));
   if (!criteria.sort) return filtered;
   const dir = criteria.order === 'desc' ? -1 : 1;
   return [...filtered].sort((a, b) => dir * compare(a, b, criteria.sort!));

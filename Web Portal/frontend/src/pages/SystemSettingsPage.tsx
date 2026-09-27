@@ -14,6 +14,40 @@ const CARRY_STATUSES: { value: string; label: string }[] = [
   { value: 'REVIEW', label: 'Review' },
 ];
 const DEFAULT_STATUSES = CARRY_STATUSES.map((s) => s.value);
+const STATUS_LABEL = new Map(CARRY_STATUSES.map((s) => [s.value, s.label] as const));
+
+/**
+ * The settings this page knows how to show, each with a formatter that returns plain text (or null
+ * when the stored value isn't the expected shape). Anything else stored in system settings — AI
+ * provider config, keys, tokens, internal documents — is never printed here: raw values can hold
+ * secrets, and they belong on their own admin pages.
+ */
+const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => string | null }[] = [
+  { key: 'companyName', label: 'Company name', format: (v) => (typeof v === 'string' && v.length <= 200 ? v : null) },
+  { key: 'carryForward.enabled', label: 'Automatic carry-forward', format: (v) => (typeof v === 'boolean' ? (v ? 'On' : 'Off') : null) },
+  {
+    key: 'carryForward.statuses',
+    label: 'Statuses that carry forward',
+    format: (v) =>
+      Array.isArray(v) && v.every((x) => typeof x === 'string')
+        ? v.map((x) => STATUS_LABEL.get(x as string) ?? String(x)).join(', ') || 'None'
+        : null,
+  },
+];
+/** Belt and braces: never show a key that looks secret, even if it were ever added above. */
+const SECRET_KEY = /(^ai\.)|secret|token|password|api[-_.]?key|credential|private/i;
+
+/** Known, safe settings as label/value rows; a count of everything else that's hidden. */
+export function displayableSettings(settings: { key: string; value: unknown }[]): { rows: { key: string; label: string; value: string }[]; hidden: number } {
+  const byKey = new Map(settings.map((s) => [s.key, s.value] as const));
+  const rows: { key: string; label: string; value: string }[] = [];
+  for (const def of KNOWN_SETTINGS) {
+    if (!byKey.has(def.key) || SECRET_KEY.test(def.key)) continue;
+    const value = def.format(byKey.get(def.key));
+    if (value !== null) rows.push({ key: def.key, label: def.label, value });
+  }
+  return { rows, hidden: settings.length - rows.length };
+}
 
 function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: () => void; label: string; disabled?: boolean }) {
   return (
@@ -33,7 +67,8 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: () =
 export function SystemSettingsPage() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list() });
-  const settings = q.data ?? [];
+  const settings = Array.isArray(q.data) ? q.data : [];
+  const shown = displayableSettings(settings);
   const byKey = new Map(settings.map((s) => [s.key, s.value] as const));
 
   const enabled = byKey.has('carryForward.enabled') ? Boolean(byKey.get('carryForward.enabled')) : true;
@@ -41,9 +76,11 @@ export function SystemSettingsPage() {
 
   const [ranMsg, setRanMsg] = useState<string | null>(null);
 
+  const [saveError, setSaveError] = useState<string | null>(null);
   const setMut = useMutation({
     mutationFn: ({ key, value }: { key: string; value: unknown }) => systemSettingsApi(apiClient).set(key, value),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['system-settings'] }),
+    onSuccess: () => { setSaveError(null); void qc.invalidateQueries({ queryKey: ['system-settings'] }); },
+    onError: () => setSaveError('Couldn’t save the setting. Please try again.'),
   });
   const runMut = useMutation({
     mutationFn: () => tasksApi(apiClient).runCarryForward(),
@@ -70,6 +107,7 @@ export function SystemSettingsPage() {
           <p className="mb-4 text-sm text-ink-2">
             At the start of each day, still-open tasks left on past days move onto today’s board. Completed tasks stay on their day.
           </p>
+          {saveError ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{saveError}</p> : null}
 
           <div className="flex items-center justify-between border-t border-line py-3">
             <div>
@@ -107,25 +145,33 @@ export function SystemSettingsPage() {
           </div>
         </section>
 
-        {/* Raw settings */}
+        {/* Current settings — known, safe values only (never raw JSON). */}
         <section className="card p-5">
-          <h2 className="eyebrow mb-3">All settings</h2>
+          <h2 className="eyebrow mb-3">Current settings</h2>
           {q.isLoading ? (
             <p className="text-ink-2">Loading…</p>
           ) : q.isError ? (
             <p role="alert" className="text-danger">Couldn’t load settings (admin only).</p>
-          ) : settings.length === 0 ? (
-            <p className="text-ink-2">No settings configured yet.</p>
+          ) : shown.rows.length === 0 ? (
+            <p className="text-ink-2">Everything is on its default setting.</p>
           ) : (
             <dl className="divide-y divide-line">
-              {settings.map((s) => (
-                <div key={s.key} className="flex items-center justify-between gap-4 py-3">
-                  <dt className="font-mono text-xs text-ink-2">{s.key}</dt>
-                  <dd className="truncate text-sm font-medium text-ink">{typeof s.value === 'object' ? JSON.stringify(s.value) : String(s.value)}</dd>
+              {shown.rows.map((r) => (
+                <div key={r.key} className="flex items-center justify-between gap-4 py-3">
+                  <dt className="min-w-0">
+                    <span className="block text-sm text-ink">{r.label}</span>
+                    <span className="block font-mono text-[11px] text-ink-3">{r.key}</span>
+                  </dt>
+                  <dd dir="auto" className="truncate text-sm font-medium text-ink">{r.value}</dd>
                 </div>
               ))}
             </dl>
           )}
+          {!q.isLoading && !q.isError && shown.hidden > 0 ? (
+            <p className="mt-3 text-xs text-ink-3">
+              {shown.hidden} other setting{shown.hidden === 1 ? ' is' : 's are'} managed on {shown.hidden === 1 ? 'its' : 'their'} own page (for example AI Management) and {shown.hidden === 1 ? 'isn’t' : 'aren’t'} shown here.
+            </p>
+          ) : null}
         </section>
       </div>
     </div>

@@ -1,5 +1,6 @@
-import type { PrismaClient, Project } from '@prisma/client';
-import type { CreateProjectData, ProjectRecord, ProjectRepository, UpdateProjectData } from './project-repository';
+import { Prisma, type PrismaClient, type Project } from '@prisma/client';
+import { ConflictError } from '../../lib/http-errors';
+import { DEFAULT_COLUMNS, type CreateProjectData, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
 
 function toRecord(p: Project): ProjectRecord {
   return {
@@ -26,24 +27,34 @@ function toRecord(p: Project): ProjectRecord {
 export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepository {
   return {
     async create(data: CreateProjectData) {
-      const p = await prisma.project.create({
-        data: {
-          code: data.code,
-          name: data.name,
-          createdById: data.createdById,
-          description: data.description ?? undefined,
-          clientName: data.clientName ?? undefined,
-          managerId: data.managerId ?? undefined,
-          ownerId: data.ownerId ?? undefined,
-          status: data.status ?? undefined,
-          priority: data.priority ?? undefined,
-          color: data.color ?? undefined,
-          startDate: data.startDate ?? undefined,
-          targetDate: data.targetDate ?? undefined,
-          notes: data.notes ?? undefined,
-        },
-      });
-      return toRecord(p);
+      try {
+        // The project and its default board columns are one nested write (one transaction).
+        const p = await prisma.project.create({
+          data: {
+            code: data.code,
+            name: data.name,
+            createdById: data.createdById,
+            description: data.description ?? undefined,
+            clientName: data.clientName ?? undefined,
+            managerId: data.managerId ?? undefined,
+            ownerId: data.ownerId ?? undefined,
+            status: data.status ?? undefined,
+            priority: data.priority ?? undefined,
+            color: data.color ?? undefined,
+            startDate: data.startDate ?? undefined,
+            targetDate: data.targetDate ?? undefined,
+            notes: data.notes ?? undefined,
+            columns: { create: DEFAULT_COLUMNS.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
+          },
+        });
+        return toRecord(p);
+      } catch (err) {
+        // Codes stay unique across deleted projects too, so a deleted project's code can't be reused.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          throw new ConflictError('A project with this code already exists (it may belong to a deleted project).', 'DUPLICATE_PROJECT_CODE');
+        }
+        throw err;
+      }
     },
     async findById(id) {
       const p = await prisma.project.findFirst({ where: { id, deletedAt: null } });

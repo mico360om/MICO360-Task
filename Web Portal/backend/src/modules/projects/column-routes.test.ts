@@ -9,6 +9,7 @@ function inMemory(): ColumnRepository {
   const rows: ColumnRecord[] = [];
   let seq = 0;
   return {
+    async countLiveTasks(id) { return id === 'busy' ? 1 : 0; },
     async listForProject(projectId) { return rows.filter((c) => c.projectId === projectId); },
     async create(data: CreateColumnData) {
       const c = { id: `c${seq++}`, projectId: data.projectId, name: data.name, category: data.category ?? 'TODO', position: data.position, color: data.color ?? '#948985', enabled: true } as ColumnRecord;
@@ -82,5 +83,21 @@ describe('Column routes', () => {
     expect(colEvents.map((e) => (e.payload as { action: string }).action)).toEqual(['created', 'updated', 'deleted']);
     expect(colEvents.every((e) => e.projectId === 'p1')).toBe(true);
     expect((colEvents[2]!.payload as { columnId: string }).columnId).toBe(columnId);
+  });
+
+  it('validates column input (blank/overlong names, fractional positions)', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: '   ' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: 'x'.repeat(192) } })).statusCode).toBe(400);
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: 'Ok' } })).json().data.id;
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/columns/${id}`, headers: admin, payload: { position: 1.5 } })).statusCode).toBe(400);
+    // The board swaps columns through a temporary negative position.
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/columns/${id}`, headers: admin, payload: { position: -1001 } })).statusCode).toBe(200);
+  });
+
+  it('answers a delete of a column with tasks with a clear 409, not a 500', async () => {
+    const res = await app.inject({ method: 'DELETE', url: '/api/v1/columns/busy', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('COLUMN_NOT_EMPTY');
   });
 });

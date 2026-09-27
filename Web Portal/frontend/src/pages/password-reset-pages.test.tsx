@@ -21,6 +21,15 @@ describe('ForgotPasswordPage', () => {
     await waitFor(() => expect(screen.getByText(/check your email/i)).toBeInTheDocument());
     expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/auth/password/forgot'))).toBe(true);
   });
+
+  it('says reset emails are unavailable (and to ask an admin) when email is not configured', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ error: { code: 'EMAIL_NOT_CONFIGURED', message: 'Email sign-in isn’t available right now.' } }, 503))));
+    render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>);
+    await userEvent.type(screen.getByLabelText(/email or username/i), 'ada@example.com');
+    await userEvent.click(screen.getByRole('button', { name: /send reset link/i }));
+    await waitFor(() => expect(screen.getByText(/ask an administrator to reset your password/i)).toBeInTheDocument());
+    expect(screen.queryByText(/check your email/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('ResetPasswordPage', () => {
@@ -48,6 +57,17 @@ describe('ResetPasswordPage', () => {
     const call = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/auth/password/reset'));
     expect(call).toBeTruthy();
     expect(JSON.parse(call![1]!.body as string)).toEqual({ token: 'tok123', password: 'NewPass123' });
+  });
+
+  it('applies the shared password rule before calling the API (SEC-12)', async () => {
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(json({ data: { reset: true } })));
+    vi.stubGlobal('fetch', fetchMock);
+    renderAt('/reset?token=tok123');
+    await userEvent.type(screen.getByLabelText(/^new password/i), 'onlyletters');
+    await userEvent.type(screen.getByLabelText(/confirm new password/i), 'onlyletters');
+    await userEvent.click(screen.getByRole('button', { name: /update password/i }));
+    expect(screen.getByText(/use at least 8 characters, including a letter and a number/i)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/auth/password/reset'))).toBe(false);
   });
 
   it('blocks mismatched passwords without calling the API', async () => {

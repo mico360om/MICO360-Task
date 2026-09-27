@@ -19,6 +19,12 @@ import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
 import { runBulk, type BulkAction, type BulkDeps } from '../lib/bulkActions';
 import { type TaskFilters } from '../lib/savedViews';
+import { dueDayKey, shiftDayKey, todayKey as companyTodayKey } from '../lib/due-date';
+import { formatDueDay, isTaskDone } from '../lib/due-display';
+import { useCompanyTimeZone } from '../lib/company-clock';
+import { invalidateTaskQueries } from '../lib/task-cache';
+import { readUserValue, writeUserValue } from '../lib/user-storage';
+import { useAuthStore } from '../stores/auth-store';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -26,15 +32,6 @@ const CheckIcon = (
   </svg>
 );
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const dayKeyOf = (iso: string) => {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
-const nowD = () => new Date();
-const todayKey = () => { const d = nowD(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const plus7Key = () => { const d = nowD(); d.setDate(d.getDate() + 7); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const fmtDue = (iso: string) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
 const P_RANK: Record<Priority, number> = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
 
 type View = 'grid' | 'list';
@@ -60,8 +57,21 @@ interface Enriched {
   overdue: boolean;
   dueToday: boolean;
   dueKey: string | null;
+  /** The due date's calendar day, formatted (e.g. "Sep 30"). */
+  dueLabel: string;
   projectName: string | null;
 }
+
+/** Stop a key/click on a row's checkbox from also opening the task (Space must select the row). */
+const stopRowActivation = (ev: React.SyntheticEvent) => ev.stopPropagation();
+/** Enter/Space on the row itself (not on a control inside it) opens the task. */
+const rowKeyDown = (onOpen: () => void) => (ev: React.KeyboardEvent<HTMLDivElement>) => {
+  if (ev.target !== ev.currentTarget) return;
+  if (ev.key === 'Enter' || ev.key === ' ') {
+    ev.preventDefault();
+    onOpen();
+  }
+};
 
 export function MyTasksPage() {
   const tasksQ = useQuery({ queryKey: ['my-tasks'], queryFn: () => tasksApi(apiClient).mine() });
@@ -70,16 +80,17 @@ export function MyTasksPage() {
   const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // "Today" / "overdue" are company calendar days (a task due today is never overdue; finished work never is).
+  const timeZone = useCompanyTimeZone();
+  const userId = useAuthStore((s) => s.user?.id);
   const [project, setProject] = useState('');
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
   const [assignee, setAssignee] = useState('');
   const [due, setDue] = useState('');
   const [sort, setSort] = useState<Sort>('due');
-  const [view, setView] = useState<View>(() => {
-    try { return (localStorage.getItem('mico360.mytasks.view') as View) || 'grid'; } catch { return 'grid'; }
-  });
-  useEffect(() => { try { localStorage.setItem('mico360.mytasks.view', view); } catch { /* ignore */ } }, [view]);
+  const [view, setView] = useState<View>(() => (readUserValue(useAuthStore.getState().user?.id, 'mytasks.view') as View) || 'grid');
+  useEffect(() => { writeUserValue(userId, 'mytasks.view', view); }, [view, userId]);
 
   // Bulk selection + async bulk-action plumbing.
   const qc = useQueryClient();
@@ -91,16 +102,17 @@ export function MyTasksPage() {
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
   const enriched = useMemo<Enriched[]>(() => {
-    const tKey = todayKey();
+    const tKey = companyTodayKey(timeZone);
     return tasks.map((task) => {
       const cat = task.columnCategory ?? 'TODO';
-      const done = task.completedAt != null || cat === 'DONE';
-      const dueKey = task.dueDate ? dayKeyOf(task.dueDate) : null;
+      const done = isTaskDone(task);
+      const dueKey = dueDayKey(task.dueDate, timeZone);
       const overdue = !!dueKey && dueKey < tKey && !done;
       const dueToday = !!dueKey && dueKey === tKey;
-      return { task, cat, done, overdue, dueToday, dueKey, projectName: projectById.get(task.projectId)?.name ?? null };
+      const dueLabel = formatDueDay(task.dueDate, timeZone, { month: 'short', day: 'numeric' });
+      return { task, cat, done, overdue, dueToday, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null };
     });
-  }, [tasks, projectById]);
+  }, [tasks, projectById, timeZone]);
 
   // Filter option sources.
   const projectOptions = useMemo(() => {
@@ -128,8 +140,8 @@ export function MyTasksPage() {
   }, [tasks]);
 
   const filtered = useMemo(() => {
-    const tK = todayKey();
-    const wK = plus7Key();
+    const tK = companyTodayKey(timeZone);
+    const wK = shiftDayKey(tK, 7);
     return enriched.filter((e) => {
       if (project && e.task.projectId !== project) return false;
       if (status && e.cat !== status) return false;
@@ -141,7 +153,7 @@ export function MyTasksPage() {
       if (due === 'none' && e.task.dueDate) return false;
       return true;
     });
-  }, [enriched, project, status, priority, assignee, due]);
+  }, [enriched, project, status, priority, assignee, due, timeZone]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -210,7 +222,7 @@ export function MyTasksPage() {
     try {
       const res = await runBulk(refs, action, bulkDeps);
       colCache.current.clear();
-      await qc.invalidateQueries({ queryKey: ['my-tasks'] });
+      await invalidateTaskQueries(qc);
       setSelected(new Set());
       setToast(res.failed === 0 ? `${label} ${res.succeeded} task${res.succeeded === 1 ? '' : 's'}.` : `${label} ${res.succeeded}, ${res.failed} couldn’t be updated.`);
     } catch {
@@ -395,7 +407,7 @@ function StatusPill({ category }: { category: string }) {
 
 function DueLabel({ e, className = '' }: { e: Enriched; className?: string }) {
   if (!e.task.dueDate) return <span className={`text-ink-3 ${className}`}>No due date</span>;
-  const text = e.overdue ? `Overdue · ${fmtDue(e.task.dueDate)}` : e.dueToday ? 'Due today' : fmtDue(e.task.dueDate);
+  const text = e.overdue ? `Overdue · ${e.dueLabel}` : e.dueToday ? 'Due today' : e.dueLabel;
   const tone = e.overdue ? 'font-semibold text-danger' : e.dueToday ? 'font-semibold text-warning' : 'text-ink-2';
   return <span className={`${tone} ${className}`}>{text}</span>;
 }
@@ -419,7 +431,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
       role="button"
       tabIndex={0}
       onClick={onOpen}
-      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onOpen(); } }}
+      onKeyDown={rowKeyDown(onOpen)}
       className={`card card-hover group flex cursor-pointer flex-col gap-2.5 p-3.5 outline-none ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : ''}`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -429,12 +441,13 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
               type="checkbox"
               aria-label={`Select ${t.key}`}
               checked={!!selected}
-              onClick={(ev) => ev.stopPropagation()}
+              onClick={stopRowActivation}
+              onKeyDown={stopRowActivation}
               onChange={onToggleSelect}
               className="h-3.5 w-3.5 flex-none accent-brand"
             />
           ) : null}
-          {e.projectName ? <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-3">{e.projectName}</span> : <span />}
+          {e.projectName ? <span dir="auto" className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-3">{e.projectName}</span> : <span />}
         </div>
         <PriorityBadge priority={t.priority} />
       </div>
@@ -442,7 +455,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
         <StatusPill category={e.cat} />
       </div>
-      <p className={`line-clamp-2 text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}>{t.title}</p>
+      <p dir="auto" className={`line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}>{t.title}</p>
 
       <div className="mt-auto flex flex-col gap-2 pt-1">
         <div className="flex items-center gap-1.5 text-[11px]">
@@ -469,7 +482,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
       role="button"
       tabIndex={0}
       onClick={onOpen}
-      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onOpen(); } }}
+      onKeyDown={rowKeyDown(onOpen)}
       className={`flex cursor-pointer items-center gap-3 px-4 py-2.5 outline-none transition-colors hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
     >
       {onToggleSelect ? (
@@ -477,15 +490,16 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
           type="checkbox"
           aria-label={`Select ${t.key}`}
           checked={!!selected}
-          onClick={(ev) => ev.stopPropagation()}
+          onClick={stopRowActivation}
+          onKeyDown={stopRowActivation}
           onChange={onToggleSelect}
           className="h-3.5 w-3.5 flex-none accent-brand"
         />
       ) : null}
       <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: m.color }} title={m.label} aria-hidden />
       <span className="w-16 flex-none font-mono text-xs text-ink-3">{t.key}</span>
-      <span className={`min-w-0 flex-1 truncate text-sm font-medium text-ink ${e.done ? 'line-through opacity-70' : ''}`}>{t.title}</span>
-      {e.projectName ? <span className="hidden w-32 flex-none truncate text-xs text-ink-2 lg:block">{e.projectName}</span> : null}
+      <span dir="auto" className={`min-w-0 flex-1 truncate text-start text-sm font-medium text-ink ${e.done ? 'line-through opacity-70' : ''}`}>{t.title}</span>
+      {e.projectName ? <span dir="auto" className="hidden w-32 flex-none truncate text-xs text-ink-2 lg:block">{e.projectName}</span> : null}
       <span className="hidden sm:block"><PriorityBadge priority={t.priority} /></span>
       <DueLabel e={e} className="hidden w-24 flex-none text-right text-xs tabular-nums sm:block" />
       <div className="hidden w-20 flex-none items-center gap-1.5 md:flex">

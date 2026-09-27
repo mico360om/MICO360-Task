@@ -17,11 +17,12 @@ export function createPrismaDependencyRepository(prisma: PrismaClient): Dependen
       return found !== null;
     },
     async dependsOn(taskId) {
-      const rows = await prisma.taskDependency.findMany({ where: { taskId }, select: { dependsOnTaskId: true } });
+      // Deleted tasks no longer block anything.
+      const rows = await prisma.taskDependency.findMany({ where: { taskId, dependsOn: { deletedAt: null } }, select: { dependsOnTaskId: true } });
       return rows.map((r) => r.dependsOnTaskId);
     },
     async blocks(taskId) {
-      const rows = await prisma.taskDependency.findMany({ where: { dependsOnTaskId: taskId }, select: { taskId: true } });
+      const rows = await prisma.taskDependency.findMany({ where: { dependsOnTaskId: taskId, task: { deletedAt: null } }, select: { taskId: true } });
       return rows.map((r) => r.taskId);
     },
   };

@@ -9,12 +9,16 @@ import { NewProjectModal } from '../components/NewProjectModal';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { useAuthStore } from '../stores/auth-store';
+import { isOverdue } from '../lib/due-date';
+import { isTaskDone } from '../lib/due-display';
+import { useCompanyTimeZone } from '../lib/company-clock';
 
 export function ProjectsPage() {
   const qc = useQueryClient();
   const { isAdmin } = useAuthStore();
   const admin = isAdmin();
   const [showNew, setShowNew] = useState(false);
+  const timeZone = useCompanyTimeZone();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['projects'],
@@ -28,14 +32,13 @@ export function ProjectsPage() {
   const meta = useMemo<Record<string, ProjectCardMeta>>(() => {
     const dir = Array.isArray(dirQ.data) ? dirQ.data : [];
     const tasks = Array.isArray(tasksQ.data) ? tasksQ.data : [];
-    const now = Date.now();
     const agg = new Map<string, { total: number; done: number; overdue: number }>();
     for (const t of tasks) {
       const s = agg.get(t.projectId) ?? { total: 0, done: 0, overdue: 0 };
       s.total += 1;
-      const cat = t.columnCategory ?? 'TODO';
-      if (cat === 'DONE' || t.completedAt) s.done += 1;
-      else if (t.dueDate && new Date(t.dueDate).getTime() < now) s.overdue += 1;
+      // Finished work is never overdue; overdue = due day before today in the company time zone.
+      if (isTaskDone(t)) s.done += 1;
+      else if (isOverdue(t.dueDate, timeZone)) s.overdue += 1;
       agg.set(t.projectId, s);
     }
     const out: Record<string, ProjectCardMeta> = {};
@@ -51,7 +54,7 @@ export function ProjectsPage() {
       };
     }
     return out;
-  }, [tasksQ.data, dirQ.data, projects]);
+  }, [tasksQ.data, dirQ.data, projects, timeZone]);
 
   const statusMut = useMutation({
     // Choosing ARCHIVED routes through the first-class archive action (audited); any other status is a plain update.

@@ -7,21 +7,22 @@ import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ValidationError } from '../../lib/http-errors';
 import { computeProjectProgress, type ProgressTask } from './project-progress';
+import { idString, longText, requiredText, shortText } from '../tasks/validation';
 
 const statusEnum = z.enum(['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'ARCHIVED']);
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
 const createSchema = z.object({
-  code: z.string().min(1).max(20),
-  name: z.string().min(1),
-  description: z.string().optional(),
-  clientName: z.string().optional(),
-  managerId: z.string().optional(),
-  ownerId: z.string().nullable().optional(),
+  code: z.string().trim().min(1).max(20),
+  name: requiredText,
+  description: longText.optional(),
+  clientName: shortText.optional(),
+  managerId: idString.optional(),
+  ownerId: idString.nullable().optional(),
   status: statusEnum.optional(),
   priority: priorityEnum.optional(),
-  color: z.string().optional(),
-  notes: z.string().optional(),
+  color: z.string().trim().max(64).optional(),
+  notes: longText.optional(),
 });
 const updateSchema = createSchema.partial().omit({ code: true });
 
@@ -30,6 +31,8 @@ export interface ProjectRouteDeps {
   guard: AuthGuard;
   /** Lists a project's tasks (with column category) so progress can be computed. */
   listProjectTasks?: (projectId: string) => Promise<ProgressTask[]>;
+  /** Company time zone for "overdue" in progress (defaults to COMPANY_TIMEZONE). */
+  timeZone?: string;
   /** Records important project changes to the audit log. */
   audit?: AuditService;
   /** File storage for project images; when absent, the image upload endpoint is disabled. */
@@ -58,7 +61,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
       const { id } = req.params as { id: string };
       await projectService.getVisibleProject(id, { id: req.user!.id, roles: req.user!.roles ?? [] }); // 404 if missing or no access
       const tasks = await deps.listProjectTasks!(id);
-      return { data: computeProjectProgress(tasks) };
+      return { data: computeProjectProgress(tasks, new Date(), deps.timeZone) };
     });
   }
 

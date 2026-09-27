@@ -1,4 +1,4 @@
-import { isValidRule, nextOccurrence, type RecurrenceRule } from './recurrence';
+import { isValidRule, nextOccurrence, withAnchorDay, type RecurrenceRule } from './recurrence';
 
 export interface RecurringTask {
   id: string;
@@ -8,8 +8,11 @@ export interface RecurringTask {
 }
 
 export interface RecurrenceTaskPort {
-  /** Create the next task in a recurring series, dated `nextDueDate`; returns the new task id. */
-  spawnNext(sourceTaskId: string, nextDueDate: Date): Promise<{ id: string }>;
+  /**
+   * Create the next task in a recurring series, dated `nextDueDate`, carrying `rule` (the source's
+   * rule with its anchor day pinned); returns the new task id and project.
+   */
+  spawnNext(sourceTaskId: string, nextDueDate: Date, rule: RecurrenceRule): Promise<{ id: string; projectId?: string }>;
   /** How many tasks already exist in the series identified by `parentId`. */
   countInstances(parentId: string): Promise<number>;
 }
@@ -19,13 +22,14 @@ export function createRecurrenceService({ tasks }: { tasks: RecurrenceTaskPort }
    * Called when a task is completed. If the task recurs and the series is not
    * exhausted (count / until), create the next occurrence and return its id.
    */
-  async function onTaskCompleted(task: RecurringTask): Promise<{ id: string } | null> {
-    const rule = task.recurrenceRule;
-    if (!rule || !isValidRule(rule)) return null;
+  async function onTaskCompleted(task: RecurringTask): Promise<{ id: string; projectId?: string } | null> {
+    const raw = task.recurrenceRule;
+    if (!raw || !isValidRule(raw)) return null;
     // A paused series generates no new occurrences until it is resumed.
-    if (rule.paused) return null;
+    if (raw.paused) return null;
 
     const base = task.dueDate ?? new Date();
+    const rule = withAnchorDay(raw, base);
     const next = nextOccurrence(base, rule);
 
     if (rule.until != null && next.getTime() > new Date(rule.until).getTime()) return null;
@@ -36,7 +40,7 @@ export function createRecurrenceService({ tasks }: { tasks: RecurrenceTaskPort }
       if (soFar >= rule.count) return null;
     }
 
-    return tasks.spawnNext(task.id, next);
+    return tasks.spawnNext(task.id, next, rule);
   }
 
   return { onTaskCompleted };

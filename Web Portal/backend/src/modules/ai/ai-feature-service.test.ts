@@ -54,6 +54,47 @@ describe('AiFeatureService', () => {
     await expect(svc.breakdownTask({ title: 'X' })).rejects.toThrow(/not configured/i);
   });
 
+  it('defaults "today" to the company-local date, not the UTC date', async () => {
+    let prompt = '';
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      prompt = JSON.parse(String(init!.body)).messages[0].content;
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"x","dueDate":null,"priority":null}' } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    // 01:30 in Muscat on the 27th is still the 26th in UTC.
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl, timeZone: 'Asia/Muscat', now: () => new Date('2026-09-26T21:30:00Z') });
+    await svc.parseTask({ text: 'call Ali tomorrow' });
+    expect(prompt).toContain('Today is 2026-09-27');
+  });
+
+  it('rate-limits each user (per minute and per day)', async () => {
+    const repo = createMemoryAiConfigRepository(config);
+    const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo, fetchImpl, limits: { perMinute: 2, perDay: 100 } });
+    const summary = () => svc.summarizeProject({ name: 'P', stats: { total: 1, completed: 0, inProgress: 0, overdue: 0 } }, { userId: 'u1' });
+    await summary();
+    await summary();
+    await expect(summary()).rejects.toMatchObject({ code: 'AI_RATE_LIMITED', status: 429 });
+    await expect(svc.summarizeProject({ name: 'P', stats: { total: 1, completed: 0, inProgress: 0, overdue: 0 } }, { userId: 'u2' })).resolves.toBe('ok');
+  });
+
+  it('enforces the model’s concurrency limit', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const fetchImpl = (async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlight--;
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl }); // concurrencyLimit: 1
+    const calls = Array.from({ length: 4 }, (_, i) =>
+      svc.summarizeProject({ name: 'P', stats: { total: 1, completed: 0, inProgress: 0, overdue: 0 } }, { userId: `u${i}` }),
+    );
+    await Promise.all(calls);
+    expect(peak).toBe(1);
+  });
+
   it('falls back to line parsing / defaults for messy output', () => {
     expect(parseStringArray('- one\n- two\n3. three')).toEqual(['one', 'two', 'three']);
     expect(parseJsonObject('here: {"priority":"LOW"} ok')).toEqual({ priority: 'LOW' });

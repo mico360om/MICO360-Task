@@ -16,6 +16,27 @@ function normalizeName(raw: string): string {
   return raw.trim().replace(/\s+/g, ' ').slice(0, MAX_TAG_LENGTH);
 }
 
+/**
+ * Validate a task's tag names: normalized, de-duplicated case-insensitively, none blank, at most
+ * MAX_TAGS_PER_TASK. Throws a ValidationError, so callers can check before writing anything.
+ */
+export function normalizeTagNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const clean: string[] = [];
+  for (const raw of names) {
+    const name = normalizeName(raw);
+    if (!name) throw new ValidationError('Tag names cannot be blank.');
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push(name);
+  }
+  if (clean.length > MAX_TAGS_PER_TASK) {
+    throw new ValidationError(`A task can have at most ${MAX_TAGS_PER_TASK} tags.`);
+  }
+  return clean;
+}
+
 export function createTagService({ repo, taskLookup }: TagServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
@@ -36,20 +57,7 @@ export function createTagService({ repo, taskLookup }: TagServiceDeps) {
    */
   async function setTaskTags(taskId: string, names: string[]): Promise<TagRecord[]> {
     await ensureTask(taskId);
-
-    const seen = new Set<string>();
-    const clean: string[] = [];
-    for (const raw of names) {
-      const name = normalizeName(raw);
-      if (!name) throw new ValidationError('Tag names cannot be blank.');
-      const key = name.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      clean.push(name);
-    }
-    if (clean.length > MAX_TAGS_PER_TASK) {
-      throw new ValidationError(`A task can have at most ${MAX_TAGS_PER_TASK} tags.`);
-    }
+    const clean = normalizeTagNames(names);
 
     const tags: TagRecord[] = [];
     for (const name of clean) tags.push(await repo.findOrCreateByName(name));

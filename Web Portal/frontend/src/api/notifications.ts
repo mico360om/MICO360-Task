@@ -5,9 +5,16 @@ export interface ApiNotification {
   type: string;
   title: string;
   body: string | null;
+  /** What the notification is about (e.g. 'task', 'conversation') — used to open it on click. */
+  entityType?: string | null;
+  entityId?: string | null;
   readAt: string | null;
   createdAt: string;
 }
+
+/** One cache for the bell and the Notifications page, so read state always agrees. */
+export const NOTIFICATIONS_KEY = ['notifications'] as const;
+export const UNREAD_COUNT_KEY = ['notif-unread'] as const;
 
 export interface NotificationPreferences {
   /** Notification type strings the user has muted (e.g. TASK_COMMENT). */

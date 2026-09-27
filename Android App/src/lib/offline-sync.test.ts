@@ -3,7 +3,7 @@ import { createReadCache } from './read-cache';
 import { createSyncQueue } from './sync-queue';
 import { createSyncController } from './sync-controller';
 import { performMutation } from './perform-mutation';
-import { ApiError } from './api-client';
+import { ApiError, NetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { KeyValueStore } from './storage';
 
@@ -14,50 +14,59 @@ function fakeStore(): KeyValueStore {
     getItem: async (k: string) => (m.has(k) ? m.get(k)! : null),
     setItem: async (k: string, v: string) => void m.set(k, v),
     deleteItem: async (k: string) => void m.delete(k),
+    keys: async () => [...m.keys()],
   };
 }
 
 describe('offline read cache + write queue + reconnect sync (integration)', () => {
   it('serves reads from cache offline, queues offline writes, and replays them on reconnect', async () => {
     const store = fakeStore();
-    const cache = createReadCache({ store });
+    const getUserId = () => 'u1';
+    const cache = createReadCache({ store, getUserId });
     const update = vi.fn(async () => ({ id: 't1' }));
     const resources = { tasks: { update } } as unknown as ResourcesApi;
     const queue = createSyncQueue({ store, perform: (m) => performMutation(resources, m) });
     await queue.load();
-    const controller = createSyncController({ queue });
+    const controller = createSyncController({ queue, getUserId });
 
     // 1. Online read → fresh + cached.
     const online = await cache.read('tasks.mine', async () => [{ id: 't1', title: 'A' }]);
     expect(online.stale).toBe(false);
 
-    // 2. Offline read (fetch throws) → the last cached value, marked stale.
-    const offline = await cache.read('tasks.mine', async () => { throw new Error('offline'); });
+    // 2. Offline read (fetch fails with no response) → the last cached value, marked stale.
+    const offline = await cache.read('tasks.mine', async () => {
+      throw new NetworkError('offline');
+    });
     expect(offline.stale).toBe(true);
     expect(offline.data).toEqual([{ id: 't1', title: 'A' }]);
 
-    // 3. A write made offline (the hook's onError path) is queued, not lost.
-    await queue.enqueue('task.update', { id: 't1', patch: { title: 'B' } });
-    expect(queue.pending()).toHaveLength(1);
+    // 3. A write made offline (the hook's onError path) is queued with its owner, not lost.
+    await queue.enqueue('task.update', { id: 't1', patch: { title: 'B' } }, { userId: 'u1' });
+    expect(queue.pendingFor('u1')).toHaveLength(1);
 
     // 4. Reconnect → the controller flushes and replays the write to the API; the queue drains.
     const result = await controller.trigger();
-    expect(result).toEqual({ synced: 1, dropped: [], remaining: 0 });
+    expect(result).toEqual({ synced: 1, failed: [], remaining: 0 });
     expect(update).toHaveBeenCalledWith('t1', { title: 'B' });
     expect(queue.pending()).toHaveLength(0);
   });
 
-  it('drops a permanently-rejected (4xx) queued write instead of retrying forever', async () => {
+  it('keeps a permanently-rejected (4xx) queued write as a visible failed item instead of retrying forever', async () => {
     const store = fakeStore();
     const resources = {
-      tasks: { update: vi.fn(async () => { throw new ApiError(400, 'BAD_REQUEST', 'rejected'); }) },
+      tasks: {
+        update: vi.fn(async () => {
+          throw new ApiError(400, 'BAD_REQUEST', 'rejected');
+        }),
+      },
     } as unknown as ResourcesApi;
     const queue = createSyncQueue({ store, perform: (m) => performMutation(resources, m) });
     await queue.load();
-    await queue.enqueue('task.update', { id: 't1', patch: {} });
-    const result = await queue.flush();
+    await queue.enqueue('task.update', { id: 't1', patch: {} }, { userId: 'u1' });
+    const result = await queue.flush('u1');
     expect(result.synced).toBe(0);
-    expect(result.dropped).toHaveLength(1);
-    expect(queue.pending()).toHaveLength(0);
+    expect(result.failed).toHaveLength(1);
+    expect(queue.pendingFor('u1')).toHaveLength(0);
+    expect(queue.failedFor('u1')).toHaveLength(1);
   });
 });

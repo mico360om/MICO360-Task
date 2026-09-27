@@ -11,8 +11,9 @@ export function createActivityService({ activities }: ActivityServiceDeps) {
   async function listForTask(taskId: string): Promise<ActivityRecord[]> {
     return activities.listForTask(taskId);
   }
-  async function listRecent(limit?: number): Promise<ActivityRecord[]> {
-    return activities.listRecent(limit);
+  /** Newest activity; `projectIds` (when given) scopes it to those projects in the query. */
+  async function listRecent(limit?: number, projectIds?: string[] | null): Promise<ActivityRecord[]> {
+    return activities.listRecent(limit, projectIds);
   }
   return { record, listForTask, listRecent };
 }

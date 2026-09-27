@@ -3,13 +3,16 @@ import { Link } from 'react-router-dom';
 import { FieldLabel, FieldError, fieldClass } from '../../components/ui/Field';
 
 export interface LoginFormProps {
-  onSubmit: (identifier: string, password: string) => void | Promise<void>;
+  /** `keepSignedIn` false = keep the session for this browser window only (not after it's closed). */
+  onSubmit: (identifier: string, password: string, keepSignedIn: boolean) => void | Promise<void>;
   /** When provided, the "Email code" (passwordless OTP) mode is offered. */
   onRequestCode?: (identifier: string) => void | Promise<void>;
-  onVerifyCode?: (identifier: string, code: string) => void | Promise<void>;
+  onVerifyCode?: (identifier: string, code: string, keepSignedIn: boolean) => void | Promise<void>;
   error?: string | null;
   /** Machine-readable error code (e.g. ACCOUNT_LOCKED) for tailored messaging. */
   errorCode?: string | null;
+  /** For ACCOUNT_LOCKED: seconds until the lock lifts on its own (from the server's `retryAfterSeconds`). */
+  lockedForSeconds?: number | null;
   /** A neutral status note, e.g. "We emailed you a code." */
   info?: string | null;
   loading?: boolean;
@@ -72,6 +75,7 @@ export function LoginForm({
   onVerifyCode,
   error,
   errorCode,
+  lockedForSeconds,
   info,
   loading = false,
   codeSent = false,
@@ -90,6 +94,7 @@ export function LoginForm({
   const codeRef = useRef<HTMLInputElement>(null);
   const otpAvailable = Boolean(onRequestCode && onVerifyCode);
   const locked = errorCode === 'ACCOUNT_LOCKED';
+  const lockMinutes = lockedForSeconds && lockedForSeconds > 0 ? Math.max(1, Math.ceil(lockedForSeconds / 60)) : null;
 
   function switchMode(next: Mode) {
     if (next === mode) return;
@@ -116,13 +121,25 @@ export function LoginForm({
     e.preventDefault();
     if (!validate()) return;
     if (mode === 'password') {
-      void onSubmit(identifier, password);
+      void onSubmit(identifier, password, keepSignedIn);
     } else if (!codeSent) {
       void onRequestCode?.(identifier);
     } else {
-      void onVerifyCode?.(identifier, code);
+      void onVerifyCode?.(identifier, code, keepSignedIn);
     }
   }
+
+  const keepSignedInBox = (
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
+      <input
+        type="checkbox"
+        checked={keepSignedIn}
+        onChange={(e) => setKeepSignedIn(e.target.checked)}
+        className="h-4 w-4 rounded border-line accent-brand"
+      />
+      Keep me signed in
+    </label>
+  );
 
   const submitLabel =
     mode === 'password'
@@ -169,6 +186,7 @@ export function LoginForm({
             name="identifier"
             ref={identifierRef}
             autoComplete="username"
+            dir="auto"
             placeholder="you@company.com"
             required
             aria-required="true"
@@ -224,15 +242,7 @@ export function LoginForm({
           <FieldError id="password-error">{errors.password}</FieldError>
 
           <div className="mt-1 flex items-center justify-between">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
-              <input
-                type="checkbox"
-                checked={keepSignedIn}
-                onChange={(e) => setKeepSignedIn(e.target.checked)}
-                className="h-4 w-4 rounded border-line accent-brand"
-              />
-              Keep me signed in
-            </label>
+            {keepSignedInBox}
             {forgotTo ? (
               <Link to={forgotTo} className="text-sm font-semibold text-brand hover:underline">
                 Forgot password?
@@ -273,6 +283,7 @@ export function LoginForm({
               Resend code
             </button>
           ) : null}
+          <div className="mt-1">{keepSignedInBox}</div>
         </div>
       ) : (
         <p className="text-sm text-ink-2">We’ll email you a one-time code — no password needed.</p>
@@ -282,8 +293,9 @@ export function LoginForm({
         <div role="alert" className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm">
           <p className="font-semibold text-danger">Account locked</p>
           <p className="mt-1 text-ink-2">
-            Too many failed attempts. <span className="font-medium text-ink">Reset your password</span> to unlock — ask
-            your administrator to send a reset if you can’t access it.
+            {lockMinutes ? `Too many attempts. Try again in ${lockMinutes} minute${lockMinutes === 1 ? '' : 's'}.` : 'Too many failed attempts.'}{' '}
+            Or <span className="font-medium text-ink">reset your password</span> to unlock now — ask your administrator to send a
+            reset if you can’t access it.
           </p>
         </div>
       ) : error ? (

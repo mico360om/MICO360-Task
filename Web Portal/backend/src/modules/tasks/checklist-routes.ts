@@ -2,14 +2,15 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { ChecklistService } from './checklist-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { idString, requiredText } from './validation';
 
-const addSchema = z.object({ text: z.string().min(1) });
+const addSchema = z.object({ text: requiredText });
 // A checklist item update can toggle completion, edit the text, or both.
-const updateSchema = z.object({ done: z.boolean().optional(), text: z.string().min(1).optional() }).refine(
+const updateSchema = z.object({ done: z.boolean().optional(), text: requiredText.optional() }).refine(
   (b) => b.done !== undefined || b.text !== undefined,
   { message: 'Provide "done" and/or "text".' },
 );
-const reorderSchema = z.object({ orderedIds: z.array(z.string().min(1)).min(1) });
+const reorderSchema = z.object({ orderedIds: z.array(idString).min(1).max(1000) });
 
 export interface ChecklistRouteDeps {
   checklistService: ChecklistService;
@@ -52,13 +53,16 @@ export async function registerChecklistRoutes(app: FastifyInstance, deps: Checkl
     return reply.status(201).send({ data: item });
   });
 
-  app.put('/checklist/:itemId', { preHandler: guard.authenticate }, async (req) => {
+  // Item-level routes resolve the item's task first (404 if unknown) and gate on access to it.
+  app.put('/checklist/:itemId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { itemId } = req.params as { itemId: string };
     const body = updateSchema.parse(req.body);
-    let item = undefined;
+    const existing = await checklistService.getItem(itemId);
+    if (!(await canView(req, existing.taskId))) return reply.status(403).send(denied);
+    let item = existing;
     if (body.text !== undefined) item = await checklistService.editItem(itemId, body.text);
     if (body.done !== undefined) item = await checklistService.toggleItem(itemId, body.done);
-    if (item) await announce(item.taskId);
+    await announce(item.taskId);
     return { data: item };
   });
 
@@ -74,6 +78,8 @@ export async function registerChecklistRoutes(app: FastifyInstance, deps: Checkl
 
   app.delete('/checklist/:itemId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { itemId } = req.params as { itemId: string };
+    const existing = await checklistService.getItem(itemId);
+    if (!(await canView(req, existing.taskId))) return reply.status(403).send(denied);
     const removed = await checklistService.removeItem(itemId);
     if (removed) await announce(removed.taskId);
     return reply.status(204).send();

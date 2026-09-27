@@ -11,6 +11,8 @@ export interface ApiUser {
   avatarUrl: string | null;
   status: UserStatus;
   roles: string[];
+  /** True while sign-in is locked after too many failed attempts (admins can unlock it). */
+  locked?: boolean;
 }
 
 export interface NewUserInput {
@@ -50,11 +52,19 @@ export function usersApi(client: ApiClient) {
     update: (id: string, patch: UserPatch) => client.put<{ data: ApiUser }>(`/users/${id}`, patch).then((r) => r.data),
     setStatus: (id: string, status: UserStatus) => client.patch<{ data: ApiUser }>(`/users/${id}/status`, { status }).then((r) => r.data),
     remove: (id: string) => client.del<void>(`/users/${id}`),
+    /** Admin-only: clear a sign-in lock left by too many failed password attempts (audited server-side). */
+    unlock: (id: string) => client.post<{ data?: ApiUser }>(`/users/${id}/unlock`),
     /** Admin-only: reset another user's password to a new value. */
     resetPassword: (id: string, password: string) => client.post<unknown>(`/users/${id}/password`, { password }),
-    /** Self-service: change your own password after supplying the current one. */
+    /**
+     * Self-service: change your own password after supplying the current one. The server signs out
+     * every other session and returns a fresh token pair for this one (store it, or the next
+     * refresh fails and the user is logged out).
+     */
     changePassword: (currentPassword: string, newPassword: string) =>
-      client.post<unknown>('/users/me/password', { currentPassword, newPassword }),
+      client
+        .post<{ data?: { accessToken?: string; refreshToken?: string } } | undefined>('/users/me/password', { currentPassword, newPassword })
+        .then((r) => r?.data ?? null),
     /** Upload the signed-in user's profile image (returns the updated user). */
     uploadAvatar: (file: File) => {
       const form = new FormData();

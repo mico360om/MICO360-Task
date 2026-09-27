@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createTagService } from './tag-service';
+import { createTagService, normalizeTagNames } from './tag-service';
 import { createMemoryTagRepository } from './tag-repository';
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
 
@@ -75,5 +75,13 @@ describe('TagService', () => {
     await svc.setTaskTags('t1', ['zebra', 'alpha']);
     expect((await svc.listCatalog()).map((t) => t.name)).toEqual(['alpha', 'zebra']);
     void repo;
+  });
+});
+
+describe('normalizeTagNames', () => {
+  it('trims, collapses spaces, de-duplicates case-insensitively and validates before anything is written', () => {
+    expect(normalizeTagNames(['  Urgent ', 'urgent', 'back   end'])).toEqual(['Urgent', 'back end']);
+    expect(() => normalizeTagNames(['ok', '  '])).toThrow(ValidationError);
+    expect(() => normalizeTagNames(Array.from({ length: 11 }, (_, i) => `t${i}`))).toThrow(ValidationError);
   });
 });

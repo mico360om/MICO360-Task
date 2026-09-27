@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, useWindowDimensions, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProjectColumns, useProjectTasks, useProjectProgress } from '../core/queries';
 import { useBoardRealtime } from '../core/useBoardRealtime';
 import { useColors } from '../core/theme';
 import { composeBoard } from '../lib/board';
 import { dateKey, shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
+import { COMPANY_TIMEZONE } from '../lib/due-date';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { TaskRow } from '../components/TaskRow';
 import { Loader, EmptyState, ErrorNote } from '../components/ui';
@@ -17,22 +18,21 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(c), [c]);
-  // Per-date boards: view one day at a time (default today, device time zone).
-  const tz = useMemo(() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    } catch {
-      return 'UTC';
-    }
-  }, []);
-  const todayKey = dateKey(new Date(), tz);
+  // Per-date boards: view one day at a time. "Today" is the company-time-zone date (XP-03), the
+  // same day the web board and the API use — not the phone's zone or UTC.
+  const todayKey = dateKey(new Date(), COMPANY_TIMEZONE);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const boardDate = selectedDate ?? todayKey;
 
   const columnsQ = useProjectColumns(projectId);
   const tasksQ = useProjectTasks(projectId, boardDate);
   const progressQ = useProjectProgress(projectId);
-  useBoardRealtime(projectId);
+  // Removed from this project while looking at it (server `project:removed`): leave the board.
+  useBoardRealtime(projectId, () => {
+    Alert.alert('No longer available', 'You were removed from this project.');
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('Tabs', { screen: 'Projects' });
+  });
   const [adding, setAdding] = useState(false);
 
   // Responsive column width: fills a narrow phone (with a peek of the next column)
@@ -82,9 +82,20 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
         </View>
       ) : null}
       {columnsQ.isError && !columnsQ.data ? (
-        <ErrorNote message="Couldn't load this board. Check your connection and try again." />
+        <ErrorNote
+          message="Couldn't load this board. Check your connection and try again."
+          onRetry={() => void columnsQ.refetch()}
+          retrying={columnsQ.isRefetching}
+        />
       ) : tasksQ.isLoading ? (
         <Loader />
+      ) : tasksQ.isError && !tasksQ.data ? (
+        // Never show a failed load as an empty board ("No tasks") — MOB-08.
+        <ErrorNote
+          message="Couldn't load the tasks for this day. Check your connection and try again."
+          onRetry={() => void tasksQ.refetch()}
+          retrying={tasksQ.isRefetching}
+        />
       ) : board.length === 0 ? (
         <EmptyState title="No columns" subtitle="This project has no board columns yet." />
       ) : (

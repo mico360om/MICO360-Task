@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { meetingsApi, NOTE_TYPE_LABELS, type MeetingNote, type NoteTask, type Priority } from '../api/meetings';
 import { projectsApi } from '../api/projects';
-import { usersApi } from '../api/users';
+import { membersApi } from '../api/members';
+import { ApiError } from '../lib/api-client';
+import { invalidateTaskQueries } from '../lib/task-cache';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
@@ -45,18 +47,36 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
   const [assigneeId, setAssigneeId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<NoteTask | null>(null);
+  const [assigneeWarning, setAssigneeWarning] = useState<string | null>(null);
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
-  const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  // Tasks can only be assigned to people on the project, so offer that project's members.
+  const membersQ = useQuery({
+    queryKey: ['project-members', projectId],
+    queryFn: () => membersApi(apiClient).list(projectId),
+    enabled: !!projectId,
+  });
 
   const projectOptions = useMemo(
     () => (Array.isArray(projectsQ.data) ? projectsQ.data : []).map((p) => ({ value: p.id, label: p.name, hint: p.code })),
     [projectsQ.data],
   );
   const assigneeOptions = useMemo(
-    () => [{ value: '', label: 'Unassigned' }, ...(Array.isArray(dirQ.data) ? dirQ.data : []).map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }))],
-    [dirQ.data],
+    () => [
+      { value: '', label: 'Unassigned' },
+      ...(projectId && Array.isArray(membersQ.data) ? membersQ.data : []).map((u) => ({
+        value: u.id,
+        label: `${u.firstName} ${u.lastName}`.trim() || u.username,
+        hint: `@${u.username}`,
+      })),
+    ],
+    [projectId, membersQ.data],
   );
+
+  function chooseProject(next: string) {
+    setProjectId(next);
+    setAssigneeId(''); // the old choice may not be a member of the new project
+  }
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -69,11 +89,13 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
       }),
     onSuccess: (res) => {
       setCreated(res.task);
+      setAssigneeWarning(res.assigneeError ?? null);
       qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'notes'] });
-      qc.invalidateQueries({ queryKey: ['tasks'] });
+      void invalidateTaskQueries(qc);
       onCreated();
     },
-    onError: () => setError('Couldn’t create the task. Pick a project and try again.'),
+    // Show the server's reason (e.g. the note already has a task, or no access to that project).
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Couldn’t create the task. Check your connection and try again.'),
   });
 
   function submit(e: FormEvent) {
@@ -101,8 +123,13 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
         {created ? (
           <div className="flex flex-col gap-3">
             <p className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
-              Task <span className="font-semibold">{created.key}</span> created — “{created.title}”.
+              Task <span className="font-semibold">{created.key}</span> created — “<span dir="auto">{created.title}</span>”.
             </p>
+            {assigneeWarning ? (
+              <p role="status" className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
+                It couldn’t be assigned: {assigneeWarning} Assign someone from the task instead.
+              </p>
+            ) : null}
             <div className="flex gap-2">
               {onOpenTask ? <Button onClick={() => { onOpenTask(created.id); onClose(); }}>Open task</Button> : null}
               <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground">Done</button>
@@ -113,11 +140,11 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
             {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="ctn-title" required>Title</FieldLabel>
-              <input id="ctn-title" value={title} onChange={(e) => setTitle(e.target.value)} className={fieldClass(false)} />
+              <input id="ctn-title" dir="auto" maxLength={191} value={title} onChange={(e) => setTitle(e.target.value)} className={fieldClass(false)} />
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel required>Project</FieldLabel>
-              <SearchableSelect ariaLabel="Project" placeholder="Choose a project…" options={projectOptions} value={projectId} onChange={setProjectId} />
+              <SearchableSelect ariaLabel="Project" placeholder="Choose a project…" options={projectOptions} value={projectId} onChange={chooseProject} />
               {!defaultProjectId ? <p className="text-xs text-ink-2">This is a standalone meeting — pick a board for the task.</p> : null}
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -133,6 +160,7 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
             <div className="flex flex-col gap-1.5">
               <FieldLabel>Assignee</FieldLabel>
               <SearchableSelect ariaLabel="Assignee" placeholder="Unassigned" options={assigneeOptions} value={assigneeId} onChange={setAssigneeId} />
+              {!projectId ? <p className="text-xs text-ink-2">Choose a project to pick someone from its team.</p> : null}
             </div>
             <Button type="submit" loading={createMut.isPending}>{createMut.isPending ? 'Creating…' : 'Create task'}</Button>
             <button type="button" onClick={onClose} className="w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground">Cancel</button>

@@ -59,7 +59,11 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
     },
 
     async listForAssignee(userId, filter: AssigneeListFilter = {}) {
-      const where: Prisma.ActionItemWhereInput = { assigneeId: userId };
+      // Items from deleted meetings drop out of "My Action Items" (standalone items stay).
+      const where: Prisma.ActionItemWhereInput = {
+        assigneeId: userId,
+        OR: [{ meetingId: null }, { meeting: { is: { deletedAt: null } } }],
+      };
       if (filter.status) where.status = filter.status;
       else if (filter.openOnly) where.status = { notIn: ['COMPLETED', 'CANCELLED'] };
       const rows = await prisma.actionItem.findMany({ where, orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }] });

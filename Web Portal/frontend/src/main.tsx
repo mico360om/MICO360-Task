@@ -6,6 +6,8 @@ import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { initTheme } from './lib/theme';
 import { shouldRetryQuery } from './lib/queryRetry';
+import { bindQueryCacheToSession } from './lib/session-lifecycle';
+import { initAuthSync } from './stores/auth-store';
 import './index.css';
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
@@ -25,6 +27,10 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Signing out (or another person signing in) drops every cached query; tabs share one session.
+bindQueryCacheToSession(queryClient);
+initAuthSync();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

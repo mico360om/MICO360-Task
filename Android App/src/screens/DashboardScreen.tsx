@@ -7,6 +7,7 @@ import { useColors } from '../core/theme';
 import { summarizeTasks } from '../lib/tasks-summary';
 import { TaskRow } from '../components/TaskRow';
 import { Card, SectionTitle, Loader, EmptyState, ErrorNote } from '../components/ui';
+import { SyncStatus } from '../components/SyncStatus';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 
@@ -31,7 +32,11 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
         <Text style={styles.greeting}>Hi {firstName}</Text>
         <Text style={styles.sub}>Here&apos;s what needs your attention.</Text>
 
-        {isError && !tasks ? <ErrorNote message="Couldn't reach the server. Showing what we have." /> : null}
+        <SyncStatus />
+
+        {isError && !tasks ? (
+          <ErrorNote message="Couldn't load your tasks." onRetry={() => void refetch()} retrying={isRefetching} />
+        ) : null}
 
         <View style={styles.tiles}>
           <Tile label="Overdue" value={summary.overdue.length} tone={c.danger} styles={styles} />
@@ -66,7 +71,9 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
           </Section>
         )}
 
-        {summary.total === 0 && <EmptyState title="No tasks yet" subtitle="Tasks assigned to you will show up here." />}
+        {summary.total === 0 && !(isError && !tasks) && (
+          <EmptyState title="No tasks yet" subtitle="Tasks assigned to you will show up here." />
+        )}
       </ScrollView>
     </SafeAreaView>
   );

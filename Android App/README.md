@@ -72,12 +72,17 @@ the config loader and the app runtime).
 | `APP_ENV`     | App name                  | Android package               | Default API                                    |
 | ------------- | ------------------------- | ----------------------------- | ---------------------------------------------- |
 | `development` | MICO360 Tasks (Dev)       | `com.mico360.tasks.dev`       | `http://10.0.2.2:4000/api/v1` (emulator → host) |
-| `preview`     | MICO360 Tasks (Preview)   | `com.mico360.tasks.preview`   | `https://staging.mico360.example/api/v1`       |
-| `production`  | MICO360 Tasks             | `com.mico360.tasks`           | `https://api.mico360.example/api/v1`           |
+| `preview`     | MICO360 Tasks (Preview)   | `com.mico360.tasks.preview`   | `https://task.mico360.com/api/v1` (no staging server yet) |
+| `production`  | MICO360 Tasks             | `com.mico360.tasks`           | `https://task.mico360.com/api/v1`              |
 
 - **Local:** copy `.env.example` → `.env`. Set `APP_ENV` there; Expo auto-loads it. Override the API
   for a LAN device with `EXPO_PUBLIC_API_URL=http://<your-ip>:4000/api/v1`.
-- **Cloud:** each `eas.json` build profile sets `APP_ENV` (and the staging/prod `EXPO_PUBLIC_API_URL`).
+- **Cloud:** each `eas.json` build profile sets `APP_ENV` (and `EXPO_PUBLIC_API_URL`). There is no
+  staging server, so **preview builds talk to production** — point `preview` at a staging URL once one exists.
+- **Release builds must name their flavor:** an EAS build or a production bundle (`NODE_ENV=production`)
+  with a missing/unknown `APP_ENV` fails the config instead of silently shipping the dev flavor.
+- **Push (FCM):** put the Firebase `google-services.json` next to `app.json` (or set the
+  `GOOGLE_SERVICES_JSON` EAS file secret); `app.config.ts` wires it in when present.
 - **Inspect a resolved flavor:** `APP_ENV=production npx expo config --type public`.
 
 At runtime the app reads the baked values via `resolveRuntimeConfig(Constants.expoConfig.extra)` →
@@ -97,8 +102,18 @@ The logic core resolves against the repo-root `node_modules` for its test/typech
 
 ## Release (A9)
 
+- **Local signed APK**: `MICO360_KEYSTORE_PASSWORD='…' bash tools/release/build-apk.sh` (from the repo
+  root). It does a clean `expo prebuild`, runs the Gradle release build, and signs with the kept key
+  (`apk/release.keystore`, git-ignored) so it installs as an update. The output is
+  `Installer/MICO360-Tasks-<version>.apk`. Raise `version` and `android.versionCode` in `app.json` for
+  each release.
 - **EAS Build** profiles are in `eas.json` (`development` / `preview` APK, `production` app-bundle).
   Build with `eas build --platform android --profile production`; submit with `eas submit`.
+- **Choosing a server**: the build's server (task.mico360.com for production) is the default. On the
+  sign-in screen, **Server: … · Change** switches to another one, such as a self-hosted Windows
+  server (`192.168.1.20:4000`). The app checks `/health` before switching and remembers the choice
+  (`src/lib/server-address.ts`). Plain http is accepted only for private office-network addresses;
+  the `plugins/with-lan-cleartext.js` config plugin lets Android open those connections.
 - **Crash reporting** uses a pluggable `CrashReporter` seam (`src/lib/error-reporter.ts`) wired through
   the top-level `ErrorBoundary`. Dev logs to the console; production is a no-op until a real sink is
   configured. To enable Sentry: `npx expo install @sentry/react-native`, then provide a `CrashReporter`

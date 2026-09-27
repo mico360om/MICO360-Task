@@ -16,7 +16,7 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'chat', label: 'Chat', to: '/chat', keywords: ['messages', 'talk'] },
   { id: 'activity', label: 'Activity', to: '/activity', keywords: ['feed', 'history'] },
   { id: 'notifications', label: 'Notifications', to: '/notifications', keywords: ['alerts', 'bell'] },
-  { id: 'reports', label: 'Reports', to: '/reports', keywords: ['analytics', 'stats', 'charts', 'trends'] },
+  { id: 'reports', label: 'Reports', to: '/reports', keywords: ['analytics', 'stats', 'charts', 'trends'], admin: true },
   { id: 'settings', label: 'Settings', to: '/settings', keywords: ['preferences'] },
   { id: 'profile', label: 'Profile', to: '/profile', keywords: ['account', 'me'] },
   { id: 'admin-users', label: 'User Management', to: '/admin/users', keywords: ['users', 'people', 'team', 'admin'], admin: true },

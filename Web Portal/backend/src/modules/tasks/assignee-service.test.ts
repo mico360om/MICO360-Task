@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createAssigneeService } from './assignee-service';
 import type { AssigneeRepository, AssigneeUser, TaskLookup } from './assignee-repository';
-import { NotFoundError } from '../../lib/http-errors';
+import { NotFoundError, ValidationError } from '../../lib/http-errors';
 
 function inMemory(existingTasks: string[]) {
   const links = new Set<string>(); // `${taskId}:${userId}`
@@ -61,5 +61,46 @@ describe('AssigneeService', () => {
     const withHook = createAssigneeService({ ...mem, onAssigned: (taskId, userIds) => { calls.push({ taskId, userIds }); } });
     await withHook.assignUsers('t1', ['u1', 'u2']);
     expect(calls).toEqual([{ taskId: 't1', userIds: ['u1', 'u2'] }]);
+  });
+});
+
+describe('AssigneeService — only active project members can be assigned', () => {
+  function checked() {
+    const mem = inMemory(['t1']);
+    const calls: string[][] = [];
+    const repo = {
+      ...mem.repo,
+      async projectIdOfTask() { return 'p1'; },
+      // u1 is an active member of p1; u2 isn't (left the project, or deactivated).
+      async eligibleUserIds(projectId: string, userIds: string[]) { return projectId === 'p1' ? userIds.filter((id) => id === 'u1') : []; },
+    };
+    const svc = createAssigneeService({ repo, taskLookup: mem.taskLookup, onAssigned: (_t, ids) => { calls.push(ids); } });
+    return { svc, calls };
+  }
+
+  it('rejects the whole request (400) when anyone is not eligible, assigning nobody', async () => {
+    const { svc, calls } = checked();
+    await expect(svc.assignUsers('t1', ['u1', 'u2'])).rejects.toMatchObject({ status: 400, details: { userIds: ['u2'] } });
+    expect(await svc.listAssignees('t1')).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('assigns eligible users', async () => {
+    const { svc } = checked();
+    expect((await svc.assignUsers('t1', ['u1'])).map((u) => u.id)).toEqual(['u1']);
+  });
+
+  it('filters and asserts eligibility for a project (used before a task exists)', async () => {
+    const { svc } = checked();
+    expect(await svc.eligibleAssignees('p1', ['u1', 'u2', 'u1'])).toEqual(['u1']);
+    await expect(svc.assertAssignable('p1', ['u2'])).rejects.toBeInstanceOf(ValidationError);
+    expect(await svc.assertAssignable('p1', ['u1', 'u1'])).toEqual(['u1']);
+  });
+
+  it('notifyAssigned fires the assignment hook without writing', async () => {
+    const { svc, calls } = checked();
+    await svc.notifyAssigned('t1', ['u1']);
+    await svc.notifyAssigned('t1', []);
+    expect(calls).toEqual([['u1']]);
   });
 });

@@ -33,6 +33,8 @@ export interface QuickAddTaskFormProps {
 }
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+/** The task title column's limit (VARCHAR 191). */
+export const TITLE_MAX = 191;
 const LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 
 export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onParse }: QuickAddTaskFormProps) {
@@ -59,7 +61,7 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
     setParseError(null);
     try {
       const draft = await onParse(text);
-      setTitle(draft.title);
+      setTitle(draft.title.slice(0, TITLE_MAX));
       if (draft.priority) setPriority(draft.priority);
       if (draft.dueDate) setDueDate(draft.dueDate);
       setTitleError(null);
@@ -93,6 +95,7 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
           <div className="flex items-start gap-2">
             <input
               id="qat-nl"
+              dir="auto"
               value={nlText}
               onChange={(e) => { setNlText(e.target.value); if (parseError) setParseError(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleParse(); } }}
@@ -119,6 +122,8 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
         <input
           id="qat-title"
           ref={titleRef}
+          dir="auto"
+          maxLength={TITLE_MAX}
           value={title}
           required
           aria-required="true"
@@ -138,6 +143,7 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
         </label>
         <textarea
           id="qat-description"
+          dir="auto"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
@@ -187,7 +193,7 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
                   >
                     {checked ? '✓' : ''}
                   </span>
-                  {a.label}
+                  <span dir="auto">{a.label}</span>
                 </label>
               );
             })}

@@ -6,6 +6,8 @@ import { useColors } from '../../core/theme';
 import { Button, TextField, ErrorNote, Heading, Muted } from '../../components/ui';
 import { spacing, type Palette } from '../../lib/theme';
 import type { AuthScreenProps } from '../../navigation/types';
+import { ApiError, isNetworkError } from '../../lib/api-client';
+import { authErrorMessage, isEmailNotConfigured } from '../../lib/auth-errors';
 
 export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) {
   const c = useColors();
@@ -22,9 +24,14 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) 
     try {
       await auth.forgotPassword(identifier.trim());
       setSent(true);
-    } catch {
-      // Never reveal whether an account exists — treat as sent.
-      setSent(true);
+    } catch (e) {
+      if (isEmailNotConfigured(e) || isNetworkError(e) || (e instanceof ApiError && e.status === 429)) {
+        // Nothing was sent, and saying so reveals nothing about the account (503 / offline / 429).
+        setError(authErrorMessage(e));
+      } else {
+        // Never reveal whether an account exists — treat as sent.
+        setSent(true);
+      }
     } finally {
       setBusy(false);
     }
@@ -42,9 +49,15 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) 
 
         {sent ? (
           <View style={styles.sent}>
-            <Text style={styles.sentTitle}>Check your email</Text>
-            <Muted>If an account matches, a reset link is on its way. Open it, then enter the code below.</Muted>
-            <Button title="I have a reset code" onPress={() => navigation.navigate('Reset')} />
+            <Text style={styles.sentTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
+              Check your email
+            </Text>
+            <Muted>
+              If an account matches, a reset link is on its way. Tap the link on this phone — it opens MICO360 Tasks
+              so you can choose a new password. If it opens in the browser instead, you can finish there, or copy the
+              link and paste it on the next screen.
+            </Muted>
+            <Button title="Paste the reset link" onPress={() => navigation.navigate('Reset')} />
             <Button title="Back to sign in" variant="ghost" onPress={() => navigation.navigate('Login')} />
           </View>
         ) : (

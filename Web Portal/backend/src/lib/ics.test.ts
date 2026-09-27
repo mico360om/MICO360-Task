@@ -68,6 +68,46 @@ describe('buildIcs', () => {
     expect(ics).toContain('RRULE:FREQ=MONTHLY;INTERVAL=3;UNTIL=20270101T000000Z');
   });
 
+  it('anchors a recurring meeting in its time zone so weekdays follow local time', () => {
+    // 02:00 Muscat on Monday 5 Oct = 22:00 UTC on Sunday 4 Oct: a UTC DTSTART would move BYDAY to Sunday.
+    const ics = unfold(buildIcs({
+      ...base,
+      method: 'REQUEST',
+      start: new Date('2026-10-04T22:00:00.000Z'),
+      end: new Date('2026-10-04T23:00:00.000Z'),
+      timeZone: 'Asia/Muscat',
+      recurrence: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
+    }));
+    expect(ics).toContain('DTSTART;TZID=Asia/Muscat:20261005T020000');
+    expect(ics).toContain('DTEND;TZID=Asia/Muscat:20261005T030000');
+    expect(ics).toContain('BEGIN:VTIMEZONE');
+    expect(ics).toContain('TZID:Asia/Muscat');
+    expect(ics).toContain('TZOFFSETTO:+0400');
+    expect(ics.indexOf('END:VTIMEZONE')).toBeLessThan(ics.indexOf('BEGIN:VEVENT'));
+    expect(ics).toContain('RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO');
+  });
+
+  it('describes daylight-saving zones with yearly STANDARD/DAYLIGHT rules', () => {
+    const ics = unfold(buildIcs({ ...base, method: 'REQUEST', timeZone: 'Europe/London', recurrence: { freq: 'WEEKLY', interval: 1 } }));
+    expect(ics).toContain('DTSTART;TZID=Europe/London:20261005T150000');
+    expect(ics).toMatch(/BEGIN:DAYLIGHT[\s\S]*TZOFFSETFROM:\+0000[\s\S]*TZOFFSETTO:\+0100[\s\S]*RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU/);
+    expect(ics).toMatch(/BEGIN:STANDARD[\s\S]*TZOFFSETFROM:\+0100[\s\S]*TZOFFSETTO:\+0000[\s\S]*RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU/);
+  });
+
+  it('keeps one-off meetings (and unknown zones) in plain UTC', () => {
+    const oneOff = unfold(buildIcs({ ...base, method: 'REQUEST', timeZone: 'Asia/Muscat' }));
+    expect(oneOff).toContain('DTSTART:20261005T140000Z');
+    expect(oneOff).not.toContain('VTIMEZONE');
+    const bad = unfold(buildIcs({ ...base, method: 'REQUEST', timeZone: 'Muscat', recurrence: { freq: 'DAILY', interval: 1 } }));
+    expect(bad).toContain('DTSTART:20261005T140000Z');
+  });
+
+  it('leaves out a paused recurrence rule', () => {
+    const ics = unfold(buildIcs({ ...base, method: 'REQUEST', timeZone: 'Asia/Muscat', recurrence: { freq: 'WEEKLY', interval: 1, paused: true } }));
+    expect(ics).not.toContain('RRULE');
+    expect(ics).toContain('DTSTART:20261005T140000Z');
+  });
+
   it('folds long lines at 75 octets with CRLF + space', () => {
     const long = 'x'.repeat(200);
     const ics = buildIcs({ ...base, method: 'REQUEST', description: long });

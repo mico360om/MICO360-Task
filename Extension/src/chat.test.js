@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { unreadTotal, describeConversations, badgeText } from './chat.js';
+import {
+  unreadTotal, describeConversations, badgeText, messagePreview, sanitizeMessage, sanitizeMessages, sanitizeSummaries, DELETED_PREVIEW,
+} from './chat.js';
 
 const summary = (over = {}) => ({
   conversation: { id: 'c1', kind: 'PROJECT', projectId: 'p1', createdAt: '' },
@@ -41,6 +43,26 @@ describe('describeConversations', () => {
   it('falls back gracefully when names are unknown', () => {
     const rows = describeConversations([summary({ conversation: { id: 'c3', kind: 'DIRECT', projectId: null, createdAt: '' }, participants: [{ userId: 'me' }, { userId: 'zzz' }] })], { myId: 'me' });
     expect(rows[0].title).toBe('Direct message');
+  });
+});
+
+describe('deleted messages (CHAT-01)', () => {
+  const deleted = { id: 'm1', body: 'my password is hunter2', deletedAt: '2026-09-26T10:00:00Z', attachments: [{ name: 'secret.pdf' }] };
+
+  it('the inbox preview never shows a deleted message’s text', () => {
+    const rows = describeConversations([summary({ lastMessage: deleted })], { projectNames: { p1: 'Ops' } });
+    expect(rows[0].preview).toBe(DELETED_PREVIEW);
+    expect(messagePreview(deleted)).toBe(DELETED_PREVIEW);
+    expect(messagePreview({ body: 'hello' })).toBe('hello');
+    expect(messagePreview(null)).toBe('');
+  });
+
+  it('sanitizes messages and inbox summaries before they are cached', () => {
+    expect(sanitizeMessage(deleted)).toMatchObject({ id: 'm1', body: '', attachments: [], deletedAt: deleted.deletedAt });
+    expect(sanitizeMessage({ id: 'm2', body: 'ok' })).toEqual({ id: 'm2', body: 'ok' });
+    expect(sanitizeMessages([deleted])[0].body).toBe('');
+    expect(sanitizeSummaries([summary({ lastMessage: deleted }), summary()])[0].lastMessage.body).toBe('');
+    expect(sanitizeMessages(undefined)).toBeUndefined();
   });
 });
 

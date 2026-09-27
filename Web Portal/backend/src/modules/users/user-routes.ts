@@ -7,26 +7,29 @@ import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ValidationError } from '../../lib/http-errors';
 
+// Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
+const password = z.string().min(1).max(200);
+const name = z.string().trim().min(1).max(191);
 const createSchema = z.object({
-  email: z.string().email(),
-  username: z.string().min(1),
-  password: z.string().min(6),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  email: z.string().trim().email().max(191),
+  username: name,
+  password,
+  firstName: name,
+  lastName: name,
   departmentId: z.string().optional(),
-  roleNames: z.array(z.string()).optional(),
+  roleNames: z.array(z.string()).min(1).optional(),
 });
 const updateSchema = z.object({
-  firstName: z.string().min(1).optional(),
-  lastName: z.string().min(1).optional(),
-  email: z.string().email().optional(),
-  username: z.string().min(1).optional(),
+  firstName: name.optional(),
+  lastName: name.optional(),
+  email: z.string().trim().email().max(191).optional(),
+  username: name.optional(),
   departmentId: z.string().nullable().optional(),
-  roleNames: z.array(z.string()).optional(),
+  roleNames: z.array(z.string()).min(1).optional(),
 });
 const statusSchema = z.object({ status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']) });
-const adminPasswordSchema = z.object({ password: z.string().min(6) });
-const changePasswordSchema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(6) });
+const adminPasswordSchema = z.object({ password });
+const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: password });
 
 export interface UserRouteDeps {
   userService: UserService;
@@ -77,12 +80,13 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     return { data: user };
   });
 
-  // Change your own password (verifies the current password first).
-  app.post('/users/me/password', { preHandler: guard.authenticate }, async (req, reply) => {
+  // Change your own password (verifies the current password first). Every existing session is
+  // ended, and the caller gets a fresh one in the response so they stay signed in here.
+  app.post('/users/me/password', { preHandler: guard.authenticate }, async (req) => {
     const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
-    await userService.changeOwnPassword(req.user!.id, currentPassword, newPassword);
+    const session = await userService.changeOwnPassword(req.user!.id, currentPassword, newPassword);
     await logAudit(req, 'user.password.change', req.user!.id);
-    return reply.status(204).send();
+    return { data: session ?? {} };
   });
 
   app.get('/users/:id', adminOnly, async (req) => {
@@ -94,7 +98,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     const body = createSchema.parse(req.body);
     const created = await userService.createUser(body);
     // Never log the password — only non-secret identifying fields.
-    await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: body.roleNames });
+    await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles });
     return reply.status(201).send({ data: created });
   });
 
@@ -107,12 +111,21 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   });
 
   // Admin-only: reset a user's password to a new value (never logs the password itself).
+  // Also lifts any lockout and ends the user's sessions.
   app.post('/users/:id/password', adminOnly, async (req, reply) => {
     const { id } = req.params as { id: string };
     const { password } = adminPasswordSchema.parse(req.body);
     await userService.adminResetPassword(id, password);
     await logAudit(req, 'user.password.reset', id);
     return reply.status(204).send();
+  });
+
+  // Admin-only: lift a lockout from too many failed sign-in attempts.
+  app.post('/users/:id/unlock', adminOnly, async (req) => {
+    const { id } = req.params as { id: string };
+    const updated = await userService.unlockUser(id);
+    await logAudit(req, 'user.unlock', id);
+    return { data: updated };
   });
 
   app.patch('/users/:id/status', adminOnly, async (req) => {

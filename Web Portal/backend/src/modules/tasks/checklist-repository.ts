@@ -8,6 +8,8 @@ export interface ChecklistItemRecord {
 
 export interface ChecklistRepository {
   add(taskId: string, text: string, position: number): Promise<ChecklistItemRecord>;
+  /** One item of a live task, or null (unknown id, or its task was deleted). */
+  get(itemId: string): Promise<ChecklistItemRecord | null>;
   toggle(itemId: string, done: boolean): Promise<ChecklistItemRecord>;
   /** Edit an item's text. */
   editText(itemId: string, text: string): Promise<ChecklistItemRecord>;

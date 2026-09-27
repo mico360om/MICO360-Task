@@ -5,6 +5,7 @@ import { apiClient } from '../api/client';
 import { authApi } from '../api/auth';
 import { ApiError } from '../lib/api-client';
 import { FieldLabel, FieldError, fieldClass } from '../components/ui/Field';
+import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
 
 export function ResetPasswordPage() {
   const [params] = useSearchParams();
@@ -23,6 +24,7 @@ export function ResetPasswordPage() {
     setError(null);
     const next: { password?: string; confirm?: string } = {};
     if (!password) next.password = 'New password is required.';
+    else if (!isStrongPassword(password)) next.password = PASSWORD_RULE_ERROR;
     if (!confirm) next.confirm = 'Please confirm your password.';
     if (Object.keys(next).length > 0) {
       setErrors(next);
@@ -90,7 +92,7 @@ export function ResetPasswordPage() {
             }}
             className={fieldClass(!!errors.password, 'w-full')}
           />
-          <p id="password-hint" className="text-xs text-ink-2">At least 8 characters, with a letter and a number.</p>
+          <p id="password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
           <FieldError id="password-error">{errors.password}</FieldError>
         </div>
 

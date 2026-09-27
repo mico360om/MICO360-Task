@@ -1,8 +1,11 @@
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
-import { summarizeTasks } from '../../src/summary.js';
-import { taskRow, isDone } from '../components.js';
+import { summarizeTasks, groupTasksByDue } from '../../src/summary.js';
+import { taskRow } from '../components.js';
 
-/** Dashboard — My Work widgets + overdue / due-today / upcoming lists (mirrors the web dashboard). */
+/**
+ * Dashboard — My Work widgets + overdue / upcoming lists (mirrors the web dashboard). "Today" and
+ * "overdue" are calendar days in the company time zone (XP-03).
+ */
 export function DashboardScreen(ctx) {
   const root = el('div');
   load();
@@ -19,11 +22,10 @@ export function DashboardScreen(ctx) {
   }
 
   function render(tasks, stale) {
-    const s = summarizeTasks(tasks);
     const now = Date.now();
-    const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
-    const overdue = tasks.filter((t) => !isDone(t) && t.dueDate && new Date(t.dueDate) < startOfDay);
-    const open = ctx.openTask;
+    const s = summarizeTasks(tasks, now, ctx.timeZone);
+    const { overdue } = groupTasksByDue(tasks, { timeZone: ctx.timeZone, now });
+    const row = (t) => taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone });
 
     mount(root,
       stale ? el('div', { class: 'errbar', style: { background: 'var(--warning-soft)', color: 'var(--warning)', borderColor: 'transparent' } }, 'Showing saved data — you appear to be offline.') : null,
@@ -33,8 +35,8 @@ export function DashboardScreen(ctx) {
         stat('', s.inProgress, 'In progress'),
         stat('done', s.completedToday, 'Completed today'),
       ),
-      overdue.length ? section('Overdue', overdue.slice(0, 6).map((t) => taskRow(t, () => open(t.id)))) : null,
-      section('Upcoming', s.upcoming.length ? s.upcoming.map((t) => taskRow(t, () => open(t.id))) : [el('div', { class: 'muted' }, 'Nothing coming up. 🎉')]),
+      overdue.length ? section('Overdue', overdue.slice(0, 6).map(row)) : null,
+      section('Upcoming', s.upcoming.length ? s.upcoming.map(row) : [el('div', { class: 'muted' }, 'Nothing coming up. 🎉')]),
       tasks.length === 0 ? Empty('No tasks yet', 'Tasks assigned to you show up here.') : null,
     );
   }

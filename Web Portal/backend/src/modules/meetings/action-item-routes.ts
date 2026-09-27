@@ -47,10 +47,22 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   const canViewMeeting = (req: FastifyRequest, meetingId: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], meetingId) : Promise.resolve(true);
 
-  // Access to a single item: via its meeting, or (standalone) creator/assignee/admin.
-  async function canAccessItem(req: FastifyRequest, item: ActionItemRecord): Promise<boolean> {
-    if (item.meetingId) return canViewMeeting(req, item.meetingId);
-    return item.createdById === req.user!.id || item.assigneeId === req.user!.id || (req.user!.roles ?? []).includes('ADMIN');
+  // The assignee and creator can always work on their own item — even if they never attended the
+  // meeting — and admins can touch anything.
+  const isOwnOrAdmin = (req: FastifyRequest, item: ActionItemRecord): boolean =>
+    item.createdById === req.user!.id || item.assigneeId === req.user!.id || (req.user!.roles ?? []).includes('ADMIN');
+
+  // Update: owner/admin, or anyone who can see the item's meeting.
+  async function canUpdateItem(req: FastifyRequest, item: ActionItemRecord): Promise<boolean> {
+    if (isOwnOrAdmin(req, item)) return true;
+    return item.meetingId ? canViewMeeting(req, item.meetingId) : false;
+  }
+
+  // Delete: its creator, an admin, or someone who can edit its meeting (not every attendee).
+  async function canDeleteItem(req: FastifyRequest, item: ActionItemRecord): Promise<boolean> {
+    if (item.createdById === req.user!.id || (req.user!.roles ?? []).includes('ADMIN')) return true;
+    if (!item.meetingId) return false;
+    return (await canViewMeeting(req, item.meetingId)) && actionItemService.canEditMeeting(req.user!.id, req.user!.roles ?? [], item.meetingId);
   }
 
   // ── Cross-meeting: the caller's own action items ("My Action Items") ──
@@ -78,7 +90,7 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   app.patch('/action-items/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const item = await actionItemService.getItem(id);
-    if (!(await canAccessItem(req, item))) return reply.status(403).send(forbidden);
+    if (!(await canUpdateItem(req, item))) return reply.status(403).send(forbidden);
     const body = patchSchema.parse(req.body);
     let rec = item;
     const { status, ...fields } = body;
@@ -90,7 +102,7 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   app.delete('/action-items/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const item = await actionItemService.getItem(id);
-    if (!(await canAccessItem(req, item))) return reply.status(403).send(forbidden);
+    if (!(await canDeleteItem(req, item))) return reply.status(403).send(forbidden);
     await actionItemService.removeItem(id);
     return reply.status(204).send();
   });

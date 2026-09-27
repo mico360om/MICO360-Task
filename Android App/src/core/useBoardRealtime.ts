@@ -1,10 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { LayoutAnimation, Platform, UIManager } from 'react-native';
-import { io } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
-import { useServices } from './providers';
-import { applyTaskEvent, type TaskEvent } from '../lib/realtime';
-import type { ApiTask } from '../lib/types';
+import { useServices, useUserId } from './providers';
+import { connectAuthedSocket } from './authed-socket';
+import { taskEventInvalidationKeys, TASK_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from '../lib/realtime';
 
 // Enable the smooth layout transitions on Android (a no-op elsewhere).
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -17,40 +16,52 @@ function animateNext(): void {
 }
 
 /**
- * Live board updates (A2 / mirrors web M4). Connects to the socket origin with
- * the session token, joins the project room, and folds task events into the
- * cached task list via the tested `applyTaskEvent` reducer. Column changes
- * invalidate the columns query so added/renamed/reordered stages appear live.
+ * Live board updates (A2 / mirrors web M4, MOB-04, XP-05). Joins the project room and, on every
+ * task event, refetches the project's board lists (every board date), the task's detail, "My
+ * tasks" and progress — realtime payloads are partial, and the board caches one list per date,
+ * so writing the payload into a single cache entry never reached the screen. Column changes
+ * refresh the columns. After a reconnect everything is refetched, since events may have been
+ * missed while the socket was down. When the server says the user was removed from this project
+ * (`project:removed`), `onProjectRemoved` runs so the screen can leave the board.
  */
-export function useBoardRealtime(projectId: string | undefined): void {
-  const { baseUrl, session } = useServices();
+export function useBoardRealtime(projectId: string | undefined, onProjectRemoved?: () => void): void {
+  const services = useServices();
+  const userId = useUserId();
   const qc = useQueryClient();
+  const onRemovedRef = useRef(onProjectRemoved);
+  onRemovedRef.current = onProjectRemoved;
 
   useEffect(() => {
-    if (!projectId) return;
-    const origin = baseUrl.replace(/\/api\/v1\/?$/, '');
-    const socket = io(origin, { auth: { token: session.getToken() }, transports: ['websocket'] });
-    socket.on('connect', () => socket.emit('join', { projectId }));
-
-    const key = ['tasks', 'project', projectId];
-    const fold = (event: TaskEvent) => {
-      animateNext();
-      qc.setQueryData<ApiTask[]>(key, (prev) => (prev ? applyTaskEvent(prev, event) : prev));
+    if (!projectId || !userId) return;
+    const refreshAll = () => {
+      for (const key of taskEventInvalidationKeys(projectId)) void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['columns', projectId] });
     };
-    socket.on('task:created', (payload: ApiTask) => fold({ type: 'task:created', payload }));
-    socket.on('task:updated', (payload: ApiTask) => fold({ type: 'task:updated', payload }));
-    socket.on('task:moved', (payload: ApiTask) => fold({ type: 'task:moved', payload }));
-    // Previously missing — remote deletions now disappear from the board live.
-    socket.on('task:deleted', (payload: { id: string }) => fold({ type: 'task:deleted', payload }));
+
+    const { socket, dispose } = connectAuthedSocket(services, (s, isReconnect) => {
+      s.emit('join', { projectId });
+      if (isReconnect) refreshAll();
+    });
+
+    for (const ev of TASK_EVENTS) {
+      socket.on(ev, (payload: { id?: unknown } | undefined) => {
+        animateNext();
+        for (const key of taskEventInvalidationKeys(projectId, payload)) void qc.invalidateQueries({ queryKey: key });
+      });
+    }
     // A stage was added / renamed / reordered / removed — refresh the columns.
     socket.on('column:changed', () => {
       animateNext();
       void qc.invalidateQueries({ queryKey: ['columns', projectId] });
     });
+    // The user lost access to this project: refresh the project list and leave the board.
+    socket.on(PROJECT_REMOVED_EVENT, (payload: unknown) => {
+      if (!isProjectRemoval(payload, projectId)) return;
+      void qc.invalidateQueries({ queryKey: ['projects'] });
+      onRemovedRef.current?.();
+    });
 
-    return () => {
-      socket.disconnect();
-    };
-    // session is stable for the app's lifetime; reconnect only when the project or origin changes.
-  }, [projectId, baseUrl, session, qc]);
+    return dispose;
+    // Reconnect only when the project, the signed-in user or the services change.
+  }, [projectId, userId, services, qc]);
 }

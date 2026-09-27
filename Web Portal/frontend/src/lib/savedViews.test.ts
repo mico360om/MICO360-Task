@@ -9,6 +9,7 @@ import {
   hasActiveFilters,
   type TaskFilters,
 } from './savedViews';
+import { useAuthStore } from '../stores/auth-store';
 
 const filters = (over: Partial<TaskFilters> = {}): TaskFilters => ({ ...EMPTY_FILTERS, ...over });
 
@@ -61,5 +62,31 @@ describe('savedViews', () => {
   it('survives corrupt storage without throwing', () => {
     localStorage.setItem('mico360.mytasks.views', '{not json');
     expect(loadCustomViews()).toEqual([]);
+  });
+});
+
+describe('savedViews are per user', () => {
+  beforeEach(() => localStorage.clear());
+  const signIn = (id: string) =>
+    useAuthStore.getState().setSession({ user: { id, email: `${id}@x`, username: id, roles: [] }, accessToken: 'a', refreshToken: 'r' });
+
+  it('keeps one user’s views away from the next user of the browser', () => {
+    signIn('alice');
+    saveView('Alice only', filters({ priority: 'HIGH' }));
+    useAuthStore.getState().logout('remote');
+    signIn('bob');
+    expect(loadCustomViews()).toHaveLength(0);
+    useAuthStore.getState().logout('remote');
+    signIn('alice');
+    expect(loadCustomViews().map((v) => v.name)).toEqual(['Alice only']); // kept across her sign-out
+    useAuthStore.getState().logout('remote');
+  });
+
+  it('moves views saved by an older build to the signed-in user', () => {
+    localStorage.setItem('mico360.mytasks.views', JSON.stringify([{ id: 'v1', name: 'Old', filters: filters() }]));
+    signIn('carol');
+    expect(loadCustomViews().map((v) => v.name)).toEqual(['Old']);
+    expect(localStorage.getItem('mico360.mytasks.views')).toBeNull();
+    useAuthStore.getState().logout('remote');
   });
 });

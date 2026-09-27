@@ -33,7 +33,7 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
         ) : (
           members.map((m) => (
             <li key={m.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm">
-              <span className="text-ink">{m.name}</span>
+              <span dir="auto" className="text-ink">{m.name}</span>
               {m.role === 'MANAGER' ? (
                 <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Manager</span>
               ) : null}

@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { notificationsApi } from '../api/notifications';
+import { notificationsApi, NOTIFICATIONS_KEY, UNREAD_COUNT_KEY } from '../api/notifications';
+import { notificationTarget, useOpenNotification } from '../lib/notification-links';
 
-/** Header notifications bell: unread badge + dropdown list + mark-all-read (T6.3). */
+/**
+ * Header notifications bell: unread badge + dropdown list + mark-all-read (T6.3). Clicking a
+ * notification marks it read and opens what it's about (a task opens in the task drawer). The list
+ * shares its cache with the Notifications page, so read state stays in sync.
+ */
 export function NotificationsBell() {
-  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { open: openNotification, markAllRead } = useOpenNotification();
 
   // Dismiss on outside-click or Escape — same pattern as ProfileMenu.
   useEffect(() => {
@@ -27,22 +32,15 @@ export function NotificationsBell() {
   }, [open]);
 
   const countQ = useQuery({
-    queryKey: ['notif-unread'],
+    queryKey: UNREAD_COUNT_KEY,
     queryFn: () => notificationsApi(apiClient).unreadCount(),
     refetchInterval: 30000,
   });
   const listQ = useQuery({
-    queryKey: ['notif-list'],
+    queryKey: NOTIFICATIONS_KEY,
     queryFn: () => notificationsApi(apiClient).list(),
     enabled: open,
   });
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['notif-unread'] });
-    queryClient.invalidateQueries({ queryKey: ['notif-list'] });
-  };
-  const markAll = useMutation({ mutationFn: () => notificationsApi(apiClient).markAllRead(), onSuccess: invalidate });
-  const markOne = useMutation({ mutationFn: (id: string) => notificationsApi(apiClient).markRead(id), onSuccess: invalidate });
 
   const count = countQ.data ?? 0;
   const items = listQ.data ?? [];
@@ -71,19 +69,32 @@ export function NotificationsBell() {
         <div className="absolute right-0 z-40 mt-2 w-80 overflow-hidden rounded-xl border border-line bg-surface shadow-lift">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <span className="text-sm font-semibold text-ink">Notifications</span>
-            <button onClick={() => markAll.mutate()} className="text-xs font-medium text-brand hover:underline">
+            <button onClick={() => markAllRead()} className="text-xs font-medium text-brand hover:underline">
               Mark all read
             </button>
           </div>
           <ul className="max-h-96 overflow-y-auto">
-            {items.length === 0 ? (
+            {listQ.isError ? (
+              <li role="alert" className="px-3 py-4 text-center text-sm text-danger">
+                Couldn’t load notifications.{' '}
+                <button onClick={() => void listQ.refetch()} className="font-semibold underline">
+                  Retry
+                </button>
+              </li>
+            ) : items.length === 0 ? (
               <li className="px-3 py-4 text-center text-sm text-ink-2">{listQ.isLoading ? 'Loading…' : 'You’re all caught up.'}</li>
             ) : (
               items.map((n) => (
                 <li key={n.id} className={`border-b border-line px-3 py-2 last:border-0 ${n.readAt ? 'opacity-60' : ''}`}>
-                  <button onClick={() => markOne.mutate(n.id)} className="w-full text-left">
-                    <p className="text-sm font-medium text-ink">{n.title}</p>
-                    {n.body ? <p className="text-xs text-ink-2">{n.body}</p> : null}
+                  <button
+                    onClick={() => {
+                      openNotification(n);
+                      if (notificationTarget(n)) setOpen(false);
+                    }}
+                    className="w-full text-start"
+                  >
+                    <p dir="auto" className="text-sm font-medium text-ink">{n.title}</p>
+                    {n.body ? <p dir="auto" className="text-xs text-ink-2">{n.body}</p> : null}
                   </button>
                 </li>
               ))

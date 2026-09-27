@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '../api/client';
+import { configApi } from '../api/config';
 import { LoginForm } from '../features/auth/LoginForm';
 import { createApiClient, ApiError } from '../lib/api-client';
 import { useAuthStore, type Session } from '../stores/auth-store';
@@ -20,14 +23,26 @@ export function LoginPage() {
   const setSession = useAuthStore((s) => s.setSession);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [lockedForSeconds, setLockedForSeconds] = useState<number | null>(null);
+  // Public config: when outbound email isn't set up, don't offer "email me a code" (it can't be sent).
+  const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
+  const emailEnabled = configQ.data?.emailEnabled !== false;
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
 
   function fail(e: unknown) {
+    setLockedForSeconds(null);
     if (e instanceof ApiError) {
+      if (e.code === 'EMAIL_NOT_CONFIGURED') {
+        setError(e.message || 'Email sign-in codes aren’t available right now. Sign in with your password instead.');
+        setErrorCode(e.code);
+        return;
+      }
       setError(e.message);
       setErrorCode(e.code);
+      const retry = (e.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+      if (e.code === 'ACCOUNT_LOCKED' && typeof retry === 'number') setLockedForSeconds(retry);
     } else {
       setError('Unable to reach the server. Check your connection and try again.');
       setErrorCode(null);
@@ -37,16 +52,18 @@ export function LoginPage() {
   function clearMessages() {
     setError(null);
     setErrorCode(null);
+    setLockedForSeconds(null);
     setInfo(null);
     setCodeSent(false);
   }
 
-  async function handleLogin(identifier: string, password: string) {
+  async function handleLogin(identifier: string, password: string, keepSignedIn = true) {
     setLoading(true);
     clearMessages();
     try {
       const res = await api.post<AuthResponse>('/auth/login', { identifier, password });
-      setSession(res.data);
+      // Unticked "Keep me signed in" → the session lives only in this window (sessionStorage).
+      setSession(res.data, { remember: keepSignedIn });
     } catch (e) {
       fail(e);
     } finally {
@@ -69,13 +86,13 @@ export function LoginPage() {
     }
   }
 
-  async function handleVerifyCode(identifier: string, code: string) {
+  async function handleVerifyCode(identifier: string, code: string, keepSignedIn = true) {
     setLoading(true);
     setError(null);
     setErrorCode(null);
     try {
       const res = await api.post<AuthResponse>('/auth/otp/verify', { identifier, code });
-      setSession(res.data);
+      setSession(res.data, { remember: keepSignedIn });
     } catch (e) {
       fail(e);
     } finally {
@@ -157,10 +174,11 @@ export function LoginPage() {
             <div className="mt-6">
               <LoginForm
                 onSubmit={handleLogin}
-                onRequestCode={handleRequestCode}
-                onVerifyCode={handleVerifyCode}
+                onRequestCode={emailEnabled ? handleRequestCode : undefined}
+                onVerifyCode={emailEnabled ? handleVerifyCode : undefined}
                 error={error}
                 errorCode={errorCode}
+                lockedForSeconds={lockedForSeconds}
                 info={info}
                 loading={loading}
                 codeSent={codeSent}

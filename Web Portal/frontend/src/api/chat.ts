@@ -67,10 +67,17 @@ export function chatApi(client: ApiClient) {
     /** Get-or-create a 1:1 conversation with another user. */
     startDirect: (userId: string) =>
       client.post<{ data: ApiConversation }>('/conversations/direct', { userId }).then((r) => r.data),
-    messages: (conversationId: string, before?: string) =>
-      client
-        .get<{ data: ApiMessage[] }>(`/conversations/${conversationId}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`)
-        .then((r) => r.data),
+    /**
+     * One page of history, oldest-first. Without `before` it's the newest page; pass the oldest
+     * loaded message's `createdAt` as `before` to load the page just older than it.
+     */
+    messages: (conversationId: string, before?: string, limit?: number) => {
+      const qs = new URLSearchParams();
+      if (before) qs.set('before', before);
+      if (limit) qs.set('limit', String(limit));
+      const s = qs.toString();
+      return client.get<{ data: ApiMessage[] }>(`/conversations/${conversationId}/messages${s ? `?${s}` : ''}`).then((r) => r.data);
+    },
     send: (conversationId: string, body: string) =>
       client.post<{ data: ApiMessage }>(`/conversations/${conversationId}/messages`, { body }).then((r) => r.data),
     uploadAttachment: (conversationId: string, file: File, body?: string) => {

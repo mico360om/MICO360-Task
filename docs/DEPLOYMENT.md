@@ -42,16 +42,23 @@ truth** for the production (MySQL) schema. Apply them with:
 npx --workspace @mico360/backend prisma migrate deploy
 ```
 
-CI exercises this exact command against a throwaway MySQL 8 before every merge, so a migration
-that fails to apply fails the build rather than the deploy.
+CI exercises this exact command against a throwaway MySQL 8 before every merge, then compares the
+migrated database with `schema.prisma` (`prisma migrate diff --from-url … --exit-code`), so a
+migration that fails to apply — or a schema change that no migration covers — fails the build
+rather than the deploy.
 
-> **Baselining an existing production DB.** If your prod database predates migrations (its
-> schema was created with `prisma db push`), baseline it **once** so `migrate deploy` doesn't
-> try to recreate existing tables:
+> **Baselining an existing production DB.** A database first created with `prisma db push` has no
+> migration history, and `migrate deploy` refuses to run on it. Record the migrations it already
+> contains, then deploy the rest. `deploy.sh` does this automatically; by hand (backend app root,
+> after `npx prisma generate`):
 > ```bash
-> npx --workspace @mico360/backend prisma migrate resolve --applied 0_init
+> node scripts/baseline-migrations.mjs          # prints the migrations the DB already contains
+> npx prisma migrate resolve --applied <name>   # once per printed name
+> npx prisma migrate deploy                     # applies whatever is left
 > ```
-> A brand-new/empty database needs no baselining — `migrate deploy` creates everything.
+> The helper checks one marker table/column per migration, so it only marks what is really
+> there (e.g. `20260926120000_add_project_owner_image` is marked only if `projects.ownerId`
+> exists). A brand-new/empty database needs no baselining — `migrate deploy` creates everything.
 
 > **Dual-provider note (important for future schema changes).** Migrations are generated for
 > **MySQL** (`prisma/schema.prisma`, the production provider — see `prisma/migrations/migration_lock.toml`).
@@ -60,16 +67,17 @@ that fails to apply fails the build rather than the deploy.
 > migration after editing the models, mirror the change into **both** schema files, then
 > generate the migration against MySQL (e.g. the `docker-compose.yml` MySQL, or any MySQL 8):
 > ```bash
-> DATABASE_URL='mysql://root:mico@127.0.0.1:3306/mico360' \
+> DATABASE_URL='mysql://root:root@127.0.0.1:3306/mico360' \
 >   npx --workspace @mico360/backend prisma migrate dev --name your_change
 > ```
-> Commit the new folder under `prisma/migrations/`. (Offline fallback without a DB:
-> `prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --script`.)
+> (`root:root` matches `docker-compose.yml`.) Commit the new folder under `prisma/migrations/`.
+> Without a database you can still generate the SQL by diffing the schema before and after your
+> edit: `prisma migrate diff --from-schema-datamodel <old schema file> --to-schema-datamodel prisma/schema.prisma --script`.
 
 Do **not** run `db:seed` in production (it is dev sample data). Instead create the first admin:
 
 ```bash
-ADMIN_EMAIL=you@company.com ADMIN_USERNAME=admin ADMIN_PASSWORD='a-strong-password-1' \
+ADMIN_EMAIL=you@company.com ADMIN_USERNAME=admin ADMIN_PASSWORD='<a strong password>' \
   npm run bootstrap --workspace @mico360/backend
 ```
 
@@ -121,4 +129,9 @@ npx eas build --platform android --profile production   # requires an Expo/EAS a
 - **Sessions**: the app persists the session in the secure keystore and silently refreshes, so users
   stay signed in for 30 days. **Biometric sign-in**: users can enable fingerprint/face in Settings to
   unlock the app and to sign back in without a password (the refresh token is held behind the OS keystore).
-- FCM push + Sentry are pluggable seams — wire real credentials before store release.
+- **Push notifications** need a Firebase project: put `google-services.json` next to `app.json`
+  (or an EAS file secret `GOOGLE_SERVICES_JSON`) for the app, and set `FCM_SERVICE_ACCOUNT_JSON`
+  (or `FCM_SERVICE_ACCOUNT_FILE`) on the backend. Until both exist, push stays off and the app
+  relies on in-app notifications. Sentry needs its DSN before store release.
+- Release builds require `APP_ENV` (`production` or `preview`); without it the config fails
+  instead of silently building the development flavour.

@@ -8,7 +8,7 @@ import type { AttendeeRepository, AttendeeRecord, CreateAttendeeData, UpdateAtte
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 
-function meetingRepo(): MeetingRepository {
+function meetingRepo(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
   let seq = 0;
   return {
@@ -30,7 +30,7 @@ function meetingRepo(): MeetingRepository {
     async markInvitesSent() {},
     async markReminderSent() {},
     async listUpcomingWithoutReminder() { return []; },
-    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: [] } : null; },
+    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: attendeesOf[id] ?? [] } : null; },
   };
 }
 
@@ -61,17 +61,22 @@ const tokenService = createTokenService({
 });
 const tokenFor = async (id: string, roles: string[]) => (await tokenService.issueTokens({ id, roles })).accessToken;
 
-async function makeApp() {
+async function makeApp(attendeesOf: Record<string, string[]> = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  const meetings = meetingRepo();
+  const meetings = meetingRepo(attendeesOf);
   const meetingService = createMeetingService({ meetings });
   const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return false; }, async accessibleProjectIds() { return []; } } });
-  const attendeeService = createAttendeeService({ attendees: attendeeRepo() });
+  const removed: { meetingId: string; attendeeId: string }[] = [];
+  const attendeeService = createAttendeeService({
+    attendees: attendeeRepo(),
+    canEditMeeting: meetingAccess.canEditMeeting,
+    onRemoved: (meetingId, a) => { removed.push({ meetingId, attendeeId: a.id }); },
+  });
   const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, attendeeService });
-  return { app, meetingService };
+  return { app, meetingService, removed };
 }
 
 async function ownedMeeting(app: Awaited<ReturnType<typeof makeApp>>['app'], owner: string) {
@@ -136,5 +141,46 @@ describe('Attendee routes', () => {
     expect(res.statusCode).toBe(204);
     const list = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/attendees`, headers: { authorization: auth } });
     expect(list.json().data).toHaveLength(0);
+  });
+});
+
+describe('Attendee routes — only meeting editors change the roster (SEC-06)', () => {
+  it('lets an attendee read the roster and record their own attendance, but not change anyone else', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const { app, removed } = await makeApp(attendeesOf);
+    const id = await ownedMeeting(app, 'u1');
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const u2Row = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: organizer, payload: { userId: 'u2', role: 'OPTIONAL' } })).json().data.id;
+    const u3Row = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: organizer, payload: { userId: 'u3' } })).json().data.id;
+    attendeesOf[id] = ['u2', 'u3'];
+    const optional = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+
+    expect((await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/attendees`, headers: optional })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: optional, payload: { userId: 'u7' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/attendees/${u3Row}`, headers: optional })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${u3Row}`, headers: optional, payload: { attendance: 'ABSENT' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${u2Row}`, headers: optional, payload: { role: 'REQUIRED' } })).statusCode).toBe(403);
+    const own = await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${u2Row}`, headers: optional, payload: { attendance: 'PRESENT' } });
+    expect(own.statusCode).toBe(200);
+    expect(own.json().data.attendance).toBe('PRESENT');
+    expect(removed).toHaveLength(0);
+
+    // The organizer's removal fires the hook that retracts the calendar invitation (MTG-02).
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/attendees/${u3Row}`, headers: organizer })).statusCode).toBe(204);
+    expect(removed).toEqual([{ meetingId: id, attendeeId: u3Row }]);
+  });
+
+  it('suggests attendees only from previous meetings the caller can see (SEC-22)', async () => {
+    const { app } = await makeApp();
+    const mine = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const other = { authorization: `Bearer ${await tokenFor('u8', ['EMPLOYEE'])}` };
+    const current = await ownedMeeting(app, 'u1');
+    const myOld = await ownedMeeting(app, 'u1');
+    const privateOld = await ownedMeeting(app, 'u8');
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${myOld}/attendees`, headers: mine, payload: { userId: 'colleague' } });
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${privateOld}/attendees`, headers: other, payload: { userId: 'board-member' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${current}/attendees/suggestions?from=${myOld},${privateOld}`, headers: mine });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual(['colleague']);
   });
 });

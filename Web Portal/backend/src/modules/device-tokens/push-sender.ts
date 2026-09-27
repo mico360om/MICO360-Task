@@ -8,9 +8,15 @@ export interface PushMessage {
   data: Record<string, unknown>;
 }
 
+/** What a transport learned while sending: device tokens the provider says are dead. */
+export interface PushSendResult {
+  /** Tokens that are unregistered / invalid — the device uninstalled the app or the token rotated. */
+  invalidTokens: string[];
+}
+
 /** Transport that actually delivers push messages (FCM / Expo Push). Injected so it's swappable + testable. */
 export interface PushTransport {
-  send(messages: PushMessage[]): Promise<void>;
+  send(messages: PushMessage[]): Promise<PushSendResult | void>;
 }
 
 export interface PushNotificationInput {
@@ -45,12 +51,16 @@ export function createPushSender({ deviceTokens, transport }: PushSenderDeps) {
       },
     }));
 
+    let result: PushSendResult | void;
     try {
-      await transport.send(messages);
-      return messages.length;
+      result = await transport.send(messages);
     } catch {
       return 0; // best-effort; the in-app notification is the source of truth
     }
+    // Forget tokens the provider rejected so they aren't retried on every notification.
+    const dead = new Set(result?.invalidTokens ?? []);
+    for (const token of dead) await deviceTokens.deleteByToken(token).catch(() => {});
+    return messages.filter((m) => !dead.has(m.to)).length;
   }
 
   return { sendToUser };

@@ -14,9 +14,10 @@ export interface KanbanColumnData {
 export interface KanbanColumnProps {
   column: KanbanColumnData;
   onTaskClick?: (taskKey: string) => void;
+  timeZone?: string;
 }
 
-export function KanbanColumn({ column, onTaskClick }: KanbanColumnProps) {
+export function KanbanColumn({ column, onTaskClick, timeZone }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [collapsed, setCollapsed] = useState(false);
 
@@ -38,7 +39,7 @@ export function KanbanColumn({ column, onTaskClick }: KanbanColumnProps) {
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
         <span className="min-w-[1.5rem] rounded-full bg-ground px-1.5 text-center text-xs font-semibold text-ink-2">{column.tasks.length}</span>
-        <span className="flex-1 whitespace-nowrap text-sm font-bold text-ink [writing-mode:vertical-rl]">{column.name}</span>
+        <span dir="auto" className="flex-1 whitespace-nowrap text-sm font-bold text-ink [writing-mode:vertical-rl]">{column.name}</span>
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: column.color }} aria-hidden="true" />
       </section>
     );
@@ -56,7 +57,7 @@ export function KanbanColumn({ column, onTaskClick }: KanbanColumnProps) {
       <header className="flex items-center justify-between px-1 py-0.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-2.5 w-2.5 flex-none rounded-full ring-2 ring-surface" style={{ background: column.color }} />
-          <span className="truncate text-sm font-bold text-ink">{column.name}</span>
+          <span dir="auto" className="truncate text-sm font-bold text-ink">{column.name}</span>
           <span className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2">{column.tasks.length}</span>
         </div>
         <button
@@ -70,7 +71,7 @@ export function KanbanColumn({ column, onTaskClick }: KanbanColumnProps) {
       <div className="flex min-h-[80px] flex-col gap-2.5">
         <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>
           {column.tasks.map((task) => (
-            <DraggableTaskCard key={task.key} task={task} onClick={() => onTaskClick?.(task.key)} />
+            <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} />
           ))}
         </SortableContext>
         {column.tasks.length === 0 ? (

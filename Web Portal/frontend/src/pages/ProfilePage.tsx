@@ -8,12 +8,14 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { FieldLabel, fieldClass } from '../components/ui/Field';
+import { ApiError } from '../lib/api-client';
+import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-line py-3 last:border-0">
       <dt className="text-sm text-ink-2">{label}</dt>
-      <dd className="truncate text-sm font-medium text-ink">{value}</dd>
+      <dd dir="auto" className="truncate text-sm font-medium text-ink">{value}</dd>
     </div>
   );
 }
@@ -24,21 +26,38 @@ function ChangePasswordCard() {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
 
   const mut = useMutation({
     mutationFn: () => usersApi(apiClient).changePassword(current, next),
-    onSuccess: () => {
+    onSuccess: (fresh) => {
       setCurrent(''); setNext(''); setConfirm('');
-      setError(null); setDone(true);
+      setError(null);
+      // The change signs out every session, including this one's refresh token. Keep this device
+      // signed in by storing the fresh token pair the server returns with the change.
+      const { user } = useAuthStore.getState();
+      if (fresh?.accessToken && fresh.refreshToken && user) {
+        useAuthStore.getState().setSession({ user, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken });
+        setDone('Password changed. Other devices have been signed out; you’re still signed in here.');
+      } else {
+        setDone('Password changed. You’ll be asked to sign in again with your new password shortly.');
+      }
     },
-    onError: () => { setDone(false); setError('Couldn’t change your password. Check that your current password is correct.'); },
+    onError: (err) => {
+      setDone(null);
+      setError(
+        err instanceof ApiError && err.status === 400 && err.message && !/^Request failed/.test(err.message)
+          ? err.message
+          : 'Couldn’t change your password. Check that your current password is correct.',
+      );
+    },
   });
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    setDone(false);
-    if (!current || next.length < 6) { setError('Enter your current password and a new one of at least 6 characters.'); return; }
+    setDone(null);
+    if (!current) { setError('Enter your current password.'); return; }
+    if (!isStrongPassword(next)) { setError(PASSWORD_RULE_ERROR); return; }
     if (next !== confirm) { setError('The new passwords don’t match.'); return; }
     setError(null);
     mut.mutate();
@@ -49,19 +68,20 @@ function ChangePasswordCard() {
       <h3 className="eyebrow mb-1">Change password</h3>
       <p className="mb-3 text-sm text-ink-2">Update the password you use to sign in.</p>
       {error ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
-      {done ? <p role="status" className="mb-3 rounded-lg bg-success-soft px-3 py-2 text-sm text-success">Password changed.</p> : null}
-      <form onSubmit={submit} className="flex flex-col gap-3 sm:max-w-sm">
+      {done ? <p role="status" className="mb-3 rounded-lg bg-success-soft px-3 py-2 text-sm text-success">{done}</p> : null}
+      <form onSubmit={submit} className="flex flex-col gap-3 sm:max-w-sm" noValidate>
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="cp-current" required>Current password</FieldLabel>
-          <input id="cp-current" type="password" value={current} onChange={(e) => { setCurrent(e.target.value); setDone(false); }} autoComplete="current-password" className={fieldClass(false)} />
+          <input id="cp-current" type="password" value={current} onChange={(e) => { setCurrent(e.target.value); setDone(null); }} autoComplete="current-password" className={fieldClass(false)} />
         </div>
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="cp-new" required>New password</FieldLabel>
-          <input id="cp-new" type="password" value={next} onChange={(e) => { setNext(e.target.value); setDone(false); }} autoComplete="new-password" className={fieldClass(false)} />
+          <input id="cp-new" type="password" value={next} aria-describedby="cp-new-hint" onChange={(e) => { setNext(e.target.value); setDone(null); }} autoComplete="new-password" className={fieldClass(false)} />
+          <p id="cp-new-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
         </div>
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="cp-confirm" required>Confirm new password</FieldLabel>
-          <input id="cp-confirm" type="password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setDone(false); }} autoComplete="new-password" className={fieldClass(false)} />
+          <input id="cp-confirm" type="password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setDone(null); }} autoComplete="new-password" className={fieldClass(false)} />
         </div>
         <Button type="submit" loading={mut.isPending} className="self-start">
           {mut.isPending ? 'Updating…' : 'Update password'}
@@ -146,7 +166,7 @@ export function ProfilePage() {
             <input ref={avatarRef} type="file" accept="image/*" hidden onChange={onPick} />
           </div>
           <div>
-            <h2 className="font-display text-xl font-bold text-ink">{fullName}</h2>
+            <h2 dir="auto" className="font-display text-xl font-bold text-ink">{fullName}</h2>
             <p className="text-sm text-ink-2">@{user?.username}</p>
           </div>
           <Badge tone={isAdmin ? 'brand' : 'neutral'}>{isAdmin ? 'Administrator' : 'Employee'}</Badge>

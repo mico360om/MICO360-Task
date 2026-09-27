@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createMessageService, type MessageService } from './message-service';
+import { createMessageService, parseMentions, type MessageService } from './message-service';
 import type {
   Conversation,
   Participant,
@@ -15,8 +15,9 @@ import type {
 } from './chat-repository';
 
 /** In-memory repositories for the chat domain, sufficient to exercise the service. */
-function makeRepos(opts?: { projectMembers?: Record<string, string[]> }) {
+function makeRepos(opts?: { projectMembers?: Record<string, string[]>; users?: string[] }) {
   const projectMembers = opts?.projectMembers ?? { p1: ['u1', 'u2', 'u3'] };
+  const activeUsers = new Set(opts?.users ?? ['u1', 'u2', 'u3', 'u4']);
   const convs = new Map<string, Conversation>();
   const parts: Participant[] = [];
   const msgs = new Map<string, Message>();
@@ -48,6 +49,9 @@ function makeRepos(opts?: { projectMembers?: Record<string, string[]> }) {
       return c;
     },
     async listByIds(ids) { return ids.map((i) => convs.get(i)).filter((c): c is Conversation => !!c); },
+    async listProjectConversations(projectIds) {
+      return [...convs.values()].filter((c) => c.kind === 'PROJECT' && c.projectId !== null && projectIds.includes(c.projectId));
+    },
   };
 
   const participants: ParticipantRepository = {
@@ -55,6 +59,10 @@ function makeRepos(opts?: { projectMembers?: Record<string, string[]> }) {
       let p = parts.find((x) => x.conversationId === conversationId && x.userId === userId);
       if (!p) { p = { conversationId, userId, lastReadAt: null, addedAt: new Date() }; parts.push(p); }
       return p;
+    },
+    async remove(conversationId, userId) {
+      const i = parts.findIndex((x) => x.conversationId === conversationId && x.userId === userId);
+      if (i >= 0) parts.splice(i, 1);
     },
     async find(conversationId, userId) {
       return parts.find((x) => x.conversationId === conversationId && x.userId === userId) ?? null;
@@ -83,7 +91,7 @@ function makeRepos(opts?: { projectMembers?: Record<string, string[]> }) {
       return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, o.limit);
     },
     async update(mid, body) { const m = { ...msgs.get(mid)!, body, editedAt: new Date() }; msgs.set(mid, m); return m; },
-    async softDelete(mid) { const m = { ...msgs.get(mid)!, deletedAt: new Date() }; msgs.set(mid, m); return m; },
+    async softDelete(mid) { const m = { ...msgs.get(mid)!, body: '', deletedAt: new Date() }; msgs.set(mid, m); return m; },
     async countAfter(conversationId, after, excludeUserId) {
       return [...msgs.values()].filter((m) =>
         m.conversationId === conversationId && !m.deletedAt && m.userId !== excludeUserId && (!after || m.createdAt > after),
@@ -124,12 +132,14 @@ function makeRepos(opts?: { projectMembers?: Record<string, string[]> }) {
   const removedKeys: string[] = [];
   const storage = { async save() { return { storageKey: 'x', url: '/uploads/x', sizeBytes: 0 }; }, async remove(key: string) { removedKeys.push(key); } };
 
+  // Project visibility (owner/manager/creator/member/admin) is modelled as one list per project.
   const members: ChatMemberLookup = {
-    async isProjectMember(projectId, userId) { return (projectMembers[projectId] ?? []).includes(userId); },
-    async projectIdsForUser(userId) { return Object.keys(projectMembers).filter((pid) => projectMembers[pid]!.includes(userId)); },
+    async canAccessProject(projectId, userId) { return (projectMembers[projectId] ?? []).includes(userId); },
+    async accessibleProjectIds(userId) { return Object.keys(projectMembers).filter((pid) => projectMembers[pid]!.includes(userId)); },
+    async isActiveUser(userId) { return activeUsers.has(userId); },
   };
 
-  return { conversations, participants, messages, reactions: reactionRepo, attachments, members, storage, removedKeys };
+  return { conversations, participants, messages, reactions: reactionRepo, attachments, members, storage, removedKeys, projectMembers, msgs };
 }
 
 let svc: MessageService;
@@ -140,6 +150,13 @@ beforeEach(() => {
 });
 
 describe('project conversations', () => {
+  it('opens the channel for anyone who can see the project, member row or not (CHAT-03)', async () => {
+    // The lookup models project visibility; an admin/owner without a member row is on the list.
+    deps.projectMembers.p1 = ['u1', 'owner-no-member-row'];
+    const c = await svc.getOrCreateProjectConversation('p1', 'owner-no-member-row');
+    expect(c.projectId).toBe('p1');
+  });
+
   it('gets-or-creates one channel per project for a member (idempotent)', async () => {
     const a = await svc.getOrCreateProjectConversation('p1', 'u1');
     const b = await svc.getOrCreateProjectConversation('p1', 'u2');
@@ -295,5 +312,118 @@ describe('conversation inbox', () => {
     expect(chanSummary?.lastMessage?.body).toBe('channel hi');
     const dmSummary = inbox.find((s) => s.conversation.id === dm.id);
     expect(dmSummary?.unread).toBe(1);
+  });
+});
+
+describe('deleted messages keep nothing readable (CHAT-01)', () => {
+  it('returns a tombstone — deletedAt, empty body, no reactions or files — in history and the inbox', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u1');
+    const m = await svc.sendMessage(c.id, 'u1', 'the password is hunter2', {
+      fileName: 'secret.txt', mimeType: 'text/plain', sizeBytes: 3, storageKey: 'secret.txt',
+    });
+    await svc.addReaction(m.id, 'u2', '👀');
+    const deleted = await svc.deleteMessage(m.id, 'u1', false);
+    expect(deleted.body).toBe('');
+
+    const [tomb] = (await svc.listMessages(c.id, 'u2', {})).messages;
+    expect(tomb).toMatchObject({ id: m.id, body: '', reactions: [], attachments: [] });
+    expect(tomb!.deletedAt).not.toBeNull();
+    const summary = (await svc.listConversations('u2')).find((s) => s.conversation.id === c.id)!;
+    expect(summary.lastMessage).toMatchObject({ id: m.id, body: '' });
+  });
+
+  it('also redacts rows deleted before bodies were blanked', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u1');
+    const m = await svc.sendMessage(c.id, 'u1', 'old secret');
+    deps.msgs.set(m.id, { ...m, deletedAt: new Date() }); // legacy tombstone that kept its text
+    expect((await svc.listMessages(c.id, 'u1', {})).messages[0]!.body).toBe('');
+    expect((await svc.listConversations('u1'))[0]!.lastMessage!.body).toBe('');
+  });
+
+  it('rejects reactions on a deleted message', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u1');
+    const m = await svc.sendMessage(c.id, 'u1', 'gone');
+    await svc.deleteMessage(m.id, 'u1', false);
+    await expect(svc.addReaction(m.id, 'u2', '👍')).rejects.toThrow(/deleted/i);
+  });
+});
+
+describe('removed members lose the channel (SEC-07)', () => {
+  it('drops the channel from the inbox of someone who left the project, even with a stale participant row', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u2'); // u2 now has a participant row
+    await svc.sendMessage(c.id, 'u1', 'roadmap');
+    deps.projectMembers.p1 = ['u1', 'u3']; // u2 removed from the project
+    expect((await svc.listConversations('u2')).map((s) => s.conversation.id)).not.toContain(c.id);
+    await expect(svc.listMessages(c.id, 'u2', {})).rejects.toThrow(/access/i);
+  });
+
+  it('stops a removed author editing or deleting their old messages (moderators still can)', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u2');
+    const m = await svc.sendMessage(c.id, 'u2', 'mine');
+    deps.projectMembers.p1 = ['u1', 'u3'];
+    await expect(svc.editMessage(m.id, 'u2', 'rewritten')).rejects.toThrow(/access/i);
+    await expect(svc.deleteMessage(m.id, 'u2', false)).rejects.toThrow(/access/i);
+    await expect(svc.deleteMessage(m.id, 'admin', true)).resolves.toMatchObject({ body: '' });
+  });
+
+  it('removes the project channel participant row when a member leaves', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u2');
+    await svc.removeProjectParticipant('p1', 'u2');
+    expect(await deps.participants.find(c.id, 'u2')).toBeNull();
+    await expect(svc.removeProjectParticipant('no-channel', 'u2')).resolves.toBeUndefined();
+  });
+
+  it('answers whether a user can currently read a conversation', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u1');
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    expect(await svc.canUserAccessConversation(c.id, 'u3')).toBe(true);
+    expect(await svc.canUserAccessConversation(c.id, 'outsider')).toBe(false);
+    expect(await svc.canUserAccessConversation(dm.id, 'u3')).toBe(false);
+    expect(await svc.canUserAccessConversation('nope', 'u1')).toBe(false);
+  });
+});
+
+describe('input checks (CHAT-04)', () => {
+  it('trims messages and rejects blank ones, but allows an empty caption on a file', async () => {
+    const c = await svc.getOrCreateProjectConversation('p1', 'u1');
+    expect((await svc.sendMessage(c.id, 'u1', '  hi  ')).body).toBe('hi');
+    await expect(svc.sendMessage(c.id, 'u1', '   \n ')).rejects.toThrow(/empty/i);
+    const m = await svc.sendMessage(c.id, 'u1', '  ', { fileName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'a.pdf' });
+    expect(m.body).toBe('');
+    await expect(svc.editMessage((await svc.sendMessage(c.id, 'u1', 'x')).id, 'u1', '   ')).rejects.toThrow(/empty/i);
+    await expect(svc.sendMessage(c.id, 'u1', 'x'.repeat(4001))).rejects.toThrow(/4000/);
+  });
+
+  it('only starts a DM with an existing, active user', async () => {
+    await expect(svc.getOrCreateDirectConversation('u1', 'ghost')).rejects.toThrow(/not found/i);
+    expect(await deps.conversations.findDirectConversation('u1', 'ghost')).toBeNull();
+  });
+
+  it('keeps the message when a notification hook fails (no duplicate on client retry)', async () => {
+    const logger = { error: vi.fn() };
+    svc = createMessageService({ ...deps, logger, onDirectMessage: async () => { throw new Error('push down'); }, onMention: async () => { throw new Error('db down'); } });
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const m = await svc.sendMessage(dm.id, 'u1', 'hi @u2');
+    expect(m.body).toBe('hi @u2');
+    expect(logger.error).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('parseMentions (NTF-03)', () => {
+  it('keeps dotted and hyphenated handles whole', () => {
+    expect(parseMentions('ping @ahmed.ali and @sara-k')).toEqual(['ahmed.ali', 'sara-k']);
+  });
+
+  it('matches Arabic usernames', () => {
+    expect(parseMentions('شكراً @أحمد و @فاطمة_علي')).toEqual(['أحمد', 'فاطمة_علي']);
+  });
+
+  it('ignores the @ inside an email address', () => {
+    expect(parseMentions('mail bob@example.com or @ops')).toEqual(['ops']);
+  });
+
+  it('offers the handle without trailing punctuation too', () => {
+    expect(parseMentions('thanks @sara.')).toEqual(['sara', 'sara.']);
+    expect(parseMentions('@ada, @ben!')).toEqual(['ada', 'ben']);
   });
 });

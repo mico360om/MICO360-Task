@@ -45,4 +45,17 @@ describe('buildDigests', () => {
   it('returns nothing when there is nothing due or overdue', () => {
     expect(buildDigests([tasks[2]!, tasks[3]!, tasks[4]!], { now })).toEqual([]);
   });
+
+  it('uses the company-time day for "today" (01:00 Muscat is still the previous UTC day)', () => {
+    const early = d('2026-03-09T21:00:00Z'); // 01:00 on 10 Mar in Muscat
+    const out = buildDigests(tasks, { now: early, timeZone: 'Asia/Muscat' });
+    const u1 = out.find((x) => x.userId === 'u1')!;
+    expect(u1.dueToday.map((i) => i.key)).toEqual(['MICO-2']);
+    expect(u1.overdue.map((i) => i.key)).toEqual(['MICO-1']);
+  });
+
+  it('leaves out tasks that carry a completion time', () => {
+    const done: DigestTask = { id: 'x', key: 'MICO-9', title: 'done', dueDate: d('2026-03-08T00:00:00Z'), columnCategory: 'REVIEW', completedAt: d('2026-03-08T10:00:00Z'), recipientIds: ['u9'] };
+    expect(buildDigests([done], { now })).toEqual([]);
+  });
 });

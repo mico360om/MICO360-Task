@@ -10,12 +10,14 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { meetingStatusTone, formatMeetingRange } from '../lib/meetingFormat';
+import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 
 type ScopeFilter = 'all' | 'mine';
 const STATUS_FILTERS: (MeetingStatus | 'ALL')[] = ['ALL', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'DRAFT', 'CANCELLED'];
 
 export function MeetingsPage() {
   const navigate = useNavigate();
+  const timeZone = useCompanyTimeZone();
   const [showNew, setShowNew] = useState(false);
   const [scope, setScope] = useState<ScopeFilter>('all');
   const [statusFilter, setStatusFilter] = useState<MeetingStatus | 'ALL'>('ALL');
@@ -82,7 +84,10 @@ export function MeetingsPage() {
           ))}
         </div>
       ) : meetingsQ.isError ? (
-        <p role="alert" className="text-danger">Couldn’t load meetings. Is the API running?</p>
+        <p role="alert" className="text-danger">
+          Couldn’t load meetings.{' '}
+          <button type="button" onClick={() => void meetingsQ.refetch()} className="font-semibold underline">Retry</button>
+        </p>
       ) : meetings.length === 0 ? (
         <EmptyState
           title="No meetings yet"
@@ -93,7 +98,7 @@ export function MeetingsPage() {
         <ul className="grid gap-3">
           {meetings.map((m) => (
             <li key={m.id}>
-              <MeetingRow meeting={m} projectName={m.projectId ? projectName.get(m.projectId) ?? null : null} onOpen={() => navigate(`/meetings/${m.id}`)} />
+              <MeetingRow meeting={m} timeZone={timeZone} projectName={m.projectId ? projectName.get(m.projectId) ?? null : null} onOpen={() => navigate(`/meetings/${m.id}`)} />
             </li>
           ))}
         </ul>
@@ -104,23 +109,23 @@ export function MeetingsPage() {
   );
 }
 
-function MeetingRow({ meeting, projectName, onOpen }: { meeting: Meeting; projectName: string | null; onOpen: () => void }) {
+function MeetingRow({ meeting, projectName, timeZone, onOpen }: { meeting: Meeting; projectName: string | null; timeZone: string; onOpen: () => void }) {
   return (
     <button
       onClick={onOpen}
-      className="card w-full p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-lift"
+      className="card w-full p-5 text-start transition-all hover:-translate-y-0.5 hover:shadow-lift"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Badge tone={meetingStatusTone(meeting.status)}>{MEETING_STATUS_LABELS[meeting.status]}</Badge>
-            <Badge tone={projectName ? 'brand' : 'neutral'}>{projectName ?? 'Standalone'}</Badge>
+            <Badge tone={projectName ? 'brand' : 'neutral'}><span dir="auto">{projectName ?? 'Standalone'}</span></Badge>
           </div>
-          <h3 className="mt-2 truncate font-display text-lg font-semibold text-ink">{meeting.title}</h3>
-          <p className="mt-1 text-sm text-ink-2">{formatMeetingRange(meeting.startAt, meeting.endAt)}</p>
+          <h3 dir="auto" className="mt-2 truncate text-start font-display text-lg font-semibold text-ink">{meeting.title}</h3>
+          <p className="mt-1 text-sm text-ink-2">{formatMeetingRange(meeting.startAt, meeting.endAt, timeZone)}</p>
         </div>
         <div className="shrink-0 text-right text-xs text-ink-3">
-          {meeting.location ? <div className="truncate">📍 {meeting.location}</div> : null}
+          {meeting.location ? <div dir="auto" className="truncate">📍 {meeting.location}</div> : null}
           {meeting.onlineLink ? <div className="truncate">🔗 Online</div> : null}
         </div>
       </div>

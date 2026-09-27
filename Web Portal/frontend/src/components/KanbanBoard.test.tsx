@@ -39,4 +39,20 @@ describe('KanbanBoard', () => {
     await userEvent.click(screen.getByText('Task A'));
     expect(onTaskClick).toHaveBeenCalledWith('MICO-1');
   });
+
+  it('makes each card a single tab stop that opens with Enter', async () => {
+    const onTaskClick = vi.fn();
+    render(<KanbanBoard columns={columns} onTaskClick={onTaskClick} />);
+    const card = screen.getByRole('button', { name: /MICO-1: Task A/ });
+    expect(card).toHaveAttribute('tabindex', '0');
+    expect(within(card).queryAllByRole('button')).toHaveLength(0); // no nested second tab stop
+    card.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onTaskClick).toHaveBeenCalledWith('MICO-1');
+  });
+
+  it('never shows a finished card as overdue', () => {
+    render(<KanbanBoard columns={[{ id: 'c9', name: 'Done', color: '#2E7D53', tasks: [{ ...mk('MICO-9', 'Shipped'), dueDate: '2000-01-01', done: true }] }]} />);
+    expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
+  });
 });

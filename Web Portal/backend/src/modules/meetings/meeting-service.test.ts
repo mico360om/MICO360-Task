@@ -23,7 +23,7 @@ function inMemory(): MeetingRepository {
     async update(id, patch) { const u = { ...rows.get(id)!, ...patch, updatedAt: new Date() } as MeetingRecord; rows.set(id, u); return u; },
     async softDelete(id) { rows.delete(id); },
     async markInvitesSent() {},
-    async markReminderSent() {},
+    async markReminderSent(id, at) { const m = rows.get(id); if (m) rows.set(id, { ...m, reminderSentAt: at }); },
     async listUpcomingWithoutReminder() { return []; },
     async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: [] } : null; },
   };
@@ -75,6 +75,56 @@ describe('MeetingService', () => {
     expect(copy.status).toBe('DRAFT');
     expect(copy.recurrenceRule).toBeNull();
     expect(copy.createdById).toBe('u2');
+  });
+
+  it('stores the company time zone on new meetings and shows it for legacy ones (MTG-01)', async () => {
+    const repo = inMemory();
+    const svc = createMeetingService({ meetings: repo, defaultTimeZone: 'Asia/Muscat' });
+    expect((await svc.createMeeting({ ...base, title: 'Zoned' })).timeZone).toBe('Asia/Muscat');
+    expect((await svc.createMeeting({ ...base, title: 'London', timeZone: 'Europe/London' })).timeZone).toBe('Europe/London');
+    const legacy = await repo.create({ ...base, title: 'Old', timeZone: null });
+    expect((await svc.getMeeting(legacy.id)).timeZone).toBe('Asia/Muscat');
+  });
+
+  it('clears the reminder marker when a meeting is rescheduled (MTG-02)', async () => {
+    const repo = inMemory();
+    const svc = createMeetingService({ meetings: repo });
+    const m = await svc.createMeeting({ ...base, title: 'Sync' });
+    await repo.markReminderSent(m.id, new Date('2026-10-01T08:10:00Z'));
+    const same = await svc.updateMeeting(m.id, { location: 'Room 1' });
+    expect(same.reminderSentAt).not.toBeNull();
+    const moved = await svc.updateMeeting(m.id, { startAt: new Date('2026-10-02T09:00:00Z') });
+    expect(moved.reminderSentAt).toBeNull();
+    expect((await repo.findById(m.id))!.reminderSentAt).toBeNull();
+  });
+
+  it('signals cancelled only on the transition, and deleted with the record as it was', async () => {
+    const onChanged = vi.fn();
+    const svc = createMeetingService({ meetings: inMemory(), onChanged });
+    const m = await svc.createMeeting({ ...base, title: 'Sync' });
+    await svc.updateMeeting(m.id, { status: 'CANCELLED' });
+    expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ id: m.id }), 'cancelled');
+    await svc.updateMeeting(m.id, { status: 'CANCELLED', title: 'Still off' });
+    expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ id: m.id }), 'updated');
+    const gone = await svc.deleteMeeting(m.id);
+    expect(gone.title).toBe('Still off');
+    expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ id: m.id }), 'deleted');
+  });
+
+  it('only accepts an active user as organizer', async () => {
+    const svc = createMeetingService({ meetings: inMemory(), isActiveUser: async (id) => id === 'u1' });
+    await expect(svc.createMeeting({ ...base, title: 'x', organizerId: 'ghost' })).rejects.toThrow(/organizer/i);
+    const m = await svc.createMeeting({ ...base, title: 'x' });
+    await expect(svc.updateMeeting(m.id, { organizerId: 'ghost' })).rejects.toThrow(/organizer/i);
+  });
+
+  it('lets only the organizer, creator or an admin edit by default', async () => {
+    const svc = createMeetingService({ meetings: inMemory() });
+    const m = await svc.createMeeting({ ...base, organizerId: 'org', createdById: 'maker', title: 'x' });
+    expect(await svc.canEditMeeting('org', [], m.id)).toBe(true);
+    expect(await svc.canEditMeeting('maker', [], m.id)).toBe(true);
+    expect(await svc.canEditMeeting('admin', ['ADMIN'], m.id)).toBe(true);
+    expect(await svc.canEditMeeting('attendee', [], m.id)).toBe(false);
   });
 
   it('404s an unknown meeting on get/update/delete', async () => {

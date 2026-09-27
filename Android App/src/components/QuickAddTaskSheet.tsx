@@ -4,9 +4,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
-import { ApiError } from '../lib/api-client';
-import { Button, TextField, ErrorNote, SectionTitle } from './ui';
+import { ApiError, isNetworkError } from '../lib/api-client';
+import { Button, TextField, ErrorNote, NoticeNote, SectionTitle } from './ui';
 import { buildCreateTaskInput, parseTags } from '../lib/quick-add';
+import { parseDueDateInput, parseHoursInput } from '../lib/form-input';
+import { newIdempotencyKey } from '../lib/idempotency';
 import { spacing, radius, fontSize, categoryColorOf, type Palette } from '../lib/theme';
 import type { ApiColumn, Priority } from '../lib/types';
 
@@ -46,6 +48,11 @@ export function QuickAddTaskSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [dueErr, setDueErr] = useState<string | null>(null);
+  const [estErr, setEstErr] = useState<string | null>(null);
+
+  // Columns may load after the sheet mounts — default to the first one once they arrive.
+  const effectiveColumnId = columnId || enabled[0]?.id || '';
 
   function reset() {
     setTitle('');
@@ -56,42 +63,58 @@ export function QuickAddTaskSheet({
     setTags('');
     setAssignToMe(false);
     setError(null);
+    setDueErr(null);
+    setEstErr(null);
   }
 
   async function submit() {
-    const estimatedHours = estimate.trim() ? Number(estimate.trim()) : undefined;
+    // Strict, Arabic-friendly field parsing with inline errors (MOB-06 / ARB-04).
+    const due = parseDueDateInput(dueDate);
+    const est = parseHoursInput(estimate);
+    setDueErr(due.ok ? null : due.error);
+    setEstErr(est.ok ? null : est.error);
+    if (!due.ok || !est.ok) return;
+
     const built = buildCreateTaskInput({
       title,
       projectId,
-      columnId,
+      columnId: effectiveColumnId,
       priority,
       description,
-      dueDate: dueDate.trim() || undefined,
-      estimatedHours,
+      dueDate: due.value ?? undefined,
+      estimatedHours: est.value ?? undefined,
       tags: parseTags(tags),
       assigneeIds: assignToMe && myId ? [myId] : undefined,
+      // The board day travels with the payload, so an offline-queued create lands on it too.
+      boardDate,
     });
     if (!built.ok) {
       setError(built.error);
       return;
     }
+    // One key for this attempt: if the request times out after the server saved the task, the
+    // queued replay sends the same key and the server answers with the first result (XP-06).
+    const idempotencyKey = newIdempotencyKey();
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await resources.tasks.create({ ...built.value, ...(boardDate ? { boardDate } : {}) });
-      await qc.invalidateQueries({ queryKey: ['tasks', 'project', projectId] });
+      await resources.tasks.create(built.value, { idempotencyKey });
+      void qc.invalidateQueries({ queryKey: ['tasks', 'project', projectId] });
+      void qc.invalidateQueries({ queryKey: ['tasks', 'mine'] });
+      void qc.invalidateQueries({ queryKey: ['project', projectId, 'progress'] });
       reset();
       onClose();
     } catch (e) {
-      // A server rejection (4xx/5xx) is a real error; a network failure is queued for later sync.
-      if (e instanceof ApiError) {
-        setError(e.message || 'Could not create the task. Please try again.');
-      } else {
-        await queue.enqueue('task.create', built.value);
+      if (isNetworkError(e) && myId) {
+        // No answer from the server — queue it (owned by this user) for automatic sync.
+        await queue.enqueue('task.create', built.value, { userId: myId, idempotencyKey });
         reset();
         // Keep the sheet open so the offline confirmation is visible; it syncs on reconnect.
         setNotice('You’re offline — the task was queued and will sync automatically.');
+      } else {
+        // A server rejection is a real error: keep the form filled in so nothing is lost.
+        setError(e instanceof ApiError && e.message ? e.message : 'Could not create the task. Please try again.');
       }
     } finally {
       setBusy(false);
@@ -104,16 +127,12 @@ export function QuickAddTaskSheet({
         style={styles.fill}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Pressable style={styles.backdrop} onPress={onClose} />
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close new task" />
         <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
-        <Text style={styles.title}>New task</Text>
+        <Text style={styles.title} accessibilityRole="header">New task</Text>
         <ScrollView keyboardShouldPersistTaps="handled" style={styles.body}>
           {error ? <ErrorNote message={error} /> : null}
-          {notice ? (
-            <View style={styles.notice}>
-              <Text style={styles.noticeText}>{notice}</Text>
-            </View>
-          ) : null}
+          {notice ? <NoticeNote message={notice} /> : null}
           <TextField label="Title" required value={title} onChangeText={setTitle} placeholder="What needs doing?" autoFocus />
 
           <TextField
@@ -127,15 +146,15 @@ export function QuickAddTaskSheet({
           />
 
           <SectionTitle>Status</SectionTitle>
-          <View style={styles.chips}>
+          <View style={styles.chips} accessibilityRole="radiogroup">
             {enabled.map((col) => {
-              const active = col.id === columnId;
+              const active = col.id === effectiveColumnId;
               return (
                 <Pressable
                   key={col.id}
                   onPress={() => setColumnId(col.id)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active, checked: active }}
                   accessibilityLabel={`Status ${col.name}`}
                   style={[styles.chip, active && styles.chipActive]}
                 >
@@ -147,15 +166,15 @@ export function QuickAddTaskSheet({
           </View>
 
           <SectionTitle>Priority</SectionTitle>
-          <View style={styles.chips}>
+          <View style={styles.chips} accessibilityRole="radiogroup">
             {PRIORITIES.map((p) => {
               const active = p === priority;
               return (
                 <Pressable
                   key={p}
                   onPress={() => setPriority(p)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active, checked: active }}
                   accessibilityLabel={`${p} priority`}
                   style={[styles.chip, active && styles.chipActive]}
                 >
@@ -167,10 +186,40 @@ export function QuickAddTaskSheet({
 
           <View style={styles.row}>
             <View style={styles.rowItem}>
-              <TextField label="Due date" value={dueDate} onChangeText={setDueDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              <TextField
+                label="Due date"
+                value={dueDate}
+                onChangeText={(v) => {
+                  setDueDate(v);
+                  if (dueErr) setDueErr(null);
+                }}
+                onBlur={() => {
+                  const r = parseDueDateInput(dueDate);
+                  setDueErr(r.ok ? null : r.error);
+                }}
+                placeholder="YYYY-MM-DD"
+                autoCapitalize="none"
+                keyboardType="numbers-and-punctuation"
+                maxLength={10}
+                error={dueErr}
+              />
             </View>
             <View style={styles.rowItem}>
-              <TextField label="Est. hours" value={estimate} onChangeText={setEstimate} placeholder="e.g. 3" keyboardType="numeric" />
+              <TextField
+                label="Est. hours"
+                value={estimate}
+                onChangeText={(v) => {
+                  setEstimate(v);
+                  if (estErr) setEstErr(null);
+                }}
+                onBlur={() => {
+                  const r = parseHoursInput(estimate);
+                  setEstErr(r.ok ? null : r.error);
+                }}
+                placeholder="e.g. 2.5"
+                keyboardType="decimal-pad"
+                error={estErr}
+              />
             </View>
           </View>
 
@@ -180,6 +229,7 @@ export function QuickAddTaskSheet({
             <Pressable
               onPress={() => setAssignToMe((v) => !v)}
               accessibilityRole="checkbox"
+              accessibilityLabel="Assign to me"
               accessibilityState={{ checked: assignToMe }}
               style={[styles.chip, styles.assignRow, assignToMe && styles.chipActive]}
             >
@@ -193,7 +243,7 @@ export function QuickAddTaskSheet({
 
         <View style={styles.actions}>
           <Button title="Cancel" variant="ghost" onPress={onClose} style={styles.action} />
-          <Button title="Add task" onPress={submit} loading={busy} disabled={!title.trim() || !columnId} style={styles.action} />
+          <Button title="Add task" onPress={submit} loading={busy} disabled={!title.trim() || !effectiveColumnId} style={styles.action} />
         </View>
         </View>
       </KeyboardAvoidingView>
@@ -217,15 +267,6 @@ const makeStyles = (c: Palette) =>
     multiline: { minHeight: 76, paddingTop: spacing.sm, textAlignVertical: 'top' },
     row: { flexDirection: 'row', gap: spacing.sm },
     rowItem: { flex: 1 },
-    notice: {
-      backgroundColor: c.brandWash,
-      borderWidth: 1,
-      borderColor: c.brand,
-      borderRadius: radius.md,
-      padding: spacing.md,
-      marginBottom: spacing.md,
-    },
-    noticeText: { color: c.brand, fontSize: fontSize.sm, fontWeight: '500' },
     title: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink, marginBottom: spacing.xs },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
     chip: {

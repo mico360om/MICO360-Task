@@ -1,5 +1,6 @@
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { AgendaRepository, AgendaItemRecord } from './agenda-repository';
+import type { CanEditMeeting } from './meeting-access';
 
 export interface AddAgendaInput {
   title: string;
@@ -18,10 +19,15 @@ export interface AgendaServiceDeps {
   agenda: AgendaRepository;
   /** Fired after the agenda changes, so the meeting aggregate can broadcast. */
   onChanged?: (meetingId: string) => void;
+  /** Who may change the agenda (organizer / creator / project manager / admin). Open when not wired. */
+  canEditMeeting?: CanEditMeeting;
 }
 
 export interface AgendaService {
+  /** May this user change the meeting's agenda? */
+  canEditMeeting: CanEditMeeting;
   listAgenda(meetingId: string): Promise<AgendaItemRecord[]>;
+  getItem(meetingId: string, itemId: string): Promise<AgendaItemRecord>;
   addItem(meetingId: string, input: AddAgendaInput): Promise<AgendaItemRecord>;
   updateItem(meetingId: string, itemId: string, patch: UpdateAgendaInput): Promise<AgendaItemRecord>;
   setCompleted(meetingId: string, itemId: string, completed: boolean): Promise<AgendaItemRecord>;
@@ -45,8 +51,14 @@ export function createAgendaService(deps: AgendaServiceDeps): AgendaService {
   }
 
   return {
+    canEditMeeting: (userId, roles, meetingId) => (deps.canEditMeeting ? deps.canEditMeeting(userId, roles, meetingId) : Promise.resolve(true)),
+
     async listAgenda(meetingId) {
       return agenda.listByMeeting(meetingId);
+    },
+
+    async getItem(meetingId, itemId) {
+      return requireInMeeting(meetingId, itemId);
     },
 
     async addItem(meetingId, input) {

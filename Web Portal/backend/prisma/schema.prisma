@@ -93,6 +93,9 @@ model User {
   // Lockout (M2 / T2.11)
   failedLoginAttempts Int        @default(0)
   lockedUntil         DateTime?
+  // Embedded in access tokens; bumping it revokes every outstanding access token for the user
+  // (status / role change, delete, password change).
+  tokenVersion        Int        @default(0)
   // Preferences
   timezone            String     @default("UTC")
   locale              String     @default("en")
@@ -446,10 +449,14 @@ model RefreshToken {
   ip        String?
   expiresAt DateTime
   revokedAt DateTime?
+  // Rotation family: every token rotated from the same login shares it, so presenting an
+  // already-rotated token (reuse → likely theft) revokes the whole family.
+  familyId  String?
   createdAt DateTime  @default(now())
   user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([familyId])
   @@map("refresh_tokens")
 }
 
@@ -475,6 +482,24 @@ model JobLock {
   updatedAt   DateTime @updatedAt
 
   @@map("job_locks")
+}
+
+/// Replay protection for writes that clients may retry (offline queues). A client sends a unique
+/// `Idempotency-Key` header on a POST; the first response is stored per user + key, and a retry
+/// within the retention window gets that stored response instead of creating a duplicate.
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  key          String
+  userId       String
+  method       String
+  path         String
+  statusCode   Int
+  responseBody String   @db.LongText
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, key])
+  @@index([createdAt])
+  @@map("idempotency_keys")
 }
 
 model AuditLog {

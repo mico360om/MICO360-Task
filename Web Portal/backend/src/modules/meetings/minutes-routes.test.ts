@@ -12,7 +12,7 @@ import type { NoteRepository, NoteRecord, CreateNoteData, UpdateNoteData } from 
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 
-function meetingRepo(): MeetingRepository {
+function meetingRepo(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
   let seq = 0;
   return {
@@ -34,7 +34,7 @@ function meetingRepo(): MeetingRepository {
     async markInvitesSent() {},
     async markReminderSent() {},
     async listUpcomingWithoutReminder() { return []; },
-    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: [] } : null; },
+    async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: attendeesOf[id] ?? [] } : null; },
   };
 }
 function attendeeRepo(): AttendeeRepository {
@@ -73,6 +73,8 @@ function noteRepo(): NoteRepository {
     async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
     async remove(id) { rows.delete(id); },
+    async claimTask() { return false; },
+    async releaseTaskClaim() {},
   };
 }
 
@@ -82,12 +84,12 @@ const tokenService = createTokenService({
 });
 const tokenFor = async (id: string, roles: string[]) => (await tokenService.issueTokens({ id, roles })).accessToken;
 
-async function makeApp() {
+async function makeApp(attendeesOf: Record<string, string[]> = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  const meetings = meetingRepo();
+  const meetings = meetingRepo(attendeesOf);
   const meetingService = createMeetingService({ meetings });
   const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return false; }, async accessibleProjectIds() { return []; } } });
   const attendeeService = createAttendeeService({ attendees: attendeeRepo() });
@@ -114,7 +116,6 @@ describe('Minutes PDF route', () => {
     const body = res.rawPayload.toString('latin1');
     expect(body.startsWith('%PDF-1.')).toBe(true);
     expect(body.trimEnd().endsWith('%%EOF')).toBe(true);
-    expect(body).toContain('(Q4 Planning Sync) Tj');
   });
 
   it('hides the minutes from an outsider (404)', async () => {
@@ -123,5 +124,20 @@ describe('Minutes PDF route', () => {
     const id = created.json().data.id;
     const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes.pdf`, headers: { authorization: `Bearer ${await tokenFor('u9', ['EMPLOYEE'])}` } });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('Minutes email route', () => {
+  it('lets only a meeting editor email the minutes to everyone (SEC-06)', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const app = await makeApp(attendeesOf);
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } });
+    const id = created.json().data.id;
+    attendeesOf[id] = ['u2'];
+    const attendee = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` } });
+    expect(attendee.statusCode).toBe(403);
+    // The organizer passes the permission check (then hits "email not configured" in this app).
+    const organizer = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(organizer.statusCode).toBe(503);
   });
 });

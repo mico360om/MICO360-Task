@@ -60,6 +60,8 @@ export type UpdateMeetingData = Partial<Omit<CreateMeetingData, 'createdById'>>;
 export interface MeetingListFilter {
   projectId?: string;
   status?: MeetingStatus;
+  /** Only meetings this user organizes ("Organized by me"). */
+  organizerId?: string;
   /** Restrict to meetings the user organizes or attends, or in these project ids (null = no scope). */
   scope?: { userId: string; projectIds: string[] | null };
 }
@@ -80,9 +82,9 @@ export interface MeetingRepository {
   softDelete(id: string): Promise<void>;
   /** Access facts (organizer/creator/project + attendee user ids) for authorization. */
   accessCore(id: string): Promise<MeetingAccessCore | null>;
-  /** Stamp when invitations / a reminder were sent (for status + reminder dedup). */
+  /** Stamp when invitations / a reminder were sent (for status + reminder dedup); null clears it. */
   markInvitesSent(id: string, at: Date): Promise<void>;
-  markReminderSent(id: string, at: Date): Promise<void>;
+  markReminderSent(id: string, at: Date | null): Promise<void>;
   /** Active meetings starting within [now, now+leadMs] whose reminder hasn't been sent (for the sweep). */
   listUpcomingWithoutReminder(now: Date, leadMs: number): Promise<MeetingRecord[]>;
 }

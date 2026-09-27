@@ -46,10 +46,16 @@ export interface TimeSeriesResult {
   velocityPerWeek: number;
 }
 
-export interface TimeSeriesParams {
+/** Scope every report, chart and export to one project and/or one team member. */
+export interface ReportFilters {
+  projectId?: string;
+  /** A team member: only tasks assigned to them. */
+  userId?: string;
+}
+
+export interface TimeSeriesParams extends ReportFilters {
   from?: string;
   to?: string;
-  projectId?: string;
 }
 
 export type ReportKind = 'status' | 'projects' | 'workload' | 'timeseries';
@@ -64,16 +70,22 @@ function queryString(params: Record<string, string | undefined>): string {
 
 export function reportsApi(client: ApiClient) {
   return {
-    projectPerformance: () => client.get<{ data: ProjectPerformanceRow[] }>('/reports/projects').then((r) => r.data),
-    status: () => client.get<{ data: Record<string, number> }>('/reports/status').then((r) => r.data),
-    workload: () => client.get<{ data: UserWorkloadRow[] }>('/reports/workload').then((r) => r.data),
-    completion: () => client.get<{ data: CompletionStats }>('/reports/completion').then((r) => r.data),
+    projectPerformance: (f: ReportFilters = {}) =>
+      client.get<{ data: ProjectPerformanceRow[] }>(`/reports/projects${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
+    status: (f: ReportFilters = {}) =>
+      client.get<{ data: Record<string, number> }>(`/reports/status${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
+    workload: (f: ReportFilters = {}) =>
+      client.get<{ data: UserWorkloadRow[] }>(`/reports/workload${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
+    completion: (f: ReportFilters = {}) =>
+      client.get<{ data: CompletionStats }>(`/reports/completion${queryString({ projectId: f.projectId, userId: f.userId })}`).then((r) => r.data),
     /** Daily time series: completion, overdue trend, burndown + weekly velocity over a date range. */
     timeSeries: (params: TimeSeriesParams = {}) =>
       client
-        .get<{ data: TimeSeriesResult }>(`/reports/timeseries${queryString({ from: params.from, to: params.to, projectId: params.projectId })}`)
+        .get<{ data: TimeSeriesResult }>(
+          `/reports/timeseries${queryString({ from: params.from, to: params.to, projectId: params.projectId, userId: params.userId })}`,
+        )
         .then((r) => r.data),
-    /** Download a report in the given format; `params` become query args (used by the time series). */
+    /** Download a report in the given format; `params` (filters, and the time series' range) become query args. */
     exportFile: (kind: ReportKind, format: ReportFormat, params: Record<string, string | undefined> = {}) =>
       client.getBlob(`/reports/${kind}.${format}${queryString(params)}`),
   };

@@ -3,18 +3,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { meetingsApi, ACTION_STATUS_LABELS, type ActionItem, type ActionItemStatus } from '../api/meetings';
 import { apiClient } from '../api/client';
+import { ApiError } from '../lib/api-client';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { fieldClass } from '../components/ui/Field';
-import { actionStatusTone, formatDueDate } from '../lib/meetingFormat';
+import { actionStatusTone, formatDueDate, isActionItemOverdue } from '../lib/meetingFormat';
+import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 
 const ACTION_STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 type Scope = 'open' | 'all';
 
 export function MyActionItemsPage() {
   const qc = useQueryClient();
+  const timeZone = useCompanyTimeZone();
   const [scope, setScope] = useState<Scope>('open');
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const itemsQ = useQuery({
     queryKey: ['my-action-items', scope],
@@ -30,11 +34,18 @@ export function MyActionItemsPage() {
 
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: ActionItemStatus }) => meetingsApi(apiClient).updateActionItem(id, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-action-items'] }),
+    onSuccess: () => { setStatusError(null); void qc.invalidateQueries({ queryKey: ['my-action-items'] }); },
+    onError: (err) =>
+      setStatusError(
+        err instanceof ApiError && err.status === 403
+          ? 'Couldn’t change the status — you don’t have permission to update that action item.'
+          : 'Couldn’t change the status. Please try again.',
+      ),
   });
 
   const items = Array.isArray(itemsQ.data) ? itemsQ.data : [];
-  const overdue = items.filter((i) => i.overdue).length;
+  // Overdue by calendar day in the company time zone: an item due today is not overdue yet.
+  const overdue = items.filter((i) => isActionItemOverdue(i, timeZone)).length;
 
   return (
     <div>
@@ -45,13 +56,20 @@ export function MyActionItemsPage() {
         actions={
           <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
             {(['open', 'all'] as Scope[]).map((s) => (
-              <button key={s} onClick={() => setScope(s)} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}>
+              <button key={s} onClick={() => setScope(s)} aria-pressed={scope === s} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}>
                 {s === 'open' ? 'Open' : 'All'}
               </button>
             ))}
           </div>
         }
       />
+
+      {statusError ? (
+        <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+          <span>{statusError}</span>
+          <button onClick={() => setStatusError(null)} aria-label="Dismiss" className="shrink-0 opacity-80 hover:opacity-100">✕</button>
+        </div>
+      ) : null}
 
       {overdue > 0 ? (
         <div className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger">
@@ -61,13 +79,26 @@ export function MyActionItemsPage() {
 
       {itemsQ.isLoading ? (
         <div className="grid gap-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="card h-16 p-4"><div className="skeleton h-4 w-64" /></div>)}</div>
+      ) : itemsQ.isError ? (
+        <div className="card p-5">
+          <p role="alert" className="text-sm text-danger">
+            Couldn’t load your action items.{' '}
+            <button type="button" onClick={() => void itemsQ.refetch()} className="font-semibold underline">Retry</button>
+          </p>
+        </div>
       ) : items.length === 0 ? (
         <EmptyState title="Nothing on your plate" description={scope === 'open' ? 'You have no open action items. Nice.' : 'No action items are assigned to you.'} />
       ) : (
         <ul className="grid gap-2">
           {items.map((item) => (
             <li key={item.id}>
-              <ActionRow item={item} meetingName={item.meetingId ? meetingTitle.get(item.meetingId) ?? null : null} onStatus={(status) => statusMut.mutate({ id: item.id, status })} />
+              <ActionRow
+                item={item}
+                overdue={isActionItemOverdue(item, timeZone)}
+                timeZone={timeZone}
+                meetingName={item.meetingId ? meetingTitle.get(item.meetingId) ?? null : null}
+                onStatus={(status) => statusMut.mutate({ id: item.id, status })}
+              />
             </li>
           ))}
         </ul>
@@ -76,17 +107,29 @@ export function MyActionItemsPage() {
   );
 }
 
-function ActionRow({ item, meetingName, onStatus }: { item: ActionItem; meetingName: string | null; onStatus: (s: ActionItemStatus) => void }) {
+function ActionRow({
+  item,
+  overdue,
+  timeZone,
+  meetingName,
+  onStatus,
+}: {
+  item: ActionItem;
+  overdue: boolean;
+  timeZone: string;
+  meetingName: string | null;
+  onStatus: (s: ActionItemStatus) => void;
+}) {
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   return (
     <div className="card flex items-center gap-3 p-4">
       <div className="min-w-0 flex-1">
-        <p className={`text-sm font-medium ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>{item.description}</p>
+        <p dir="auto" className={`text-start text-sm font-medium ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>{item.description}</p>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
           <Badge tone={actionStatusTone(item.status)}>{ACTION_STATUS_LABELS[item.status]}</Badge>
-          {item.dueDate ? <span className={item.overdue ? 'font-medium text-danger' : 'text-ink-3'}>due {formatDueDate(item.dueDate)}{item.overdue ? ' · overdue' : ''}</span> : null}
+          {item.dueDate ? <span className={overdue ? 'font-medium text-danger' : 'text-ink-3'}>due {formatDueDate(item.dueDate, timeZone)}{overdue ? ' · overdue' : ''}</span> : null}
           {item.meetingId ? (
-            <Link to={`/meetings/${item.meetingId}`} className="text-ink-3 hover:text-brand">↗ {meetingName ?? 'meeting'}</Link>
+            <Link to={`/meetings/${item.meetingId}`} className="text-ink-3 hover:text-brand">↗ <span dir="auto">{meetingName ?? 'meeting'}</span></Link>
           ) : null}
         </div>
       </div>

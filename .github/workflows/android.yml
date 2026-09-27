@@ -38,4 +38,7 @@ jobs:
         run: npm test
 
       - name: Bundle (expo export, Android)
+        # A production bundle without APP_ENV fails by design (it would silently use the dev flavour).
+        env:
+          APP_ENV: production
         run: npx expo export --platform android --output-dir .expo-export-check

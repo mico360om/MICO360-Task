@@ -53,11 +53,18 @@ describe('PrismaAuthUserRepository (integration)', () => {
   });
 
   it('applies a failed attempt and locks the account', async () => {
-    const user = await seedUser();
-    await repo.applyFailedAttempt(user.id, 5, true);
+    const user = await seedUser({ failedLoginAttempts: 4 });
+    const until = new Date(Date.now() + 15 * 60_000);
+    expect(await repo.applyFailedAttempt(user.id, 5, until, 4)).toBe(true);
     const reloaded = await repo.findByIdentifier('ada');
     expect(reloaded?.failedLoginAttempts).toBe(5);
-    expect(reloaded?.lockedUntil).not.toBeNull();
+    expect(reloaded?.lockedUntil?.getTime()).toBe(until.getTime());
+  });
+
+  it('refuses a failed attempt whose expected counter is stale (parallel guess)', async () => {
+    const user = await seedUser({ failedLoginAttempts: 2 });
+    expect(await repo.applyFailedAttempt(user.id, 2, null, 1)).toBe(false);
+    expect((await repo.findByIdentifier('ada'))?.failedLoginAttempts).toBe(2);
   });
 
   it('resets failed attempts and clears the lock', async () => {

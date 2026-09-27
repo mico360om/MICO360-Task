@@ -45,8 +45,16 @@ export function createPrismaActivityRepository(prisma: PrismaClient): ActivityRe
       const rows = await prisma.activity.findMany({ where: { taskId }, orderBy: { createdAt: 'desc' }, take: 100, include: withContext });
       return rows.map(toRecord);
     },
-    async listRecent(limit) {
-      const rows = await prisma.activity.findMany({ orderBy: { createdAt: 'desc' }, take: limit ?? 50, include: withContext });
+    async listRecent(limit, projectIds) {
+      const rows = await prisma.activity.findMany({
+        // Scope before the limit; a deleted project's activity drops out of the feed.
+        where: projectIds
+          ? { projectId: { in: projectIds }, project: { is: { deletedAt: null } } }
+          : { OR: [{ projectId: null }, { project: { is: { deletedAt: null } } }] },
+        orderBy: { createdAt: 'desc' },
+        take: limit ?? 50,
+        include: withContext,
+      });
       return rows.map(toRecord);
     },
   };

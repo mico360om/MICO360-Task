@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  keyed,
   useTask,
   useProjectColumns,
   useMoveTask,
@@ -17,16 +18,25 @@ import {
   useTaskComments,
   useCommentMutations,
 } from '../core/queries';
+import { useMyQueuedChanges } from '../core/providers';
 import { useColors } from '../core/theme';
-import { Card, SectionTitle, Loader, ErrorNote, Pill, Button, TextField } from '../components/ui';
+import { Card, SectionTitle, Loader, ErrorNote, NoticeNote, Pill, Button, TextField } from '../components/ui';
 import { formatDue, priorityColor } from '../components/TaskRow';
 import { parseTags } from '../lib/quick-add';
+import { parseDueDateInput, parseHoursInput } from '../lib/form-input';
+import { ApiError, isNetworkError } from '../lib/api-client';
 import { recurrenceSummary } from '../lib/recurrence-summary';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { displayName, type ApiTask, type Priority } from '../lib/types';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+const OFFLINE_NOTICE = 'You’re offline — saved on this phone and will sync automatically.';
+
+/** User-facing text for a failed write. */
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof ApiError && e.message ? e.message : fallback;
+}
 
 export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
   const { taskId } = route.params;
@@ -47,18 +57,34 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
   const checklistM = useChecklistMutations(taskId);
   const commentsQ = useTaskComments(taskId);
   const commentM = useCommentMutations(taskId);
+  const queued = useMyQueuedChanges();
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', dueDate: '', estimate: '', priority: 'NORMAL' as Priority });
   const [editScope, setEditScope] = useState<'one' | 'series'>('one');
   const [editErr, setEditErr] = useState<string | null>(null);
+  const [dueErr, setDueErr] = useState<string | null>(null);
+  const [estErr, setEstErr] = useState<string | null>(null);
   const [editingTags, setEditingTags] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
+  const [tagsErr, setTagsErr] = useState<string | null>(null);
   const [newSubtask, setNewSubtask] = useState('');
+  const [subtaskErr, setSubtaskErr] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
+  const [commentErr, setCommentErr] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   if (taskQ.isLoading) return <Loader />;
-  if (taskQ.isError || !task) return <ErrorNote message="Could not load this task." />;
+  if (taskQ.isError || !task) {
+    return (
+      <ErrorNote
+        message="Could not load this task. Check your connection and try again."
+        onRetry={() => void taskQ.refetch()}
+        retrying={taskQ.isRefetching}
+      />
+    );
+  }
 
   const columns = (columnsQ.data ?? []).filter((col) => col.enabled);
   const currentColumn = columns.find((col) => col.id === task.columnId);
@@ -69,8 +95,30 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
   const addableMembers = (membersQ.data ?? []).filter((m) => !assignedIds.has(m.id));
   const checklist = checklistQ.data;
   const comments = commentsQ.data ?? [];
+  // Comments written offline for this task, waiting to sync — shown as "Sending…" (MOB-07).
+  const pendingComments = queued.pending.filter(
+    (m) => m.kind === 'comment.add' && (m.payload as { id?: string } | null)?.id === taskId,
+  );
 
-  const setProgress = (value: number) => update.mutate({ progress: Math.max(0, Math.min(100, value)) });
+  /**
+   * Run a write and surface the outcome: a server rejection shows an inline error; no answer
+   * means it was queued for sync (for writes whose hook queues them) and we say so, or — for the
+   * few writes that cannot be queued — that it needs a connection. Nothing fails silently.
+   */
+  async function run<T>(p: Promise<T>, fallback: string, queuedOffline = true): Promise<T | undefined> {
+    setActionErr(null);
+    try {
+      return await p;
+    } catch (e) {
+      if (isNetworkError(e) && queuedOffline) setNotice(OFFLINE_NOTICE);
+      else if (isNetworkError(e)) setActionErr('You’re offline — this needs a connection. Please try again.');
+      else setActionErr(errorText(e, fallback));
+      return undefined;
+    }
+  }
+
+  const setProgress = (value: number) =>
+    void run(update.mutateAsync({ progress: Math.max(0, Math.min(100, value)) }), 'Could not update the progress.');
 
   function startEdit() {
     if (!task) return;
@@ -83,24 +131,31 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
     });
     setEditScope('one');
     setEditErr(null);
+    setDueErr(null);
+    setEstErr(null);
     setEditing(true);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!task) return;
     const title = form.title.trim();
     if (!title) {
       setEditErr('A task title is required.');
       return;
     }
+    // Strict round-trip date check and Arabic-friendly hours (MOB-06 / ARB-04) — never guess.
+    const dueParsed = parseDueDateInput(form.dueDate);
+    const estParsed = parseHoursInput(form.estimate);
+    setDueErr(dueParsed.ok ? null : dueParsed.error);
+    setEstErr(estParsed.ok ? null : estParsed.error);
+    if (!dueParsed.ok || !estParsed.ok) return;
+
     const patch: Partial<ApiTask> & { scope?: 'one' | 'series' } = {};
     if (title !== task.title) patch.title = title;
     if (form.description.trim() !== (task.description ?? '')) patch.description = form.description.trim();
-    const due0 = form.dueDate.trim();
-    if (due0 !== (task.dueDate ? task.dueDate.slice(0, 10) : '')) patch.dueDate = due0 || null;
-    const est0 = form.estimate.trim();
-    const curEst = task.estimatedHours != null ? String(task.estimatedHours) : '';
-    if (est0 !== curEst) patch.estimatedHours = est0 ? Number(est0) : null;
+    const curDue = task.dueDate ? task.dueDate.slice(0, 10) : null;
+    if (dueParsed.value !== curDue) patch.dueDate = dueParsed.value;
+    if (estParsed.value !== (task.estimatedHours ?? null)) patch.estimatedHours = estParsed.value;
     if (form.priority !== task.priority) patch.priority = form.priority;
 
     if (Object.keys(patch).length === 0) {
@@ -109,15 +164,67 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
     }
     // Apply to the whole series only when this is a recurring task and the user chose so.
     if (task.recurrenceRule && editScope === 'series') patch.scope = 'series';
-    update.mutate(patch, { onSuccess: () => setEditing(false) });
+    setEditErr(null);
+    try {
+      await update.mutateAsync(patch);
+      setEditing(false);
+    } catch (e) {
+      if (isNetworkError(e)) {
+        setEditing(false);
+        setNotice(OFFLINE_NOTICE);
+      } else {
+        setEditErr(errorText(e, 'Could not save your changes. Please try again.'));
+      }
+    }
   }
 
   function startEditTags() {
     setTagsInput(tags.map((t) => t.name).join(', '));
+    setTagsErr(null);
     setEditingTags(true);
   }
-  function saveTags() {
-    setTags.mutate(parseTags(tagsInput), { onSuccess: () => setEditingTags(false) });
+  async function saveTags() {
+    setTagsErr(null);
+    try {
+      await setTags.mutateAsync(parseTags(tagsInput));
+      setEditingTags(false);
+    } catch (e) {
+      setTagsErr(isNetworkError(e) ? 'You’re offline — tags could not be saved. Try again when connected.' : errorText(e, 'Could not save the tags.'));
+    }
+  }
+
+  async function addSubtask() {
+    const t = newSubtask.trim();
+    if (!t) return;
+    setSubtaskErr(null);
+    try {
+      await checklistM.add.mutateAsync(keyed({ text: t }));
+      setNewSubtask('');
+    } catch (e) {
+      if (isNetworkError(e)) {
+        setNewSubtask('');
+        setNotice(OFFLINE_NOTICE);
+      } else {
+        setSubtaskErr(errorText(e, 'Could not add the subtask.'));
+      }
+    }
+  }
+
+  async function sendComment() {
+    const body = newComment.trim();
+    if (!body) return;
+    setCommentErr(null);
+    // The text stays in the box until the server has it (or it is safely queued) — MOB-07.
+    try {
+      await commentM.add.mutateAsync(keyed({ body }));
+      setNewComment('');
+    } catch (e) {
+      if (isNetworkError(e)) {
+        setNewComment(''); // queued: shown below as "Sending…" and synced automatically
+      } else {
+        setCommentErr(errorText(e, 'Your comment was not posted. Please try again.'));
+      }
+    }
   }
 
   return (
@@ -128,7 +235,12 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
         refreshControl={<RefreshControl refreshing={taskQ.isRefetching} onRefresh={() => void taskQ.refetch()} />}
       >
         <Text style={styles.key}>{task.key}</Text>
-        <Text style={styles.title}>{task.title}</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          {task.title}
+        </Text>
+
+        {actionErr ? <ErrorNote message={actionErr} /> : null}
+        {notice ? <NoticeNote message={notice} /> : null}
 
         <View style={styles.pills}>
           <Pill label={task.priority} color={priorityColor(c, task.priority)} />
@@ -145,7 +257,7 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
           <View style={styles.section}>
             <View style={styles.rowBetween}>
               <SectionTitle>Details</SectionTitle>
-              <Pressable onPress={startEdit} accessibilityRole="button">
+              <Pressable onPress={startEdit} accessibilityRole="button" accessibilityLabel="Edit details" hitSlop={8}>
                 <Text style={styles.link}>Edit</Text>
               </Pressable>
             </View>
@@ -173,18 +285,55 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
             />
             <View style={styles.row}>
               <View style={styles.rowItem}>
-                <TextField label="Due date" value={form.dueDate} onChangeText={(v) => setForm((f) => ({ ...f, dueDate: v }))} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+                <TextField
+                  label="Due date"
+                  value={form.dueDate}
+                  onChangeText={(v) => {
+                    setForm((f) => ({ ...f, dueDate: v }));
+                    if (dueErr) setDueErr(null);
+                  }}
+                  onBlur={() => {
+                    const r = parseDueDateInput(form.dueDate);
+                    setDueErr(r.ok ? null : r.error);
+                  }}
+                  placeholder="YYYY-MM-DD"
+                  autoCapitalize="none"
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={10}
+                  error={dueErr}
+                />
               </View>
               <View style={styles.rowItem}>
-                <TextField label="Est. hours" value={form.estimate} onChangeText={(v) => setForm((f) => ({ ...f, estimate: v }))} placeholder="e.g. 3" keyboardType="numeric" />
+                <TextField
+                  label="Est. hours"
+                  value={form.estimate}
+                  onChangeText={(v) => {
+                    setForm((f) => ({ ...f, estimate: v }));
+                    if (estErr) setEstErr(null);
+                  }}
+                  onBlur={() => {
+                    const r = parseHoursInput(form.estimate);
+                    setEstErr(r.ok ? null : r.error);
+                  }}
+                  placeholder="e.g. 2.5"
+                  keyboardType="decimal-pad"
+                  error={estErr}
+                />
               </View>
             </View>
             <SectionTitle>Priority</SectionTitle>
-            <View style={styles.chips}>
+            <View style={styles.chips} accessibilityRole="radiogroup">
               {PRIORITIES.map((p) => {
                 const active = p === form.priority;
                 return (
-                  <Pressable key={p} onPress={() => setForm((f) => ({ ...f, priority: p }))} style={[styles.chip, active && styles.chipActive]}>
+                  <Pressable
+                    key={p}
+                    onPress={() => setForm((f) => ({ ...f, priority: p }))}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${p} priority`}
+                    accessibilityState={{ selected: active, checked: active }}
+                    style={[styles.chip, active && styles.chipActive]}
+                  >
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>{p}</Text>
                   </Pressable>
                 );
@@ -193,14 +342,20 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
             {task.recurrenceRule ? (
               <>
                 <SectionTitle>Apply changes to</SectionTitle>
-                <View style={styles.chips}>
+                <View style={styles.chips} accessibilityRole="radiogroup">
                   {(['one', 'series'] as const).map((s) => {
                     const active = s === editScope;
+                    const label = s === 'one' ? 'This task' : 'Entire series';
                     return (
-                      <Pressable key={s} onPress={() => setEditScope(s)} style={[styles.chip, active && styles.chipActive]}>
-                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                          {s === 'one' ? 'This task' : 'Entire series'}
-                        </Text>
+                      <Pressable
+                        key={s}
+                        onPress={() => setEditScope(s)}
+                        accessibilityRole="radio"
+                        accessibilityLabel={`Apply changes to ${label.toLowerCase()}`}
+                        accessibilityState={{ selected: active, checked: active }}
+                        style={[styles.chip, active && styles.chipActive]}
+                      >
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
                       </Pressable>
                     );
                   })}
@@ -209,7 +364,7 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
             ) : null}
             <View style={styles.editActions}>
               <Button title="Cancel" variant="ghost" onPress={() => setEditing(false)} style={styles.pBtn} />
-              <Button title="Save" onPress={saveEdit} loading={update.isPending} style={styles.pBtn} />
+              <Button title="Save" onPress={() => void saveEdit()} loading={update.isPending} style={styles.pBtn} />
             </View>
           </View>
         )}
@@ -219,7 +374,7 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
           <View style={styles.rowBetween}>
             <SectionTitle>Tags</SectionTitle>
             {!editingTags ? (
-              <Pressable onPress={startEditTags} accessibilityRole="button">
+              <Pressable onPress={startEditTags} accessibilityRole="button" accessibilityLabel="Edit tags" hitSlop={8}>
                 <Text style={styles.link}>Edit</Text>
               </Pressable>
             ) : null}
@@ -236,10 +391,17 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
             )
           ) : (
             <>
-              <TextField value={tagsInput} onChangeText={setTagsInput} placeholder="comma, separated" autoCapitalize="none" />
+              {tagsErr ? <ErrorNote message={tagsErr} /> : null}
+              <TextField
+                value={tagsInput}
+                onChangeText={setTagsInput}
+                placeholder="comma, separated"
+                accessibilityLabel="Tags, separated by commas"
+                autoCapitalize="none"
+              />
               <View style={styles.editActions}>
                 <Button title="Cancel" variant="ghost" onPress={() => setEditingTags(false)} style={styles.pBtn} />
-                <Button title="Save tags" onPress={saveTags} loading={setTags.isPending} style={styles.pBtn} />
+                <Button title="Save tags" onPress={() => void saveTags()} loading={setTags.isPending} style={styles.pBtn} />
               </View>
             </>
           )}
@@ -251,7 +413,7 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
             Subtasks{checklist && checklist.total > 0 ? ` · ${checklist.done}/${checklist.total} (${checklist.progress}%)` : ''}
           </SectionTitle>
           {checklist && checklist.total > 0 ? (
-            <View style={styles.progressBar}>
+            <View style={styles.progressBar} importantForAccessibility="no-hide-descendants">
               <View style={[styles.progressFill, { width: `${checklist.progress}%` }]} />
             </View>
           ) : null}
@@ -259,16 +421,24 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
             checklist.items.map((it) => (
               <View key={it.id} style={styles.subtaskRow}>
                 <Pressable
-                  onPress={() => checklistM.update.mutate({ itemId: it.id, patch: { done: !it.done } })}
+                  onPress={() =>
+                    void run(checklistM.update.mutateAsync({ itemId: it.id, patch: { done: !it.done } }), 'Could not update the subtask.')
+                  }
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: it.done }}
                   accessibilityLabel={it.text}
+                  hitSlop={8}
                   style={[styles.checkbox, it.done && styles.checkboxOn]}
                 >
                   {it.done ? <Text style={styles.checkboxTick}>✓</Text> : null}
                 </Pressable>
                 <Text style={[styles.subtaskText, it.done && styles.subtaskDone]}>{it.text}</Text>
-                <Pressable onPress={() => checklistM.remove.mutate(it.id)} accessibilityLabel={`Remove ${it.text}`} hitSlop={8}>
+                <Pressable
+                  onPress={() => void run(checklistM.remove.mutateAsync(it.id), 'Could not remove the subtask.', false)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${it.text}`}
+                  hitSlop={8}
+                >
                   <Text style={styles.removeX}>×</Text>
                 </Pressable>
               </View>
@@ -276,21 +446,21 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
           ) : (
             <Text style={styles.muted}>No subtasks yet.</Text>
           )}
+          {subtaskErr ? <ErrorNote message={subtaskErr} /> : null}
           <View style={styles.inlineAdd}>
             <View style={styles.inlineInput}>
               <TextField
                 value={newSubtask}
                 onChangeText={setNewSubtask}
                 placeholder="Add a subtask…"
-                onSubmitEditing={() => {
-                  const t = newSubtask.trim();
-                  if (t) { checklistM.add.mutate(t); setNewSubtask(''); }
-                }}
+                accessibilityLabel="New subtask"
+                onSubmitEditing={() => void addSubtask()}
               />
             </View>
             <Button
               title="Add"
-              onPress={() => { const t = newSubtask.trim(); if (t) { checklistM.add.mutate(t); setNewSubtask(''); } }}
+              accessibilityLabel="Add subtask"
+              onPress={() => void addSubtask()}
               loading={checklistM.add.isPending}
               disabled={!newSubtask.trim()}
               style={styles.inlineBtn}
@@ -308,10 +478,11 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
               {assignees.map((a) => (
                 <Pressable
                   key={a.id}
-                  onPress={() => unassign.mutate(a.id)}
+                  onPress={() => void run(unassign.mutateAsync(a.id), 'Could not remove the assignee.')}
                   disabled={unassign.isPending}
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${displayName(a)}`}
+                  accessibilityState={{ disabled: unassign.isPending }}
                   style={styles.assignee}
                 >
                   <Text style={styles.assigneeText}>{displayName(a)}</Text>
@@ -329,10 +500,11 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
                 {addableMembers.map((m) => (
                   <Pressable
                     key={m.id}
-                    onPress={() => assign.mutate([m.id])}
+                    onPress={() => void run(assign.mutateAsync(keyed({ userIds: [m.id] })), 'Could not assign this person.')}
                     disabled={assign.isPending}
                     accessibilityRole="button"
                     accessibilityLabel={`Assign ${displayName(m)}`}
+                    accessibilityState={{ disabled: assign.isPending }}
                     style={styles.chip}
                   >
                     <Text style={styles.chipText}>+ {displayName(m)}</Text>
@@ -347,26 +519,29 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
 
         <View style={styles.section}>
           <SectionTitle>Progress · {task.progress}%</SectionTitle>
-          <View style={styles.progressBar}>
+          <View style={styles.progressBar} importantForAccessibility="no-hide-descendants">
             <View style={[styles.progressFill, { width: `${task.progress}%` }]} />
           </View>
           <View style={styles.progressBtns}>
-            <Button title="−25%" variant="secondary" onPress={() => setProgress(task.progress - 25)} style={styles.pBtn} />
-            <Button title="+25%" variant="secondary" onPress={() => setProgress(task.progress + 25)} style={styles.pBtn} />
-            <Button title="Complete" onPress={() => setProgress(100)} style={styles.pBtn} />
+            <Button title="−25%" accessibilityLabel="Decrease progress by 25 percent" variant="secondary" onPress={() => setProgress(task.progress - 25)} style={styles.pBtn} />
+            <Button title="+25%" accessibilityLabel="Increase progress by 25 percent" variant="secondary" onPress={() => setProgress(task.progress + 25)} style={styles.pBtn} />
+            <Button title="Complete" accessibilityLabel="Mark progress complete" onPress={() => setProgress(100)} style={styles.pBtn} />
           </View>
         </View>
 
         <View style={styles.section}>
           <SectionTitle>Move to column</SectionTitle>
-          <View style={styles.colWrap}>
+          <View style={styles.colWrap} accessibilityRole="radiogroup">
             {columns.map((col) => {
               const active = col.id === task.columnId;
               return (
                 <Pressable
                   key={col.id}
                   disabled={active || move.isPending}
-                  onPress={() => move.mutate({ id: task.id, columnId: col.id })}
+                  onPress={() => void run(move.mutateAsync({ id: task.id, columnId: col.id }), 'Could not move the task.')}
+                  accessibilityRole="radio"
+                  accessibilityLabel={active ? `${col.name}, current column` : `Move to ${col.name}`}
+                  accessibilityState={{ selected: active, checked: active, disabled: active || move.isPending }}
                   style={[styles.colChip, active && styles.colChipActive]}
                 >
                   <View style={[styles.dot, { backgroundColor: categoryColorOf(c, col.category) }]} />
@@ -380,7 +555,9 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
         {/* Comments */}
         <View style={styles.section}>
           <SectionTitle>Comments{comments.length > 0 ? ` · ${comments.length}` : ''}</SectionTitle>
-          {comments.length === 0 ? (
+          {commentsQ.isError && !commentsQ.data ? (
+            <ErrorNote message="Could not load the comments." onRetry={() => void commentsQ.refetch()} retrying={commentsQ.isRefetching} />
+          ) : comments.length === 0 && pendingComments.length === 0 ? (
             <Text style={styles.muted}>No comments yet.</Text>
           ) : (
             comments.map((cm) => (
@@ -390,18 +567,30 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
               </View>
             ))
           )}
+          {pendingComments.map((m) => (
+            <View key={m.id} style={[styles.comment, styles.commentPending]} accessibilityLabel={`Sending when online: ${(m.payload as { body?: string }).body ?? ''}`}>
+              <Text style={styles.commentBody}>{(m.payload as { body?: string }).body}</Text>
+              <Text style={styles.commentMeta}>Sending when you’re back online…</Text>
+            </View>
+          ))}
+          {commentErr ? <ErrorNote message={commentErr} /> : null}
           <View style={styles.inlineAdd}>
             <View style={styles.inlineInput}>
               <TextField
                 value={newComment}
-                onChangeText={setNewComment}
+                onChangeText={(v) => {
+                  setNewComment(v);
+                  if (commentErr) setCommentErr(null);
+                }}
                 placeholder="Write a comment… use @name to mention"
+                accessibilityLabel="New comment"
                 multiline
               />
             </View>
             <Button
               title="Send"
-              onPress={() => { const b = newComment.trim(); if (b) { commentM.add.mutate(b); setNewComment(''); } }}
+              accessibilityLabel="Send comment"
+              onPress={() => void sendComment()}
               loading={commentM.add.isPending}
               disabled={!newComment.trim()}
               style={styles.inlineBtn}
@@ -473,6 +662,7 @@ const makeStyles = (c: Palette) =>
     inlineInput: { flex: 1, marginBottom: 0 },
     inlineBtn: { paddingHorizontal: spacing.lg },
     comment: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.xs },
+    commentPending: { opacity: 0.7, borderStyle: 'dashed' },
     commentBody: { fontSize: fontSize.md, color: c.ink },
     commentMeta: { fontSize: fontSize.xs, color: c.ink3, marginTop: spacing.xs },
     progressBar: { height: 10, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },

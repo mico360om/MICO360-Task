@@ -1,5 +1,9 @@
+import type { HTMLAttributes } from 'react';
 import { Avatar } from './ui/Avatar';
 import { PriorityBadge, type Priority } from './ui/PriorityBadge';
+import { isOverdue } from '../lib/due-date';
+import { formatDueDay } from '../lib/due-display';
+import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 
 export interface TaskCardTask {
   key: string;
@@ -13,27 +17,20 @@ export interface TaskCardTask {
   accentColor?: string;
   /** True when the task sits in a BLOCKED-category column, for an at-a-glance "Blocked" flag. */
   blocked?: boolean;
+  /** True when the task is finished (DONE column or completed) — a finished task is never overdue. */
+  done?: boolean;
 }
 
 export interface TaskCardProps {
   task: TaskCardTask;
   onClick?: () => void;
-}
-
-function parseDate(dueDate?: string | null): Date | null {
-  if (!dueDate) return null;
-  const d = new Date(dueDate);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function isOverdue(dueDate?: string | null): boolean {
-  const d = parseDate(dueDate);
-  return d !== null && d.getTime() < Date.now();
-}
-
-function formatDate(dueDate?: string | null): string {
-  const d = parseDate(dueDate);
-  return d ? d.toLocaleDateString() : 'No due date';
+  /** Company time zone: "overdue" means the due day is before today there (not the device's today). */
+  timeZone?: string;
+  /**
+   * False when a wrapper (the draggable card on the board) is the focusable, keyboard-operable
+   * element — the card then renders as plain content so there is one tab stop per card.
+   */
+  interactive?: boolean;
 }
 
 /** A small icon + number badge (checklist / comments / attachments), shown only when relevant. */
@@ -48,8 +45,10 @@ function CountBadge({ label, value, children }: { label: string; value: string; 
   );
 }
 
-export function TaskCard({ task, onClick }: TaskCardProps) {
-  const overdue = isOverdue(task.dueDate);
+export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interactive = true }: TaskCardProps) {
+  // Calendar-day rule in the company zone; finished work is never flagged overdue.
+  const overdue = !task.done && isOverdue(task.dueDate, timeZone);
+  const dueText = formatDueDay(task.dueDate, timeZone) || 'No due date';
   const hasDue = Boolean(task.dueDate);
   const c = task.counts;
   const shownAssignees = task.assignees.slice(0, 3);
@@ -64,15 +63,19 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
 
   return (
     <div
-      role="button"
-      tabIndex={0}
+      {...(interactive
+        ? ({
+            role: 'button',
+            tabIndex: 0,
+            onKeyDown: (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            },
+          } satisfies HTMLAttributes<HTMLDivElement>)
+        : {})}
       onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick?.();
-        }
-      }}
       className={`group relative flex cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border bg-surface p-3 pl-3.5 text-left shadow-soft outline-none transition-all duration-200 ease-emphasized hover:-translate-y-0.5 hover:shadow-card ${stateCls}`}
     >
       {/* Status stripe in the column colour, so a card always reads as belonging to its stage. */}
@@ -91,7 +94,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         </div>
       </div>
 
-      <div className="line-clamp-2 text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand">{task.title}</div>
+      <div dir="auto" className="line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand">{task.title}</div>
 
       {hasDue || (c && (c.checklistTotal > 0 || c.comments > 0 || c.attachments > 0)) ? (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -102,7 +105,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
               </svg>
-              {overdue ? `Overdue · ${formatDate(task.dueDate)}` : formatDate(task.dueDate)}
+              {overdue ? `Overdue · ${dueText}` : dueText}
             </span>
           ) : null}
           {c && c.checklistTotal > 0 ? (
@@ -133,7 +136,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         {task.assignees.length > 0 ? (
           <div className="flex flex-none items-center gap-1">
             {task.assignees.length === 1 ? (
-              <span className="max-w-[6rem] truncate text-[11px] text-ink-2">{task.assignees[0]!.name}</span>
+              <span dir="auto" className="max-w-[6rem] truncate text-[11px] text-ink-2">{task.assignees[0]!.name}</span>
             ) : null}
             <div className="flex -space-x-1.5">
               {shownAssignees.map((a) => (

@@ -28,6 +28,22 @@ export function createPrismaMemberRepository(prisma: PrismaClient): MemberReposi
         data: { role: role as ProjectMemberRole },
       });
     },
+    async hasImplicitAccess(projectId, userId) {
+      const [project, admin] = await Promise.all([
+        prisma.project.findFirst({
+          where: { id: projectId, OR: [{ ownerId: userId }, { managerId: userId }, { createdById: userId }] },
+          select: { id: true },
+        }),
+        prisma.userRole.findFirst({ where: { userId, role: { name: 'ADMIN' } }, select: { userId: true } }),
+      ]);
+      return project !== null || admin !== null;
+    },
+    async removeTaskLinks(projectId, userId) {
+      await prisma.$transaction([
+        prisma.taskAssignee.deleteMany({ where: { userId, task: { projectId } } }),
+        prisma.taskWatcher.deleteMany({ where: { userId, task: { projectId } } }),
+      ]);
+    },
   };
 }
 
@@ -42,7 +58,8 @@ export function createPrismaProjectManagerLookup(prisma: PrismaClient): ProjectM
       return c?.projectId ?? null;
     },
     async projectIdOfTask(taskId) {
-      const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true } });
+      // A task of a deleted project resolves to nothing, so nobody but an admin can reach it.
+      const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null, project: { is: { deletedAt: null } } }, select: { projectId: true } });
       return t?.projectId ?? null;
     },
   };

@@ -1,79 +1,24 @@
 /**
- * A tiny, dependency-free PDF document builder that flows text down a page and
- * breaks to new pages automatically. Uncompressed Helvetica / Helvetica-Bold with
- * accurate glyph widths (embedded AFM metrics) so wrapping is correct. The
- * cross-reference offsets are computed from the actual serialized bytes.
+ * A small document builder that flows text down A4 pages and breaks to new pages
+ * automatically. Built on pdfkit, with every string going through the Unicode text
+ * engine in `pdf-text.ts`: embedded Noto Sans + Noto Naskh Arabic fonts, bidi
+ * reordering and Arabic shaping. Arabic, English and mixed lines therefore render as
+ * real, joined glyphs in the right order; right-to-left paragraphs align to the right
+ * edge; long text wraps to the column; tables repeat their header on every page.
  *
  * Rich enough for structured documents (headings, key/value rows, bullet lists,
- * rules) such as meeting minutes — not just single-page tables (see `pdf.ts`).
+ * rules, tables) such as meeting minutes and report exports.
  */
+import PDFDocument from 'pdfkit';
+import { drawTextLine, layoutText, lineBox, measureText, registerPdfFonts, type TextLine } from './pdf-text';
 
 export type RGB = [number, number, number];
-
-// AFM advance widths (per 1000 em) for ASCII 32..126. Index = charCode - 32.
-// prettier-ignore
-const HELVETICA: number[] = [
-  278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,
-  1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,
-  333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,
-];
-// prettier-ignore
-const HELVETICA_BOLD: number[] = [
-  278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,
-  975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,
-  333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,
-];
-
-// Common typographic characters mapped to their WinAnsi byte + AFM widths (Helvetica, Bold).
-// Lets the document use real middots, dashes, quotes and ellipsis instead of "?".
-const WINANSI: Record<number, { byte: number; w: number; wb: number }> = {
-  0x00b7: { byte: 0xb7, w: 278, wb: 278 }, // ·
-  0x2013: { byte: 0x96, w: 556, wb: 556 }, // –
-  0x2014: { byte: 0x97, w: 1000, wb: 1000 }, // —
-  0x2022: { byte: 0x95, w: 350, wb: 350 }, // •
-  0x2026: { byte: 0x85, w: 1000, wb: 1000 }, // …
-  0x2018: { byte: 0x91, w: 222, wb: 278 }, // ‘
-  0x2019: { byte: 0x92, w: 222, wb: 278 }, // ’
-  0x201c: { byte: 0x93, w: 333, wb: 500 }, // “
-  0x201d: { byte: 0x94, w: 333, wb: 500 }, // ”
-  0x00a0: { byte: 0x20, w: 278, wb: 278 }, // nbsp → space
-};
-
-/**
- * Escape a string for a PDF text literal. ASCII passes through (with ()\ escaped);
- * a small set of common typographic characters is remapped to WinAnsi bytes so they
- * render; anything else becomes "?". Every output char is one byte in latin1, so the
- * string length still equals the serialized byte length (keeps /Length correct).
- */
-function escapePdfText(s: string): string {
-  let out = '';
-  for (const ch of s) {
-    const code = ch.codePointAt(0)!;
-    if (code >= 0x20 && code <= 0x7e) {
-      if (ch === '\\' || ch === '(' || ch === ')') out += '\\';
-      out += ch;
-    } else if (WINANSI[code]) {
-      out += String.fromCharCode(WINANSI[code]!.byte);
-    } else if (code >= 0xa1 && code <= 0xff) {
-      out += ch; // Latin-1 aligns with WinAnsi in this range
-    } else {
-      out += '?';
-    }
-  }
-  return out;
-}
-
-/** Format a number for PDF content ops: fixed precision, trailing zeros trimmed. */
-function num(n: number): string {
-  let s = n.toFixed(2);
-  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
-  return s;
-}
 
 const INK: RGB = [0.11, 0.1, 0.09];
 const MUTED: RGB = [0.42, 0.4, 0.38];
 const BRAND: RGB = [0.66, 0.12, 0.12];
 const LINE: RGB = [0.82, 0.8, 0.78];
+const WHITE: RGB = [1, 1, 1];
 
 /** Parse "#RRGGBB" (or an [r,g,b] 0-1 triple) into an RGB 0-1 triple. */
 export function hexToRgb(input: string | RGB, fallback: RGB = INK): RGB {
@@ -94,33 +39,63 @@ function mix(a: RGB, b: RGB, t: number): RGB {
 function darken(c: RGB, amount: number): RGB {
   return [c[0] * (1 - amount), c[1] * (1 - amount), c[2] * (1 - amount)];
 }
+/** RGB 0-1 triple → "#rrggbb" for pdfkit. */
+function toHex(c: RGB): string {
+  const h = (v: number) =>
+    Math.round(Math.min(1, Math.max(0, v)) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${h(c[0])}${h(c[1])}${h(c[2])}`;
+}
+
+/** 'start' = left for left-to-right paragraphs, right for right-to-left (Arabic) ones. */
+export type TextAlign = 'start' | 'left' | 'right' | 'center';
+
+/** Paragraph direction; when omitted it follows the first strong character (UAX #9). */
+export type TextDirection = 'ltr' | 'rtl';
 
 export interface TextOptions {
   bold?: boolean;
   size?: number;
   color?: RGB;
-  /** Left indent from the content edge, in points. */
+  /** Indent from the starting edge (left for LTR text, right for RTL text), in points. */
   indent?: number;
   /** Extra vertical space added after the block, in points. */
   gap?: number;
+  align?: TextAlign;
+  /** Force the paragraph direction (e.g. to align an attribution line with the note above it). */
+  direction?: TextDirection;
 }
 
 export interface PdfDocumentOptions {
-  /** Small line shown at the bottom-left of every page (e.g. a "generated by" credit). */
+  /** Small line(s) shown at the bottom-left of every page (e.g. a "generated by" credit). */
   footerLeft?: string;
   /** Brand palette; hex strings or RGB triples. Drives headings, rules, labels and the footer. */
   palette?: Partial<Record<'ink' | 'muted' | 'brand' | 'line', string | RGB>>;
+  /** Document title stored in the PDF metadata (shown in viewers' title bars and tabs). */
+  title?: string;
 }
 
-export class PdfDocument {
-  readonly pageWidth = 612; // US Letter
-  readonly pageHeight = 792;
-  readonly margin = 54; // 0.75"
-  readonly bottomMargin = 56; // leaves room for the footer
+export interface TableColumn {
+  /** Header text. */
+  header: string;
+  /** 'auto' (default): numeric columns right-aligned, text by its own direction. */
+  align?: 'auto' | 'left' | 'right';
+}
 
-  private pages: string[][] = [];
-  private ops: string[] = [];
-  private y = 0;
+const NUMERIC = /^[-+]?[\d,]*\.?\d+%?$/;
+
+export class PdfDocument {
+  readonly pageWidth = 595.28; // A4, the paper size used in Oman
+  readonly pageHeight = 841.89;
+  readonly margin = 54; // 0.75"
+  readonly bottomMargin = 62; // leaves room for the footer
+
+  private readonly doc: PDFKit.PDFDocument;
+  /** Top-down cursor (pdfkit coordinates): where the next block starts. */
+  private y: number;
+  private built: Buffer | null = null;
+  private builtPages = 0;
 
   /** Resolved brand palette used by headings, rules, labels and the footer. */
   private readonly pal: { ink: RGB; muted: RGB; brand: RGB; line: RGB };
@@ -133,126 +108,81 @@ export class PdfDocument {
       brand: p.brand ? hexToRgb(p.brand, BRAND) : BRAND,
       line: p.line ? hexToRgb(p.line, LINE) : LINE,
     };
-    this.newPage();
+    this.doc = new PDFDocument({
+      size: 'A4',
+      margin: 0,
+      bufferPages: true, // footers ("Page N of M") are drawn once the page count is known
+      displayTitle: Boolean(opts.title),
+      info: opts.title ? { Title: opts.title } : {},
+    });
+    registerPdfFonts(this.doc);
+    this.y = this.margin;
   }
 
   private get contentWidth(): number {
     return this.pageWidth - this.margin * 2;
   }
 
+  private get contentBottom(): number {
+    return this.pageHeight - this.bottomMargin;
+  }
+
+  /** Number of pages so far (the final count once built). */
+  get pageCount(): number {
+    return this.built ? this.builtPages : this.doc.bufferedPageRange().count;
+  }
+
   private newPage(): void {
-    this.ops = [];
-    this.pages.push(this.ops);
-    this.y = this.pageHeight - this.margin;
+    this.doc.addPage({ size: 'A4', margin: 0 });
+    this.y = this.margin;
   }
 
+  /** Start a new page unless `height` still fits (never loops on an over-tall block at a page top). */
   private ensure(height: number): void {
-    if (this.y - height < this.bottomMargin) this.newPage();
+    if (this.y + height > this.contentBottom && this.y > this.margin + 0.5) this.newPage();
   }
 
-  private charWidth(ch: string, bold: boolean): number {
-    const code = ch.codePointAt(0) ?? 63;
-    if (code >= 32 && code <= 126) return (bold ? HELVETICA_BOLD : HELVETICA)[code - 32] ?? 556;
-    const extra = WINANSI[code];
-    if (extra) return bold ? extra.wb : extra.w;
-    return 556; // '?' fallback
-  }
-
-  /** Width of a string in points at the given size/weight. */
+  /** Width of a string in points at the given size/weight (shaped, so Arabic joins are measured correctly). */
   textWidth(text: string, size: number, bold = false): number {
-    let total = 0;
-    for (const ch of text) total += this.charWidth(ch, bold);
-    return (total / 1000) * size;
+    return measureText(text, size, bold);
   }
 
-  private wrap(text: string, size: number, bold: boolean, maxWidth: number): string[] {
-    const words = text.split(/\s+/).filter((w) => w.length > 0);
-    if (words.length === 0) return [''];
-    const lines: string[] = [];
-    let cur = '';
-    for (const w of words) {
-      const trial = cur ? `${cur} ${w}` : w;
-      if (this.textWidth(trial, size, bold) <= maxWidth) {
-        cur = trial;
-        continue;
-      }
-      if (cur) lines.push(cur);
-      if (this.textWidth(w, size, bold) > maxWidth) {
-        // Hard-break a word that is itself wider than the line.
-        let chunk = '';
-        for (const ch of w) {
-          if (chunk && this.textWidth(chunk + ch, size, bold) > maxWidth) {
-            lines.push(chunk);
-            chunk = ch;
-          } else {
-            chunk += ch;
-          }
-        }
-        cur = chunk;
-      } else {
-        cur = w;
-      }
-    }
-    if (cur) lines.push(cur);
-    return lines;
+  private fillRect(x: number, top: number, w: number, h: number, color: RGB): void {
+    this.doc.rect(x, top, w, h).fill(toHex(color));
   }
 
-  private drawText(text: string, x: number, y: number, size: number, bold: boolean, color: RGB): void {
-    this.ops.push(`${num(color[0])} ${num(color[1])} ${num(color[2])} rg`);
-    this.ops.push('BT', `/${bold ? 'F2' : 'F1'} ${num(size)} Tf`, `${num(x)} ${num(y)} Td`, `(${escapePdfText(text)}) Tj`, 'ET');
+  /** Draw a laid-out line on `baseline`, aligned inside [left, left + width]. */
+  private placeLine(line: TextLine, left: number, width: number, baseline: number, size: number, color: RGB, align: TextAlign): void {
+    const effective = align === 'start' ? (line.rtl ? 'right' : 'left') : align;
+    const x = effective === 'right' ? left + width - line.width : effective === 'center' ? left + (width - line.width) / 2 : left;
+    drawTextLine(this.doc, line, x, baseline, size, toHex(color));
   }
 
-  private drawRect(x: number, y: number, w: number, h: number, color: RGB): void {
-    this.ops.push(`${num(color[0])} ${num(color[1])} ${num(color[2])} rg`);
-    this.ops.push(`${num(x)} ${num(y)} ${num(w)} ${num(h)} re`, 'f');
-  }
-
-  /** Push a rounded-rectangle path (construction only — the caller paints with f / W n). */
-  private roundedRectPath(x: number, y: number, w: number, h: number, r: number): void {
-    const k = r * 0.5523;
-    const p = (a: number, b: number) => `${num(a)} ${num(b)}`;
-    this.ops.push(
-      `${p(x + r, y + h)} m`,
-      `${p(x + w - r, y + h)} l`,
-      `${p(x + w - r + k, y + h)} ${p(x + w, y + h - r + k)} ${p(x + w, y + h - r)} c`,
-      `${p(x + w, y + r)} l`,
-      `${p(x + w, y + r - k)} ${p(x + w - r + k, y)} ${p(x + w - r, y)} c`,
-      `${p(x + r, y)} l`,
-      `${p(x + r - k, y)} ${p(x, y + r - k)} ${p(x, y + r)} c`,
-      `${p(x, y + h - r)} l`,
-      `${p(x, y + h - r + k)} ${p(x + r - k, y + h)} ${p(x + r, y + h)} c`,
-      'h',
-    );
-  }
-
-  /** Draw the brand logo mark: a rounded gradient tile with a white check + progress dot. */
+  /** Draw the brand logo mark: a rounded gradient tile with a white check + progress dot. `y` is the tile's bottom edge in PDF (bottom-up) space. */
   logoMark(x: number, y: number, size: number, from?: RGB, to?: RGB): this {
     const c0 = from ?? this.pal.brand;
     const c1 = to ?? darken(this.pal.brand, 0.4);
+    const top = this.pageHeight - y - size;
     const r = size * 0.22;
-    // Gradient tile: clip to the rounded rect, then paint interpolated horizontal bands.
-    this.ops.push('q');
-    this.roundedRectPath(x, y, size, size, r);
-    this.ops.push('W', 'n');
-    const bands = 22;
-    const bh = size / bands;
-    for (let i = 0; i < bands; i++) {
-      const col = mix(c0, c1, i / (bands - 1));
-      this.drawRect(x, y + size - (i + 1) * bh, size, bh + 0.5, col);
-    }
-    this.ops.push('Q');
+    const grad = this.doc.linearGradient(x, top, x, top + size);
+    grad.stop(0, toHex(c0)).stop(1, toHex(c1));
+    this.doc.save();
+    this.doc.roundedRect(x, top, size, size, r).clip();
+    this.doc.rect(x, top, size, size).fill(grad);
+    this.doc.restore();
     // White check mark (stroked, round caps).
-    this.ops.push('1 1 1 RG', `${num(size * 0.1)} w`, '1 J', '1 j');
-    this.ops.push(
-      `${num(x + size * 0.27)} ${num(y + size * 0.5)} m`,
-      `${num(x + size * 0.43)} ${num(y + size * 0.34)} l`,
-      `${num(x + size * 0.72)} ${num(y + size * 0.64)} l`,
-      'S',
-    );
-    // Small white progress node (filled circle) at the top-right.
-    const dr = size * 0.07;
-    this.roundedRectPath(x + size * 0.72 - dr, y + size * 0.74 - dr, dr * 2, dr * 2, dr);
-    this.ops.push('1 1 1 rg', 'f');
+    this.doc
+      .save()
+      .lineWidth(size * 0.1)
+      .lineCap('round')
+      .lineJoin('round')
+      .moveTo(x + size * 0.27, top + size * 0.5)
+      .lineTo(x + size * 0.43, top + size * 0.66)
+      .lineTo(x + size * 0.72, top + size * 0.36)
+      .stroke(toHex(WHITE))
+      .restore();
+    // Small white progress node at the top-right.
+    this.doc.circle(x + size * 0.72, top + size * 0.26, size * 0.07).fill(toHex(WHITE));
     return this;
   }
 
@@ -263,102 +193,119 @@ export class PdfDocument {
   brandHeader(opts: { title: string; subtitle?: string; eyebrow?: string; from?: RGB; to?: RGB }): this {
     const s = 42;
     const top = this.y;
-    this.logoMark(this.margin, top - s, s, opts.from, opts.to);
+    this.logoMark(this.margin, this.pageHeight - top - s, s, opts.from, opts.to);
     const tx = this.margin + s + 14;
-    if (opts.eyebrow) this.drawText(opts.eyebrow.toUpperCase(), tx, top - 9, 8, true, this.pal.brand);
-    this.drawText(opts.title, tx, top - 26, 17, true, this.pal.ink);
-    if (opts.subtitle) this.drawText(opts.subtitle, tx, top - 38, 9, false, this.pal.muted);
-    this.y = top - s - 12;
-    this.drawRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
-    this.y -= 14;
+    const tw = this.contentWidth - s - 14;
+    const one = (text: string, size: number, bold: boolean): TextLine => layoutText(text, { size, bold, maxWidth: tw })[0]!;
+    if (opts.eyebrow) drawTextLine(this.doc, one(opts.eyebrow.toUpperCase(), 8, true), tx, top + 9, 8, toHex(this.pal.brand));
+    drawTextLine(this.doc, one(opts.title, 17, true), tx, top + 27, 17, toHex(this.pal.ink));
+    if (opts.subtitle) drawTextLine(this.doc, one(opts.subtitle, 9, false), tx, top + 39, 9, toHex(this.pal.muted));
+    this.y = top + s + 10;
+    this.fillRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
+    this.y += 2 + 12;
     return this;
   }
 
-  /** Add empty vertical space (points). */
+  /** Add empty vertical space (points). At a page break the space is dropped rather than carried over. */
   spacer(height: number): this {
-    this.ensure(height);
-    this.y -= height;
+    if (this.y + height > this.contentBottom) this.newPage();
+    else this.y += height;
     return this;
   }
 
-  /** A flowing paragraph; honors embedded "\n" and wraps to the content width. */
+  /** A flowing paragraph; honors embedded "\n", wraps to the content width, aligns RTL paragraphs right. */
   text(content: string, options: TextOptions = {}): this {
     const size = options.size ?? 10.5;
-    const bold = options.bold ?? false;
     const color = options.color ?? this.pal.ink;
     const indent = options.indent ?? 0;
-    const leading = size * 1.32;
-    const maxWidth = this.contentWidth - indent;
-    for (const para of content.split('\n')) {
-      const lines = para.length ? this.wrap(para, size, bold, maxWidth) : [''];
-      for (const ln of lines) {
-        this.ensure(leading);
-        this.y -= leading;
-        if (ln) this.drawText(ln, this.margin + indent, this.y, size, bold, color);
-      }
+    const width = this.contentWidth - indent;
+    for (const line of layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction })) {
+      const box = lineBox(line, size);
+      this.ensure(box.height);
+      this.placeLine(line, line.rtl ? this.margin : this.margin + indent, width, this.y + box.ascent, size, color, options.align ?? 'start');
+      this.y += box.height;
     }
-    if (options.gap) this.y -= options.gap;
+    if (options.gap) this.y += options.gap;
     return this;
   }
 
-  /** A section heading: bold, slightly larger, with a hairline rule beneath. */
+  /** A section heading: bold, slightly larger, with a hairline rule beneath. Kept with what follows it. */
   heading(text: string, options: { size?: number; color?: RGB; topGap?: number } = {}): this {
     const size = options.size ?? 12.5;
-    const topGap = options.topGap ?? 14;
-    this.spacer(topGap);
+    this.spacer(options.topGap ?? 14);
+    this.ensure(size * 1.8 + 9 + 32); // heading + rule + room for at least two lines of content
     this.text(text, { bold: true, size, color: options.color ?? this.pal.brand });
-    this.y -= 3;
-    this.ensure(6);
-    this.drawRect(this.margin, this.y, this.contentWidth, 0.7, this.pal.line);
-    this.y -= 6;
+    this.y += 3;
+    this.fillRect(this.margin, this.y, this.contentWidth, 0.7, this.pal.line);
+    this.y += 6;
     return this;
   }
 
-  /** A "Label: value" row; the value wraps under a hanging indent aligned past the label. */
+  /**
+   * A "Label: value" row; the value wraps under a hanging indent aligned past the label.
+   * A one-line value sits right after its label; a wrapped right-to-left value is set
+   * flush right like any Arabic paragraph.
+   */
   keyValue(label: string, value: string, options: { size?: number } = {}): this {
     const size = options.size ?? 10.5;
-    const leading = size * 1.32;
-    const labelText = `${label}  `;
-    const labelWidth = this.textWidth(labelText, size, true);
-    const valueLines = this.wrap(value || '—', size, false, this.contentWidth - labelWidth);
+    const labelLine = layoutText(label, { size, bold: true })[0]!;
+    const labelWidth = labelLine.width + size * 0.9;
+    const valueWidth = this.contentWidth - labelWidth;
+    const valueLines = layoutText(value || '—', { size, maxWidth: valueWidth });
     valueLines.forEach((ln, i) => {
-      this.ensure(leading);
-      this.y -= leading;
-      if (i === 0) this.drawText(labelText, this.margin, this.y, size, true, this.pal.muted);
-      this.drawText(ln, this.margin + labelWidth, this.y, size, false, this.pal.ink);
+      // Label and first value line share one baseline, even when only one of them is Arabic.
+      const box = lineBox(ln, size, ln.arabic || (i === 0 && labelLine.arabic));
+      this.ensure(box.height);
+      const baseline = this.y + box.ascent;
+      if (i === 0) this.placeLine(labelLine, this.margin, labelWidth, baseline, size, this.pal.muted, 'left');
+      this.placeLine(ln, this.margin + labelWidth, valueWidth, baseline, size, this.pal.ink, valueLines.length === 1 ? 'left' : 'start');
+      this.y += box.height;
     });
     return this;
   }
 
-  /** A bullet list item with a hanging indent; a small square marks it. */
-  bullet(content: string, options: { indent?: number; color?: RGB; size?: number } = {}): this {
+  /** A bullet list item with a hanging indent; a small square marks it (on the right for RTL items). */
+  bullet(content: string, options: { indent?: number; color?: RGB; size?: number; direction?: TextDirection } = {}): this {
     const size = options.size ?? 10.5;
     const indent = options.indent ?? 0;
     const marker = 12;
-    const leading = size * 1.32;
-    const maxWidth = this.contentWidth - indent - marker;
-    const lines = this.wrap(content, size, false, maxWidth);
+    const width = this.contentWidth - indent - marker;
+    const lines = layoutText(content, { size, maxWidth: width, direction: options.direction });
+    const rtl = lines[0]?.rtl ?? false;
     lines.forEach((ln, i) => {
-      this.ensure(leading);
-      this.y -= leading;
-      if (i === 0) this.drawRect(this.margin + indent + 1, this.y + size * 0.28, 2.6, 2.6, options.color ?? this.pal.brand);
-      this.drawText(ln, this.margin + indent + marker, this.y, size, false, this.pal.ink);
+      const box = lineBox(ln, size);
+      this.ensure(box.height);
+      const baseline = this.y + box.ascent;
+      if (i === 0) {
+        const sq = 2.6;
+        const sx = rtl ? this.pageWidth - this.margin - indent - 1 - sq : this.margin + indent + 1;
+        this.fillRect(sx, baseline - size * 0.28 - sq, sq, sq, options.color ?? this.pal.brand);
+      }
+      this.placeLine(ln, rtl ? this.margin : this.margin + indent + marker, width, baseline, size, this.pal.ink, 'start');
+      this.y += box.height;
     });
     return this;
   }
 
-  /** A numbered list item with a hanging indent aligned past the number. */
-  numbered(marker: string, content: string, options: { indent?: number; size?: number } = {}): this {
+  /** A numbered list item with a hanging indent aligned past the number (mirrored for RTL items). */
+  numbered(marker: string, content: string, options: { indent?: number; size?: number; direction?: TextDirection } = {}): this {
     const size = options.size ?? 10.5;
     const indent = options.indent ?? 0;
-    const gutter = Math.max(16, this.textWidth(`${marker} `, size, true) + 4);
-    const leading = size * 1.32;
-    const lines = this.wrap(content, size, false, this.contentWidth - indent - gutter);
+    const gutter = Math.max(16, measureText(marker, size, true) + size * 0.3 + 4);
+    const width = this.contentWidth - indent - gutter;
+    const lines = layoutText(content, { size, maxWidth: width, direction: options.direction });
+    const rtl = lines[0]?.rtl ?? false;
+    const markerLine = layoutText(marker, { size, bold: true, direction: rtl ? 'rtl' : 'ltr' })[0]!;
     lines.forEach((ln, i) => {
-      this.ensure(leading);
-      this.y -= leading;
-      if (i === 0) this.drawText(marker, this.margin + indent, this.y, size, true, this.pal.brand);
-      this.drawText(ln, this.margin + indent + gutter, this.y, size, false, this.pal.ink);
+      const box = lineBox(ln, size);
+      this.ensure(box.height);
+      const baseline = this.y + box.ascent;
+      if (i === 0) {
+        const mx = rtl ? this.pageWidth - this.margin - indent - markerLine.width : this.margin + indent;
+        drawTextLine(this.doc, markerLine, mx, baseline, size, toHex(this.pal.brand));
+      }
+      this.placeLine(ln, rtl ? this.margin : this.margin + indent + gutter, width, baseline, size, this.pal.ink, 'start');
+      this.y += box.height;
     });
     return this;
   }
@@ -367,70 +314,135 @@ export class PdfDocument {
   rule(color?: RGB): this {
     this.spacer(4);
     this.ensure(4);
-    this.drawRect(this.margin, this.y, this.contentWidth, 0.6, color ?? this.pal.line);
-    this.y -= 4;
+    this.fillRect(this.margin, this.y, this.contentWidth, 0.6, color ?? this.pal.line);
+    this.y += 4;
     return this;
   }
 
-  /** Serialize to a valid PDF byte buffer. */
-  build(): Buffer {
-    const total = this.pages.length;
-    const footerText = this.opts.footerLeft;
+  /**
+   * A data table spanning the content width. Columns are sized from their content,
+   * cells wrap within their column, rows never split across pages, and the header row
+   * repeats at the top of every page. Numeric columns align right; text cells align to
+   * their own direction (Arabic right, English left).
+   */
+  table(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number } = {}): this {
+    const n = columns.length;
+    if (n === 0) return this;
+    const size = options.size ?? 8.5;
+    const padX = 5;
+    const padY = 3;
+    const total = this.contentWidth;
+    // One line height for every cell (Arabic-safe), so baselines line up across a row
+    // and every row has the same rhythm whether or not it contains Arabic.
+    const box = lineBox(null, size, true);
 
-    // Object numbering: 1 Catalog, 2 Pages, 3 Font F1, 4 Font F2, then page/content pairs.
-    const objects: string[] = [
-      '<< /Type /Catalog /Pages 2 0 R >>',
-      '', // Pages (filled below once kids are known)
-      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
-      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>',
-    ];
+    // Column widths: natural single-line widths, stretched to fill or water-filled to fit.
+    const natural = columns.map((c, ci) => {
+      let w = measureText(c.header, size, true);
+      for (const r of rows) w = Math.max(w, measureText(r[ci] ?? '', size));
+      return Math.max(w + padX * 2, 30);
+    });
+    const naturalSum = natural.reduce((a, b) => a + b, 0);
+    const widths = new Array<number>(n).fill(0);
+    if (naturalSum <= total) {
+      natural.forEach((w, i) => (widths[i] = w + (total - naturalSum) * (w / naturalSum)));
+    } else {
+      // Columns narrower than a fair share keep their natural width; the rest split what is left.
+      let open = natural.map((_, i) => i);
+      let remaining = total;
+      while (open.length > 0) {
+        const fair = remaining / open.length;
+        const small = open.filter((i) => natural[i]! <= fair);
+        if (small.length === 0) {
+          open.forEach((i) => (widths[i] = fair));
+          break;
+        }
+        for (const i of small) {
+          widths[i] = natural[i]!;
+          remaining -= natural[i]!;
+        }
+        open = open.filter((i) => natural[i]! > fair);
+      }
+    }
 
-    const kids: string[] = [];
-    this.pages.forEach((pageOps, i) => {
-      const pageObjNum = 5 + i * 2;
-      const contentObjNum = 6 + i * 2;
-      kids.push(`${pageObjNum} 0 R`);
+    const numeric = columns.map((c, ci) => {
+      if (c.align === 'right') return true;
+      if (c.align === 'left') return false;
+      const vals = rows.map((r) => (r[ci] ?? '').trim()).filter((v) => v.length > 0);
+      return vals.length > 0 && vals.every((v) => NUMERIC.test(v));
+    });
 
-      const ops = [...pageOps];
-      const { line, muted, brand } = this.pal;
-      const footerLines = (footerText ?? '').split('\n').filter((l) => l.length > 0);
-      // Footer: hairline (with a short brand accent at the left) + credit lines + page number.
-      ops.push(`${num(line[0])} ${num(line[1])} ${num(line[2])} rg`);
-      ops.push(`${num(this.margin)} 44 ${num(this.contentWidth)} 0.6 re`, 'f');
-      ops.push(`${num(brand[0])} ${num(brand[1])} ${num(brand[2])} rg`);
-      ops.push(`${num(this.margin)} 44 40 1.6 re`, 'f');
-      footerLines.forEach((ln, li) => {
-        ops.push(`${num(muted[0])} ${num(muted[1])} ${num(muted[2])} rg`);
-        ops.push('BT', '/F1 8 Tf', `${num(this.margin)} ${num(33 - li * 10)} Td`, `(${escapePdfText(ln)}) Tj`, 'ET');
+    // Never let one row outgrow a page: an absurdly tall cell is cut to what fits.
+    const maxLines = Math.max(1, Math.floor((this.contentBottom - this.margin - 3 * box.height - padY * 4) / box.height));
+    const layoutRow = (cells: ReadonlyArray<string>, bold: boolean) => {
+      const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold, maxWidth: widths[ci]! - padX * 2 }).slice(0, maxLines));
+      return { laid, height: Math.max(...laid.map((l) => l.length)) * box.height + padY * 2 };
+    };
+
+    const drawRow = (row: { laid: TextLine[][]; height: number }, fill: RGB | null) => {
+      if (fill) this.fillRect(this.margin, this.y, total, row.height, fill);
+      let x = this.margin;
+      row.laid.forEach((lines, ci) => {
+        lines.forEach((ln, li) => {
+          const baseline = this.y + padY + li * box.height + box.ascent;
+          this.placeLine(ln, x + padX, widths[ci]! - padX * 2, baseline, size, this.pal.ink, numeric[ci] ? 'right' : 'start');
+        });
+        x += widths[ci]!;
       });
-      const pageLabel = `Page ${i + 1} of ${total}`;
-      const labelWidth = this.textWidth(pageLabel, 8, false);
-      ops.push(`${num(muted[0])} ${num(muted[1])} ${num(muted[2])} rg`);
-      ops.push('BT', '/F1 8 Tf', `${num(this.pageWidth - this.margin - labelWidth)} 33 Td`, `(${escapePdfText(pageLabel)}) Tj`, 'ET');
+      this.fillRect(this.margin, this.y + row.height - 0.5, total, 0.5, this.pal.line);
+      this.y += row.height;
+    };
 
-      const stream = ops.join('\n');
-      objects[pageObjNum - 1] =
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${this.pageWidth} ${this.pageHeight}] ` +
-        `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjNum} 0 R >>`;
-      objects[contentObjNum - 1] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+    const header = layoutRow(
+      columns.map((c) => c.header),
+      true,
+    );
+    const headerFill = mix(this.pal.brand, WHITE, 0.9);
+    const stripe = mix(this.pal.line, WHITE, 0.72);
+
+    const body = rows.map((r) => layoutRow(r, false));
+    this.ensure(header.height + (body[0]?.height ?? 0));
+    drawRow(header, headerFill);
+    body.forEach((row, ri) => {
+      if (this.y + row.height > this.contentBottom) {
+        this.newPage();
+        drawRow(header, headerFill); // repeat the header on every page
+      }
+      drawRow(row, ri % 2 === 1 ? stripe : null);
     });
+    return this;
+  }
 
-    objects[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${total} >>`;
+  /** Serialize to a PDF byte buffer (idempotent). */
+  build(): Buffer {
+    if (this.built) return this.built;
+    const range = this.doc.bufferedPageRange();
+    const total = range.count;
+    const footerLines = (this.opts.footerLeft ?? '').split('\n').filter((l) => l.length > 0);
+    const { line, muted, brand } = this.pal;
 
-    let pdf = '%PDF-1.4\n';
-    const offsets: number[] = [];
-    objects.forEach((body, i) => {
-      offsets.push(pdf.length);
-      pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
-    });
+    for (let i = 0; i < total; i++) {
+      this.doc.switchToPage(range.start + i);
+      // Footer: hairline (with a short brand accent at the left) + credit lines + page number.
+      const ruleTop = this.pageHeight - 46;
+      this.fillRect(this.margin, ruleTop + 1, this.contentWidth, 0.6, line);
+      this.fillRect(this.margin, ruleTop, 40, 1.6, brand);
+      const pageLine = layoutText(`Page ${i + 1} of ${total}`, { size: 8 })[0]!;
+      const leftWidth = this.contentWidth - pageLine.width - 12;
+      footerLines.forEach((text, li) => {
+        // The footer is a left-aligned block: lay each line out left-to-right (Arabic runs still read RTL).
+        const ln = layoutText(text, { size: 8, maxWidth: leftWidth, direction: 'ltr' })[0]!;
+        drawTextLine(this.doc, ln, this.margin, this.pageHeight - 34 + li * 10.5, 8, toHex(muted));
+      });
+      drawTextLine(this.doc, pageLine, this.pageWidth - this.margin - pageLine.width, this.pageHeight - 34, 8, toHex(muted));
+    }
 
-    const xrefStart = pdf.length;
-    const size = objects.length + 1;
-    pdf += `xref\n0 ${size}\n`;
-    pdf += '0000000000 65535 f \n';
-    for (const off of offsets) pdf += `${String(off).padStart(10, '0')} 00000 n \n`;
-    pdf += `trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-
-    return Buffer.from(pdf, 'latin1');
+    this.builtPages = total;
+    this.doc.end();
+    // pdfkit writes the whole file synchronously during end(); drain the stream buffer.
+    const chunks: Buffer[] = [];
+    for (let c = this.doc.read() as Buffer | null; c !== null; c = this.doc.read() as Buffer | null) chunks.push(c);
+    this.built = Buffer.concat(chunks);
+    return this.built;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { searchAll, createSearchService, type SearchData } from './search-service';
+import { searchAll, createSearchService, createCachedSearchDataSource, TASK_RESULT_LIMIT, type SearchData } from './search-service';
 
 const data: SearchData = {
   tasks: [{ id: 't1', key: 'MICO-1', title: 'Prepare monthly report', projectId: 'p1' }],
@@ -46,10 +46,50 @@ describe('searchAll', () => {
   });
 });
 
+describe('searchAll — Arabic', () => {
+  const arabic: SearchData = {
+    tasks: [{ id: 't1', key: 'MICO-7', title: 'إدارة المشروع', projectId: 'p1' }],
+    projects: [{ id: 'p1', code: 'MSH', name: 'مُستشفى الأمل' }],
+    users: [{ id: 'u1', username: 'ahmad', firstName: 'أحمد', lastName: 'علي' }],
+  };
+  it('matches hamza/alef, ta marbuta, alef maksura and diacritic variants', () => {
+    expect(searchAll('ادارة', arabic).tasks).toHaveLength(1);
+    expect(searchAll('مستشفي الامل', arabic).projects).toHaveLength(1);
+    expect(searchAll('احمد', arabic).users).toHaveLength(1);
+  });
+});
+
 describe('SearchService', () => {
   it('searches via the data source', async () => {
     const svc = createSearchService({ data: { async getSearchData() { return data; } } });
     const r = await svc.search('report');
     expect(r.tasks[0]!.key).toBe('MICO-1');
+  });
+
+  it('uses the per-request database task search (scoped, capped) when the source offers it', async () => {
+    const calls: { q: string; allowed: string[] | null; limit: number }[] = [];
+    const svc = createSearchService({
+      data: {
+        async getSearchData() { return { ...data, tasks: [] }; },
+        async searchTasks(q, allowed, limit) {
+          calls.push({ q, allowed, limit });
+          return [{ id: 't9', key: 'MICO-9', title: 'Prepare monthly report', projectId: 'p1' }];
+        },
+      },
+    });
+    const r = await svc.search('report', { allowedProjectIds: ['p1'] });
+    expect(r.tasks.map((t) => t.key)).toEqual(['MICO-9']);
+    expect(calls).toEqual([{ q: 'report', allowed: ['p1'], limit: TASK_RESULT_LIMIT }]);
+    expect((await svc.search('   ')).tasks).toEqual([]); // blank query never hits the database
+    expect(calls).toHaveLength(1);
+  });
+
+  it('keeps the per-request task search when the snapshot is cached', async () => {
+    const inner = {
+      async getSearchData() { return data; },
+      async searchTasks() { return [{ id: 'x', key: 'X-1', title: 'x', projectId: 'p1' }]; },
+    };
+    const cached = createCachedSearchDataSource(inner, { ttlMs: 1000 });
+    expect(await cached.searchTasks!('x', null, 5)).toHaveLength(1);
   });
 });

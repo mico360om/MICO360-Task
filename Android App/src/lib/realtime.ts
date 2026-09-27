@@ -32,3 +32,30 @@ export function applyTaskEvent(tasks: ApiTask[], event: TaskEvent): ApiTask[] {
       return tasks;
   }
 }
+
+/**
+ * Query keys to refresh when a task event arrives (MOB-04). Realtime payloads are partial and the
+ * board caches one list per board date, so events invalidate (refetch) instead of writing the
+ * payload into one cache entry: every board date of the project, the task's own detail, "My
+ * tasks" and the project progress figures.
+ */
+export function taskEventInvalidationKeys(projectId: string, payload?: { id?: unknown } | null): string[][] {
+  const keys: string[][] = [
+    ['tasks', 'project', projectId],
+    ['tasks', 'mine'],
+    ['project', projectId, 'progress'],
+  ];
+  if (typeof payload?.id === 'string' && payload.id) keys.push(['task', payload.id]);
+  return keys;
+}
+
+/** Task events the board listens to. */
+export const TASK_EVENTS = ['task:created', 'task:updated', 'task:moved', 'task:deleted'] as const;
+
+/** Sent to a user's own room when they are removed from a project. */
+export const PROJECT_REMOVED_EVENT = 'project:removed';
+
+/** Is this `project:removed` payload about the given project? */
+export function isProjectRemoval(payload: unknown, projectId: string): boolean {
+  return !!projectId && typeof (payload as { projectId?: unknown } | null)?.projectId === 'string' && (payload as { projectId: string }).projectId === projectId;
+}

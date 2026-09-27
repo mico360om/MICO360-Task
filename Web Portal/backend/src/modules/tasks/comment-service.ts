@@ -1,17 +1,18 @@
 import { ForbiddenError, NotFoundError } from '../../lib/http-errors';
 import type { CommentRecord, CommentRepository } from './comment-repository';
 import type { TaskLookup } from './assignee-repository';
+import { matchMentions, parseMentions } from './mentions';
 
-/** Extract unique @usernames from a comment body (for mention notifications). */
-export function parseMentions(body: string): string[] {
-  const matches = body.match(/@([a-zA-Z0-9_]+)/g) ?? [];
-  return [...new Set(matches.map((m) => m.slice(1)))];
-}
+/** Extract unique @usernames from a comment body (Unicode names, dots and hyphens included). */
+export { parseMentions };
 
 export interface CommentServiceDeps {
   repo: CommentRepository;
   taskLookup: TaskLookup;
-  /** Fired when a new comment @mentions usernames (used to notify the mentioned users). */
+  /**
+   * Fired when a new comment @mentions users, with their exact usernames. When the repository
+   * lists who can open the task, only those users are ever passed here.
+   */
   onMention?: (taskId: string, authorId: string, usernames: string[]) => void | Promise<void>;
   /** Fired on every new comment (used to notify the task's assignees, excluding the author). */
   onComment?: (taskId: string, authorId: string, commentId: string) => void | Promise<void>;
@@ -35,7 +36,14 @@ export function createCommentService({ repo, taskLookup, onMention, onComment }:
       if (!parent || parent.taskId !== taskId) throw new NotFoundError('Parent comment not found.');
     }
     const comment = await repo.create(taskId, userId, body, parentId ?? null);
-    const mentions = parseMentions(body);
+    // Match mentions against the real usernames of people who can open this task, so a partial
+    // name, an email address or an outsider never gets notified.
+    let mentions: string[] = [];
+    if (body.includes('@')) {
+      mentions = repo.listMentionableUsernames
+        ? matchMentions(body, await repo.listMentionableUsernames(taskId))
+        : parseMentions(body);
+    }
     if (mentions.length > 0) await onMention?.(taskId, userId, mentions);
     await onComment?.(taskId, userId, comment.id);
     return comment;
@@ -59,7 +67,7 @@ export function createCommentService({ repo, taskLookup, onMention, onComment }:
     return comment; // returned so callers can scope a realtime broadcast to its task/project
   }
 
-  return { addComment, listComments, editComment, deleteComment, mentionsOf: parseMentions };
+  return { addComment, listComments, editComment, deleteComment, getComment: loadComment, mentionsOf: parseMentions };
 }
 
 export type CommentService = ReturnType<typeof createCommentService>;

@@ -40,6 +40,30 @@ describe('planReminders', () => {
     expect(out[0]).toMatchObject({ userId: 'u1', type: 'TASK_DUE_SOON', entityId: 't1' });
   });
 
+  it('treats due dates as company-time calendar days (not overdue from 04:00 on the due day)', () => {
+    const tz = 'Asia/Muscat';
+    const tenAm = new Date('2026-09-30T06:00:00Z'); // 10:00 on 30 Sep in Muscat
+    const midnight = (d: string) => new Date(`${d}T00:00:00Z`);
+    const out = planReminders(
+      [
+        { id: 'today', title: 'a', dueDate: midnight('2026-09-30'), assigneeIds: ['u1'] },
+        { id: 'tomorrow', title: 'b', dueDate: midnight('2026-10-01'), assigneeIds: ['u1'] },
+        { id: 'later', title: 'c', dueDate: midnight('2026-10-02'), assigneeIds: ['u1'] },
+        { id: 'late', title: 'd', dueDate: midnight('2026-09-29'), assigneeIds: ['u1'] },
+      ],
+      { now: tenAm, timeZone: tz },
+    );
+    expect(out.map((n) => `${n.entityId}:${n.type}`)).toEqual(['today:TASK_DUE_SOON', 'tomorrow:TASK_DUE_SOON', 'late:TASK_OVERDUE']);
+    // From local midnight the 30th is overdue.
+    const nextDay = planReminders([{ id: 'today', title: 'a', dueDate: midnight('2026-09-30'), assigneeIds: ['u1'] }], { now: new Date('2026-09-30T20:30:00Z'), timeZone: tz });
+    expect(nextDay[0]!.type).toBe('TASK_OVERDUE');
+  });
+
+  it('never reminds about a task that carries a completion time', () => {
+    const out = planReminders([{ id: 't', title: 'x', dueDate: yesterday, columnCategory: 'IN_PROGRESS', completedAt: yesterday, assigneeIds: ['u1'] }], { now });
+    expect(out).toEqual([]);
+  });
+
   it('builds a stable per-period de-dup key', () => {
     const [n] = planReminders([{ id: 't1', title: 'x', dueDate: yesterday, assigneeIds: ['u1'] }], { now });
     expect(reminderKey(n!, '2026-09-08')).toBe('TASK_OVERDUE:t1:u1:2026-09-08');

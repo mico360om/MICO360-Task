@@ -15,6 +15,9 @@ function inMemory() {
       rows.push(item);
       return item;
     },
+    async get(itemId) {
+      return rows.find((r) => r.id === itemId) ?? null;
+    },
     async toggle(itemId, done) {
       const item = rows.find((r) => r.id === itemId)!;
       item.done = done;
@@ -42,7 +45,7 @@ function inMemory() {
       return { taskId: removed!.taskId };
     },
   };
-  const taskLookup: TaskLookup = { async exists(id) { return id === 't1'; } };
+  const taskLookup: TaskLookup = { async exists(id) { return id === 't1' || id === 't2'; } };
   return { repo, taskLookup };
 }
 
@@ -126,5 +129,62 @@ describe('Checklist routes', () => {
   it('rejects unauthenticated access (401)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/tasks/t1/checklist' });
     expect(res.statusCode).toBe(401);
+  });
+
+  it('returns 404 (not 500) for an unknown item on PUT and DELETE', async () => {
+    const headers = { authorization: `Bearer ${await token()}` };
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/checklist/ghost', headers, payload: { done: true } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'DELETE', url: '/api/v1/checklist/ghost', headers })).statusCode).toBe(404);
+  });
+
+  it('rejects blank or overlong item text (400)', async () => {
+    const headers = { authorization: `Bearer ${await token()}` };
+    expect((await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/checklist', headers, payload: { text: '   ' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/checklist', headers, payload: { text: 'x'.repeat(192) } })).statusCode).toBe(400);
+  });
+});
+
+describe('Checklist routes — object-level authorization on item routes', () => {
+  // u1 can see t1 only; t2 belongs to a project u1 is not in.
+  const projectAccess = {
+    async canViewProject() { return true; },
+    async canViewTask(userId: string, roles: string[], taskId: string) { return roles.includes('ADMIN') || (userId === 'u1' && taskId === 't1'); },
+    async canViewColumn() { return true; },
+    async accessibleProjectIds() { return null; },
+  };
+  async function build() {
+    const checklistService = createChecklistService(inMemory());
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const a = await buildApp({ authService, tokenService, checklistService, projectAccess });
+    const admin = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'admin', roles: ['ADMIN'] })).accessToken}` };
+    const hidden = (await a.inject({ method: 'POST', url: '/api/v1/tasks/t2/checklist', headers: admin, payload: { text: 'secret' } })).json().data.id as string;
+    const own = (await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/checklist', headers: admin, payload: { text: 'mine' } })).json().data.id as string;
+    return { app: a, hidden, own };
+  }
+
+  it('403s editing an item of a task the caller cannot see, and leaves it unchanged', async () => {
+    const { app: a, hidden } = await build();
+    const emp = { authorization: `Bearer ${await token()}` };
+    const res = await a.inject({ method: 'PUT', url: `/api/v1/checklist/${hidden}`, headers: emp, payload: { text: 'hacked', done: true } });
+    expect(res.statusCode).toBe(403);
+    const admin = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'admin', roles: ['ADMIN'] })).accessToken}` };
+    const list = await a.inject({ method: 'GET', url: '/api/v1/tasks/t2/checklist', headers: admin });
+    expect(list.json().data.items[0]).toMatchObject({ text: 'secret', done: false });
+  });
+
+  it('403s deleting an item of a task the caller cannot see', async () => {
+    const { app: a, hidden } = await build();
+    const emp = { authorization: `Bearer ${await token()}` };
+    expect((await a.inject({ method: 'DELETE', url: `/api/v1/checklist/${hidden}`, headers: emp })).statusCode).toBe(403);
+  });
+
+  it('still lets a member edit and delete items of their own task', async () => {
+    const { app: a, own } = await build();
+    const emp = { authorization: `Bearer ${await token()}` };
+    expect((await a.inject({ method: 'PUT', url: `/api/v1/checklist/${own}`, headers: emp, payload: { done: true } })).statusCode).toBe(200);
+    expect((await a.inject({ method: 'DELETE', url: `/api/v1/checklist/${own}`, headers: emp })).statusCode).toBe(204);
   });
 });

@@ -1,5 +1,6 @@
 import type { PrismaClient, Comment } from '@prisma/client';
 import type { CommentRepository } from './comment-repository';
+import { projectAudienceIds } from './prisma-assignee-repository';
 
 function toRecord(c: Comment) {
   return { id: c.id, taskId: c.taskId, userId: c.userId, body: c.body, parentId: c.parentId, editedAt: c.editedAt, createdAt: c.createdAt };
@@ -23,6 +24,14 @@ export function createPrismaCommentRepository(prisma: PrismaClient): CommentRepo
     },
     async delete(id) {
       await prisma.comment.update({ where: { id }, data: { deletedAt: new Date() } });
+    },
+    async listMentionableUsernames(taskId) {
+      const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true } });
+      if (!task) return [];
+      const ids = await projectAudienceIds(prisma, task.projectId);
+      if (ids.length === 0) return [];
+      const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { username: true } });
+      return users.map((u) => u.username);
     },
   };
 }

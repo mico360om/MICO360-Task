@@ -32,6 +32,8 @@ export interface SearchableSelectProps {
  * Accessible, dependency-free combobox: a trigger button that opens a filterable option list.
  * Type to filter, click or Enter to select, arrow keys to move, Escape / click-outside to close.
  * A drop-in replacement for a native <select> where the option set benefits from search.
+ * After a choice, Escape or Tab, focus goes back to the trigger (the panel is portaled to
+ * <body>, so otherwise keyboard focus would fall to the end of the page).
  */
 export function SearchableSelect({
   options,
@@ -109,9 +111,15 @@ export function SearchableSelect({
     }
   }, [open]);
 
+  /** Close the panel and put keyboard focus back on the trigger. */
+  const closeToTrigger = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
   const choose = (v: string) => {
     onChange(v);
-    setOpen(false);
+    closeToTrigger();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -127,7 +135,11 @@ export function SearchableSelect({
       if (o) choose(o.value);
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      setOpen(false);
+      e.stopPropagation(); // close just this panel, not a dialog it sits in
+      closeToTrigger();
+    } else if (e.key === 'Tab') {
+      // Leave the (portaled) panel from where it was opened, so Tab continues through the form.
+      closeToTrigger();
     }
   };
 
@@ -144,7 +156,7 @@ export function SearchableSelect({
         onClick={() => !disabled && setOpen((o) => !o)}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-50"
       >
-        <span className={`truncate ${selected ? 'text-ink' : 'text-ink-2'}`}>{selected ? selected.label : placeholder}</span>
+        <span dir="auto" className={`truncate text-start ${selected ? 'text-ink' : 'text-ink-2'}`}>{selected ? selected.label : placeholder}</span>
         <span aria-hidden className="shrink-0 text-ink-2">▾</span>
       </button>
 
@@ -172,6 +184,7 @@ export function SearchableSelect({
             aria-autocomplete="list"
             value={query}
             placeholder="Type to filter…"
+            dir="auto"
             onChange={(e) => {
               setQuery(e.target.value);
               setActive(0);
@@ -195,7 +208,7 @@ export function SearchableSelect({
                       i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'
                     }`}
                   >
-                    <span className="truncate">{o.label}</span>
+                    <span dir="auto" className="truncate text-start">{o.label}</span>
                     {o.hint ? <span className="shrink-0 text-xs text-ink-2">{o.hint}</span> : null}
                   </button>
                 </li>

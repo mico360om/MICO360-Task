@@ -39,6 +39,42 @@ describe('SearchableSelect', () => {
     expect(onChange).toHaveBeenCalledWith('p2');
   });
 
+  it('returns focus to the trigger after a keyboard choice (WEB-16)', async () => {
+    render(<SearchableSelect options={opts} value="" onChange={() => {}} ariaLabel="Project" />);
+    const trigger = screen.getByRole('button', { name: /project/i });
+    await userEvent.click(trigger);
+    expect(screen.getByPlaceholderText(/type to filter/i)).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('returns focus to the trigger after a click choice or Escape (WEB-16)', async () => {
+    render(<SearchableSelect options={opts} value="" onChange={() => {}} ariaLabel="Project" />);
+    const trigger = screen.getByRole('button', { name: /project/i });
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole('option', { name: /mobile app/i }));
+    expect(trigger).toHaveFocus();
+
+    await userEvent.click(trigger);
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('closes on Tab and hands focus back to the trigger so tabbing continues through the form (WEB-16)', async () => {
+    render(
+      <>
+        <SearchableSelect options={opts} value="" onChange={() => {}} ariaLabel="Project" />
+        <button type="button">Next field</button>
+      </>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /project/i }));
+    await userEvent.tab();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /next field/i })).toHaveFocus();
+  });
+
   it('shows an empty-state when no option matches', async () => {
     render(<SearchableSelect options={opts} value="" onChange={() => {}} ariaLabel="Project" />);
     await userEvent.click(screen.getByRole('button', { name: /project/i }));

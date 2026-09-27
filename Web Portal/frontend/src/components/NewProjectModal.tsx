@@ -93,16 +93,16 @@ export function NewProjectModal({ onClose, onCreated }: NewProjectModalProps) {
             </div>
             <div className="col-span-2 flex flex-col gap-1.5">
               <FieldLabel htmlFor="np-name" required>Name</FieldLabel>
-              <input id="np-name" value={name} onChange={(e) => setName(e.target.value)} className={fieldClass(false)} />
+              <input id="np-name" dir="auto" value={name} onChange={(e) => setName(e.target.value)} className={fieldClass(false)} />
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="np-client">Client</FieldLabel>
-            <input id="np-client" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Optional" className={fieldClass(false)} />
+            <input id="np-client" dir="auto" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Optional" className={fieldClass(false)} />
           </div>
           <div className="flex flex-col gap-1.5">
             <FieldLabel htmlFor="np-desc">Description</FieldLabel>
-            <textarea id="np-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional" className={fieldClass(false)} />
+            <textarea id="np-desc" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional" className={fieldClass(false)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">

@@ -37,6 +37,8 @@ function noteRepo(): NoteRepository {
     async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
     async remove(id) { rows.delete(id); },
+    async claimTask(id, marker) { const r = rows.get(id); if (!r || r.taskId) return false; rows.set(id, { ...r, taskId: marker }); return true; },
+    async releaseTaskClaim(id, marker) { const r = rows.get(id); if (r && r.taskId === marker) rows.set(id, { ...r, taskId: null }); },
   };
 }
 
@@ -85,7 +87,7 @@ describe('Create Task from Note route', () => {
     expect(res.statusCode).toBe(201);
     expect(res.json().data.task.id).toBe('t1');
     expect(res.json().data.note.taskId).toBe('t1');
-    expect(createTaskFromNote).toHaveBeenCalledWith(mid, nid, 'u1', expect.objectContaining({ priority: 'HIGH' }));
+    expect(createTaskFromNote).toHaveBeenCalledWith(mid, nid, 'u1', expect.objectContaining({ priority: 'HIGH' }), expect.objectContaining({ canUseProject: expect.any(Function) }));
   });
 
   it('forbids an outsider (403) and never invokes the service', async () => {

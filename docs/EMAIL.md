@@ -22,10 +22,19 @@ Point a Mailjet **Event API** trigger at:
 POST https://<your-api>/api/v1/webhooks/mailjet?token=<MAILJET_WEBHOOK_TOKEN>
 ```
 
-The endpoint records each event (delivered/open/click/bounce/spam/blocked) in `email_log`.
-Any address that **hard-bounces, is marked spam, or is blocked** is thereafter **suppressed** —
-`EmailService` checks suppression and silently skips sending to it, protecting the sender
-reputation. Set `MAILJET_WEBHOOK_TOKEN` so only Mailjet can post events.
+The token can also be sent as the HTTP Basic password. It is compared in constant time, and in
+production the webhook refuses every event (503) until `MAILJET_WEBHOOK_TOKEN` is set.
+
+The endpoint records each event in `email_log`. Only a **hard bounce** (Mailjet's
+`hard_bounce: true`) or a **spam complaint** suppresses an address; soft bounces are recorded as
+failures and unsubscribes are ignored. Suppression lasts **90 days**, then sending resumes.
+Suppressed addresses are skipped for ordinary notifications, but sign-in codes, password-reset
+links and account-activation emails are always attempted (with a warning in the log), so a
+suppression can never lock someone out.
+
+Every send attempt is recorded as SENT or FAILED. A provider error is no longer swallowed: the
+API reports it (e.g. meeting invitations return how many were sent and how many failed), and with
+no Mailjet keys configured, email-dependent actions answer 503 `EMAIL_NOT_CONFIGURED`.
 
 ## Testing
 

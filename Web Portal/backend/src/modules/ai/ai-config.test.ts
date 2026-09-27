@@ -40,6 +40,25 @@ describe('ai-config: providers', () => {
     expect(() => addProvider(emptyConfig(), { name: 'x', kind: 'nope', apiBaseUrl: 'https://x' }, meta('p'))).toThrow(ValidationError);
   });
 
+  it('refuses internal / private provider hosts unless explicitly allowed (SSRF)', () => {
+    for (const url of ['http://localhost:11434', 'http://127.0.0.1:3306', 'http://169.254.169.254/latest', 'http://10.0.0.5', 'http://[::1]:8080', 'http://mysql:3306', 'http://admin.internal']) {
+      expect(() => addProvider(emptyConfig(), { name: 'x', kind: 'custom', apiBaseUrl: url }, meta('p'))).toThrow(ValidationError);
+    }
+    const local = addProvider(emptyConfig(), { name: 'Ollama', kind: 'ollama', apiBaseUrl: 'http://localhost:11434' }, meta('p'), { allowPrivateHosts: true });
+    expect(local.provider.apiBaseUrl).toBe('http://localhost:11434');
+  });
+
+  it('refuses credentials embedded in the URL', () => {
+    expect(() => addProvider(emptyConfig(), { name: 'x', kind: 'openai', apiBaseUrl: 'https://user:pw@api.openai.com/v1' }, meta('p'))).toThrow(ValidationError);
+  });
+
+  it('validates the URL on update too (editing used to skip the check)', () => {
+    const cfg = seed();
+    expect(() => updateProvider(cfg, 'p1', { apiBaseUrl: 'ftp://x' }, 'now')).toThrow(ValidationError);
+    expect(() => updateProvider(cfg, 'p1', { apiBaseUrl: 'http://169.254.169.254' }, 'now')).toThrow(ValidationError);
+    expect(updateProvider(cfg, 'p1', { apiBaseUrl: 'https://api.openai.com/v2/' }, 'now').providers[0]!.apiBaseUrl).toBe('https://api.openai.com/v2');
+  });
+
   it('updateProvider only overwrites the API key when a non-empty one is given', () => {
     let cfg = seed();
     cfg = updateProvider(cfg, 'p1', { apiKey: '' }, 'now'); // blank must NOT wipe the key

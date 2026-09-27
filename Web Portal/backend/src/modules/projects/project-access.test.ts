@@ -61,13 +61,12 @@ describe('ProjectAccess', () => {
     expect(await access.canViewColumn('emp1', ['EMPLOYEE'], 'ghost')).toBe(false);
   });
 
-  it('lets an assignee view a task even in a project they don’t belong to', async () => {
-    // emp1 is NOT a member of p2, but is assigned task t2.
+  it('does not let an assignment grant access to a project the user doesn’t belong to', async () => {
+    // emp1 is NOT a member of p2 but is (still) assigned task t2 — e.g. they left the project.
     const withAssignee = make({ p1: ['emp1'], p2: ['emp2'] }, { t1: 'p1', t2: 'p2' }, { c1: 'p1' }, { t2: ['emp1'] });
-    expect(await withAssignee.canViewTask('emp1', ['EMPLOYEE'], 't2')).toBe(true);
-    // …but still can't view the project itself or an unassigned task there.
+    expect(await withAssignee.canViewTask('emp1', ['EMPLOYEE'], 't2')).toBe(false);
     expect(await withAssignee.canViewProject('emp1', ['EMPLOYEE'], 'p2')).toBe(false);
-    expect(await withAssignee.canViewTask('emp1', ['EMPLOYEE'], 't1')).toBe(true); // owns via p1 membership
+    expect(await withAssignee.canViewTask('emp1', ['EMPLOYEE'], 't1')).toBe(true); // via p1 membership
   });
 
   it('lists only the projects a user belongs to', async () => {

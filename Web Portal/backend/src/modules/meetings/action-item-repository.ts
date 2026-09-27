@@ -56,6 +56,7 @@ export interface ActionItemRepository {
   create(data: CreateActionItemData): Promise<ActionItemRecord>;
   findById(id: string): Promise<ActionItemRecord | null>;
   listByMeeting(meetingId: string): Promise<ActionItemRecord[]>;
+  /** A user's own items across meetings — excluding items whose meeting was deleted. */
   listForAssignee(userId: string, filter?: AssigneeListFilter): Promise<ActionItemRecord[]>;
   update(id: string, patch: UpdateActionItemData): Promise<ActionItemRecord>;
   remove(id: string): Promise<void>;

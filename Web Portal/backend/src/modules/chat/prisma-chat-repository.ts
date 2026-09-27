@@ -41,6 +41,11 @@ export function createPrismaConversationRepository(prisma: PrismaClient): Conver
       const cs = await prisma.conversation.findMany({ where: { id: { in: ids } } });
       return cs.map(toConv);
     },
+    async listProjectConversations(projectIds) {
+      if (projectIds.length === 0) return [];
+      const cs = await prisma.conversation.findMany({ where: { kind: 'PROJECT', projectId: { in: projectIds } } });
+      return cs.map(toConv);
+    },
   };
 }
 
@@ -52,6 +57,9 @@ export function createPrismaParticipantRepository(prisma: PrismaClient): Partici
         create: { conversationId, userId },
         update: {},
       });
+    },
+    async remove(conversationId, userId) {
+      await prisma.conversationParticipant.deleteMany({ where: { conversationId, userId } });
     },
     async find(conversationId, userId) {
       return prisma.conversationParticipant.findUnique({ where: { conversationId_userId: { conversationId, userId } } });
@@ -92,7 +100,8 @@ export function createPrismaMessageRepository(prisma: PrismaClient): MessageRepo
       return prisma.chatMessage.update({ where: { id }, data: { body, editedAt: new Date() } });
     },
     async softDelete(id) {
-      return prisma.chatMessage.update({ where: { id }, data: { deletedAt: new Date() } });
+      // The text goes with the delete — a tombstone must not keep what the author retracted.
+      return prisma.chatMessage.update({ where: { id }, data: { deletedAt: new Date(), body: '' } });
     },
     async countAfter(conversationId, after, excludeUserId) {
       return prisma.chatMessage.count({
@@ -145,16 +154,41 @@ export function createPrismaChatAttachmentRepository(prisma: PrismaClient): Chat
   };
 }
 
-/** Chat access derives from project membership (a project's channel is for its members). */
+/**
+ * Chat access follows project visibility — the owner, manager, creator and members of a live
+ * project, plus admins (read from the database, so a revoked admin role takes effect at once).
+ */
 export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLookup {
+  const visibleTo = (userId: string) => [
+    { ownerId: userId },
+    { managerId: userId },
+    { createdById: userId },
+    { members: { some: { userId } } },
+  ];
+  async function isAdmin(userId: string): Promise<boolean> {
+    const row = await prisma.userRole.findFirst({
+      where: { userId, role: { name: 'ADMIN' }, user: { deletedAt: null, status: 'ACTIVE' } },
+      select: { userId: true },
+    });
+    return row !== null;
+  }
   return {
-    async isProjectMember(projectId, userId) {
-      const m = await prisma.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } } });
-      return m !== null;
+    async canAccessProject(projectId, userId) {
+      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: { id: true, ownerId: true, managerId: true, createdById: true } });
+      if (!p) return false;
+      if (p.ownerId === userId || p.managerId === userId || p.createdById === userId) return true;
+      const member = await prisma.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } }, select: { userId: true } });
+      if (member) return true;
+      return isAdmin(userId);
     },
-    async projectIdsForUser(userId) {
-      const rows = await prisma.projectMember.findMany({ where: { userId }, select: { projectId: true } });
-      return rows.map((r) => r.projectId);
+    async accessibleProjectIds(userId) {
+      const where = (await isAdmin(userId)) ? { deletedAt: null } : { deletedAt: null, OR: visibleTo(userId) };
+      const rows = await prisma.project.findMany({ where, select: { id: true } });
+      return rows.map((r) => r.id);
+    },
+    async isActiveUser(userId) {
+      const u = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
+      return u !== null;
     },
   };
 }

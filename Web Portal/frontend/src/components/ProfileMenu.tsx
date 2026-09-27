@@ -2,14 +2,31 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { assetUrl } from '../api/client';
 import { useAuthStore } from '../stores/auth-store';
+import { failedChanges, pendingCount } from '../lib/offline-replay';
 
 /** Header account button + dropdown menu: identity, profile, settings and log out. */
 export function ProfileMenu() {
   const { user, isAdmin, logout } = useAuthStore();
   const [open, setOpen] = useState(false);
+  // Unsynced offline changes are discarded on sign-out, so ask first when there are any.
+  const [confirmUnsynced, setConfirmUnsynced] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const initials = (user?.username ?? '?').slice(0, 2).toUpperCase();
   const admin = isAdmin();
+
+  useEffect(() => {
+    if (!open) setConfirmUnsynced(null);
+  }, [open]);
+
+  function signOut(force = false) {
+    const unsynced = pendingCount() + failedChanges().length;
+    if (unsynced > 0 && !force) {
+      setConfirmUnsynced(unsynced);
+      return;
+    }
+    setOpen(false);
+    logout('user');
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +64,7 @@ export function ProfileMenu() {
         className="flex items-center gap-2 rounded-full py-0.5 pl-0.5 pr-1 transition-colors hover:bg-ground sm:pr-2"
       >
         {avatar('h-8 w-8')}
-        <span className="hidden text-sm font-medium text-ink xl:inline">{user?.username}</span>
+        <span dir="auto" className="hidden text-sm font-medium text-ink xl:inline">{user?.username}</span>
         <svg className="hidden text-ink-2 xl:block" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M6 9l6 6 6-6" />
         </svg>
@@ -58,7 +75,7 @@ export function ProfileMenu() {
           <div className="flex items-center gap-2.5 border-b border-line px-3 py-3">
             {avatar('h-10 w-10')}
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-ink">{user?.username}</p>
+              <p dir="auto" className="truncate text-sm font-semibold text-ink">{user?.username}</p>
               <p className="truncate text-xs text-ink-2">{user?.email}</p>
               <span className="mt-0.5 inline-block rounded bg-ground px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-2">
                 {admin ? 'Administrator' : 'Employee'}
@@ -80,10 +97,26 @@ export function ProfileMenu() {
             </Link>
           </div>
           <div className="border-t border-line p-1.5">
+            {confirmUnsynced !== null ? (
+              <div role="alert" className="mb-1.5 rounded-lg bg-warning-soft px-2.5 py-2 text-xs text-warning">
+                <p>
+                  {confirmUnsynced} change{confirmUnsynced === 1 ? '' : 's'} made offline {confirmUnsynced === 1 ? 'hasn’t' : 'haven’t'} synced yet and will be
+                  lost if you log out now.
+                </p>
+                <div className="mt-1.5 flex gap-2">
+                  <button type="button" onClick={() => signOut(true)} className="rounded-md bg-danger px-2 py-1 font-semibold text-white">
+                    Log out anyway
+                  </button>
+                  <button type="button" onClick={() => setConfirmUnsynced(null)} className="rounded-md px-2 py-1 font-medium text-ink-2 hover:bg-ground">
+                    Stay signed in
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <button
               type="button"
               role="menuitem"
-              onClick={() => { setOpen(false); logout(); }}
+              onClick={() => signOut()}
               className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger-soft"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

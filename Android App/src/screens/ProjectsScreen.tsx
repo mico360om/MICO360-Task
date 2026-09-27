@@ -22,7 +22,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
       >
         {isError && !projects ? (
-          <ErrorNote message="Couldn't load your projects. Pull down to retry." />
+          <ErrorNote message="Couldn't load your projects." onRetry={() => void refetch()} retrying={isRefetching} />
         ) : (projects ?? []).length === 0 ? (
           <EmptyState title="No projects" subtitle="Projects you can access will appear here." />
         ) : (

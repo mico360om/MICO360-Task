@@ -64,5 +64,14 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
     async remove(id) {
       await prisma.meetingNote.delete({ where: { id } });
     },
+
+    async claimTask(id, marker) {
+      const { count } = await prisma.meetingNote.updateMany({ where: { id, taskId: null }, data: { taskId: marker } });
+      return count === 1;
+    },
+
+    async releaseTaskClaim(id, marker) {
+      await prisma.meetingNote.updateMany({ where: { id, taskId: marker }, data: { taskId: null } });
+    },
   };
 }

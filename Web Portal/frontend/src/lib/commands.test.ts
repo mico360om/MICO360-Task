@@ -33,8 +33,14 @@ describe('parseCommand', () => {
 
 describe('matchNavCommands', () => {
   it('fuzzy-matches page names and keywords', () => {
-    const m = matchNavCommands('rep', false);
+    const m = matchNavCommands('rep', true);
     expect(m.some((c) => c.to === '/reports')).toBe(true);
+    expect(matchNavCommands('cal', false).some((c) => c.to === '/calendar')).toBe(true);
+  });
+
+  it('hides Reports (admin-only) from non-admins', () => {
+    expect(matchNavCommands('reports', false).some((c) => c.to === '/reports')).toBe(false);
+    expect(parseCommand('go to reports', false)).toBeNull();
   });
 
   it('hides admin destinations from non-admins but shows them to admins', () => {

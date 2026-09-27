@@ -10,7 +10,17 @@ describe('LoginForm', () => {
     await userEvent.type(screen.getByLabelText(/email or username/i), 'ada');
     await userEvent.type(screen.getByLabelText(/password/i), 'CorrectHorse1');
     await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
-    expect(onSubmit).toHaveBeenCalledWith('ada', 'CorrectHorse1');
+    expect(onSubmit).toHaveBeenCalledWith('ada', 'CorrectHorse1', true);
+  });
+
+  it('passes "Keep me signed in" = false when the box is unticked', async () => {
+    const onSubmit = vi.fn();
+    render(<LoginForm onSubmit={onSubmit} />);
+    await userEvent.type(screen.getByLabelText(/email or username/i), 'ada');
+    await userEvent.type(screen.getByLabelText(/password/i), 'CorrectHorse1');
+    await userEvent.click(screen.getByRole('checkbox', { name: /keep me signed in/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
+    expect(onSubmit).toHaveBeenCalledWith('ada', 'CorrectHorse1', false);
   });
 
   it('renders an error message when provided', () => {
@@ -39,7 +49,7 @@ describe('LoginForm', () => {
     await userEvent.type(screen.getByLabelText(/email or username/i), 'ada@example.com');
     await userEvent.type(screen.getByLabelText(/one-time code/i), '123456');
     await userEvent.click(screen.getByRole('button', { name: /verify/i }));
-    expect(onVerifyCode).toHaveBeenCalledWith('ada@example.com', '123456');
+    expect(onVerifyCode).toHaveBeenCalledWith('ada@example.com', '123456', true);
   });
 
   it('shows a distinct locked-account callout for ACCOUNT_LOCKED', () => {
@@ -53,5 +63,16 @@ describe('LoginForm', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(/locked/i);
     expect(alert).toHaveTextContent(/reset your password/i);
+  });
+
+  it('tells a locked-out user when they can try again', () => {
+    render(<LoginForm onSubmit={vi.fn()} error="Account locked." errorCode="ACCOUNT_LOCKED" lockedForSeconds={600} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Too many attempts. Try again in 10 minutes.');
+  });
+
+  it('hides the email-code option when email sign-in is unavailable', () => {
+    render(<LoginForm onSubmit={vi.fn()} />);
+    expect(screen.queryByRole('tab', { name: /email code/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/one-time email code/i)).not.toBeInTheDocument();
   });
 });

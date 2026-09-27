@@ -2,20 +2,40 @@
   "expo": {
     "name": "MICO360 Tasks",
     "slug": "mico360-tasks",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "scheme": "mico360",
     "userInterfaceStyle": "automatic",
     "primaryColor": "#8B1E1E",
     "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#8B1E1E"
+    },
     "android": {
       "package": "com.mico360.tasks",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#8B1E1E"
       },
-      "permissions": ["INTERNET", "POST_NOTIFICATIONS"]
+      "permissions": ["INTERNET", "POST_NOTIFICATIONS"],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "allowBackup": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "task.mico360.com", "path": "/reset" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
-    "plugins": ["expo-secure-store", "expo-notifications", "@sentry/react-native/expo"]
+    "plugins": ["expo-secure-store", "expo-notifications", "@sentry/react-native/expo", "./plugins/with-lan-cleartext"]
   }
 }

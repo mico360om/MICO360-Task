@@ -14,7 +14,7 @@ export function createPrismaResetUserRepo(prisma: PrismaClient): ResetUserRepo {
     async setPasswordAndUnlock(userId, passwordHash) {
       await prisma.user.update({
         where: { id: userId },
-        data: { passwordHash, failedLoginAttempts: 0, lockedUntil: null },
+        data: { passwordHash, failedLoginAttempts: 0, lockedUntil: null, tokenVersion: { increment: 1 } },
       });
     },
   };

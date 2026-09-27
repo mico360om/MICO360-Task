@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { StatTile } from '../components/StatTile';
@@ -7,14 +7,15 @@ import { BarChart } from '../components/BarChart';
 import { LineChart } from '../components/LineChart';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { apiClient } from '../api/client';
-import { reportsApi, type ReportFormat, type ReportKind } from '../api/reports';
+import { reportsApi, type ReportFilters, type ReportFormat, type ReportKind } from '../api/reports';
 import { downloadBlob } from '../lib/download';
+import { todayKey as companyTodayKey, shiftDayKey } from '../lib/due-date';
+import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 
-// ── Date-range helpers (UTC day keys, matching the server's buckets) ──
+// ── Date-range helpers: 'YYYY-MM-DD' day keys, where "today" is the company's today ──
 const DAY_MS = 86_400_000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const todayKey = () => new Date().toISOString().slice(0, 10);
-const shiftKey = (key: string, deltaDays: number) => new Date(Date.parse(`${key}T00:00:00Z`) + deltaDays * DAY_MS).toISOString().slice(0, 10);
+const shiftKey = shiftDayKey;
 /** "2000-01-05" → "Jan 5" (timezone-safe, no Date parsing). */
 const shortDay = (key: string) => {
   const [, m, d] = key.split('-');
@@ -80,25 +81,48 @@ function PctBar({ pct }: { pct: number }) {
 }
 
 export function ReportsPage() {
-  const projectsQ = useQuery({ queryKey: ['report-projects'], queryFn: () => reportsApi(apiClient).projectPerformance() });
-  const statusQ = useQuery({ queryKey: ['report-status'], queryFn: () => reportsApi(apiClient).status() });
-  const workloadQ = useQuery({ queryKey: ['report-workload'], queryFn: () => reportsApi(apiClient).workload() });
-  const completionQ = useQuery({ queryKey: ['report-completion'], queryFn: () => reportsApi(apiClient).completion() });
+  const timeZone = useCompanyTimeZone();
+  const todayKey = () => companyTodayKey(timeZone);
 
   const [exportKind, setExportKind] = useState<ReportKind>('projects');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
-  const [to, setTo] = useState(todayKey());
-  const [from, setFrom] = useState(shiftKey(todayKey(), -29));
+  const [to, setTo] = useState(() => todayKey());
+  const [from, setFrom] = useState(() => shiftKey(todayKey(), -29));
+
+  // If the company zone arrives after first render and the user hasn't picked a range, re-anchor "today".
+  const rangeTouched = useRef(false);
+  const zoneUsed = useRef(timeZone);
+  useEffect(() => {
+    if (zoneUsed.current === timeZone) return;
+    zoneUsed.current = timeZone;
+    if (rangeTouched.current) return;
+    const t = companyTodayKey(timeZone);
+    setTo(t);
+    setFrom(shiftKey(t, -29));
+  }, [timeZone]);
+
+  // One filter object drives every chart, tile, table and export on the page.
+  const filters: ReportFilters = { projectId: projectFilter || undefined, userId: teamFilter || undefined };
+  const keep = { placeholderData: keepPreviousData };
+  const projectsQ = useQuery({ queryKey: ['report-projects', filters], queryFn: () => reportsApi(apiClient).projectPerformance(filters), ...keep });
+  const statusQ = useQuery({ queryKey: ['report-status', filters], queryFn: () => reportsApi(apiClient).status(filters), ...keep });
+  const workloadQ = useQuery({ queryKey: ['report-workload', filters], queryFn: () => reportsApi(apiClient).workload(filters), ...keep });
+  const completionQ = useQuery({ queryKey: ['report-completion', filters], queryFn: () => reportsApi(apiClient).completion(filters), ...keep });
+  // Unfiltered lists that feed the filter pickers (the same cache entries when no filter is set).
+  const projectOptionsQ = useQuery({ queryKey: ['report-projects', {}], queryFn: () => reportsApi(apiClient).projectPerformance() });
+  const teamOptionsQ = useQuery({ queryKey: ['report-workload', {}], queryFn: () => reportsApi(apiClient).workload() });
 
   const trendsQ = useQuery({
-    queryKey: ['report-timeseries', from, to, projectFilter],
-    queryFn: () => reportsApi(apiClient).timeSeries({ from, to, projectId: projectFilter || undefined }),
+    queryKey: ['report-timeseries', from, to, filters],
+    queryFn: () => reportsApi(apiClient).timeSeries({ from, to, ...filters }),
+    ...keep,
   });
 
   function setPreset(days: number) {
+    rangeTouched.current = true;
     const t = todayKey();
     setTo(t);
     setFrom(shiftKey(t, -(days - 1)));
@@ -108,7 +132,8 @@ export function ReportsPage() {
     setExporting(format);
     setExportError(null);
     try {
-      const params = exportKind === 'timeseries' ? { from, to, projectId: projectFilter || undefined } : {};
+      // Every export honours the project/team filters; the trend export also takes the date range.
+      const params = { ...filters, ...(exportKind === 'timeseries' ? { from, to } : {}) };
       const blob = await reportsApi(apiClient).exportFile(exportKind, format, params);
       const file = EXPORT_REPORTS.find((r) => r.value === exportKind)?.file ?? exportKind;
       downloadBlob(`${file}.${ext}`, blob);
@@ -119,8 +144,11 @@ export function ReportsPage() {
     }
   }
 
-  const allRows = projectsQ.data ?? [];
-  const projectOptions = [{ value: '', label: 'All projects' }, ...allRows.map((r) => ({ value: r.projectId, label: r.projectName }))];
+  const optionRows = Array.isArray(projectOptionsQ.data) ? projectOptionsQ.data : [];
+  const projectOptions = [{ value: '', label: 'All projects' }, ...optionRows.map((r) => ({ value: r.projectId, label: r.projectName }))];
+  const projectLabel = (id: string) => optionRows.find((r) => r.projectId === id)?.projectName ?? 'Selected project';
+  const allRows = Array.isArray(projectsQ.data) ? projectsQ.data : [];
+  // Also narrow on the client, so the table is right even before the server applies the filter.
   const rows = projectFilter ? allRows.filter((r) => r.projectId === projectFilter) : allRows;
   const totals = rows.reduce(
     (a, r) => ({ total: a.total + r.total, completed: a.completed + r.completed, overdue: a.overdue + r.overdue }),
@@ -131,8 +159,10 @@ export function ReportsPage() {
   const statusBars = Object.entries(statusQ.data ?? {})
     .map(([cat, n]) => ({ label: CATEGORY[cat]?.label ?? cat, value: n, color: CATEGORY[cat]?.color }))
     .sort((a, b) => b.value - a.value);
-  const allWorkload = [...(workloadQ.data ?? [])].sort((a, b) => b.assigned - a.assigned);
-  const teamOptions = [{ value: '', label: 'All team' }, ...allWorkload.map((w) => ({ value: w.userId, label: w.username }))];
+  const allWorkload = [...(Array.isArray(workloadQ.data) ? workloadQ.data : [])].sort((a, b) => b.assigned - a.assigned);
+  const teamRows = Array.isArray(teamOptionsQ.data) ? teamOptionsQ.data : [];
+  const teamOptions = [{ value: '', label: 'All team' }, ...teamRows.map((w) => ({ value: w.userId, label: w.username }))];
+  const teamLabel = (id: string) => teamRows.find((w) => w.userId === id)?.username ?? 'Selected member';
   const workload = teamFilter ? allWorkload.filter((w) => w.userId === teamFilter) : allWorkload;
   const workloadBars = workload.map((w) => ({ label: w.username, value: w.assigned }));
   const filtersActive = !!(projectFilter || teamFilter);
@@ -213,7 +243,12 @@ export function ReportsPage() {
             {filtersActive ? (
               <button onClick={() => { setProjectFilter(''); setTeamFilter(''); }} className="rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
             ) : null}
-            {projectFilter ? <span className="ml-auto text-xs text-ink-3">Project scope · {allRows.find((r) => r.projectId === projectFilter)?.projectName}</span> : null}
+            {filtersActive ? (
+              <span dir="auto" className="ml-auto text-xs text-ink-3">
+                Showing {projectFilter ? projectLabel(projectFilter) : 'all projects'}
+                {teamFilter ? ` · ${teamLabel(teamFilter)}’s tasks` : ''} — charts, tiles and exports
+              </span>
+            ) : null}
           </div>
 
           {/* Summary tiles */}
@@ -228,11 +263,15 @@ export function ReportsPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="card p-5">
               <h2 className="eyebrow mb-3">Tasks by status</h2>
-              <BarChart data={statusBars} />
+              <BarChart data={statusBars} ariaLabel="Tasks by status" />
             </section>
             <section className="card p-5">
               <h2 className="eyebrow mb-4">On-time delivery</h2>
-              {completion ? (
+              {completionQ.isError && !completion ? (
+                <p role="alert" className="text-sm text-danger">
+                  Couldn’t load on-time data. <button className="font-semibold underline" onClick={() => void completionQ.refetch()}>Retry</button>
+                </p>
+              ) : completion ? (
                 <div className="flex flex-col gap-4">
                   <div className="flex items-end gap-6">
                     <div><div className="font-display text-3xl font-bold text-success">{completion.onTime}</div><div className="text-xs text-ink-2">On time</div></div>
@@ -259,7 +298,8 @@ export function ReportsPage() {
                 <h2 className="eyebrow">Trends &amp; burndown</h2>
                 <p className="mt-0.5 text-xs text-ink-3">
                   {shortDay(from)} – {shortDay(to)}
-                  {projectFilter ? ` · ${allRows.find((r) => r.projectId === projectFilter)?.projectName}` : ' · all projects'}
+                  {projectFilter ? ` · ${projectLabel(projectFilter)}` : ' · all projects'}
+                  {teamFilter ? ` · ${teamLabel(teamFilter)}` : ''}
                 </p>
               </div>
               <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -277,9 +317,9 @@ export function ReportsPage() {
                     );
                   })}
                 </div>
-                <input type="date" aria-label="From date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
+                <input type="date" aria-label="From date" value={from} max={to} onChange={(e) => { if (e.target.value) { rangeTouched.current = true; setFrom(e.target.value); } }} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
                 <span className="text-xs text-ink-3">to</span>
-                <input type="date" aria-label="To date" value={to} min={from} max={todayKey()} onChange={(e) => e.target.value && setTo(e.target.value)} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
+                <input type="date" aria-label="To date" value={to} min={from} max={todayKey()} onChange={(e) => { if (e.target.value) { rangeTouched.current = true; setTo(e.target.value); } }} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
               </div>
             </div>
 
@@ -317,7 +357,7 @@ export function ReportsPage() {
                   <div>
                     <h3 className="mb-1 text-sm font-semibold text-ink">Velocity</h3>
                     <p className="mb-2 text-xs text-ink-3">Tasks completed per week ({velocityPerWeek}/wk average).</p>
-                    <BarChart data={velocityBars} />
+                    <BarChart data={velocityBars} ariaLabel="Tasks completed per week" />
                   </div>
                 </div>
               </>
@@ -344,7 +384,7 @@ export function ReportsPage() {
                 <tbody>
                   {[...rows].sort((a, b) => b.completionPct - a.completionPct).map((r) => (
                     <tr key={r.projectId} className="border-b border-line last:border-0">
-                      <td className="p-3 font-medium text-ink">{r.projectName}</td>
+                      <td dir="auto" className="p-3 text-start font-medium text-ink">{r.projectName}</td>
                       <td className="p-3 text-right tabular-nums">{r.total}</td>
                       <td className="p-3 text-right tabular-nums text-success">{r.completed}</td>
                       <td className="p-3 text-right tabular-nums">{r.total - r.completed}</td>
@@ -359,14 +399,18 @@ export function ReportsPage() {
 
           {/* Employee workload */}
           <section className="card overflow-x-auto">
-            <h2 className="eyebrow p-4 pb-0">Employee workload {teamFilter ? `· ${allWorkload.find((w) => w.userId === teamFilter)?.username}` : ''}</h2>
-            {workload.length === 0 ? (
+            <h2 className="eyebrow p-4 pb-0">Employee workload {teamFilter ? `· ${teamLabel(teamFilter)}` : ''}</h2>
+            {workloadQ.isError && workload.length === 0 ? (
+              <p role="alert" className="p-4 text-sm text-danger">
+                Couldn’t load workload. <button className="font-semibold underline" onClick={() => void workloadQ.refetch()}>Retry</button>
+              </p>
+            ) : workload.length === 0 ? (
               <p className="p-4 text-sm text-ink-2">No workload data.</p>
             ) : (
               <>
                 <div className="border-b border-line p-4">
                   <p className="mb-2 text-xs font-medium text-ink-2">Assigned tasks by team member</p>
-                  <BarChart data={workloadBars} />
+                  <BarChart data={workloadBars} ariaLabel="Assigned tasks by team member" />
                 </div>
                 <table className="w-full text-sm">
                 <thead>

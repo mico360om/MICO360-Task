@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BulkActionBar } from './BulkActionBar';
 
@@ -54,5 +54,29 @@ describe('BulkActionBar', () => {
     render(<BulkActionBar {...baseProps} onClear={onClear} />);
     await userEvent.click(screen.getByRole('button', { name: /clear selection/i }));
     expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('never applies a date while it is being typed — only on "Set date", and only a complete date', async () => {
+    const onSetDueDate = vi.fn();
+    render(<BulkActionBar {...baseProps} onSetDueDate={onSetDueDate} />);
+    const input = screen.getByLabelText(/due date for selected tasks/i);
+    const setBtn = screen.getByRole('button', { name: /set date/i });
+    fireEvent.change(input, { target: { value: '0002-10-05' } }); // half-typed year
+    expect(onSetDueDate).not.toHaveBeenCalled();
+    expect(setBtn).toBeDisabled();
+    fireEvent.change(input, { target: { value: '2026-10-05' } });
+    expect(onSetDueDate).not.toHaveBeenCalled();
+    await userEvent.click(setBtn);
+    expect(onSetDueDate).toHaveBeenCalledWith('2026-10-05');
+  });
+
+  it('asks for confirmation before clearing every selected due date', async () => {
+    const onSetDueDate = vi.fn();
+    render(<BulkActionBar {...baseProps} onSetDueDate={onSetDueDate} />);
+    await userEvent.click(screen.getByRole('button', { name: /clear date/i }));
+    expect(onSetDueDate).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/clear the due date on 2 tasks/i);
+    await userEvent.click(screen.getByRole('button', { name: /^clear dates$/i }));
+    expect(onSetDueDate).toHaveBeenCalledWith(null);
   });
 });

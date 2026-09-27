@@ -52,7 +52,17 @@ export interface UpdateProjectData {
   notes?: string | null;
 }
 
+/** The board every new project starts with (positions 0..n, in this order). */
+export const DEFAULT_COLUMNS = [
+  { name: 'Backlog', category: 'BACKLOG', color: '#948985' },
+  { name: 'To Do', category: 'TODO', color: '#3A6EA5' },
+  { name: 'In Progress', category: 'IN_PROGRESS', color: '#B87611' },
+  { name: 'Review', category: 'REVIEW', color: '#7A5AA8' },
+  { name: 'Done', category: 'DONE', color: '#2E7D53' },
+] as const;
+
 export interface ProjectRepository {
+  /** Create a project together with its DEFAULT_COLUMNS, in one transaction. */
   create(data: CreateProjectData): Promise<ProjectRecord>;
   findById(id: string): Promise<ProjectRecord | null>;
   findByCode(code: string): Promise<ProjectRecord | null>;

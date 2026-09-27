@@ -1,15 +1,24 @@
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
-import type { MessageService } from './message-service';
+import { MAX_MESSAGE_LENGTH, type MessageService } from './message-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { sniffMime, SNIFFABLE } from '../../lib/magic-mime';
 import { ValidationError } from '../../lib/http-errors';
 
-const sendSchema = z.object({ body: z.string().min(1).max(4000) });
-const editSchema = z.object({ body: z.string().min(1).max(4000) });
+const sendSchema = z.object({ body: z.string().min(1).max(MAX_MESSAGE_LENGTH) });
+const editSchema = z.object({ body: z.string().min(1).max(MAX_MESSAGE_LENGTH) });
 const directSchema = z.object({ userId: z.string().min(1) });
 const reactionSchema = z.object({ emoji: z.string().min(1).max(32) });
+// Paging: an unparseable cursor or limit is a 400, not a 500.
+const historyQuery = z.object({
+  before: z
+    .string()
+    .refine((v) => !Number.isNaN(Date.parse(v)), { message: 'before must be an ISO date-time.' })
+    .transform((v) => new Date(v))
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
 
 export interface ChatRouteDeps {
   messageService: MessageService;
@@ -61,9 +70,7 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
   // Paginated message history (newest loaded, older via ?before=<ISO>).
   app.get('/conversations/:id/messages', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
-    const q = req.query as { before?: string; limit?: string };
-    const before = q.before ? new Date(q.before) : undefined;
-    const limit = q.limit ? Math.min(100, Math.max(1, Number(q.limit))) : undefined;
+    const { before, limit } = historyQuery.parse(req.query);
     const { messages } = await chat.listMessages(id, req.user!.id, { before, limit });
     return { data: messages };
   });
@@ -87,7 +94,10 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
   // Upload a file as a message attachment (multipart). Optional text caption in a `body` field.
   app.post('/conversations/:id/attachments', { preHandler: guard.authenticate }, async (req, reply) => {
     if (!deps.storage) throw new ValidationError('Attachments are not enabled.');
+    const storage = deps.storage;
     const { id } = req.params as { id: string };
+    // Access first: an unknown or forbidden conversation must never cost a file on disk.
+    await chat.assertCanPost(id, req.user!.id);
     const file = await req.file();
     if (!file) throw new ValidationError('No file uploaded.');
     const content = await file.toBuffer();
@@ -100,15 +110,23 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
       const actual = sniffMime(content);
       if (actual !== file.mimetype) throw new ValidationError(`File content does not match its declared type (${file.mimetype}).`);
     }
-    const stored = await deps.storage.save({ filename: file.filename, mimeType: file.mimetype, content });
     const captionField = file.fields?.body;
     const caption = captionField && !Array.isArray(captionField) && 'value' in captionField && typeof captionField.value === 'string' ? captionField.value : '';
-    const message = await chat.sendMessage(id, req.user!.id, caption, {
-      fileName: file.filename,
-      mimeType: file.mimetype,
-      sizeBytes: stored.sizeBytes,
-      storageKey: stored.storageKey,
-    });
+    if (caption.trim().length > MAX_MESSAGE_LENGTH) throw new ValidationError(`A caption can be at most ${MAX_MESSAGE_LENGTH} characters.`);
+    const stored = await storage.save({ filename: file.filename, mimeType: file.mimetype, content });
+    let message;
+    try {
+      message = await chat.sendMessage(id, req.user!.id, caption, {
+        fileName: file.filename,
+        mimeType: file.mimetype,
+        sizeBytes: stored.sizeBytes,
+        storageKey: stored.storageKey,
+      });
+    } catch (err) {
+      // No message, no file: don't leave an orphan upload behind.
+      await storage.remove(stored.storageKey).catch(() => {});
+      throw err;
+    }
     await announce(id, 'chat:message', { conversationId: id, message });
     return reply.status(201).send({ data: message });
   });

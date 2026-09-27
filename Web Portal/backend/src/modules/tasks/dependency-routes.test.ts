@@ -86,3 +86,38 @@ describe('Dependency routes', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe('Dependency routes — both ends must be visible', () => {
+  // u1 can see t1 and t2; t3 lives in a project u1 is not in.
+  const visible = new Set(['t1', 't2']);
+  const projectAccess = {
+    async canViewProject() { return true; },
+    async canViewTask(userId: string, roles: string[], taskId: string) { return roles.includes('ADMIN') || visible.has(taskId); },
+    async canViewColumn() { return true; },
+    async accessibleProjectIds() { return null; },
+  };
+  async function build() {
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    return buildApp({ authService, tokenService, dependencyService: createDependencyService(inMemory()), projectAccess });
+  }
+
+  it('404s linking to a task the caller cannot see (no existence leak)', async () => {
+    const a = await build();
+    const res = await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/dependencies', headers: { authorization: `Bearer ${await token('u1')}` }, payload: { dependsOnTaskId: 't3' } });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('leaves hidden tasks out of the dependency lists', async () => {
+    const a = await build();
+    const admin = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'admin', roles: ['ADMIN'] })).accessToken}` };
+    await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/dependencies', headers: admin, payload: { dependsOnTaskId: 't2' } });
+    await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/dependencies', headers: admin, payload: { dependsOnTaskId: 't3' } });
+    const res = await a.inject({ method: 'GET', url: '/api/v1/tasks/t1/dependencies', headers: { authorization: `Bearer ${await token('u1')}` } });
+    expect(res.json().data.blockedBy).toEqual(['t2']);
+    const asAdmin = await a.inject({ method: 'GET', url: '/api/v1/tasks/t1/dependencies', headers: admin });
+    expect(asAdmin.json().data.blockedBy.sort()).toEqual(['t2', 't3']);
+  });
+});

@@ -1,5 +1,5 @@
 import { el, mount, Loader, ErrorState, timeAgo, pill } from '../dom.js';
-import { PRIORITY_LABEL } from '../components.js';
+import { PRIORITY_LABEL, writeErrorMessage } from '../components.js';
 
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
@@ -155,14 +155,17 @@ export function TaskDetail(ctx, onClose) {
   }
 
   // ---- Mutations ---------------------------------------------------------
+  // Each change is sent now, or saved on this device and synced later (ctx.write). A change that
+  // can't even be saved locally shows an error and is rolled back — never silently lost.
   async function updateTask(patch) {
+    const before = Object.fromEntries(Object.keys(patch).map((k) => [k, task[k]]));
     Object.assign(task, patch);
     err = '';
     try {
-      await ctx.api.tasks.update(taskId, patch);
+      await ctx.write('task.update', { id: taskId, patch });
     } catch (e) {
-      if (e && e.name === 'ApiError') err = 'Could not save your change.';
-      else await ctx.enqueue('task.update', { id: taskId, patch });
+      Object.assign(task, before);
+      err = writeErrorMessage(e, 'Could not save your change.');
     } finally {
       renderBody();
       ctx.afterMutation();
@@ -175,10 +178,12 @@ export function TaskDetail(ctx, onClose) {
     err = '';
     renderBody();
     try {
-      await ctx.api.tasks.updateChecklistItem(item.id, { done });
+      await ctx.write('checklist.update', { itemId: item.id, patch: { done } });
     } catch (e) {
-      if (e && e.name === 'ApiError') { err = 'Could not update the checklist.'; renderBody(); }
-      else await ctx.enqueue('checklist.update', { itemId: item.id, patch: { done } });
+      item.done = !done;
+      checklist.done = checklist.items.filter((i) => i.done).length;
+      err = writeErrorMessage(e, 'Could not update the checklist.');
+      renderBody();
     } finally {
       ctx.afterMutation();
     }
@@ -187,11 +192,10 @@ export function TaskDetail(ctx, onClose) {
   async function addChecklistItem(text) {
     err = '';
     try {
-      const created = await ctx.api.tasks.addChecklistItem(taskId, text);
-      checklist.items.push(created && created.id ? created : { id: `tmp-${Date.now()}`, text, done: false });
+      const r = await ctx.write('checklist.add', { id: taskId, text });
+      checklist.items.push(!r.queued && r.data && r.data.id ? r.data : { id: `tmp-${Date.now()}`, text, done: false });
     } catch (e) {
-      if (e && e.name === 'ApiError') { err = 'Could not add the item.'; }
-      else { await ctx.enqueue('checklist.add', { id: taskId, text }); checklist.items.push({ id: `tmp-${Date.now()}`, text, done: false }); }
+      err = writeErrorMessage(e, 'Could not add the item.');
     } finally {
       checklist.total = checklist.items.length;
       checklist.done = checklist.items.filter((i) => i.done).length;
@@ -202,40 +206,34 @@ export function TaskDetail(ctx, onClose) {
 
   async function toggleAssignMe(mine) {
     err = '';
-    if (mine) {
-      assignees = assignees.filter((a) => a.id !== ctx.me.id);
+    const before = assignees;
+    assignees = mine
+      ? assignees.filter((a) => a.id !== ctx.me.id)
+      : [...assignees, { id: ctx.me.id, name: ctx.me.name, email: ctx.me.email }];
+    renderBody();
+    try {
+      if (mine) await ctx.write('task.unassign', { id: taskId, userId: ctx.me.id });
+      else await ctx.write('task.assign', { id: taskId, userIds: [ctx.me.id] });
+    } catch (e) {
+      assignees = before;
+      err = writeErrorMessage(e, mine ? 'Could not unassign you.' : 'Could not assign you.');
       renderBody();
-      try {
-        await ctx.api.tasks.unassign(taskId, ctx.me.id);
-      } catch (e) {
-        if (e && e.name === 'ApiError') { err = 'Could not unassign you.'; renderBody(); }
-        else await ctx.enqueue('task.unassign', { id: taskId, userId: ctx.me.id });
-      } finally {
-        ctx.afterMutation();
-      }
-    } else {
-      assignees = [...assignees, { id: ctx.me.id, name: ctx.me.name, email: ctx.me.email }];
-      renderBody();
-      try {
-        await ctx.api.tasks.assign(taskId, [ctx.me.id]);
-      } catch (e) {
-        if (e && e.name === 'ApiError') { err = 'Could not assign you.'; renderBody(); }
-        else await ctx.enqueue('task.assign', { id: taskId, userIds: [ctx.me.id] });
-      } finally {
-        ctx.afterMutation();
-      }
+    } finally {
+      ctx.afterMutation();
     }
   }
 
   async function addComment(bodyText) {
     err = '';
-    comments = [...comments, { id: `tmp-${Date.now()}`, userId: ctx.me.id, body: bodyText, createdAt: new Date().toISOString() }];
+    const optimistic = { id: `tmp-${Date.now()}`, userId: ctx.me.id, body: bodyText, createdAt: new Date().toISOString() };
+    comments = [...comments, optimistic];
     renderBody();
     try {
-      await ctx.api.tasks.addComment(taskId, bodyText);
+      await ctx.write('comment.add', { id: taskId, body: bodyText });
     } catch (e) {
-      if (e && e.name === 'ApiError') { err = 'Could not post your comment.'; renderBody(); }
-      else await ctx.enqueue('comment.add', { id: taskId, body: bodyText });
+      comments = comments.filter((c) => c !== optimistic);
+      err = writeErrorMessage(e, 'Could not post your comment.');
+      renderBody();
     } finally {
       ctx.afterMutation();
     }

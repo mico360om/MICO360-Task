@@ -31,13 +31,22 @@ export function createChecklistService({ repo, taskLookup }: ChecklistServiceDep
     return repo.add(taskId, text, items.length);
   }
 
+  /** An item of a live task; NotFound for an unknown id (callers check access to `taskId`). */
+  async function getItem(itemId: string): Promise<ChecklistItemRecord> {
+    const item = await repo.get(itemId);
+    if (!item) throw new NotFoundError('Checklist item not found.');
+    return item;
+  }
+
   async function toggleItem(itemId: string, done: boolean): Promise<ChecklistItemRecord> {
+    await getItem(itemId);
     return repo.toggle(itemId, done);
   }
 
   async function editItem(itemId: string, text: string): Promise<ChecklistItemRecord> {
     const clean = text.trim();
     if (!clean) throw new ValidationError('Checklist item text cannot be empty.');
+    await getItem(itemId);
     return repo.editText(itemId, clean);
   }
 
@@ -52,6 +61,7 @@ export function createChecklistService({ repo, taskLookup }: ChecklistServiceDep
   }
 
   async function removeItem(itemId: string): Promise<{ taskId: string } | null> {
+    await getItem(itemId);
     return repo.remove(itemId);
   }
 
@@ -66,7 +76,7 @@ export function createChecklistService({ repo, taskLookup }: ChecklistServiceDep
     return summaryFromItems(items);
   }
 
-  return { addItem, toggleItem, editItem, reorderItems, listItems, removeItem, progress, summary };
+  return { addItem, getItem, toggleItem, editItem, reorderItems, listItems, removeItem, progress, summary };
 }
 
 export type ChecklistService = ReturnType<typeof createChecklistService>;

@@ -5,6 +5,8 @@ import { usersApi } from '../api/users';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
+import { ApiError } from '../lib/api-client';
+import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
 
 export interface CreateUserModalProps {
   onClose: () => void;
@@ -31,18 +33,24 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
       usersApi(apiClient).create({ firstName, lastName, username, email, password, roleNames: [role] }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['users'] });
-      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['directory'] });
       onCreated?.();
       onClose();
     },
-    onError: () => setError('Couldn’t create the account. Check the details (email/username may already be in use).'),
+    onError: (e) =>
+      setError(
+        e instanceof ApiError && e.code === 'WEAK_PASSWORD'
+          ? PASSWORD_RULE_ERROR
+          : 'Couldn’t create the account. Check the details (email/username may already be in use).',
+      ),
   });
 
   function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || password.length < 6) {
-      setError('Fill in every field. Password must be at least 6 characters.');
+    // Same rule as the server (8+ characters with a letter and a number), so it never rejects what we accept.
+    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || !isStrongPassword(password)) {
+      setError(`Fill in every field. ${PASSWORD_RULE_ERROR}`);
       firstRef.current?.focus();
       return;
     }
@@ -63,11 +71,11 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
-              <input id="nu-first" ref={firstRef} value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+              <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
-              <input id="nu-last" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
+              <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
@@ -81,7 +89,8 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="nu-password" required>Temp password</FieldLabel>
-              <input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={fieldClass(false)} autoComplete="new-password" />
+              <input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={fieldClass(false)} autoComplete="new-password" aria-describedby="nu-password-hint" />
+              <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="nu-role">Role</FieldLabel>

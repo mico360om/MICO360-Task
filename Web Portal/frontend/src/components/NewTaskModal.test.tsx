@@ -8,12 +8,14 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-let posted: { url: string; body: Record<string, unknown> } | null;
+let posted: { url: string; body: Record<string, unknown>; headers: Record<string, string> } | null;
 let assigned: Record<string, unknown> | null;
+let parsed: Record<string, unknown> | null;
 
 beforeEach(() => {
   posted = null;
   assigned = null;
+  parsed = null;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -33,8 +35,15 @@ beforeEach(() => {
       if (u.endsWith('/projects')) {
         return json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO360', description: null, clientName: null, status: 'ACTIVE', priority: 'HIGH', color: '#000', createdAt: '', updatedAt: '' }] });
       }
+      if (u.endsWith('/config')) {
+        return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: '' } });
+      }
+      if (u.endsWith('/ai/parse-task') && method === 'POST') {
+        parsed = JSON.parse(String(init?.body));
+        return json({ data: { title: 'Review the report', dueDate: null, priority: null } });
+      }
       if (u.endsWith('/tasks') && method === 'POST') {
-        posted = { url: u, body: JSON.parse(String(init?.body)) };
+        posted = { url: u, body: JSON.parse(String(init?.body)), headers: (init?.headers ?? {}) as Record<string, string> };
         return json({ data: { id: 't99', key: 'MICO-1', title: 'X', columnId: 'c1', projectId: 'p1' } }, 201);
       }
       if (u.includes('/assignees') && method === 'POST') {
@@ -68,10 +77,36 @@ describe('NewTaskModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /add task/i }));
 
     await waitFor(() => expect(posted).toBeTruthy());
-    expect(posted!.body).toMatchObject({ projectId: 'p1', columnId: 'c1', title: 'Ship it' });
-    await waitFor(() => expect(assigned).toEqual({ userIds: ['u9'] }));
+    // Assignees go in the create request itself — no second call, no project-owner default on top.
+    expect(posted!.body).toMatchObject({ projectId: 'p1', columnId: 'c1', title: 'Ship it', assigneeIds: ['u9'] });
+    expect(posted!.headers['Idempotency-Key']).toBeTruthy();
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    expect(assigned).toBeNull();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('leaves assigneeIds out when nobody is picked (the project default applies)', async () => {
+    renderModal();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));
+    await userEvent.type(screen.getByLabelText(/task title/i), 'Solo');
+    await userEvent.click(screen.getByRole('button', { name: /add task/i }));
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted!.body).not.toHaveProperty('assigneeIds');
+  });
+
+  it('sends the company-time-zone "today" to the AI task parser', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-26T21:30:00Z')); // already Sep 27 in Muscat (UTC+4)
+    try {
+      renderModal();
+      await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));
+      await userEvent.type(screen.getByPlaceholderText(/describe a task/i), 'review the report tomorrow');
+      await userEvent.click(screen.getByRole('button', { name: /parse/i }));
+      await waitFor(() => expect(parsed).toBeTruthy());
+      expect(parsed).toMatchObject({ text: 'review the report tomorrow', today: '2026-09-27' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('lets the user create in a different column', async () => {

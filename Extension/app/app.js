@@ -1,9 +1,9 @@
-import { resolveBases } from '../src/config.js';
-import { authedFetch } from '../src/auth.js';
-import { decodeJwtSub } from '../src/jwt.js';
+import { resolveBases, safeTimeZone, DEFAULT_TIME_ZONE } from '../src/config.js';
+import { createAuth } from '../src/auth.js';
+import { ensureSession, signOut as endSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { createApi } from '../src/api.js';
-import { enqueue, flushQueue, queueSize, makePerformMutation } from '../src/queue.js';
+import { flushQueue, queueStats, makePerformMutation, sendOrQueue, FLUSH_MESSAGE } from '../src/queue.js';
 import { el, clear, mount } from './dom.js';
 import { parseHash, matchRoute } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
@@ -20,6 +20,9 @@ import { ChatScreen } from './screens/chat.js';
 import { SettingsScreen } from './screens/settings.js';
 
 const storage = chrome.storage.local;
+// The access token lives in memory-only session storage (EXT-07); local is the fallback on old Chrome.
+const sessionStore = chrome.storage.session || null;
+const NOTICE_KEY = 'mico360.loginNotice';
 
 const NAV = [
   { path: '/', icon: '🏠', label: 'Dashboard' },
@@ -44,24 +47,74 @@ const ROUTES = [
   { name: 'task', pattern: '/task/:taskId', title: 'Task', overlay: true, screen: TaskDetail },
 ];
 
+/** 'login' or 'app' — what this tab is showing, so storage changes from elsewhere can resync it. */
+let mode = null;
+let currentUserId = null;
+let reloading = false;
+
+function reloadWithNotice(notice) {
+  if (reloading) return;
+  reloading = true;
+  if (notice) {
+    try { window.sessionStorage.setItem(NOTICE_KEY, notice); } catch { /* ignore */ }
+  }
+  window.location.hash = '#/';
+  window.location.reload();
+}
+
+function takeNotice() {
+  try {
+    const n = window.sessionStorage.getItem(NOTICE_KEY);
+    window.sessionStorage.removeItem(NOTICE_KEY);
+    return n || '';
+  } catch {
+    return '';
+  }
+}
+
+// Keep every open app tab in step with sign-in/sign-out done elsewhere (another tab, or the
+// background worker finding the session has ended).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.refreshToken) {
+    const signedIn = !!changes.refreshToken.newValue;
+    if (mode === 'app' && !signedIn) reloadWithNotice('You have been signed out. Sign in to continue.');
+    else if (mode === 'login' && signedIn) reloadWithNotice('');
+  }
+  if (changes.sessionUserId && mode === 'app' && changes.sessionUserId.newValue && changes.sessionUserId.newValue !== currentUserId) {
+    reloadWithNotice('');
+  }
+});
+
 async function boot() {
   const root = document.getElementById('app');
   await applyStoredTheme(storage);
-  const stored = await storage.get(['apiBase', 'appBase']);
+  const stored = await storage.get(['apiBase', 'appBase', 'companyTimeZone']);
   const { apiBase, appBase } = resolveBases(stored);
-  const token = (await storage.get('accessToken')).accessToken;
 
-  if (!token) {
-    renderLogin(root, { apiBase, appBase });
+  const session = await ensureSession({ local: storage, session: sessionStore, apiBase });
+  if (!session) {
+    mode = 'login';
+    mount(root, LoginScreen({ apiBase, appBase, storage, session: sessionStore, notice: takeNotice(), onAuthed: () => reloadWithNotice('') }));
     return;
   }
+  mode = 'app';
+  currentUserId = session.userId;
 
+  const auth = createAuth({
+    local: storage,
+    session: sessionStore,
+    apiBase,
+    // XP-04: the server refused the session — go back to sign-in (queued changes are kept).
+    onExpired: () => reloadWithNotice('Your session has ended. Sign in again — changes waiting to sync are kept.'),
+  });
   const cache = createReadCache(storage);
-  const api = createApi({ apiBase, storage, cache });
-  const performMutation = makePerformMutation((path, init) => authedFetch(storage, apiBase, path, init));
+  cache.prune().catch(() => { /* best effort */ });
+  const api = createApi({ auth, cache });
+  const performMutation = makePerformMutation((path, init) => auth.authedFetch(path, init));
 
-  const state = { online: navigator.onLine, syncing: false, queueCount: 0, unread: 0 };
-  const myId = decodeJwtSub(token);
+  const state = { online: navigator.onLine, syncing: false, pending: 0, failed: 0, unread: 0 };
+  const myId = session.userId;
   let me = { id: myId, name: 'You', email: '' };
   try {
     const dir = (await api.directory()).data ?? [];
@@ -71,7 +124,10 @@ async function boot() {
     /* offline — keep the default; the directory may be cached later */
   }
 
-  const app = new App({ root, api, cache, storage, apiBase, appBase, me, state, performMutation });
+  const app = new App({
+    root, api, cache, auth, storage, apiBase, appBase, me, state, performMutation,
+    timeZone: safeTimeZone(stored.companyTimeZone || DEFAULT_TIME_ZONE),
+  });
   app.start();
 }
 
@@ -90,13 +146,21 @@ class App {
       apiBase: this.apiBase,
       appBase: this.appBase,
       me: this.me,
+      timeZone: this.timeZone,
       params: params || {},
       query: query || {},
       isOnline: () => this.state.online,
       navigate: (hash) => { window.location.hash = hash; },
       openTask: (id) => { window.location.hash = `#/task/${id}`; },
-      enqueue: (kind, payload) => enqueue(this.storage, { kind, payload }),
+      // Send a change now, or queue it (same Idempotency-Key) when the server can't be reached.
+      write: (kind, payload) => sendOrQueue({ kind, payload }, {
+        doFetch: (path, init) => this.auth.authedFetch(path, init),
+        storage: this.storage,
+        userId: this.me.id,
+      }),
       afterMutation: () => this.refreshMeta(),
+      requestSync: () => this.sync(),
+      signOut: () => this.signOut(),
     };
   }
 
@@ -105,10 +169,31 @@ class App {
     window.addEventListener('hashchange', () => this.route());
     window.addEventListener('online', () => { this.state.online = true; this.renderStatus(); this.sync(); });
     window.addEventListener('offline', () => { this.state.online = false; this.renderStatus(); });
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.syncQueue) this.refreshQueueCounts();
+    });
     this.route();
     this.refreshMeta();
     this.sync();
+    this.refreshTimeZone();
     setInterval(() => this.refreshMeta(), 60000);
+  }
+
+  /** Company time zone from GET /config (cached for the next start; used by boards and due dates). */
+  async refreshTimeZone() {
+    try {
+      const cfg = await this.api.config();
+      const tz = safeTimeZone(cfg && cfg.timeZone);
+      if (tz !== this.timeZone) {
+        this.timeZone = tz;
+        await this.storage.set({ companyTimeZone: tz });
+        this.route();
+      } else {
+        await this.storage.set({ companyTimeZone: tz });
+      }
+    } catch {
+      /* offline — keep the cached/default zone */
+    }
   }
 
   renderShell() {
@@ -142,10 +227,16 @@ class App {
   }
 
   renderStatus() {
-    const { online, syncing, queueCount } = this.state;
+    const { online, syncing, pending, failed } = this.state;
     const cls = !online ? 'off' : syncing ? 'syncing' : '';
     const label = !online ? 'Offline' : syncing ? 'Syncing…' : 'Online';
-    mount(this.connEl, el('span', { class: `dot ${cls}` }), `${label}${queueCount ? ` · ${queueCount} pending` : ''}`);
+    const extra = [pending ? `${pending} pending` : null, failed ? `${failed} failed` : null].filter(Boolean).join(' · ');
+    mount(this.connEl, el('span', { class: `dot ${cls}` }), `${label}${extra ? ` · ${extra}` : ''}`);
+    if (failed) {
+      this.connEl.setAttribute('title', 'Some changes could not be synced — see Settings → Sync.');
+    } else {
+      this.connEl.removeAttribute('title');
+    }
     this.offbar.classList.toggle('hidden', online);
   }
 
@@ -156,8 +247,17 @@ class App {
     }
   }
 
+  async refreshQueueCounts() {
+    try {
+      const s = await queueStats(this.storage, this.me.id);
+      this.state.pending = s.pending;
+      this.state.failed = s.failed;
+    } catch { /* storage unavailable */ }
+    this.renderStatus();
+  }
+
   async refreshMeta() {
-    this.state.queueCount = await queueSize(this.storage);
+    await this.refreshQueueCounts();
     try {
       const c = (await this.api.notifications.unreadCount()).data;
       this.state.unread = typeof c?.count === 'number' ? c.count : 0;
@@ -167,12 +267,32 @@ class App {
     this.renderStatus();
   }
 
+  /**
+   * Ask the background service worker — the one flusher — to replay the queue now. If it can't be
+   * reached, flush here under the same cross-context lock, so two flushes never overlap (XP-06).
+   */
   async sync() {
     if (!this.state.online) return;
     this.state.syncing = true; this.renderStatus();
-    try { await flushQueue(this.storage, this.performMutation); } catch { /* keep queue */ }
+    try {
+      let result = null;
+      try {
+        result = await chrome.runtime.sendMessage({ type: FLUSH_MESSAGE });
+      } catch {
+        result = null;
+      }
+      if (!result) result = await flushQueue(this.storage, this.performMutation, { userId: this.me.id });
+      if (result && !result.paused && !result.skipped) await this.storage.set({ lastSync: Date.now() });
+    } catch { /* keep the queue for the next attempt */ }
     this.state.syncing = false;
     await this.refreshMeta();
+  }
+
+  async signOut() {
+    mode = null; // our own sign-out: don't treat the token removal as a remote sign-out
+    await endSession({ local: this.storage, session: sessionStore });
+    try { await chrome.action.setBadgeText({ text: '' }); } catch { /* ignore */ }
+    reloadWithNotice('');
   }
 
   route() {
@@ -206,10 +326,6 @@ class App {
       else window.location.hash = '#/';
     }
   }
-}
-
-function renderLogin(root, cfg) {
-  mount(root, LoginScreen({ ...cfg, storage, onAuthed: () => boot() }));
 }
 
 boot().catch((e) => {

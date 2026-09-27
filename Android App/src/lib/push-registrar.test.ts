@@ -4,13 +4,13 @@ import { createMemoryStore } from './storage';
 
 const deps = (over: Partial<Parameters<typeof createPushRegistrar>[0]> = {}) => ({
   getPushToken: vi.fn(async () => 'expo-token-1' as string | null),
-  registerToken: vi.fn(async () => {}),
-  unregisterToken: vi.fn(async () => {}),
+  registerToken: vi.fn(async (_token: string, _platform: string) => {}),
+  unregisterToken: vi.fn(async (_token: string) => {}),
   store: createMemoryStore(),
   ...over,
 });
 
-describe('createPushRegistrar (A6 push registration)', () => {
+describe('createPushRegistrar (A6 push registration / NTF-01 / MOB-11)', () => {
   it('registers the device push token and remembers it', async () => {
     const o = deps();
     const r = createPushRegistrar(o);
@@ -20,24 +20,22 @@ describe('createPushRegistrar (A6 push registration)', () => {
     expect(await o.store.getItem('mico360.pushToken')).toBe('expo-token-1');
   });
 
-  it('does not re-POST an unchanged token', async () => {
+  it('re-registers an unchanged token on every launch / sign-in so the server assigns it to the current user', async () => {
     const o = deps();
     const r = createPushRegistrar(o);
-    await r.register();
-    const res = await r.register();
-    expect(res.registered).toBe(false);
-    expect(o.registerToken).toHaveBeenCalledTimes(1);
+    await r.register(); // user A
+    const res = await r.register(); // next launch, or user B signing in on the same phone
+    expect(res.registered).toBe(true);
+    expect(o.registerToken).toHaveBeenCalledTimes(2);
   });
 
-  it('re-registers when the token has rotated', async () => {
-    const getPushToken = vi.fn().mockResolvedValueOnce('t1').mockResolvedValueOnce('t2');
-    const o = deps({ getPushToken });
+  it('registers a rotated token handed over by the OS token listener', async () => {
+    const o = deps();
     const r = createPushRegistrar(o);
-    await r.register();
-    const res = await r.register();
-    expect(res).toEqual({ token: 't2', registered: true });
-    expect(o.registerToken).toHaveBeenCalledTimes(2);
-    expect(o.registerToken).toHaveBeenLastCalledWith('t2', 'ANDROID');
+    await r.register('rotated-2');
+    expect(o.getPushToken).not.toHaveBeenCalled();
+    expect(o.registerToken).toHaveBeenLastCalledWith('rotated-2', 'ANDROID');
+    expect(await o.store.getItem('mico360.pushToken')).toBe('rotated-2');
   });
 
   it('no-ops when permission yields no token', async () => {
@@ -54,6 +52,18 @@ describe('createPushRegistrar (A6 push registration)', () => {
     await r.register();
     await r.unregister();
     expect(o.unregisterToken).toHaveBeenCalledWith('expo-token-1');
+    expect(await o.store.getItem('mico360.pushToken')).toBeNull();
+  });
+
+  it('forgets the local record even when the server call fails (offline sign-out)', async () => {
+    const o = deps({
+      unregisterToken: vi.fn(async () => {
+        throw new Error('offline');
+      }),
+    });
+    const r = createPushRegistrar(o);
+    await r.register();
+    await expect(r.unregister()).rejects.toThrow('offline');
     expect(await o.store.getItem('mico360.pushToken')).toBeNull();
   });
 

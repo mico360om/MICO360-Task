@@ -167,4 +167,56 @@ describe('api client', () => {
     await expect(api.post('/auth/login', {})).rejects.toBeInstanceOf(ApiError);
     expect(refreshTokens).not.toHaveBeenCalled();
   });
+
+  it('keeps the user signed in when the refresh fails transiently (offline, 5xx, 429)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401)));
+    const onUnauthorized = vi.fn();
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'stale', refreshTokens: async () => 'transient', onUnauthorized });
+    await expect(api.get('/tasks')).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('treats a thrown refresh as transient, never as a logout', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401)));
+    const onUnauthorized = vi.fn();
+    const api = createApiClient({
+      baseUrl: 'http://api.test',
+      getToken: () => 'stale',
+      refreshTokens: async () => { throw new TypeError('offline'); },
+      onUnauthorized,
+    });
+    await expect(api.get('/tasks')).rejects.toBeInstanceOf(ApiError);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('never logs out on a 429 from a normal request', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { code: 'RATE_LIMITED' } }, 429)));
+    const onUnauthorized = vi.fn();
+    const refreshTokens = vi.fn(async () => true);
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok', refreshTokens, onUnauthorized });
+    await expect(api.get('/tasks')).rejects.toMatchObject({ status: 429, code: 'RATE_LIMITED' });
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('passes the rejected token to refreshTokens', async () => {
+    let token = 'stale';
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) =>
+      (init!.headers as Record<string, string>)['Authorization'] === 'Bearer fresh' ? jsonResponse({ data: {} }) : jsonResponse({}, 401)));
+    const refreshTokens = vi.fn(async (_rejected: string | null) => { token = 'fresh'; return 'refreshed' as const; });
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => token, refreshTokens });
+    await api.get('/x');
+    expect(refreshTokens).toHaveBeenCalledWith('stale');
+  });
+
+  it('sends extra request headers (e.g. Idempotency-Key) on a POST', async () => {
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: {} })));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok' });
+    await api.post('/tasks', { title: 'x' }, { headers: { 'Idempotency-Key': 'k-9' } });
+    const headers = fetchMock.mock.calls[0]![1]!.headers as Record<string, string>;
+    expect(headers['Idempotency-Key']).toBe('k-9');
+    expect(headers['Authorization']).toBe('Bearer tok');
+    expect(headers['Content-Type']).toBe('application/json');
+  });
 });

@@ -8,7 +8,19 @@ export function createPrismaOtpUserLookup(prisma: PrismaClient): OtpUserLookup {
         where: { OR: [{ email: identifier }, { username: identifier }], status: 'ACTIVE', deletedAt: null },
         include: { roles: { include: { role: true } } },
       });
-      return u ? { id: u.id, email: u.email, roles: u.roles.map((r) => r.role.name) } : null;
+      return u
+        ? {
+            id: u.id,
+            email: u.email,
+            username: u.username,
+            roles: u.roles.map((r) => r.role.name),
+            avatarUrl: u.avatarUrl,
+            tokenVersion: u.tokenVersion,
+          }
+        : null;
+    },
+    async clearLock(userId) {
+      await prisma.user.update({ where: { id: userId }, data: { failedLoginAttempts: 0, lockedUntil: null } });
     },
   };
 }

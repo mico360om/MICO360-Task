@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextOccurrence, generateOccurrences, isValidRule, type RecurrenceRule } from './recurrence';
+import { nextOccurrence, generateOccurrences, isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
 
 const utc = (s: string) => new Date(`${s}T09:30:00.000Z`);
 const iso = (d: Date) => d.toISOString();
@@ -25,6 +25,39 @@ describe('nextOccurrence', () => {
     expect(iso(nextOccurrence(utc('2026-01-05'), { freq: 'WEEKLY', interval: 1, weekdays: [1, 3, 5] }))).toBe(iso(utc('2026-01-07')));
     // From Fri the 9th it wraps to Mon the 12th
     expect(iso(nextOccurrence(utc('2026-01-09'), { freq: 'WEEKLY', interval: 1, weekdays: [1, 3, 5] }))).toBe(iso(utc('2026-01-12')));
+  });
+
+  it('WEEKLY with weekdays honours the interval: "every 2 weeks on Monday" is fortnightly', () => {
+    // 2026-01-05 is a Monday.
+    const rule: RecurrenceRule = { freq: 'WEEKLY', interval: 2, weekdays: [1] };
+    expect(iso(nextOccurrence(utc('2026-01-05'), rule))).toBe(iso(utc('2026-01-19')));
+    const dates = generateOccurrences(utc('2026-01-05'), rule, 4).map((d) => d.toISOString().slice(0, 10));
+    expect(dates).toEqual(['2026-01-05', '2026-01-19', '2026-02-02', '2026-02-16']);
+  });
+
+  it('WEEKLY with several weekdays stays within the week, then skips interval − 1 weeks', () => {
+    const rule: RecurrenceRule = { freq: 'WEEKLY', interval: 2, weekdays: [1, 3] }; // Mon + Wed, every other week
+    expect(iso(nextOccurrence(utc('2026-01-05'), rule))).toBe(iso(utc('2026-01-07'))); // Mon → Wed same week
+    expect(iso(nextOccurrence(utc('2026-01-07'), rule))).toBe(iso(utc('2026-01-19'))); // Wed → Mon two weeks on
+  });
+
+  it('MONTHLY with an anchor day returns to the 31st after a short month', () => {
+    const rule: RecurrenceRule = { freq: 'MONTHLY', interval: 1, anchorDay: 31 };
+    const dates = generateOccurrences(utc('2026-01-31'), rule, 4).map((d) => d.toISOString().slice(0, 10));
+    expect(dates).toEqual(['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30']);
+  });
+
+  it('YEARLY with an anchor day returns to 29 Feb in leap years', () => {
+    const rule: RecurrenceRule = { freq: 'YEARLY', interval: 1, anchorDay: 29 };
+    const dates = generateOccurrences(utc('2024-02-29'), rule, 5).map((d) => d.toISOString().slice(0, 10));
+    expect(dates).toEqual(['2024-02-29', '2025-02-28', '2026-02-28', '2027-02-28', '2028-02-29']);
+  });
+
+  it('withAnchorDay pins month-based rules to the start day unless a day is already set', () => {
+    expect(withAnchorDay({ freq: 'MONTHLY', interval: 1 }, utc('2026-01-31'))).toEqual({ freq: 'MONTHLY', interval: 1, anchorDay: 31 });
+    expect(withAnchorDay({ freq: 'MONTHLY', interval: 1, dayOfMonth: 5 }, utc('2026-01-31'))).toEqual({ freq: 'MONTHLY', interval: 1, dayOfMonth: 5 });
+    expect(withAnchorDay({ freq: 'WEEKLY', interval: 1 }, utc('2026-01-31'))).toEqual({ freq: 'WEEKLY', interval: 1 });
+    expect(withAnchorDay({ freq: 'YEARLY', interval: 1 }, null)).toEqual({ freq: 'YEARLY', interval: 1 });
   });
 
   it('MONTHLY advances by interval months, clamping to the month length', () => {
@@ -82,8 +115,9 @@ describe('isValidRule', () => {
   it('rejects an unknown frequency', () => {
     expect(isValidRule({ freq: 'HOURLY' as unknown as RecurrenceRule['freq'], interval: 1 })).toBe(false);
   });
-  it('rejects out-of-range weekdays and dayOfMonth', () => {
+  it('rejects out-of-range weekdays, dayOfMonth and anchorDay', () => {
     expect(isValidRule({ freq: 'WEEKLY', interval: 1, weekdays: [7] })).toBe(false);
     expect(isValidRule({ freq: 'MONTHLY', interval: 1, dayOfMonth: 32 })).toBe(false);
+    expect(isValidRule({ freq: 'MONTHLY', interval: 1, anchorDay: 0 })).toBe(false);
   });
 });

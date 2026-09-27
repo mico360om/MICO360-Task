@@ -37,6 +37,23 @@ describe('SystemSettingsPage', () => {
     expect(screen.getByText('MICO Energy')).toBeInTheDocument();
   });
 
+  it('never prints raw setting JSON such as AI provider keys (SEC-05)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [
+      { key: 'companyName', value: 'MICO Energy' },
+      { key: 'carryForward.enabled', value: false },
+      { key: 'carryForward.statuses', value: ['TODO', 'BLOCKED'] },
+      { key: 'ai.config', value: { providers: [{ name: 'OpenAI', apiKey: 'sk-live-SECRET123' }] } },
+      { key: 'integrations.webhook', value: { url: 'https://x', token: 'tok-SECRET' } },
+    ] })));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('MICO Energy')).toBeInTheDocument());
+    expect(screen.getByText('Off')).toBeInTheDocument();
+    expect(screen.getByText('To do, Blocked')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/SECRET/);
+    expect(screen.queryByText('ai.config')).not.toBeInTheDocument();
+    expect(screen.getByText(/2 other settings are managed on their own page/i)).toBeInTheDocument();
+  });
+
   it('shows the carry-forward controls and runs the sweep on demand', async () => {
     renderPage();
     expect(screen.getByRole('switch', { name: /automatic carry-forward/i })).toBeInTheDocument();

@@ -2,8 +2,9 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { TagService } from './tag-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { VARCHAR_MAX } from './validation';
 
-const setSchema = z.object({ tags: z.array(z.string()).max(50) });
+const setSchema = z.object({ tags: z.array(z.string().max(VARCHAR_MAX)).max(50) });
 
 export interface TagRouteDeps {
   tagService: TagService;

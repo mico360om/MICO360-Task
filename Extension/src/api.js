@@ -1,13 +1,7 @@
-import { authedFetch } from './auth.js';
+import { ApiError } from './errors.js';
+import { sanitizeMessages, sanitizeSummaries } from './chat.js';
 
-/** HTTP error from the API (4xx/5xx). Network failures reject as a plain Error (→ offline path). */
-export class ApiError extends Error {
-  constructor(status, message) {
-    super(message || `HTTP ${status}`);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
+export { ApiError };
 
 function qs(params) {
   const pairs = Object.entries(params).filter(([, v]) => v != null && v !== '');
@@ -16,36 +10,40 @@ function qs(params) {
 
 /**
  * Resources layer for the extension app. Reads go through the read-through `cache` (so screens work
- * offline); mutations hit the network via `authedFetch` and throw `ApiError` on an HTTP error or
- * reject on a network failure — screens catch the latter and enqueue for sync. Paths mirror /api/v1
- * (see the backend + the Android resources).
+ * offline); calls go out via `auth.authedFetch` (see auth.js) and throw `ApiError` on an HTTP error
+ * or reject on a network failure. Screens send queue-able writes through `sendOrQueue` (queue.js).
+ * Paths mirror /api/v1 (see the backend + the Android resources).
  */
-export function createApi({ apiBase, storage, cache, fetchImpl = fetch }) {
+export function createApi({ auth, cache }) {
   async function raw(path, opts) {
-    const res = await authedFetch(storage, apiBase, path, opts, fetchImpl); // rejects on network error
+    const res = await auth.authedFetch(path, opts); // rejects on network error
     if (!res.ok) {
-      let msg;
+      let err;
       try {
-        msg = (await res.json())?.error?.message;
+        err = (await res.json())?.error;
       } catch {
         /* non-JSON error body */
       }
-      throw new ApiError(res.status, msg);
+      throw new ApiError(res.status, err?.message, err?.code);
     }
     if (res.status === 204) return undefined;
     const json = await res.json().catch(() => ({}));
     return json && json.data !== undefined ? json.data : json;
   }
 
-  // Cached GET → { data, stale, cachedAt }.
-  const get = (key, path) => cache.read(key, () => raw(path));
+  // Cached GET → { data, stale, cachedAt }. `transform` runs before anything is cached.
+  const get = (key, path, transform) =>
+    cache.read(key, async () => {
+      const data = await raw(path);
+      return transform ? transform(data) : data;
+    });
   const post = (path, body) => raw(path, { method: 'POST', body: JSON.stringify(body ?? {}) });
   const put = (path, body) => raw(path, { method: 'PUT', body: JSON.stringify(body ?? {}) });
-  const patch = (path, body) => raw(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) });
   const del = (path) => raw(path, { method: 'DELETE' });
 
   return {
     raw,
+    config: () => raw('/config'),
     projects: {
       list: () => get('projects', '/projects'),
       get: (id) => get(`project:${id}`, `/projects/${id}`),
@@ -71,34 +69,24 @@ export function createApi({ apiBase, storage, cache, fetchImpl = fetch }) {
         return get(`tasks:${query}`, `/tasks${query}`);
       },
       get: (id) => get(`task:${id}`, `/tasks/${id}`),
-      create: (body) => post('/tasks', body),
-      update: (id, body) => put(`/tasks/${id}`, body),
-      move: (id, columnId, position) => patch(`/tasks/${id}/move`, { columnId, position }),
       remove: (id) => del(`/tasks/${id}`),
       assignees: (id) => get(`assignees:${id}`, `/tasks/${id}/assignees`),
-      assign: (id, userIds) => post(`/tasks/${id}/assignees`, { userIds }),
-      unassign: (id, userId) => del(`/tasks/${id}/assignees/${userId}`),
       checklist: (id) => get(`checklist:${id}`, `/tasks/${id}/checklist`),
-      addChecklistItem: (id, text) => post(`/tasks/${id}/checklist`, { text }),
-      updateChecklistItem: (itemId, pch) => put(`/checklist/${itemId}`, pch),
       removeChecklistItem: (itemId) => del(`/checklist/${itemId}`),
       comments: (id) => get(`comments:${id}`, `/tasks/${id}/comments`),
-      addComment: (id, body) => post(`/tasks/${id}/comments`, { body }),
       tags: (id) => get(`tags:${id}`, `/tasks/${id}/tags`),
       setTags: (id, tags) => put(`/tasks/${id}/tags`, { tags }),
     },
     notifications: {
       list: () => get('notifications', '/notifications'),
       unreadCount: () => get('unread', '/notifications/unread-count'),
-      markRead: (id) => put(`/notifications/${id}/read`),
       markAllRead: () => post('/notifications/read-all'),
     },
     directory: () => get('directory', '/users/directory'),
     chat: {
-      conversations: () => get('conversations', '/conversations'),
+      conversations: () => get('conversations', '/conversations', sanitizeSummaries),
       openProjectChannel: (projectId) => raw(`/projects/${projectId}/chat`),
-      messages: (conversationId) => get(`messages:${conversationId}`, `/conversations/${conversationId}/messages`),
-      send: (conversationId, body) => post(`/conversations/${conversationId}/messages`, { body }),
+      messages: (conversationId) => get(`messages:${conversationId}`, `/conversations/${conversationId}/messages`, sanitizeMessages),
       markRead: (conversationId) => post(`/conversations/${conversationId}/read`),
     },
   };

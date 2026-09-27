@@ -66,5 +66,10 @@ jobs:
       # migrations have drifted from schema.prisma.
       - name: Apply migrations to the test database
         run: npm run prisma:generate --workspace @mico360/backend && npx --workspace @mico360/backend prisma migrate deploy
+      # Fails when schema.prisma declares something the migrations never create (or vice versa):
+      # compares the freshly migrated database with the schema and exits non-zero on any difference.
+      - name: Check migrations match schema.prisma (drift)
+        working-directory: Web Portal/backend
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Integration tests
         run: npm run test:db --workspace @mico360/backend

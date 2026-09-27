@@ -211,6 +211,24 @@ label.lbl { display: block; font-size: 12px; font-weight: 700; margin: 0 0 5px; 
 .login-wrap .card { padding: 28px 26px; }
 .login-wrap h2 { margin: 0 0 4px; text-align: center; font-size: 22px; }
 .login-wrap .sub { text-align: center; color: var(--ink2); margin: 0 0 18px; }
+.login-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; font-size: 12px; }
+.advanced { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.linkbtn { border: none; background: none; padding: 0; color: var(--brand); cursor: pointer; font-size: 12px; font-weight: 600; }
+.linkbtn:hover { text-decoration: underline; }
+.infobar { background: var(--info-soft); color: var(--info); border-radius: 10px; padding: 10px 14px; font-weight: 600; margin-bottom: 12px; }
+.muted.error, .error { color: var(--danger); }
+
+/* ---- Board day navigation ---- */
+.daynav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.daynav .day { font-weight: 700; }
+.daynav .hint { font-size: 11px; font-weight: 700; color: var(--brand); background: var(--danger-soft); border-radius: 999px; padding: 1px 8px; }
+.daynav input[type="date"] { width: auto; padding: 5px 8px; }
+
+/* ---- Sync (settings) ---- */
+.sync-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line2); }
+.sync-item .what { flex: 1; min-width: 0; }
+.sync-item .why { font-size: 12px; color: var(--danger); overflow-wrap: anywhere; }
+.task-row .overdue { color: var(--danger); font-weight: 700; }
 
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; }

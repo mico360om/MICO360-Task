@@ -57,7 +57,14 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
       >
         <View style={styles.filterBar}>
-          <TextField value={q} onChangeText={setQ} placeholder="Search my tasks…" autoCapitalize="none" style={styles.searchInput} />
+          <TextField
+            value={q}
+            onChangeText={setQ}
+            placeholder="Search my tasks…"
+            accessibilityLabel="Search my tasks"
+            autoCapitalize="none"
+            style={styles.searchInput}
+          />
           <View style={styles.chips}>
             {PRIORITIES.map((p) => {
               const on = priority === p;
@@ -84,7 +91,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
         </View>
 
         {isError && !tasks ? (
-          <ErrorNote message="Couldn't load your tasks. Pull down to retry." />
+          <ErrorNote message="Couldn't load your tasks." onRetry={() => void refetch()} retrying={isRefetching} />
         ) : (tasks ?? []).length === 0 ? (
           <EmptyState title="No tasks assigned" subtitle="You're all clear." />
         ) : filtered.length === 0 ? (

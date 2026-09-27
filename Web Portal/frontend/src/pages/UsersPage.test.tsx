@@ -55,7 +55,7 @@ describe('UsersPage (admin management)', () => {
     await userEvent.type(screen.getByLabelText(/last name/i), 'Ahmed');
     await userEvent.type(screen.getByLabelText(/username/i), 'nadia');
     await userEvent.type(screen.getByLabelText(/email/i), 'nadia@x.co');
-    await userEvent.type(screen.getByLabelText(/temp password/i), 'secret1');
+    await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
     await userEvent.click(screen.getByRole('button', { name: /create user/i }));
     await waitFor(() =>
       expect(calls.some((c) => c.url.endsWith('/users') && c.method === 'POST' && c.body?.username === 'nadia')).toBe(true),
@@ -83,6 +83,63 @@ describe('UsersPage (admin management)', () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it('shows locked accounts and unlocks them (SEC-04)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      calls.push({ url: String(url), method });
+      if (String(url).endsWith('/unlock')) return json({ data: {} });
+      return json({ data: [{ id: 'u9', email: 'omar@x.co', username: 'omar', firstName: 'Omar', lastName: 'A', status: 'ACTIVE', roles: ['EMPLOYEE'], locked: true }] });
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/locked$/i)).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /unlock omar/i }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/unlock') && c.method === 'POST')).toBe(true));
+    expect(await screen.findByText(/omar can sign in again/i)).toBeInTheDocument();
+  });
+
+  it('won’t let an admin change their own roles or status from the edit dialog (SEC-08)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      calls.push({ url: String(url), method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (method === 'PUT') return json({ data: {} });
+      return json({ data: [{ id: 'me', email: 'a@b.c', username: 'admin', firstName: 'Ada', lastName: 'Admin', status: 'ACTIVE', roles: ['ADMIN'] }] });
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('admin')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    expect(await screen.findByText(/can’t change your own roles or account status/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Administrator')).toBeDisabled();
+    expect(screen.getByLabelText(/account status/i)).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    const put = calls.find((c) => c.method === 'PUT')!;
+    expect(put.body).not.toHaveProperty('roleNames');
+    expect(calls.some((c) => c.url.endsWith('/status'))).toBe(false);
+  });
+
+  it('shows the server’s reason when a change is refused (e.g. last admin)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (String(url).includes('/status')) return json({ error: { code: 'LAST_ADMIN', message: 'The last active administrator can’t be deactivated.' } }, 409);
+      return json({ data: [{ id: 'u9', email: 'omar@x.co', username: 'omar', firstName: 'Omar', lastName: 'A', status: 'ACTIVE', roles: ['ADMIN'] }], method });
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText(/status for omar/i), 'INACTIVE');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/last active administrator/i);
+  });
+
+  it('applies the shared password rule when an admin resets a password (SEC-12)', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    expect(screen.getByText(/at least 8 characters, with a letter and a number/i)).toBeInTheDocument();
+    await userEvent.type(await screen.findByLabelText(/new password/i), 'abc123');
+    await userEvent.click(screen.getByRole('button', { name: /^reset$/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/at least 8 characters/i);
+    expect(calls.some((c) => c.url.endsWith('/users/u9/password'))).toBe(false);
   });
 
   it('resets a user’s password from the edit modal', async () => {

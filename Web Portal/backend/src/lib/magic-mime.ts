@@ -10,8 +10,12 @@ export function sniffMime(buf: Buffer): string | null {
   if (b.length >= 6 && b.toString('ascii', 0, 6).match(/^GIF8[79]a$/)) return 'image/gif';
   if (b.length >= 5 && b.toString('ascii', 0, 5) === '%PDF-') return 'application/pdf';
   if (b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05) && (b[3] === 0x04 || b[3] === 0x06)) return 'application/zip';
+  if (b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
   return null;
 }
 
-/** MIME types we can verify by magic bytes; others (text/csv) are trusted by declaration. */
-export const SNIFFABLE = new Set(['image/png', 'image/jpeg', 'image/gif', 'application/pdf', 'application/zip']);
+/**
+ * MIME types we can verify by magic bytes; others (text/csv) are trusted by declaration —
+ * safe because they are stored as .txt/.csv and served as sandboxed downloads.
+ */
+export const SNIFFABLE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'application/zip']);

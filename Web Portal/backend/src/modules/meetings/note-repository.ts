@@ -40,4 +40,11 @@ export interface NoteRepository {
   listByMeeting(meetingId: string): Promise<NoteRecord[]>;
   update(id: string, patch: UpdateNoteData): Promise<NoteRecord>;
   remove(id: string): Promise<void>;
+  /**
+   * Atomically set `taskId` to a claim marker only if the note has no task yet. False when another
+   * request already converted (or is converting) the note — the guard against duplicate tasks.
+   */
+  claimTask(id: string, marker: string): Promise<boolean>;
+  /** Undo a claim that never became a task (only while the marker is still in place). */
+  releaseTaskClaim(id: string, marker: string): Promise<void>;
 }

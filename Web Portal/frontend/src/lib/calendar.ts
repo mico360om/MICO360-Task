@@ -1,16 +1,20 @@
 import type { ApiTask } from '../api/tasks';
+import { dueDayKey } from './due-date';
 
 export interface DateGroup {
   date: string; // YYYY-MM-DD
   tasks: ApiTask[];
 }
 
-/** Group tasks that have a due date by day, sorted chronologically. */
-export function groupTasksByDueDate(tasks: ApiTask[]): DateGroup[] {
+/**
+ * Group tasks that have a due date by their due *calendar day*, sorted chronologically. A date-only
+ * due date keeps its day; any other instant is read in `timeZone` (the company zone).
+ */
+export function groupTasksByDueDate(tasks: ApiTask[], timeZone = 'UTC'): DateGroup[] {
   const map = new Map<string, ApiTask[]>();
   for (const t of tasks) {
-    if (!t.dueDate) continue;
-    const date = t.dueDate.slice(0, 10);
+    const date = dueDayKey(t.dueDate, timeZone);
+    if (!date) continue;
     const arr = map.get(date) ?? [];
     arr.push(t);
     map.set(date, arr);
@@ -56,4 +60,17 @@ export function weekDays(dateKey: string): string[] {
     d.setUTCDate(d.getUTCDate() + 1);
     return key;
   });
+}
+
+/** The first day ('YYYY-MM-01') of the month `months` away from the month containing `dateKey`. */
+export function shiftMonth(dateKey: string, months: number): string {
+  const [y, m] = dateKey.split('-').map(Number) as [number, number];
+  // Anchor on day 1 so stepping from the 29th–31st never overflows into the month after.
+  return new Date(Date.UTC(y, m - 1 + months, 1)).toISOString().slice(0, 10);
+}
+
+/** Year + 0-based month of a 'YYYY-MM-DD' key. */
+export function monthOf(dateKey: string): { year: number; month0: number } {
+  const [y, m] = dateKey.split('-').map(Number) as [number, number];
+  return { year: y, month0: m - 1 };
 }

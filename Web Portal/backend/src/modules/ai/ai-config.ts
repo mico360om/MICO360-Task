@@ -1,4 +1,5 @@
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
+import { validateProviderUrl } from './ai-network';
 
 /** Capabilities a model can serve. "document" = Document Processing. */
 export const AI_CAPABILITIES = ['chat', 'ocr', 'vision', 'document', 'embedding'] as const;
@@ -106,15 +107,19 @@ export interface ProviderInput {
   enabled?: boolean;
 }
 
-export function addProvider(config: AiConfig, input: ProviderInput, meta: Meta): { config: AiConfig; provider: AiProvider } {
+/** Network policy for provider URLs: private / internal hosts are refused unless allowed. */
+export interface UrlPolicy {
+  allowPrivateHosts?: boolean;
+}
+
+export function addProvider(config: AiConfig, input: ProviderInput, meta: Meta, policy: UrlPolicy = {}): { config: AiConfig; provider: AiProvider } {
   if (!input.name?.trim()) throw new ValidationError('Provider name is required.');
   if (!PROVIDER_KINDS.includes(input.kind)) throw new ValidationError('Invalid provider kind.');
-  if (!/^https?:\/\//i.test(input.apiBaseUrl ?? '')) throw new ValidationError('A valid API base URL is required.');
   const provider: AiProvider = {
     id: meta.id,
     name: input.name.trim(),
     kind: input.kind,
-    apiBaseUrl: input.apiBaseUrl.trim().replace(/\/+$/, ''),
+    apiBaseUrl: validateProviderUrl(input.apiBaseUrl, policy.allowPrivateHosts),
     apiKey: input.apiKey ?? '',
     enabled: input.enabled ?? true,
     createdAt: meta.now,
@@ -130,12 +135,14 @@ export interface ProviderPatch {
   enabled?: boolean;
 }
 
-export function updateProvider(config: AiConfig, id: string, patch: ProviderPatch, now: string): AiConfig {
+export function updateProvider(config: AiConfig, id: string, patch: ProviderPatch, now: string, policy: UrlPolicy = {}): AiConfig {
   const existing = requireProvider(config, id);
+  if (patch.name !== undefined && !patch.name.trim()) throw new ValidationError('Provider name is required.');
   const next: AiProvider = {
     ...existing,
     ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
-    ...(patch.apiBaseUrl !== undefined ? { apiBaseUrl: patch.apiBaseUrl.trim().replace(/\/+$/, '') } : {}),
+    // Same URL rules as when adding a provider (editing used to skip them).
+    ...(patch.apiBaseUrl !== undefined ? { apiBaseUrl: validateProviderUrl(patch.apiBaseUrl, policy.allowPrivateHosts) } : {}),
     ...(patch.apiKey ? { apiKey: patch.apiKey } : {}), // only overwrite when a non-empty key is provided
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     updatedAt: now,

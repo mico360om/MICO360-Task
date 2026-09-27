@@ -23,14 +23,32 @@ describe('enumerateDays', () => {
 });
 
 describe('buildTimeSeries', () => {
-  const result = buildTimeSeries(tasks, '2000-01-01', '2000-01-05');
+  const result = buildTimeSeries(tasks, '2000-01-01', '2000-01-05', 'Asia/Muscat');
 
   it('emits one point per day with created/completed/overdue/remaining', () => {
     expect(result.points.map((p) => p.date)).toEqual(['2000-01-01', '2000-01-02', '2000-01-03', '2000-01-04', '2000-01-05']);
     expect(result.points.map((p) => p.created)).toEqual([2, 0, 0, 1, 0]);
     expect(result.points.map((p) => p.completed)).toEqual([0, 0, 1, 0, 0]);
-    expect(result.points.map((p) => p.overdue)).toEqual([0, 1, 1, 1, 1]);
+    // B is due on the 2nd: not overdue on its own due day, overdue from the 3rd.
+    expect(result.points.map((p) => p.overdue)).toEqual([0, 0, 1, 1, 1]);
     expect(result.points.map((p) => p.remaining)).toEqual([2, 2, 1, 2, 2]);
+  });
+
+  it('buckets by company-time days: work done at 01:30 Muscat counts on that day, not the UTC day before', () => {
+    const late: ReportTask[] = [
+      { id: 'L', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: d('2000-01-01T09:00:00Z'), dueDate: null, completedAt: d('2000-01-02T21:30:00Z'), assigneeIds: [] },
+    ];
+    const r = buildTimeSeries(late, '2000-01-02', '2000-01-03', 'Asia/Muscat');
+    expect(r.points.map((p) => p.completed)).toEqual([0, 1]);
+  });
+
+  it('counts a task sitting in Done without a completion time as done (so the burndown reaches zero)', () => {
+    const inDone: ReportTask[] = [
+      { id: 'D', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: d('2000-01-01T09:00:00Z'), dueDate: d('2000-01-01T00:00:00Z'), completedAt: null, assigneeIds: [] },
+    ];
+    const r = buildTimeSeries(inDone, '2000-01-01', '2000-01-03', 'Asia/Muscat');
+    expect(r.points.map((p) => p.remaining)).toEqual([0, 0, 0]);
+    expect(r.points.map((p) => p.overdue)).toEqual([0, 0, 0]);
   });
 
   it('adds a linear ideal burndown line from the starting open count to zero', () => {
@@ -48,7 +66,7 @@ describe('buildTimeSeries', () => {
   });
 
   it('scopes cleanly to a single project when tasks are pre-filtered', () => {
-    const p2 = buildTimeSeries(tasks.filter((t) => t.projectId === 'p2'), '2000-01-03', '2000-01-05');
+    const p2 = buildTimeSeries(tasks.filter((t) => t.projectId === 'p2'), '2000-01-03', '2000-01-05', 'Asia/Muscat');
     expect(p2.points.map((p) => p.created)).toEqual([0, 1, 0]);
     expect(p2.points.map((p) => p.remaining)).toEqual([0, 1, 1]);
     expect(p2.points.every((p) => p.overdue === 0)).toBe(true); // C has no due date

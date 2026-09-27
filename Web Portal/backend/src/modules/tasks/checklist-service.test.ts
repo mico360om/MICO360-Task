@@ -20,6 +20,9 @@ function inMemory(tasks: string[]) {
       rows.push(item);
       return item;
     },
+    async get(itemId) {
+      return rows.find((r) => r.id === itemId) ?? null;
+    },
     async toggle(itemId, done) {
       const item = rows.find((r) => r.id === itemId)!;
       item.done = done;
@@ -98,5 +101,13 @@ describe('ChecklistService', () => {
     const svc = createChecklistService(inMemory(['t1']));
     const a = await svc.addItem('t1', 'x');
     expect(await svc.removeItem(a.id)).toEqual({ taskId: 't1' });
+  });
+
+  it('throws NotFound (not a 500) for an unknown item on get/toggle/edit/remove', async () => {
+    const svc = createChecklistService(inMemory(['t1']));
+    await expect(svc.getItem('ghost')).rejects.toBeInstanceOf(NotFoundError);
+    await expect(svc.toggleItem('ghost', true)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(svc.editItem('ghost', 'x')).rejects.toBeInstanceOf(NotFoundError);
+    await expect(svc.removeItem('ghost')).rejects.toBeInstanceOf(NotFoundError);
   });
 });

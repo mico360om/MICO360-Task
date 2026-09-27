@@ -39,6 +39,18 @@ describe('BarChart', () => {
     expect(screen.getByText('40%')).toBeInTheDocument();
   });
 
+  it('exposes each bar’s label and value to screen readers (WEB-19)', () => {
+    render(<BarChart data={data} ariaLabel="Tasks by status" />);
+    const list = screen.getByRole('list', { name: 'Tasks by status' });
+    const items = screen.getAllByRole('listitem');
+    expect(list).toBeInTheDocument();
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveTextContent('To Do: 4');
+    expect(items[2]).toHaveTextContent('Done: 6');
+    // The bar graphic is decorative; nothing is hidden behind role="img".
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
   it('renders an empty-state message when there is no data', () => {
     render(<BarChart data={[]} />);
     expect(screen.getByText(/no data/i)).toBeInTheDocument();

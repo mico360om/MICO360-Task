@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statusBreakdown, projectPerformance, userWorkload, completionStats, createReportService, type ReportTask } from './report-service';
+import { statusBreakdown, projectPerformance, userWorkload, completionStats, createReportService, applyReportFilter, type ReportTask } from './report-service';
 
 const tasks: ReportTask[] = [
   { id: '1', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: new Date('2000-01-01'), dueDate: new Date('2000-01-01'), completedAt: new Date('2000-01-02'), assigneeIds: ['u1'] },
@@ -67,14 +67,54 @@ describe('completionStats', () => {
   });
 });
 
+describe('due dates are company-time calendar days', () => {
+  const tz = 'Asia/Muscat';
+  const due = new Date('2026-09-30T00:00:00Z'); // due on the 30th (stored as UTC midnight = 04:00 Muscat)
+
+  it('a task finished later on its due day is on time; the next day is late', () => {
+    const t = (completedAt: string): ReportTask => ({ id: completedAt, projectId: 'p', projectName: 'X', columnCategory: 'DONE', createdAt: due, dueDate: due, completedAt: new Date(completedAt), assigneeIds: [] });
+    const s = completionStats([t('2026-09-30T15:00:00Z'), t('2026-09-30T20:30:00Z')], tz); // 19:00 on the 30th / 00:30 on 1 Oct
+    expect(s.onTime).toBe(1);
+    expect(s.late).toBe(1);
+  });
+
+  it('a task due today is not overdue after 04:00', () => {
+    const open: ReportTask = { id: 'o', projectId: 'p', projectName: 'X', columnCategory: 'TODO', createdAt: due, dueDate: due, completedAt: null, assigneeIds: ['u1'] };
+    expect(projectPerformance([open], tz, new Date('2026-09-30T10:00:00Z'))[0]!.overdue).toBe(0);
+    expect(projectPerformance([open], tz, new Date('2026-09-30T20:30:00Z'))[0]!.overdue).toBe(1);
+    expect(userWorkload([open], [{ id: 'u1', username: 'ada' }], tz, new Date('2026-09-30T10:00:00Z'))[0]!.overdue).toBe(0);
+  });
+});
+
+describe('applyReportFilter', () => {
+  it('filters by project and by team member (assignee)', () => {
+    expect(applyReportFilter(tasks, { projectId: 'p2' }).map((t) => t.id)).toEqual(['3']);
+    expect(applyReportFilter(tasks, { userId: 'u1' }).map((t) => t.id)).toEqual(['1', '2']);
+    expect(applyReportFilter(tasks, { projectId: 'p1', userId: 'u2' }).map((t) => t.id)).toEqual(['2']);
+    expect(applyReportFilter(tasks, {})).toHaveLength(3);
+  });
+});
+
 describe('ReportService', () => {
-  it('produces reports from the data source', async () => {
-    const svc = createReportService({
-      data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }]; } },
+  const svc = () =>
+    createReportService({
+      data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar' }]; } },
+      timeZone: 'Asia/Muscat',
     });
-    expect(await svc.projectPerformanceReport()).toHaveLength(2);
-    expect((await svc.taskStatusReport()).DONE).toBe(1);
-    expect(await svc.workloadReport()).toHaveLength(1);
-    expect((await svc.completionReport()).completed).toBe(1);
+
+  it('produces reports from the data source', async () => {
+    const s = svc();
+    expect(await s.projectPerformanceReport()).toHaveLength(2);
+    expect((await s.taskStatusReport()).DONE).toBe(1);
+    expect(await s.workloadReport()).toHaveLength(2);
+    expect((await s.completionReport()).completed).toBe(1);
+  });
+
+  it('applies the same project / team filters to every report', async () => {
+    const s = svc();
+    expect(await s.projectPerformanceReport({ projectId: 'p2' })).toEqual([expect.objectContaining({ projectId: 'p2', total: 1 })]);
+    expect(await s.taskStatusReport({ projectId: 'p2' })).toEqual({ TODO: 1 });
+    expect((await s.workloadReport({ userId: 'u2' })).map((w) => w.userId)).toEqual(['u2']);
+    expect((await s.completionReport({ userId: 'u2' })).total).toBe(2);
   });
 });
