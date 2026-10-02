@@ -205,7 +205,7 @@ else
 fi
 
 # ── 6. Admin account (idempotent — no-op if an active admin already exists) ───
-ADMIN_EMAIL="${ADMIN_EMAIL:-khurram@mshh.co}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-khurram@prolens-team.com}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-khurram}"
 ADMIN_FIRST_NAME="${ADMIN_FIRST_NAME:-Khurram}"
 ADMIN_LAST_NAME="${ADMIN_LAST_NAME:-Admin}"

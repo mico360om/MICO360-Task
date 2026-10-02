@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
-import type { Priority } from '../api/tasks';
+import type { Priority, RecurrenceRule } from '../api/tasks';
+import { RecurrenceEditor } from './RecurrenceEditor';
 import { Button } from './ui/Button';
 import { FieldLabel, FieldError, fieldClass } from './ui/Field';
 
@@ -10,6 +11,8 @@ export interface QuickAddValues {
   assigneeIds: string[];
   /** ISO date (YYYY-MM-DD); present only when a due date was set. */
   dueDate?: string;
+  /** Present only when the task repeats. */
+  recurrenceRule?: RecurrenceRule;
 }
 
 export interface AssigneeOption {
@@ -43,6 +46,7 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [recurrenceRule, setRecurrenceRule] = useState<RecurrenceRule | null>(null);
   const [titleError, setTitleError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const [nlText, setNlText] = useState('');
@@ -79,7 +83,14 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
       titleRef.current?.focus();
       return;
     }
-    onSubmit({ title: title.trim(), priority, description: description.trim(), assigneeIds, ...(dueDate ? { dueDate } : {}) });
+    onSubmit({
+      title: title.trim(),
+      priority,
+      description: description.trim(),
+      assigneeIds,
+      ...(dueDate ? { dueDate } : {}),
+      ...(recurrenceRule ? { recurrenceRule } : {}),
+    });
   }
 
   const field = 'rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20';
@@ -170,6 +181,9 @@ export function QuickAddTaskForm({ onSubmit, submitting = false, assignees, onPa
           </label>
           <input id="qat-due" type="date" aria-label="Due date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={field} />
         </div>
+      </div>
+      <div className="rounded-lg border border-line px-3 py-2">
+        <RecurrenceEditor value={recurrenceRule} onChange={setRecurrenceRule} dueDate={dueDate || null} />
       </div>
       {assignees && assignees.length > 0 ? (
         <div className="flex flex-col gap-1.5">

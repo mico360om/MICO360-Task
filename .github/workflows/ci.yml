@@ -36,6 +36,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      # deploy.sh installs the backend on its own with `npm ci` and Web Portal/backend/package-lock.json.
+      # Outside the monorepo npm reads that lockfile, so check it there. After changing backend
+      # dependencies, refresh it with `node tools/release/build-release.mjs lock`.
+      - name: Backend lockfile matches package.json (standalone deploy)
+        run: |
+          mkdir -p "$RUNNER_TEMP/backend-lock"
+          cp "Web Portal/backend/package.json" "Web Portal/backend/package-lock.json" "$RUNNER_TEMP/backend-lock/"
+          cd "$RUNNER_TEMP/backend-lock" && npm ci --ignore-scripts --dry-run --no-audit --no-fund
+
   integration:
     name: Prisma integration tests (MySQL)
     runs-on: ubuntu-latest

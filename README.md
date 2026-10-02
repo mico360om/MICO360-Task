@@ -19,7 +19,7 @@ Web Portal/          The web product (deployed together)
 Extension/           Chrome MV3 extension                                   — a client of the API
 Android App/         React Native (Expo) Android app                        — a client of the API
 tools/release/       Release builds: Windows installer, Hostinger package, extension zip, APK
-Installer/           Built release packages (see Installer/README.md; binaries are not committed)
+Installer/           Release packages, one folder per environment (see Installer/README.md; binaries are not committed)
 docs/                OpenAPI spec, deployment (Hostinger, Windows server), data policy, email, QA, a11y
 ```
 
@@ -28,17 +28,18 @@ npm workspaces: `Web Portal/backend`, `Web Portal/frontend`, `Extension` (worksp
 
 ## Test status
 
-`npm test` in each app → **2,089 passing** (backend 1,120 · web 490 · Android 310 · extension 169),
+`npm test` in each app → **2,225 passing** (backend 1,178 · web 521 · Android 340 · extension 186),
 with typecheck and lint clean everywhere. Plus `npm run test:db` (Prisma integration on MySQL 8)
 and `npm run test:e2e` (live-API lifecycle), and the release acceptance test
-`tools/release/verify-server.mjs` (48 checks against a freshly installed server — web app, sign-in,
-users, Arabic projects/tasks, files, reports, chat + realtime, meetings, permissions).
+`tools/release/verify-server.mjs` (77 checks against a freshly installed server — web app, sign-in,
+users, Arabic projects/tasks, recurring tasks, files, reports, chat + realtime, meetings, permissions).
 
-## Release packages (v0.2.0)
+## Release packages (v0.3.0)
 
 `node tools/release/build-release.mjs` builds the Windows installer, the Hostinger server package and
-the Chrome extension zip into `Installer/`; `bash tools/release/build-apk.sh` builds the signed APK.
-What each package is and how to install it: [`Installer/README.md`](Installer/README.md).
+the Chrome extension zip into `Installer/`, one folder per environment (Hostinger web server, Windows
+office server, Android app, Chrome extension); `bash tools/release/build-apk.sh` builds the signed APK.
+Each folder has its own step-by-step guide, starting from [`Installer/README.md`](Installer/README.md).
 The self-contained Windows server is documented in [`docs/WINDOWS-SERVER.md`](docs/WINDOWS-SERVER.md).
 
 ## What's implemented
@@ -51,12 +52,18 @@ The self-contained Windows server is documented in [`docs/WINDOWS-SERVER.md`](do
 - **Assignees** — many-to-many (mandatory multi-user).
 - **Checklists** — items + auto-progress %.
 - **Dependencies** — blocking / blocked-by edges with server-side **cycle detection** (rejects direct + transitive loops).
-- **Recurring tasks** — daily/weekly (by weekday)/monthly (day-of-month, clamped)/yearly rules with count + until; completing a recurring task (moving it to a Done column) **auto-spawns the next occurrence** and carries the rule forward (no double-spawn).
+- **Recurring tasks** — daily, weekly (chosen days), monthly or quarterly (a day of the month, or "the 2nd Tuesday" / "the last Friday") and yearly schedules, every N periods, ending never / after N / on a date, pausable. The next copy is made **when this one is done** (default) or **on each due date** (hourly server job) and keeps the details, assignees, watchers, tags and checklist. A task never gets two next copies (unique database guard), so completing it twice or from several apps at once makes one. Set and edit repeats in the web app, the Chrome extension and the Android app — see [docs/RECURRING-TASKS.md](docs/RECURRING-TASKS.md).
 - **Comments** — CRUD + `@mentions` + author/admin permissions; a mention **notifies** the user.
 - **Attachments** — multipart file upload (type + size validation), local-disk storage (S3-ready port), download, delete; files served at `/uploads/<key>`.
 - **Notifications** — per-user list / read / unread-count; **fired automatically** on task assignment and on `@mention`.
 - **Activity** — per-task timeline; an `ASSIGNED` row is **recorded** when a user is assigned.
-- **Reports** — status breakdown, project performance, employee workload; **CSV / Excel / PDF export** of each (admin-only) — dependency-free (RFC-4180 CSV, SpreadsheetML `.xls`, a hand-built valid PDF).
+- **Reports** (admin-only) — status breakdown, project performance, employee workload, completion
+  trend, filtered by project, team member and period. Exports: a **full report** (every section) or any
+  single report as a formatted **Excel `.xlsx`** (one sheet per section, frozen bold headers, sized
+  columns, real dates and numbers) or a **branded PDF** (logo header, brand colours and fonts, section
+  headings kept with their content, tables that repeat their header across pages, page numbers), plus
+  CSV. Every task can also be exported on its own (`GET /tasks/:id/export.xlsx|pdf`). Files are named
+  after the report, its filters and the day (e.g. `tasks-report-rig-inspection-portal-2026-10-01.pdf`).
 - **Search** — global search across tasks / projects / users.
 - **Email (Mailjet)** — templates (OTP, reset, task-assigned, welcome) + Send-API transport.
 - **Realtime (Socket.IO)** — JWT-auth'd project rooms; task move/create/update broadcast live.
@@ -70,8 +77,11 @@ protected routing, role-aware sidebar
 Reports, Settings, and admin User Management — plus a UI kit (Button, Avatar, PriorityBadge,
 TaskCard, StatTile, QuickAddTaskForm) and a typed API service layer. The **task drawer** shows the
 checklist, comments, **file attachments** (upload / download / remove), **dependencies**
-(blocked-by / blocks, add + remove), and a **recurrence editor** (frequency, interval, weekdays,
-day-of-month) with a summary badge. The **Reports** page exports as **CSV, Excel, or PDF**.
+(blocked-by / blocks, add + remove), and a **repeat editor** (frequency, interval, weekdays,
+day of the month or "the 2nd Tuesday", end, when copies are made, pause) with a summary badge and a
+preview of the next dates. New tasks can repeat from the start. The **Reports** page exports the full
+report or a single report as **Excel, PDF or CSV**, following the on-screen filters; the task drawer's
+**Export** menu downloads the task as Excel or PDF.
 
 **Chrome extension (MV3)** — popup (today/overdue/in-progress/completed + upcoming + actions),
 background service worker (unread-count badge polling), "Open Full MICO360 Tasks".
@@ -96,7 +106,8 @@ cd "Web Portal/backend"
 npm run prisma:generate
 npm run prisma:migrate              # dev DB
 npx prisma migrate deploy           # (TEST_DATABASE_URL) test DB
-npm run db:seed                     # admin@mico360.test / Password1!
+npm run db:seed                     # demo data for development: admin@mico360.test / Password1!
+                                    # (wipes the database; refuses in production or over real accounts)
 npm run dev                         # API on :4000 (realtime enabled)
 ```
 

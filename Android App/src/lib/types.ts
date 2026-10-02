@@ -15,17 +15,9 @@ export interface Session {
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
-/** A task's recurrence rule (mirrors the backend/web model). */
-export interface RecurrenceRule {
-  freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
-  interval: number;
-  count?: number | null;
-  until?: string | null;
-  weekdays?: number[];
-  dayOfMonth?: number;
-  /** When true the series is paused — no new occurrences are generated until resumed. */
-  paused?: boolean;
-}
+/** A task's recurrence rule — lib/recurrence.ts is a copy of the backend's (the API's model). */
+export type { RecurrenceRule } from './recurrence';
+import type { RecurrenceRule } from './recurrence';
 
 export type DevicePlatform = 'ANDROID' | 'IOS' | 'WEB';
 
@@ -49,6 +41,8 @@ export interface ApiTask {
   recurrenceRule?: RecurrenceRule | null;
   /** Links a generated occurrence back to its recurring series (the origin task's id). */
   recurrenceParentId?: string | null;
+  /** The copy made from this task (task detail only). Set = an earlier copy of its series. */
+  recurrenceNextId?: string | null;
   /** Present only on the create response when tags were applied in the same call. */
   tags?: ApiTag[];
   /** Present only on the create response when assignees were applied in the same call. */
@@ -140,6 +134,10 @@ export interface ApiProject {
   name: string;
   description: string | null;
   status: string;
+  clientName?: string | null;
+  priority?: string | null;
+  startDate?: string | null;
+  targetDate?: string | null;
 }
 
 export interface ApiNotification {

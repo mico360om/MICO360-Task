@@ -58,6 +58,14 @@ describe('buildCreateTaskInput (A4.3 quick add)', () => {
     if (r.ok) expect(r.value.boardDate).toBe('2026-09-27');
   });
 
+  it('carries a repeat rule when the task repeats', () => {
+    const rule = { freq: 'MONTHLY' as const, interval: 1, nthWeekday: { week: -1 as const, day: 5 } };
+    const r = buildCreateTaskInput({ title: 'Close the month', projectId: 'p1', columnId: 'c1', dueDate: '2026-10-30', recurrenceRule: rule });
+    expect(r).toEqual({ ok: true, value: { title: 'Close the month', projectId: 'p1', columnId: 'c1', priority: 'NORMAL', dueDate: '2026-10-30', recurrenceRule: rule } });
+    const none = buildCreateTaskInput({ title: 'Once', projectId: 'p1', columnId: 'c1', recurrenceRule: null });
+    expect(none.ok && 'recurrenceRule' in none.value).toBe(false);
+  });
+
   it('rejects an empty title', () => {
     const r = buildCreateTaskInput({ ...form, title: '   ' });
     expect(r).toEqual({ ok: false, error: 'A task title is required.' });

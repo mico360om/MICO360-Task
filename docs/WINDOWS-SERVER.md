@@ -1,6 +1,6 @@
 # MICO360 Tasks Server for Windows
 
-`Installer/MICO360-Tasks-Server-Setup-<version>.exe` installs a complete MICO360 Tasks server on one
+`Installer/2-Windows-Office-Server/MICO360-Tasks-Server-Setup-<version>.exe` installs a complete MICO360 Tasks server on one
 Windows 10/11 (64-bit) computer: the web app, the API that the phone app and Chrome extension use,
 and its own MySQL database. Node.js, MySQL 8.0 and the Microsoft C++ runtime are bundled, so nothing
 else needs installing. Administrator rights are not needed: the installer is per-user, like the
@@ -44,15 +44,21 @@ from the Start menu → **MICO360 Tasks Server**. Right-click the tray icon for:
 | Restart the server | Restarts the web server, e.g. after changing settings |
 | Stop the server and exit | Stops the web server and shuts MySQL down cleanly |
 
+The server also does timed work while it runs, even when nobody has the web app or phone app open:
+it makes the copies of recurring tasks set to repeat "on each date", and it sends due-date
+reminders. Leave it running, or choose the start-at-sign-in option.
+
 If the web server stops unexpectedly it is restarted automatically (up to three times in ten
 minutes). Setup's "Start the server automatically when I sign in to Windows" option starts it in the
 tray at sign-in without opening a browser.
 
 ### Connecting the phone app and the Chrome extension
 
-- **Android app**: on the sign-in screen tap **Server: task.mico360.com · Change**, enter the office
-  network address (e.g. `192.168.1.20:4000`) and tap **Use this server**. The app checks that the
-  server answers before it switches.
+- **Android app**: staff can install it from the server itself — open the office network address
+  in the phone's browser and tap **Download for Android** on the sign-in page (the installer includes
+  the APK). In the app, tap **Server: task.mico360.com · Change** on the sign-in screen, enter the
+  office network address (e.g. `192.168.1.20:4000`) and tap **Use this server**. The app checks that
+  the server answers before it switches.
 - **Chrome extension**: on its sign-in screen choose **Advanced: change server** and enter
   `http://localhost:4000` on this computer, or the office network address on other computers. Chrome
   asks once for access to that address.
@@ -102,7 +108,7 @@ Tasks Server**. The data folder is kept unless you tick "Also delete all data".
 set MICO360_ADMIN_EMAIL=admin@example.com
 set MICO360_ADMIN_USERNAME=admin
 set MICO360_ADMIN_PASSWORD=<strong password>
-MICO360-Tasks-Server-Setup-0.2.0.exe /S /D=C:\MICO360\Server /DATA=D:\MICO360Data /PORT=4000
+MICO360-Tasks-Server-Setup-<version>.exe /S /D=C:\MICO360\Server /DATA=D:\MICO360Data /PORT=4000
 ```
 
 Options: `/S` silent · `/D=` program folder · `/DATA=` data folder · `/PORT=` · `/LOCALONLY` (this
@@ -132,7 +138,8 @@ installed; the log is `%TEMP%\MICO360TasksServer-setup.log`.
 - `node\` (Node.js runtime);
 - `mysql\` (MySQL 8.0 server and client tools plus the Visual C++ runtime);
 - `app\backend` (compiled API, production dependencies and the Prisma engines for Windows);
-- `app\web` (the built web app, served by the API through `WEB_ROOT`).
+- `app\web` (the built web app, served by the API through `WEB_ROOT`, with the Android APK under
+  `downloads\`).
 
 The launcher (`MICO360 Tasks Server.exe`), `Uninstall.exe` and Setup are small C# programs in
 `tools/release/windows` for the .NET Framework 4.x built into Windows. Setup carries the payload as

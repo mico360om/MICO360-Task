@@ -246,3 +246,61 @@ describe('Password management', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe('Download my data (GET /users/me/export)', () => {
+  function exportApp(exported: { calls: string[] }) {
+    const auditService = {
+      async record(d: { action: string; entityId?: string | null }) {
+        audited.push({ action: d.action, entityId: d.entityId ?? null });
+        return {} as never;
+      },
+      async list() { return []; },
+    } as unknown as AuditService;
+    audited = [];
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const userService = createUserService({ users: createMemoryUserRepository().repo, issueSession: (user) => tokenService.issueTokens(user) });
+    return buildApp({
+      authService,
+      tokenService,
+      userService,
+      auditService,
+      dataExporter: async (userId) => {
+        exported.calls.push(userId);
+        if (userId === 'gone') return null;
+        return {
+          exportedAt: '2026-09-28T22:30:00.000Z', // already 29 September in Muscat
+          profile: { id: userId, firstName: 'سارة' },
+          projects: [], tasksAssignedToMe: [], tasksICreated: [], comments: [], attachments: [],
+          chatMessages: [], meetingNotes: [], actionItems: [], activity: [], accountEvents: [],
+        };
+      },
+    });
+  }
+
+  it('sends the signed-in person their own data as a JSON download and records it', async () => {
+    const exported = { calls: [] as string[] };
+    const app = await exportApp(exported);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/users/me/export', headers: { authorization: `Bearer ${await tokenFor('u7', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    expect(res.headers['content-disposition']).toBe('attachment; filename="mico360-my-data-2026-09-29.json"');
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.json().profile).toEqual({ id: 'u7', firstName: 'سارة' });
+    expect(exported.calls).toEqual(['u7']);
+    expect(audited).toContainEqual({ action: 'user.data_exported', entityId: 'u7' });
+  });
+
+  it('needs a signed-in user', async () => {
+    const app = await exportApp({ calls: [] });
+    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/export' })).statusCode).toBe(401);
+  });
+
+  it('answers 404 for an account that no longer exists', async () => {
+    const app = await exportApp({ calls: [] });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/users/me/export', headers: { authorization: `Bearer ${await tokenFor('gone', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(404);
+  });
+});

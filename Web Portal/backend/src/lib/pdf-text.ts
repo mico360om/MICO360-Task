@@ -23,14 +23,21 @@ import type { EmbeddingLevels } from 'bidi-js';
 
 const bidi = bidiFactory();
 
-export type FontKey = 'latin' | 'latin-bold' | 'arabic' | 'arabic-bold';
+export type FontKey = 'latin' | 'latin-bold' | 'display' | 'arabic' | 'arabic-bold' | 'fallback' | 'fallback-bold';
 
-/** Font files, resolved from the installed npm packages (see package.json). */
+/**
+ * Font files, resolved from the installed npm packages (see package.json). The brand type of the
+ * web app: IBM Plex Sans for text and Archivo for headings; Noto Naskh Arabic for Arabic; Noto
+ * Sans for any character the brand fonts don't have. Only the glyphs used are embedded.
+ */
 const FONT_FILES: Record<FontKey, string> = {
-  latin: '@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf',
-  'latin-bold': '@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf',
+  latin: '@expo-google-fonts/ibm-plex-sans/400Regular/IBMPlexSans_400Regular.ttf',
+  'latin-bold': '@expo-google-fonts/ibm-plex-sans/600SemiBold/IBMPlexSans_600SemiBold.ttf',
+  display: '@expo-google-fonts/archivo/700Bold/Archivo_700Bold.ttf',
   arabic: '@expo-google-fonts/noto-naskh-arabic/400Regular/NotoNaskhArabic_400Regular.ttf',
   'arabic-bold': '@expo-google-fonts/noto-naskh-arabic/700Bold/NotoNaskhArabic_700Bold.ttf',
+  fallback: '@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf',
+  'fallback-bold': '@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf',
 };
 
 export const FONT_KEYS = Object.keys(FONT_FILES) as FontKey[];
@@ -90,7 +97,7 @@ function isIgnorable(cp: number): boolean {
   return cp === 0x200b || cp === 0x2060 || cp === 0xfeff || (cp >= 0xfe00 && cp <= 0xfe0f) || cp === 0x00ad;
 }
 
-/** Readable stand-ins for common symbols neither font carries (arrows, check marks). */
+/** Readable stand-ins for common symbols no embedded font carries (check marks, crosses). */
 const SYMBOL_FALLBACKS: Record<string, string> = {
   '→': '->',
   '←': '<-',
@@ -102,12 +109,12 @@ const SYMBOL_FALLBACKS: Record<string, string> = {
 };
 
 function covered(cp: number): boolean {
-  return loadFont('latin').font.hasGlyphForCodePoint(cp) || loadFont('arabic').font.hasGlyphForCodePoint(cp);
+  return (['latin', 'arabic', 'fallback'] as FontKey[]).some((k) => loadFont(k).font.hasGlyphForCodePoint(cp));
 }
 
 /**
  * Normalise text for layout: tabs → space, control characters dropped, and any
- * character neither embedded font can draw (emoji, CJK, …) replaced by a readable
+ * character no embedded font can draw (emoji, CJK, …) replaced by a readable
  * fallback or "?" — never a silent .notdef box. Astral code points never survive,
  * so every remaining character is a single UTF-16 unit (bidi-js works per unit).
  */
@@ -212,6 +219,8 @@ export interface LayoutOptions {
   maxWidth?: number;
   /** Force the paragraph direction; default is auto (first strong character, UAX #9 P2/P3). */
   direction?: 'ltr' | 'rtl';
+  /** 'display' sets Latin text in the heading face (Archivo); Arabic always uses Naskh. */
+  family?: 'text' | 'display';
 }
 
 interface Paragraph {
@@ -222,9 +231,12 @@ interface Paragraph {
   size: number;
 }
 
-function assignFonts(text: string, levels: Uint8Array, bold: boolean): FontKey[] {
-  const latin: FontKey = bold ? 'latin-bold' : 'latin';
+function assignFonts(text: string, levels: Uint8Array, bold: boolean, family: 'text' | 'display' = 'text'): FontKey[] {
+  const body: FontKey = bold ? 'latin-bold' : 'latin';
+  const latin: FontKey = family === 'display' ? 'display' : body;
   const arabic: FontKey = bold ? 'arabic-bold' : 'arabic';
+  // Who draws a character the chosen face lacks: the text face, Naskh, then Noto Sans.
+  const fallbacks: FontKey[] = [body, arabic, bold ? 'fallback-bold' : 'fallback'];
   const fonts: FontKey[] = new Array<FontKey>(text.length);
   for (let i = 0; i < text.length; i++) {
     const cp = text.charCodeAt(i);
@@ -235,8 +247,8 @@ function assignFonts(text: string, levels: Uint8Array, bold: boolean): FontKey[]
     // Neutrals/numbers follow the run they sit in: Arabic font inside right-to-left runs.
     else key = (levels[i]! & 1) === 1 ? arabic : latin;
     if (!loadFont(key).font.hasGlyphForCodePoint(cp)) {
-      const other: FontKey = key === latin ? arabic : latin;
-      if (loadFont(other).font.hasGlyphForCodePoint(cp)) key = other;
+      const other = fallbacks.find((f) => f !== key && loadFont(f).font.hasGlyphForCodePoint(cp));
+      if (other) key = other;
     }
     fonts[i] = key;
   }
@@ -247,7 +259,7 @@ function prepareParagraph(raw: string, opts: LayoutOptions): Paragraph {
   const text = sanitizeText(raw);
   const levels = bidi.getEmbeddingLevels(text, opts.direction);
   const rtl = ((levels.paragraphs[0]?.level ?? (opts.direction === 'rtl' ? 1 : 0)) & 1) === 1;
-  return { text, levels, fonts: assignFonts(text, levels.levels, opts.bold ?? false), rtl, size: opts.size };
+  return { text, levels, fonts: assignFonts(text, levels.levels, opts.bold ?? false, opts.family), rtl, size: opts.size };
 }
 
 /** Width in points of text[a, b) (logical order), shaped per font run. */
@@ -405,8 +417,8 @@ export function layoutText(text: string, opts: LayoutOptions): TextLine[] {
 }
 
 /** Width in points of a single line of text (no wrapping; embedded newlines → widest line). */
-export function measureText(text: string, size: number, bold = false): number {
-  return layoutText(text, { size, bold }).reduce((w, l) => Math.max(w, l.width), 0);
+export function measureText(text: string, size: number, bold = false, family: 'text' | 'display' = 'text'): number {
+  return layoutText(text, { size, bold, family }).reduce((w, l) => Math.max(w, l.width), 0);
 }
 
 /**

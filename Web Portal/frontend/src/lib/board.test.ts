@@ -27,6 +27,12 @@ describe('composeBoard', () => {
     expect(board[0]!.tasks[0]!.done).toBe(false);
   });
 
+  it('flags the tasks that repeat (the newest copy of a series carries the rule)', () => {
+    const board = composeBoard(columns, [{ ...tasks[0]!, recurrenceRule: { freq: 'DAILY', interval: 1 } }, tasks[1]!]);
+    expect(board[0]!.tasks[0]!.recurring).toBe(true);
+    expect(board[1]!.tasks[0]!.recurring).toBe(false);
+  });
+
   it('produces empty task lists for columns with no tasks', () => {
     const board = composeBoard(columns, []);
     expect(board[0]!.tasks).toHaveLength(0);

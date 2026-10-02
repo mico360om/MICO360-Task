@@ -1,5 +1,6 @@
 import { ApiError } from './errors.js';
 import { sanitizeMessages, sanitizeSummaries } from './chat.js';
+import { fileNameFromDisposition } from './reports.js';
 
 export { ApiError };
 
@@ -15,17 +16,19 @@ function qs(params) {
  * Paths mirror /api/v1 (see the backend + the Android resources).
  */
 export function createApi({ auth, cache }) {
+  async function failure(res) {
+    let err;
+    try {
+      err = (await res.json())?.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    return new ApiError(res.status, err?.message, err?.code);
+  }
+
   async function raw(path, opts) {
     const res = await auth.authedFetch(path, opts); // rejects on network error
-    if (!res.ok) {
-      let err;
-      try {
-        err = (await res.json())?.error;
-      } catch {
-        /* non-JSON error body */
-      }
-      throw new ApiError(res.status, err?.message, err?.code);
-    }
+    if (!res.ok) throw await failure(res);
     if (res.status === 204) return undefined;
     const json = await res.json().catch(() => ({}));
     return json && json.data !== undefined ? json.data : json;
@@ -41,9 +44,27 @@ export function createApi({ auth, cache }) {
   const put = (path, body) => raw(path, { method: 'PUT', body: JSON.stringify(body ?? {}) });
   const del = (path) => raw(path, { method: 'DELETE' });
 
+  /** A file (an export) with the session: `{ blob, fileName }`, the name as the server sent it (or null). */
+  async function download(path) {
+    const res = await auth.authedFetch(path, { method: 'GET' });
+    if (!res.ok) throw await failure(res);
+    return { blob: await res.blob(), fileName: fileNameFromDisposition(res.headers.get('content-disposition')) };
+  }
+
+  // Reports are admin-only and always read fresh (never from the offline cache: stale numbers mislead).
+  const filters = ({ projectId, userId } = {}) => qs({ projectId, userId });
+
   return {
     raw,
+    download,
     config: () => raw('/config'),
+    reports: {
+      projects: (f) => raw(`/reports/projects${filters(f)}`),
+      status: (f) => raw(`/reports/status${filters(f)}`),
+      workload: (f) => raw(`/reports/workload${filters(f)}`),
+      completion: (f) => raw(`/reports/completion${filters(f)}`),
+      timeseries: ({ projectId, userId, from, to } = {}) => raw(`/reports/timeseries${qs({ projectId, userId, from, to })}`),
+    },
     projects: {
       list: () => get('projects', '/projects'),
       get: (id) => get(`project:${id}`, `/projects/${id}`),

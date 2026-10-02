@@ -1,5 +1,5 @@
 import { buildTimeSeries, type TimeSeriesResult } from './report-timeseries';
-import { completedOnTime, isOverdue } from '../../lib/due-date';
+import { completedOnTime, dueDayKey, isOverdue } from '../../lib/due-date';
 import { defaultCompanyTimeZone, isTaskDone } from '../tasks/task-status';
 
 export interface ReportTask {
@@ -11,11 +11,36 @@ export interface ReportTask {
   dueDate: Date | null;
   completedAt: Date | null;
   assigneeIds: string[];
+  /** Readable details for the task list (exports). */
+  key?: string;
+  title?: string;
+  priority?: string;
+  /** The task's column (its status as the team names it). */
+  columnName?: string;
 }
 
 export interface ReportUser {
   id: string;
   username: string;
+  /** Full name, when known. */
+  name?: string;
+}
+
+/** One row of the task list: what a manager reads in an export. */
+export interface TaskListRow {
+  key: string;
+  title: string;
+  projectName: string;
+  /** The column's name, e.g. "In review". */
+  status: string;
+  category: string;
+  priority: string;
+  assignees: string[];
+  /** Due day, 'YYYY-MM-DD'. */
+  dueDate: string | null;
+  completedAt: Date | null;
+  done: boolean;
+  overdue: boolean;
 }
 
 /** The on-screen report filters; every report and export applies the same ones. */
@@ -77,6 +102,8 @@ export function projectPerformance(tasks: ReportTask[], timeZone: string = defau
 export interface UserWorkload {
   userId: string;
   username: string;
+  /** Full name, else the username. */
+  name: string;
   assigned: number;
   completed: number;
   overdue: number;
@@ -88,6 +115,7 @@ export function userWorkload(tasks: ReportTask[], users: ReportUser[], timeZone:
     return {
       userId: u.id,
       username: u.username,
+      name: u.name?.trim() || u.username,
       assigned: theirs.length,
       completed: theirs.filter(isDone).length,
       overdue: theirs.filter((t) => isOverdueOpen(t, timeZone, now)).length,
@@ -157,11 +185,40 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
   async function completionReport(filter?: ReportFilter): Promise<CompletionStats> {
     return completionStats(await tasksFor(filter), timeZone);
   }
+  /** The filtered tasks with readable details: open tasks first, soonest due first. */
+  async function taskListReport(filter?: ReportFilter): Promise<TaskListRow[]> {
+    const [tasks, users] = await Promise.all([tasksFor(filter), data.getUsers()]);
+    const nameOf = new Map(users.map((u) => [u.id, u.name?.trim() || u.username]));
+    const at = now();
+    const rows = tasks.map((t): TaskListRow => {
+      const done = isDone(t);
+      return {
+        key: t.key ?? '',
+        title: t.title ?? '',
+        projectName: t.projectName,
+        status: t.columnName ?? t.columnCategory,
+        category: t.columnCategory,
+        priority: t.priority ?? 'NORMAL',
+        assignees: t.assigneeIds.map((id) => nameOf.get(id)).filter((n): n is string => Boolean(n)),
+        dueDate: dueDayKey(t.dueDate, timeZone),
+        completedAt: done ? t.completedAt : null,
+        done,
+        overdue: isOverdueOpen(t, timeZone, at),
+      };
+    });
+    return rows.sort(
+      (a, b) =>
+        Number(a.done) - Number(b.done) ||
+        (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') ||
+        a.key.localeCompare(b.key, undefined, { numeric: true }),
+    );
+  }
+
   /** Daily time series (completion, overdue trend, burndown + velocity) over a date range. */
   async function timeSeriesReport(opts: { from: string; to: string } & ReportFilter): Promise<TimeSeriesResult> {
     return buildTimeSeries(await tasksFor(opts), opts.from, opts.to, timeZone);
   }
-  return { taskStatusReport, projectPerformanceReport, workloadReport, completionReport, timeSeriesReport, timeZone };
+  return { taskStatusReport, projectPerformanceReport, workloadReport, completionReport, timeSeriesReport, taskListReport, timeZone };
 }
 
 export type ReportService = ReturnType<typeof createReportService>;

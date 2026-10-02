@@ -105,7 +105,7 @@ The logic core resolves against the repo-root `node_modules` for its test/typech
 - **Local signed APK**: `MICO360_KEYSTORE_PASSWORD='…' bash tools/release/build-apk.sh` (from the repo
   root). It does a clean `expo prebuild`, runs the Gradle release build, and signs with the kept key
   (`apk/release.keystore`, git-ignored) so it installs as an update. The output is
-  `Installer/MICO360-Tasks-<version>.apk`. Raise `version` and `android.versionCode` in `app.json` for
+  `Installer/3-Android-App/MICO360-Tasks-<version>.apk`. Raise `version` and `android.versionCode` in `app.json` for
   each release.
 - **EAS Build** profiles are in `eas.json` (`development` / `preview` APK, `production` app-bundle).
   Build with `eas build --platform android --profile production`; submit with `eas submit`.
@@ -121,6 +121,22 @@ The logic core resolves against the repo-root `node_modules` for its test/typech
 - **Push notifications**: the app registers its device token on login (`push-registrar` →
   `POST /device-tokens`) and clears it on logout. The backend stores tokens in `device_tokens`
   (`device-tokens` module) ready for an FCM sender.
+
+## Features at a glance
+
+- **Tasks:** details, editing, tags, subtasks, assignees, progress and comments. Files can be
+  attached from the phone (system file picker), opened and removed.
+- **Recurring tasks:** set a repeat when creating a task or in its details (daily, weekly on chosen
+  days, monthly or quarterly on a date or "the 2nd Tuesday", yearly; every N; ends; pause; next copy
+  when done or on each date). Completing one shows the next copy at once; the server makes exactly
+  one, however many devices complete it. The repeat logic is shared with the API
+  (`src/lib/recurrence.ts` is a checked copy).
+- **Board:** one day at a time, with live updates. Long-press a card to move it to another column.
+- **Projects:** a **Details** screen shows progress, dates, the team (managers first) and shortcuts
+  to the board and the project chat.
+- **Settings:** theme, biometric unlock, push permission, and which notifications you get (the same
+  six types and "due soon" timing as the web app, stored on the server). Privacy policy and terms
+  links are here and on the sign-in screen.
 
 ## Offline behaviour
 

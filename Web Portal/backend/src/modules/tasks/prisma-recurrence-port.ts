@@ -1,9 +1,10 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { NotFoundError } from '../../lib/http-errors';
 import type { RecurrenceTaskPort } from './recurrence-service';
+import type { RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { defaultCompanyTimeZone } from './task-status';
-import { isTaskKeyConflict } from './prisma-task-repository';
+import { isRecurrenceCopyConflict, isTaskKeyConflict } from './prisma-task-repository';
 import { projectAudienceIds } from './prisma-assignee-repository';
 
 const KEY_ATTEMPTS = 5;
@@ -16,8 +17,9 @@ export interface PrismaRecurrencePortOptions {
 
 /**
  * Prisma-backed recurrence port. Spawning the next instance also clears the
- * source task's rule, so completing the same task twice never double-spawns —
- * the rule always travels forward to the newest instance in the series.
+ * source task's rule, so the rule always travels forward to the newest instance in the series.
+ * Each copy records its source task (`recurrenceSourceId`, unique), so the database itself refuses
+ * a second copy of the same task — completing it twice, or from two apps at once, makes one.
  *
  * The next occurrence is a normal task: it sits on today's board, starts now, keeps the
  * series' assignees, watchers, tags and (unticked) checklist, and gets a CREATED activity row —
@@ -73,6 +75,7 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 createdById: source.createdById,
                 recurrenceRule: rule as unknown as Prisma.InputJsonValue,
                 recurrenceParentId: parentId,
+                recurrenceSourceId: sourceTaskId,
                 assignees: { create: assigneeIds.map((userId) => ({ userId })) },
                 watchers: { create: watcherIds.map((userId) => ({ userId })) },
                 tags: { create: source.tags.map((t) => ({ tagId: t.tagId })) },
@@ -80,8 +83,9 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
               },
               select: { id: true, projectId: true, title: true },
             });
-            // The rule now lives on the new instance only.
-            await tx.task.update({ where: { id: sourceTaskId }, data: { recurrenceRule: Prisma.DbNull } });
+            // The rule now lives on the new instance only. The first task of a series marks itself as
+            // its start, so every app keeps showing it as part of the series once the rule moves on.
+            await tx.task.update({ where: { id: sourceTaskId }, data: { recurrenceRule: Prisma.DbNull, recurrenceParentId: parentId } });
             await tx.activity.create({
               data: { taskId: task.id, projectId: task.projectId, userId: source.createdById, action: 'CREATED', meta: { title: task.title, recurring: true } },
             });
@@ -89,10 +93,25 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
           });
           return { id: created.id, projectId: created.projectId };
         } catch (err) {
+          // This task already has its next copy (a repeat or concurrent call): nothing to add.
+          if (isRecurrenceCopyConflict(err)) return null;
           // A concurrent create took this key — retry with the next number.
           if (!isTaskKeyConflict(err) || attempt >= KEY_ATTEMPTS - 1) throw err;
         }
       }
+    },
+
+    async listSeriesHeads() {
+      const rows = await prisma.task.findMany({
+        // An archived or completed project makes no more copies on schedule.
+        where: {
+          deletedAt: null,
+          project: { is: { deletedAt: null, status: { notIn: ['ARCHIVED', 'COMPLETED'] } } },
+          NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }],
+        },
+        select: { id: true, dueDate: true, startDate: true, recurrenceRule: true, recurrenceParentId: true },
+      });
+      return rows.map((r) => ({ ...r, recurrenceRule: r.recurrenceRule as unknown as RecurrenceRule | null }));
     },
 
     async countInstances(parentId) {

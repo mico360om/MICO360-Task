@@ -37,6 +37,8 @@ function noteRepo(): NoteRepository {
     async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
     async remove(id) { rows.delete(id); },
+    async findDeleted() { return null; },
+    async restore(id) { return rows.get(id)!; },
     async claimTask(id, marker) { const r = rows.get(id); if (!r || r.taskId) return false; rows.set(id, { ...r, taskId: marker }); return true; },
     async releaseTaskClaim(id, marker) { const r = rows.get(id); if (r && r.taskId === marker) rows.set(id, { ...r, taskId: null }); },
   };

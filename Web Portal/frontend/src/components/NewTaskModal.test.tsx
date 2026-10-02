@@ -85,6 +85,24 @@ describe('NewTaskModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('creates a repeating task with its rule in the same request', async () => {
+    renderModal();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));
+    await userEvent.type(screen.getByLabelText(/task title/i), 'Daily check');
+    await userEvent.selectOptions(screen.getByLabelText(/^repeat$/i), 'DAILY');
+    await userEvent.selectOptions(screen.getByLabelText(/create the next copy/i), 'ON_SCHEDULE');
+    await userEvent.click(screen.getByRole('button', { name: /add task/i }));
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted!.body).toMatchObject({ title: 'Daily check', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } });
+  });
+
+  it('fits short screens: the dialog scrolls instead of pushing "Add task" off-screen', async () => {
+    renderModal();
+    const dialog = await screen.findByRole('dialog', { name: /new task/i });
+    expect(dialog.className).toMatch(/max-h-\[calc\(100dvh-2rem\)\]/);
+    expect(dialog.className).toContain('overflow-y-auto');
+  });
+
   it('leaves assigneeIds out when nobody is picked (the project default applies)', async () => {
     renderModal();
     await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));

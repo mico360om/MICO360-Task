@@ -14,6 +14,7 @@ import { activityApi } from '../api/activity';
 import { watchersApi } from '../api/watchers';
 import { aiApi } from '../api/ai';
 import { tasksApi, type Priority, type RecurrenceRule } from '../api/tasks';
+import { downloadBlob, fileNameOf, fileSlug } from '../lib/download';
 import { ApiError } from '../lib/api-client';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useCompanyTimeZone } from '../lib/company-clock';
@@ -293,6 +294,11 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
             watching={watchStatusQ.data ?? false}
             watcherCount={Array.isArray(watchersQ.data) ? watchersQ.data.length : 0}
             onToggleWatch={() => toggleWatchM.mutate()}
+            onExport={async (format) => {
+              const blob = await tasksApi(apiClient).exportFile(taskId, format);
+              const t = taskQ.data!;
+              downloadBlob(fileNameOf(blob) ?? `${t.key}-${fileSlug(t.title)}.${format}`, blob);
+            }}
             onClose={onClose}
           />
         ) : taskQ.isError ? (

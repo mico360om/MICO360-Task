@@ -117,4 +117,30 @@ describe('ReportService', () => {
     expect((await s.workloadReport({ userId: 'u2' })).map((w) => w.userId)).toEqual(['u2']);
     expect((await s.completionReport({ userId: 'u2' })).total).toBe(2);
   });
+
+  it('names people in the workload report (full name, else username)', async () => {
+    const s = createReportService({
+      data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada', name: 'Ada Lovelace' }, { id: 'u2', username: 'omar' }]; } },
+      timeZone: 'Asia/Muscat',
+    });
+    expect((await s.workloadReport()).map((w) => w.name)).toEqual(['Ada Lovelace', 'omar']);
+  });
+
+  it('lists the filtered tasks with readable details, open and soonest due first', async () => {
+    const detailed: ReportTask[] = [
+      { ...tasks[0]!, key: 'MICO-1', title: 'Write the plan', priority: 'HIGH', columnName: 'Done' },
+      { ...tasks[1]!, key: 'MICO-2', title: 'مراجعة التقرير', priority: 'URGENT', columnName: 'In progress' },
+      { ...tasks[2]!, key: 'RIG-1', title: 'Inspect rig', priority: 'NORMAL', columnName: 'To do' },
+    ];
+    const s = createReportService({
+      data: { async getTasks() { return detailed; }, async getUsers() { return [{ id: 'u1', username: 'ada', name: 'Ada Lovelace' }, { id: 'u2', username: 'omar', name: 'Omar Ahmed' }]; } },
+      timeZone: 'Asia/Muscat',
+      now: () => new Date('2026-10-01T06:00:00Z'),
+    });
+    const rows = await s.taskListReport();
+    expect(rows.map((r) => r.key)).toEqual(['MICO-2', 'RIG-1', 'MICO-1']);
+    expect(rows[0]).toMatchObject({ title: 'مراجعة التقرير', projectName: 'MICO', status: 'In progress', category: 'IN_PROGRESS', priority: 'URGENT', assignees: ['Ada Lovelace', 'Omar Ahmed'], dueDate: '2000-01-01', overdue: true, done: false });
+    expect(rows[2]).toMatchObject({ key: 'MICO-1', done: true, overdue: false, completedAt: new Date('2000-01-02') });
+    expect((await s.taskListReport({ userId: 'u2' })).map((r) => r.key)).toEqual(['MICO-2', 'RIG-1']);
+  });
 });

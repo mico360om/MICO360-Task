@@ -74,7 +74,10 @@ rather than the deploy.
 > Without a database you can still generate the SQL by diffing the schema before and after your
 > edit: `prisma migrate diff --from-schema-datamodel <old schema file> --to-schema-datamodel prisma/schema.prisma --script`.
 
-Do **not** run `db:seed` in production (it is dev sample data). Instead create the first admin:
+Do **not** run `db:seed` in production: it is demo data for development, and it wipes the database
+first. It refuses to run when `NODE_ENV=production` or when the database holds a real account
+(`SEED_DEMO_FORCE=1` overrides the second check on a development database), and it is left out of
+the server package. Instead create the first admin:
 
 ```bash
 ADMIN_EMAIL=you@company.com ADMIN_USERNAME=admin ADMIN_PASSWORD='<a strong password>' \

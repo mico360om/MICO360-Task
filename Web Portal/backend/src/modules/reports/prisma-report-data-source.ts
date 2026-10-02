@@ -10,7 +10,7 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         where: { deletedAt: null, project: { is: { deletedAt: null } } },
         include: {
           project: { select: { name: true } },
-          column: { select: { category: true } },
+          column: { select: { category: true, name: true } },
           assignees: { select: { userId: true } },
         },
       });
@@ -26,10 +26,15 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         // and the snapshot reports agree they are done.
         completedAt: t.completedAt ?? (t.column.category === 'DONE' ? t.updatedAt : null),
         assigneeIds: t.assignees.map((a) => a.userId),
+        key: t.key,
+        title: t.title,
+        priority: t.priority,
+        columnName: t.column.name,
       }));
     },
     async getUsers() {
-      return prisma.user.findMany({ where: { deletedAt: null }, select: { id: true, username: true } });
+      const users = await prisma.user.findMany({ where: { deletedAt: null }, select: { id: true, username: true, firstName: true, lastName: true } });
+      return users.map((u) => ({ id: u.id, username: u.username, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username }));
     },
   };
 }

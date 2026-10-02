@@ -66,13 +66,16 @@ function agendaRepo(): AgendaRepository {
 }
 function noteRepo(): NoteRepository {
   const rows = new Map<string, NoteRecord>();
+  const deleted = new Set<string>();
   let seq = 0;
   return {
     async add(d: CreateNoteData) { const rec: NoteRecord = { id: `n${seq++}`, meetingId: d.meetingId, agendaItemId: d.agendaItemId ?? null, authorId: d.authorId, type: d.type, body: d.body, highlighted: d.highlighted ?? false, taskId: null, actionItemId: null, decisionId: null, createdAt: new Date(), editedAt: null }; rows.set(rec.id, rec); return rec; },
-    async findById(id) { return rows.get(id) ?? null; },
-    async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
+    async findById(id) { return deleted.has(id) ? null : rows.get(id) ?? null; },
+    async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId && !deleted.has(n.id)); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
-    async remove(id) { rows.delete(id); },
+    async remove(id) { deleted.add(id); },
+    async findDeleted(id) { return deleted.has(id) ? rows.get(id) ?? null : null; },
+    async restore(id) { deleted.delete(id); return rows.get(id)!; },
     async claimTask() { return false; },
     async releaseTaskClaim() {},
   };

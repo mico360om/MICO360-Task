@@ -3,6 +3,8 @@ import { buildApp } from '../../app';
 import { createReportService, type ReportTask } from './report-service';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
+import { inspectXlsx } from '../../lib/xlsx-inspect';
+import { inspectPdf } from '../../lib/pdf-inspect';
 
 const tasks: ReportTask[] = [
   { id: '1', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: new Date('2000-01-01'), dueDate: null, completedAt: new Date(), assigneeIds: ['u1'] },
@@ -28,7 +30,11 @@ async function makeApp() {
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  return buildApp({ authService, tokenService, reportService });
+  const reportNames = {
+    async project(id: string) { return ({ p1: 'MICO360 Platform', p2: 'Rig Inspection Portal' } as Record<string, string>)[id] ?? null; },
+    async user(id: string) { return ({ admin: 'Aisha Khan', u2: 'Omar Ahmed' } as Record<string, string>)[id] ?? null; },
+  };
+  return buildApp({ authService, tokenService, reportService, reportNames });
 }
 async function token(roles: string[]) {
   return (await tokenService.issueTokens({ id: 'admin', roles })).accessToken;
@@ -52,6 +58,16 @@ describe('Report routes (admin only)', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it('names every CSV / .xls download like the other exports: report, filters, day', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const csv = await app.inject({ method: 'GET', url: '/api/v1/reports/workload.csv?userId=u2', headers: admin });
+    expect(csv.headers['content-disposition']).toMatch(/filename="user-workload-omar-ahmed-\d{4}-\d{2}-\d{2}\.csv"/);
+    const xls = await app.inject({ method: 'GET', url: '/api/v1/reports/status.xls?projectId=p1', headers: admin });
+    expect(xls.headers['content-disposition']).toMatch(/filename="status-breakdown-mico360-platform-\d{4}-\d{2}-\d{2}\.xls"/);
+    const trend = await app.inject({ method: 'GET', url: '/api/v1/reports/timeseries.csv?from=2000-01-01&to=2000-01-02', headers: admin });
+    expect(trend.headers['content-disposition']).toMatch(/filename="completion-trend-\d{4}-\d{2}-\d{2}\.csv"/);
+  });
+
   it('rejects unauthenticated access (401)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/reports/status' });
     expect(res.statusCode).toBe(401);
@@ -61,7 +77,7 @@ describe('Report routes (admin only)', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/reports/projects.csv', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
-    expect(res.headers['content-disposition']).toContain('attachment; filename="project-performance.csv"');
+    expect(res.headers['content-disposition']).toMatch(/attachment; filename="project-performance-\d{4}-\d{2}-\d{2}\.csv"/);
     const lines = csvLines(res.body);
     expect(lines[0]).toBe('projectId,projectName,total,completed,overdue,completionPct');
     expect(lines[1]).toBe('p1,MICO,2,1,0,50');
@@ -100,7 +116,7 @@ describe('Report routes (admin only)', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/reports/projects.xls', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('application/vnd.ms-excel');
-    expect(res.headers['content-disposition']).toContain('project-performance.xls');
+    expect(res.headers['content-disposition']).toMatch(/project-performance-\d{4}-\d{2}-\d{2}\.xls"/);
     expect(res.body).toContain('<?mso-application progid="Excel.Sheet"?>');
     expect(res.body).toContain('ss:Name="Project Performance"');
     expect(res.body).toContain('<Data ss:Type="Number">2</Data>'); // total = 2
@@ -110,11 +126,58 @@ describe('Report routes (admin only)', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/reports/projects.pdf', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('application/pdf');
-    expect(res.headers['content-disposition']).toContain('project-performance.pdf');
+    expect(res.headers['content-disposition']).toMatch(/project-performance-\d{4}-\d{2}-\d{2}\.pdf/);
     const body = res.rawPayload.toString('latin1');
     expect(body.startsWith('%PDF-1.')).toBe(true);
     expect(body.trimEnd().endsWith('%%EOF')).toBe(true);
-    // The PDF's text layout/encoding belongs to lib/pdf (tested there); this route test checks the envelope.
+    // A branded single-section report: the logo header, the section and its rows.
+    const text = inspectPdf(res.rawPayload).pages.flat();
+    expect(text).toEqual(expect.arrayContaining(['Project performance', 'Project', 'MICO', 'RIG']));
+  });
+
+  it('exports the full report as an Excel workbook: one sheet per section, filters and author noted', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/reports/export.xlsx?projectId=p1', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    expect(res.headers['content-disposition']).toMatch(/attachment; filename="tasks-report-mico360-platform-\d{4}-\d{2}-\d{2}\.xlsx"/);
+    expect(res.headers['cache-control']).toBe('no-store');
+    const { sheets, text } = inspectXlsx(res.rawPayload);
+    expect(sheets).toEqual(['Summary', 'Status', 'Projects', 'Team workload', 'Trend', 'Tasks']);
+    expect(text[0]!.join(' ')).toContain('Project: MICO360 Platform');
+    expect(text[0]!.join(' ')).toContain('by Aisha Khan');
+    // The project filter applies: only MICO's row.
+    expect(text[2]).toContain('MICO');
+    expect(text[2]).not.toContain('RIG');
+  });
+
+  it('exports the full report as a branded PDF, or just the sections asked for', async () => {
+    const auth = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const full = await app.inject({ method: 'GET', url: '/api/v1/reports/export.pdf?userId=u2', headers: auth });
+    expect(full.statusCode).toBe(200);
+    expect(full.headers['content-type']).toBe('application/pdf');
+    expect(full.headers['content-disposition']).toMatch(/filename="tasks-report-omar-ahmed-\d{4}-\d{2}-\d{2}\.pdf"/);
+    const text = inspectPdf(full.rawPayload).pages.flat();
+    expect(text).toEqual(expect.arrayContaining(['Tasks report', 'Summary', 'Status breakdown', 'Project performance', 'Team workload', 'Completion trend', 'Tasks']));
+    expect(text.join(' ')).toContain('Team member: Omar Ahmed');
+    const some = await app.inject({ method: 'GET', url: '/api/v1/reports/export.pdf?sections=summary,tasks', headers: auth });
+    const someText = inspectPdf(some.rawPayload).pages.flat();
+    expect(someText).toEqual(expect.arrayContaining(['Summary', 'Tasks']));
+    expect(someText).not.toContain('Team workload');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/reports/export.pdf?sections=bogus', headers: auth })).statusCode).toBe(400);
+  });
+
+  it('exports each single report as a real .xlsx too', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/reports/workload.xlsx', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-disposition']).toMatch(/user-workload-\d{4}-\d{2}-\d{2}\.xlsx/);
+    expect(inspectXlsx(res.rawPayload).sheets).toEqual(['Team workload']);
+  });
+
+  it('keeps the full-report exports admin-only', async () => {
+    const emp = `Bearer ${await token(['EMPLOYEE'])}`;
+    for (const url of ['/api/v1/reports/export.xlsx', '/api/v1/reports/export.pdf', '/api/v1/reports/projects.xlsx']) {
+      expect((await app.inject({ method: 'GET', url, headers: { authorization: emp } })).statusCode, url).toBe(403);
+    }
   });
 
   it('forbids an employee from the Excel and PDF exports (403)', async () => {
@@ -159,7 +222,7 @@ describe('Report routes (admin only)', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/reports/timeseries.csv?from=2000-01-01&to=2000-01-02', headers: { authorization: `Bearer ${await token(['ADMIN'])}` } });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
-    expect(res.headers['content-disposition']).toContain('completion-trend.csv');
+    expect(res.headers['content-disposition']).toMatch(/completion-trend-\d{4}-\d{2}-\d{2}\.csv"/);
     const lines = csvLines(res.body);
     expect(lines[0]).toBe('date,created,completed,overdue,remaining,ideal');
     expect(lines[1]).toBe('2000-01-01,2,0,0,2,2');

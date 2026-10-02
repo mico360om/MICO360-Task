@@ -10,8 +10,8 @@ info:
 servers:
   - url: http://localhost:4000/api/v1
     description: Local development
-  - url: https://api.example.com/api/v1
-    description: Production (replace with your host)
+  - url: https://task.mico360.com/api/v1
+    description: Production
 
 components:
   securitySchemes:
@@ -58,16 +58,48 @@ components:
         progress: { type: integer }
         recurrenceRule:
           nullable: true
+          description: The repeat rule. Only the newest copy of a recurring series carries it.
           $ref: '#/components/schemas/RecurrenceRule'
+        recurrenceParentId:
+          type: string
+          nullable: true
+          description: Set on every copy of a recurring series (the first task's id; the first task links to itself once it has a copy).
+        recurrenceNextId:
+          type: string
+          nullable: true
+          description: >
+            GET /tasks/{id} only. The copy made from this task. Set means this is an earlier copy: setting
+            a repeat on it is refused with 409 RECURRENCE_NOT_NEWEST (it would start a second series).
     RecurrenceRule:
       type: object
+      description: >
+        A task's repeat schedule. When the next copy is made it keeps the title, description,
+        priority, estimate, assignees, watchers, tags and checklist (unticked), lands in the
+        project's first open column, and takes over the rule. A task never gets two next copies
+        (enforced by the database), so completing it twice, or from several apps at once, makes one.
+      required: [freq, interval]
       properties:
-        freq: { type: string, enum: [DAILY, WEEKLY, MONTHLY, YEARLY] }
-        interval: { type: integer, minimum: 1 }
-        count: { type: integer, nullable: true }
-        until: { type: string, nullable: true }
-        weekdays: { type: array, items: { type: integer, minimum: 0, maximum: 6 } }
-        dayOfMonth: { type: integer, minimum: 1, maximum: 31 }
+        freq: { type: string, enum: [DAILY, WEEKLY, MONTHLY, QUARTERLY, YEARLY] }
+        interval: { type: integer, minimum: 1, description: 'Every N days / weeks / months / quarters / years.' }
+        count: { type: integer, nullable: true, description: 'End after this many tasks in the series.' }
+        until: { type: string, nullable: true, description: 'Last date (YYYY-MM-DD) a copy may be due.' }
+        weekdays: { type: array, items: { type: integer, minimum: 0, maximum: 6 }, description: 'WEEKLY: the days (0 = Sunday).' }
+        dayOfMonth: { type: integer, minimum: 1, maximum: 31, description: 'MONTHLY / QUARTERLY: the day (31 = the last day of each month).' }
+        nthWeekday:
+          type: object
+          description: 'MONTHLY / QUARTERLY, instead of dayOfMonth: "the 2nd Tuesday" or "the last Friday".'
+          properties:
+            week: { type: integer, enum: [1, 2, 3, 4, -1], description: '-1 = the last one of the month.' }
+            day: { type: integer, minimum: 0, maximum: 6 }
+        createNext:
+          type: string
+          enum: [ON_COMPLETE, ON_SCHEDULE]
+          description: >
+            ON_COMPLETE (default): the next copy is made when this one is completed, dated by the
+            rule and never already overdue (missed dates are skipped). ON_SCHEDULE: a copy is made
+            on each due date whether or not the previous one is done (an hourly server job; missed
+            days collapse into one copy).
+        paused: { type: boolean, description: 'No new copies while paused.' }
     Project:
       type: object
       properties:
@@ -91,8 +123,14 @@ paths:
         '200': { description: OK }
   /metrics:
     get:
+      summary: Process metrics (uptime, memory) — administrators only
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
+  /config:
+    get:
       security: []
-      summary: Process metrics (uptime, memory)
+      summary: Public client settings — company time zone, product name, whether email is set up, the Android app download link (androidAppUrl, may be null) and the server time
       responses:
         '200': { description: OK }
 
@@ -220,6 +258,15 @@ paths:
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
       requestBody: { content: { multipart/form-data: { schema: { type: object, properties: { file: { type: string, format: binary } } } } } }
       responses: { '201': { description: Created }, '400': { description: Too large / disallowed / spoofed type } }
+  /tasks/{id}/export.xlsx:
+    get:
+      summary: >-
+        One task as an Excel workbook (Task, Checklist, Comments, Attachments, Dependencies, Activity).
+        /tasks/{id}/export.pdf gives it as a branded PDF. Anyone who can open the task may export it.
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: 'File download named after the task, e.g. MICO-12-inspect-the-rig.xlsx' }
+        '404': { description: No such task, or not visible to you }
   /tasks/{id}/dependencies:
     get: { summary: List blocked-by / blocks, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
     post:
@@ -238,6 +285,57 @@ paths:
   /notifications/unread-count:
     get: { summary: Unread notification count, responses: { '200': { description: OK } } }
   /reports/projects:
-    get: { summary: Project performance report (admin), responses: { '200': { description: OK }, '403': { description: Forbidden } } }
+    get:
+      summary: Project performance report (admin). Also /reports/status, /reports/workload, /reports/completion.
+      parameters:
+        - { name: projectId, in: query, schema: { type: string }, description: Only this project }
+        - { name: userId, in: query, schema: { type: string }, description: Only tasks assigned to this team member }
+      responses: { '200': { description: OK }, '403': { description: Forbidden } }
   /reports/projects.csv:
-    get: { summary: Project performance as CSV (also .xls, .pdf), responses: { '200': { description: File download } } }
+    get:
+      summary: >-
+        Project performance as a download (admin) — .xlsx (formatted Excel workbook), .pdf (branded
+        report with logo, sections, tables and page numbers), .csv, or .xls (older SpreadsheetML, kept
+        for old links). The same suffixes exist for /reports/status, /reports/workload and
+        /reports/timeseries (which also takes from / to).
+      parameters:
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: userId, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: >-
+            File download. Content-Disposition names it report + filters + the company day, e.g.
+            project-performance-rig-inspection-portal-2026-10-01.csv (exposed to cross-origin callers).
+        '403': { description: Forbidden }
+  /reports/export.xlsx:
+    get:
+      summary: >-
+        The full report (admin) as one Excel workbook — a sheet per section (Summary, Status, Projects,
+        Team workload, Trend, Tasks) with titles, the filters used, frozen bold headers and sized
+        columns. /reports/export.pdf gives the same report as a branded landscape PDF.
+      parameters:
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: userId, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date }, description: Trend period start (default 30 days before `to`) }
+        - { name: to, in: query, schema: { type: string, format: date }, description: Trend period end (default the company's today) }
+        - { name: sections, in: query, schema: { type: string, example: 'summary,tasks' }, description: 'Comma-separated subset of summary, status, projects, workload, trend, tasks (default all)' }
+      responses:
+        '200': { description: 'File download, e.g. tasks-report-mico360-platform-2026-10-01.xlsx' }
+        '400': { description: Unknown section, or from after to }
+        '403': { description: Forbidden }
+  /users/me/export:
+    get:
+      summary: Download my data — everything held about the signed-in person, as a JSON file (recorded in the audit log)
+      responses:
+        '200': { description: JSON file (Content-Disposition attachment) }
+        '401': { description: Not signed in }
+  /meetings/{id}/notes/{noteId}/restore:
+    post:
+      summary: Undo a meeting-note delete (notes are soft-deleted). The note's author or the meeting's organizer only.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: noteId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: The restored note }
+        '403': { description: Not the author or organizer }
+        '404': { description: No deleted note with that id in this meeting }

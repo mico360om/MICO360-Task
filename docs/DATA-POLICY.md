@@ -27,37 +27,36 @@ SHA-256 respectively) and are single-use and time-limited. JWT refresh tokens ar
 
 ## Subject requests (export / erasure)
 
-- **Export**: an admin can compile a user's data (profile, assigned tasks, comments, activity)
-  via the API; a `/users/me/export` convenience endpoint is a planned addition.
+- **Export**: anyone can download their own data from **Profile → Download my data**
+  (`GET /api/v1/users/me/export`). The JSON file holds their profile, project memberships, tasks
+  assigned to or created by them, comments, uploaded-file details, chat messages, meeting notes,
+  action items, recent activity and account events. Deleted items are left out, each section is
+  capped at the latest 5,000 entries, and every export is recorded in the audit log.
 - **Erasure**: on a verified erasure request, deactivate the account and anonymise PII
   (replace name/email/username with tombstone values) while preserving referential integrity of
   historical activity. Hard-delete attachments the user uploaded.
 
-## Authorization model (intentional collaborative visibility)
+The public privacy notice for staff (`/privacy` in the web app, linked from sign-in and the phone
+app) summarises this policy in plain language. `/terms` holds the terms of use.
 
-MICO360 Tasks is a **single-organization collaborative** tool (like a team workspace in
-Trello/Jira): **any authenticated user can read, and update, any task or project by ID.** This is
-**by design** — the trust boundary is "signed-in member of this organization," not per-project
-membership. There is deliberately **no object-level (per-project) access control** on task/project
-reads or ordinary edits.
+## Authorization model
 
-What **is** enforced, server-side:
+MICO360 Tasks is a single-organization tool with **per-project visibility**:
 
-- **Authentication** — every `/api/v1` route except `/auth/*`, `/health`, `/config` requires a
-  valid access token.
-- **Role gates (RBAC)** — admin-only areas (user management, reports, audit logs, system/AI
-  settings, project create/update/archive/delete) require the `ADMIN` role; employees get `403`.
-- **Per-project manager tier** — column management and task deletion accept an admin **or** the
+- **Authentication**: every `/api/v1` route except `/auth/*`, `/health` and `/config` requires a
+  valid access token. Suspended or signed-out sessions are refused right away (token version check).
+- **Project access**: an administrator sees every project. Anyone else sees a project, and every
+  task, column, comment, file and chat channel in it, only when they own, manage, created or belong
+  to it. Assignees must be project members. Removing someone from a project removes their access to
+  its tasks and its chat.
+- **Role gates (RBAC)**: admin-only areas (user management, reports, audit logs, system/AI settings,
+  project create/update/archive/delete) require the `ADMIN` role; employees get `403`.
+- **Per-project manager tier**: column management and task deletion accept an admin **or** the
   project's `MANAGER` (`ProjectMemberRole`).
-- **Ownership-ish actions** — a user can only act as themselves (e.g. "assign to me", their own
-  notification preferences, their own session/refresh tokens).
+- **Ownership**: a user acts only as themselves, for example their own notification preferences,
+  sessions, meeting notes (the organizer may also moderate them) and data export.
 
-**Implication / operator note:** do **not** put data that must be hidden from some employees into a
-task or project here — everyone in the org can see it. If a future requirement needs private or
-per-project-restricted boards (e.g. HR/finance projects, external collaborators, or multi-tenancy),
-that requires adding object-level authorization (gate `GET/PUT /tasks/:id` and `/projects/:id` by
-project membership) — a deliberate, breaking change to the collaborative model, tracked as a
-known follow-up rather than a bug.
+Meeting notes are soft-deleted (restorable with **Undo**), like tasks, projects and comments.
 
 ## Access & security
 

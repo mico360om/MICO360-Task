@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, matchRoute, href } from './router.js';
+import { parseHash, matchRoute, href, refreshOnReturn } from './router.js';
 
 const ROUTES = [
   { name: 'dashboard', pattern: '/' },
@@ -43,5 +43,17 @@ describe('href', () => {
   it('builds a hash href with a query, dropping empty values', () => {
     expect(href('/board/p1', { tab: 'team', empty: '' })).toBe('#/board/p1?tab=team');
     expect(href('/projects')).toBe('#/projects');
+  });
+});
+
+describe('refreshOnReturn', () => {
+  it('reloads the task screens when the tab is shown again, so copies made elsewhere appear', () => {
+    for (const r of [{ name: 'board' }, { name: 'dashboard' }, { name: 'calendar' }]) expect(refreshOnReturn(r, false)).toBe(true);
+  });
+
+  it('leaves screens with typing in progress alone, and never reloads under an open task drawer', () => {
+    for (const r of [{ name: 'my-tasks' }, { name: 'chat' }, { name: 'chat-thread' }, { name: 'settings' }]) expect(refreshOnReturn(r, false)).toBe(false);
+    expect(refreshOnReturn({ name: 'board' }, true)).toBe(false);
+    expect(refreshOnReturn(null, false)).toBe(false);
   });
 });

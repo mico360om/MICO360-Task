@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MICO360 Tasks",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Manage daily work on a Kanban board — MICO360 Tasks.",
   "action": {
     "default_title": "Open MICO360 Tasks",

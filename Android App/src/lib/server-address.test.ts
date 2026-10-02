@@ -8,6 +8,7 @@ import {
   loadServerOverride,
   saveServerOverride,
   probeServer,
+  sitePageUrl,
 } from './server-address';
 
 describe('isPrivateHost', () => {
@@ -104,5 +105,12 @@ describe('probeServer', () => {
     const hang: typeof fetch = (_url, init) =>
       new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
     expect(await probeServer('http://x/api/v1', hang, 20)).toBe(false);
+  });
+});
+
+describe('sitePageUrl', () => {
+  it('points at a web-app page on the same server', () => {
+    expect(sitePageUrl('https://task.mico360.com/api/v1', '/privacy')).toBe('https://task.mico360.com/privacy');
+    expect(sitePageUrl('http://192.168.1.20:4000/api/v1/', 'terms')).toBe('http://192.168.1.20:4000/terms');
   });
 });

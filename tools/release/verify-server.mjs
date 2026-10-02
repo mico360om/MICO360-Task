@@ -10,6 +10,7 @@
  * Safe to run more than once (names get a unique suffix). Exit code 0 = everything passed.
  */
 import { randomUUID } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import { io } from 'socket.io-client';
 
 const ORIGIN = (process.env.VERIFY_URL ?? 'http://localhost:4000').replace(/\/+$/, '');
@@ -29,6 +30,23 @@ const ck = (name, ok, extra = '') => {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${ok ? '' : `  → ${extra}`}`);
 };
 const section = (s) => console.log(`\n${s}`);
+/** The text of every part of a zip (an .xlsx), via its central directory. */
+function unzipText(buf) {
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0) return new Map();
+  const files = new Map();
+  let p = buf.readUInt32LE(eocd + 16);
+  for (let i = 0, n = buf.readUInt16LE(eocd + 10); i < n; i++) {
+    const nameLen = buf.readUInt16LE(p + 28);
+    const local = buf.readUInt32LE(p + 42);
+    const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+    const raw = buf.subarray(start, start + buf.readUInt32LE(p + 20));
+    files.set(buf.toString('utf8', p + 46, p + 46 + nameLen), (buf.readUInt16LE(p + 10) === 8 ? inflateRawSync(raw) : raw).toString('utf8'));
+    p += 46 + nameLen + buf.readUInt16LE(p + 30) + buf.readUInt16LE(p + 32);
+  }
+  return files;
+}
+const fileName = (res) => /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? '';
 const json = async (r) => ({ s: r.status, h: r.headers, b: await r.json().catch(() => null) });
 const login = (identifier, password) =>
   fetch(`${B}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier, password }) }).then(json);
@@ -60,6 +78,14 @@ const asset = script ? await fetch(`${ORIGIN}${script}`) : null;
 ck('hashed scripts are served with a one-year cache', !!asset && asset.status === 200 && /immutable/.test(asset.headers.get('cache-control') ?? ''), script ?? 'no script tag');
 const links = await fetch(`${ORIGIN}/.well-known/assetlinks.json`);
 ck('Android App Links file is published', links.status === 200 && Array.isArray(await links.json().catch(() => null)));
+for (const page of ['/privacy', '/terms']) {
+  const res = await fetch(`${ORIGIN}${page}`);
+  ck(`public ${page} page loads without signing in`, res.status === 200 && (await res.text()).includes('<div id="root">'));
+}
+if (process.env.VERIFY_EXPECT_APK === '1') {
+  const apk = await fetch(`${ORIGIN}/downloads/MICO360-Tasks.apk`, { method: 'HEAD' });
+  ck('the Android app can be downloaded from this server', apk.status === 200 && /android\.package-archive|octet-stream/.test(apk.headers.get('content-type') ?? ''), `${apk.status} ${apk.headers.get('content-type')}`);
+}
 const missing = await fetch(`${B}/no-such-endpoint`);
 ck('unknown API paths answer JSON 404 (not the web page)', missing.status === 404 && (await missing.json().catch(() => ({}))).error?.code === 'NOT_FOUND');
 
@@ -68,6 +94,10 @@ const health = await fetch(`${B}/health`).then(json);
 ck('health check is ok', health.s === 200 && health.b?.data?.status === 'ok');
 const config = await fetch(`${B}/config`).then(json);
 ck('company time zone is Asia/Muscat', config.b?.data?.timeZone === 'Asia/Muscat', JSON.stringify(config.b));
+ck('config says where to download the Android app (a link, or null for the releases page)', config.b?.data && 'androidAppUrl' in config.b.data, JSON.stringify(config.b));
+if (process.env.VERIFY_EXPECT_APK === '1') {
+  ck('the sign-in page offers the Android app this server hosts', config.b?.data?.androidAppUrl === '/downloads/MICO360-Tasks.apk', JSON.stringify(config.b?.data?.androidAppUrl));
+}
 
 // ------------------------------------------------------------------ accounts
 section('Sign-in and accounts');
@@ -131,6 +161,84 @@ const first = await admin.post('/tasks', once, { 'idempotency-key': key });
 const retry = await admin.post('/tasks', once, { 'idempotency-key': key });
 ck('a retried request never creates a duplicate (Idempotency-Key)', first.s === 201 && retry.b?.data?.id === first.b?.data?.id && retry.h.get('idempotent-replay') === 'true');
 
+// ------------------------------------------------------------------ recurring tasks
+section('Recurring tasks');
+// Dates a month ahead, so "never create an already-overdue copy" doesn't move them.
+const dayKey = (d) => d.toISOString().slice(0, 10);
+const plusDays = (key, n) => { const d = new Date(`${key}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return dayKey(d); };
+const ahead = plusDays(dayKey(new Date()), 30);
+/** The last Friday of the month `monthsOn` after the month of `key`. */
+const lastFriday = (key, monthsOn = 0) => {
+  const d = new Date(`${key}T00:00:00Z`);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + monthsOn + 1, 0));
+  last.setUTCDate(last.getUTCDate() - ((last.getUTCDay() - 5 + 7) % 7));
+  return dayKey(last);
+};
+const tasksOfProject = async () => (await admin.get(`/tasks?projectId=${projectId}`)).b?.data ?? [];
+// Every task of a series links to its first task — the first one included, once it has a copy.
+const copiesOf = async (seriesId) => (await tasksOfProject()).filter((t) => t.recurrenceParentId === seriesId && t.id !== seriesId);
+const todo = columns.find((c) => c.category !== 'DONE');
+
+const weeklyTitle = `تقرير السلامة الأسبوعي ${run}`;
+const weekly = await admin.post('/tasks', {
+  title: weeklyTitle, description: 'Walk the site — جولة الموقع', priority: 'HIGH', projectId, columnId: todo?.id, dueDate: ahead,
+  tags: ['routine'], assigneeIds: [emp.b?.data?.id], recurrenceRule: { freq: 'WEEKLY', interval: 1 },
+}, { 'idempotency-key': randomUUID() });
+ck('create a weekly recurring task with assignees and tags (201)', weekly.s === 201 && weekly.b?.data?.recurrenceRule?.freq === 'WEEKLY', JSON.stringify(weekly.b));
+const weeklyId = weekly.b?.data?.id;
+const item = await admin.post(`/tasks/${weeklyId}/checklist`, { text: 'Fire exits' });
+await admin.put(`/checklist/${item.b?.data?.id}`, { done: true });
+ck('the employee completes it (move to Done)', (await employee.patch(`/tasks/${weeklyId}/move`, { columnId: done?.id })).s === 200);
+let copies = await copiesOf(weeklyId);
+const next = copies[0];
+ck('completing it creates exactly one next copy', copies.length === 1, `${copies.length} copies`);
+ck('the copy is due a week later, in an open column', next?.dueDate?.startsWith(plusDays(ahead, 7)) && next?.columnId !== done?.id, `${next?.dueDate} ${next?.columnId}`);
+ck('the copy keeps the title, description and priority', next?.title === weeklyTitle && next?.description === 'Walk the site — جولة الموقع' && next?.priority === 'HIGH');
+const nextPeople = (await admin.get(`/tasks/${next?.id}/assignees`)).b?.data ?? [];
+ck('the copy keeps the assignees', nextPeople.some((u) => u.id === emp.b?.data?.id), JSON.stringify(nextPeople));
+const nextTags = (await admin.get(`/tasks/${next?.id}/tags`)).b?.data ?? [];
+ck('the copy keeps the tags', nextTags.some((t) => t.name === 'routine'), JSON.stringify(nextTags));
+const nextList = (await admin.get(`/tasks/${next?.id}/checklist`)).b?.data;
+ck('the copy has the checklist, unticked', nextList?.total === 1 && nextList?.done === 0, JSON.stringify(nextList));
+const original = (await admin.get(`/tasks/${weeklyId}`)).b?.data;
+ck('the repeat moved to the new copy; the first task stays in the series', !original?.recurrenceRule && original?.recurrenceParentId === weeklyId && next?.recurrenceRule?.freq === 'WEEKLY');
+await admin.patch(`/tasks/${weeklyId}/move`, { columnId: todo?.id });
+await admin.patch(`/tasks/${weeklyId}/move`, { columnId: done?.id });
+ck('reopening and completing the old one again makes no second copy', (await copiesOf(weeklyId)).length === 1);
+ck('the API says which copy came next', (await admin.get(`/tasks/${weeklyId}`)).b?.data?.recurrenceNextId === next?.id);
+const fork = await admin.put(`/tasks/${weeklyId}`, { recurrenceRule: { freq: 'DAILY', interval: 1 } });
+ck('a repeat on an earlier copy is refused — no second, parallel series (409)', fork.s === 409 && fork.b?.error?.code === 'RECURRENCE_NOT_NEWEST', `${fork.s} ${JSON.stringify(fork.b)}`);
+const offAgain = await admin.put(`/tasks/${next?.id}`, { recurrenceRule: null });
+const onAgain = await admin.put(`/tasks/${next?.id}`, { recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
+ck('the newest copy can switch its repeat off and back on', offAgain.s === 200 && onAgain.s === 200 && onAgain.b?.data?.recurrenceRule?.freq === 'WEEKLY', `${offAgain.s}/${onAgain.s}`);
+
+const daily = await admin.post('/tasks', { title: `Daily check ${run}`, projectId, columnId: todo?.id, dueDate: ahead, recurrenceRule: { freq: 'DAILY', interval: 1 } });
+const dailyId = daily.b?.data?.id;
+const moves = await Promise.all([admin, employee, admin].map((c) => c.patch(`/tasks/${dailyId}/move`, { columnId: done?.id })));
+ck('completed from three apps at the same moment → one copy', moves.every((m) => m.s === 200) && (await copiesOf(dailyId)).length === 1, `${moves.map((m) => m.s)} / ${(await copiesOf(dailyId)).length}`);
+
+const monthEnd = lastFriday(ahead);
+const monthly = await admin.post('/tasks', {
+  title: `Month-end close ${run}`, projectId, columnId: todo?.id, dueDate: monthEnd,
+  recurrenceRule: { freq: 'MONTHLY', interval: 1, nthWeekday: { week: -1, day: 5 } },
+});
+ck('a custom schedule: monthly on the last Friday (201)', monthly.s === 201, JSON.stringify(monthly.b));
+await admin.patch(`/tasks/${monthly.b?.data?.id}/move`, { columnId: done?.id });
+const monthlyNext = (await copiesOf(monthly.b?.data?.id))[0];
+ck('its next copy is due on the next month’s last Friday', monthlyNext?.dueDate?.startsWith(lastFriday(monthEnd, 1)), `${monthlyNext?.dueDate} vs ${lastFriday(monthEnd, 1)}`);
+const tenth = `${ahead.slice(0, 8)}10`;
+const twentieth = await admin.post('/tasks', { title: `Monthly on the 20th ${run}`, projectId, columnId: todo?.id, dueDate: tenth, recurrenceRule: { freq: 'MONTHLY', interval: 1, dayOfMonth: 20 } });
+await admin.patch(`/tasks/${twentieth.b?.data?.id}/move`, { columnId: done?.id });
+const twentiethNext = (await copiesOf(twentieth.b?.data?.id))[0];
+ck('"monthly on the 20th" due the 10th is next due the 20th of the same month', twentiethNext?.dueDate?.startsWith(`${ahead.slice(0, 8)}20`), twentiethNext?.dueDate);
+ck('an impossible schedule is refused (400)', (await admin.post('/tasks', { title: 'x', projectId, columnId: todo?.id, recurrenceRule: { freq: 'WEEKLY', interval: 1, nthWeekday: { week: 1, day: 1 } } })).s === 400);
+
+ck('deleting just the newest copy (204)…', (await admin.del(`/tasks/${next?.id}`)).status === 204);
+copies = await copiesOf(weeklyId);
+ck('…skips it: the series carries on with the following week', copies.length === 1 && copies[0].id !== next?.id && copies[0].dueDate?.startsWith(plusDays(ahead, 14)) && copies[0].recurrenceRule?.freq === 'WEEKLY', JSON.stringify(copies.map((c) => c.dueDate)));
+ck('deleting the entire series (204)…', (await admin.del(`/tasks/${copies[0]?.id}?scope=series`)).status === 204);
+ck('…removes every copy', (await tasksOfProject()).every((t) => t.id !== weeklyId && t.recurrenceParentId !== weeklyId));
+
 // ------------------------------------------------------------------ files
 section('Attachments');
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -159,6 +267,29 @@ ck('PDF export', pdf.status === 200 && pdfBytes.subarray(0, 5).toString() === '%
 const xls = await admin.raw('/reports/workload.xls');
 ck('Excel export', xls.status === 200 && (await xls.text()).includes('Workbook'), String(xls.status));
 ck('employees cannot export reports (403)', (await employee.raw('/reports/projects.csv')).status === 403);
+const fullX = await admin.raw(`/reports/export.xlsx?projectId=${projectId}`);
+const fullXBytes = Buffer.from(await fullX.arrayBuffer());
+const fullParts = unzipText(fullXBytes);
+const sheetNames = [...(fullParts.get('xl/workbook.xml') ?? '').matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]);
+const tasksSheet = fullParts.get(`xl/worksheets/sheet${sheetNames.indexOf('Tasks') + 1}.xml`) ?? '';
+ck('full report → Excel (.xlsx): a sheet per section, the project filter applied, Arabic intact',
+  fullX.status === 200 && JSON.stringify(sheetNames) === JSON.stringify(['Summary', 'Status', 'Projects', 'Team workload', 'Trend', 'Tasks'])
+    && tasksSheet.includes(arTitle) && [...tasksSheet.matchAll(/>([A-Z][A-Z0-9]*)-\d+</g)].every((m) => m[1] === project.b?.data?.code) && (fullParts.get('xl/worksheets/sheet1.xml') ?? '').includes('Project: '),
+  `${fullX.status} ${JSON.stringify(sheetNames)}`);
+ck('…named after the report, its filter and the day', new RegExp(`^tasks-report-${run}-\\d{4}-\\d{2}-\\d{2}\\.xlsx$`).test(fileName(fullX)), fileName(fullX));
+const fullP = await admin.raw(`/reports/export.pdf?projectId=${projectId}&from=2026-09-01&to=2026-09-30`);
+const fullPBytes = Buffer.from(await fullP.arrayBuffer());
+ck('full report → branded PDF (logo embedded)', fullP.status === 200 && fullPBytes.subarray(0, 5).toString() === '%PDF-' && fullPBytes.includes('/Subtype /Image'), String(fullP.status));
+ck('single reports also as .xlsx', (await admin.raw('/reports/projects.xlsx')).headers.get('content-type')?.includes('spreadsheetml') === true);
+ck('employees cannot export the full report (403)', (await employee.raw('/reports/export.pdf')).status === 403);
+const taskX = await employee.raw(`/tasks/${taskId}/export.xlsx`);
+const taskParts = unzipText(Buffer.from(await taskX.arrayBuffer()));
+ck('a task → Excel, by anyone who can open it (its assignee)',
+  taskX.status === 200 && (taskParts.get('xl/worksheets/sheet1.xml') ?? '').includes(arTitle) && fileName(taskX).startsWith(`${back.b?.data?.key}-`),
+  `${taskX.status} ${fileName(taskX)}`);
+const taskP = await admin.raw(`/tasks/${taskId}/export.pdf`);
+ck('a task → PDF', taskP.status === 200 && Buffer.from(await taskP.arrayBuffer()).subarray(0, 5).toString() === '%PDF-', String(taskP.status));
+ck('an unknown task cannot be exported (404)', (await admin.raw('/tasks/nope/export.pdf')).status === 404);
 
 // ------------------------------------------------------------------ chat + realtime
 section('Chat and live updates');
@@ -193,6 +324,15 @@ const start = new Date(Date.now() + 86_400_000);
 const meeting = await admin.post('/meetings', { title: `اجتماع مراجعة ${run}`, description: 'مناقشة الميزانية', startAt: start.toISOString(), endAt: new Date(start.getTime() + 3_600_000).toISOString(), projectId });
 ck('schedule a meeting (201)', meeting.s === 201, JSON.stringify(meeting.b?.error ?? ''));
 await admin.post(`/meetings/${meeting.b?.data?.id}/notes`, { type: 'DECISION', body: 'تمت الموافقة على الميزانية' });
+const scratch = await admin.post(`/meetings/${meeting.b?.data?.id}/notes`, { type: 'DISCUSSION', body: `ملاحظة مؤقتة ${run}` });
+const noteUrl = `/meetings/${meeting.b?.data?.id}/notes/${scratch.b?.data?.id}`;
+const deleted = await admin.del(noteUrl);
+const afterDelete = await admin.get(`/meetings/${meeting.b?.data?.id}/notes`);
+const restored = await admin.post(`${noteUrl}/restore`, {});
+const afterRestore = await admin.get(`/meetings/${meeting.b?.data?.id}/notes`);
+ck('a deleted meeting note can be restored (Undo)',
+  deleted.status === 204 && !JSON.stringify(afterDelete.b).includes(`ملاحظة مؤقتة ${run}`) && restored.s === 200 && JSON.stringify(afterRestore.b).includes(`ملاحظة مؤقتة ${run}`),
+  `${deleted.status} ${restored.s}`);
 const minutes = await admin.raw(`/meetings/${meeting.b?.data?.id}/minutes.pdf`);
 const minutesBytes = Buffer.from(await minutes.arrayBuffer());
 ck('minutes PDF with the Arabic font', minutes.status === 200 && minutesBytes.subarray(0, 5).toString() === '%PDF-' && /NotoNaskhArabic/.test(minutesBytes.toString('latin1')));
@@ -204,6 +344,11 @@ ck('system settings load (admin)', (await admin.get('/system-settings')).s === 2
 const audit = await admin.get('/audit-logs');
 ck('audit log records activity', audit.s === 200 && JSON.stringify(audit.b).includes(`sara_${run}`), String(audit.s));
 ck('employees cannot open system settings (403)', (await employee.get('/system-settings')).s === 403);
+const myData = await employee.raw("/users/me/export");
+const myDataJson = myData.status === 200 ? await myData.json().catch(() => null) : null;
+ck('an employee downloads their own data',
+  myData.status === 200 && /attachment; filename="mico360-my-data-/.test(myData.headers.get('content-disposition') ?? '') && myDataJson?.profile?.username === `sara_${run}` && JSON.stringify(myDataJson?.tasksAssignedToMe ?? []).includes(arTitle),
+  `${myData.status}`);
 const out = await fetch(`${B}/auth/logout`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refreshToken: empLogin.b?.data?.refreshToken }) });
 ck('sign-out revokes the session', out.status === 200 || out.status === 204);
 

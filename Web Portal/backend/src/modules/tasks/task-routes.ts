@@ -45,7 +45,11 @@ const recurrenceSchema = z.object({
   weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
   dayOfMonth: z.number().int().min(1).max(31).optional(),
   anchorDay: z.number().int().min(1).max(31).optional(),
+  /** Month-based "the 2nd Tuesday" / "the last Friday" (week -1 = last). */
+  nthWeekday: z.object({ week: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(-1)]), day: z.number().int().min(0).max(6) }).optional(),
   paused: z.boolean().optional(),
+  /** Make the next copy when this one is completed (default) or on each due date. */
+  createNext: z.enum(['ON_COMPLETE', 'ON_SCHEDULE']).optional(),
 });
 
 const createSchema = z.object({

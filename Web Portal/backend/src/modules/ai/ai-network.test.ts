@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { createSafeFetch, isPrivateAddress, isPrivateHostname, providerFetch, readProviderJson, validateProviderUrl } from './ai-network';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { createSafeFetch, isPrivateAddress, isPrivateHostname, pinnedFetch, providerFetch, readProviderJson, validateProviderUrl } from './ai-network';
 import { ValidationError } from '../../lib/http-errors';
 
 describe('isPrivateAddress', () => {
@@ -89,5 +89,63 @@ describe('providerFetch / readProviderJson', () => {
   it('reports a non-JSON body as a readable error instead of a 500', async () => {
     await expect(readProviderJson(new Response('<html>502</html>'))).rejects.toBeInstanceOf(ValidationError);
     expect(await readProviderJson(new Response('{"a":1}'))).toEqual({ a: 1 });
+  });
+});
+
+describe('pinnedFetch — the checked address is the one connected to (AI-01, DNS rebinding)', () => {
+  let server: import('node:http').Server;
+  let port = 0;
+  const seen: { method?: string; auth?: string; body?: string }[] = [];
+
+  beforeAll(async () => {
+    const { createServer } = await import('node:http');
+    server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        seen.push({ method: req.method, auth: req.headers.authorization, body });
+        if (req.url === '/redirect') {
+          res.writeHead(302, { location: 'http://127.0.0.1/admin' });
+          return res.end();
+        }
+        res.writeHead(200, { 'content-type': 'application/json', 'x-provider': 'test' });
+        res.end(JSON.stringify({ ok: true, echo: body }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    port = (server.address() as import('node:net').AddressInfo).port;
+  });
+  afterAll(() => new Promise<void>((r) => server.close(() => r())));
+
+  it('refuses a name whose DNS answer turns private between the check and the connection', async () => {
+    let calls = 0;
+    // First answer public (passes the pre-check), then the attacker's DNS flips to loopback.
+    const lookup = async () => (calls++ === 0 ? [{ address: '93.184.216.34' }] : [{ address: '127.0.0.1' }]);
+    const safe = createSafeFetch({ lookup });
+    await expect(safe(`http://rebind.example.com:${port}/v1/models`)).rejects.toThrow(/not allowed/i);
+    expect(seen.length).toBe(0);
+  });
+
+  it('sends the request and returns a normal Response when the address is allowed', async () => {
+    const pinned = pinnedFetch({ allowPrivateHosts: true, lookup: async () => [{ address: '127.0.0.1' }] });
+    const res = await pinned(`http://model-host.example.com:${port}/v1/chat`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer k', 'content-type': 'application/json' },
+      body: JSON.stringify({ q: 'مرحبا' }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-provider')).toBe('test');
+    expect(await res.json()).toEqual({ ok: true, echo: JSON.stringify({ q: 'مرحبا' }) });
+    expect(seen.at(-1)).toMatchObject({ method: 'POST', auth: 'Bearer k' });
+  });
+
+  it('never follows redirects', async () => {
+    const pinned = pinnedFetch({ allowPrivateHosts: true, lookup: async () => [{ address: '127.0.0.1' }] });
+    await expect(pinned(`http://model-host.example.com:${port}/redirect`)).rejects.toThrow(/redirect/i);
+  });
+
+  it('honours an abort signal (timeouts)', async () => {
+    const pinned = pinnedFetch({ allowPrivateHosts: true, lookup: () => new Promise(() => {}) });
+    await expect(pinned('http://slow.example.com/', { signal: AbortSignal.timeout(30) })).rejects.toMatchObject({ name: expect.stringMatching(/Abort|Timeout/) });
   });
 });

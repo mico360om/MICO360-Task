@@ -49,6 +49,8 @@ export interface TaskServiceDeps {
   onMoved?: (task: TaskRecord, prevColumnId: string, actorId?: string) => void | Promise<void>;
   /** Fired after a task is created (activity feed). */
   onCreated?: (task: TaskRecord) => void | Promise<void>;
+  /** Fired before a single task is deleted, while it still exists (a recurring series makes its next copy). */
+  onDeleting?: (task: TaskRecord) => void | Promise<void>;
 }
 
 /** How many consecutive key numbers to try when concurrent creates race for the same one. */
@@ -59,7 +61,7 @@ const SERIES_FIELDS = ['title', 'description', 'priority', 'estimatedHours'] as 
 const sameInstant = (a: Date | null | undefined, b: Date | null | undefined): boolean =>
   (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
 
-export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated }: TaskServiceDeps) {
+export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated, onDeleting }: TaskServiceDeps) {
   const todayAnchor = () => boardDateFromKey(boardDateKey(now(), timeZone));
   const dayOf = (d: Date): string => dueDayKey(d, timeZone) ?? '';
 
@@ -169,6 +171,10 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     if (patch.recurrenceRule && !isValidRule(patch.recurrenceRule)) {
       throw new ValidationError('Invalid recurrence rule.');
     }
+    // A repeat on an earlier copy would start a second, parallel series next to the real one.
+    if (patch.recurrenceRule && current.recurrenceNextId) {
+      throw new ConflictError('This is an earlier copy of a repeating series. Change the repeat on its newest copy.', 'RECURRENCE_NOT_NEWEST');
+    }
     const { columnId, ...rest } = patch;
     const next: UpdateTaskData = { ...rest };
     if (rest.dueDate !== undefined) next.dueDate = toDueDay(rest.dueDate) ?? null;
@@ -212,7 +218,8 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
   /**
    * Delete a task. With scope 'series' on a recurring task, delete the whole series (every
    * instance sharing its recurrenceParentId, plus the origin task) — the apply-to-entire-series
-   * case. Otherwise just this occurrence.
+   * case. Otherwise just this occurrence — and when it is the newest copy of a series, the
+   * `onDeleting` hook makes the next copy first, so the series carries on.
    */
   async function deleteTask(id: string, scope: 'one' | 'series' = 'one'): Promise<void> {
     const task = await getTask(id);
@@ -222,6 +229,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       await tasks.softDeleteSeries(seriesId);
       return;
     }
+    await onDeleting?.(task);
     await tasks.softDelete(id);
   }
 

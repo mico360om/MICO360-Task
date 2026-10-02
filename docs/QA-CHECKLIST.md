@@ -18,7 +18,12 @@ Run before each release, in addition to the automated suite (`npm test` → 380+
 - [ ] Open the task drawer: toggle/add **checklist** items (progress updates), post a **comment**,
       add/remove **assignees**, upload/download/remove an **attachment**, add/remove a
       **dependency** (a cycle is rejected), set/clear **recurrence**.
-- [ ] Move a **recurring** task to Done → a **next occurrence** appears with the right due date.
+- [ ] Move a **recurring** task to Done → a **next occurrence** appears with the right due date,
+      the same assignees, tags and (unticked) checklist; moving the old one out and back makes no
+      second copy.
+- [ ] Create a task that repeats **monthly on the last Friday**; the editor previews the next dates.
+- [ ] Delete **this occurrence** of the newest copy → the series carries on with the following date.
+- [ ] Set a repeat in the **Chrome extension** and the **Android app**; the web app shows the same rule.
 - [ ] Admin: **Manage columns** — add / rename / recolour / enable / reorder / delete.
 
 ## Projects & team

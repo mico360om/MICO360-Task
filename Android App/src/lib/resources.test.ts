@@ -11,6 +11,7 @@ function fakeClient() {
     put: (path: string, body?: unknown) => { calls.push({ method: 'PUT', path, body }); return Promise.resolve({ data: [] }); },
     patch: (path: string, body?: unknown) => { calls.push({ method: 'PATCH', path, body }); return Promise.resolve({ data: {} }); },
     del: (path: string) => { calls.push({ method: 'DELETE', path }); return Promise.resolve(undefined); },
+    upload: (path: string, form: FormData) => { calls.push({ method: 'UPLOAD', path, body: form }); return Promise.resolve({ data: { id: 'a1' } }); },
   } as unknown as ApiClient;
   return { client, calls };
 }
@@ -127,5 +128,48 @@ describe('resourcesApi.tasks', () => {
     expect(calls[1]).toEqual({ method: 'POST', path: '/tasks/t1/comments', body: { body: 'hello @ada' } });
     expect(calls[2]).toEqual({ method: 'PUT', path: '/comments/c1', body: { body: 'edited' } });
     expect(calls[3]).toMatchObject({ method: 'DELETE', path: '/comments/c1' });
+  });
+});
+
+describe('resourcesApi — attachments and notification preferences', () => {
+  it('lists, uploads (multipart "file" part) and removes task attachments', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client);
+    await api.tasks.attachments('t1');
+    const part = { uri: 'file:///cache/scan.pdf', name: 'scan.pdf', type: 'application/pdf' };
+    expect(await api.tasks.uploadAttachment('t1', part)).toEqual({ id: 'a1' });
+    await api.tasks.removeAttachment('a9');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /tasks/t1/attachments', 'UPLOAD /tasks/t1/attachments', 'DELETE /attachments/a9']);
+    expect(calls[1]!.body).toBeInstanceOf(FormData);
+  });
+
+  it('reads and saves notification preferences', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client);
+    await api.notifications.preferences();
+    await api.notifications.setPreferences({ muted: ['MENTION'], reminderLeadMinutes: 60 });
+    expect(calls).toEqual([
+      { method: 'GET', path: '/notifications/preferences' },
+      { method: 'PUT', path: '/notifications/preferences', body: { muted: ['MENTION'], reminderLeadMinutes: 60 } },
+    ]);
+  });
+});
+
+describe('resourcesApi.reports', () => {
+  it('reads each report with the project / team-member filters (and the trend with its period)', async () => {
+    const { client, calls } = fakeClient();
+    const r = resourcesApi(client).reports;
+    await r.projects({ projectId: 'p1' });
+    await r.status({ userId: 'u1' });
+    await r.workload({});
+    await r.completion({ projectId: 'p1', userId: 'u1' });
+    await r.timeseries({ projectId: 'p1', from: '2026-09-01', to: '2026-09-30' });
+    expect(calls.map((c) => c.path)).toEqual([
+      '/reports/projects?projectId=p1',
+      '/reports/status?userId=u1',
+      '/reports/workload',
+      '/reports/completion?projectId=p1&userId=u1',
+      '/reports/timeseries?projectId=p1&from=2026-09-01&to=2026-09-30',
+    ]);
   });
 });

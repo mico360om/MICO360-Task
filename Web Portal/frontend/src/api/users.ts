@@ -48,6 +48,8 @@ export function usersApi(client: ApiClient) {
     list: () => client.get<{ data: ApiUser[] }>('/users').then((r) => r.data),
     /** Minimal people directory available to any signed-in user (chat names, DM picker). */
     directory: () => client.get<{ data: DirectoryUser[] }>('/users/directory').then((r) => r.data),
+    /** "Download my data": everything the system holds about the signed-in person (JSON file). */
+    exportMine: () => client.getBlob('/users/me/export'),
     create: (input: NewUserInput) => client.post<{ data: ApiUser }>('/users', input).then((r) => r.data),
     update: (id: string, patch: UserPatch) => client.put<{ data: ApiUser }>(`/users/${id}`, patch).then((r) => r.data),
     setStatus: (id: string, status: UserStatus) => client.patch<{ data: ApiUser }>(`/users/${id}/status`, { status }).then((r) => r.data),

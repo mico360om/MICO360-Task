@@ -108,6 +108,31 @@ describe('BoardPage', () => {
     expect(calls.some((c) => c.method === 'POST' && c.url.includes('/assignees'))).toBe(false);
   });
 
+  it('fits short screens: the new-task dialog scrolls instead of pushing "Add task" off-screen', async () => {
+    renderPage();
+    await screen.findByText('Prepare report');
+    await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
+    const dialog = await screen.findByRole('dialog', { name: /new task/i });
+    expect(dialog.className).toMatch(/max-h-\[calc\(100dvh-2rem\)\]/);
+    expect(dialog.className).toContain('overflow-y-auto');
+  });
+
+  it('creates a repeating task from the board', async () => {
+    renderPage();
+    await screen.findByText('Prepare report');
+    await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
+    const dialog = await screen.findByRole('dialog', { name: /new task/i });
+    await userEvent.type(within(dialog).getByLabelText(/task title/i), 'Month-end close');
+    await userEvent.type(within(dialog).getByLabelText(/^due date$/i), '2026-10-30');
+    await userEvent.selectOptions(within(dialog).getByLabelText(/^repeat$/i), 'MONTHLY');
+    await userEvent.selectOptions(within(dialog).getByLabelText(/monthly on/i), 'WEEKDAY');
+    await userEvent.click(within(dialog).getByRole('button', { name: /add task/i }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/tasks'))).toBe(true));
+    const post = calls.find((c) => c.method === 'POST' && c.url.endsWith('/tasks'))!;
+    // 30 Oct 2026 is the last Friday of the month.
+    expect(post.body).toMatchObject({ title: 'Month-end close', dueDate: '2026-10-30', recurrenceRule: { freq: 'MONTHLY', interval: 1, nthWeekday: { week: -1, day: 5 } } });
+  });
+
   it('queues an offline create with its due date, assignees and the same Idempotency-Key', async () => {
     failCreate = 'network';
     renderPage();

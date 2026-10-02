@@ -1,3 +1,5 @@
+import { fileNameFromDisposition } from './download';
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -135,10 +137,13 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return text;
   }
 
+  /** A download; when the server names the file (Content-Disposition) it comes back as a File with that name. */
   async function getBlob(path: string): Promise<Blob> {
     const res = await authedFetch('GET', path);
     if (!res.ok) throw errorFrom(res.status, await res.text());
-    return res.blob();
+    const blob = await res.blob();
+    const name = fileNameFromDisposition(res.headers.get('content-disposition'));
+    return name ? new File([blob], name, { type: blob.type }) : blob;
   }
 
   return {

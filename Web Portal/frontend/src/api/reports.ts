@@ -12,6 +12,8 @@ export interface ProjectPerformanceRow {
 export interface UserWorkloadRow {
   userId: string;
   username: string;
+  /** Full name, else the username (servers before 0.3.0 leave it out). */
+  name?: string;
   assigned: number;
   completed: number;
   overdue: number;
@@ -58,8 +60,9 @@ export interface TimeSeriesParams extends ReportFilters {
   to?: string;
 }
 
-export type ReportKind = 'status' | 'projects' | 'workload' | 'timeseries';
-export type ReportFormat = 'csv' | 'xls' | 'pdf';
+/** 'export' is the full report: every section in one workbook / PDF. */
+export type ReportKind = 'export' | 'status' | 'projects' | 'workload' | 'timeseries';
+export type ReportFormat = 'csv' | 'xlsx' | 'pdf';
 
 function queryString(params: Record<string, string | undefined>): string {
   const qs = new URLSearchParams();

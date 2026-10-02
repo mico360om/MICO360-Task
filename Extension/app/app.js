@@ -4,8 +4,9 @@ import { ensureSession, signOut as endSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { createApi } from '../src/api.js';
 import { flushQueue, queueStats, makePerformMutation, sendOrQueue, FLUSH_MESSAGE } from '../src/queue.js';
-import { el, clear, mount } from './dom.js';
-import { parseHash, matchRoute } from '../src/router.js';
+import { el, clear, mount, saveFile } from './dom.js';
+import { decodeJwtRoles } from '../src/jwt.js';
+import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
 
 import { LoginScreen } from './screens/login.js';
@@ -18,6 +19,7 @@ import { CalendarScreen } from './screens/calendar.js';
 import { NotificationsScreen } from './screens/notifications.js';
 import { ChatScreen } from './screens/chat.js';
 import { SettingsScreen } from './screens/settings.js';
+import { ReportsScreen } from './screens/reports.js';
 
 const storage = chrome.storage.local;
 // The access token lives in memory-only session storage (EXT-07); local is the fallback on old Chrome.
@@ -31,6 +33,7 @@ const NAV = [
   { path: '/calendar', icon: '📅', label: 'Calendar' },
   { path: '/chat', icon: '💬', label: 'Chat' },
   { path: '/notifications', icon: '🔔', label: 'Notifications', badge: true },
+  { path: '/reports', icon: '📊', label: 'Reports', adminOnly: true },
   { path: '/settings', icon: '⚙️', label: 'Settings' },
 ];
 
@@ -43,6 +46,7 @@ const ROUTES = [
   { name: 'chat', pattern: '/chat', title: 'Chat', screen: ChatScreen },
   { name: 'chat-thread', pattern: '/chat/:conversationId', title: 'Chat', screen: ChatScreen },
   { name: 'notifications', pattern: '/notifications', title: 'Notifications', screen: NotificationsScreen },
+  { name: 'reports', pattern: '/reports', title: 'Reports', screen: ReportsScreen },
   { name: 'settings', pattern: '/settings', title: 'Settings', screen: SettingsScreen },
   { name: 'task', pattern: '/task/:taskId', title: 'Task', overlay: true, screen: TaskDetail },
 ];
@@ -123,6 +127,12 @@ async function boot() {
   } catch {
     /* offline — keep the default; the directory may be cached later */
   }
+  // Roles from the access token, to offer admin screens (Reports); the server checks them on every call.
+  try {
+    me.roles = decodeJwtRoles((await auth.getTokens())?.accessToken);
+  } catch {
+    me.roles = [];
+  }
 
   const app = new App({
     root, api, cache, auth, storage, apiBase, appBase, me, state, performMutation,
@@ -152,6 +162,7 @@ class App {
       isOnline: () => this.state.online,
       navigate: (hash) => { window.location.hash = hash; },
       openTask: (id) => { window.location.hash = `#/task/${id}`; },
+      saveFile,
       // Send a change now, or queue it (same Idempotency-Key) when the server can't be reached.
       write: (kind, payload) => sendOrQueue({ kind, payload }, {
         doFetch: (path, init) => this.auth.authedFetch(path, init),
@@ -169,6 +180,13 @@ class App {
     window.addEventListener('hashchange', () => this.route());
     window.addEventListener('online', () => { this.state.online = true; this.renderStatus(); this.sync(); });
     window.addEventListener('offline', () => { this.state.online = false; this.renderStatus(); });
+    // No live connection: coming back to the tab reloads task screens, so changes made elsewhere
+    // (such as the next copy of a recurring task) appear.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      const matched = matchRoute(ROUTES, parseHash(window.location.hash).path);
+      if (refreshOnReturn(matched && matched.route, Boolean(this.overlay))) this.route();
+    });
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && changes.syncQueue) this.refreshQueueCounts();
     });
@@ -198,7 +216,7 @@ class App {
 
   renderShell() {
     const nav = el('nav', { class: 'nav' },
-      NAV.map((n) => el('a', { href: `#${n.path}`, class: 'navlink', dataset: { path: n.path } },
+      NAV.filter((n) => !n.adminOnly || (this.me.roles || []).includes('ADMIN')).map((n) => el('a', { href: `#${n.path}`, class: 'navlink', dataset: { path: n.path } },
         el('span', { class: 'ic' }, n.icon), el('span', {}, n.label),
         n.badge ? el('span', { class: 'badge nav-unread hidden' }) : null,
       )),

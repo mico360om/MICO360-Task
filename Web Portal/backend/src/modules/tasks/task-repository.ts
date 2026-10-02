@@ -23,6 +23,11 @@ export interface TaskRecord {
   completedAt: Date | null;
   recurrenceRule: RecurrenceRule | null;
   recurrenceParentId: string | null;
+  /**
+   * The copy of a recurring series made from this task (set by findById). Non-null means this is an
+   * earlier copy: its repeat can't be changed — that would start a second, parallel series.
+   */
+  recurrenceNextId?: string | null;
   /** The calendar day this task appears on (per-date boards). Stored as a noon-UTC anchor. */
   boardDate: Date | null;
   /** Append-only history of carry-forward moves (from→to date). Left out of list responses. */

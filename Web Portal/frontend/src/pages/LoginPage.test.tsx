@@ -11,15 +11,17 @@ function json(body: unknown, status = 200): Response {
 }
 
 let emailEnabled = true;
+let hostsApk = false;
 let loginResponse: () => Response = () => json({});
 beforeEach(() => {
   emailEnabled = true;
+  hostsApk = false;
   useAuthStore.getState().logout('remote');
   localStorage.clear();
   sessionStorage.clear();
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const u = String(url);
-    if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '', emailEnabled } });
+    if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '', emailEnabled, androidAppUrl: hostsApk ? '/downloads/MICO360-Tasks.apk' : null } });
     if (u.endsWith('/auth/login')) return loginResponse();
     if (u.endsWith('/auth/otp/request')) return json({ error: { code: 'EMAIL_NOT_CONFIGURED', message: 'Email sign-in isn’t available right now. Sign in with your password or contact an administrator.' } }, 503);
     return json({ data: {} });
@@ -63,6 +65,26 @@ describe('LoginPage', () => {
     renderPage();
     await signIn(true);
     expect(await screen.findByText(/too many attempts\. try again in 2 minutes\./i)).toBeInTheDocument();
+  });
+
+  it('links Privacy and Terms to real pages, and iOS is a label rather than a dead link', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
+    expect(screen.queryByRole('link', { name: /ios/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/ios app coming soon/i)).toBeInTheDocument();
+  });
+
+  it('downloads the APK the server hosts, otherwise opens the releases page', async () => {
+    hostsApk = true;
+    const { unmount } = renderPage();
+    await waitFor(() => expect(screen.getByRole('link', { name: /android/i })).toHaveAttribute('href', '/downloads/MICO360-Tasks.apk'));
+    expect(screen.getByRole('link', { name: /android/i })).toHaveAttribute('download');
+    unmount();
+    hostsApk = false;
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('link', { name: /android/i })).toHaveAttribute('href', 'https://github.com/mico360om/MICO360-Task/releases/latest'));
+    expect(screen.getByRole('link', { name: /android/i })).toHaveAttribute('target', '_blank');
   });
 
   it('hides "Email code" when email is not configured', async () => {

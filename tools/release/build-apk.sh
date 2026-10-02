@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the signed production APK into ./Installer (Windows + Git Bash, Android SDK, JDK 17).
+# Builds the signed production APK into ./Installer/3-Android-App (Windows + Git Bash, Android SDK, JDK 17).
 #
 #   MICO360_KEYSTORE_PASSWORD='…' bash tools/release/build-apk.sh
 #
@@ -16,7 +16,7 @@ KEYSTORE="${MICO360_KEYSTORE:-$APP/apk/release.keystore}"
 : "${MICO360_KEYSTORE_PASSWORD:?Set MICO360_KEYSTORE_PASSWORD to the release keystore password}"
 win() { cygpath -m "$1"; }   # native Windows programs need C:/… paths (MSYS path conversion is off)
 VERSION="$(node -p "require(process.argv[1]).expo.version" "$(win "$APP/app.json")")"
-OUT="$ROOT/Installer/MICO360-Tasks-$VERSION.apk"
+OUT="$ROOT/Installer/3-Android-App/MICO360-Tasks-$VERSION.apk"
 export MSYS_NO_PATHCONV=1
 
 echo "▶ Syncing the app source to $BUILD"
@@ -46,6 +46,6 @@ BUILD_TOOLS="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
   --out "$(win "$BUILD/app-release-signed.apk")" "$(win "$BUILD/android/app/build/outputs/apk/release/app-release.apk")"
 "$BUILD_TOOLS/apksigner.bat" verify --print-certs "$(win "$BUILD/app-release-signed.apk")" | grep -E "Signer #1 certificate (DN|SHA-256)"
 
-mkdir -p "$ROOT/Installer"
+mkdir -p "$(dirname "$OUT")"
 cp "$BUILD/app-release-signed.apk" "$OUT"
 echo "✔ $OUT ($(du -h "$OUT" | cut -f1))"

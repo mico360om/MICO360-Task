@@ -10,7 +10,8 @@ import { buildCreateTaskInput, parseTags } from '../lib/quick-add';
 import { parseDueDateInput, parseHoursInput } from '../lib/form-input';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { spacing, radius, fontSize, categoryColorOf, type Palette } from '../lib/theme';
-import type { ApiColumn, Priority } from '../lib/types';
+import type { ApiColumn, Priority, RecurrenceRule } from '../lib/types';
+import { RecurrenceEditor } from './RecurrenceEditor';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
@@ -45,6 +46,7 @@ export function QuickAddTaskSheet({
   const [estimate, setEstimate] = useState('');
   const [tags, setTags] = useState('');
   const [assignToMe, setAssignToMe] = useState(false);
+  const [recurrenceRule, setRecurrenceRule] = useState<RecurrenceRule | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export function QuickAddTaskSheet({
     setEstimate('');
     setTags('');
     setAssignToMe(false);
+    setRecurrenceRule(null);
     setError(null);
     setDueErr(null);
     setEstErr(null);
@@ -87,6 +90,7 @@ export function QuickAddTaskSheet({
       assigneeIds: assignToMe && myId ? [myId] : undefined,
       // The board day travels with the payload, so an offline-queued create lands on it too.
       boardDate,
+      recurrenceRule,
     });
     if (!built.ok) {
       setError(built.error);
@@ -224,6 +228,9 @@ export function QuickAddTaskSheet({
           </View>
 
           <TextField label="Tags" value={tags} onChangeText={setTags} placeholder="comma, separated" autoCapitalize="none" />
+
+          <SectionTitle>Repeat</SectionTitle>
+          <RecurrenceEditor value={recurrenceRule} onChange={setRecurrenceRule} dueDate={dueDate.trim() || null} />
 
           {myId ? (
             <Pressable

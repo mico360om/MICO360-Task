@@ -15,6 +15,8 @@ const lazyPage = <T extends string>(load: () => Promise<Record<T, ComponentType>
 
 const ForgotPasswordPage = lazyPage(() => import('./pages/ForgotPasswordPage'), 'ForgotPasswordPage');
 const ResetPasswordPage = lazyPage(() => import('./pages/ResetPasswordPage'), 'ResetPasswordPage');
+const PrivacyPage = lazyPage(() => import('./pages/LegalPages'), 'PrivacyPage');
+const TermsPage = lazyPage(() => import('./pages/LegalPages'), 'TermsPage');
 const BoardPage = lazyPage(() => import('./pages/BoardPage'), 'BoardPage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
 const ProjectDetailPage = lazyPage(() => import('./pages/ProjectDetailPage'), 'ProjectDetailPage');
@@ -57,6 +59,9 @@ export function App() {
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/forgot" element={<ForgotPasswordPage />} />
         <Route path="/reset" element={<ResetPasswordPage />} />
+        {/* Public: linked from sign-in and the phone app (store listing needs a privacy policy address). */}
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
             <Route path="/dashboard" element={<DashboardPage />} />

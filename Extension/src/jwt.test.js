@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decodeJwtSub } from './jwt.js';
+import { decodeJwtSub, decodeJwtRoles } from './jwt.js';
 
 /** Build an unsigned JWT-shaped string with the given payload (base64url, no padding). */
 function makeToken(payload) {
@@ -19,5 +19,17 @@ describe('decodeJwtSub', () => {
     expect(decodeJwtSub('')).toBeNull();
     expect(decodeJwtSub(null)).toBeNull();
     expect(decodeJwtSub(undefined)).toBeNull();
+  });
+});
+
+describe('decodeJwtRoles', () => {
+  it('reads the roles claim (to show admin-only screens; the server still enforces them)', () => {
+    expect(decodeJwtRoles(makeToken({ sub: 'u1', roles: ['ADMIN', 'EMPLOYEE'] }))).toEqual(['ADMIN', 'EMPLOYEE']);
+  });
+  it('is empty for a token without roles, or a malformed one', () => {
+    expect(decodeJwtRoles(makeToken({ sub: 'u1' }))).toEqual([]);
+    expect(decodeJwtRoles(makeToken({ sub: 'u1', roles: 'ADMIN' }))).toEqual([]);
+    expect(decodeJwtRoles('not-a-jwt')).toEqual([]);
+    expect(decodeJwtRoles(null)).toEqual([]);
   });
 });

@@ -41,6 +41,11 @@ uploads/
 *.keystore
 *.jks
 
-# Release packages built by tools/release (Installer/README.md is tracked)
+# Release packages built by tools/release, one folder per environment. Only the guides and the
+# settings template are tracked: never the binaries or the live settings (environment.txt has secrets).
 /Installer/*
 !/Installer/README.md
+!/Installer/*/
+/Installer/*/*
+!/Installer/*/README.md
+!/Installer/*/environment.example.txt

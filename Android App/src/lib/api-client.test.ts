@@ -17,6 +17,31 @@ describe('resolveApiBaseUrl', () => {
 });
 
 describe('api-client', () => {
+  it('uploads a multipart form with the token and no JSON content type, retrying once after a refresh', async () => {
+    let token = 'old';
+    const fetchImpl = vi
+      .fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: { id: 'a1' } }, 201)))
+      .mockImplementationOnce(() => Promise.resolve(jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'x' } }, 401)));
+    const refreshTokens = vi.fn(async () => {
+      token = 'new';
+      return 'ok' as const;
+    });
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => token, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
+    const form = new FormData();
+    // React Native's multipart file part ({ uri, name, type }).
+    form.append('file', { uri: 'file:///cache/hi.txt', name: 'hi.txt', type: 'text/plain' } as unknown as Blob);
+    const res = await api.upload<{ data: { id: string } }>('/tasks/t1/attachments', form);
+    expect(res.data.id).toBe('a1');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchImpl.mock.calls[1]!;
+    expect(url).toBe('http://api.test/tasks/t1/attachments');
+    expect(init!.method).toBe('POST');
+    expect(init!.body).toBe(form);
+    const headers = init!.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer new');
+    expect(headers['Content-Type']).toBeUndefined();
+  });
+
   it('returns the parsed body and attaches the bearer token (async getToken)', async () => {
     const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: { ok: true } })));
     const api = createApiClient({ baseUrl: 'http://api.test', getToken: async () => 'tok123', fetchImpl: fetchImpl as unknown as typeof fetch });

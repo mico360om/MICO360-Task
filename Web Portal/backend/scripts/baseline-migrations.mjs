@@ -17,6 +17,8 @@ const MARKERS = [
   ['20260915120000_add_meeting_invite_tracking', { column: ['meetings', 'invitesSentAt'] }],
   ['20260926120000_add_project_owner_image', { column: ['projects', 'ownerId'] }],
   ['20260926120100_auth_hardening_idempotency', { table: 'idempotency_keys' }],
+  ['20260929120000_meeting_note_soft_delete', { column: ['meeting_notes', 'deletedAt'] }],
+  ['20261001120000_task_recurrence_source', { column: ['tasks', 'recurrenceSourceId'] }],
 ];
 
 const prisma = new PrismaClient();

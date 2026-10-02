@@ -123,6 +123,21 @@ describe('MeetingDetailPage', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/meetings/m1/notes/n1'))).toBe(true));
   });
 
+  it('offers Undo after a note is deleted, which restores it on the server (MTG-07)', async () => {
+    renderPage();
+    await screen.findByText('Ship on Thursday');
+    await userEvent.click(screen.getByRole('button', { name: /delete note/i }));
+    notes = [];
+    await userEvent.click(within(screen.getByRole('group', { name: /confirm: delete note/i })).getByRole('button', { name: /^delete$/i }));
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent(/note deleted/i);
+    notes = [note()];
+    await userEvent.click(within(status).getByRole('button', { name: /undo/i }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/meetings/m1/notes/n1/restore'))).toBe(true));
+    expect(await screen.findByText('Ship on Thursday')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/note deleted/i)).not.toBeInTheDocument());
+  });
+
   it('can back out of a delete', async () => {
     renderPage();
     await screen.findByText('Guest One');

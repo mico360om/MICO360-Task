@@ -4,6 +4,7 @@ import type { NoteRepository, NoteRecord, CreateNoteData, UpdateNoteData } from 
 
 function inMemory(): NoteRepository {
   const rows = new Map<string, NoteRecord>();
+  const deleted = new Set<string>();
   let seq = 0;
   return {
     async add(d: CreateNoteData) {
@@ -15,10 +16,12 @@ function inMemory(): NoteRepository {
       rows.set(rec.id, rec);
       return rec;
     },
-    async findById(id) { return rows.get(id) ?? null; },
-    async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
+    async findById(id) { return deleted.has(id) ? null : rows.get(id) ?? null; },
+    async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId && !deleted.has(n.id)); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
-    async remove(id) { rows.delete(id); },
+    async remove(id) { deleted.add(id); },
+    async findDeleted(id) { return deleted.has(id) ? rows.get(id) ?? null : null; },
+    async restore(id) { deleted.delete(id); return rows.get(id)!; },
     async claimTask(id, marker) { const r = rows.get(id); if (!r || r.taskId) return false; rows.set(id, { ...r, taskId: marker }); return true; },
     async releaseTaskClaim(id, marker) { const r = rows.get(id); if (r && r.taskId === marker) rows.set(id, { ...r, taskId: null }); },
   };
@@ -91,5 +94,33 @@ describe('NoteService', () => {
     const n = await svc.addNote('m1', 'u1', { body: 'temp' });
     await svc.removeNote('m1', n.id);
     expect(await svc.listNotes('m1')).toHaveLength(0);
+  });
+
+  it('restores a deleted note (MTG-07: deleting is undoable)', async () => {
+    const changed: string[] = [];
+    const svc = createNoteService({ notes: inMemory(), onChanged: (m) => changed.push(m) });
+    const n = await svc.addNote('m1', 'u1', { body: 'Budget approved', type: 'DECISION' });
+    await svc.removeNote('m1', n.id);
+    const back = await svc.restoreNote('m1', n.id);
+    expect(back).toMatchObject({ id: n.id, body: 'Budget approved', type: 'DECISION' });
+    expect((await svc.listNotes('m1')).map((x) => x.id)).toEqual([n.id]);
+    expect(changed).toEqual(['m1', 'm1', 'm1']);
+  });
+
+  it('only restores a deleted note of the same meeting', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const live = await svc.addNote('m1', 'u1', { body: 'still here' });
+    await expect(svc.restoreNote('m1', live.id)).rejects.toThrow(/not found/i);
+    const gone = await svc.addNote('m1', 'u1', { body: 'gone' });
+    await svc.removeNote('m1', gone.id);
+    await expect(svc.restoreNote('m2', gone.id)).rejects.toThrow(/not found/i);
+    await expect(svc.restoreNote('m1', 'nope')).rejects.toThrow(/not found/i);
+  });
+
+  it('tells who may restore a deleted note (its author)', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const n = await svc.addNote('m1', 'u1', { body: 'x' });
+    await svc.removeNote('m1', n.id);
+    expect((await svc.getDeletedNote('m1', n.id)).authorId).toBe('u1');
   });
 });

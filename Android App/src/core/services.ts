@@ -13,10 +13,12 @@ import { createPushRegistrar } from '../lib/push-registrar';
 import { createBiometricGate } from '../lib/biometric-gate';
 import { createBiometricLogin } from '../lib/biometric-login';
 import { createSignOut } from '../lib/sign-out';
+import { createExporter } from '../lib/exporter';
 import { authApi } from '../lib/auth';
 import { secureStore, biometricSecureStore } from '../adapters/secure-store';
 import { asyncStore } from '../adapters/async-storage';
 import { getPushToken } from '../adapters/push';
+import { exportFiles } from '../adapters/files';
 import { isBiometricAvailable, authenticateBiometric } from '../adapters/biometric';
 import type { Session } from '../lib/types';
 
@@ -39,6 +41,8 @@ export interface Services {
   biometricLogin: ReturnType<typeof createBiometricLogin>;
   /** The one sign-out routine every path must use (XP-01). */
   signOut: ReturnType<typeof createSignOut>['signOut'];
+  /** Report / task exports (.xlsx, .pdf, .csv): download with the session, then the share sheet. */
+  exporter: ReturnType<typeof createExporter>;
   /** The signed-in user's id (or null). */
   currentUserId: () => string | null;
 }
@@ -180,6 +184,16 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     clearQueuedChanges: (userId) => queue.clearForUser(userId),
   });
 
+  const exporter = createExporter({
+    baseUrl,
+    getToken: () => session.getToken(),
+    refreshSession: () => api.refreshSession(),
+    onUnauthorized: () => {
+      void signOutApi.signOut('expired');
+    },
+    files: exportFiles,
+  });
+
   return {
     baseUrl,
     defaultBaseUrl,
@@ -196,6 +210,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     biometric,
     biometricLogin,
     signOut: signOutApi.signOut,
+    exporter,
     currentUserId,
   };
 }

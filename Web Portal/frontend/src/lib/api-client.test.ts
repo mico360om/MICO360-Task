@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createApiClient, ApiError } from './api-client';
+import { fileNameOf } from './download';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -103,6 +104,21 @@ describe('api client', () => {
     expect(blob.type).toContain('application/pdf');
     const init = fetchMock.mock.calls[0]![1]!;
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer tok123');
+  });
+
+  it('getBlob keeps the file name the server gives the download (Content-Disposition)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('%PDF', { status: 200, headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="tasks-report-ops-2026-10-01.pdf"' } })));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok' });
+    const blob = await api.getBlob('/reports/export.pdf');
+    expect(fileNameOf(blob)).toBe('tasks-report-ops-2026-10-01.pdf');
+    expect(blob.type).toContain('application/pdf');
+    expect(fileNameOf(new Blob(['x']))).toBeNull();
+  });
+
+  it('never takes a path from the server, only a file name', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('x', { status: 200, headers: { 'content-disposition': 'attachment; filename="../../evil.pdf"' } })));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok' });
+    expect(fileNameOf(await api.getBlob('/reports/export.pdf'))).toBe('evil.pdf');
   });
 
   it('getBlob throws an ApiError on a non-2xx response', async () => {

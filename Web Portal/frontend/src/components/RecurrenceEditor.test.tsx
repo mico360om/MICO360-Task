@@ -38,6 +38,44 @@ describe('RecurrenceEditor', () => {
     expect(onChange).toHaveBeenCalledWith({ freq: 'WEEKLY', interval: 1, weekdays: [1, 3] });
   });
 
+  it('offers "the 2nd Tuesday" for a monthly rule, picked from the due date', async () => {
+    const onChange = vi.fn();
+    render(<RecurrenceEditor value={{ freq: 'MONTHLY', interval: 1, dayOfMonth: 13 }} dueDate="2026-10-13" onChange={onChange} />);
+    await userEvent.selectOptions(screen.getByLabelText(/monthly on/i), 'WEEKDAY');
+    expect(onChange).toHaveBeenLastCalledWith({ freq: 'MONTHLY', interval: 1, nthWeekday: { week: 2, day: 2 } });
+  });
+
+  it('changes the week and the weekday of a "2nd Tuesday" rule, and can go back to a date', async () => {
+    const onChange = vi.fn();
+    const rule = { freq: 'MONTHLY' as const, interval: 1, nthWeekday: { week: 2 as const, day: 2 } };
+    render(<RecurrenceEditor value={rule} onChange={onChange} />);
+    await userEvent.selectOptions(screen.getByLabelText(/week of the month/i), '-1');
+    expect(onChange).toHaveBeenLastCalledWith({ ...rule, nthWeekday: { week: -1, day: 2 } });
+    await userEvent.selectOptions(screen.getByLabelText(/^weekday$/i), '5');
+    expect(onChange).toHaveBeenLastCalledWith({ ...rule, nthWeekday: { week: 2, day: 5 } });
+    await userEvent.selectOptions(screen.getByLabelText(/monthly on/i), 'DATE');
+    expect(onChange).toHaveBeenLastCalledWith({ freq: 'MONTHLY', interval: 1 });
+  });
+
+  it('chooses when the next copy is made', async () => {
+    const onChange = vi.fn();
+    render(<RecurrenceEditor value={{ freq: 'DAILY', interval: 1 }} onChange={onChange} />);
+    await userEvent.selectOptions(screen.getByLabelText(/create the next copy/i), 'ON_SCHEDULE');
+    expect(onChange).toHaveBeenLastCalledWith({ freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' });
+  });
+
+  it('keeps the end and copy settings when the frequency changes', async () => {
+    const onChange = vi.fn();
+    render(<RecurrenceEditor value={{ freq: 'MONTHLY', interval: 2, dayOfMonth: 5, count: 5, createNext: 'ON_SCHEDULE' }} onChange={onChange} />);
+    await userEvent.selectOptions(screen.getByLabelText(/^repeat$/i), 'WEEKLY');
+    expect(onChange).toHaveBeenLastCalledWith({ freq: 'WEEKLY', interval: 2, count: 5, createNext: 'ON_SCHEDULE' });
+  });
+
+  it('previews the next dates from the due date', () => {
+    render(<RecurrenceEditor value={{ freq: 'WEEKLY', interval: 1, weekdays: [0, 4] }} dueDate="2026-10-01" onChange={vi.fn()} />);
+    expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Sun, Oct 4 · Thu, Oct 8 · Sun, Oct 11');
+  });
+
   it('sets a day of month for a monthly rule', () => {
     const onChange = vi.fn();
     render(<RecurrenceEditor value={{ freq: 'MONTHLY', interval: 1 }} onChange={onChange} />);

@@ -1,0 +1,46 @@
+# ============================================================================
+# MICO360 Tasks — live server settings for https://task.mico360.com
+# ----------------------------------------------------------------------------
+# Copy this file to environment.txt, fill in the secrets, then upload it into
+# the Node.js app root on the server and rename it to ".env".
+# environment.txt is private and is not in git.
+#
+# deploy.sh adds DATABASE_URL and UPLOAD_DIR to the server's .env by itself.
+# Do NOT add PORT: Hostinger sets the port the app must listen on.
+# ============================================================================
+NODE_ENV=production
+
+# --- Public address ---------------------------------------------------------
+API_BASE_URL=https://task.mico360.com
+APP_URL=https://task.mico360.com
+CORS_ORIGINS=https://task.mico360.com
+# Hostinger's proxy runs on the same machine; without this every user shares one rate limit.
+TRUST_PROXY=loopback
+
+# --- Secrets: 32 or more random characters each (e.g. `openssl rand -hex 48`) -
+# Changing a JWT secret signs everyone out.
+JWT_ACCESS_SECRET=
+JWT_REFRESH_SECRET=
+# Encrypts stored AI provider keys. Set it before go-live and never change it afterwards.
+SECRETS_ENCRYPTION_KEY=
+# Also goes into Mailjet's event-webhook address (docs/EMAIL.md).
+MAILJET_WEBHOOK_TOKEN=
+
+# --- Email (Mailjet) --------------------------------------------------------
+# Blank = no outgoing email: password sign-in works; sign-in codes, password-reset
+# emails and meeting invitations are off. Use your ROTATED keys.
+MAILJET_API_KEY=
+MAILJET_SECRET_KEY=
+MAIL_FROM='MICO360 Tasks <no-reply@mico360.com>'
+
+# --- Company ----------------------------------------------------------------
+COMPANY_NAME=MICO360
+PRODUCT_NAME='MICO360 Tasks'
+SUPPORT_EMAIL=support@mico360.com
+COMPANY_WEBSITE_URL=https://mico360.com
+COMPANY_TIMEZONE=Asia/Muscat
+
+# --- Optional ---------------------------------------------------------------
+# Where "Download for Android" on the sign-in page points. Upload the APK as
+# public_html/downloads/MICO360-Tasks.apk first, then uncomment:
+# ANDROID_APP_URL=/downloads/MICO360-Tasks.apk

@@ -246,6 +246,7 @@ export function BoardPage() {
       boardDate, // land on the day currently being viewed
       ...(v.description ? { description: v.description } : {}),
       ...(v.dueDate ? { dueDate: v.dueDate } : {}),
+      ...(v.recurrenceRule ? { recurrenceRule: v.recurrenceRule } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(v.assigneeIds.length ? { assigneeIds: v.assigneeIds } : {}),
     };
@@ -480,7 +481,7 @@ function NewTaskDialog({ columns, column, onColumnChange, assignees, submitting,
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New task" className="card relative w-full max-w-md animate-scale-in p-6">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New task" className="card relative max-h-[calc(100dvh-2rem)] w-full max-w-md animate-scale-in overflow-y-auto p-6">
         <h2 className="mb-4 font-display text-xl font-bold text-ink">New task</h2>
         {error ? (
           <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">

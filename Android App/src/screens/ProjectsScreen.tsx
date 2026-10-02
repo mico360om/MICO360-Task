@@ -36,7 +36,18 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
             >
               <View style={styles.cardHead}>
                 <Text style={styles.code}>{p.code}</Text>
-                <Pill label={p.status} />
+                <View style={styles.headRight}>
+                  <Pill label={p.status} />
+                  <Pressable
+                    onPress={() => navigation.navigate('ProjectDetail', { projectId: p.id, projectName: p.name })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Details and team for ${p.name}`}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.details, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.detailsText}>Details</Text>
+                  </Pressable>
+                </View>
               </View>
               <Text style={styles.name}>{p.name}</Text>
               {p.description ? (
@@ -66,6 +77,9 @@ const makeStyles = (c: Palette) =>
     },
     pressed: { opacity: 0.7 },
     cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    headRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    details: { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: c.line },
+    detailsText: { fontSize: fontSize.xs, fontWeight: '700', color: c.brand },
     code: { fontSize: fontSize.xs, fontWeight: '700', color: c.brand, letterSpacing: 1 },
     name: { fontSize: fontSize.lg, fontWeight: '700', color: c.ink },
     desc: { fontSize: fontSize.sm, color: c.ink2 },

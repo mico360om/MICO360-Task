@@ -66,6 +66,41 @@ describe('TaskDrawer', () => {
     expect(onDelete).toHaveBeenCalledWith('series');
   });
 
+  it('offers the series choices on an earlier copy too (the rule lives on the newest copy)', async () => {
+    const onDelete = vi.fn();
+    const onSaveEdit = vi.fn();
+    const copy = { ...task, recurrenceRule: null, recurrenceParentId: 'origin', recurrenceNextId: 'later' };
+    render(<TaskDrawer task={copy} checklist={[]} comments={[]} onDelete={onDelete} onSaveEdit={onSaveEdit} onSetRecurrence={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/part of a repeating series/i)).toBeInTheDocument();
+    // An earlier copy can't start a second series: no repeat editor, a pointer to the newest copy.
+    expect(screen.queryByLabelText(/^repeat$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/change the repeat on its newest copy/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /delete task/i }));
+    await userEvent.click(screen.getByRole('button', { name: /entire series/i }));
+    expect(onDelete).toHaveBeenCalledWith('series');
+  });
+
+  it('the newest copy can turn its repeat back on after it was switched off', async () => {
+    const onSetRecurrence = vi.fn();
+    const newest = { ...task, recurrenceRule: null, recurrenceParentId: 'origin', recurrenceNextId: null };
+    render(<TaskDrawer task={newest} checklist={[]} comments={[]} onSetRecurrence={onSetRecurrence} onClose={vi.fn()} />);
+    await userEvent.selectOptions(screen.getByLabelText(/^repeat$/i), 'WEEKLY');
+    expect(onSetRecurrence).toHaveBeenCalledWith({ freq: 'WEEKLY', interval: 1 });
+  });
+
+  it('previews the next dates of the repeat from the task’s due date', () => {
+    render(
+      <TaskDrawer
+        task={{ ...task, dueDate: '2026-10-01T00:00:00.000Z', recurrenceRule: { freq: 'WEEKLY', interval: 1 } }}
+        checklist={[]}
+        comments={[]}
+        onSetRecurrence={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Thu, Oct 8 · Thu, Oct 15 · Thu, Oct 22');
+  });
+
   it('edits the task fields and saves via onSaveEdit (single-task scope by default)', async () => {
     const onSaveEdit = vi.fn();
     render(<TaskDrawer task={task} checklist={[]} comments={[]} onSaveEdit={onSaveEdit} onClose={vi.fn()} />);

@@ -37,12 +37,12 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
     },
 
     async findById(id) {
-      const row = await prisma.meetingNote.findUnique({ where: { id } });
+      const row = await prisma.meetingNote.findFirst({ where: { id, deletedAt: null } });
       return row ? toRecord(row) : null;
     },
 
     async listByMeeting(meetingId) {
-      const rows = await prisma.meetingNote.findMany({ where: { meetingId }, orderBy: { createdAt: 'asc' } });
+      const rows = await prisma.meetingNote.findMany({ where: { meetingId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
       return rows.map(toRecord);
     },
 
@@ -62,11 +62,20 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
     },
 
     async remove(id) {
-      await prisma.meetingNote.delete({ where: { id } });
+      await prisma.meetingNote.updateMany({ where: { id, deletedAt: null }, data: { deletedAt: new Date() } });
+    },
+
+    async findDeleted(id) {
+      const row = await prisma.meetingNote.findFirst({ where: { id, deletedAt: { not: null } } });
+      return row ? toRecord(row) : null;
+    },
+
+    async restore(id) {
+      return toRecord(await prisma.meetingNote.update({ where: { id }, data: { deletedAt: null } }));
     },
 
     async claimTask(id, marker) {
-      const { count } = await prisma.meetingNote.updateMany({ where: { id, taskId: null }, data: { taskId: marker } });
+      const { count } = await prisma.meetingNote.updateMany({ where: { id, taskId: null, deletedAt: null }, data: { taskId: marker } });
       return count === 1;
     },
 

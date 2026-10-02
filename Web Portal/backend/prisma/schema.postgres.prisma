@@ -252,6 +252,7 @@ model Task {
   carryForwardLog Json?      // append-only carry-forward history [{ from, to, at }]
   recurrenceRule     Json?    // RecurrenceRule for a recurring task (null = one-off)
   recurrenceParentId String?  // links a generated instance back to its series template
+  recurrenceSourceId String?  @unique // the task this copy was made from — unique, so a task never gets two next copies
   version        Int       @default(0) // optimistic concurrency (T4.3)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -777,6 +778,8 @@ model MeetingNote {
   decisionId   String?
   createdAt    DateTime                   @default(now())
   editedAt     DateTime?
+  /// Soft delete: hidden from the meeting, minutes and search, restorable (MTG-07).
+  deletedAt    DateTime?
   meeting      Meeting                    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   agendaItem   AgendaItem?                @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
   attachments  MeetingNoteAttachment[]

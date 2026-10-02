@@ -39,7 +39,12 @@ export interface NoteRepository {
   findById(id: string): Promise<NoteRecord | null>;
   listByMeeting(meetingId: string): Promise<NoteRecord[]>;
   update(id: string, patch: UpdateNoteData): Promise<NoteRecord>;
+  /** Soft delete (MTG-07): the note leaves lists, minutes and search but can be restored. */
   remove(id: string): Promise<void>;
+  /** A soft-deleted note, or null (also null for a live note). */
+  findDeleted(id: string): Promise<NoteRecord | null>;
+  /** Bring a soft-deleted note back. */
+  restore(id: string): Promise<NoteRecord>;
   /**
    * Atomically set `taskId` to a claim marker only if the note has no task yet. False when another
    * request already converted (or is converting) the note — the guard against duplicate tasks.

@@ -1,4 +1,4 @@
-import type { Priority } from './types';
+import type { Priority, RecurrenceRule } from './types';
 
 export interface QuickAddForm {
   title: string;
@@ -12,6 +12,8 @@ export interface QuickAddForm {
   assigneeIds?: string[];
   /** Per-date boards: the board day the task is created on (YYYY-MM-DD). */
   boardDate?: string;
+  /** Set when the task repeats. */
+  recurrenceRule?: RecurrenceRule | null;
 }
 
 export interface CreateTaskInput {
@@ -25,6 +27,7 @@ export interface CreateTaskInput {
   tags?: string[];
   assigneeIds?: string[];
   boardDate?: string;
+  recurrenceRule?: RecurrenceRule;
 }
 
 export type BuildResult = { ok: true; value: CreateTaskInput } | { ok: false; error: string };
@@ -85,5 +88,6 @@ export function buildCreateTaskInput(form: QuickAddForm): BuildResult {
     if (ids.length > 0) value.assigneeIds = ids;
   }
   if (form.boardDate) value.boardDate = form.boardDate;
+  if (form.recurrenceRule) value.recurrenceRule = form.recurrenceRule;
   return { ok: true, value };
 }

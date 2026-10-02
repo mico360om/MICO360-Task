@@ -50,3 +50,15 @@ export function href(path, query) {
     : '';
   return `#${path}${qs ? `?${qs}` : ''}`;
 }
+
+/** Screens reloaded when the app tab is shown again (no typing in progress to lose). */
+const REFRESH_ON_RETURN = new Set(['board', 'dashboard', 'calendar']);
+
+/**
+ * Whether to reload the current screen when the user comes back to the app tab — the extension has
+ * no live connection, so this is how a copy of a recurring task made in another app shows up.
+ * Never while the task drawer is open over it.
+ */
+export function refreshOnReturn(route, overlayOpen) {
+  return Boolean(route && !overlayOpen && REFRESH_ON_RETURN.has(route.name));
+}

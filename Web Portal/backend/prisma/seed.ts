@@ -1,5 +1,6 @@
 import { PrismaClient, Priority, ProjectStatus, ColumnCategory, UserStatus } from '@prisma/client';
 import { hashPassword } from '../src/lib/password';
+import { demoSeedBlocker } from '../src/lib/seed-guard';
 
 const prisma = new PrismaClient();
 
@@ -18,6 +19,14 @@ const COLUMNS: { name: string; category: ColumnCategory; color: string }[] = [
 ];
 
 async function main() {
+  // Development only: this wipes the database and creates demo accounts with a published password.
+  const existing = await prisma.user.findMany({ select: { email: true } });
+  const blocked = demoSeedBlocker({ emails: existing.map((u) => u.email), nodeEnv: process.env.NODE_ENV, force: process.env.SEED_DEMO_FORCE === '1' });
+  if (blocked) {
+    console.error(blocked);
+    process.exitCode = 1;
+    return;
+  }
   console.log('Seeding MICO360 Tasks…');
 
   // Clean (FK-safe order)

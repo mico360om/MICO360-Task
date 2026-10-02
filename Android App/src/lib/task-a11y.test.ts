@@ -33,6 +33,11 @@ describe('taskRowA11yLabel', () => {
     );
   });
 
+  it('says when a task repeats', () => {
+    expect(taskRowA11yLabel({ ...base, recurrenceRule: { freq: 'DAILY', interval: 1 } }, null, false)).toContain('repeats');
+    expect(taskRowA11yLabel(base, null, false)).not.toContain('repeats');
+  });
+
   it('maps every priority to a human word', () => {
     expect(taskRowA11yLabel({ ...base, priority: 'LOW' }, null, false)).toContain('Low priority');
     expect(taskRowA11yLabel({ ...base, priority: 'NORMAL' }, null, false)).toContain('Normal priority');

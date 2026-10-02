@@ -13,7 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '../core/theme';
 import { spacing, radius, hexToRgba, type Palette } from '../lib/theme';
 import { useDrawerStore } from '../lib/drawer-store';
-import { DRAWER_ITEMS, activeDrawerKey } from '../navigation/drawer-menu';
+import { drawerItemsFor, activeDrawerKey } from '../navigation/drawer-menu';
+import { useSession } from '../core/providers';
 import type { NavAction } from '../navigation/nav-actions';
 import { navigationRef } from '../navigation/ref';
 import { AppText } from './ui';
@@ -34,6 +35,7 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
   const open = useDrawerStore((s) => s.open);
   const closeDrawer = useDrawerStore((s) => s.closeDrawer);
   const s = makeStyles(c);
+  const items = drawerItemsFor(useSession()?.user.roles ?? []);
 
   // Keep the Modal mounted through the exit animation so the panel slides out instead of snapping.
   const [rendered, setRendered] = useState(open);
@@ -78,7 +80,7 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
             <AppText variant="caption" color={hexToRgba(c.onBrand, 0.85)}>Tasks</AppText>
           </View>
           <ScrollView contentContainerStyle={{ paddingVertical: spacing.sm, paddingBottom: insets.bottom + spacing.md }}>
-            {DRAWER_ITEMS.map((item) => {
+            {items.map((item) => {
               const active = item.key === activeKey;
               return (
                 <Pressable

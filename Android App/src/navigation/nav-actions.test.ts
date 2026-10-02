@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { targetToAction } from './nav-actions';
-import { DRAWER_ITEMS, activeDrawerKey, actionRouteName } from './drawer-menu';
+import { DRAWER_ITEMS, activeDrawerKey, actionRouteName, drawerItemsFor } from './drawer-menu';
 import { notificationToTarget, parseDeepLink } from '../lib/deep-link';
 
 describe('targetToAction', () => {
@@ -30,6 +30,13 @@ describe('drawer menu', () => {
     const routes = DRAWER_ITEMS.map((i) => actionRouteName(i.action));
     expect(routes).toContain('Calendar');
     expect(routes).toContain('Profile');
+  });
+
+  it('offers Reports to administrators only (the server checks the role too)', () => {
+    expect(drawerItemsFor(['ADMIN']).map((i) => i.key)).toContain('Reports');
+    expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).not.toContain('Reports');
+    expect(drawerItemsFor([]).length).toBe(DRAWER_ITEMS.length - 1);
+    expect(activeDrawerKey('Reports')).toBe('Reports');
   });
 
   it('resolves the active drawer key from the focused route name', () => {

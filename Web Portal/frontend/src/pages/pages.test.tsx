@@ -113,7 +113,7 @@ describe('ReportsPage exports', () => {
   it('fetches the right export endpoint for each format button', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       const u = String(url);
-      if (/\.(csv|xls|pdf)$/.test(u)) return new Response('export-bytes', { status: 200, headers: { 'content-type': 'application/octet-stream' } });
+      if (/\.(csv|xlsx|pdf)$/.test(u)) return new Response('export-bytes', { status: 200, headers: { 'content-type': 'application/octet-stream' } });
       if (u.endsWith('/reports/status')) return json({ data: { DONE: 6 } });
       if (u.endsWith('/reports/workload')) return json({ data: [] });
       if (u.endsWith('/reports/completion')) return json({ data: { total: 0, completed: 0, onTime: 0, late: 0, unclassified: 0, onTimeRate: 0 } });
@@ -126,11 +126,14 @@ describe('ReportsPage exports', () => {
     renderWithQuery(<ReportsPage />);
     await waitFor(() => expect(screen.getByText('MICO360')).toBeInTheDocument());
 
+    // A single report (CSV isn't offered for the full report).
+    await userEvent.click(screen.getByRole('button', { name: /report to export/i }));
+    await userEvent.click(await screen.findByRole('option', { name: /project performance/i }));
     await userEvent.click(screen.getByRole('button', { name: /^CSV$/ }));
     await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/reports/projects.csv'))).toBe(true));
 
     await userEvent.click(screen.getByRole('button', { name: /^Excel$/ }));
-    await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/reports/projects.xls'))).toBe(true));
+    await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/reports/projects.xlsx'))).toBe(true));
 
     await userEvent.click(screen.getByRole('button', { name: /^PDF$/ }));
     await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/reports/projects.pdf'))).toBe(true));

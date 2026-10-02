@@ -26,6 +26,14 @@ describe('TaskCard', () => {
     expect(screen.getByText('Urgent')).toBeInTheDocument();
   });
 
+  it('marks a repeating task', () => {
+    const { unmount } = render(<TaskCard task={{ ...task, recurring: true }} />);
+    expect(screen.getByLabelText('Repeats')).toBeInTheDocument();
+    unmount();
+    render(<TaskCard task={task} />);
+    expect(screen.queryByLabelText('Repeats')).not.toBeInTheDocument();
+  });
+
   it('shows an avatar for each assignee', () => {
     render(<TaskCard task={task} />);
     expect(screen.getByTitle('Ada Lovelace')).toBeInTheDocument();

@@ -64,7 +64,7 @@ describe('Prisma note repository', () => {
   it('claims a note for task conversion only while it has no task (MTG-04)', async () => {
     const free = recorder({ 'meetingNote.updateMany': { count: 1 } });
     expect(await createPrismaNoteRepository(free.prisma).claimTask('n1', 'pending:x')).toBe(true);
-    expect(free.calls[0]!.args).toEqual({ where: { id: 'n1', taskId: null }, data: { taskId: 'pending:x' } });
+    expect(free.calls[0]!.args).toEqual({ where: { id: 'n1', taskId: null, deletedAt: null }, data: { taskId: 'pending:x' } });
     const taken = recorder({ 'meetingNote.updateMany': { count: 0 } });
     expect(await createPrismaNoteRepository(taken.prisma).claimTask('n1', 'pending:y')).toBe(false);
   });

@@ -4,6 +4,8 @@ import { isNetworkError } from '../lib/api-client';
 import { newIdempotencyKey } from '../lib/idempotency';
 import type { SyncQueue } from '../lib/sync-queue';
 import type { ApiTask } from '../lib/types';
+import type { NotificationPreferences } from '../lib/notification-prefs';
+import type { ReportFilters } from '../lib/reports';
 
 /** Variables of a creating write, carrying the idempotency key minted for this user action (XP-06). */
 export type Keyed<T> = T & { idempotencyKey: string };
@@ -164,6 +166,61 @@ export function useCommentMutations(taskId: string) {
   return { add, remove };
 }
 
+// ── Attachments ──────────────────────────────────────────────────────────────
+export function useTaskAttachments(taskId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['task', taskId, 'attachments'], queryFn: () => resources.tasks.attachments(taskId) });
+}
+
+/** Upload one picked file / remove a file. Uploads need a connection (files aren't queued offline). */
+export function useAttachmentMutations(taskId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['task', taskId, 'attachments'] });
+  };
+  const upload = useMutation({
+    mutationFn: (part: { uri: string; name: string; type: string }) => resources.tasks.uploadAttachment(taskId, part),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({ mutationFn: (attachmentId: string) => resources.tasks.removeAttachment(attachmentId), onSuccess: invalidate });
+  return { upload, remove };
+}
+
+// ── Notification preferences ─────────────────────────────────────────────────
+export function useNotificationPreferences() {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['notifications', 'preferences'], queryFn: () => resources.notifications.preferences() });
+}
+
+/** Save preferences; the switch flips at once and snaps back if the server refuses. */
+export function useSaveNotificationPreferences() {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  const key = ['notifications', 'preferences'];
+  return useMutation({
+    mutationFn: (prefs: NotificationPreferences) => resources.notifications.setPreferences(prefs),
+    onMutate: async (prefs) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<NotificationPreferences>(key);
+      qc.setQueryData(key, prefs);
+      return { previous };
+    },
+    onError: (_err, _prefs, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+// ── Project details ──────────────────────────────────────────────────────────
+export function useProject(projectId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['project', projectId, 'details'], queryFn: () => resources.projects.get(projectId), enabled: !!projectId });
+}
+
 // ── Project progress ─────────────────────────────────────────────────────────
 export function useProjectProgress(projectId: string) {
   const { resources } = useServices();
@@ -267,6 +324,43 @@ export function useMarkNotificationRead() {
       void qc.invalidateQueries({ queryKey: ['notifications'] });
     },
     onError: (err, id) => queueOnOffline(queue, currentUserId(), err, 'notification.read', { id }),
+  });
+}
+
+// ── Reports (administrators) ────────────────────────────────────────────────
+/** Everything the Reports screen shows, for the filters; always read fresh (no offline copy). */
+export function useReports(filters: ReportFilters) {
+  const { resources } = useServices();
+  const scope = { projectId: filters.projectId, userId: filters.userId };
+  return useQuery({
+    queryKey: ['reports', filters],
+    queryFn: async () => {
+      const r = resources.reports;
+      const [projects, status, workload, completion, series] = await Promise.all([
+        r.projects(scope),
+        r.status(scope),
+        r.workload(scope),
+        r.completion(scope).catch(() => null),
+        r.timeseries(filters).catch(() => null),
+      ]);
+      return { projects, status, workload, completion, series };
+    },
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** The unfiltered project and team lists that feed the Reports filters. */
+export function useReportOptions() {
+  const { resources } = useServices();
+  return useQuery({
+    queryKey: ['reports', 'options'],
+    queryFn: async () => {
+      const [projects, team] = await Promise.all([resources.reports.projects(), resources.reports.workload()]);
+      return {
+        projects: projects.map((p) => ({ value: p.projectId, label: p.projectName })),
+        team: team.map((w) => ({ value: w.userId, label: w.name || w.username })),
+      };
+    },
   });
 }
 

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor } from './web-app';
+import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor, androidAppLink, HOSTED_APK_PATH } from './web-app';
 
 describe('isClientRoute', () => {
   it('accepts page routes and rejects server paths, files and non-GET requests', () => {
@@ -38,6 +38,22 @@ describe('cacheControlFor', () => {
   it('caches hashed assets for a year and revalidates everything else', () => {
     expect(cacheControlFor('/assets/index-abc123.js')).toBe('public, max-age=31536000, immutable');
     expect(cacheControlFor('/favicon.ico')).toBe('no-cache');
+  });
+});
+
+describe('androidAppLink', () => {
+  it('prefers the configured link, then an APK the web root hosts, else none', () => {
+    const root = mkdtempSync(join(tmpdir(), 'webapp-apk-'));
+    try {
+      expect(androidAppLink(' https://play.google.com/x ', root)).toBe('https://play.google.com/x');
+      expect(androidAppLink('', root)).toBeNull();
+      expect(androidAppLink('', null)).toBeNull();
+      mkdirSync(join(root, 'downloads'));
+      writeFileSync(join(root, 'downloads', 'MICO360-Tasks.apk'), 'PK');
+      expect(androidAppLink('', root)).toBe(HOSTED_APK_PATH);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

@@ -36,7 +36,9 @@ import { ProjectsScreen } from '../screens/ProjectsScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { BoardScreen } from '../screens/BoardScreen';
+import { ProjectDetailScreen } from '../screens/ProjectDetailScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
+import { ReportsScreen } from '../screens/ReportsScreen';
 import { CalendarScreen } from '../screens/CalendarScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { ChatScreen } from '../screens/ChatScreen';
@@ -100,6 +102,9 @@ function applyAction(action: NavAction): void {
       break;
     case 'Profile':
       navigationRef.navigate('Profile');
+      break;
+    case 'Reports':
+      navigationRef.navigate('Reports');
       break;
   }
 }
@@ -263,12 +268,18 @@ export function RootNavigator() {
               options={({ route }) => ({ title: route.params.projectName ?? 'Board' })}
             />
             <AppStack.Screen
+              name="ProjectDetail"
+              component={ProjectDetailScreen}
+              options={({ route }) => ({ title: route.params.projectName ?? 'Project' })}
+            />
+            <AppStack.Screen
               name="TaskDetail"
               component={TaskDetailScreen}
               options={({ route }) => ({ title: route.params.title ?? 'Task' })}
             />
             <AppStack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Calendar' }} />
             <AppStack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+            <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports' }} />
             <AppStack.Screen name="ChatThread" component={ChatThreadScreen} options={{ title: 'Chat' }} />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />

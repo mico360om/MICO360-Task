@@ -20,9 +20,11 @@ export type TabsParamList = {
 export type AppStackParamList = {
   Tabs: NavigatorScreenParams<TabsParamList> | undefined;
   Board: { projectId: string; projectName?: string };
+  ProjectDetail: { projectId: string; projectName?: string };
   TaskDetail: { taskId: string; title?: string };
   Calendar: undefined;
   Profile: undefined;
+  Reports: undefined;
   ChatThread: { conversationId: string; title: string; kind: 'PROJECT' | 'DIRECT' };
 };
 

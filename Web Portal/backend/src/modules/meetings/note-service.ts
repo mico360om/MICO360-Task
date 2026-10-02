@@ -38,6 +38,10 @@ export interface NoteService {
   addNote(meetingId: string, authorId: string, input: AddNoteInput): Promise<NoteRecord>;
   updateNote(meetingId: string, noteId: string, patch: UpdateNoteInput): Promise<NoteRecord>;
   removeNote(meetingId: string, noteId: string): Promise<void>;
+  /** A deleted note of this meeting (to check who may restore it). */
+  getDeletedNote(meetingId: string, noteId: string): Promise<NoteRecord>;
+  /** Undo a delete. */
+  restoreNote(meetingId: string, noteId: string): Promise<NoteRecord>;
   /** Reserve a note for conversion into a task; 409 when it already has (or is getting) one. */
   claimForTask(meetingId: string, noteId: string): Promise<string>;
   /** Give back a claim whose task was never created. */
@@ -114,6 +118,20 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
       await requireInMeeting(meetingId, noteId);
       await notes.remove(noteId);
       deps.onChanged?.(meetingId);
+    },
+
+    async getDeletedNote(meetingId, noteId) {
+      const rec = await notes.findDeleted(noteId);
+      if (!rec || rec.meetingId !== meetingId) throw new NotFoundError('Note not found.');
+      return rec;
+    },
+
+    async restoreNote(meetingId, noteId) {
+      const rec = await notes.findDeleted(noteId);
+      if (!rec || rec.meetingId !== meetingId) throw new NotFoundError('Note not found.');
+      const restored = await notes.restore(noteId);
+      deps.onChanged?.(meetingId);
+      return restored;
     },
 
     async claimForTask(meetingId, noteId) {

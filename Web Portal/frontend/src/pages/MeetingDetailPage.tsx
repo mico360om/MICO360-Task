@@ -509,10 +509,22 @@ function LiveNotesCard({ meetingId, directory, meetingProjectId, canEdit, pollMs
     onSuccess: refresh,
     onError: (err) => setOpError(failure(err, 'Couldn’t change the highlight.')),
   });
+  // Deleted notes can be brought back for a few seconds (the server keeps them, MTG-07).
+  const [undoNoteId, setUndoNoteId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!undoNoteId) return;
+    const t = setTimeout(() => setUndoNoteId(null), 10_000);
+    return () => clearTimeout(t);
+  }, [undoNoteId]);
   const removeMut = useMutation({
     mutationFn: (noteId: string) => meetingsApi(apiClient).removeNote(meetingId, noteId),
-    onSuccess: refresh,
+    onSuccess: (_res, noteId) => { setUndoNoteId(noteId); refresh(); },
     onError: (err) => setOpError(failure(err, 'Couldn’t delete the note.')),
+  });
+  const restoreMut = useMutation({
+    mutationFn: (noteId: string) => meetingsApi(apiClient).restoreNote(meetingId, noteId),
+    onSuccess: () => { setUndoNoteId(null); refresh(); },
+    onError: (err) => setOpError(failure(err, 'Couldn’t restore the note.')),
   });
 
   function submitAdd(e: FormEvent) {
@@ -573,6 +585,19 @@ function LiveNotesCard({ meetingId, directory, meetingProjectId, canEdit, pollMs
       </form>
 
       <CardError message={opError} onDismiss={() => setOpError(null)} />
+      {undoNoteId ? (
+        <div role="status" className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-line bg-ground px-3 py-2 text-sm text-ink-2">
+          <span>Note deleted.</span>
+          <button
+            type="button"
+            onClick={() => restoreMut.mutate(undoNoteId)}
+            disabled={restoreMut.isPending}
+            className="rounded-md px-2 py-0.5 font-semibold text-brand hover:bg-surface disabled:opacity-60"
+          >
+            Undo
+          </button>
+        </div>
+      ) : null}
 
       {/* Type filter */}
       {notes.length > 0 ? (

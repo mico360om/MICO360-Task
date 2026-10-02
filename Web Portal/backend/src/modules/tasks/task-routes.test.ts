@@ -204,6 +204,33 @@ describe('Task routes', () => {
     expect(res.json().data.key).toBe('MICO-1');
   });
 
+  it('creates and edits a recurring task with a custom schedule ("the last Friday", made on schedule)', async () => {
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const rule = { freq: 'MONTHLY', interval: 1, nthWeekday: { week: -1, day: 5 }, createNext: 'ON_SCHEDULE' };
+    const res = await app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'Month-end report', projectId: 'p1', columnId: 'c1', dueDate: '2026-10-30', recurrenceRule: rule } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.recurrenceRule).toEqual(rule);
+    const id = res.json().data.id as string;
+    const weekly = { freq: 'WEEKLY', interval: 2, weekdays: [0, 4], createNext: 'ON_COMPLETE' };
+    const put = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload: { recurrenceRule: weekly } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().data.recurrenceRule).toEqual(weekly);
+  });
+
+  it('rejects impossible custom schedules (400)', async () => {
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const bad = [
+      { freq: 'MONTHLY', interval: 1, nthWeekday: { week: 5, day: 1 } },
+      { freq: 'MONTHLY', interval: 1, nthWeekday: { week: 1, day: 9 } },
+      { freq: 'WEEKLY', interval: 1, nthWeekday: { week: 1, day: 1 } },
+      { freq: 'DAILY', interval: 1, createNext: 'SOMETIMES' },
+    ];
+    for (const recurrenceRule of bad) {
+      const res = await app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'x', projectId: 'p1', columnId: 'c1', recurrenceRule } });
+      expect(res.statusCode, JSON.stringify(recurrenceRule)).toBe(400);
+    }
+  });
+
   it('auto-sets the start date on create', async () => {
     const res = await createTask();
     expect(res.json().data.startDate).toBeTruthy();

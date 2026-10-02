@@ -1,6 +1,6 @@
 {
   "name": "@mico360/backend",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "MICO360 Tasks backend API (Fastify + Prisma + MySQL).",
   "main": "dist/src/server.js",
@@ -21,6 +21,8 @@
     "test:e2e": "node e2e/lifecycle.e2e.mjs"
   },
   "dependencies": {
+    "@expo-google-fonts/archivo": "0.4.2",
+    "@expo-google-fonts/ibm-plex-sans": "0.4.1",
     "@expo-google-fonts/noto-naskh-arabic": "0.4.5",
     "@expo-google-fonts/noto-sans": "0.4.2",
     "@fastify/cors": "^11.3.0",

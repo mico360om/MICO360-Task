@@ -72,6 +72,8 @@ export interface ApiClient {
   put<T = unknown>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
   patch<T = unknown>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
   del<T = unknown>(path: string, opts?: RequestOptions): Promise<T>;
+  /** POST a multipart form (file uploads); the platform sets the multipart boundary. */
+  upload<T = unknown>(path: string, form: FormData, opts?: RequestOptions): Promise<T>;
   /** Run (or join) the single-flight session refresh — used by sockets after an auth rejection. */
   refreshSession(): Promise<RefreshOutcome>;
 }
@@ -133,12 +135,16 @@ export function createApiClient({
     path: string,
     body: unknown,
     extraHeaders?: Record<string, string>,
+    form?: FormData,
   ): Promise<{ status: number; ok: boolean; text: string }> {
     const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
     // Only declare a JSON content-type when there is a JSON body — Fastify rejects an empty body
     // under application/json ("Body cannot be empty…"), which broke every bodyless call
-    // (mark-read, mark-all-read, watch). Mirrors the web client's fix.
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    // (mark-read, mark-all-read, watch). Mirrors the web client's fix. A multipart form gets its
+    // content type (with the boundary) from the platform.
+    if (body !== undefined && !form) headers['Content-Type'] = 'application/json';
+    // Uploads may be several MB on a slow phone connection: allow longer than an ordinary request.
+    const limitMs = form ? Math.max(timeoutMs, 120_000) : timeoutMs;
     const token = await getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -148,14 +154,14 @@ export function createApiClient({
       ? setTimeout(() => {
           timedOut = true;
           controller.abort();
-        }, timeoutMs)
+        }, limitMs)
       : null;
     let result: { status: number; ok: boolean; text: string };
     try {
       const res = await doFetch(`${baseUrl}${path}`, {
         method,
         headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: form ?? (body !== undefined ? JSON.stringify(body) : undefined),
         ...(controller ? { signal: controller.signal } : {}),
       });
       result = { status: res.status, ok: res.ok, text: await res.text() };
@@ -175,16 +181,16 @@ export function createApiClient({
     return result;
   }
 
-  async function request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
+  async function request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions, form?: FormData): Promise<T> {
     // A failed login/OTP/reset/refresh is not a token-expiry — never trigger a refresh for /auth/*.
     const canRefresh = !path.startsWith('/auth/');
 
-    let res = await send(method, path, body, opts?.headers);
+    let res = await send(method, path, body, opts?.headers, form);
 
     if (res.status === 401 && canRefresh) {
       const outcome = await refreshOnce();
       if (outcome === 'ok') {
-        res = await send(method, path, body, opts?.headers); // retry once with the new token
+        res = await send(method, path, body, opts?.headers, form); // retry once with the new token
         if (res.status === 401) await onUnauthorized?.();
       } else if (outcome === 'invalid') {
         await onUnauthorized?.();
@@ -205,6 +211,7 @@ export function createApiClient({
     put: (path, body, opts) => request('PUT', path, body, opts),
     patch: (path, body, opts) => request('PATCH', path, body, opts),
     del: (path, opts) => request('DELETE', path, undefined, opts),
+    upload: (path, form, opts) => request('POST', path, undefined, opts, form),
     refreshSession: () => refreshOnce(),
   };
 }

@@ -1,17 +1,10 @@
 import type { ApiClient } from '../lib/api-client';
+import type { RecurrenceRule } from '../lib/recurrence';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
-export interface RecurrenceRule {
-  freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
-  interval: number;
-  count?: number | null;
-  until?: string | null;
-  weekdays?: number[];
-  dayOfMonth?: number;
-  /** When true the series is paused — no new occurrences are generated until resumed. */
-  paused?: boolean;
-}
+/** The recurrence rule model is shared with the API (lib/recurrence.ts is a copy of the backend's). */
+export type { RecurrenceRule };
 
 export interface ApiTask {
   id: string;
@@ -35,7 +28,12 @@ export interface ApiTask {
   updatedAt: string;
   /** Optimistic-concurrency version (bumped on every update/move). */
   version?: number;
+  /** The repeat rule — only the newest copy of a recurring series carries it. */
   recurrenceRule?: RecurrenceRule | null;
+  /** Set on every copy of a recurring series: the first task's id. */
+  recurrenceParentId?: string | null;
+  /** The copy made from this task (single-task responses). Set = an earlier copy of its series. */
+  recurrenceNextId?: string | null;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
   /** Aggregate counts for card badges (present on list responses). */
@@ -65,6 +63,8 @@ export interface CreateTaskOptions {
 
 export function tasksApi(client: ApiClient) {
   return {
+    /** The task as a document: an Excel workbook or a PDF. */
+    exportFile: (id: string, format: 'xlsx' | 'pdf') => client.getBlob(`/tasks/${id}/export.${format}`),
     list: (projectId?: string, boardDate?: string) => {
       const qs = new URLSearchParams();
       if (projectId) qs.set('projectId', projectId);

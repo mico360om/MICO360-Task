@@ -91,6 +91,15 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
     return reply.status(204).send();
   });
 
+  // Undo a delete (MTG-07): same rule as deleting — the author, or someone who moderates the meeting.
+  app.post('/meetings/:id/notes/:noteId/restore', { preHandler: guard.authenticate }, async (req, reply) => {
+    const { id, noteId } = req.params as { id: string; noteId: string };
+    if (!(await canView(req, id))) return reply.status(403).send(forbidden);
+    const note = await noteService.getDeletedNote(id, noteId);
+    if (note.authorId !== req.user!.id && !(await canModerate(req, id))) return reply.status(403).send(notAuthor);
+    return { data: await noteService.restoreNote(id, noteId) };
+  });
+
   // ⭐ Create Task from Note — promote a note into a board task and back-link it.
   if (deps.noteTaskService) {
     const noteTaskService = deps.noteTaskService;

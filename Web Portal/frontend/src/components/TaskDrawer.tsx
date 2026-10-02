@@ -121,6 +121,8 @@ export interface TaskDrawerProps {
   watcherCount?: number;
   /** Toggle the current user's watch on this task. */
   onToggleWatch?: () => void;
+  /** Download the task as an Excel workbook or a PDF. */
+  onExport?: (format: 'xlsx' | 'pdf') => Promise<void>;
   onClose: () => void;
 }
 
@@ -227,6 +229,7 @@ export function TaskDrawer({
   watching,
   watcherCount,
   onToggleWatch,
+  onExport,
   onClose,
 }: TaskDrawerProps) {
   const done = checklist.filter((c) => c.done).length;
@@ -303,7 +306,7 @@ export function TaskDrawer({
       // Keep the form open (Save busy) until the save resolves; close only if it succeeded.
       await onSaveEdit?.(
         { title, priority: editPriority, description: editDesc, dueDate: editDue || null },
-        task.recurrenceRule && editScope === 'series' ? 'series' : undefined,
+        inSeries && editScope === 'series' ? 'series' : undefined,
       );
       setEditing(false);
     } catch (err) {
@@ -320,6 +323,8 @@ export function TaskDrawer({
 
   // Calendar-day rule in the company zone; a finished task is never overdue.
   const dueOverdue = !isTaskDone(task) && isOverdue(task.dueDate, timeZone);
+  // Every copy of a recurring series can be edited or deleted as a series; the newest carries the rule.
+  const inSeries = Boolean(task.recurrenceRule || task.recurrenceParentId);
   const dueText = formatDueDay(task.dueDate, timeZone) || 'No due date';
 
   return (
@@ -336,6 +341,7 @@ export function TaskDrawer({
           <StatusPill category={task.columnCategory} />
           <PriorityBadge priority={task.priority} />
           <div className="ml-auto flex items-center gap-1">
+            {onExport ? <ExportMenu onExport={onExport} /> : null}
             {onToggleWatch ? (
               <button
                 onClick={onToggleWatch}
@@ -363,10 +369,12 @@ export function TaskDrawer({
           </div>
         </div>
         <h2 dir="auto" className="mt-2 text-start font-display text-xl font-bold leading-snug text-ink">{task.title}</h2>
-        {task.recurrenceRule || (task.carryForwardLog && task.carryForwardLog.length > 0) ? (
+        {inSeries || (task.carryForwardLog && task.carryForwardLog.length > 0) ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {task.recurrenceRule ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">🔁 {recurrenceSummary(task.recurrenceRule)}</span>
+            ) : inSeries ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2">🔁 Part of a repeating series</span>
             ) : null}
             {task.carryForwardLog && task.carryForwardLog.length > 0 ? (
               <span
@@ -419,7 +427,7 @@ export function TaskDrawer({
               <span className="eyebrow">Description</span>
               <textarea aria-label="Description" dir="auto" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={3} className={fieldClass(false)} />
             </label>
-            {task.recurrenceRule ? (
+            {inSeries ? (
               <fieldset className="flex flex-col gap-1">
                 <legend className="eyebrow">Apply changes to</legend>
                 <label className="flex items-center gap-2 text-sm text-ink">
@@ -591,7 +599,12 @@ export function TaskDrawer({
               {onSetRecurrence ? (
                 <div>
                   <SectionHead>Repeat</SectionHead>
-                  <RecurrenceEditor value={task.recurrenceRule ?? null} onChange={onSetRecurrence} />
+                  {!task.recurrenceNextId ? (
+                    <RecurrenceEditor value={task.recurrenceRule ?? null} onChange={onSetRecurrence} dueDate={dueInputValue(task.dueDate, timeZone)} />
+                  ) : (
+                    // Repeating an earlier copy would start a second, parallel series.
+                    <p className="text-sm text-ink-2">An earlier copy of a repeating series — change the repeat on its newest copy.</p>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -673,9 +686,9 @@ export function TaskDrawer({
         <footer className="flex-none border-t border-line px-5 py-3 sm:px-6">
           {confirmingDelete ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-ink-2">{task.recurrenceRule ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
-              <button onClick={() => onDelete()} className="rounded-lg bg-danger px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-95">{task.recurrenceRule ? 'This occurrence' : 'Delete'}</button>
-              {task.recurrenceRule ? <button onClick={() => onDelete('series')} className="rounded-lg bg-danger px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-95">Entire series</button> : null}
+              <span className="text-sm text-ink-2">{inSeries ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
+              <button onClick={() => onDelete()} className="rounded-lg bg-danger px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-95">{inSeries ? 'This occurrence' : 'Delete'}</button>
+              {inSeries ? <button onClick={() => onDelete('series')} className="rounded-lg bg-danger px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-95">Entire series</button> : null}
               <button onClick={() => setConfirmingDelete(false)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-ground">Cancel</button>
             </div>
           ) : (
@@ -685,6 +698,46 @@ export function TaskDrawer({
             </button>
           )}
         </footer>
+      ) : null}
+    </div>
+  );
+}
+
+/** "Export" in the drawer header: download the task as Excel or PDF. */
+function ExportMenu({ onExport }: { onExport: (format: 'xlsx' | 'pdf') => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<'xlsx' | 'pdf' | null>(null);
+  const [failed, setFailed] = useState(false);
+  async function run(format: 'xlsx' | 'pdf') {
+    setOpen(false);
+    setBusy(format);
+    setFailed(false);
+    try {
+      await onExport(format);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(null);
+    }
+  }
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={busy !== null}
+        title={failed ? 'Couldn’t export the task. Try again.' : 'Download this task as Excel or PDF'}
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${failed ? 'border-danger/40 text-danger' : 'border-line text-ink-2 hover:border-brand hover:text-brand'}`}
+      >
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+        {busy ? 'Exporting…' : failed ? 'Export failed' : 'Export'}
+      </button>
+      {open ? (
+        <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-40 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift">
+          <button role="menuitem" onClick={() => void run('xlsx')} className="block w-full px-3 py-1.5 text-start text-xs text-ink hover:bg-ground">Excel (.xlsx)</button>
+          <button role="menuitem" onClick={() => void run('pdf')} className="block w-full px-3 py-1.5 text-start text-xs text-ink hover:bg-ground">PDF</button>
+        </div>
       ) : null}
     </div>
   );

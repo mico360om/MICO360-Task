@@ -28,7 +28,7 @@ export function formatDue(iso: string | null): string | null {
   }
 }
 
-export function TaskRow({ task, onPress }: { task: ApiTask; onPress?: () => void }) {
+export function TaskRow({ task, onPress, onLongPress }: { task: ApiTask; onPress?: () => void; onLongPress?: () => void }) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const due = formatDue(task.dueDate);
@@ -38,8 +38,15 @@ export function TaskRow({ task, onPress }: { task: ApiTask; onPress?: () => void
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
       accessibilityRole="button"
       accessibilityLabel={`${taskRowA11yLabel(task, due, done)}${overdue ? ', overdue' : ''}`}
+      accessibilityHint={onLongPress ? 'Long-press to move it to another column' : undefined}
+      accessibilityActions={onLongPress ? [{ name: 'longpress', label: 'Move to another column' }] : undefined}
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === 'longpress') onLongPress?.();
+      }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={[styles.priority, { backgroundColor: priorityColor(c, task.priority) }]} />
@@ -52,6 +59,7 @@ export function TaskRow({ task, onPress }: { task: ApiTask; onPress?: () => void
           {due ? <Text style={[styles.due, overdue && styles.overdue]}>· {overdue ? 'Overdue' : 'Due'} {due}</Text> : null}
           {task.progress > 0 && !done ? <Text style={styles.progress}>· {task.progress}%</Text> : null}
           {done ? <Text style={styles.doneTag}>· Done</Text> : null}
+          {task.recurrenceRule ? <Text style={styles.key}>· 🔁</Text> : null}
         </View>
       </View>
     </Pressable>

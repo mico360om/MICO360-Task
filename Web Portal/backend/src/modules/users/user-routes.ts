@@ -3,6 +3,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { UserService } from './user-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
+import type { DataExporter } from './data-export';
+import { zonedDayKey } from '../../lib/due-date';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ValidationError } from '../../lib/http-errors';
@@ -39,6 +41,10 @@ export interface UserRouteDeps {
   /** File storage for profile images; when absent, the avatar upload endpoint is disabled. */
   storage?: AttachmentStorage;
   avatarMaxBytes?: number;
+  /** "Download my data"; when absent, GET /users/me/export isn't offered. */
+  exportData?: DataExporter;
+  /** Company time zone — dates the export file name. */
+  timeZone?: string;
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
@@ -48,6 +54,21 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'users', action, entityId, newValue });
 
   app.get('/users', adminOnly, async () => ({ data: await userService.listUsers() }));
+
+  // "Download my data" — everything held about the signed-in person, as a JSON file.
+  if (deps.exportData) {
+    const exportData = deps.exportData;
+    app.get('/users/me/export', { preHandler: guard.authenticate }, async (req, reply) => {
+      const data = await exportData(req.user!.id);
+      if (!data) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Account not found.' } });
+      logAudit(req, 'user.data_exported', req.user!.id);
+      return reply
+        .header('Content-Type', 'application/json; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="mico360-my-data-${zonedDayKey(new Date(data.exportedAt), deps.timeZone ?? 'Asia/Muscat')}.json"`)
+        .header('Cache-Control', 'no-store')
+        .send(JSON.stringify(data, null, 2));
+    });
+  }
 
   // A minimal, non-sensitive people directory (id + display name) for any signed-in user —
   // powers chat author names, @mention autocomplete and the DM people picker.

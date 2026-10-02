@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, Pressable, ScrollView } from 'react-native';
+import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, Pressable, ScrollView, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useServer } from '../../core/providers';
 import { useColors } from '../../core/theme';
 import { Button, TextField, ErrorNote } from '../../components/ui';
 import { ApiError, isNetworkError } from '../../lib/api-client';
 import { authErrorMessage, isAccountLocked } from '../../lib/auth-errors';
-import { parseServerAddress, probeServer, serverLabel } from '../../lib/server-address';
+import { parseServerAddress, probeServer, serverLabel, sitePageUrl } from '../../lib/server-address';
 import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
 import type { AuthScreenProps } from '../../navigation/types';
 import logo from '../../../assets/logo.png';
@@ -269,6 +269,13 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                 </Text>
               </Pressable>
             )}
+            <Pressable
+              onPress={() => void Linking.openURL(sitePageUrl(server.baseUrl, '/privacy')).catch(() => {})}
+              accessibilityRole="link"
+              style={styles.privacy}
+            >
+              <Text style={styles.serverText}>Privacy policy</Text>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -323,4 +330,5 @@ const makeStyles = (c: Palette) =>
     lockedBody: { color: c.ink, fontSize: fontSize.sm },
     serverBox: { marginTop: spacing.xl, paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: c.line, alignItems: 'stretch', gap: spacing.sm },
     serverText: { textAlign: 'center', color: c.ink3, fontSize: fontSize.xs },
+    privacy: { alignItems: 'center', paddingVertical: spacing.xs },
   });

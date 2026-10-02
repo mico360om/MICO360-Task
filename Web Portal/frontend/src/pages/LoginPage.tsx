@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
+import { androidAppLink, type AndroidAppLink } from '../lib/android-app-link';
 import { LoginForm } from '../features/auth/LoginForm';
 import { createApiClient, ApiError } from '../lib/api-client';
 import { useAuthStore, type Session } from '../stores/auth-store';
@@ -27,6 +28,8 @@ export function LoginPage() {
   // Public config: when outbound email isn't set up, don't offer "email me a code" (it can't be sent).
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
   const emailEnabled = configQ.data?.emailEnabled !== false;
+  // "Download for Android": the server's link (its own APK or ANDROID_APP_URL), else the releases page.
+  const androidLink = androidAppLink(configQ.data?.androidAppUrl);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
@@ -197,15 +200,15 @@ export function LoginPage() {
           <div className="mt-6 flex flex-col items-center gap-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-ink-3">Get the mobile app</span>
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <StoreBadge kind="android" />
+              <StoreBadge kind="android" link={androidLink} />
               <StoreBadge kind="ios" />
             </div>
             <div className="mt-1 flex items-center gap-3 text-xs text-ink-3">
               <Link to="/forgot" className="hover:text-brand">Forgot password?</Link>
               <span aria-hidden="true">·</span>
-              <a href="#" className="hover:text-brand">Privacy</a>
+              <Link to="/privacy" className="hover:text-brand">Privacy</Link>
               <span aria-hidden="true">·</span>
-              <a href="#" className="hover:text-brand">Terms</a>
+              <Link to="/terms" className="hover:text-brand">Terms</Link>
             </div>
           </div>
         </div>
@@ -274,18 +277,20 @@ function BoardMock() {
   );
 }
 
-function StoreBadge({ kind }: { kind: 'android' | 'ios' }) {
+function StoreBadge({ kind, link }: { kind: 'android' | 'ios'; link?: AndroidAppLink }) {
   const android = kind === 'android';
+  const className = `inline-flex items-center gap-2.5 rounded-xl border px-4 py-2 transition ${
+    android ? 'border-line bg-ink text-white hover:-translate-y-0.5 hover:shadow-lift' : 'cursor-default border-line bg-surface text-ink-3'
+  }`;
+  // iOS isn't available yet: a label, not a link that goes nowhere.
+  const Tag = android ? 'a' : 'span';
+  const linkProps = android && link
+    ? link.hosted
+      ? { href: link.href, download: 'MICO360-Tasks.apk' }
+      : { href: link.href, target: '_blank', rel: 'noopener noreferrer' }
+    : { 'aria-label': 'iOS app coming soon' };
   return (
-    <a
-      href="#"
-      aria-disabled={!android}
-      className={`inline-flex items-center gap-2.5 rounded-xl border px-4 py-2 transition ${
-        android
-          ? 'border-line bg-ink text-white hover:-translate-y-0.5 hover:shadow-lift'
-          : 'cursor-default border-line bg-surface text-ink-3'
-      }`}
-    >
+    <Tag {...linkProps} className={className}>
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
         {android ? (
           <path d="M7.2 6.6l-1-1.7a.4.4 0 01.7-.4l1 1.8a7 7 0 016.2 0l1-1.8a.4.4 0 01.7.4l-1 1.7A6.4 6.4 0 0119 12H5a6.4 6.4 0 012.2-5.4zM9 9.4a.8.8 0 100-1.6.8.8 0 000 1.6zm6 0a.8.8 0 100-1.6.8.8 0 000 1.6zM4.5 13h1.7v6a1.3 1.3 0 01-2.6 0v-6h.9zm14.3 0h.9v6a1.3 1.3 0 01-2.6 0v-6h1.7zM7 13h10v6.2A1.3 1.3 0 0115.7 20H8.3A1.3 1.3 0 017 18.7V13z" />
@@ -297,6 +302,6 @@ function StoreBadge({ kind }: { kind: 'android' | 'ios' }) {
         <span className="block text-[9px] font-medium uppercase tracking-wide opacity-70">{android ? 'Download for' : 'Coming soon on'}</span>
         <span className="block text-sm font-bold">{android ? 'Android (APK)' : 'iOS'}</span>
       </span>
-    </a>
+    </Tag>
   );
 }

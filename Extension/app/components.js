@@ -1,5 +1,6 @@
 import { el } from './dom.js';
 import { isDone } from '../src/summary.js';
+import { isRecurring } from '../src/recurrence.js';
 import { dueDayKey, formatDayKey, isOverdue } from '../src/due-date.js';
 import { DEFAULT_TIME_ZONE } from '../src/config.js';
 
@@ -30,7 +31,7 @@ export function taskRow(task, onClick, { timeZone = DEFAULT_TIME_ZONE } = {}) {
   const dueKey = dueDayKey(task.dueDate, timeZone);
   const due = dueKey ? formatDayKey(dueKey, { weekday: false }) : '';
   const overdue = !done && isOverdue(task.dueDate, timeZone);
-  const label = [task.key, `${PRIORITY_LABEL[task.priority] || ''} priority`, task.title, due ? `due ${due}` : null, overdue ? 'overdue' : null, done ? 'done' : task.progress > 0 ? `${task.progress}% complete` : null].filter(Boolean).join(', ');
+  const label = [task.key, `${PRIORITY_LABEL[task.priority] || ''} priority`, task.title, due ? `due ${due}` : null, overdue ? 'overdue' : null, isRecurring(task) ? 'repeats' : null, done ? 'done' : task.progress > 0 ? `${task.progress}% complete` : null].filter(Boolean).join(', ');
   return el('button', { class: `task-row${done ? ' done' : ''}`, type: 'button', 'aria-label': label, onClick },
     el('span', { class: 'prio', style: { background: `var(${priorityVar(task.priority)})` } }),
     el('span', { class: 'body' },
@@ -40,6 +41,7 @@ export function taskRow(task, onClick, { timeZone = DEFAULT_TIME_ZONE } = {}) {
         due ? el('span', { class: overdue ? 'overdue' : null }, `· Due ${due}`) : null,
         !done && task.progress > 0 ? el('span', {}, `· ${task.progress}%`) : null,
         done ? el('span', {}, '· Done') : null,
+        isRecurring(task) ? el('span', { title: 'Repeats' }, '· 🔁 Repeats') : null,
       ),
     ),
   );

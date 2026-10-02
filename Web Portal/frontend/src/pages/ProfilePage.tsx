@@ -10,6 +10,9 @@ import { Button } from '../components/ui/Button';
 import { FieldLabel, fieldClass } from '../components/ui/Field';
 import { ApiError } from '../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
+import { downloadBlob } from '../lib/download';
+import { todayKey } from '../lib/due-date';
+import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -196,6 +199,8 @@ export function ProfilePage() {
 
           <ChangePasswordCard />
 
+          <MyDataCard />
+
           <section className="card p-6">
             <h3 className="eyebrow mb-3">Account</h3>
             <div className="flex flex-wrap gap-2">
@@ -216,5 +221,37 @@ export function ProfilePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** "Download my data" — a copy of everything the system holds about you (see the privacy policy). */
+function MyDataCard() {
+  const timeZone = useCompanyTimeZone();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function download() {
+    setBusy(true);
+    setError(null);
+    try {
+      const blob = await usersApi(apiClient).exportMine();
+      downloadBlob(`mico360-my-data-${todayKey(timeZone)}.json`, blob);
+    } catch {
+      setError('Couldn’t prepare your data. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="card p-6">
+      <h3 className="eyebrow mb-2">Your data</h3>
+      <p className="mb-3 text-sm text-ink-2">
+        Download a copy of your profile, tasks, comments, files, messages, meeting notes and activity as a JSON file.{' '}
+        <Link to="/privacy" className="font-medium text-brand hover:underline">Privacy policy</Link>
+      </p>
+      {error ? <p role="alert" className="mb-2 text-sm text-danger">{error}</p> : null}
+      <Button size="sm" variant="secondary" loading={busy} onClick={() => void download()}>
+        Download my data
+      </Button>
+    </section>
   );
 }

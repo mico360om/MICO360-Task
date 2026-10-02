@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, Alert, Linking } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   keyed,
@@ -17,8 +18,10 @@ import {
   useChecklistMutations,
   useTaskComments,
   useCommentMutations,
+  useTaskAttachments,
+  useAttachmentMutations,
 } from '../core/queries';
-import { useMyQueuedChanges } from '../core/providers';
+import { useMyQueuedChanges, useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Card, SectionTitle, Loader, ErrorNote, NoticeNote, Pill, Button, TextField } from '../components/ui';
 import { formatDue, priorityColor } from '../components/TaskRow';
@@ -26,9 +29,13 @@ import { parseTags } from '../lib/quick-add';
 import { parseDueDateInput, parseHoursInput } from '../lib/form-input';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { recurrenceSummary } from '../lib/recurrence-summary';
+import { inSeries, isEarlierCopy } from '../lib/recurrence-edit';
+import { RecurrenceEditor } from '../components/RecurrenceEditor';
+import { attachmentHref, attachmentIcon, canRemoveAttachment, formatFileSize, uploadErrorMessage, uploadPart, type ApiAttachment } from '../lib/attachments';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
+import { taskExportPath, taskFileName } from '../lib/reports';
 import type { AppScreenProps } from '../navigation/types';
-import { displayName, type ApiTask, type Priority } from '../lib/types';
+import { displayName, type ApiTask, type Priority, type RecurrenceRule } from '../lib/types';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const OFFLINE_NOTICE = 'You’re offline — saved on this phone and will sync automatically.';
@@ -58,6 +65,10 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
   const commentsQ = useTaskComments(taskId);
   const commentM = useCommentMutations(taskId);
   const queued = useMyQueuedChanges();
+  const attachmentsQ = useTaskAttachments(taskId);
+  const attachM = useAttachmentMutations(taskId);
+  const { baseUrl, exporter } = useServices();
+  const session = useSession();
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', dueDate: '', estimate: '', priority: 'NORMAL' as Priority });
@@ -74,6 +85,12 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
   const [commentErr, setCommentErr] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [attachErr, setAttachErr] = useState<string | null>(null);
+  // The repeat rule just picked, shown until the saved task comes back (or kept while queued offline).
+  const [ruleDraft, setRuleDraft] = useState<RecurrenceRule | null | undefined>(undefined);
+  const [ruleErr, setRuleErr] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
+  const [exportErr, setExportErr] = useState<string | null>(null);
 
   if (taskQ.isLoading) return <Loader />;
   if (taskQ.isError || !task) {
@@ -87,6 +104,58 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
   }
 
   const columns = (columnsQ.data ?? []).filter((col) => col.enabled);
+  const attachments = attachmentsQ.data ?? [];
+  const myId = session?.user.id ?? null;
+  const myRoles = session?.user.roles ?? [];
+
+  /** Pick one file with the system picker and attach it (needs a connection). */
+  async function pickAndUpload() {
+    setAttachErr(null);
+    const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
+    if (picked.canceled || !picked.assets?.[0]) return;
+    const asset = picked.assets[0];
+    try {
+      await attachM.upload.mutateAsync(uploadPart({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType }));
+    } catch (e) {
+      setAttachErr(isNetworkError(e) ? 'You’re offline — files can be attached when you’re connected.' : uploadErrorMessage(e));
+    }
+  }
+
+  /** Download the task as Excel or PDF and open the share sheet (needs a connection). */
+  async function exportTask(format: 'xlsx' | 'pdf') {
+    if (!task) return;
+    setExportErr(null);
+    setExporting(format);
+    try {
+      await exporter.exportFile(taskExportPath(task.id, format), taskFileName(task, format), task.key);
+    } catch (e) {
+      setExportErr(isNetworkError(e) ? 'Exports need a connection — check your connection and try again.' : 'Couldn’t export the task. Please try again.');
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function openAttachment(a: ApiAttachment) {
+    setAttachErr(null);
+    try {
+      await Linking.openURL(attachmentHref(baseUrl, a.url));
+    } catch {
+      setAttachErr(`Couldn’t open ${a.filename}.`);
+    }
+  }
+
+  function confirmRemoveAttachment(a: ApiAttachment) {
+    Alert.alert('Remove file?', `${a.filename} will be removed from this task.`, [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          attachM.remove.mutateAsync(a.id).catch((e) => setAttachErr(errorText(e, 'Couldn’t remove the file.')));
+        },
+      },
+    ]);
+  }
   const currentColumn = columns.find((col) => col.id === task.columnId);
   const due = formatDue(task.dueDate);
   const tags = tagsQ.data ?? [];
@@ -163,7 +232,7 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
       return;
     }
     // Apply to the whole series only when this is a recurring task and the user chose so.
-    if (task.recurrenceRule && editScope === 'series') patch.scope = 'series';
+    if (inSeries(task) && editScope === 'series') patch.scope = 'series';
     setEditErr(null);
     try {
       await update.mutateAsync(patch);
@@ -174,6 +243,24 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
         setNotice(OFFLINE_NOTICE);
       } else {
         setEditErr(errorText(e, 'Could not save your changes. Please try again.'));
+      }
+    }
+  }
+
+  /** Save a repeat change at once (queued when offline, like any other edit). */
+  async function saveRule(rule: RecurrenceRule | null) {
+    setRuleDraft(rule);
+    setRuleErr(null);
+    try {
+      await update.mutateAsync({ recurrenceRule: rule });
+      await taskQ.refetch();
+      setRuleDraft(undefined);
+    } catch (e) {
+      if (isNetworkError(e)) {
+        setNotice(OFFLINE_NOTICE);
+      } else {
+        setRuleDraft(undefined);
+        setRuleErr(errorText(e, 'Could not save the repeat. Please try again.'));
       }
     }
   }
@@ -250,7 +337,30 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
         </View>
         {task.recurrenceRule ? (
           <Text style={styles.recurrence}>🔁 {recurrenceSummary(task.recurrenceRule)}</Text>
+        ) : task.recurrenceParentId ? (
+          <Text style={styles.recurrence}>🔁 Part of a repeating series</Text>
         ) : null}
+
+        <View style={styles.exportRow}>
+          <Text style={styles.exportLabel}>Export</Text>
+          {(['xlsx', 'pdf'] as const).map((format) => {
+            const label = format === 'xlsx' ? 'Excel' : 'PDF';
+            return (
+              <Pressable
+                key={format}
+                accessibilityRole="button"
+                accessibilityLabel={`Export task as ${label}`}
+                accessibilityState={{ disabled: exporting !== null, busy: exporting === format }}
+                disabled={exporting !== null}
+                onPress={() => void exportTask(format)}
+                style={({ pressed }) => [styles.exportBtn, (pressed || exporting !== null) && { opacity: 0.6 }]}
+              >
+                <Text style={styles.exportBtnText}>{exporting === format ? 'Preparing…' : `⬇ ${label}`}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {exportErr ? <ErrorNote message={exportErr} /> : null}
 
         {/* Details — read or edit */}
         {!editing ? (
@@ -339,7 +449,7 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
                 );
               })}
             </View>
-            {task.recurrenceRule ? (
+            {inSeries(task) ? (
               <>
                 <SectionTitle>Apply changes to</SectionTitle>
                 <View style={styles.chips} accessibilityRole="radiogroup">
@@ -368,6 +478,23 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
             </View>
           </View>
         )}
+
+        {/* Repeat */}
+        <View style={styles.section}>
+          <SectionTitle>Repeat</SectionTitle>
+          {ruleErr ? <ErrorNote message={ruleErr} /> : null}
+          {!isEarlierCopy(task) ? (
+            <RecurrenceEditor
+              value={ruleDraft !== undefined ? ruleDraft : task.recurrenceRule ?? null}
+              onChange={(rule) => void saveRule(rule)}
+              dueDate={task.dueDate}
+              disabled={update.isPending}
+            />
+          ) : (
+            // Repeating an earlier copy would start a second, parallel series.
+            <Text style={styles.muted}>An earlier copy of a repeating series — change the repeat on its newest copy.</Text>
+          )}
+        </View>
 
         {/* Tags */}
         <View style={styles.section}>
@@ -468,6 +595,44 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
           </View>
         </View>
 
+        {/* Attachments (files) */}
+        <View style={styles.section}>
+          <SectionTitle>Attachments{attachments.length > 0 ? ` · ${attachments.length}` : ''}</SectionTitle>
+          {attachmentsQ.isError && attachments.length === 0 ? (
+            <Text style={styles.muted}>Files aren’t available right now.</Text>
+          ) : attachments.length === 0 ? (
+            <Text style={styles.muted}>No files yet.</Text>
+          ) : (
+            attachments.map((a) => (
+              <View key={a.id} style={styles.fileRow}>
+                <Pressable
+                  onPress={() => void openAttachment(a)}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Open ${a.filename}, ${formatFileSize(a.sizeBytes)}`}
+                  style={({ pressed }) => [styles.fileMain, pressed && styles.filePressed]}
+                >
+                  <Text style={styles.fileIcon}>{attachmentIcon(a.mimeType)}</Text>
+                  <View style={styles.fileText}>
+                    <Text style={styles.fileName} numberOfLines={1}>{a.filename}</Text>
+                    <Text style={styles.fileMeta}>{formatFileSize(a.sizeBytes)}</Text>
+                  </View>
+                </Pressable>
+                {canRemoveAttachment(a, myId, myRoles) ? (
+                  <Pressable onPress={() => confirmRemoveAttachment(a)} accessibilityRole="button" accessibilityLabel={`Remove ${a.filename}`} hitSlop={8}>
+                    <Text style={styles.removeX}>×</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ))
+          )}
+          {attachErr ? (
+            <Text style={styles.fileError} accessibilityRole="alert">
+              {attachErr}
+            </Text>
+          ) : null}
+          <Button title="Attach a file" variant="secondary" onPress={() => void pickAndUpload()} loading={attachM.upload.isPending} />
+        </View>
+
         {/* Assignees */}
         <View style={styles.section}>
           <SectionTitle>Assignees</SectionTitle>
@@ -525,7 +690,7 @@ export function TaskDetailScreen({ route }: AppScreenProps<'TaskDetail'>) {
           <View style={styles.progressBtns}>
             <Button title="−25%" accessibilityLabel="Decrease progress by 25 percent" variant="secondary" onPress={() => setProgress(task.progress - 25)} style={styles.pBtn} />
             <Button title="+25%" accessibilityLabel="Increase progress by 25 percent" variant="secondary" onPress={() => setProgress(task.progress + 25)} style={styles.pBtn} />
-            <Button title="Complete" accessibilityLabel="Mark progress complete" onPress={() => setProgress(100)} style={styles.pBtn} />
+            <Button title="100%" accessibilityLabel="Set progress to 100 percent" onPress={() => setProgress(100)} style={styles.pBtn} />
           </View>
         </View>
 
@@ -610,6 +775,10 @@ const makeStyles = (c: Palette) =>
     title: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink },
     pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     recurrence: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600' },
+    exportRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    exportLabel: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.6, marginRight: spacing.xs },
+    exportBtn: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.brand, justifyContent: 'center', backgroundColor: c.surface },
+    exportBtnText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
     desc: { fontSize: fontSize.md, color: c.ink, lineHeight: 22 },
     muted: { fontSize: fontSize.sm, color: c.ink2 },
     link: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
@@ -685,4 +854,22 @@ const makeStyles = (c: Palette) =>
     colChipText: { fontSize: fontSize.sm, color: c.ink, fontWeight: '600' },
     colChipTextActive: { color: c.brand },
     dot: { width: 8, height: 8, borderRadius: 4 },
+    fileRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    fileMain: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.line,
+      borderRadius: radius.md,
+      padding: spacing.sm,
+    },
+    filePressed: { opacity: 0.7 },
+    fileIcon: { fontSize: fontSize.lg },
+    fileText: { flex: 1 },
+    fileName: { fontSize: fontSize.md, color: c.ink, fontWeight: '600' },
+    fileMeta: { fontSize: fontSize.xs, color: c.ink3 },
+    fileError: { fontSize: fontSize.sm, color: c.danger },
   });

@@ -37,6 +37,28 @@ describe('health + metrics', () => {
   });
 });
 
+describe('CORS for trusted origins (the Chrome extension, a separately hosted web app)', () => {
+  it('lets a trusted origin edit, move and delete — not only read and create', async () => {
+    const app = await buildApp({ authService, tokenService, corsOrigins: ['chrome-extension://abc'] });
+    for (const method of ['PUT', 'PATCH', 'DELETE']) {
+      const res = await app.inject({
+        method: 'OPTIONS',
+        url: '/api/v1/tasks/t1',
+        headers: { origin: 'chrome-extension://abc', 'access-control-request-method': method, 'access-control-request-headers': 'authorization,content-type,idempotency-key' },
+      });
+      expect(res.statusCode, method).toBe(204);
+      expect(String(res.headers['access-control-allow-methods']), method).toContain(method);
+      expect(res.headers['access-control-allow-origin']).toBe('chrome-extension://abc');
+    }
+  });
+
+  it('lets a trusted origin read the file name of an export (Content-Disposition)', async () => {
+    const app = await buildApp({ authService, tokenService, corsOrigins: ['chrome-extension://abc'] });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/health', headers: { origin: 'chrome-extension://abc' } });
+    expect(String(res.headers['access-control-expose-headers'])).toContain('Content-Disposition');
+  });
+});
+
 describe('public asset CORP headers', () => {
   it('relaxes Cross-Origin-Resource-Policy to cross-origin for /uploads/* so the SPA can embed them from another origin', async () => {
     const app = await buildApp({ authService, tokenService });
@@ -89,6 +111,15 @@ describe('structured error logging', () => {
     expect(captured).toHaveLength(1);
     expect((captured[0]!.err as Error).message).toBe('nope');
     expect(captured[0]!.ctx?.url).toBe('/api/v1/reports/status');
+  });
+});
+
+describe('public client config', () => {
+  it('reports where to download the Android app, or null to let the web app find it', async () => {
+    const withUrl = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', androidAppUrl: 'https://play.google.com/store/apps/details?id=com.mico360.tasks' } });
+    expect((await withUrl.inject({ method: 'GET', url: '/api/v1/config' })).json().data.androidAppUrl).toBe('https://play.google.com/store/apps/details?id=com.mico360.tasks');
+    const without = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', androidAppUrl: '' } });
+    expect((await without.inject({ method: 'GET', url: '/api/v1/config' })).json().data.androidAppUrl).toBeNull();
   });
 });
 

@@ -36,6 +36,7 @@ function meetingRepo(attendeesOf: Record<string, string[]> = {}): MeetingReposit
 
 function noteRepo(): NoteRepository {
   const rows = new Map<string, NoteRecord>();
+  const deleted = new Set<string>();
   let seq = 0;
   return {
     async add(d: CreateNoteData) {
@@ -47,10 +48,12 @@ function noteRepo(): NoteRepository {
       rows.set(rec.id, rec);
       return rec;
     },
-    async findById(id) { return rows.get(id) ?? null; },
-    async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId); },
+    async findById(id) { return deleted.has(id) ? null : rows.get(id) ?? null; },
+    async listByMeeting(meetingId) { return [...rows.values()].filter((n) => n.meetingId === meetingId && !deleted.has(n.id)); },
     async update(id, patch: UpdateNoteData) { const u = { ...rows.get(id)!, ...patch } as NoteRecord; rows.set(id, u); return u; },
-    async remove(id) { rows.delete(id); },
+    async remove(id) { deleted.add(id); },
+    async findDeleted(id) { return deleted.has(id) ? rows.get(id) ?? null : null; },
+    async restore(id) { deleted.delete(id); return rows.get(id)!; },
     async claimTask(id, marker) { const r = rows.get(id); if (!r || r.taskId) return false; rows.set(id, { ...r, taskId: marker }); return true; },
     async releaseTaskClaim(id, marker) { const r = rows.get(id); if (r && r.taskId === marker) rows.set(id, { ...r, taskId: null }); },
   };
@@ -160,5 +163,29 @@ describe('Note routes — authorship (SEC-06)', () => {
 
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: other })).statusCode).toBe(403);
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: organizer })).statusCode).toBe(204);
+  });
+
+  it('undoes a delete: the author or the organizer may restore the note, other attendees may not (MTG-07)', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const app = await makeApp(attendeesOf);
+    const id = await ownedMeeting(app, 'u1');
+    attendeesOf[id] = ['u2', 'u3'];
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const author = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+    const other = { authorization: `Bearer ${await tokenFor('u3', ['EMPLOYEE'])}` };
+    const noteId = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/notes`, headers: author, payload: { body: 'Decision: hire 2' } })).json().data.id;
+    const restore = (headers: Record<string, string>) => app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/notes/${noteId}/restore`, headers });
+
+    expect((await restore(author)).statusCode).toBe(404); // not deleted yet
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: author })).statusCode).toBe(204);
+    expect((await restore(other)).statusCode).toBe(403);
+    const back = await restore(author);
+    expect(back.statusCode).toBe(200);
+    expect(back.json().data).toMatchObject({ id: noteId, body: 'Decision: hire 2' });
+    const list = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/notes`, headers: author });
+    expect(list.json().data.map((n: { id: string }) => n.id)).toEqual([noteId]);
+
+    await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: author });
+    expect((await restore(organizer)).statusCode).toBe(200);
   });
 });

@@ -50,6 +50,8 @@ const EnvSchema = z.object({
   EMAIL_LOGO_URL: z.string().optional().default(''),
   // IANA time zone treated as the company's single source of truth for date/time display.
   COMPANY_TIMEZONE: z.string().default('Asia/Muscat'),
+  // Optional link for the web app's "Download for Android" button (e.g. a Play Store or file URL).
+  ANDROID_APP_URL: z.string().optional().default(''),
   UPLOAD_DIR: z.string().default('uploads'),
   // Built web app (Web Portal/frontend/dist) to serve from this server. Blank when a reverse proxy
   // (nginx / LiteSpeed) serves it, as on Hostinger; the self-contained Windows server sets it.

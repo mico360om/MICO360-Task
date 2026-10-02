@@ -20,11 +20,11 @@ describe('PdfDocument', () => {
     expect(inspectPdf(buf).pages[0]).toEqual(expect.arrayContaining(['Section', 'One', 'Two', 'Owner', 'Ada Lovelace']));
   });
 
-  it('embeds subsetted Unicode fonts (Noto Sans + Noto Naskh Arabic), not WinAnsi Helvetica', () => {
+  it('embeds subsetted Unicode fonts (IBM Plex Sans + Noto Naskh Arabic), not WinAnsi Helvetica', () => {
     const doc = new PdfDocument();
     doc.text('Hello world').text('مرحبا بكم');
     const pdf = doc.build().toString('latin1');
-    expect(pdf).toMatch(/\/FontName \/[A-Z]{6}\+NotoSans-Regular/);
+    expect(pdf).toMatch(/\/FontName \/[A-Z]{6}\+IBMPlexSans-Regular/);
     expect(pdf).toMatch(/\/FontName \/[A-Z]{6}\+NotoNaskhArabic-Regular/);
     expect(pdf).toContain('/FontFile2');
     expect(pdf).toContain('/ToUnicode');
@@ -130,5 +130,122 @@ describe('PdfDocument.table', () => {
     const descLines = cells.filter((t) => !['Id', 'Description', 'Owner', '1', 'Ada', 'Page 1 of 1'].includes(t));
     expect(descLines.length).toBeGreaterThan(1);
     expect(descLines.join(' ')).toBe(long + ' ' + long);
+  });
+});
+
+describe('PdfDocument — report layout', () => {
+  it('lays out landscape A4 pages when asked', () => {
+    const doc = new PdfDocument({ orientation: 'landscape' });
+    doc.text('Wide');
+    const pdf = doc.build().toString('latin1');
+    expect(pdf).toMatch(/\/MediaBox \[0 0 841\.89 595\.28\]/);
+  });
+
+  it('puts the company logo (an embedded PNG) and the title in the report header', () => {
+    const doc = new PdfDocument();
+    doc.reportHeader({ title: 'Tasks report', subtitle: 'MICO360 Platform', details: ['Generated 1 Oct 2026, 09:00'] });
+    const buf = doc.build();
+    const { pages, objects } = inspectPdf(buf);
+    expect(pages[0]).toEqual(expect.arrayContaining(['Tasks report', 'MICO360 Platform', 'Generated 1 Oct 2026, 09:00']));
+    expect([...objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 900/.test(d))).toBe(true);
+    // Headings and titles are set in Archivo, the web app's display face.
+    expect(buf.toString('latin1')).toMatch(/\/FontName \/[A-Z]{6}\+Archivo-Bold/);
+  });
+
+  it('repeats a slim header (logo + title) on every page after the first', () => {
+    const doc = new PdfDocument({ runningTitle: 'Tasks report · MICO360 Platform' });
+    doc.reportHeader({ title: 'Tasks report' });
+    for (let i = 0; i < 120; i++) doc.text(`Line ${i}`);
+    const { pages, contents } = inspectPdf(doc.build());
+    expect(pages.length).toBeGreaterThan(1);
+    for (let p = 1; p < pages.length; p++) {
+      expect(pages[p]).toContain('Tasks report · MICO360 Platform');
+      expect(contents[p]).toMatch(/\/I\d+ Do/); // the logo image is drawn
+    }
+    // Body text never runs under the running header: every line is still there exactly once.
+    const all = pages.flat().filter((t) => t.startsWith('Line '));
+    expect(all).toHaveLength(120);
+  });
+
+  it('draws stat tiles with their values and labels', () => {
+    const doc = new PdfDocument();
+    doc.statTiles([{ label: 'Total tasks', value: '42' }, { label: 'Completed', value: '27', note: '64%' }, { label: 'Overdue', value: '5', tone: 'danger' }]);
+    expect(inspectPdf(doc.build()).pages[0]).toEqual(expect.arrayContaining(['42', 'Total tasks', '27', 'Completed', '64%', '5', 'Overdue']));
+  });
+
+  it('draws a bar list with labels and values, scaled to the largest', () => {
+    const doc = new PdfDocument();
+    doc.barList([{ label: 'Done', value: 12 }, { label: 'In progress', value: 6 }, { label: 'مراجعة', value: 0 }]);
+    expect(inspectPdf(doc.build()).pages[0]).toEqual(expect.arrayContaining(['Done', '12', 'In progress', '6', 'مراجعة', '0']));
+  });
+
+  it('draws a line chart with a legend and axis labels', () => {
+    const doc = new PdfDocument();
+    doc.lineChart({
+      labels: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04'],
+      series: [
+        { name: 'Created', values: [1, 3, 2, 4] },
+        { name: 'Completed', values: [0, 2, 2, 5] },
+      ],
+    });
+    const { pages, contents } = inspectPdf(doc.build());
+    // Max 5 → an axis of 0, 2, 4, 6, 8.
+    expect(pages[0]).toEqual(expect.arrayContaining(['Created', 'Completed', '2026-09-01', '2026-09-04', '0', '4', '8']));
+    expect(contents[0]).toMatch(/ l\n/); // polylines
+  });
+
+  it('keeps a block whole: a chart that does not fit starts a new page', () => {
+    const doc = new PdfDocument();
+    for (let i = 0; i < 44; i++) doc.text(`Filler ${i}`);
+    doc.lineChart({ labels: ['a', 'b'], series: [{ name: 'Series', values: [1, 2] }] });
+    const { pages } = inspectPdf(doc.build());
+    expect(pages.length).toBe(2);
+    expect(pages[1]).toContain('Series');
+  });
+});
+
+describe('PdfDocument — no clipping, no orphans', () => {
+  it('never cuts a tile note short: one that does not fit beside the value gets its own line', () => {
+    const doc = new PdfDocument();
+    doc.statTiles([1, 2, 3, 4].map((i) => ({ label: `Tile ${i}`, value: '100%', note: '129 on time · 46 late' })));
+    expect(inspectPdf(doc.build()).pages[0]!.filter((t) => t === '129 on time · 46 late')).toHaveLength(4);
+  });
+
+  it('never cuts a tile value short: long values shrink to fit, and wrap if they still do not', () => {
+    const doc = new PdfDocument();
+    doc.statTiles([
+      { label: 'Status', value: 'In progress' },
+      { label: 'Due', value: '30 Sep 2026' },
+      { label: 'Project', value: 'Rig Inspection Portal maintenance programme' },
+      { label: 'Progress', value: '40%' },
+    ]);
+    const text = inspectPdf(doc.build()).pages[0]!;
+    expect(text).toEqual(expect.arrayContaining(['In progress', '30 Sep 2026', '40%']));
+    expect(text.join(' ')).toContain('Rig Inspection Portal maintenance programme');
+  });
+
+  it('keeps a heading with the block after it (keepWith), instead of leaving it alone at a page end', () => {
+    const doc = new PdfDocument();
+    for (let i = 0; i < 40; i++) doc.text(`Filler ${i}`);
+    doc.heading('Completion trend', { keepWith: 200 });
+    doc.lineChart({ labels: ['a', 'b'], series: [{ name: 'Series', values: [1, 2] }] });
+    const { pages } = inspectPdf(doc.build());
+    expect(pages[0]).not.toContain('Completion trend');
+    expect(pages[1]).toEqual(expect.arrayContaining(['Completion trend', 'Series']));
+  });
+
+  it('measures a table before drawing it, so a small one can be kept whole', () => {
+    const doc = new PdfDocument();
+    const cols = [{ header: 'Project' }, { header: 'Tasks' }];
+    const rows = [['A', '1'], ['B', '2'], ['C', '3'], ['D', '4']];
+    const h = doc.tableHeight(cols, rows);
+    expect(h).toBeGreaterThan(60);
+    expect(h).toBeLessThan(140);
+  });
+
+  it('colours chosen cells (e.g. overdue dates)', () => {
+    const doc = new PdfDocument();
+    doc.table([{ header: 'Key' }, { header: 'Due' }], [['MICO-1', '1 Oct 2026 · Overdue']], { cellColor: (r, c) => (c === 1 ? [0.72, 0.16, 0.16] : null) });
+    expect(inspectPdf(doc.build()).contents[0]).toMatch(/0\.72\d* 0\.16\d* 0\.16\d* scn/);
   });
 });

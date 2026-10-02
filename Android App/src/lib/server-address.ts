@@ -102,3 +102,9 @@ export async function probeServer(
     clearTimeout(timer);
   }
 }
+
+/** A page of the web app on the same server as this API base, e.g. the privacy policy. */
+export function sitePageUrl(apiBase: string, path: string): string {
+  const origin = apiBase.replace(/\/api\/v\d+\/?$/, '').replace(/\/+$/, '');
+  return `${origin}/${path.replace(/^\/+/, '')}`;
+}

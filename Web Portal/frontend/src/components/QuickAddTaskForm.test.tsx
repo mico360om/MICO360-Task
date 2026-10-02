@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QuickAddTaskForm } from './QuickAddTaskForm';
 
@@ -14,6 +14,17 @@ describe('QuickAddTaskForm', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'nadia' }));
     await userEvent.click(screen.getByRole('button', { name: /add task/i }));
     expect(onSubmit).toHaveBeenCalledWith({ title: 'New task', priority: 'HIGH', description: 'Some detail', assigneeIds: ['u9', 'u10'] });
+  });
+
+  it('can make the new task repeat, previewing the dates from its due date', async () => {
+    const onSubmit = vi.fn();
+    render(<QuickAddTaskForm onSubmit={onSubmit} />);
+    await userEvent.type(screen.getByLabelText(/task title/i), 'Weekly report');
+    fireEvent.change(screen.getByLabelText(/^due date$/i), { target: { value: '2026-10-01' } });
+    await userEvent.selectOptions(screen.getByLabelText(/^repeat$/i), 'WEEKLY');
+    expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Thu, Oct 8 · Thu, Oct 15 · Thu, Oct 22');
+    await userEvent.click(screen.getByRole('button', { name: /add task/i }));
+    expect(onSubmit).toHaveBeenCalledWith({ title: 'Weekly report', priority: 'NORMAL', description: '', assigneeIds: [], dueDate: '2026-10-01', recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
   });
 
   it('parses a natural-language description and prefills the fields', async () => {

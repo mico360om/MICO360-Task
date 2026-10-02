@@ -31,7 +31,7 @@ export function createPrismaSearchDataSource(prisma: PrismaClient): SearchDataSo
         // Meeting Knowledge Base: meetings + their agenda / notes / decisions, indexed for search.
         prisma.meeting.findMany({ where: { deletedAt: null }, select: { id: true, title: true, projectId: true, organizerId: true, description: true }, take: 500 }),
         prisma.agendaItem.findMany({ select: { meetingId: true, title: true }, take: 4000 }),
-        prisma.meetingNote.findMany({ select: { meetingId: true, body: true }, take: 8000 }),
+        prisma.meetingNote.findMany({ where: { deletedAt: null }, select: { meetingId: true, body: true }, take: 8000 }),
         prisma.decision.findMany({ select: { meetingId: true, title: true, description: true }, take: 4000 }),
         prisma.meetingAttendee.findMany({ select: { meetingId: true, userId: true }, take: 8000 }),
       ]);

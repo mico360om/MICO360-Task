@@ -14,6 +14,8 @@ import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard
 import { registerProjectRoutes } from './modules/projects/project-routes';
 import type { ProjectService } from './modules/projects/project-service';
 import { registerTaskRoutes } from './modules/tasks/task-routes';
+import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
+import type { TaskExportSource } from './modules/tasks/task-export';
 import type { TaskService } from './modules/tasks/task-service';
 import { registerAssigneeRoutes } from './modules/tasks/assignee-routes';
 import type { AssigneeService } from './modules/tasks/assignee-service';
@@ -72,11 +74,12 @@ import type { AiConfigService } from './modules/ai/ai-config-service';
 import { registerAiFeatureRoutes } from './modules/ai/ai-feature-routes';
 import type { AiFeatureService } from './modules/ai/ai-feature-service';
 import type { CorsOriginMatcher } from './lib/cors-origins';
+import type { DataExporter } from './modules/users/data-export';
 
 export interface AppDeps extends AuthRouteDeps {
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
   /** Public app config surfaced at GET /api/v1/config (company time zone, names, whether email works). */
-  appConfig?: { timeZone: string; productName: string; companyName: string; emailEnabled?: boolean };
+  appConfig?: { timeZone: string; productName: string; companyName: string; emailEnabled?: boolean; androidAppUrl?: string | null };
   /**
    * Live account state for the auth guard (token version, status, current roles). When set, a
    * suspended / deleted / demoted user loses access at once instead of when their token expires.
@@ -109,6 +112,10 @@ export interface AppDeps extends AuthRouteDeps {
   notificationService?: NotificationService;
   deviceTokenService?: DeviceTokenService;
   reportService?: ReportService;
+  /** Reads a task with everything its Excel / PDF export shows. */
+  taskExportSource?: TaskExportSource;
+  /** Names for report exports (project, team member, author). */
+  reportNames?: import('./modules/reports/report-routes').ReportNames;
   searchService?: SearchService;
   meetingService?: MeetingService;
   meetingAccess?: MeetingAccess;
@@ -151,6 +158,8 @@ export interface AppDeps extends AuthRouteDeps {
   authRateLimitMax?: number;
   /** Enables `Idempotency-Key` support on POST routes (replay-safe offline queues). */
   idempotencyStore?: IdempotencyStore;
+  /** "Download my data" (GET /users/me/export). */
+  dataExporter?: DataExporter;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -202,7 +211,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   };
 
   await app.register(helmet, { contentSecurityPolicy: false });
-  await app.register(cors, { origin: deps.corsOrigins ?? true, credentials: true });
+  // Every method the API uses: @fastify/cors only allows GET, HEAD and POST unless told otherwise,
+  // which would stop trusted origins (the Chrome extension, a separately hosted web app) from
+  // editing, moving or deleting anything.
+  // Content-Disposition is exposed so the apps can save an export under the name the server gives it.
+  await app.register(cors, {
+    origin: deps.corsOrigins ?? true,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    exposedHeaders: ['Content-Disposition'],
+  });
   // Must be added before the rate-limit plugin so its per-route config is in place when the
   // plugin's own onRoute hook reads it.
   app.addHook('onRoute', (route) => {
@@ -277,6 +295,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       companyName: deps.appConfig?.companyName ?? 'MICO360',
       // Lets sign-in screens hide "email me a code" / password reset when email isn't set up.
       emailEnabled: deps.appConfig?.emailEnabled ?? true,
+      // Where the "Download for Android" button points: ANDROID_APP_URL, or the APK a self-contained
+      // install hosts at /downloads/MICO360-Tasks.apk. Null: the web app opens the public releases page.
+      androidAppUrl: deps.appConfig?.androidAppUrl || null,
       serverTime: new Date().toISOString(),
     },
   }));
@@ -331,6 +352,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.columnService) {
         await registerColumnRoutes(api, { columnService: deps.columnService, authz: projectAuthz, guard, broadcast: deps.onTaskEvent, canViewProject });
+      }
+      if (deps.taskExportSource) {
+        await registerTaskExportRoutes(api, {
+          guard,
+          source: deps.taskExportSource,
+          canViewTask,
+          userName: deps.reportNames ? (id) => deps.reportNames!.user(id) : undefined,
+          timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
+        });
       }
       if (deps.memberService) {
         await registerMemberRoutes(api, { memberService: deps.memberService, authz: projectAuthz, guard, audit: deps.auditService, canViewProject });
@@ -435,6 +465,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           audit: deps.auditService,
           storage: deps.chatAttachmentStorage,
           avatarMaxBytes: deps.attachmentMaxSizeBytes,
+          exportData: deps.dataExporter,
+          timeZone: deps.appConfig?.timeZone,
         });
       }
       if (deps.notificationService) {
@@ -444,7 +476,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerDeviceTokenRoutes(api, { deviceTokenService: deps.deviceTokenService, guard });
       }
       if (deps.reportService) {
-        await registerReportRoutes(api, { reportService: deps.reportService, guard });
+        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames });
       }
       if (deps.searchService) {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds });

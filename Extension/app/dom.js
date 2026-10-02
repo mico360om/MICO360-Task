@@ -71,3 +71,13 @@ export const Loader = (label = 'Loading…') => el('div', { class: 'state' }, el
 export const Empty = (title, sub) => el('div', { class: 'state empty' }, el('div', { class: 'state-title' }, title), sub ? el('div', { class: 'muted' }, sub) : null);
 export const ErrorState = (msg, onRetry) =>
   el('div', { class: 'errbar', role: 'alert' }, el('span', {}, msg), onRetry ? el('button', { class: 'btn sm', onClick: onRetry }, 'Retry') : null);
+
+/** Save a downloaded file (an export) through the browser's downloads. */
+export function saveFile(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: fileName, style: { display: 'none' } });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}

@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, Switch, Pressable, StyleSheet, Alert, AppState } from 'react-native';
+import { View, Text, ScrollView, Switch, Pressable, StyleSheet, Alert, AppState, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useSession, useMyQueuedChanges } from '../core/providers';
 import { useTheme, type ThemeMode } from '../core/theme';
 import { Card, SectionTitle, Button, Muted } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { getPushPermission, openAppSettings, type PushPermission } from '../adapters/push';
+import { useNotificationPreferences, useSaveNotificationPreferences } from '../core/queries';
+import { NOTIFICATION_TYPES, REMINDER_OPTIONS, isTypeOn, toggleType, withReminderLead } from '../lib/notification-prefs';
+import { sitePageUrl } from '../lib/server-address';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 
@@ -26,6 +29,15 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
   const [signingOut, setSigningOut] = useState(false);
   const [pushPerm, setPushPerm] = useState<{ status: PushPermission; canAskAgain: boolean } | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
+  const prefsQ = useNotificationPreferences();
+  const savePrefs = useSaveNotificationPreferences();
+  const prefs = prefsQ.data;
+  const [prefsErr, setPrefsErr] = useState<string | null>(null);
+  const save = (next: Parameters<typeof savePrefs.mutate>[0]) => {
+    setPrefsErr(null);
+    savePrefs.mutate(next, { onError: () => setPrefsErr('Couldn’t save — check your connection and try again.') });
+  };
+  const openPage = (path: string) => void Linking.openURL(sitePageUrl(baseUrl, path)).catch(() => {});
 
   useEffect(() => {
     void biometric.isEnabled().then(setBioOn);
@@ -169,6 +181,54 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
         </View>
 
         <View style={styles.section}>
+          <SectionTitle>Notify me about</SectionTitle>
+          <Card>
+            {prefsQ.isError && !prefs ? (
+              <Muted>Your choices can’t be loaded right now.</Muted>
+            ) : (
+              NOTIFICATION_TYPES.map((n, i) => (
+                <View key={n.type} style={[styles.row, i > 0 && styles.divided]}>
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowTitle}>{n.label}</Text>
+                    <Muted>{n.description}</Muted>
+                  </View>
+                  <Switch
+                    value={isTypeOn(prefs, n.type)}
+                    disabled={!prefs}
+                    onValueChange={() => save(toggleType(prefs, n.type))}
+                    accessibilityLabel={n.label}
+                    trackColor={{ true: c.brand, false: c.line }}
+                    thumbColor={c.surface}
+                  />
+                </View>
+              ))
+            )}
+            <View style={styles.divided}>
+              <Text style={styles.rowTitle}>“Due soon” reminder</Text>
+              <View style={styles.chips} accessibilityRole="radiogroup">
+                {REMINDER_OPTIONS.map((o) => {
+                  const active = (prefs?.reminderLeadMinutes ?? null) === o.minutes;
+                  return (
+                    <Pressable
+                      key={o.label}
+                      disabled={!prefs}
+                      onPress={() => save(withReminderLead(prefs, o.minutes))}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: active, selected: active }}
+                      style={[styles.chip, active && styles.chipActive]}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{o.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            {prefsErr ? <Text style={styles.error} accessibilityRole="alert">{prefsErr}</Text> : null}
+            <Muted>These apply to the app, email and phone alerts, and match your choices on the web.</Muted>
+          </Card>
+        </View>
+
+        <View style={styles.section}>
           <SectionTitle>Security</SectionTitle>
           <Card>
             <View style={styles.row}>
@@ -202,6 +262,14 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
           <Card>
             <Muted>Connected to</Muted>
             <Text style={styles.mono}>{baseUrl}</Text>
+            <View style={[styles.links, styles.divided]}>
+              <Pressable onPress={() => openPage('/privacy')} accessibilityRole="link" hitSlop={6}>
+                <Text style={styles.linkText}>Privacy policy</Text>
+              </Pressable>
+              <Pressable onPress={() => openPage('/terms')} accessibilityRole="link" hitSlop={6}>
+                <Text style={styles.linkText}>Terms of use</Text>
+              </Pressable>
+            </View>
           </Card>
         </View>
 
@@ -227,4 +295,13 @@ const makeStyles = (c: Palette) =>
     segmentItemActive: { backgroundColor: c.brand },
     segmentText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink2 },
     segmentTextActive: { color: c.onBrand },
+    divided: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.md, marginTop: spacing.md },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+    chip: { borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, minHeight: 36, justifyContent: 'center' },
+    chipActive: { borderColor: c.brand, backgroundColor: c.brandWash },
+    chipText: { fontSize: fontSize.sm, color: c.ink, fontWeight: '600' },
+    chipTextActive: { color: c.brand },
+    error: { fontSize: fontSize.sm, color: c.danger, marginTop: spacing.sm },
+    links: { flexDirection: 'row', gap: spacing.lg },
+    linkText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
   });

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -8,6 +8,16 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
  * assets are cached for a year, index.html is always revalidated, every page gets the same
  * security headers, and unknown client-side routes (/board/123) fall back to index.html.
  */
+
+/** Where a hosted copy of the Android app lives in the web root (the release packages put it there). */
+export const HOSTED_APK_PATH = '/downloads/MICO360-Tasks.apk';
+
+/** The "Download for Android" link: the configured one, else the APK this web root hosts, else null. */
+export function androidAppLink(configured: string, webRoot: string | null): string | null {
+  if (configured.trim()) return configured.trim();
+  if (webRoot && existsSync(join(webRoot, ...HOSTED_APK_PATH.split('/').filter(Boolean)))) return HOSTED_APK_PATH;
+  return null;
+}
 
 /** Paths owned by the API; they never fall back to the web app. */
 const SERVER_PREFIXES = ['/api/', '/socket.io/', '/uploads/', '/email-assets/'];

@@ -87,12 +87,76 @@ export type LookupAll = (hostname: string) => Promise<Array<{ address: string }>
 
 const defaultLookup: LookupAll = (hostname) => dnsLookup(hostname, { all: true, verbatim: true });
 
+type LookupCallback = (err: Error | null, address: string | Array<{ address: string; family: number }>, family?: number) => void;
+
+/**
+ * A fetch whose connection uses the address it checked. `fetch` would resolve the name again when
+ * it connects, so a name that answers "public" to the check and "127.0.0.1" a moment later (DNS
+ * rebinding) would still reach inside. Here the request goes through node:http(s) with a `lookup`
+ * that refuses private answers, so the check and the connection share one DNS answer. Redirects
+ * are never followed.
+ */
+export function pinnedFetch(opts: { allowPrivateHosts?: boolean; lookup?: LookupAll } = {}): typeof fetch {
+  const { allowPrivateHosts = false, lookup = defaultLookup } = opts;
+  const connectLookup = (hostname: string, options: { all?: boolean }, cb: LookupCallback) => {
+    lookup(hostname).then(
+      (answers) => {
+        if (!answers.length) return cb(new Error(`No address for ${hostname}`), '');
+        if (!allowPrivateHosts && answers.some((a) => isPrivateAddress(a.address))) {
+          return cb(new ValidationError('The AI provider address is not allowed.'), '');
+        }
+        const all = answers.map((a) => ({ address: a.address, family: isIP(a.address) || 4 }));
+        if (options?.all) cb(null, all);
+        else cb(null, all[0]!.address, all[0]!.family);
+      },
+      (err: Error) => cb(err, ''),
+    );
+  };
+
+  return (async (input: string | URL | Request, init: RequestInit = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    const { request } = url.protocol === 'https:' ? await import('node:https') : await import('node:http');
+    const headers: Record<string, string> = {};
+    new Headers(init.headers).forEach((value, key) => (headers[key] = value));
+    const body = init.body == null ? undefined : typeof init.body === 'string' ? init.body : Buffer.from(await new Response(init.body).arrayBuffer());
+    if (body !== undefined) headers['content-length'] = String(Buffer.byteLength(body));
+
+    return new Promise<Response>((resolve, reject) => {
+      const req = request(url, { method: init.method ?? 'GET', headers, lookup: connectLookup as never, signal: init.signal ?? undefined }, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status >= 300 && status < 400) {
+          res.resume();
+          return reject(new ValidationError('The AI provider tried to redirect the request, which is not allowed.'));
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('error', reject);
+        res.on('end', () => {
+          const out = new Headers();
+          for (const [k, v] of Object.entries(res.headers)) {
+            if (v === undefined) continue;
+            for (const one of Array.isArray(v) ? v : [v]) out.append(k, one);
+          }
+          const noBody = status === 204 || status === 304 || init.method === 'HEAD';
+          resolve(new Response(noBody ? null : Buffer.concat(chunks), { status, statusText: res.statusMessage, headers: out }));
+        });
+      });
+      req.on('error', reject);
+      if (body !== undefined) req.write(body);
+      req.end();
+    });
+  }) as typeof fetch;
+}
+
 /**
  * A fetch that also refuses hosts whose DNS answer is a private address (a public-looking name
  * pointing inside) and never follows redirects (a public URL redirecting to an internal one).
+ * By default the request itself goes through pinnedFetch, so a DNS answer that changes after this
+ * check still can't reach an internal address.
  */
 export function createSafeFetch(opts: { allowPrivateHosts?: boolean; lookup?: LookupAll; fetchImpl?: typeof fetch } = {}): typeof fetch {
-  const { allowPrivateHosts = false, lookup = defaultLookup, fetchImpl = fetch } = opts;
+  const { allowPrivateHosts = false, lookup = defaultLookup } = opts;
+  const fetchImpl = opts.fetchImpl ?? pinnedFetch({ allowPrivateHosts, lookup });
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (!allowPrivateHosts) {

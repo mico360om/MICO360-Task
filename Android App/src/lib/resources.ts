@@ -1,5 +1,7 @@
 import type { ApiClient } from './api-client';
 import { idempotencyHeaders } from './idempotency';
+import type { ApiAttachment } from './attachments';
+import type { NotificationPreferences } from './notification-prefs';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -19,6 +21,7 @@ import type {
   DevicePlatform,
   Envelope,
 } from './types';
+import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
 
 export interface TaskListParams {
   projectId?: string;
@@ -139,6 +142,15 @@ export function resourcesApi(client: ApiClient) {
         ),
       editComment: (commentId: string, body: string) => data(client.put<Envelope<ApiComment>>(`/comments/${commentId}`, { body })),
       removeComment: (commentId: string) => client.del<void>(`/comments/${commentId}`),
+      // Attachments (files on a task): list, upload one picked file, remove.
+      attachments: (id: string) => data(client.get<Envelope<ApiAttachment[]>>(`/tasks/${id}/attachments`)),
+      uploadAttachment: (id: string, part: { uri: string; name: string; type: string }) => {
+        const form = new FormData();
+        // React Native sends a { uri, name, type } part as the file's bytes.
+        form.append('file', part as unknown as Blob);
+        return data(client.upload<Envelope<ApiAttachment>>(`/tasks/${id}/attachments`, form));
+      },
+      removeAttachment: (attachmentId: string) => client.del<void>(`/attachments/${attachmentId}`),
     },
     /** Shared tag catalog for suggestions/autocomplete. */
     tagCatalog: () => data(client.get<Envelope<ApiTag[]>>('/tags')),
@@ -147,11 +159,24 @@ export function resourcesApi(client: ApiClient) {
       unreadCount: () => data(client.get<Envelope<{ count: number }>>('/notifications/unread-count')),
       markRead: (id: string) => data(client.put<Envelope<ApiNotification>>(`/notifications/${id}/read`)),
       markAllRead: () => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all')),
+      // Which notifications you get and when "due soon" reminders arrive (shared with the web app).
+      preferences: () => data(client.get<Envelope<NotificationPreferences>>('/notifications/preferences')),
+      setPreferences: (prefs: NotificationPreferences) =>
+        data(client.put<Envelope<NotificationPreferences>>('/notifications/preferences', prefs)),
     },
     deviceTokens: {
       register: (token: string, platform: DevicePlatform = 'ANDROID') =>
         client.post<void>('/device-tokens', { token, platform }),
       unregister: (token: string) => client.del<void>(`/device-tokens/${encodeURIComponent(token)}`),
+    },
+    /** Reports (administrators): the same figures as the web portal, scoped by project / team member. */
+    reports: {
+      projects: (f: ReportFilters = {}) => data(client.get<Envelope<ProjectPerformanceRow[]>>(`/reports/projects${queryString({ projectId: f.projectId, userId: f.userId })}`)),
+      status: (f: ReportFilters = {}) => data(client.get<Envelope<Record<string, number>>>(`/reports/status${queryString({ projectId: f.projectId, userId: f.userId })}`)),
+      workload: (f: ReportFilters = {}) => data(client.get<Envelope<UserWorkloadRow[]>>(`/reports/workload${queryString({ projectId: f.projectId, userId: f.userId })}`)),
+      completion: (f: ReportFilters = {}) => data(client.get<Envelope<CompletionStats>>(`/reports/completion${queryString({ projectId: f.projectId, userId: f.userId })}`)),
+      timeseries: (f: ReportFilters = {}) =>
+        data(client.get<Envelope<TimeSeries>>(`/reports/timeseries${queryString({ projectId: f.projectId, userId: f.userId, from: f.from, to: f.to })}`)),
     },
     /** Minimal people directory (id + name) for chat author names and the DM picker. */
     directory: () => data(client.get<Envelope<ApiDirectoryUser[]>>('/users/directory')),

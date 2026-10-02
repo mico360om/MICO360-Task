@@ -24,8 +24,9 @@ the environment variables, then restart.
 
 ## Release package
 
-`Installer/MICO360-Tasks-Server-Hostinger-<version>.zip` (built by `tools/release/build-release.mjs`)
-contains everything for this runbook. `backend/` is the Node.js app root, with a `package-lock.json`
+`Installer/1-Hostinger-Web-Server/MICO360-Tasks-Server-Hostinger-<version>.zip` (built by
+`tools/release/build-release.mjs`) contains everything for this runbook. The short version of this
+runbook, and the live settings file to upload as `.env`, are in that folder. `backend/` is the Node.js app root, with a `package-lock.json`
 so `deploy.sh` installs the tested dependency versions with `npm ci`. `public_html/` is the built
 web app for the site's web root, including `.well-known/`. `deploy/` holds the security-header
 snippets.
@@ -80,8 +81,8 @@ mysql://u116607139_tasks:YOUR_DB_PASSWORD@localhost:3306/u116607139_tasks
 
 ## Step 2 — Set the environment variables
 
-The exact values are prepared in `Web Portal/backend/.env.production`
-(git-ignored). Two equivalent ways to apply them:
+The exact values are prepared in `Installer/1-Hostinger-Web-Server/environment.txt`
+(git-ignored; made from `environment.example.txt` beside it). Two equivalent ways to apply them:
 
 **A. hPanel UI (persists across redeploys — preferred)**
 hPanel → **Websites → task.mico360.com → Advanced → Node.js →
@@ -102,7 +103,9 @@ Environment variables**, and add each `KEY = VALUE` from that file. At minimum:
 | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` | the **rotated** Mailjet keys — without them sign-in codes, password-reset links and meeting invitations are disabled (the API answers 503 `EMAIL_NOT_CONFIGURED`) |
 | `MAILJET_WEBHOOK_TOKEN` | a random secret; also put it in Mailjet's event-webhook URL (see `docs/EMAIL.md`). In production the webhook refuses every event until it is set. |
 
-Optional: `FCM_SERVICE_ACCOUNT_JSON` or `FCM_SERVICE_ACCOUNT_FILE` (Firebase service-account key —
+Optional: `ANDROID_APP_URL` (where the sign-in page's "Download for Android" points — upload the APK as
+`public_html/downloads/MICO360-Tasks.apk` and set `/downloads/MICO360-Tasks.apk`; blank = the GitHub
+releases page), `FCM_SERVICE_ACCOUNT_JSON` or `FCM_SERVICE_ACCOUNT_FILE` (Firebase service-account key —
 turns on phone push), `ACCOUNT_LOCK_MINUTES` (first lockout length, default 15), `RATE_LIMIT_MAX` /
 `AUTH_RATE_LIMIT_MAX` (per-minute limits, default 600 / 20), `AI_ALLOW_PRIVATE_HOSTS=true` (only for
 an AI provider on the internal network, e.g. a local Ollama), `AI_USER_REQUESTS_PER_MINUTE` /
@@ -141,7 +144,7 @@ root first.)
 Still over SSH, from the app root:
 
 ```bash
-ADMIN_EMAIL=you@mico360.com ADMIN_USERNAME=admin ADMIN_PASSWORD='<a strong password>' node dist/src/scripts/bootstrap.js
+ADMIN_EMAIL=khurram@prolens-team.com ADMIN_USERNAME=khurram ADMIN_PASSWORD='<a strong password>' node dist/src/scripts/bootstrap.js
 ```
 
 It's idempotent — it only creates an admin if no **active** admin exists. The password must be
@@ -160,6 +163,26 @@ curl -i https://task.mico360.com/api/v1/health
 
 Expect `200 OK`. Load `https://task.mico360.com` in a browser and sign in with
 the admin from Step 4.
+
+## Step 6 — Keep the scheduled jobs running (cron)
+
+The server does some work on a timer, whether or not anyone has an app open:
+- the copies of recurring tasks set to "on each date";
+- due-date reminders and the daily digest;
+- the nightly carry-forward of open tasks.
+
+Hostinger starts the Node.js app on demand and may stop it when nobody has used the site for a
+while, which would pause those timers. A cron job that calls the site every 15 minutes keeps them
+running. Each call starts the app if it was stopped, and the jobs run at start-up.
+
+hPanel → **Advanced → Cron Jobs** → Custom, every 15 minutes (`*/15 * * * *`):
+
+```bash
+curl -fsS -o /dev/null https://task.mico360.com/api/v1/health
+```
+
+The jobs can safely run more than once: a recurring task never gets two copies for one date, and
+reminders are sent once a day.
 
 ---
 

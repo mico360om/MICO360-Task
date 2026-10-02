@@ -5,12 +5,27 @@ import { fontData, isolate, layoutText, measureText, sanitizeText, shapingFeatur
 const seg = (text: string, maxWidth?: number) => layoutText(text, { size: 10, maxWidth });
 
 describe('pdf-text: fonts and shaping', () => {
-  it('loads real Latin and Arabic TrueType fonts from the npm font packages', () => {
-    const latin = fontkit.create(fontData('latin'));
+  it('loads the brand fonts — IBM Plex Sans for text, Archivo for headings — plus Noto Naskh Arabic', () => {
+    expect(fontkit.create(fontData('latin')).postscriptName).toBe('IBMPlexSans-Regular');
+    expect(fontkit.create(fontData('latin-bold')).postscriptName).toBe('IBMPlexSans-SemiBold');
+    expect(fontkit.create(fontData('display')).postscriptName).toBe('Archivo-Bold');
     const arabic = fontkit.create(fontData('arabic-bold'));
-    expect(latin.postscriptName).toBe('NotoSans-Regular');
     expect(arabic.postscriptName).toBe('NotoNaskhArabic-Bold');
     expect(arabic.hasGlyphForCodePoint('خ'.codePointAt(0)!)).toBe(true);
+  });
+
+  it('sets headings in Archivo, keeping Arabic in Naskh and symbols Archivo lacks in Plex', () => {
+    const [line] = layoutText('Report ✓ تقرير', { size: 12, bold: true, family: 'display' });
+    const fonts = line!.segments.map((s) => s.font);
+    expect(fonts).toContain('display');
+    expect(fonts).toContain('arabic-bold');
+    // Archivo has no check mark; the body font draws it.
+    expect(line!.segments.find((s) => s.logical.includes('✓'))?.font).toBe('latin-bold');
+  });
+
+  it('falls back to Noto Sans for a character the brand fonts lack', () => {
+    const [line] = layoutText('Ɓuilding', { size: 10 });
+    expect(line!.segments[0]!.font).toBe('fallback');
   });
 
   it('applies Arabic contextual shaping (joined initial/medial/final forms, not isolated letters)', () => {
@@ -30,7 +45,9 @@ describe('pdf-text: sanitizeText', () => {
   it('keeps Arabic and Latin, replaces undrawable characters, drops controls', () => {
     expect(sanitizeText('خالد & Ada')).toBe('خالد & Ada');
     expect(sanitizeText('ok 🎉')).toBe('ok ?');
-    expect(sanitizeText('A → B')).toBe('A -> B');
+    // IBM Plex draws arrows and check marks; heavier symbols no font has get a readable stand-in.
+    expect(sanitizeText('A → B ✓')).toBe('A → B ✓');
+    expect(sanitizeText('done ✔')).toBe('done v');
     expect(sanitizeText('a\tb\u0007c')).toBe('a bc');
     expect(sanitizeText('x\ufe0fy\u0085')).toBe('xy'); // variation selector and C1 control dropped
   });

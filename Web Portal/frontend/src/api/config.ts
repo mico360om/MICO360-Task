@@ -9,6 +9,8 @@ export interface AppConfig {
   serverTime: string;
   /** False when outbound email isn't configured — email sign-in codes and reset emails can't be sent. */
   emailEnabled?: boolean;
+  /** Configured "Download for Android" link, or null (see lib/android-app-link). */
+  androidAppUrl?: string | null;
 }
 
 export function configApi(client: ApiClient) {

@@ -20,6 +20,7 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string) => {
       const u = String(url);
+      if (/\/export\.(xlsx|pdf)$/.test(u)) return new Response('file-bytes', { status: 200 });
       if (u.includes('/members')) return json({ data: MEMBERS });
       if (u.includes('/checklist')) return json({ data: { items: [{ id: 'i1', taskId: 't1', text: 'Verify quotation', done: true, position: 0 }], progress: 100 } });
       if (u.includes('/comments')) return json({ data: [{ id: 'c1', taskId: 't1', userId: 'u1', body: 'Started on this.', createdAt: '' }] });
@@ -54,6 +55,29 @@ describe('TaskDrawerContainer', () => {
     // dependency id t2 is resolved to its task key/title via the project task list
     await waitFor(() => expect(screen.getByText('Do first')).toBeInTheDocument());
     expect(screen.getByText('MICO-2')).toBeInTheDocument();
+  });
+
+  it('downloads the task as Excel or PDF, named after its key and title', async () => {
+    const downloads: string[] = [];
+    vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:mock', revokeObjectURL: () => {} });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /^Export/ }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /Excel/ }));
+    await waitFor(() => expect(downloads).toContain('MICO-1-prepare-report.xlsx'));
+    const calls = (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.map((c) => String(c[0]));
+    expect(calls.some((u) => u.endsWith('/tasks/t1/export.xlsx'))).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: /^Export/ }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /PDF/ }));
+    await waitFor(() => expect(downloads).toContain('MICO-1-prepare-report.pdf'));
   });
 
   it('saves an inline field edit via PUT /tasks/:id with the patched fields', async () => {

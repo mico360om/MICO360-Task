@@ -8,7 +8,7 @@ import { LineChart } from '../components/LineChart';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { apiClient } from '../api/client';
 import { reportsApi, type ReportFilters, type ReportFormat, type ReportKind } from '../api/reports';
-import { downloadBlob } from '../lib/download';
+import { downloadBlob, fileNameOf } from '../lib/download';
 import { todayKey as companyTodayKey, shiftDayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 
@@ -43,15 +43,16 @@ const CATEGORY: Record<string, { label: string; color: string }> = {
 };
 
 const EXPORT_REPORTS: { value: ReportKind; label: string; file: string }[] = [
+  { value: 'export', label: 'Full report (all sections)', file: 'tasks-report' },
   { value: 'projects', label: 'Project performance', file: 'project-performance' },
-  { value: 'status', label: 'Task status', file: 'task-status' },
-  { value: 'workload', label: 'Employee workload', file: 'employee-workload' },
+  { value: 'status', label: 'Task status', file: 'status-breakdown' },
+  { value: 'workload', label: 'Employee workload', file: 'user-workload' },
   { value: 'timeseries', label: 'Completion trend', file: 'completion-trend' },
 ];
 const FORMATS: { format: ReportFormat; label: string; ext: string }[] = [
-  { format: 'csv', label: 'CSV', ext: 'csv' },
-  { format: 'xls', label: 'Excel', ext: 'xls' },
+  { format: 'xlsx', label: 'Excel', ext: 'xlsx' },
   { format: 'pdf', label: 'PDF', ext: 'pdf' },
+  { format: 'csv', label: 'CSV', ext: 'csv' },
 ];
 
 const MINI_TONE: Record<string, string> = {
@@ -84,7 +85,7 @@ export function ReportsPage() {
   const timeZone = useCompanyTimeZone();
   const todayKey = () => companyTodayKey(timeZone);
 
-  const [exportKind, setExportKind] = useState<ReportKind>('projects');
+  const [exportKind, setExportKind] = useState<ReportKind>('export');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState('');
@@ -132,11 +133,12 @@ export function ReportsPage() {
     setExporting(format);
     setExportError(null);
     try {
-      // Every export honours the project/team filters; the trend export also takes the date range.
-      const params = { ...filters, ...(exportKind === 'timeseries' ? { from, to } : {}) };
+      // Every export honours the project/team filters; the full report and the trend also take the date range.
+      const params = { ...filters, ...(exportKind === 'timeseries' || exportKind === 'export' ? { from, to } : {}) };
       const blob = await reportsApi(apiClient).exportFile(exportKind, format, params);
       const file = EXPORT_REPORTS.find((r) => r.value === exportKind)?.file ?? exportKind;
-      downloadBlob(`${file}.${ext}`, blob);
+      // The server's name (report + filters + the company's day), else report + the company's today.
+      downloadBlob(fileNameOf(blob) ?? `${file}-${todayKey()}.${ext}`, blob);
     } catch {
       setExportError('Couldn’t export the report. Please try again.');
     } finally {
@@ -161,10 +163,14 @@ export function ReportsPage() {
     .sort((a, b) => b.value - a.value);
   const allWorkload = [...(Array.isArray(workloadQ.data) ? workloadQ.data : [])].sort((a, b) => b.assigned - a.assigned);
   const teamRows = Array.isArray(teamOptionsQ.data) ? teamOptionsQ.data : [];
-  const teamOptions = [{ value: '', label: 'All team' }, ...teamRows.map((w) => ({ value: w.userId, label: w.username }))];
-  const teamLabel = (id: string) => teamRows.find((w) => w.userId === id)?.username ?? 'Selected member';
+  const memberName = (w: { name?: string; username: string }) => w.name || w.username;
+  const teamOptions = [{ value: '', label: 'All team' }, ...teamRows.map((w) => ({ value: w.userId, label: memberName(w) }))];
+  const teamLabel = (id: string) => {
+    const w = teamRows.find((r) => r.userId === id);
+    return w ? memberName(w) : 'Selected member';
+  };
   const workload = teamFilter ? allWorkload.filter((w) => w.userId === teamFilter) : allWorkload;
-  const workloadBars = workload.map((w) => ({ label: w.username, value: w.assigned }));
+  const workloadBars = workload.map((w) => ({ label: memberName(w), value: w.assigned }));
   const filtersActive = !!(projectFilter || teamFilter);
 
   // ── Time series (trends, burndown, velocity) ──
@@ -199,7 +205,7 @@ export function ReportsPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <span className="hidden text-xs font-medium text-ink-2 sm:inline">Export</span>
-            <div className="w-40">
+            <div className="w-56">
               <SearchableSelect ariaLabel="Report to export" value={exportKind} onChange={(v) => setExportKind(v as ReportKind)} options={EXPORT_REPORTS} />
             </div>
             {FORMATS.map(({ format, label, ext }) => (
@@ -208,7 +214,9 @@ export function ReportsPage() {
                 variant="secondary"
                 size="sm"
                 onClick={() => exportReport(format, ext)}
-                disabled={exporting !== null}
+                // CSV is one table: it suits a single report, not the full report's several sections.
+                disabled={exporting !== null || (format === 'csv' && exportKind === 'export')}
+                title={format === 'csv' && exportKind === 'export' ? 'Choose a single report for CSV' : undefined}
                 loading={exporting === format}
               >
                 {exporting !== format ? (
@@ -425,7 +433,7 @@ export function ReportsPage() {
                 <tbody>
                   {workload.map((w) => (
                     <tr key={w.userId} className="border-b border-line last:border-0">
-                      <td className="p-3 font-medium text-ink">{w.username}</td>
+                      <td dir="auto" className="p-3 text-start font-medium text-ink">{memberName(w)}</td>
                       <td className="p-3 text-right tabular-nums">{w.assigned}</td>
                       <td className="p-3 text-right tabular-nums text-success">{w.completed}</td>
                       <td className="p-3 text-right tabular-nums text-danger">{w.overdue}</td>

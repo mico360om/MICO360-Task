@@ -5,7 +5,9 @@ import { buildApp } from './app';
 import { createPrismaIdempotencyStore } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
-import { registerWebApp } from './lib/web-app';
+import { registerWebApp, androidAppLink } from './lib/web-app';
+import { resolve as resolvePath } from 'node:path';
+import { createPrismaDataExporter } from './modules/users/data-export';
 import { createAuthService } from './modules/auth/auth-service';
 import { createTokenService } from './modules/auth/token-service';
 import { createPrismaUserRepository } from './modules/auth/prisma-user-repository';
@@ -120,6 +122,7 @@ function toAudienceFacts(t: TaskAudienceRow): TaskAudienceFacts {
   };
 }
 import { createReportService } from './modules/reports/report-service';
+import { createPrismaTaskExportSource } from './modules/tasks/task-export';
 import { createPrismaReportDataSource } from './modules/reports/prisma-report-data-source';
 import { createSearchService, createCachedSearchDataSource } from './modules/search/search-service';
 import { createPrismaSearchDataSource } from './modules/search/prisma-search-data-source';
@@ -203,6 +206,7 @@ async function main(): Promise<void> {
   type TaskRec = import('./modules/tasks/task-repository').TaskRecord;
   let onTaskMoved: (task: TaskRec, prevColumnId: string, actorId?: string) => Promise<void> = async () => {};
   let onTaskCreated: (task: TaskRec) => Promise<void> = async () => {};
+  let onTaskDeleting: (task: TaskRec) => Promise<void> = async () => {};
 
   const companyTz = resolveTimeZone(env.COMPANY_TIMEZONE);
   const taskService = createTaskService({
@@ -218,10 +222,15 @@ async function main(): Promise<void> {
     },
     onMoved: (task, prevColumnId, actorId) => onTaskMoved(task, prevColumnId, actorId),
     onCreated: (task) => onTaskCreated(task),
+    onDeleting: (task) => onTaskDeleting(task),
   });
 
   // The next occurrence lands on today's board in the company time zone.
-  const recurrenceService = createRecurrenceService({ tasks: createPrismaRecurrencePort(prisma, { timeZone: companyTz }) });
+  const recurrenceService = createRecurrenceService({
+    tasks: createPrismaRecurrencePort(prisma, { timeZone: companyTz }),
+    timeZone: companyTz,
+    onError: (err, taskId) => logger.error('recurring task: next copy failed', { err, taskId }),
+  });
   // onTaskMoved is wired below, once the notification + activity services exist.
 
   // Late-bound so assignment can create notifications + activity once those services exist (below).
@@ -537,6 +546,20 @@ async function main(): Promise<void> {
       const action = toCol?.category === 'DONE' ? 'COMPLETED' : fromCol?.category === 'DONE' ? 'REOPENED' : 'MOVED';
       await activityService.record({ taskId: task.id, projectId: task.projectId, userId: actorId, action, meta: { from: fromCol?.name ?? null, to: toCol?.name ?? null } });
     }
+  };
+
+  // Deleting just the newest copy of a recurring series skips it: the next copy is made first, so
+  // the series carries on instead of ending with it.
+  onTaskDeleting = async (task) => {
+    if (!task.recurrenceRule) return;
+    const next = await recurrenceService.onTaskSkipped({
+      id: task.id,
+      dueDate: task.dueDate,
+      startDate: task.startDate,
+      recurrenceRule: task.recurrenceRule,
+      recurrenceParentId: task.recurrenceParentId,
+    });
+    if (next) broadcast(task.projectId, 'task:created', await taskService.getTask(next.id));
   };
 
   // Deadline reminders: notify assignees of overdue + soon-due tasks. Runs at startup
@@ -908,6 +931,18 @@ async function main(): Promise<void> {
     notificationService,
     deviceTokenService,
     reportService,
+    // Task exports (Excel / PDF) read the task with its lists in one go.
+    taskExportSource: createPrismaTaskExportSource(prisma, companyTz),
+    // Names shown in report exports: the filtered project and team member, and who generated it.
+    reportNames: {
+      async project(id) {
+        return (await prisma.project.findFirst({ where: { id, deletedAt: null }, select: { name: true } }))?.name ?? null;
+      },
+      async user(id) {
+        const u = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true, username: true } });
+        return u ? [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username : null;
+      },
+    },
     searchService,
     meetingService,
     meetingAccess,
@@ -933,11 +968,14 @@ async function main(): Promise<void> {
       productName: env.PRODUCT_NAME,
       companyName: env.COMPANY_NAME,
       emailEnabled: emailService.isConfigured(),
+      // A self-contained install hosts the APK in its web root; otherwise ANDROID_APP_URL (if set).
+      androidAppUrl: androidAppLink(env.ANDROID_APP_URL, env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null),
     },
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     rateLimitMax: env.RATE_LIMIT_MAX,
     authRateLimitMax: env.AUTH_RATE_LIMIT_MAX,
     idempotencyStore: createPrismaIdempotencyStore(prisma),
+    dataExporter: createPrismaDataExporter(prisma),
   });
 
   // Serve uploaded attachment files from disk at /uploads/<key> (matches the stored url).
@@ -995,6 +1033,26 @@ async function main(): Promise<void> {
     realtime.leaveProject(userId, projectId);
     await chatService.removeProjectParticipant(projectId, userId).catch((err) => logger.error('chat participant cleanup failed', { err, projectId, userId }));
   };
+
+  // On-schedule recurring series: each copy is made on its due date, done or not, shown live on open
+  // boards and announced to its people. Hourly, so a copy appears soon after local midnight; one
+  // instance runs it at a time, and a task never gets two next copies, so re-runs are harmless.
+  const runRecurrenceSchedule = () =>
+    runExclusive(jobLock, 'recurrence-schedule-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
+      for (const made of await recurrenceService.runSchedule()) {
+        const task = await taskService.getTask(made.id);
+        broadcast(task.projectId, 'task:created', task);
+        for (const userId of await taskRecipientIds(task.id)) {
+          await notificationService.notify({ userId, type: 'TASK_ASSIGNED', title: 'A recurring task is ready', body: task.title, entityType: 'task', entityId: task.id });
+        }
+      }
+    }).catch((err) => {
+      logger.error('recurrence schedule sweep failed', { err });
+      return false;
+    });
+  void runRecurrenceSchedule();
+  const recurrenceTimer = setInterval(() => void runRecurrenceSchedule(), 60 * 60 * 1000);
+  recurrenceTimer.unref?.();
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

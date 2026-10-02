@@ -9,6 +9,8 @@
  * Rich enough for structured documents (headings, key/value rows, bullet lists,
  * rules, tables) such as meeting minutes and report exports.
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { drawTextLine, layoutText, lineBox, measureText, registerPdfFonts, type TextLine } from './pdf-text';
 
@@ -19,6 +21,23 @@ const MUTED: RGB = [0.42, 0.4, 0.38];
 const BRAND: RGB = [0.66, 0.12, 0.12];
 const LINE: RGB = [0.82, 0.8, 0.78];
 const WHITE: RGB = [1, 1, 1];
+const DANGER: RGB = [0.72, 0.16, 0.16];
+const SUCCESS: RGB = [0.18, 0.49, 0.33];
+const WARNING: RGB = [0.72, 0.47, 0.12];
+
+/**
+ * The company logo for PDFs: assets/logo-pdf.png, the brand logo flattened onto white (no alpha
+ * channel, so pdfkit embeds it synchronously), found next to the server or the source.
+ */
+let logoCache: Buffer | null | undefined;
+function companyLogo(): Buffer | null {
+  if (logoCache !== undefined) return logoCache;
+  const candidates = [resolve(process.cwd(), 'assets', 'logo-pdf.png'), resolve(__dirname, '../../assets/logo-pdf.png'), resolve(__dirname, '../../../assets/logo-pdf.png')];
+  const found = candidates.find((c) => existsSync(c));
+  logoCache = found ? readFileSync(found) : null;
+  return logoCache;
+}
+const LOGO_ASPECT = 900 / 423;
 
 /** Parse "#RRGGBB" (or an [r,g,b] 0-1 triple) into an RGB 0-1 triple. */
 export function hexToRgb(input: string | RGB, fallback: RGB = INK): RGB {
@@ -65,6 +84,8 @@ export interface TextOptions {
   align?: TextAlign;
   /** Force the paragraph direction (e.g. to align an attribution line with the note above it). */
   direction?: TextDirection;
+  /** 'display' sets Latin text in the heading face (Archivo). */
+  family?: 'text' | 'display';
 }
 
 export interface PdfDocumentOptions {
@@ -74,6 +95,30 @@ export interface PdfDocumentOptions {
   palette?: Partial<Record<'ink' | 'muted' | 'brand' | 'line', string | RGB>>;
   /** Document title stored in the PDF metadata (shown in viewers' title bars and tabs). */
   title?: string;
+  /** A4 portrait (default) or landscape, for wide tables. */
+  orientation?: 'portrait' | 'landscape';
+  /** Shown with the logo in a slim header at the top of every page after the first. */
+  runningTitle?: string;
+}
+
+export interface StatTile {
+  label: string;
+  value: string;
+  /** A small note beside the value (e.g. a percentage). */
+  note?: string;
+  tone?: 'brand' | 'danger' | 'success' | 'warning' | 'muted';
+}
+
+export interface BarItem {
+  label: string;
+  value: number;
+  color?: string | RGB;
+}
+
+export interface ChartSeries {
+  name: string;
+  values: number[];
+  color?: string | RGB;
 }
 
 export interface TableColumn {
@@ -86,10 +131,12 @@ export interface TableColumn {
 const NUMERIC = /^[-+]?[\d,]*\.?\d+%?$/;
 
 export class PdfDocument {
-  readonly pageWidth = 595.28; // A4, the paper size used in Oman
-  readonly pageHeight = 841.89;
+  readonly pageWidth: number; // A4, the paper size used in Oman
+  readonly pageHeight: number;
   readonly margin = 54; // 0.75"
   readonly bottomMargin = 62; // leaves room for the footer
+  /** Where content starts on pages after the first when a running header is drawn above it. */
+  private readonly continuationTop: number;
 
   private readonly doc: PDFKit.PDFDocument;
   /** Top-down cursor (pdfkit coordinates): where the next block starts. */
@@ -101,6 +148,10 @@ export class PdfDocument {
   private readonly pal: { ink: RGB; muted: RGB; brand: RGB; line: RGB };
 
   constructor(private readonly opts: PdfDocumentOptions = {}) {
+    const landscape = opts.orientation === 'landscape';
+    this.pageWidth = landscape ? 841.89 : 595.28;
+    this.pageHeight = landscape ? 595.28 : 841.89;
+    this.continuationTop = opts.runningTitle ? this.margin + 14 : this.margin;
     const p = opts.palette ?? {};
     this.pal = {
       ink: p.ink ? hexToRgb(p.ink, INK) : INK,
@@ -110,6 +161,7 @@ export class PdfDocument {
     };
     this.doc = new PDFDocument({
       size: 'A4',
+      layout: landscape ? 'landscape' : 'portrait',
       margin: 0,
       bufferPages: true, // footers ("Page N of M") are drawn once the page count is known
       displayTitle: Boolean(opts.title),
@@ -133,13 +185,24 @@ export class PdfDocument {
   }
 
   private newPage(): void {
-    this.doc.addPage({ size: 'A4', margin: 0 });
-    this.y = this.margin;
+    this.doc.addPage({ size: 'A4', layout: this.opts.orientation === 'landscape' ? 'landscape' : 'portrait', margin: 0 });
+    this.y = this.continuationTop;
+  }
+
+  /** Room left on the current page, in points. */
+  get remaining(): number {
+    return this.contentBottom - this.y;
+  }
+
+  /** Keep the next `height` points together: start a new page if they don't fit here. */
+  keepTogether(height: number): this {
+    this.ensure(height);
+    return this;
   }
 
   /** Start a new page unless `height` still fits (never loops on an over-tall block at a page top). */
   private ensure(height: number): void {
-    if (this.y + height > this.contentBottom && this.y > this.margin + 0.5) this.newPage();
+    if (this.y + height > this.contentBottom && this.y > this.continuationTop + 0.5) this.newPage();
   }
 
   /** Width of a string in points at the given size/weight (shaped, so Arabic joins are measured correctly). */
@@ -219,7 +282,7 @@ export class PdfDocument {
     const color = options.color ?? this.pal.ink;
     const indent = options.indent ?? 0;
     const width = this.contentWidth - indent;
-    for (const line of layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction })) {
+    for (const line of layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family })) {
       const box = lineBox(line, size);
       this.ensure(box.height);
       this.placeLine(line, line.rtl ? this.margin : this.margin + indent, width, this.y + box.ascent, size, color, options.align ?? 'start');
@@ -230,11 +293,12 @@ export class PdfDocument {
   }
 
   /** A section heading: bold, slightly larger, with a hairline rule beneath. Kept with what follows it. */
-  heading(text: string, options: { size?: number; color?: RGB; topGap?: number } = {}): this {
+  heading(text: string, options: { size?: number; color?: RGB; topGap?: number; keepWith?: number } = {}): this {
     const size = options.size ?? 12.5;
     this.spacer(options.topGap ?? 14);
-    this.ensure(size * 1.8 + 9 + 32); // heading + rule + room for at least two lines of content
-    this.text(text, { bold: true, size, color: options.color ?? this.pal.brand });
+    // Heading + rule + the start of what follows (at least two lines, or `keepWith` points).
+    this.ensure(size * 1.8 + 9 + Math.max(32, Math.min(options.keepWith ?? 0, this.contentBottom - this.continuationTop - size * 1.8 - 9)));
+    this.text(text, { bold: true, size, color: options.color ?? this.pal.brand, family: 'display' });
     this.y += 3;
     this.fillRect(this.margin, this.y, this.contentWidth, 0.7, this.pal.line);
     this.y += 6;
@@ -310,6 +374,176 @@ export class PdfDocument {
     return this;
   }
 
+  /**
+   * The report header: the company logo on the left; the title (Archivo), a subtitle and detail
+   * lines (generated, filters) on the right; a brand gradient rule beneath.
+   */
+  reportHeader(opts: { title: string; subtitle?: string; details?: string[] }): this {
+    const top = this.y;
+    const logo = companyLogo();
+    const logoH = 40;
+    const logoW = logo ? logoH * LOGO_ASPECT : logoH;
+    if (logo) this.doc.image(logo, this.margin, top, { height: logoH });
+    else this.logoMark(this.margin, this.pageHeight - top - logoH, logoH);
+    const blockLeft = this.margin + logoW + 24;
+    const blockWidth = this.pageWidth - this.margin - blockLeft;
+    let by = top;
+    const right = (text: string, size: number, color: RGB, opts2: { bold?: boolean; family?: 'text' | 'display' } = {}) => {
+      for (const ln of layoutText(text, { size, bold: opts2.bold, family: opts2.family, maxWidth: blockWidth })) {
+        const box = lineBox(ln, size);
+        this.placeLine(ln, blockLeft, blockWidth, by + box.ascent, size, color, 'right');
+        by += box.height;
+      }
+    };
+    right(opts.title, 19, this.pal.ink, { bold: true, family: 'display' });
+    if (opts.subtitle) right(opts.subtitle, 10.5, this.pal.brand, { bold: true });
+    for (const d of opts.details ?? []) right(d, 8.5, this.pal.muted);
+    this.y = Math.max(top + logoH, by) + 10;
+    // Brand gradient rule (the web app's #A83326 → #8B1E1E → #5E1414 sheen).
+    const grad = this.doc.linearGradient(this.margin, 0, this.pageWidth - this.margin, 0);
+    grad.stop(0, toHex(mix(this.pal.brand, WHITE, 0.12))).stop(0.55, toHex(this.pal.brand)).stop(1, toHex(darken(this.pal.brand, 0.33)));
+    this.doc.rect(this.margin, this.y, this.contentWidth, 2.5).fill(grad);
+    this.y += 2.5 + 14;
+    return this;
+  }
+
+  private tone(t: StatTile['tone']): RGB {
+    return t === 'danger' ? DANGER : t === 'success' ? SUCCESS : t === 'warning' ? WARNING : t === 'muted' ? this.pal.muted : this.pal.brand;
+  }
+
+  /**
+   * A row of summary tiles: a big value (Archivo) over its label, with a coloured accent. A note
+   * sits beside the value when it fits there, otherwise on its own line(s) under the label — it is
+   * never cut short. All tiles in the row share the tallest tile's height.
+   */
+  statTiles(items: StatTile[]): this {
+    if (items.length === 0) return this;
+    const gap = 10;
+    const w = (this.contentWidth - gap * (items.length - 1)) / items.length;
+    const inner = w - 20;
+    const laid = items.map((it) => {
+      // The value shrinks (19 → 11 pt) until it fits on one line, and wraps only if it still doesn't.
+      let size = 19;
+      while (size > 11 && measureText(it.value, size, true, 'display') > inner) size -= 1;
+      const values = layoutText(it.value, { size, bold: true, family: 'display', maxWidth: inner });
+      const value = values[0]!;
+      const noteWidth = it.note ? measureText(it.note, 9, true) : 0;
+      const beside = !it.note || (values.length === 1 && value.width + 6 + noteWidth <= inner);
+      const label = layoutText(it.label, { size: 8.5, maxWidth: inner });
+      const note = it.note && !beside ? layoutText(it.note, { size: 8.5, bold: true, maxWidth: inner }) : [];
+      const extra = (values.length - 1) * size * 1.15;
+      return { it, size, values, value, beside, label, note, extra };
+    });
+    const h = Math.max(56, ...laid.map((l) => 36 + l.extra + 11 * l.label.length + 11 * l.note.length + 6));
+    this.ensure(h + 8);
+    const top = this.y;
+    laid.forEach(({ it, size, values, value, beside, label, note, extra }, i) => {
+      const x = this.margin + i * (w + gap);
+      const accent = this.tone(it.tone);
+      this.doc.roundedRect(x, top, w, h, 6).fill(toHex(mix(accent, WHITE, 0.93)));
+      this.doc.save();
+      this.doc.roundedRect(x, top, w, h, 6).clip();
+      this.fillRect(x, top, 3, h, accent);
+      this.doc.restore();
+      values.forEach((ln, li) => drawTextLine(this.doc, ln, x + 12, top + 26 + li * size * 1.15, size, toHex(it.tone === 'danger' ? DANGER : this.pal.ink)));
+      if (it.note && beside) {
+        const n = layoutText(it.note, { size: 9, bold: true })[0]!;
+        drawTextLine(this.doc, n, x + 12 + value.width + 6, top + 26, 9, toHex(accent));
+      }
+      let ly = top + 44 + extra;
+      for (const ln of label) {
+        drawTextLine(this.doc, ln, x + 12, ly, 8.5, toHex(this.pal.muted));
+        ly += 11;
+      }
+      for (const ln of note) {
+        drawTextLine(this.doc, ln, x + 12, ly, 8.5, toHex(accent));
+        ly += 11;
+      }
+    });
+    this.y = top + h + 8;
+    return this;
+  }
+
+  /** Horizontal bars, one per item, scaled to the largest value; each row is kept whole. */
+  barList(items: BarItem[], options: { size?: number } = {}): this {
+    const size = options.size ?? 9;
+    const rowH = 17;
+    const labelW = Math.min(170, Math.max(...items.map((it) => measureText(it.label, size)), 40) + 10);
+    const valueW = Math.max(...items.map((it) => measureText(String(it.value), size, true)), 14) + 8;
+    const barMax = this.contentWidth - labelW - valueW - 6;
+    const max = Math.max(...items.map((it) => it.value), 1);
+    for (const it of items) {
+      this.ensure(rowH);
+      const box = lineBox(null, size, true);
+      const baseline = this.y + (rowH - box.height) / 2 + box.ascent;
+      const label = layoutText(it.label, { size, maxWidth: labelW - 10 })[0];
+      if (label) this.placeLine(label, this.margin, labelW - 10, baseline, size, this.pal.ink, 'left');
+      const bx = this.margin + labelW;
+      this.fillRect(bx, this.y + 5, barMax, rowH - 10, mix(this.pal.line, WHITE, 0.6));
+      const bw = (barMax * Math.max(0, it.value)) / max;
+      if (bw > 0) this.fillRect(bx, this.y + 5, Math.max(bw, 1.5), rowH - 10, it.color ? hexToRgb(it.color, this.pal.brand) : this.pal.brand);
+      const v = layoutText(String(it.value), { size, bold: true })[0]!;
+      drawTextLine(this.doc, v, this.pageWidth - this.margin - v.width, baseline, size, toHex(this.pal.ink));
+      this.y += rowH;
+    }
+    this.y += 4;
+    return this;
+  }
+
+  /** A line chart with a legend, a value axis with gridlines and first/middle/last day labels. Kept whole on one page. */
+  lineChart(opts: { labels: string[]; series: ChartSeries[]; height?: number }): this {
+    const height = opts.height ?? 170;
+    const legendH = 24;
+    this.ensure(height + legendH + 6);
+    const defaults: RGB[] = [this.pal.ink, this.pal.brand, WARNING, SUCCESS];
+    const colors = opts.series.map((s, i) => (s.color ? hexToRgb(s.color, defaults[i % defaults.length]!) : defaults[i % defaults.length]!));
+    // Legend.
+    let lx = this.margin;
+    opts.series.forEach((s, i) => {
+      this.fillRect(lx, this.y + 4, 9, 9, colors[i]!);
+      const name = layoutText(s.name, { size: 8.5 })[0]!;
+      drawTextLine(this.doc, name, lx + 13, this.y + 12, 8.5, toHex(this.pal.ink));
+      lx += 13 + name.width + 16;
+    });
+    this.y += legendH;
+    const top = this.y;
+    const max = Math.max(1, ...opts.series.flatMap((s) => s.values));
+    const step = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000].find((st) => st * 4 >= max) ?? Math.ceil(max / 4);
+    const yMax = step * 4;
+    const axisW = Math.max(measureText(String(yMax), 8), 10) + 8;
+    const left = this.margin + axisW;
+    const plotW = this.contentWidth - axisW;
+    const plotH = height - 16;
+    const yOf = (v: number) => top + plotH - (plotH * v) / yMax;
+    for (let g = 0; g <= 4; g++) {
+      const gy = yOf(g * step);
+      this.fillRect(left, gy, plotW, 0.5, g === 0 ? this.pal.muted : mix(this.pal.line, WHITE, 0.3));
+      const t = layoutText(String(g * step), { size: 8 })[0]!;
+      drawTextLine(this.doc, t, left - 6 - t.width, gy + 3, 8, toHex(this.pal.muted));
+    }
+    const n = opts.labels.length;
+    const xOf = (i: number) => (n <= 1 ? left + plotW / 2 : left + (plotW * i) / (n - 1));
+    opts.series.forEach((s, si) => {
+      const pts = s.values.map((v, i) => [xOf(i), yOf(Math.max(0, v))] as const);
+      if (pts.length === 0) return;
+      this.doc.save().lineWidth(1.6).lineJoin('round').lineCap('round');
+      this.doc.moveTo(pts[0]![0], pts[0]![1]);
+      for (const [x, y] of pts.slice(1)) this.doc.lineTo(x, y);
+      if (pts.length === 1) this.doc.lineTo(pts[0]![0] + 0.1, pts[0]![1]);
+      this.doc.stroke(toHex(colors[si]!)).restore();
+      if (pts.length <= 31) for (const [x, y] of pts) this.doc.circle(x, y, 1.6).fill(toHex(colors[si]!));
+    });
+    const marks = n <= 1 ? [0] : [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+    for (const i of marks) {
+      const t = layoutText(opts.labels[i] ?? '', { size: 8 })[0];
+      if (!t) continue;
+      const x = Math.min(Math.max(xOf(i) - t.width / 2, left), this.pageWidth - this.margin - t.width);
+      drawTextLine(this.doc, t, x, top + plotH + 12, 8, toHex(this.pal.muted));
+    }
+    this.y = top + height + 6;
+    return this;
+  }
+
   /** A full-width hairline rule. */
   rule(color?: RGB): this {
     this.spacer(4);
@@ -325,10 +559,54 @@ export class PdfDocument {
    * repeats at the top of every page. Numeric columns align right; text cells align to
    * their own direction (Arabic right, English left).
    */
-  table(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number } = {}): this {
+  table(
+    columns: TableColumn[],
+    rows: ReadonlyArray<ReadonlyArray<string>>,
+    options: { size?: number; cellColor?: (row: number, col: number) => RGB | null } = {},
+  ): this {
     const n = columns.length;
     if (n === 0) return this;
-    const size = options.size ?? 8.5;
+    const layout = this.tableLayout(columns, rows, options.size ?? 8.5);
+    const { size, padX, padY, total, box, widths, numeric, header, body } = layout;
+
+    const drawRow = (row: { laid: TextLine[][]; height: number }, fill: RGB | null, ri: number | null) => {
+      if (fill) this.fillRect(this.margin, this.y, total, row.height, fill);
+      let x = this.margin;
+      row.laid.forEach((lines, ci) => {
+        const color = (ri !== null && options.cellColor?.(ri, ci)) || this.pal.ink;
+        lines.forEach((ln, li) => {
+          const baseline = this.y + padY + li * box.height + box.ascent;
+          this.placeLine(ln, x + padX, widths[ci]! - padX * 2, baseline, size, color, numeric[ci] ? 'right' : 'start');
+        });
+        x += widths[ci]!;
+      });
+      this.fillRect(this.margin, this.y + row.height - 0.5, total, 0.5, this.pal.line);
+      this.y += row.height;
+    };
+
+    const headerFill = mix(this.pal.brand, WHITE, 0.9);
+    const stripe = mix(this.pal.line, WHITE, 0.72);
+    this.ensure(header.height + (body[0]?.height ?? 0));
+    drawRow(header, headerFill, null);
+    body.forEach((row, ri) => {
+      if (this.y + row.height > this.contentBottom) {
+        this.newPage();
+        drawRow(header, headerFill, null); // repeat the header on every page
+      }
+      drawRow(row, ri % 2 === 1 ? stripe : null, ri);
+    });
+    return this;
+  }
+
+  /** The height a table would take if drawn now on one page (header + every row), in points. */
+  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number } = {}): number {
+    if (columns.length === 0) return 0;
+    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5);
+    return header.height + body.reduce((s, r) => s + r.height, 0);
+  }
+
+  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number) {
+    const n = columns.length;
     const padX = 5;
     const padY = 3;
     const total = this.contentWidth;
@@ -379,38 +657,12 @@ export class PdfDocument {
       return { laid, height: Math.max(...laid.map((l) => l.length)) * box.height + padY * 2 };
     };
 
-    const drawRow = (row: { laid: TextLine[][]; height: number }, fill: RGB | null) => {
-      if (fill) this.fillRect(this.margin, this.y, total, row.height, fill);
-      let x = this.margin;
-      row.laid.forEach((lines, ci) => {
-        lines.forEach((ln, li) => {
-          const baseline = this.y + padY + li * box.height + box.ascent;
-          this.placeLine(ln, x + padX, widths[ci]! - padX * 2, baseline, size, this.pal.ink, numeric[ci] ? 'right' : 'start');
-        });
-        x += widths[ci]!;
-      });
-      this.fillRect(this.margin, this.y + row.height - 0.5, total, 0.5, this.pal.line);
-      this.y += row.height;
-    };
-
     const header = layoutRow(
       columns.map((c) => c.header),
       true,
     );
-    const headerFill = mix(this.pal.brand, WHITE, 0.9);
-    const stripe = mix(this.pal.line, WHITE, 0.72);
-
     const body = rows.map((r) => layoutRow(r, false));
-    this.ensure(header.height + (body[0]?.height ?? 0));
-    drawRow(header, headerFill);
-    body.forEach((row, ri) => {
-      if (this.y + row.height > this.contentBottom) {
-        this.newPage();
-        drawRow(header, headerFill); // repeat the header on every page
-      }
-      drawRow(row, ri % 2 === 1 ? stripe : null);
-    });
-    return this;
+    return { size, padX, padY, total, box, widths, numeric, header, body };
   }
 
   /** Serialize to a PDF byte buffer (idempotent). */
@@ -421,8 +673,18 @@ export class PdfDocument {
     const footerLines = (this.opts.footerLeft ?? '').split('\n').filter((l) => l.length > 0);
     const { line, muted, brand } = this.pal;
 
+    const logo = this.opts.runningTitle ? companyLogo() : null;
     for (let i = 0; i < total; i++) {
       this.doc.switchToPage(range.start + i);
+      if (i > 0 && this.opts.runningTitle) {
+        // Slim running header: small logo, the document title on the right, a hairline.
+        const h = 16;
+        if (logo) this.doc.image(logo, this.margin, 26, { height: h });
+        else this.logoMark(this.margin, this.pageHeight - 26 - h, h);
+        const t = layoutText(this.opts.runningTitle, { size: 8, maxWidth: this.contentWidth - h * LOGO_ASPECT - 20 })[0]!;
+        drawTextLine(this.doc, t, this.pageWidth - this.margin - t.width, 37, 8, toHex(muted));
+        this.fillRect(this.margin, 48, this.contentWidth, 0.6, line);
+      }
       // Footer: hairline (with a short brand accent at the left) + credit lines + page number.
       const ruleTop = this.pageHeight - 46;
       this.fillRect(this.margin, ruleTop + 1, this.contentWidth, 0.6, line);

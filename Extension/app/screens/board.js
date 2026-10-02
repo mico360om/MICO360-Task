@@ -2,6 +2,7 @@ import { el, mount, Loader, ErrorState, Empty, pill } from '../dom.js';
 import { PRIORITY_LABEL, catVar, writeErrorMessage } from '../components.js';
 import { href } from '../../src/router.js';
 import { todayKey, shiftDayKey, isDayKey, formatDayKey, relativeDayHint } from '../../src/due-date.js';
+import { isRecurring } from '../../src/recurrence.js';
 
 /**
  * Kanban board for one project and ONE board day (EXT-03) — like the web and mobile boards, each day
@@ -131,6 +132,7 @@ export function BoardScreen(ctx) {
       el('div', { class: 'row' },
         el('span', { class: 'k' }, task.key || ''),
         el('span', { style: { flex: 1 } }),
+        isRecurring(task) ? el('span', { class: 'muted', role: 'img', 'aria-label': 'Repeats', title: 'Repeats' }, '🔁') : null,
         pill(PRIORITY_LABEL[task.priority] || task.priority || '', task.priority),
       ),
     );
@@ -151,6 +153,8 @@ export function BoardScreen(ctx) {
     if (String(id).startsWith('tmp-')) { err = 'This task is still waiting to sync — move it after it syncs.'; render(); return; }
 
     const before = { columnId: task.columnId, columnCategory: task.columnCategory, completedAt: task.completedAt, progress: task.progress };
+    // Completing a repeating task makes its next copy on the server — reload to show it.
+    const completesRepeat = isRecurring(task) && targetCol.category === 'DONE';
     // Optimistic move to the end of the target column.
     task.columnId = targetCol.id;
     task.columnCategory = targetCol.category;
@@ -163,6 +167,7 @@ export function BoardScreen(ctx) {
     try {
       const r = await ctx.write('task.move', { id, columnId: targetCol.id, position });
       if (r.queued) { note = 'Saved on this device — it will sync when the connection is back.'; render(); }
+      else if (completesRepeat) await load();
     } catch (e) {
       Object.assign(task, before);
       err = writeErrorMessage(e, 'Could not move the task — please try again.');

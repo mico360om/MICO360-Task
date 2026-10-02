@@ -73,14 +73,23 @@ export function isTaskKeyConflict(err: unknown): boolean {
   if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
   const target = (err.meta as { target?: unknown } | undefined)?.target;
   const text = Array.isArray(target) ? target.join(',') : String(target ?? '');
+  // MySQL reports the index name, and every unique index is named …_key — so rule the others out.
+  if (/recurrenceSourceId/i.test(text)) return false;
   return /key/i.test(text);
+}
+
+/** True for a unique-constraint violation on a recurring copy's source: that task already has its next copy. */
+export function isRecurrenceCopyConflict(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const target = (err.meta as { target?: unknown } | undefined)?.target;
+  return /recurrenceSourceId/i.test(Array.isArray(target) ? target.join(',') : String(target ?? ''));
 }
 
 // Every scalar except the carry-forward history, which can grow long and is left out of lists.
 const listScalars = {
   id: true, key: true, title: true, description: true, projectId: true, columnId: true, position: true,
   priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true,
-  createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true,
+  createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
   version: true, createdAt: true, updatedAt: true, deletedAt: true,
 } as const;
 
@@ -132,7 +141,13 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
     },
     async findById(id) {
       const t = await prisma.task.findFirst({ where: { id, ...liveTaskWhere }, include: withColumn });
-      return t ? toRecord(t) : null;
+      if (!t) return null;
+      // Only a series member can have a next copy. Deleted copies count: a skipped one still means
+      // this task's next copy was made (and the unique source guard would refuse another).
+      const next = t.recurrenceParentId
+        ? await prisma.task.findFirst({ where: { recurrenceSourceId: id }, select: { id: true } })
+        : null;
+      return { ...toRecord(t), recurrenceNextId: next?.id ?? null };
     },
     async list(filter) {
       const and: Prisma.TaskWhereInput[] = [];

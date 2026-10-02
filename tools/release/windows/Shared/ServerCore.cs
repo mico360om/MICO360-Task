@@ -20,7 +20,7 @@ namespace Mico360.Server
     public static class Product
     {
         public const string Name = "MICO360 Tasks Server";
-        public const string Version = "0.2.0";
+        public const string Version = "0.3.0";
         public const string Publisher = "MICO360";
         public const string RegistryKey = "MICO360TasksServer";
         public const string LauncherExe = "MICO360 Tasks Server.exe";

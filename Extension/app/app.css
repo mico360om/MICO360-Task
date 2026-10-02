@@ -230,6 +230,45 @@ label.lbl { display: block; font-size: 12px; font-weight: 700; margin: 0 0 5px; 
 .sync-item .why { font-size: 12px; color: var(--danger); overflow-wrap: anywhere; }
 .task-row .overdue { color: var(--danger); font-weight: 700; }
 
+/* ---- Reports ---- */
+.rpt { display: flex; flex-direction: column; gap: 14px; }
+.rpt-body { display: flex; flex-direction: column; gap: 14px; }
+.rpt-export-row, .rpt-filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rpt-filter-row + .rpt-filter-row { margin-top: 10px; }
+.rpt-export-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--ink3); min-width: 52px; }
+.rpt-export select.field, .rpt-filters select.field { width: auto; min-width: 180px; max-width: 100%; padding: 6px 9px; }
+.rpt-filters input[type="date"] { width: auto; padding: 5px 8px; }
+.rpt-hint { font-size: 12px; margin-top: 8px; }
+.rpt-tile-hint { font-size: 12px; margin-top: 6px; }
+.stat.info .n { color: var(--info); }
+.rpt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+.rpt-bars { display: flex; flex-direction: column; gap: 9px; }
+.rpt-bar { display: grid; grid-template-columns: 92px 1fr 40px; align-items: center; gap: 10px; font-size: 13px; }
+.rpt-bar .lbl { color: var(--ink2); font-weight: 600; }
+.rpt-bar .track, .rpt-pct .track { height: 8px; border-radius: 999px; background: var(--ground); overflow: hidden; display: block; }
+.rpt-bar .fill, .rpt-pct .fill { display: block; height: 100%; border-radius: 999px; }
+.rpt-bar .num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rpt-pct { display: inline-flex; align-items: center; gap: 8px; }
+.rpt-pct .track { width: 80px; }
+.rpt-pct .fill { background: linear-gradient(90deg, var(--brand2), var(--brand)); }
+.rpt-pct .num { font-weight: 700; min-width: 36px; text-align: right; }
+.rpt-mini { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.rpt-mini-stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface2); }
+.rpt-mini-stat .n { font-size: 20px; font-weight: 800; line-height: 1.1; }
+.rpt-mini-stat .l { font-size: 11.5px; color: var(--ink2); font-weight: 600; margin-top: 3px; }
+.rpt-mini-stat.done .n { color: var(--success); } .rpt-mini-stat.info .n { color: var(--info); } .rpt-mini-stat.overdue .n { color: var(--danger); }
+.rpt-chart { width: 100%; height: auto; margin-top: 12px; display: block; }
+.rpt-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink2); margin-top: 4px; }
+.rpt-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.rpt-scroll { overflow-x: auto; }
+.rpt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rpt-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink2); font-weight: 700; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.rpt-table td { padding: 9px 10px; border-bottom: 1px solid var(--line2); }
+.rpt-table tr:last-child td { border-bottom: none; }
+.rpt-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rpt-table td:first-child { font-weight: 600; overflow-wrap: anywhere; }
+.export-box { display: flex; gap: 6px; }
+
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; flex-direction: row; overflow-x: auto; }

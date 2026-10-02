@@ -25,6 +25,13 @@ describe('isTaskKeyConflict', () => {
     expect(isTaskKeyConflict(other)).toBe(false);
     expect(isTaskKeyConflict(new Error('x'))).toBe(false);
   });
+
+  it('is not fooled by the recurring-copy index (MySQL names every unique index …_key)', () => {
+    const successor = new Prisma.PrismaClientKnownRequestError('x', { code: 'P2002', clientVersion: '5.22.0', meta: { target: 'tasks_recurrenceSourceId_key' } });
+    expect(isTaskKeyConflict(successor)).toBe(false);
+    const mysqlKey = new Prisma.PrismaClientKnownRequestError('x', { code: 'P2002', clientVersion: '5.22.0', meta: { target: 'tasks_key_key' } });
+    expect(isTaskKeyConflict(mysqlKey)).toBe(true);
+  });
 });
 
 describe('createPrismaTaskRepository', () => {
@@ -59,6 +66,22 @@ describe('createPrismaTaskRepository', () => {
     const repo = createPrismaTaskRepository({ task: { findFirst } } as unknown as PrismaClient);
     expect(await repo.findById('t1')).toBeNull();
     expect((findFirst.mock.calls[0] as unknown as [{ where: unknown }])[0].where).toEqual({ id: 't1', deletedAt: null, project: { is: { deletedAt: null } } });
+  });
+
+  it('findById says which task was made from this one (an earlier copy of a series has a next copy)', async () => {
+    const findFirst = vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
+      'recurrenceSourceId' in where ? { id: 'next' } : row({ recurrenceParentId: 's1' }));
+    const repo = createPrismaTaskRepository({ task: { findFirst } } as unknown as PrismaClient);
+    expect((await repo.findById('t1'))?.recurrenceNextId).toBe('next');
+    // Deleted copies count too: a skipped copy still means this task has had its next copy.
+    expect((findFirst.mock.calls[1] as unknown as [{ where: unknown }])[0].where).toEqual({ recurrenceSourceId: 't1' });
+  });
+
+  it('findById skips that lookup for a task outside any series', async () => {
+    const findFirst = vi.fn(async () => row());
+    const repo = createPrismaTaskRepository({ task: { findFirst } } as unknown as PrismaClient);
+    expect((await repo.findById('t1'))?.recurrenceNextId).toBeNull();
+    expect(findFirst).toHaveBeenCalledTimes(1);
   });
 
   it('series updates skip the edited task and completed occurrences when asked', async () => {
@@ -99,7 +122,7 @@ describe('createPrismaCarryForwardRepo', () => {
 });
 
 describe('createPrismaRecurrencePort', () => {
-  function fakePrisma(opts: { failFirstCreate?: boolean } = {}) {
+  function fakePrisma(opts: { failFirstCreate?: boolean; alreadyCopied?: boolean } = {}) {
     const source = {
       id: 's1', projectId: 'p1', title: 'Daily standup', description: 'notes', columnId: 'done', priority: 'HIGH', estimatedHours: 1,
       createdById: 'creator', recurrenceParentId: null, project: { code: 'MICO' },
@@ -115,10 +138,16 @@ describe('createPrismaRecurrencePort', () => {
         create: vi.fn(async ({ data }: { data: Record<string, any> }) => {
           attempts += 1;
           if (opts.failFirstCreate && attempts === 1) throw keyConflict();
+          if (opts.alreadyCopied) {
+            throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: '5.22.0', meta: { target: 'tasks_recurrenceSourceId_key' } });
+          }
           created.push(data);
           return { id: 'next', projectId: data.projectId, title: data.title };
         }),
         update: vi.fn(async () => ({})),
+        findMany: vi.fn(async () => [
+          { id: 'h1', dueDate: new Date('2026-10-01T00:00:00Z'), startDate: null, recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' }, recurrenceParentId: 's0' },
+        ]),
       },
       kanbanColumn: { findFirst: vi.fn(async () => ({ id: 'backlog' })) },
       project: { findFirst: vi.fn(async () => ({ ownerId: 'owner', managerId: null, createdById: 'creator', members: [{ userId: 'u1' }, { userId: 'w1' }] })) },
@@ -144,11 +173,14 @@ describe('createPrismaRecurrencePort', () => {
     expect(data.columnId).toBe('backlog');
     expect(data.recurrenceRule).toEqual(rule);
     expect(data.recurrenceParentId).toBe('s1');
+    // The copy records the task it was made from (unique: never two copies of one task).
+    expect(data.recurrenceSourceId).toBe('s1');
     expect(data.assignees.create).toEqual([{ userId: 'u1' }]);
     expect(data.watchers.create).toEqual([{ userId: 'w1' }]);
     expect(data.tags.create).toEqual([{ tagId: 'tag1' }]);
     expect(data.checklist.create).toEqual([{ text: 'Prepare slides', position: 0 }]);
-    expect(fake.task.update).toHaveBeenCalledWith({ where: { id: 's1' }, data: { recurrenceRule: Prisma.DbNull } });
+    // The rule moves on; the first task stays marked as part of its series (it starts it).
+    expect(fake.task.update).toHaveBeenCalledWith({ where: { id: 's1' }, data: { recurrenceRule: Prisma.DbNull, recurrenceParentId: 's1' } });
     expect(fake.activity.create).toHaveBeenCalledWith({ data: expect.objectContaining({ taskId: 'next', projectId: 'p1', action: 'CREATED' }) });
   });
 
@@ -157,5 +189,28 @@ describe('createPrismaRecurrencePort', () => {
     const port = createPrismaRecurrencePort(fake as unknown as PrismaClient, { timeZone: 'UTC' });
     await port.spawnNext('s1', new Date('2026-09-28T00:00:00Z'), { freq: 'DAILY', interval: 1 });
     expect(created[0]!.key).toBe('MICO-6');
+  });
+
+  it('returns null, without retrying or clearing the rule, when the task already has its next copy', async () => {
+    const { fake, created } = fakePrisma({ alreadyCopied: true });
+    const port = createPrismaRecurrencePort(fake as unknown as PrismaClient, { timeZone: 'UTC' });
+    expect(await port.spawnNext('s1', new Date('2026-09-28T00:00:00Z'), { freq: 'DAILY', interval: 1 })).toBeNull();
+    expect(fake.task.create).toHaveBeenCalledTimes(1);
+    expect(created).toHaveLength(0);
+    expect(fake.task.update).not.toHaveBeenCalled();
+  });
+
+  it('lists the live tasks that carry a rule (the newest copy of each series)', async () => {
+    const { fake } = fakePrisma();
+    const port = createPrismaRecurrencePort(fake as unknown as PrismaClient, { timeZone: 'UTC' });
+    const heads = await port.listSeriesHeads();
+    expect(heads).toEqual([
+      { id: 'h1', dueDate: new Date('2026-10-01T00:00:00Z'), startDate: null, recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' }, recurrenceParentId: 's0' },
+    ]);
+    const where = (fake.task.findMany.mock.calls[0] as unknown as [{ where: Record<string, any> }])[0].where;
+    expect(where.deletedAt).toBeNull();
+    // Archived or completed projects stop making on-schedule copies.
+    expect(where.project).toEqual({ is: { deletedAt: null, status: { notIn: ['ARCHIVED', 'COMPLETED'] } } });
+    expect(where.NOT).toEqual([{ recurrenceRule: { equals: Prisma.DbNull } }]);
   });
 });

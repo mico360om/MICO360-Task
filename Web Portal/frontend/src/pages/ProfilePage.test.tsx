@@ -22,6 +22,7 @@ beforeEach(() => {
     const method = init?.method ?? 'GET';
     calls.push({ url: String(url), method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (String(url).endsWith('/users/me/password')) return passwordResponse();
+    if (String(url).endsWith('/users/me/export')) return new Response(JSON.stringify({ profile: { id: 'u1' } }), { status: 200, headers: { 'content-type': 'application/json' } });
     return json({ data: [] });
   }));
 });
@@ -74,5 +75,18 @@ describe('ProfilePage — change password', () => {
     await fillAndSubmit('aaaaaa');
     expect(screen.getByRole('alert')).toHaveTextContent(/at least 8 characters/i);
     expect(calls.some((c) => c.url.endsWith('/users/me/password'))).toBe(false);
+  });
+
+  it('downloads the signed-in person’s data as a JSON file', async () => {
+    const created: Blob[] = [];
+    const createObjectURL = vi.fn((b: Blob) => { created.push(b); return 'blob:x'; });
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: /download my data/i }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(calls.some((c) => c.url.endsWith('/users/me/export') && c.method === 'GET')).toBe(true);
+    expect(created[0]!.size).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /privacy policy/i })).toHaveAttribute('href', '/privacy');
   });
 });

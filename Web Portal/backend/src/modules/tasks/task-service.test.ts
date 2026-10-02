@@ -139,12 +139,44 @@ describe('TaskService', () => {
     expect((await svc.getTask(other.id)).id).toBe(other.id);
   });
 
+  it('refuses a repeat on an earlier copy of a series (it would start a second, parallel series)', async () => {
+    const earlier = await svc.createTask({ ...base, recurrenceParentId: 'origin' });
+    const head = await svc.createTask({ ...base, recurrenceParentId: 'origin' });
+    const tasks = { ...mem.tasks, findById: async (id: string) => {
+      const t = await mem.tasks.findById(id);
+      return t ? { ...t, recurrenceNextId: id === earlier.id ? head.id : null } : null;
+    } };
+    const guarded = createTaskService({ tasks, projects: mem.projects });
+    await expect(guarded.updateTask(earlier.id, { recurrenceRule: { freq: 'DAILY', interval: 1 } })).rejects.toMatchObject({ code: 'RECURRENCE_NOT_NEWEST' });
+    // Other edits, and clearing the rule, are fine.
+    await expect(guarded.updateTask(earlier.id, { title: 'Renamed' })).resolves.toMatchObject({ title: 'Renamed' });
+    await expect(guarded.updateTask(earlier.id, { recurrenceRule: null })).resolves.toBeTruthy();
+    // The newest copy can turn its repeat back on after it was switched off.
+    await expect(guarded.updateTask(head.id, { recurrenceRule: { freq: 'WEEKLY', interval: 1 } })).resolves.toMatchObject({ recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
+  });
+
   it('deletes only this occurrence with the default scope', async () => {
     const origin = await svc.createTask({ ...base, recurrenceRule: { freq: 'DAILY', interval: 1 } });
     const inst2 = await svc.createTask({ ...base, recurrenceParentId: origin.id });
     await svc.deleteTask(inst2.id);
     await expect(svc.getTask(inst2.id)).rejects.toThrow();
     expect((await svc.getTask(origin.id)).id).toBe(origin.id);
+  });
+
+  it('tells the recurrence hook before deleting just one task (so the series can carry on), never for the whole series', async () => {
+    const seen: { id: string; live: boolean }[] = [];
+    const withHook = createTaskService({
+      tasks: mem.tasks,
+      projects: mem.projects,
+      onDeleting: async (task) => { seen.push({ id: task.id, live: Boolean(await mem.tasks.findById(task.id)) }); },
+    });
+    const head = await withHook.createTask({ ...base, recurrenceRule: { freq: 'DAILY', interval: 1 } });
+    await withHook.deleteTask(head.id);
+    // Called with the task while it still exists.
+    expect(seen).toEqual([{ id: head.id, live: true }]);
+    const other = await withHook.createTask({ ...base, recurrenceRule: { freq: 'DAILY', interval: 1 } });
+    await withHook.deleteTask(other.id, 'series');
+    expect(seen).toHaveLength(1);
   });
 
   it('applies an edit to the whole series with scope "series", leaving unrelated tasks', async () => {

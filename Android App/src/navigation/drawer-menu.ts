@@ -5,6 +5,8 @@ export interface DrawerItem {
   label: string;
   icon: string;
   action: NavAction;
+  /** Shown only to administrators (the server enforces the role as well). */
+  adminOnly?: boolean;
 }
 
 /** The side-drawer destinations (a superset of the bottom tabs + the stack-only screens). */
@@ -15,9 +17,15 @@ export const DRAWER_ITEMS: readonly DrawerItem[] = [
   { key: 'Chat', label: 'Chat', icon: '💬', action: { type: 'tab', tab: 'Chat' } },
   { key: 'Calendar', label: 'Calendar', icon: '📅', action: { type: 'stack', screen: 'Calendar' } },
   { key: 'Notifications', label: 'Alerts', icon: '🔔', action: { type: 'tab', tab: 'Notifications' } },
+  { key: 'Reports', label: 'Reports', icon: '📊', action: { type: 'stack', screen: 'Reports' }, adminOnly: true },
   { key: 'Profile', label: 'Profile', icon: '👤', action: { type: 'stack', screen: 'Profile' } },
   { key: 'Settings', label: 'Settings', icon: '⚙️', action: { type: 'tab', tab: 'Settings' } },
 ] as const;
+
+/** The drawer destinations for a user with these roles. */
+export function drawerItemsFor(roles: readonly string[]): DrawerItem[] {
+  return DRAWER_ITEMS.filter((i) => !i.adminOnly || roles.includes('ADMIN'));
+}
 
 /** The destination route name an action lands on (a tab name or a stack screen name). */
 export function actionRouteName(action: NavAction): string {

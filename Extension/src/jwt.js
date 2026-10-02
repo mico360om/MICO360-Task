@@ -20,15 +20,30 @@ function base64UrlDecode(part) {
   }
 }
 
-/** Return the `sub` (subject = user id) claim of a JWT, or null if it can't be read. */
-export function decodeJwtSub(token) {
+/** The token's claims object, or null if it can't be read. */
+function decodeClaims(token) {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length < 2) return null;
   try {
     const payload = JSON.parse(base64UrlDecode(parts[1]));
-    return payload && typeof payload.sub === 'string' ? payload.sub : null;
+    return payload && typeof payload === 'object' ? payload : null;
   } catch {
     return null;
   }
+}
+
+/** Return the `sub` (subject = user id) claim of a JWT, or null if it can't be read. */
+export function decodeJwtSub(token) {
+  const claims = decodeClaims(token);
+  return claims && typeof claims.sub === 'string' ? claims.sub : null;
+}
+
+/**
+ * The caller's role names (e.g. ['ADMIN']) — only to decide which screens to offer; the server
+ * checks the role on every request.
+ */
+export function decodeJwtRoles(token) {
+  const roles = decodeClaims(token)?.roles;
+  return Array.isArray(roles) ? roles.filter((r) => typeof r === 'string') : [];
 }

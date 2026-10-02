@@ -12,6 +12,7 @@ export type NavAction =
   | { type: 'stack'; screen: 'Board'; params: AppStackParamList['Board'] }
   | { type: 'stack'; screen: 'Calendar' }
   | { type: 'stack'; screen: 'Profile' }
+  | { type: 'stack'; screen: 'Reports' }
   /** A signed-out destination (the password-reset screen opened from the e-mail link). */
   | { type: 'auth'; screen: 'Reset'; params: NonNullable<AuthStackParamList['Reset']> };
 

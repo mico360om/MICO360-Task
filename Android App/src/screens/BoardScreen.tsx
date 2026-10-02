@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, useWindowDimensions, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useProjectColumns, useProjectTasks, useProjectProgress } from '../core/queries';
+import { useProjectColumns, useProjectTasks, useProjectProgress, useMoveTask } from '../core/queries';
+import { isNetworkError, ApiError } from '../lib/api-client';
 import { useBoardRealtime } from '../core/useBoardRealtime';
 import { useColors } from '../core/theme';
 import { composeBoard } from '../lib/board';
@@ -11,6 +12,8 @@ import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib
 import { TaskRow } from '../components/TaskRow';
 import { Loader, EmptyState, ErrorNote } from '../components/ui';
 import { QuickAddTaskSheet } from '../components/QuickAddTaskSheet';
+import { MoveTaskSheet } from '../components/MoveTaskSheet';
+import type { ApiTask } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
 
 export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
@@ -34,6 +37,23 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
     else navigation.navigate('Tabs', { screen: 'Projects' });
   });
   const [adding, setAdding] = useState(false);
+  // Long-press a card → "Move to…" (MOB: quick status change from the board).
+  const [moving, setMoving] = useState<ApiTask | null>(null);
+  const move = useMoveTask(projectId);
+  function moveTo(columnId: string) {
+    const task = moving;
+    setMoving(null);
+    if (!task) return;
+    move.mutate(
+      { id: task.id, columnId },
+      {
+        onError: (e) => {
+          // Offline moves are kept and synced later; a refusal from the server is shown.
+          if (!isNetworkError(e)) Alert.alert('Couldn’t move the task', e instanceof ApiError && e.message ? e.message : 'Please try again.');
+        },
+      },
+    );
+  }
 
   // Responsive column width: fills a narrow phone (with a peek of the next column)
   // yet stays a comfortable width on tablets/large screens.
@@ -118,6 +138,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
                       key={t.id}
                       task={t}
                       onPress={() => navigation.navigate('TaskDetail', { taskId: t.id, title: t.title })}
+                      onLongPress={() => setMoving(t)}
                     />
                   ))
                 )}
@@ -135,6 +156,8 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       >
         <Text style={styles.fabPlus}>＋</Text>
       </Pressable>
+
+      <MoveTaskSheet task={moving} columns={columnsQ.data ?? []} onMove={moveTo} onClose={() => setMoving(null)} />
 
       <QuickAddTaskSheet
         visible={adding}

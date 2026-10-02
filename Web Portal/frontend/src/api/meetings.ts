@@ -281,6 +281,9 @@ export function meetingsApi(client: ApiClient) {
     updateNote: (meetingId: string, noteId: string, patch: NotePatch) =>
       client.patch<{ data: MeetingNote }>(`/meetings/${meetingId}/notes/${noteId}`, patch).then((r) => r.data),
     removeNote: (meetingId: string, noteId: string) => client.del<void>(`/meetings/${meetingId}/notes/${noteId}`),
+    /** Undo a note delete (notes are soft-deleted on the server). */
+    restoreNote: (meetingId: string, noteId: string) =>
+      client.post<{ data: MeetingNote }>(`/meetings/${meetingId}/notes/${noteId}/restore`, {}).then((r) => r.data),
 
     /** ⭐ Promote a note into a board task; returns the created task and the back-linked note. */
     createTaskFromNote: (meetingId: string, noteId: string, input: CreateTaskFromNoteInput) =>

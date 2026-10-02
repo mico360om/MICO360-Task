@@ -1,9 +1,16 @@
 import { el, mount, Loader, ErrorState, timeAgo, pill } from '../dom.js';
 import { PRIORITY_LABEL, writeErrorMessage } from '../components.js';
+import { dueDayKey, todayKey } from '../../src/due-date.js';
+import { DEFAULT_TIME_ZONE } from '../../src/config.js';
+import { taskExportPath, taskFileName } from '../../src/reports.js';
+import {
+  FREQS, FREQ_LABEL, UNIT_LABEL, DAY_NAMES, WEEKDAY_NAMES, WEEK_OF_MONTH, recurrenceSummary, withFreq, withInterval,
+  toggleWeekday, withMonthlyMode, withNth, withDayOfMonth, withEnds, endsMode, withCreateNext, togglePaused, isEarlierCopy,
+} from '../../src/recurrence.js';
 
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
-/** Task detail drawer — edit title/description/priority, checklist, assignees and comments (offline-queued). */
+/** Task detail drawer — edit title/description/priority, due date and repeat, checklist, assignees and comments (offline-queued). */
 export function TaskDetail(ctx, onClose) {
   const taskId = ctx.params.taskId;
 
@@ -14,13 +21,15 @@ export function TaskDetail(ctx, onClose) {
   let comments = [];
   let directory = [];
   let err = '';
+  let exporting = null;
 
   const titleEl = el('h2', {}, 'Task');
+  const exportBox = el('div', { class: 'export-box' });
   const body = el('div', { class: 'drawer-body' }, Loader());
   const root = el('div', {},
     el('div', { class: 'scrim', onClick: onClose }),
     el('div', { class: 'drawer' },
-      el('div', { class: 'drawer-head' }, titleEl, el('button', { class: 'iconbtn', 'aria-label': 'Close', onClick: onClose }, '✕')),
+      el('div', { class: 'drawer-head' }, titleEl, exportBox, el('button', { class: 'iconbtn', 'aria-label': 'Close', onClick: onClose }, '✕')),
       body,
     ),
   );
@@ -53,15 +62,45 @@ export function TaskDetail(ctx, onClose) {
   function renderBody() {
     if (!task) return;
     titleEl.textContent = task.key || 'Task';
+    renderExport();
     mount(body,
       err ? el('div', { class: 'errbar', role: 'alert' }, el('span', {}, err)) : null,
       titleField(),
       prioritySection(),
+      scheduleSection(),
       descriptionSection(),
       checklistSection(),
       assigneesSection(),
       commentsSection(),
     );
+  }
+
+  // ---- Export (Excel / PDF) ---------------------------------------------
+  function renderExport() {
+    mount(exportBox, [['xlsx', 'Excel'], ['pdf', 'PDF']].map(([format, label]) => el('button', {
+      class: 'btn sm', type: 'button', 'aria-label': `Export task as ${label}`, title: `Download this task as ${label}`,
+      disabled: exporting !== null, onClick: () => exportTask(format),
+    }, exporting === format ? '…' : `⬇ ${label}`)));
+  }
+
+  async function exportTask(format) {
+    if (ctx.isOnline && !ctx.isOnline()) {
+      err = 'Exports need a connection — you appear to be offline.';
+      renderBody();
+      return;
+    }
+    exporting = format;
+    err = '';
+    renderExport();
+    try {
+      const { blob, fileName } = await ctx.api.download(taskExportPath(taskId, format));
+      ctx.saveFile(blob, fileName || taskFileName(task, format));
+    } catch {
+      err = 'Couldn’t export the task. Please try again.';
+    } finally {
+      exporting = null;
+      renderBody();
+    }
   }
 
   // ---- Title -------------------------------------------------------------
@@ -87,6 +126,92 @@ export function TaskDetail(ctx, onClose) {
         }, PRIORITY_LABEL[p])),
       ),
     );
+  }
+
+  // ---- Due date + repeat -------------------------------------------------
+  function scheduleSection() {
+    const timeZone = ctx.timeZone || DEFAULT_TIME_ZONE;
+    const dueKey = dueDayKey(task.dueDate, timeZone) || '';
+    const due = el('input', { class: 'field', type: 'date', value: dueKey, 'aria-label': 'Due date', style: { maxWidth: '190px' } });
+    due.addEventListener('change', () => { if (due.value !== dueKey) updateTask({ dueDate: due.value || null }); });
+    return el('div', {},
+      section('Due date', due),
+      section('Repeat', repeatEditor(dueKey || todayKey(timeZone))),
+    );
+  }
+
+  /** The repeat rule editor; each change is saved (or queued) like any other edit. */
+  function repeatEditor(dueKey) {
+    const rule = task.recurrenceRule || null;
+    if (isEarlierCopy(task)) {
+      // Repeating an earlier copy would start a second, parallel series.
+      return el('div', { class: 'muted', style: { fontSize: '13px' } }, '🔁 An earlier copy of a repeating series — change the repeat on its newest copy.');
+    }
+    const setRule = (next) => updateTask({ recurrenceRule: next });
+    const rows = [row(select('Repeat', [['NONE', 'Does not repeat'], ...FREQS.map((f) => [f, FREQ_LABEL[f]])], rule ? rule.freq : 'NONE', (v) => setRule(withFreq(rule, v))))];
+    if (!rule) return el('div', {}, rows);
+
+    rows.unshift(el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--brand)', marginBottom: '6px' } }, `🔁 ${recurrenceSummary(rule)}`));
+    const every = el('input', { class: 'field', type: 'number', min: '1', value: String(rule.interval), 'aria-label': 'Repeat every', style: { width: '76px' } });
+    every.addEventListener('change', () => setRule(withInterval(rule, every.value)));
+    rows.push(row(el('span', { class: 'muted' }, 'Every'), every, el('span', { class: 'muted' }, UNIT_LABEL[rule.freq])));
+
+    if (rule.freq === 'WEEKLY') {
+      rows.push(row(DAY_NAMES.map((name, day) => {
+        const on = (rule.weekdays || []).includes(day);
+        return el('button', { class: `chip${on ? ' on' : ''}`, type: 'button', 'aria-label': name, 'aria-pressed': String(on), onClick: () => setRule(toggleWeekday(rule, day)) }, name);
+      })));
+    }
+    if (rule.freq === 'MONTHLY' || rule.freq === 'QUARTERLY') {
+      const mode = rule.nthWeekday ? 'WEEKDAY' : 'DATE';
+      const parts = [
+        el('span', { class: 'muted' }, 'On'),
+        select(rule.freq === 'MONTHLY' ? 'Monthly on' : 'Quarterly on', [['DATE', 'a day of the month'], ['WEEKDAY', 'a weekday of the month']], mode, (v) => setRule(withMonthlyMode(rule, v, dueKey))),
+      ];
+      if (mode === 'DATE') {
+        const day = el('input', { class: 'field', type: 'number', min: '1', max: '31', value: rule.dayOfMonth ? String(rule.dayOfMonth) : '', placeholder: 'due day', title: '31 means the last day of every month', 'aria-label': 'Day of month', style: { width: '86px' } });
+        day.addEventListener('change', () => setRule(withDayOfMonth(rule, day.value)));
+        parts.push(day);
+      } else {
+        parts.push(
+          el('span', { class: 'muted' }, 'the'),
+          select('Week of the month', WEEK_OF_MONTH.map((w) => [String(w.week), w.label]), String(rule.nthWeekday.week), (v) => setRule(withNth(rule, { week: Number(v) }))),
+          select('Weekday', WEEKDAY_NAMES.map((n, d) => [String(d), n]), String(rule.nthWeekday.day), (v) => setRule(withNth(rule, { day: Number(v) }))),
+        );
+      }
+      rows.push(row(parts));
+    }
+
+    const ends = endsMode(rule);
+    const endParts = [el('span', { class: 'muted' }, 'Ends'), select('Ends', [['NEVER', 'Never'], ['COUNT', 'After a number of copies'], ['UNTIL', 'On a date']], ends, (v) => setRule(withEnds(rule, v, dueKey)))];
+    if (ends === 'COUNT') {
+      const count = el('input', { class: 'field', type: 'number', min: '1', value: String(rule.count), 'aria-label': 'Number of occurrences', style: { width: '76px' } });
+      count.addEventListener('change', () => { const n = Number(count.value); setRule({ ...rule, count: Number.isInteger(n) && n >= 1 ? n : 1, until: null }); });
+      endParts.push(count);
+    } else if (ends === 'UNTIL') {
+      const until = el('input', { class: 'field', type: 'date', value: String(rule.until).slice(0, 10), 'aria-label': 'End date', style: { maxWidth: '190px' } });
+      until.addEventListener('change', () => { if (until.value) setRule({ ...rule, until: until.value, count: null }); });
+      endParts.push(until);
+    }
+    rows.push(row(endParts));
+    rows.push(row(
+      el('span', { class: 'muted' }, 'Create the next copy'),
+      select('Create the next copy', [['ON_COMPLETE', 'when this one is done'], ['ON_SCHEDULE', 'on each date, even if not done']], rule.createNext || 'ON_COMPLETE', (v) => setRule(withCreateNext(rule, v))),
+    ));
+    rows.push(row(el('button', { class: 'btn sm', type: 'button', onClick: () => setRule(togglePaused(rule)) }, rule.paused ? '▶ Resume series' : '⏸ Pause series')));
+    return el('div', {}, rows);
+  }
+
+  function select(label, options, value, onPick) {
+    const node = el('select', { class: 'field', 'aria-label': label, style: { width: 'auto' } },
+      options.map(([v, text]) => el('option', { value: v }, text)));
+    node.value = value;
+    node.addEventListener('change', () => onPick(node.value));
+    return node;
+  }
+
+  function row(...children) {
+    return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' } }, ...children);
   }
 
   // ---- Description -------------------------------------------------------
