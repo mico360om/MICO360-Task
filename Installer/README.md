@@ -78,7 +78,7 @@ live settings file are not committed to git; the guides are.
 
 ## How these builds were tested (1 October 2026)
 
-- **Unit and component tests:** backend 1,229 · web 528 · Android 357 · extension 207, all passing,
+- **Unit and component tests:** backend 1,233 · web 528 · Android 357 · extension 207, all passing,
   with typecheck and lint clean. A test fails if the web or Android copy of the recurrence code ever
   differs from the server's.
 - **MySQL 8.0:**
@@ -127,6 +127,18 @@ live settings file are not committed to git; the guides are.
   - A copy made from outside the phone appeared live.
   - A completion made **offline** synced on reconnect and made exactly one copy.
   - The series stayed one task per date, with one rule.
+
+### Clean-start rehearsal (2 October 2026)
+
+- The web-server package was deployed the way its guide says: extract, upload `environment.txt` as
+  `.env`, one `deploy.sh` command on an empty database.
+- The server started in production mode with the live settings. Checks, 11 of 11:
+  - the administrator signs in by email and by username;
+  - exactly one user exists, with no projects and no tasks;
+  - the old demo account can't sign in;
+  - an empty report still exports as a PDF.
+- The acceptance test then passed 83 of 83 on that server (in a throwaway database).
+- The demo seed refused to run on a database holding the real administrator.
 
 ### Reports and exports (1 October 2026)
 
