@@ -49,8 +49,12 @@ export interface TaskServiceDeps {
   onMoved?: (task: TaskRecord, prevColumnId: string, actorId?: string) => void | Promise<void>;
   /** Fired after a task is created (activity feed). */
   onCreated?: (task: TaskRecord) => void | Promise<void>;
+  /** Fired after an edit, with the task before and after it and who made it (activity: what changed). */
+  onUpdated?: (before: TaskRecord, after: TaskRecord, actorId?: string) => void | Promise<void>;
   /** Fired before a single task is deleted, while it still exists (a recurring series makes its next copy). */
   onDeleting?: (task: TaskRecord) => void | Promise<void>;
+  /** How far a task's checklist is (0-100; 0 without one) — the progress a re-opened task goes back to. */
+  checklistPercent?: (taskId: string) => Promise<number>;
 }
 
 /** How many consecutive key numbers to try when concurrent creates race for the same one. */
@@ -61,7 +65,7 @@ const SERIES_FIELDS = ['title', 'description', 'priority', 'estimatedHours'] as 
 const sameInstant = (a: Date | null | undefined, b: Date | null | undefined): boolean =>
   (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
 
-export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated, onDeleting }: TaskServiceDeps) {
+export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated, onUpdated, onDeleting, checklistPercent }: TaskServiceDeps) {
   const todayAnchor = () => boardDateFromKey(boardDateKey(now(), timeZone));
   const dayOf = (d: Date): string => dueDayKey(d, timeZone) ?? '';
 
@@ -99,6 +103,9 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       }
     } else if (current.completedAt) {
       patch.completedAt = null;
+      // Completing forced progress to 100%. Re-opened, the task is not done any more: show what its
+      // checklist says (0% without one) instead of a "100%" card in an open column.
+      patch.progress = checklistPercent ? await checklistPercent(current.id) : 0;
     }
     return patch;
   }
@@ -202,6 +209,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
 
     const updated = await tasks.update(id, next);
     if (moving) await onMoved?.(updated, current.columnId, actorId);
+    await onUpdated?.(current, updated, actorId);
     return updated;
   }
 

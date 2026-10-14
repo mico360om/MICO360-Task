@@ -1,6 +1,6 @@
 # Manual QA Checklist (T17.4)
 
-Run before each release, in addition to the automated suite (`npm test` → 380+ unit/route tests,
+Run before each release, in addition to the automated suite (`npm test` → 2,170 unit/route tests across the server, web app and extension; the Android app has 357 more,
 `npm run test:db` → Prisma integration, `npm run test:e2e` → live-API E2E).
 
 ## Auth

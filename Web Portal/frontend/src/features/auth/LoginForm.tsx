@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { FieldLabel, FieldError, fieldClass } from '../../components/ui/Field';
 
@@ -22,6 +22,8 @@ export interface LoginFormProps {
   onModeChange?: () => void;
   /** Route for the "Forgot password?" link shown next to "Keep me signed in". */
   forgotTo?: string;
+  /** False when the server cannot send email: a forgotten password is then reset by an administrator. */
+  canResetByEmail?: boolean;
 }
 
 /** A form control with a leading icon (and optional trailing slot). */
@@ -63,6 +65,14 @@ const LockSmall = (
 );
 
 type Mode = 'password' | 'code';
+
+/** The server sends at most one code a minute per account, so "Resend" waits as long. */
+const RESEND_AFTER_SECONDS = 60;
+/** The longest code the server can be set to send (OTP_LENGTH 4–10). */
+const CODE_MAX_DIGITS = 10;
+/** The server's answers that mean "this code was not accepted". */
+const CODE_REFUSED = ['INVALID_OTP', 'OTP_EXPIRED', 'OTP_TOO_MANY_ATTEMPTS'];
+const countdown = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 interface Errors {
   identifier?: string;
   password?: string;
@@ -81,6 +91,7 @@ export function LoginForm({
   codeSent = false,
   onModeChange,
   forgotTo,
+  canResetByEmail = true,
 }: LoginFormProps) {
   const [mode, setMode] = useState<Mode>('password');
   const [identifier, setIdentifier] = useState('');
@@ -95,6 +106,54 @@ export function LoginForm({
   const otpAvailable = Boolean(onRequestCode && onVerifyCode);
   const locked = errorCode === 'ACCOUNT_LOCKED';
   const lockMinutes = lockedForSeconds && lockedForSeconds > 0 ? Math.max(1, Math.ceil(lockedForSeconds / 60)) : null;
+
+  // The code step: the cursor goes to the code box, and "Resend" waits out the server's limit.
+  const codeStep = mode === 'code' && codeSent;
+  // A deadline, not a count of ticks: timers slow down in a background tab, the clock does not.
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const resendIn = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  const startResendWait = () => {
+    const at = Date.now();
+    setResendAt(at + RESEND_AFTER_SECONDS * 1000);
+    setNow(at);
+  };
+  useEffect(() => {
+    if (!codeStep) return;
+    startResendWait();
+    codeRef.current?.focus();
+  }, [codeStep]);
+  const waiting = resendIn > 0;
+  useEffect(() => {
+    if (!waiting) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [waiting, resendAt]);
+
+  // A refused code: mark the box, and select what was typed so the next try replaces it.
+  const codeRefused = codeStep && !!errorCode && CODE_REFUSED.includes(errorCode);
+  useEffect(() => {
+    if (!codeRefused) return;
+    codeRef.current?.focus();
+    codeRef.current?.select();
+  }, [codeRefused]);
+
+  function resendCode() {
+    if (waiting) return;
+    startResendWait();
+    setCode('');
+    void onRequestCode?.(identifier);
+    codeRef.current?.focus();
+  }
+
+  /** Back to the first step, to send the code somewhere else. */
+  function useDifferentAddress() {
+    setCode('');
+    setErrors({});
+    onModeChange?.();
+    // The address box becomes editable on the next render.
+    setTimeout(() => identifierRef.current?.focus(), 0);
+  }
 
   function switchMode(next: Mode) {
     if (next === mode) return;
@@ -130,7 +189,7 @@ export function LoginForm({
   }
 
   const keepSignedInBox = (
-    <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
+    <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-ink-2">
       <input
         type="checkbox"
         checked={keepSignedIn}
@@ -190,6 +249,8 @@ export function LoginForm({
             placeholder="you@company.com"
             required
             aria-required="true"
+            // The code just sent belongs to this address: changing it means asking for a new code.
+            readOnly={codeStep}
             aria-invalid={errors.identifier ? true : undefined}
             aria-describedby={errors.identifier ? 'identifier-error' : undefined}
             value={identifier}
@@ -197,7 +258,7 @@ export function LoginForm({
               setIdentifier(e.target.value);
               if (errors.identifier) setErrors((p) => ({ ...p, identifier: undefined }));
             }}
-            className={fieldClass(!!errors.identifier, 'w-full pl-10')}
+            className={fieldClass(!!errors.identifier, 'w-full pl-10 read-only:bg-ground read-only:text-ink-2')}
           />
         </IconField>
         <FieldError id="identifier-error">{errors.identifier}</FieldError>
@@ -241,14 +302,15 @@ export function LoginForm({
           </IconField>
           <FieldError id="password-error">{errors.password}</FieldError>
 
-          <div className="mt-1 flex items-center justify-between">
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             {keepSignedInBox}
             {forgotTo ? (
-              <Link to={forgotTo} className="text-sm font-semibold text-brand hover:underline">
+              <Link to={forgotTo} className="tap whitespace-nowrap text-sm font-semibold text-brand hover:underline">
                 Forgot password?
               </Link>
             ) : null}
           </div>
+          {!canResetByEmail ? <p className="text-xs text-ink-2">Forgot your password? Ask your administrator to reset it.</p> : null}
         </div>
       ) : codeSent ? (
         <div className="flex flex-col gap-1.5">
@@ -264,25 +326,37 @@ export function LoginForm({
             placeholder="6-digit code"
             required
             aria-required="true"
-            aria-invalid={errors.code ? true : undefined}
-            aria-describedby={errors.code ? 'code-error' : undefined}
+            aria-invalid={errors.code || codeRefused ? true : undefined}
+            aria-describedby={errors.code ? 'code-error' : codeRefused ? 'login-error' : undefined}
             value={code}
             onChange={(e) => {
-              setCode(e.target.value.replace(/\D/g, '').slice(0, 8));
+              setCode(e.target.value.replace(/\D/g, '').slice(0, CODE_MAX_DIGITS));
               if (errors.code) setErrors((p) => ({ ...p, code: undefined }));
             }}
-            className={fieldClass(!!errors.code, 'text-center font-mono text-lg tracking-[0.4em]')}
+            className={fieldClass(!!errors.code || codeRefused, 'text-center font-mono text-lg tracking-[0.4em] placeholder:font-sans placeholder:text-sm placeholder:tracking-normal')}
           />
           <FieldError id="code-error">{errors.code}</FieldError>
-          {onRequestCode ? (
-            <button
-              type="button"
-              onClick={() => onRequestCode(identifier)}
-              className="self-start text-xs font-medium text-brand hover:underline"
-            >
-              Resend code
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            {onRequestCode ? (
+              <button
+                type="button"
+                onClick={resendCode}
+                disabled={waiting}
+                className="tap text-xs font-medium text-brand hover:underline disabled:cursor-default disabled:text-ink-2 disabled:no-underline"
+              >
+                {waiting ? (
+                  <>
+                    Resend code in <span className="tabular-nums">{countdown(resendIn)}</span>
+                  </>
+                ) : (
+                  'Resend code'
+                )}
+              </button>
+            ) : null}
+            <button type="button" onClick={useDifferentAddress} className="tap text-xs font-medium text-ink-2 hover:text-brand hover:underline">
+              Use a different email
             </button>
-          ) : null}
+          </div>
           <div className="mt-1">{keepSignedInBox}</div>
         </div>
       ) : (
@@ -294,12 +368,18 @@ export function LoginForm({
           <p className="font-semibold text-danger">Account locked</p>
           <p className="mt-1 text-ink-2">
             {lockMinutes ? `Too many attempts. Try again in ${lockMinutes} minute${lockMinutes === 1 ? '' : 's'}.` : 'Too many failed attempts.'}{' '}
-            Or <span className="font-medium text-ink">reset your password</span> to unlock now — ask your administrator to send a
-            reset if you can’t access it.
+            {canResetByEmail ? (
+              <>
+                Or <span className="font-medium text-ink">reset your password</span> to unlock now — ask your administrator to send a
+                reset if you can’t access it.
+              </>
+            ) : (
+              'Your administrator can unlock your account or reset your password.'
+            )}
           </p>
         </div>
       ) : error ? (
-        <p role="alert" className="text-sm text-danger">
+        <p id="login-error" role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : info ? (

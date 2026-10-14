@@ -5,6 +5,7 @@ import { activityApi, type ApiActivity } from '../api/activity';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Avatar } from '../components/ui/Avatar';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
+import { relativeTime } from '../lib/relative-time';
 
 const ACTION_VERB: Record<string, string> = {
   CREATED: 'created',
@@ -36,20 +37,6 @@ const FILTERS = [
 ];
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
-
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const s = Math.round((Date.now() - then) / 1000);
-  if (s < 60) return 'just now';
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
 
 function dayHeader(iso: string): string {
   const d = new Date(iso);
@@ -117,6 +104,12 @@ export function ActivityPage() {
         <p role="alert" className="text-danger">
           Couldn’t load activity. <button className="font-semibold underline" onClick={() => q.refetch()}>Retry</button>
         </p>
+      ) : rows.length === 0 && filter ? (
+        // The feed has entries, just none of this kind: say that, not "no activity yet".
+        <div className="card grid place-items-center gap-2 p-10 text-center">
+          <p className="font-semibold text-ink">No {(FILTERS.find((f) => f.value === filter)?.label ?? 'matching').toLowerCase()} activity</p>
+          <button onClick={() => setFilter('')} className="text-sm font-semibold text-brand hover:underline">Show all activity</button>
+        </div>
       ) : rows.length === 0 ? (
         <div className="card grid place-items-center gap-1 p-10 text-center">
           <p className="font-semibold text-ink">No activity yet</p>
@@ -146,7 +139,7 @@ export function ActivityPage() {
                             <span className="text-ink-2">a task</span>
                           )}
                         </p>
-                        <p dir="auto" className="truncate text-start text-xs text-ink-2">
+                        <p dir="auto" title={[a.task?.title, detailOf(a), a.project?.name].filter(Boolean).join(' · ')} className="line-clamp-2 text-start text-xs text-ink-2 sm:line-clamp-1">
                           {a.task?.title ?? ''}
                           {detailOf(a) ? <span className="text-ink-3"> · {detailOf(a)}</span> : null}
                           {a.project ? <span className="text-ink-3"> · {a.project.name}</span> : null}

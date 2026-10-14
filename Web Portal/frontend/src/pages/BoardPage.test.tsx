@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardPage } from './BoardPage';
 import { useAuthStore } from '../stores/auth-store';
@@ -84,9 +84,13 @@ async function fillNewTask() {
   await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
   const dialog = await screen.findByRole('dialog', { name: /new task/i });
   await userEvent.type(within(dialog).getByLabelText(/task title/i), 'Ship it');
-  await userEvent.type(within(dialog).getByLabelText(/due date/i), '2026-10-05');
-  await userEvent.click(await within(dialog).findByRole('checkbox', { name: 'Omar A' }));
-  await userEvent.click(within(dialog).getByRole('button', { name: /add task/i }));
+  fireEvent.change(within(dialog).getByLabelText(/due date/i), { target: { value: '2026-10-05' } });
+  const people = within(dialog).getByRole('combobox', { name: 'Add people' });
+  await waitFor(() => expect(people).toBeEnabled());
+  await userEvent.click(people);
+  await userEvent.type(people, 'om');
+  await userEvent.click(await within(dialog).findByRole('option', { name: /Omar A/ }));
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Create task' }));
 }
 
 describe('BoardPage', () => {
@@ -94,6 +98,17 @@ describe('BoardPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole('region', { name: 'To Do' })).toBeInTheDocument());
     expect(screen.getByText('Prepare report')).toBeInTheDocument();
+    // The project picker shows the chosen project's picture (its initials: none saved).
+    const picker = document.querySelector('button[aria-haspopup="listbox"] [data-project-avatar]');
+    expect(picker).toHaveTextContent('MP');
+  });
+
+  it('tells assistive tech whether the column manager is open', async () => {
+    renderPage();
+    const toggle = await screen.findByRole('button', { name: 'Manage columns' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('creates a task with its due date and assignees in ONE request, with an Idempotency-Key', async () => {
@@ -108,13 +123,14 @@ describe('BoardPage', () => {
     expect(calls.some((c) => c.method === 'POST' && c.url.includes('/assignees'))).toBe(false);
   });
 
-  it('fits short screens: the new-task dialog scrolls instead of pushing "Add task" off-screen', async () => {
+  it('fits short screens: the new-task fields scroll while "Create task" stays in view', async () => {
     renderPage();
     await screen.findByText('Prepare report');
     await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
-    expect(dialog.className).toMatch(/max-h-\[calc\(100dvh-2rem\)\]/);
-    expect(dialog.className).toContain('overflow-y-auto');
+    expect(dialog.className).toMatch(/sm:max-h-\[90dvh\]/);
+    const body = within(dialog).getByLabelText(/task title/i).closest('.overflow-y-auto')!;
+    expect(body.contains(within(dialog).getByRole('button', { name: 'Create task' }))).toBe(false);
   });
 
   it('creates a repeating task from the board', async () => {
@@ -123,10 +139,11 @@ describe('BoardPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
     await userEvent.type(within(dialog).getByLabelText(/task title/i), 'Month-end close');
-    await userEvent.type(within(dialog).getByLabelText(/^due date$/i), '2026-10-30');
-    await userEvent.selectOptions(within(dialog).getByLabelText(/^repeat$/i), 'MONTHLY');
+    fireEvent.change(within(dialog).getByLabelText(/^due date/i), { target: { value: '2026-10-30' } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Repeat' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Monthly' }));
     await userEvent.selectOptions(within(dialog).getByLabelText(/monthly on/i), 'WEEKDAY');
-    await userEvent.click(within(dialog).getByRole('button', { name: /add task/i }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/tasks'))).toBe(true));
     const post = calls.find((c) => c.method === 'POST' && c.url.endsWith('/tasks'))!;
     // 30 Oct 2026 is the last Friday of the month.

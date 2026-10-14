@@ -1,9 +1,9 @@
-import { ConflictError, HttpError, NotFoundError } from '../../lib/http-errors';
+import { ConflictError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { buildIcs, type IcsMethod, type IcsPerson } from '../../lib/ics';
 import type { Logger } from '../../lib/logger';
 import { EmailNotConfiguredError } from '../email/delivery-error';
 import type { EmailAttachment } from '../email/mailer';
-import type { MeetingEmailParams } from '../email/email-templates';
+import { meetingMinutesEmail, type MeetingEmailParams } from '../email/email-templates';
 import type { MeetingRecord, MeetingRepository, RecurrenceRule } from './meeting-repository';
 import type { AttendeeRecord } from './attendee-repository';
 import { isValidTimeZone } from './meeting-validation';
@@ -23,7 +23,11 @@ export interface MeetingMailer {
 
 export interface MeetingNotifyDeps {
   meetings: Pick<MeetingRepository, 'findById' | 'markInvitesSent' | 'markReminderSent' | 'listUpcomingWithoutReminder'>;
-  attendees: { listByMeeting(meetingId: string): Promise<AttendeeRecord[]> };
+  attendees: {
+    listByMeeting(meetingId: string): Promise<AttendeeRecord[]>;
+    /** Stamp attendees whose own invitation was delivered (enables "invite only new people"). */
+    markInvited?(ids: string[], at: Date): Promise<void>;
+  };
   email: MeetingMailer;
   /** Resolve an internal user id to a name + email (null if unknown / no email). */
   resolveUser: (userId: string) => Promise<NotifyPerson | null>;
@@ -44,13 +48,67 @@ export interface DeliveryReport {
   failed: number;
 }
 
+export type RecipientKind = 'organizer' | 'member' | 'guest';
+
+/** One email address the meeting's mail goes to (an attendee listed twice is one recipient). */
+export interface Recipient {
+  name: string;
+  email: string;
+  kind: RecipientKind;
+  attendeeIds: string[];
+  /** Already sent an invitation (each of their attendee rows was invited; the organizer once any went out). */
+  alreadyInvited: boolean;
+}
+
+export interface RecipientResult {
+  name: string;
+  email: string;
+  kind: RecipientKind;
+  ok: boolean;
+  error?: string;
+}
+
+/** An explicit send's outcome: totals, each recipient's result, and who had no address. */
+export interface SendReport extends DeliveryReport {
+  recipients: RecipientResult[];
+  skipped: Array<{ name: string; reason: string }>;
+}
+
+export interface SendProblem {
+  /** 'error' blocks the send; 'warning' is worth a look but can be sent anyway. */
+  level: 'error' | 'warning';
+  message: string;
+}
+
+export interface InvitePreview {
+  recipients: Recipient[];
+  missingEmail: Array<{ name: string; attendeeId: string }>;
+  problems: SendProblem[];
+  invitesSentAt: Date | null;
+}
+
+export interface MinutesPreview {
+  subject: string;
+  html: string;
+  text: string;
+  attachmentName: string;
+  recipients: Recipient[];
+  missingEmail: Array<{ name: string; attendeeId: string }>;
+}
+
 export interface MeetingNotifyService {
-  sendInvites(meetingId: string): Promise<DeliveryReport>;
+  /** Calendar invitations to everyone, or (onlyNew) just to people who haven't had one yet. */
+  sendInvites(meetingId: string, opts?: { onlyNew?: boolean }): Promise<SendReport>;
+  /** Who an invitation would go to and anything to fix first — sends nothing. */
+  previewInvites(meetingId: string): Promise<InvitePreview>;
   /** Cancel the event in invitees' calendars. Pass the record when the meeting is already deleted. */
   sendCancellation(meetingId: string, opts?: { meeting?: MeetingRecord }): Promise<DeliveryReport>;
   /** Remove the event from one attendee's calendar after they were taken off an invited meeting. */
   sendAttendeeRemoved(meetingId: string, attendee: AttendeeRecord): Promise<DeliveryReport>;
-  sendMinutes(meetingId: string, pdf: Buffer): Promise<DeliveryReport>;
+  /** Email the minutes PDF; `only` limits it to some of the meeting's own recipients (by email). */
+  sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[] }): Promise<SendReport>;
+  /** The minutes email exactly as it would be sent, and to whom — sends nothing. */
+  previewMinutes(meetingId: string): Promise<MinutesPreview>;
   runReminderSweep(leadMs: number): Promise<{ meetings: number; sent: number; failed: number }>;
 }
 
@@ -100,20 +158,66 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     return null;
   }
 
-  /** Organizer + attendees, resolved to {name,email}, deduped by lowercased email. */
-  async function recipientsFor(m: MeetingRecord): Promise<{ people: NotifyPerson[]; icsAttendees: IcsPerson[]; organizer: NotifyPerson | null }> {
-    const byEmail = new Map<string, NotifyPerson>();
+  /**
+   * Organizer + attendees, resolved to {name,email}, deduped by lowercased email (the organizer
+   * first, then the roster in order); attendees without an address are listed separately.
+   */
+  async function recipientsFor(m: MeetingRecord): Promise<{
+    people: NotifyPerson[];
+    recipients: Recipient[];
+    missingEmail: Array<{ name: string; attendeeId: string }>;
+    icsAttendees: IcsPerson[];
+    organizer: NotifyPerson | null;
+  }> {
+    const byEmail = new Map<string, Recipient>();
+    const invited = new Map<string, boolean[]>();
+    const missingEmail: Array<{ name: string; attendeeId: string }> = [];
     const icsAttendees: IcsPerson[] = [];
     const organizer = await deps.resolveUser(m.organizerId);
-    if (organizer?.email) byEmail.set(organizer.email.toLowerCase(), organizer);
+    if (organizer?.email) {
+      byEmail.set(organizer.email.toLowerCase(), { name: organizer.name, email: organizer.email, kind: 'organizer', attendeeIds: [], alreadyInvited: false });
+    }
 
     for (const a of await attendees.listByMeeting(m.id)) {
       const person = await personFor(a);
-      if (!person?.email) continue;
-      byEmail.set(person.email.toLowerCase(), person);
+      if (!person?.email) {
+        missingEmail.push({ name: a.userId ? person?.name ?? 'A team member' : a.externalName ?? 'A guest', attendeeId: a.id });
+        continue;
+      }
+      const key = person.email.toLowerCase();
+      const r = byEmail.get(key) ?? { name: person.name, email: person.email, kind: a.userId ? 'member' : 'guest', attendeeIds: [], alreadyInvited: false };
+      r.attendeeIds.push(a.id);
+      byEmail.set(key, r);
+      invited.set(key, [...(invited.get(key) ?? []), a.invitedAt != null]);
       icsAttendees.push({ name: person.name, email: person.email, role: a.role });
     }
-    return { people: [...byEmail.values()], icsAttendees, organizer };
+    const recipients = [...byEmail.entries()].map(([key, r]) => {
+      const rows = invited.get(key);
+      return { ...r, alreadyInvited: rows ? rows.every(Boolean) : m.invitesSentAt != null };
+    });
+    return { people: recipients.map((r) => ({ name: r.name, email: r.email })), recipients, missingEmail, icsAttendees, organizer };
+  }
+
+  /** What to fix (error) or look at (warning) before invitations go out. */
+  function inviteProblems(m: MeetingRecord, recipients: Recipient[], missingEmail: Array<{ name: string }>): SendProblem[] {
+    const problems: SendProblem[] = [];
+    if (m.status === 'CANCELLED') problems.push({ level: 'error', message: 'This meeting is cancelled — invitations can’t be sent.' });
+    if (!recipients.some((r) => r.kind !== 'organizer')) {
+      problems.push({ level: 'error', message: 'Add at least one attendee with an email address to invite.' });
+    }
+    const at = now().getTime();
+    if ((m.endAt ?? m.startAt).getTime() < at) problems.push({ level: 'warning', message: 'This meeting has already ended.' });
+    else if (m.startAt.getTime() < at) problems.push({ level: 'warning', message: 'This meeting has already started.' });
+    if (!m.location && !m.onlineLink) problems.push({ level: 'warning', message: 'Add a place or a meeting link so people know where to join.' });
+    if (missingEmail.length > 0) {
+      const n = missingEmail.length;
+      problems.push({ level: 'warning', message: `${n} attendee${n === 1 ? ' has' : 's have'} no email address and won’t get an invitation.` });
+    }
+    return problems;
+  }
+
+  function report(r: DeliveryReport & { results: RecipientResult[] }, missingEmail: Array<{ name: string }>): SendReport {
+    return { sent: r.sent, failed: r.failed, recipients: r.results, skipped: missingEmail.map((x) => ({ name: x.name, reason: 'no email address' })) };
   }
 
   async function emailParams(m: MeetingRecord, organizer: NotifyPerson | null): Promise<MeetingEmailParams> {
@@ -160,34 +264,45 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     organizer ?? { name: m.organizerId, email: `${m.organizerId}@invalid.local` };
 
   /** Send to each recipient on its own, so one bad address never stops (or hides) the rest. */
-  async function deliver(
+  async function deliver<P extends NotifyPerson>(
     m: MeetingRecord,
     kind: string,
-    people: NotifyPerson[],
-    send: (p: NotifyPerson) => Promise<void>,
-  ): Promise<DeliveryReport & { notConfigured: boolean }> {
+    people: P[],
+    send: (p: P) => Promise<void>,
+  ): Promise<DeliveryReport & { notConfigured: boolean; results: Array<P & { ok: boolean; error?: string }> }> {
     let sent = 0;
     let failed = 0;
     let notConfigured = 0;
+    const results: Array<P & { ok: boolean; error?: string }> = [];
     for (const p of people) {
       try {
         await send(p);
         sent++;
+        results.push({ ...p, ok: true });
       } catch (err) {
         failed++;
         if (err instanceof EmailNotConfiguredError) notConfigured++;
+        results.push({ ...p, ok: false, error: err instanceof EmailNotConfiguredError ? 'Email isn’t set up on this server.' : 'The mail server didn’t accept it.' });
         deps.logger?.error(`meeting ${kind} email failed`, { err, meetingId: m.id });
       }
     }
-    return { sent, failed, notConfigured: failed > 0 && notConfigured === failed };
+    return { sent, failed, notConfigured: failed > 0 && notConfigured === failed, results };
   }
 
+  const resultOf = (r: Recipient & { ok: boolean; error?: string }): RecipientResult => ({
+    name: r.name,
+    email: r.email,
+    kind: r.kind,
+    ok: r.ok,
+    ...(r.error ? { error: r.error } : {}),
+  });
+
   /** An explicit send that reached nobody because email isn't set up is an error, not "sent to 0". */
-  function assertConfigured(r: DeliveryReport & { notConfigured: boolean }): DeliveryReport {
+  function assertConfigured<R extends DeliveryReport & { notConfigured: boolean }>(r: R): R {
     if (r.sent === 0 && r.notConfigured) {
       throw new HttpError('Email sending is not configured, so nothing was sent.', 'EMAIL_NOT_CONFIGURED', 503);
     }
-    return { sent: r.sent, failed: r.failed };
+    return r;
   }
 
   async function cancelFor(m: MeetingRecord, only?: AttendeeRecord): Promise<DeliveryReport> {
@@ -207,16 +322,27 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
   }
 
   return {
-    async sendInvites(meetingId) {
+    async sendInvites(meetingId, opts) {
       const m = await requireMeeting(meetingId);
       if (m.status === 'CANCELLED') throw new ConflictError('This meeting is cancelled — invitations cannot be sent.');
-      const { people, icsAttendees, organizer } = await recipientsFor(m);
+      const { recipients, missingEmail, icsAttendees, organizer } = await recipientsFor(m);
+      const targets = opts?.onlyNew ? recipients.filter((r) => !r.alreadyInvited) : recipients;
       const params = await emailParams(m, organizer);
       const ics = icsFor(m, 'REQUEST', organizerOf(m, organizer), icsAttendees);
-      const r = await deliver(m, 'invitation', people, (p) => email.sendMeetingInvite(p.email, params, ics));
+      const r = assertConfigured(await deliver(m, 'invitation', targets, (p) => email.sendMeetingInvite(p.email, params, ics)));
       // Only a delivered invitation counts as "invites sent" (it later drives cancellation notices).
-      if (r.sent > 0) await meetings.markInvitesSent(m.id, now());
-      return assertConfigured(r);
+      if (r.sent > 0) {
+        const at = now();
+        await meetings.markInvitesSent(m.id, at);
+        await attendees.markInvited?.(r.results.filter((x) => x.ok).flatMap((x) => x.attendeeIds), at);
+      }
+      return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, opts?.onlyNew ? [] : missingEmail);
+    },
+
+    async previewInvites(meetingId) {
+      const m = await requireMeeting(meetingId);
+      const { recipients, missingEmail } = await recipientsFor(m);
+      return { recipients, missingEmail, problems: inviteProblems(m, recipients, missingEmail), invitesSentAt: m.invitesSentAt };
     },
 
     async sendCancellation(meetingId, opts) {
@@ -231,12 +357,24 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       return cancelFor(m, attendee);
     },
 
-    async sendMinutes(meetingId, pdf) {
+    async sendMinutes(meetingId, pdf, opts) {
       const m = await requireMeeting(meetingId);
-      const { people, organizer } = await recipientsFor(m);
+      const { recipients, missingEmail, organizer } = await recipientsFor(m);
+      // Only the meeting's own people can be chosen — never an arbitrary address.
+      const chosen = opts?.only ? new Set(opts.only.map((e) => e.trim().toLowerCase())) : null;
+      const targets = chosen ? recipients.filter((r) => chosen.has(r.email.toLowerCase())) : recipients;
+      if (chosen && targets.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
       const params = await emailParams(m, organizer);
       const attachment: EmailAttachment = { filename: `minutes-${slugify(m.title)}.pdf`, contentType: 'application/pdf', content: pdf };
-      return assertConfigured(await deliver(m, 'minutes', people, (p) => email.sendMeetingMinutes(p.email, params, attachment)));
+      const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => email.sendMeetingMinutes(p.email, params, attachment)));
+      return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, chosen ? [] : missingEmail);
+    },
+
+    async previewMinutes(meetingId) {
+      const m = await requireMeeting(meetingId);
+      const { recipients, missingEmail, organizer } = await recipientsFor(m);
+      const content = meetingMinutesEmail(await emailParams(m, organizer));
+      return { subject: content.subject, html: content.html, text: content.text, attachmentName: `minutes-${slugify(m.title)}.pdf`, recipients, missingEmail };
     },
 
     async runReminderSweep(leadMs) {

@@ -3,6 +3,28 @@
 MICO360 Tasks sends email through **Mailjet** (Send API v3.1): login OTP codes, password-reset
 links, task-assigned notifications, and welcome emails.
 
+## Sign-in with an emailed code
+
+The sign-in page (web and Android) offers **Password** and **Email code**. "Email code" — and
+"Forgot password?" — appear only when the server can send email, i.e. when `MAILJET_API_KEY` and
+`MAILJET_SECRET_KEY` are set; without them the page says to ask an administrator instead.
+
+How it works: the person enters their email or username and gets a one-time code (6 digits by
+default, `OTP_LENGTH`), valid for 10 minutes (`OTP_TTL_SECONDS`; the email states the real time).
+A code works once; three wrong guesses end it, and ten wrong guesses in an hour block codes for that
+account for an hour. At most one code a minute (five an hour) is sent per account, and the page's
+"Resend code" counts down that minute. The answer never reveals whether an account exists. A
+correct code also clears a password lockout.
+
+**To turn it on in production:** set the two Mailjet keys (rotated — see below) and a verified
+`MAIL_FROM` in the server's environment, restart the server, then sign out and check that the
+sign-in page shows "Email code".
+
+**On a development computer** without Mailjet keys, set `EMAIL_OUTBOX_DIR` to a folder: every email
+(codes, reset links, invitations) is then saved there as an `.html` file (open it in a browser) and
+a `.txt` file instead of being sent, and the sign-in page offers "Email code". This setting is
+ignored in production.
+
 ## Deliverability setup (do this before go-live)
 
 In your DNS, for the domain in `MAIL_FROM`:
@@ -46,5 +68,7 @@ no Mailjet keys configured, email-dependent actions answer 503 `EMAIL_NOT_CONFIG
   inbox (`POST /api/v1/auth/otp/request`) and confirm delivery, DKIM pass, and that it lands in
   the inbox (not spam). Use Mailjet's live dashboard + a tool like mail-tester.com to check the
   SPF/DKIM/DMARC score.
-- In development the Mailjet keys are blank; the transport call returns a non-OK result instead
-  of throwing, so flows keep working without delivering mail.
+- In development the Mailjet keys are blank, so email features are off (503
+  `EMAIL_NOT_CONFIGURED`) unless `EMAIL_OUTBOX_DIR` is set — then every email is saved to that folder
+  (see "Sign-in with an emailed code" above), which is how the email-code sign-in is tested end to
+  end on a local server.

@@ -1,14 +1,14 @@
-# MICO360 Tasks 0.3.0 — ready to deploy
+# MICO360 Tasks 0.4.0 — ready to deploy
 
 One folder for each place the system installs. Each folder holds the package for that place and a
 `README.md` with the steps.
 
 | Folder | Environment | Package |
 | --- | --- | --- |
-| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 20+ and MySQL 8) | `MICO360-Tasks-Server-Hostinger-0.3.0.zip` and the live settings file |
-| [`2-Windows-Office-Server/`](2-Windows-Office-Server/README.md) | A complete server on one Windows 10/11 computer, for an office network | `MICO360-Tasks-Server-Setup-0.3.0.exe` |
-| [`3-Android-App/`](3-Android-App/README.md) | Android 6.0+ phones | `MICO360-Tasks-0.3.0.apk` |
-| [`4-Chrome-Extension/`](4-Chrome-Extension/README.md) | Chrome and Edge | `MICO360-Tasks-Chrome-Extension-0.3.0.zip` |
+| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 20+ and MySQL 8) | `MICO360-Tasks-Server-Hostinger-0.4.0.zip` and the live settings file |
+| [`2-Windows-Office-Server/`](2-Windows-Office-Server/README.md) | A complete server on one Windows 10/11 computer, for an office network | `MICO360-Tasks-Server-Setup-0.4.0.exe` |
+| [`3-Android-App/`](3-Android-App/README.md) | Android 6.0+ phones | `MICO360-Tasks-0.4.0.apk` |
+| [`4-Chrome-Extension/`](4-Chrome-Extension/README.md) | Chrome and Edge | `MICO360-Tasks-Chrome-Extension-0.4.0.zip` |
 
 `SHA256SUMS.txt` lists the checksum of every package.
 
@@ -24,51 +24,162 @@ The packages are built from this repository by `node tools/release/build-release
 Windows installer, extension) and `bash tools/release/build-apk.sh` (Android). The binaries and the
 live settings file are not committed to git; the guides are.
 
-## What's new in 0.3.0
+## Upgrading from 0.3.0
 
-- **Recurring tasks, everywhere:**
-  - Set a repeat when creating a task, or later, in the web app, the Chrome extension or the Android
-    app. All three share one rule on the server.
-  - Schedules: daily; weekly on chosen days; monthly or quarterly on a date or on "the 2nd Tuesday" /
-    "the last Friday"; yearly. Every N periods; ends never, after N tasks or on a date; pause and
-    resume.
-  - The next copy is made when the task is done (never already overdue), or on each due date even if
-    it isn't done. It keeps the details, assignees, watchers, tags and checklist.
-  - No duplicates: the database allows one next copy per task, even when it is completed from
-    several apps at once.
-  - Deleting just the newest copy skips it, and the series carries on.
-  - Full guide: [docs/RECURRING-TASKS.md](../docs/RECURRING-TASKS.md).
-- **Reports and exports, everywhere:**
-  - Export the **full report** (summary, status, projects, team workload, trend and every task) or a
-    single report as a formatted **Excel** workbook or a **PDF** in the MICO360 style: logo, brand
-    colours and fonts, page numbers, tables that continue across pages with their headers. CSV too.
-  - Exports follow the filters on screen: project, team member and period. The file name says so,
-    e.g. `tasks-report-rig-inspection-portal-2026-10-01.pdf`.
-  - Any task can be exported on its own (details, checklist, comments, files, dependencies and
-    history), by anyone who can open it.
-  - The Chrome extension and the Android app have a **Reports** screen for administrators, and an
-    **Export** button on each task. On the phone the file opens in the share sheet: open it in Excel
-    or a PDF viewer, or save it to Files or Drive.
+Your data is kept. 0.4.0 adds four database migrations. They only add columns, and they are applied
+automatically when the new version is deployed:
+
+| Migration | What it adds |
+| --- | --- |
+| `20261010120000_meeting_attendee_response` | Each attendee's answer (accept / maybe / decline) and when they were invited. People already on a meeting whose invitations went out are marked as invited. |
+| `20261010140000_chat_prefs_replies_retries` | Per-person chat settings (favourite, archived, muted, delivered), replies, and a send id so a retried message is never stored twice. |
+| `20261010180000_user_date_preferences` | Each person's own time zone and first day of the week (empty = the company's). |
+| `20261010200000_project_icon` | A project's icon. |
+
+- **Web server (folder 1):** back up the database first (hPanel → Databases → Backups, or
+  `mysqldump`). Then follow "Later updates" in its guide: upload the new `backend/` and
+  `public_html/`, keep `.env`, run `bash deploy.sh` and restart.
+- **Windows office server (folder 2):** run the new Setup on the same computer.
+- **Android app (folder 3):** install it over 0.3.0. It is signed with the same key.
+- **Chrome extension (folder 4):** replace the unpacked folder, or upload the new zip to the Chrome
+  Web Store.
+
+## What's new in 0.4.0
+
+- **Task details panel (web), redesigned:**
+  - Compact: two columns on a computer, one on a phone.
+  - Every field is edited in place and shows "Saving…", "Saved" or what went wrong.
+  - Edit, reorder and tick checklist steps; ask the AI to suggest steps, then review them before
+    anything is added.
+  - Drag files in, with upload progress.
+  - Pick blockers by searching.
+  - A compact activity timeline. It now also records field changes, removed assignees, checklist
+    steps, comments, files and blockers.
+- **New task and Edit task (web):**
+  - One form for both, opened from the board, the task list or "Edit task" in the details panel.
+  - Describe the task in plain English, then review the suggested fields before using them.
+  - Assignees as chips, and the repeat settings in their own panel.
+  - The form remembers the last project.
+- **Projects (web):**
+  - A new New/Edit project form.
+  - Each project has a picture: an uploaded image (cropped in the browser), an icon on its colour,
+    or its initials. It is shown on lists, boards, reports and meetings.
+  - Project codes are checked as you type.
+- **Meetings (web), redesigned:**
+  - The list and details pages are compact and work on a phone and right to left.
+  - The main button depends on the meeting's status.
+  - Attendees answer Accept / Maybe / Decline.
+  - Invitations show who will get them first; people added later can be invited without
+    re-sending to everyone. Sending to everyone twice is refused.
+  - Minutes: preview them, choose the recipients, and get a clearer PDF with tables and a summary.
+  - Turning a meeting note into a task also creates its action item.
+- **Chat (web), rebuilt:**
+  - The conversation list has search, sections, favourites, mute and archive.
+  - The header shows who is online.
+  - Messages are grouped, with read receipts.
+  - Messages can be replied to, copied, reacted to, edited and deleted, with the mouse, the
+    keyboard or touch.
+  - The message box has emoji, @mentions and drafts. Files upload with progress and can be retried.
+  - Messages written offline are kept and sent when the connection is back, never twice.
+  - Live updates never show a message twice.
+- **Calendar (web), rebuilt:**
+  - Month, week and agenda views.
+  - Filters are kept across views, and the legend shows status at a glance (red means overdue
+    only).
+  - Busy days show a list of their tasks, and a task opens in a preview.
+  - Reschedule by dragging or with the keyboard, with undo. For a repeating task, choose this copy
+    or the whole series.
+  - Upcoming repeats are shown before they exist.
+  - Settings → "Calendar & dates" holds your own time zone and first day of the week.
+- **@mentions:** task comments now suggest people as you type "@", in the web app and the Android
+  app. Chat does too. A mention notifies that person.
+- **Email-code sign-in:**
+  - Web: the code box gets focus, "Resend code" counts down, and a wrong code is easy to retype.
+  - Android: "Email code" appears only when the server can send email.
+  - The email states how long the code lasts.
+- **Download for Android:** the sign-in page's button downloads the site's own APK from one
+  unchanging address, `/downloads/MICO360-Tasks.apk`. A new build replaces that file, and the
+  button never sends anyone to GitHub. The site package carries the APK in `public_html/downloads/`.
+  Until the file is there, the button says "Not available yet".
 - **Android app:**
-  - Attach files to tasks from the phone, then open or remove them.
-  - A **Details** screen for each project: progress, dates, team and managers, and shortcuts to the
-    board and chat.
-  - Choose which notifications you get and when "due soon" reminders arrive (shared with the web app).
-  - Long-press a card on the board to move it to another column.
-  - Privacy policy and terms links.
-- **Web app:**
-  - Public **Privacy** and **Terms** pages. The sign-in page's links to them were dead before.
-  - **Download my data** on the Profile page.
-  - **Undo** after deleting a meeting note: notes are now kept on the server and can be restored.
-  - The **Download for Android** button works: it points to the server's own APK, the configured
-    `ANDROID_APP_URL`, or the latest GitHub release.
-- **Security:**
-  - AI provider requests connect to the address that was checked, so a DNS answer that changes
-    between the check and the connection can't reach an internal server.
-  - Redirects from AI providers are refused.
-- **Data repair:** a migration gives older projects that have no board columns the default board.
-- **Deployment:** the backend's own `package-lock.json` is now in the repository, so deploying from
-  git installs exactly the tested versions. CI checks that it stays in sync.
+  - @mentions in task comments and chat.
+  - The email-code sign-in above.
+  - A clear message when a task can't be opened (deleted, no access, offline).
+- **Fixes found in testing:**
+  - Meeting agenda and action-item rows were squeezed on narrow screens.
+  - The meetings filter row wrapped badly.
+  - Meeting title links were too small to tap.
+  - The calendar now uses the compact month below 1024 px.
+  - Menus return focus to their button.
+  - Task detail rows wrap at large text sizes.
+- **Windows installer:** each program now contains only the code it uses. The launcher no longer
+  carries the uninstaller's clean-up code, which Kaspersky's heuristics flagged.
+
+Not in this release: the Android app's chat and calendar, and project pictures in the Android app
+and the Chrome extension, are unchanged.
+
+## How these builds were tested (October 2026)
+
+- **Unit and component tests (14 October, on 0.4.0):**
+  - backend 1,385 · web 1,024 · Android 424 · extension 207, all passing;
+  - typecheck and lint clean in every app;
+  - the Android production bundle builds.
+- **MySQL 8.0 (14 October):**
+  - A fresh database takes all 16 migrations with no schema drift.
+  - Prisma integration tests passed 10 of 10.
+  - The backend's own lockfile installs cleanly (`npm ci`).
+- **Upgrade from 0.3.0, web-server package (14 October):**
+  - The 0.3.0 package was deployed with `deploy.sh` on an empty test database, and the acceptance
+    test passed 83 of 83 on it. A meeting with sent invitations was added.
+  - The 0.4.0 package was deployed over it with the guide's "Later updates" step. It applied the
+    four new migrations and nothing else.
+  - Every table and row was kept: 46 tables, 97 rows, the same before and after.
+  - The two people on the meeting when its invitations went out were marked as invited; the person
+    added later was not.
+  - The acceptance test passed 83 of 83 on the upgraded server, and its sign-in page loaded.
+- **Windows installer 0.4.0 (14 October):**
+  - Kaspersky found the launcher, the uninstaller and Setup clean. The build also checks that each
+    program is still there afterwards and inside the installer: a first 0.4.0 build lost its
+    launcher to real-time protection after a clean scan.
+  - Silent install into a test folder: a new database with all 16 migrations and the administrator.
+    The acceptance test passed 83 of 83.
+  - Running the same Setup again over the running server stopped it, kept the database and restarted
+    cleanly. All 47 tables and 115 rows were unchanged, and the acceptance test passed 83 of 83 again.
+  - The uninstall removed the program, the data and the Apps & features entry.
+  - The 0.3.0 installer couldn't be used to rehearse an upgrade: Kaspersky's current signatures
+    detect it, and Windows refused to run it. Don't hand out 0.3.0 any more. The same migrations were
+    tested from 0.3.0 with the web-server package (above).
+- **Chrome extension 0.4.0:** the zip holds manifest version 0.4.0 and 43 files, with no test
+  helpers.
+- **Feature tests in a real browser (10 October, desktop and phone):**
+  - task form 69 · project form 97 · calendar 64 · meetings 78 · meeting form 30 · chat 90;
+  - chat by keyboard and touch 12 · task details 73 + 11 + 31, with no accessibility (axe)
+    violations · task details AI 12;
+  - email-code sign-in 24 · Download for Android 19;
+  - the page crawls and the four end-to-end flows;
+  - the live-API lifecycle 15 of 15, and the acceptance test 83 of 83.
+- **Chrome extension (10 October):** the board 10 of 10, recurring tasks 15 of 15, reports 20 of 20.
+- **Android test build on an Android 14 emulator (10 October):** email-code sign-in 12, task details
+  40, task delete 2.
+- **Android APK 0.4.0:** not built yet. `bash tools/release/build-apk.sh` needs the release
+  keystore's password. Once it is built, the Windows installer and the web-server package are
+  rebuilt so both carry it, and `SHA256SUMS.txt` is regenerated.
+
+## What was new in 0.3.0
+
+- **Recurring tasks** in the web app, the Chrome extension and the Android app, all sharing one rule
+  on the server, with a database guard against duplicate copies
+  ([docs/RECURRING-TASKS.md](../docs/RECURRING-TASKS.md)).
+- **Reports and exports:** the full report or any single report as a formatted Excel workbook or a
+  branded PDF (or CSV), following the filters on screen; any task can be exported on its own.
+- **Android app:** file attachments, project details, notification choices, long-press to move a
+  card.
+- **Web app:** Privacy and Terms pages, "Download my data", undo after deleting a meeting note.
+- **Security:** AI provider requests connect only to the address that was checked, and redirects
+  are refused.
+- **Deployment:** the backend's own `package-lock.json`, checked in CI.
+
+The full 0.3.0 notes and test results are in git history (commit `524fc8e`).
 
 ## What was new in 0.2.0
 
@@ -76,106 +187,12 @@ live settings file are not committed to git; the guides are.
   app and Chrome extension can connect to an office-network server; built-in roles on new databases;
   Arabic reading order in the Chrome extension.
 
-## How these builds were tested (1 October 2026)
+## Antivirus note
 
-- **Unit and component tests:** backend 1,233 · web 528 · Android 357 · extension 207, all passing,
-  with typecheck and lint clean. A test fails if the web or Android copy of the recurrence code ever
-  differs from the server's.
-- **MySQL 8.0:**
-  - A fresh database takes all 12 migrations with no schema drift.
-  - The seeded development database took the new ones, and the repair migration fixed its 8
-    existing series.
-  - Prisma integration tests passed 10 of 10. They include:
-    - three simultaneous completions of one task making exactly one copy;
-    - an on-schedule series making one copy per date however often its job runs;
-    - archived and completed projects making no more copies.
-  - The end-to-end workflow passed 15 of 15.
-- **Windows installer 0.3.0:**
-  - Silent install; Kaspersky found all three programs clean.
-  - `tools/release/verify-server.mjs` passed 85 of 85. That adds 22 recurring-task checks and 8
-    export checks (below). The recurring-task checks cover:
-    - the next copy's date, details, assignees, tags and unticked checklist;
-    - no second copy when the old one is completed again, or by three apps at once;
-    - "the last Friday", and "the 20th" for a task due on the 10th;
-    - an earlier copy can't start a second series;
-    - the newest copy can switch its repeat off and on again;
-    - skip on delete, and deleting the entire series.
-  - The bundled Android app is byte-identical to the APK here.
-  - The uninstall removed everything.
-- **Hostinger package:**
-  - Clean extract, then `deploy.sh`: `npm ci` from its lockfile (307 packages), 12 migrations on a
-    fresh database with no drift, and the first administrator created.
-  - `npm ci` installs from the refreshed backend lockfile, which now includes the PDF fonts.
-  - The acceptance test passed 83 of 83.
-- **API scenarios** (25 of 25): next due dates for daily, weekly (chosen days, every 2 weeks),
-  monthly (a date, the last day, "the 2nd Tuesday", "the last Friday"), quarterly and yearly, early
-  and late completion, "after N", "until", pause, five simultaneous completions, and re-enabling.
-- **On-schedule repeats** (local server): a daily series that was three days behind got exactly one
-  copy dated today. Running the job again made none.
-- **Web app** (browser):
-  - Created "monthly on the last Friday" from the board. The editor previewed Nov 27 · Dec 25 · Jan 29.
-  - Completing it showed the next copy, due 27 Nov, still assigned.
-  - The completed task is shown as part of its series.
-  - The New task dialog now scrolls on short screens.
-- **Chrome extension 0.3.0** (the zip), 11 of 11 checks:
-  - set a weekly repeat on Sunday and Thursday in the task drawer;
-  - the card shows the repeat icon;
-  - dragging it to Done made exactly one copy, on the next Sunday, and the board showed it.
-- **Android APK 0.3.0** on an Android 14 emulator:
-  - Set a weekly repeat in task details, completed the task, and got one copy on the next Sunday.
-  - Created a monthly repeating task from the board and switched it to "the last Friday".
-  - A copy made from outside the phone appeared live.
-  - A completion made **offline** synced on reconnect and made exactly one copy.
-  - The series stayed one task per date, with one rule.
-
-### Clean-start rehearsal (2 October 2026)
-
-- The web-server package was deployed the way its guide says: extract, upload `environment.txt` as
-  `.env`, one `deploy.sh` command on an empty database.
-- The server started in production mode with the live settings. Checks, 11 of 11:
-  - the administrator signs in by email and by username;
-  - exactly one user exists, with no projects and no tasks;
-  - the old demo account can't sign in;
-  - an empty report still exports as a PDF.
-- The acceptance test then passed 83 of 83 on that server (in a throwaway database).
-- The demo seed refused to run on a database holding the real administrator.
-
-### Reports and exports (1 October 2026)
-
-- **Acceptance test, 8 export checks** (Windows install and Hostinger deploy):
-  - the full report as `.xlsx`: a sheet per section, the project filter applied, Arabic intact,
-    named after its filter;
-  - the full report as a PDF with the logo;
-  - a task as `.xlsx` and as PDF, by its assignee;
-  - employees can't export reports (403), and an unknown task can't be exported (404).
-- **Files checked with PyMuPDF and openpyxl:**
-  - No PDF text falls outside the page or under the footer.
-  - The brand fonts are embedded: Archivo, IBM Plex Sans, Noto Naskh Arabic.
-  - Workbooks have bold, frozen headers and sized columns.
-  - Filtered files hold only the filtered rows: 223 of 312 tasks for one project; 7 trend days for a
-    7-day period.
-- **Web app** (browser):
-  - The Reports page exported the project-filtered full report as Excel and PDF, named
-    `tasks-report-rig-inspection-portal-2026-10-01.*`.
-  - The task drawer's Export menu downloaded a task with an Arabic title as PDF and Excel.
-- **Chrome extension**, 20 of 20 checks:
-  - Reports appears only for administrators.
-  - Totals, tables and the period chart appear.
-  - Full-report and filtered exports work in Excel, PDF and CSV.
-  - Task exports work as Excel and PDF.
-  - An employee is told reports are for administrators.
-  - No script errors.
-- **Android APK** on an Android 14 emulator:
-  - Reports appears only in an administrator's menu.
-  - Filtering by project showed its 11 tasks.
-  - Excel, PDF and CSV exports opened the share sheet under the server's file names.
-  - The PDF rendered in Android's print preview: 4 pages with the logo, tables and page numbers.
-  - Task export worked as PDF and Excel.
-
-### Antivirus note
-
-These programs aren't code-signed yet. During testing, Kaspersky's heuristic scanner flagged one build
-of the launcher as `VHO:Trojan.Win32.Sdum.gen`, a false positive that changed with nothing more than
-the order of source files. The build now scans every program with Kaspersky when it's installed and
-stops if anything is flagged. For customers, sign the programs with a code-signing certificate and
-report the false positive to Kaspersky; both make warnings far less likely.
+These programs aren't code-signed yet. Kaspersky's heuristic scanner has flagged unsigned builds of
+the launcher as false positives: `VHO:Trojan.Win32.Sdum.gen` in 0.3.0 (the verdict changed with
+nothing more than the order of source files) and `VHO:Trojan.Win32.SelfDel.gen` in the first 0.4.0
+build (fixed by leaving the uninstaller's clean-up code out of the launcher). The build scans every
+program with Kaspersky when it's installed and stops if anything is flagged. For customers, sign the
+programs with a code-signing certificate and report false positives to Kaspersky; both make warnings
+far less likely.

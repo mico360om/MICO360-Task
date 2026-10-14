@@ -13,11 +13,11 @@ const CONTACT = 'support@mico360.com';
 
 function LegalLayout({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-ground px-5 py-10 sm:px-8">
+    <main className="min-h-screen bg-ground px-5 py-10 sm:px-8">
       <article className="mx-auto max-w-3xl rounded-2xl border border-line bg-surface p-6 shadow-soft sm:p-10">
         <div className="mb-8 flex items-center justify-between gap-4">
           <Logo size={40} />
-          <Link to="/login" className="text-sm font-semibold text-brand hover:underline">
+          <Link to="/login" className="tap text-sm font-semibold text-brand hover:underline">
             Back to sign in
           </Link>
         </div>
@@ -25,7 +25,7 @@ function LegalLayout({ title, children }: { title: string; children: ReactNode }
         <p className="mt-1 text-sm text-ink-3">Last updated {UPDATED}</p>
         <div className="mt-8 space-y-7 text-[15px] leading-relaxed text-ink-2">{children}</div>
       </article>
-    </div>
+    </main>
   );
 }
 
@@ -176,7 +176,7 @@ export function TermsPage() {
 
       <Section title="Contact">
         <p>
-          <a className="font-semibold text-brand hover:underline" href={`mailto:${CONTACT}`}>{CONTACT}</a>
+          <a className="tap font-semibold text-brand hover:underline" href={`mailto:${CONTACT}`}>{CONTACT}</a>
         </p>
       </Section>
     </LegalLayout>

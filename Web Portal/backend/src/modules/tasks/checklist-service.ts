@@ -18,9 +18,21 @@ export function summaryFromItems(items: { done: boolean }[]): { done: number; to
 export interface ChecklistServiceDeps {
   repo: ChecklistRepository;
   taskLookup: TaskLookup;
+  /** Told the checklist's new percentage after every change, so the task's own progress can follow it. */
+  onProgress?: (taskId: string, percent: number) => void | Promise<void>;
 }
 
-export function createChecklistService({ repo, taskLookup }: ChecklistServiceDeps) {
+export function createChecklistService({ repo, taskLookup, onProgress }: ChecklistServiceDeps) {
+  /** Best effort: a checklist change is never undone because the progress could not be passed on. */
+  async function report(taskId: string): Promise<void> {
+    if (!onProgress) return;
+    try {
+      await onProgress(taskId, progressFromItems(await repo.list(taskId)));
+    } catch {
+      /* the checklist itself was saved */
+    }
+  }
+
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
@@ -28,7 +40,9 @@ export function createChecklistService({ repo, taskLookup }: ChecklistServiceDep
   async function addItem(taskId: string, text: string): Promise<ChecklistItemRecord> {
     await ensureTask(taskId);
     const items = await repo.list(taskId);
-    return repo.add(taskId, text, items.length);
+    const added = await repo.add(taskId, text, items.length);
+    await report(taskId);
+    return added;
   }
 
   /** An item of a live task; NotFound for an unknown id (callers check access to `taskId`). */
@@ -39,8 +53,10 @@ export function createChecklistService({ repo, taskLookup }: ChecklistServiceDep
   }
 
   async function toggleItem(itemId: string, done: boolean): Promise<ChecklistItemRecord> {
-    await getItem(itemId);
-    return repo.toggle(itemId, done);
+    const { taskId } = await getItem(itemId);
+    const toggled = await repo.toggle(itemId, done);
+    await report(taskId);
+    return toggled;
   }
 
   async function editItem(itemId: string, text: string): Promise<ChecklistItemRecord> {
@@ -61,8 +77,10 @@ export function createChecklistService({ repo, taskLookup }: ChecklistServiceDep
   }
 
   async function removeItem(itemId: string): Promise<{ taskId: string } | null> {
-    await getItem(itemId);
-    return repo.remove(itemId);
+    const { taskId } = await getItem(itemId);
+    const removed = await repo.remove(itemId);
+    await report(taskId);
+    return removed;
   }
 
   async function progress(taskId: string): Promise<number> {

@@ -55,6 +55,14 @@ describe('AssigneeService', () => {
     expect(list.map((u) => u.username)).toEqual(['omar']);
   });
 
+  it('fires onUnassigned with who was removed and who removed them (for the activity timeline)', async () => {
+    const calls: unknown[] = [];
+    const s = createAssigneeService({ ...inMemory(['t1']), onUnassigned: (taskId, userId, actorId) => { calls.push({ taskId, userId, actorId }); } });
+    await s.assignUsers('t1', ['u1']);
+    await s.unassignUser('t1', 'u1', 'u9');
+    expect(calls).toEqual([{ taskId: 't1', userId: 'u1', actorId: 'u9' }]);
+  });
+
   it('fires onAssigned with the assigned user ids (for notifications/activity)', async () => {
     const calls: { taskId: string; userIds: string[] }[] = [];
     const mem = inMemory(['t1']);

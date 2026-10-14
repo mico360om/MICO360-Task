@@ -1,5 +1,5 @@
 import { ForbiddenError, NotFoundError } from '../../lib/http-errors';
-import type { CommentRecord, CommentRepository } from './comment-repository';
+import type { CommentRecord, CommentRepository, MentionablePerson } from './comment-repository';
 import type { TaskLookup } from './assignee-repository';
 import { matchMentions, parseMentions } from './mentions';
 
@@ -13,7 +13,7 @@ export interface CommentServiceDeps {
    * Fired when a new comment @mentions users, with their exact usernames. When the repository
    * lists who can open the task, only those users are ever passed here.
    */
-  onMention?: (taskId: string, authorId: string, usernames: string[]) => void | Promise<void>;
+  onMention?: (taskId: string, authorId: string, usernames: string[], body?: string) => void | Promise<void>;
   /** Fired on every new comment (used to notify the task's assignees, excluding the author). */
   onComment?: (taskId: string, authorId: string, commentId: string) => void | Promise<void>;
 }
@@ -44,7 +44,7 @@ export function createCommentService({ repo, taskLookup, onMention, onComment }:
         ? matchMentions(body, await repo.listMentionableUsernames(taskId))
         : parseMentions(body);
     }
-    if (mentions.length > 0) await onMention?.(taskId, userId, mentions);
+    if (mentions.length > 0) await onMention?.(taskId, userId, mentions, body);
     await onComment?.(taskId, userId, comment.id);
     return comment;
   }
@@ -67,7 +67,13 @@ export function createCommentService({ repo, taskLookup, onMention, onComment }:
     return comment; // returned so callers can scope a realtime broadcast to its task/project
   }
 
-  return { addComment, listComments, editComment, deleteComment, getComment: loadComment, mentionsOf: parseMentions };
+  /** Who an @mention in this task's comments can notify — for the composer's suggestion list. */
+  async function mentionable(taskId: string): Promise<MentionablePerson[]> {
+    await ensureTask(taskId);
+    return repo.listMentionable ? repo.listMentionable(taskId) : [];
+  }
+
+  return { addComment, listComments, editComment, deleteComment, getComment: loadComment, mentionsOf: parseMentions, mentionable };
 }
 
 export type CommentService = ReturnType<typeof createCommentService>;

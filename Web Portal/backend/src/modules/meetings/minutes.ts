@@ -17,6 +17,8 @@ export interface MinutesMeeting {
 export interface MinutesAttendee {
   name: string;
   roleLabel: string;
+  /** The answer to the invitation (Accepted / Maybe / Declined / No response). */
+  responseLabel: string;
   attendanceLabel: string;
   external: boolean;
   email: string | null;
@@ -36,6 +38,22 @@ export interface MinutesNote {
   authorName: string;
   createdAt: string; // ISO
   highlighted: boolean;
+  /** An action note already listed among the action items (so it isn't printed twice). */
+  trackedAsActionItem?: boolean;
+}
+
+/** A tracked action item of the meeting (the Action Items card), as opposed to a note of type "Action Item". */
+export interface MinutesActionItem {
+  description: string;
+  ownerName: string | null;
+  /** Calendar day, 'YYYY-MM-DD' (no time, so it never shifts with the zone). */
+  dueDate: string | null;
+  statusLabel: string;
+  priorityLabel: string;
+  /** Key of the board task this item is tracked as. */
+  taskKey?: string | null;
+  /** Still to do (not completed or cancelled); derived from the status label when absent. */
+  open?: boolean;
 }
 
 export interface MinutesBrand {
@@ -67,6 +85,8 @@ export interface MinutesData {
   attendees: MinutesAttendee[];
   agenda: MinutesAgendaItem[];
   notes: MinutesNote[];
+  /** The meeting's tracked action items — who owns each, when it is due, where it stands. */
+  actionItems?: MinutesActionItem[];
   generatedAt: string; // ISO
   generatedByName?: string | null;
   /**
@@ -163,11 +183,30 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   // Meeting metadata
   doc.keyValue('Date', fmtDate(meeting.startAt, tz));
   doc.keyValue('Time', fmtTimeRange(meeting.startAt, meeting.endAt, tz));
+  doc.keyValue('Time zone', tz);
   doc.keyValue('Project', project ? project.name : 'Standalone meeting');
   doc.keyValue('Organizer', meeting.organizerName ?? '—');
   if (meeting.location) doc.keyValue('Location', meeting.location);
   if (meeting.onlineLink) doc.keyValue('Online', meeting.onlineLink);
   doc.keyValue('Status', meeting.statusLabel);
+
+  const decisions = data.notes.filter((n) => n.type === 'DECISION');
+  // Action notes already tracked as action items appear once, in the table.
+  const actionNotes = data.notes.filter((n) => n.type === 'ACTION' && !n.trackedAsActionItem);
+  const discussion = data.notes.filter((n) => n.type !== 'DECISION' && n.type !== 'ACTION');
+  const items = data.actionItems ?? [];
+  const present = data.attendees.filter((a) => /^(present|late)$/i.test(a.attendanceLabel)).length;
+  const covered = data.agenda.filter((a) => a.completed).length;
+  const openItems = items.filter((i) => i.open ?? !/^(completed|cancelled)$/i.test(i.statusLabel)).length;
+
+  // At a glance
+  doc.spacer(6);
+  doc.statTiles([
+    { label: 'Attendees present', value: `${present}/${data.attendees.length}`, tone: 'brand' },
+    { label: 'Agenda items covered', value: `${covered}/${data.agenda.length}`, tone: 'success' },
+    { label: 'Decisions made', value: String(decisions.length), tone: 'muted' },
+    { label: 'Open action items', value: String(openItems), tone: openItems > 0 ? 'warning' : 'success' },
+  ]);
 
   // Project details (only for a project-linked meeting)
   if (project) {
@@ -187,68 +226,104 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     doc.text(meeting.description.trim());
   }
 
-  // Attendees — the line reads in the direction of the person's name; the English tags
-  // and the e-mail are isolated so they stay intact on either side of an Arabic name.
-  doc.heading('Attendees');
+  // Attendees — role (required/optional), the answer to the invitation and attendance on the day
+  // are three different things, so each has its own column.
+  doc.heading('Attendees', { keepWith: 40 });
   if (data.attendees.length === 0) {
     doc.text('No attendees recorded.', { color: MUTED });
   } else {
-    const present = data.attendees.filter((a) => a.attendanceLabel.toLowerCase() === 'present').length;
-    doc.text(`${data.attendees.length} invited · ${present} present`, { color: MUTED, size: 9.5, gap: 2 });
-    for (const a of data.attendees) {
-      const tags = [a.roleLabel, a.attendanceLabel];
-      if (a.external) tags.unshift('Guest');
-      const suffix = a.email ? `  ${isolate(`<${a.email}>`)}` : '';
-      doc.bullet(`${a.name}${suffix}  —  ${isolate(tags.join(' · '))}`, { direction: textDirection(a.name) });
-    }
+    doc.text(`${data.attendees.length} invited · ${present} present`, { color: MUTED, size: 9.5, gap: 4 });
+    const withEmail = data.attendees.some((a) => a.email);
+    doc.table(
+      [{ header: 'Name' }, ...(withEmail ? [{ header: 'Email' }] : []), { header: 'Role' }, { header: 'Response' }, { header: 'Attendance' }],
+      data.attendees.map((a) => [
+        a.name,
+        ...(withEmail ? [a.email ?? '—'] : []),
+        a.external ? `${a.roleLabel} · Guest` : a.roleLabel,
+        a.responseLabel,
+        a.attendanceLabel,
+      ]),
+    );
   }
 
   // Agenda
-  doc.heading('Agenda');
+  doc.heading('Agenda', { keepWith: 40 });
   if (data.agenda.length === 0) {
     doc.text('No agenda items were recorded.', { color: MUTED });
   } else {
-    data.agenda.forEach((item, i) => {
-      const meta: string[] = [];
-      if (item.presenterName) meta.push(item.presenterName);
-      if (item.expectedMinutes != null) meta.push(`${item.expectedMinutes} min`);
-      if (item.completed) meta.push('done');
-      const suffix = meta.length ? `  (${meta.map(isolate).join(' · ')})` : '';
-      doc.numbered(`${i + 1}.`, `${item.title}${suffix}`, { direction: textDirection(item.title) });
+    doc.table(
+      [{ header: '#' }, { header: 'Item' }, { header: 'Presenter' }, { header: 'Planned' }, { header: 'Covered' }],
+      data.agenda.map((item, i) => [
+        String(i + 1),
+        item.title,
+        item.presenterName ?? '—',
+        item.expectedMinutes != null ? `${item.expectedMinutes} min` : '—',
+        item.completed ? 'Yes' : 'No',
+      ]),
+    );
+    const planned = data.agenda.reduce((sum, a) => sum + (a.expectedMinutes ?? 0), 0);
+    const length = meeting.endAt ? Math.round((new Date(meeting.endAt).getTime() - new Date(meeting.startAt).getTime()) / 60000) : 0;
+    if (planned > 0) {
+      doc.text(`Planned time: ${planned} min${length > 0 ? ` of a ${length} min meeting` : ''}`, { color: MUTED, size: 9, gap: 2 });
+    }
+  }
+
+  // Attribution line under a note, aligned with the note (right for an Arabic note).
+  const byline = (n: MinutesNote): string =>
+    `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}${n.highlighted ? ' · Key point' : ''}`;
+
+  if (decisions.length > 0) {
+    doc.heading('Decisions', { keepWith: 30 });
+    decisions.forEach((n, i) => {
+      const direction = textDirection(n.body);
+      doc.numbered(`${i + 1}.`, n.body, { direction });
+      doc.text(byline(n), { color: MUTED, size: 8.5, indent: 16, gap: 2, direction });
     });
   }
 
-  const decisions = data.notes.filter((n) => n.type === 'DECISION');
-  const actions = data.notes.filter((n) => n.type === 'ACTION');
-  const discussion = data.notes.filter((n) => n.type !== 'DECISION' && n.type !== 'ACTION');
-
-  // Attribution line under a note, aligned with the note (right for an Arabic note).
-  const byline = (n: MinutesNote): string => `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}`;
-
-  if (decisions.length > 0) {
-    doc.heading('Decisions');
-    for (const n of decisions) {
-      doc.bullet(n.body);
-      doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction: textDirection(n.body) });
+  if (items.length > 0 || actionNotes.length > 0) {
+    doc.heading('Action Items', { keepWith: 40 });
+    if (items.length > 0) {
+      const withTask = items.some((i) => i.taskKey);
+      doc.table(
+        [{ header: 'Action' }, { header: 'Owner' }, { header: 'Due' }, { header: 'Priority' }, { header: 'Status' }, ...(withTask ? [{ header: 'Task' }] : [])],
+        items.map((i) => [
+          i.description,
+          i.ownerName || 'Unassigned',
+          i.dueDate ? fmtDay(i.dueDate, 'UTC') : '—',
+          i.priorityLabel,
+          i.statusLabel,
+          ...(withTask ? [i.taskKey ?? '—'] : []),
+        ]),
+      );
+    }
+    if (actionNotes.length > 0) {
+      if (items.length > 0) doc.text('Also noted during the meeting', { bold: true, size: 9.5, color: INK, gap: 2 });
+      for (const n of actionNotes) {
+        doc.bullet(n.body, { direction: textDirection(n.body) });
+        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction: textDirection(n.body) });
+      }
     }
   }
 
-  if (actions.length > 0) {
-    doc.heading('Action Items');
-    for (const n of actions) {
-      doc.bullet(n.body);
-      doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction: textDirection(n.body) });
-    }
-  }
-
-  doc.heading('Discussion & Notes');
+  // Discussion, grouped by kind (sub-headings only when there is more than one kind).
+  doc.heading('Discussion & Notes', { keepWith: 30 });
   if (discussion.length === 0) {
     doc.text('No discussion notes were recorded.', { color: MUTED });
   } else {
-    for (const n of discussion) {
-      const direction = textDirection(n.body);
-      doc.text(`${isolate(`[${n.typeLabel}]`)} ${n.body}`, { gap: 0, direction });
-      doc.text(byline(n), { color: MUTED, size: 8.5, gap: 2, direction });
+    const groups: Array<[string, MinutesNote[]]> = [
+      ['Discussion', discussion.filter((n) => !['ISSUE', 'QUESTION', 'INFORMATION'].includes(n.type))],
+      ['Issues', discussion.filter((n) => n.type === 'ISSUE')],
+      ['Questions', discussion.filter((n) => n.type === 'QUESTION')],
+      ['Information', discussion.filter((n) => n.type === 'INFORMATION')],
+    ].filter((g): g is [string, MinutesNote[]] => (g[1] as MinutesNote[]).length > 0) as Array<[string, MinutesNote[]]>;
+    for (const [label, notes] of groups) {
+      if (groups.length > 1) doc.text(label, { bold: true, size: 10.5, color: INK, gap: 2 });
+      for (const n of notes) {
+        const direction = textDirection(n.body);
+        doc.bullet(n.body, { direction });
+        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 2, direction });
+      }
     }
   }
 

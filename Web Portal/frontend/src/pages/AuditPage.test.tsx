@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AuditPage, AUDIT_PAGE_SIZE, summarizeChange } from './AuditPage';
 
@@ -74,6 +74,60 @@ describe('AuditPage', () => {
     await waitFor(() => expect(screen.queryByText('BY_ADMIN')).not.toBeInTheDocument());
     expect(screen.getByText('BY_OMAR')).toBeInTheDocument();
     expect(urls.some((u) => u.includes('/audit-logs') && u.includes('userId=u2'))).toBe(true);
+  });
+});
+
+describe('AuditPage filters', () => {
+  const auditCalls = () => urls.filter((u) => u.includes('/audit-logs'));
+
+  it('keeps every module on offer after one is chosen', async () => {
+    // The server only sends back the chosen module once the filter is on.
+    pages = (u) => (u.includes('module=users') ? [entry({ id: 'a' })] : [entry({ id: 'a' }), entry({ id: 'b', module: 'projects' }), entry({ id: 'c', module: 'settings' })]);
+    renderPage();
+    await screen.findAllByText('users');
+    await userEvent.click(screen.getByRole('button', { name: /filter by module/i }));
+    await userEvent.click(await screen.findByRole('option', { name: 'users' }));
+    await waitFor(() => expect(auditCalls().some((u) => u.includes('module=users'))).toBe(true));
+
+    await userEvent.click(screen.getByRole('button', { name: /filter by module/i }));
+    for (const name of ['All modules', 'projects', 'settings', 'users']) expect(await screen.findByRole('option', { name })).toBeInTheDocument();
+  });
+
+  it('explains a start date after the end date instead of reporting a failed load', async () => {
+    renderPage();
+    await screen.findAllByText('users');
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-10-02' } });
+    await waitFor(() => expect(auditCalls().some((u) => u.includes('to=2026-10-02'))).toBe(true));
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-10-03' } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/start date.*on or before the end date/i);
+    expect(screen.queryByText(/couldn’t load/i)).not.toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(auditCalls().some((u) => u.includes('from=2026-10-03'))).toBe(false);
+  });
+
+  it('waits for a whole date before filtering (a half-typed year is not sent)', async () => {
+    renderPage();
+    await screen.findAllByText('users');
+    const before = auditCalls().length;
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '0002-06-01' } });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(auditCalls().length).toBe(before);
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-06-01' } });
+    await waitFor(() => expect(auditCalls().some((u) => u.includes('from=2026-06-01'))).toBe(true));
+  });
+
+  it('a failed load is not blamed on permissions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/audit-logs')) return new Response(JSON.stringify({ error: { code: 'INTERNAL', message: 'x' } }), { status: 500, headers: { 'content-type': 'application/json' } });
+      return json({ data: [] });
+    }));
+    renderPage();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/couldn’t load the audit log/i);
+    expect(alert).not.toHaveTextContent(/admin only/i);
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 });
 

@@ -13,6 +13,7 @@ import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../li
 import { downloadBlob } from '../lib/download';
 import { todayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
+import { photoUploadProblem } from '../lib/photo-upload';
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -108,6 +109,7 @@ export function ProfilePage() {
 
   const avatarRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [photoProblem, setPhotoProblem] = useState<string | null>(null);
 
   function applyUpdatedUser(updated: { id: string; email: string; username: string; roles: string[]; avatarUrl: string | null }) {
     const { accessToken, refreshToken } = useAuthStore.getState();
@@ -125,16 +127,23 @@ export function ProfilePage() {
     e.target.value = '';
     if (!file) return;
     setBusy(true);
+    setPhotoProblem(null);
     try {
       applyUpdatedUser(await usersApi(apiClient).uploadAvatar(file));
+    } catch (err) {
+      // A refused file (not a picture, too large) must say so — it used to change nothing, silently.
+      setPhotoProblem(photoUploadProblem(err));
     } finally {
       setBusy(false);
     }
   }
   async function onRemove() {
     setBusy(true);
+    setPhotoProblem(null);
     try {
       applyUpdatedUser(await usersApi(apiClient).removeAvatar());
+    } catch {
+      setPhotoProblem('Couldn’t remove the photo. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -183,6 +192,7 @@ export function ProfilePage() {
               </button>
             ) : null}
           </div>
+          {photoProblem ? <p role="alert" className="text-xs font-medium text-danger">{photoProblem}</p> : null}
         </section>
 
         {/* Details + actions */}

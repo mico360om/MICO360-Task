@@ -57,6 +57,28 @@ describe('filterSummary', () => {
   });
 });
 
+describe('a single-section export', () => {
+  it('mentions the trend period only where a trend is shown', () => {
+    // Project performance, status and workload cover all time: a "trend period" there is misleading.
+    for (const section of ['projects', 'status', 'workload', 'tasks'] as const) {
+      expect(filterSummary(meta, [section]), section).toBe('Project: MICO360 Platform · Team member: Everyone');
+    }
+    expect(filterSummary(meta, ['trend'])).toContain('Trend period: 2 Sep 2026 – 1 Oct 2026');
+    expect(filterSummary(meta, ['summary'])).toContain('Trend period');
+    const [sheet] = reportSheets(bundle(), { ...meta, title: 'Project performance' }, ['projects']);
+    expect(sheet!.notes?.join(' ')).not.toContain('Trend period');
+  });
+
+  it('is titled once, not "Project performance — Project performance"', () => {
+    const [sheet] = reportSheets(bundle(), { ...meta, title: 'Project performance' }, ['projects']);
+    expect(sheet!.title).toBe('Project performance');
+    const [workload] = reportSheets(bundle(), { ...meta, title: 'User workload' }, ['workload']);
+    expect(workload!.title).toBe('User workload');
+    // The full report still names each sheet's section.
+    expect(reportSheets(bundle(), meta, ['summary', 'projects']).map((x) => x.title)).toEqual(['Tasks report — Summary', 'Tasks report — Project performance']);
+  });
+});
+
 describe('reportSheets', () => {
   it('builds one sheet per section, each titled, with the filters and readable headers', () => {
     const sheets = reportSheets(bundle(), meta, ['summary', 'status', 'projects', 'workload', 'trend', 'tasks']);

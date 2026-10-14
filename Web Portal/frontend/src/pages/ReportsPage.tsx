@@ -8,9 +8,12 @@ import { LineChart } from '../components/LineChart';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { apiClient } from '../api/client';
 import { reportsApi, type ReportFilters, type ReportFormat, type ReportKind } from '../api/reports';
+import { projectsApi } from '../api/projects';
 import { downloadBlob, fileNameOf } from '../lib/download';
+import { isBackwards, isWholeDate } from '../lib/date-box';
 import { todayKey as companyTodayKey, shiftDayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
+import { namedProjectOption } from '../components/project-option';
 
 // ── Date-range helpers: 'YYYY-MM-DD' day keys, where "today" is the company's today ──
 const DAY_MS = 86_400_000;
@@ -92,6 +95,28 @@ export function ReportsPage() {
   const [teamFilter, setTeamFilter] = useState('');
   const [to, setTo] = useState(() => todayKey());
   const [from, setFrom] = useState(() => shiftKey(todayKey(), -29));
+  // What the two date boxes show. A box may hold an unfinished date while it is being typed (the
+  // browser reports that as empty, and it must stay empty or the next digits land in the wrong
+  // place); the report follows `from`/`to`, which change only for two whole dates in order.
+  const [fromBox, setFromBox] = useState(from);
+  const [toBox, setToBox] = useState(to);
+  const rangeBackwards = isBackwards(fromBox, toBox);
+
+  function showRange(nextFrom: string, nextTo: string) {
+    setFrom(nextFrom);
+    setTo(nextTo);
+    setFromBox(nextFrom);
+    setToBox(nextTo);
+  }
+  function editRange(nextFrom: string, nextTo: string) {
+    rangeTouched.current = true;
+    setFromBox(nextFrom);
+    setToBox(nextTo);
+    if (isWholeDate(nextFrom) && isWholeDate(nextTo) && nextFrom <= nextTo) {
+      setFrom(nextFrom);
+      setTo(nextTo);
+    }
+  }
 
   // If the company zone arrives after first render and the user hasn't picked a range, re-anchor "today".
   const rangeTouched = useRef(false);
@@ -101,8 +126,7 @@ export function ReportsPage() {
     zoneUsed.current = timeZone;
     if (rangeTouched.current) return;
     const t = companyTodayKey(timeZone);
-    setTo(t);
-    setFrom(shiftKey(t, -29));
+    showRange(shiftKey(t, -29), t);
   }, [timeZone]);
 
   // One filter object drives every chart, tile, table and export on the page.
@@ -125,8 +149,7 @@ export function ReportsPage() {
   function setPreset(days: number) {
     rangeTouched.current = true;
     const t = todayKey();
-    setTo(t);
-    setFrom(shiftKey(t, -(days - 1)));
+    showRange(shiftKey(t, -(days - 1)), t);
   }
 
   async function exportReport(format: ReportFormat, ext: string) {
@@ -147,7 +170,10 @@ export function ReportsPage() {
   }
 
   const optionRows = Array.isArray(projectOptionsQ.data) ? projectOptionsQ.data : [];
-  const projectOptions = [{ value: '', label: 'All projects' }, ...optionRows.map((r) => ({ value: r.projectId, label: r.projectName }))];
+  // The project list (usually cached already) gives each report row its project's picture.
+  const projectLooksQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
+  const looks = Array.isArray(projectLooksQ.data) ? projectLooksQ.data : null;
+  const projectOptions = [{ value: '', label: 'All projects' }, ...optionRows.map((r) => namedProjectOption(r.projectId, r.projectName, looks))];
   const projectLabel = (id: string) => optionRows.find((r) => r.projectId === id)?.projectName ?? 'Selected project';
   const allRows = Array.isArray(projectsQ.data) ? projectsQ.data : [];
   // Also narrow on the client, so the table is right even before the server applies the filter.
@@ -318,6 +344,7 @@ export function ReportsPage() {
                       <button
                         key={p.days}
                         onClick={() => setPreset(p.days)}
+                        aria-pressed={active}
                         className={`px-2.5 py-1 text-xs font-medium transition-colors ${active ? 'bg-brand text-white' : 'text-ink-2 hover:bg-ground'}`}
                       >
                         {p.label}
@@ -325,11 +352,17 @@ export function ReportsPage() {
                     );
                   })}
                 </div>
-                <input type="date" aria-label="From date" value={from} max={to} onChange={(e) => { if (e.target.value) { rangeTouched.current = true; setFrom(e.target.value); } }} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
+                <input type="date" aria-label="From date" value={fromBox} max={isWholeDate(toBox) ? toBox : undefined} aria-invalid={rangeBackwards || undefined} onChange={(e) => editRange(e.target.value, toBox)} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
                 <span className="text-xs text-ink-3">to</span>
-                <input type="date" aria-label="To date" value={to} min={from} max={todayKey()} onChange={(e) => { if (e.target.value) { rangeTouched.current = true; setTo(e.target.value); } }} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
+                <input type="date" aria-label="To date" value={toBox} min={isWholeDate(fromBox) ? fromBox : undefined} max={todayKey()} aria-invalid={rangeBackwards || undefined} onChange={(e) => editRange(fromBox, e.target.value)} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
               </div>
             </div>
+
+            {rangeBackwards ? (
+              <p role="alert" className="mt-3 text-xs font-medium text-danger">
+                The start date must be on or before the end date. Still showing {shortDay(from)} – {shortDay(to)}.
+              </p>
+            ) : null}
 
             {trendsQ.isError ? (
               <p role="alert" className="mt-4 text-sm text-danger">Couldn’t load trends. <button className="font-semibold underline" onClick={() => trendsQ.refetch()}>Retry</button></p>
@@ -373,7 +406,7 @@ export function ReportsPage() {
           </section>
 
           {/* Project progress */}
-          <section className="card overflow-x-auto">
+          <section className="card overflow-x-auto" tabIndex={0} aria-label="Project progress">
             <h2 className="eyebrow p-4 pb-0">Project progress</h2>
             {rows.length === 0 ? (
               <p className="p-4 text-sm text-ink-2">No projects yet.</p>
@@ -406,7 +439,7 @@ export function ReportsPage() {
           </section>
 
           {/* Employee workload */}
-          <section className="card overflow-x-auto">
+          <section className="card overflow-x-auto" tabIndex={0} aria-label="Employee workload">
             <h2 className="eyebrow p-4 pb-0">Employee workload {teamFilter ? `· ${teamLabel(teamFilter)}` : ''}</h2>
             {workloadQ.isError && workload.length === 0 ? (
               <p role="alert" className="p-4 text-sm text-danger">

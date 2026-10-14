@@ -17,6 +17,9 @@ function toRecord(r: Row): AttendeeRecord {
     externalEmail: r.externalEmail,
     role: r.role,
     attendance: r.attendance,
+    response: r.response,
+    respondedAt: r.respondedAt,
+    invitedAt: r.invitedAt,
     department: r.department,
     createdAt: r.createdAt,
   };
@@ -66,9 +69,16 @@ export function createPrismaAttendeeRepository(prisma: PrismaClient): AttendeeRe
           ...(patch.role !== undefined ? { role: patch.role } : {}),
           ...(patch.attendance !== undefined ? { attendance: patch.attendance } : {}),
           ...(patch.department !== undefined ? { department: patch.department } : {}),
+          ...(patch.response !== undefined ? { response: patch.response } : {}),
+          ...(patch.respondedAt !== undefined ? { respondedAt: patch.respondedAt } : {}),
         },
       });
       return toRecord(row);
+    },
+
+    async markInvited(ids, at) {
+      if (ids.length === 0) return;
+      await prisma.meetingAttendee.updateMany({ where: { id: { in: ids } }, data: { invitedAt: at } });
     },
 
     async remove(id) {

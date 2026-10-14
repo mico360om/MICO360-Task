@@ -1,15 +1,28 @@
 import { ConflictError, NotFoundError } from '../../lib/http-errors';
 import type { CreateProjectData, ProjectRecord, ProjectRepository, UpdateProjectData } from './project-repository';
+import { CODE_PATTERN, normalizeCode, suggestFreeCode } from './project-icons';
 
 export interface ProjectServiceDeps {
   projects: ProjectRepository;
 }
 
 export function createProjectService({ projects }: ProjectServiceDeps) {
+  /** Any project — deleted ones too — with this code. */
+  const codeInUse = async (code: string) => (projects.codeInUse ? projects.codeInUse(code) : (await projects.findByCode(code)) !== null);
+
   async function createProject(input: CreateProjectData): Promise<ProjectRecord> {
-    const existing = await projects.findByCode(input.code);
-    if (existing) throw new ConflictError('A project with this code already exists.', 'DUPLICATE_PROJECT_CODE');
-    return projects.create(input);
+    const code = normalizeCode(input.code);
+    if (await codeInUse(code)) throw new ConflictError(`The code ${code} is already used by another project (or a deleted one).`, 'DUPLICATE_PROJECT_CODE');
+    return projects.create({ ...input, code });
+  }
+
+  /** Before saving: is this code well formed and free? If taken, the first free variant. */
+  async function checkCode(raw: string): Promise<{ code: string; valid: boolean; available: boolean; suggestion?: string }> {
+    const code = normalizeCode(raw);
+    if (!CODE_PATTERN.test(code)) return { code, valid: false, available: false };
+    if (!(await codeInUse(code))) return { code, valid: true, available: true };
+    const suggestion = await suggestFreeCode(code, codeInUse);
+    return suggestion ? { code, valid: true, available: false, suggestion } : { code, valid: true, available: false };
   }
 
   async function listProjects(): Promise<ProjectRecord[]> {
@@ -52,7 +65,7 @@ export function createProjectService({ projects }: ProjectServiceDeps) {
     await projects.softDelete(id);
   }
 
-  return { createProject, listProjects, listVisibleProjects, getProject, getVisibleProject, updateProject, archiveProject, deleteProject };
+  return { createProject, checkCode, listProjects, listVisibleProjects, getProject, getVisibleProject, updateProject, archiveProject, deleteProject };
 }
 
 export type ProjectService = ReturnType<typeof createProjectService>;

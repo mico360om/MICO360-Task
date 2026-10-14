@@ -55,6 +55,7 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
           ...(patch.highlighted !== undefined ? { highlighted: patch.highlighted } : {}),
           ...(patch.agendaItemId !== undefined ? { agendaItemId: patch.agendaItemId } : {}),
           ...(patch.taskId !== undefined ? { taskId: patch.taskId } : {}),
+          ...(patch.actionItemId !== undefined ? { actionItemId: patch.actionItemId } : {}),
           ...(patch.editedAt !== undefined ? { editedAt: patch.editedAt } : {}),
         },
       });

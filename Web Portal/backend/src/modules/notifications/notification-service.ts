@@ -30,11 +30,53 @@ export interface NotificationServiceDeps {
 export function createNotificationService({ notifications, preferences, push, logger }: NotificationServiceDeps) {
   /** Create a notification unless the recipient has muted this type. Returns null when suppressed. */
   async function notify(input: CreateNotificationData): Promise<NotificationRecord | null> {
+    return deliver(input, false);
+  }
+
+  /**
+   * Like `notify`, but keeps ONE waiting notification per thing: while an unread notification of this
+   * type about the same entity exists, it is reworded and moved to the top instead of adding another.
+   * Used for direct messages — ten messages in a conversation are one thing to look at, not ten.
+   */
+  async function notifyOnce(input: CreateNotificationData): Promise<NotificationRecord | null> {
+    return deliver(input, true);
+  }
+
+  /** Mark everything about one thing as read (e.g. the user opened that conversation). */
+  async function markEntityRead(userId: string, entityType: string, entityId: string): Promise<number> {
+    return notifications.markEntityRead(userId, entityType, entityId);
+  }
+
+  /**
+   * notifyOnce calls in flight, per (user, type, thing). Two messages from one sender arrive within a
+   * few milliseconds (a double Enter, a message with its file): the second must see the first one's
+   * row, or both find "nothing waiting" and the reader gets two notifications for one conversation.
+   */
+  const inFlight = new Map<string, Promise<NotificationRecord | null>>();
+
+  async function deliver(input: CreateNotificationData, once: boolean): Promise<NotificationRecord | null> {
+    if (!once || !input.entityType || !input.entityId) return deliverNow(input, once);
+    const key = `${input.userId}|${input.type}|${input.entityType}|${input.entityId}`;
+    const previous = inFlight.get(key) ?? Promise.resolve(null);
+    const run = previous.then(
+      () => deliverNow(input, true),
+      () => deliverNow(input, true),
+    );
+    inFlight.set(key, run);
+    try {
+      return await run;
+    } finally {
+      if (inFlight.get(key) === run) inFlight.delete(key);
+    }
+  }
+
+  async function deliverNow(input: CreateNotificationData, once: boolean): Promise<NotificationRecord | null> {
     if (preferences) {
       const prefs = await preferences.get(input.userId);
       if (isMuted(prefs, input.type)) return null;
     }
-    const record = await notifications.create(input);
+    const waiting = once && input.entityType && input.entityId ? await notifications.findUnread(input.userId, input.type, input.entityType, input.entityId) : null;
+    const record = waiting ? await notifications.refresh(waiting.id, { title: input.title, body: input.body ?? null }) : await notifications.create(input);
     // Muted types never reach the phone either — the push goes out only for a stored notification.
     if (push) {
       push
@@ -71,7 +113,7 @@ export function createNotificationService({ notifications, preferences, push, lo
     return preferences ? preferences.set(userId, prefs) : prefs;
   }
 
-  return { notify, listForUser, unreadCount, markRead, markAllRead, getPreferences, setPreferences };
+  return { notify, notifyOnce, markEntityRead, listForUser, unreadCount, markRead, markAllRead, getPreferences, setPreferences };
 }
 
 export type NotificationService = ReturnType<typeof createNotificationService>;

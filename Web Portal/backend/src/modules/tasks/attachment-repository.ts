@@ -38,4 +38,6 @@ export interface UploadedFile {
 export interface AttachmentStorage {
   save(file: UploadedFile): Promise<{ storageKey: string; url: string; sizeBytes: number }>;
   remove(storageKey: string): Promise<void>;
+  /** The stored bytes (for in-app previews); absent when the store can't read back. */
+  read?(storageKey: string): Promise<Buffer>;
 }

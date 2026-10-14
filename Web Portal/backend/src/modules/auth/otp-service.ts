@@ -40,7 +40,8 @@ export interface OtpStore {
 }
 
 export interface OtpMailer {
-  sendLoginCode(email: string, code: string): Promise<void>;
+  /** `expiresInMinutes`: how long the code lasts, so the email can say so. */
+  sendLoginCode(email: string, code: string, opts?: { expiresInMinutes?: number }): Promise<void>;
   /** False when no mail provider is configured at all. */
   isConfigured?(): boolean;
 }
@@ -113,7 +114,7 @@ export function createOtpService(deps: OtpServiceDeps) {
     const code = generateOtpCode(deps.otpLength);
     const codeHash = await hashOtp(code);
     await deps.otps.create({ userId: user.id, codeHash, expiresAt: new Date(at + deps.ttlSeconds * 1000), attempts: 0 });
-    await deps.mailer.sendLoginCode(user.email, code);
+    await deps.mailer.sendLoginCode(user.email, code, { expiresInMinutes: Math.ceil(deps.ttlSeconds / 60) });
   }
 
   /**

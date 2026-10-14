@@ -132,6 +132,49 @@ describe('resourcesApi.tasks', () => {
 });
 
 describe('resourcesApi — attachments and notification preferences', () => {
+  it('deletes a task, or a whole repeating series', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).tasks.remove('t1');
+    await resourcesApi(client).tasks.remove('t1', 'series');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['DELETE /tasks/t1', 'DELETE /tasks/t1?scope=series']);
+  });
+
+  it('reads a task’s activity timeline', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).tasks.activity('t1');
+    expect(calls[0]).toEqual({ method: 'GET', path: '/tasks/t1/activity' });
+  });
+
+  it('reads, adds and removes blockers (dependencies)', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).tasks;
+    await api.dependencies('t1');
+    await api.addDependency('t1', 't2');
+    await api.removeDependency('t1', 't2');
+    expect(calls).toEqual([
+      { method: 'GET', path: '/tasks/t1/dependencies' },
+      { method: 'POST', path: '/tasks/t1/dependencies', body: { dependsOnTaskId: 't2' } },
+      { method: 'DELETE', path: '/tasks/t1/dependencies/t2' },
+    ]);
+  });
+
+  it('watches and stops watching a task, and lists its watchers', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).tasks;
+    await api.watchStatus('t1');
+    await api.watch('t1');
+    await api.unwatch('t1');
+    await api.watchers('t1');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /tasks/t1/watch', 'POST /tasks/t1/watch', 'DELETE /tasks/t1/watch', 'GET /tasks/t1/watchers']);
+  });
+
+  it('uploads with a progress listener', async () => {
+    const seen: unknown[] = [];
+    const client = { upload: (path: string, _form: FormData, opts?: { onProgress?: (f: number) => void }) => { seen.push({ path, hasProgress: typeof opts?.onProgress === 'function' }); return Promise.resolve({ data: { id: 'a1' } }); } } as unknown as ApiClient;
+    await resourcesApi(client).tasks.uploadAttachment('t1', { uri: 'file:///x.txt', name: 'x.txt', type: 'text/plain' }, () => {});
+    expect(seen).toEqual([{ path: '/tasks/t1/attachments', hasProgress: true }]);
+  });
+
   it('lists, uploads (multipart "file" part) and removes task attachments', async () => {
     const { client, calls } = fakeClient();
     const api = resourcesApi(client);
@@ -170,6 +213,19 @@ describe('resourcesApi.reports', () => {
       '/reports/workload',
       '/reports/completion?projectId=p1&userId=u1',
       '/reports/timeseries?projectId=p1&from=2026-09-01&to=2026-09-30',
+    ]);
+  });
+});
+
+describe('resourcesApi.ai', () => {
+  it('asks for checklist steps and a priority', async () => {
+    const { client, calls } = fakeClient();
+    const ai = resourcesApi(client).ai;
+    await ai.breakdown('Prepare report', 'Monthly');
+    await ai.suggestPriority('Prepare report', 'Monthly', '2026-10-12');
+    expect(calls).toEqual([
+      { method: 'POST', path: '/ai/breakdown', body: { title: 'Prepare report', description: 'Monthly' } },
+      { method: 'POST', path: '/ai/suggest-priority', body: { title: 'Prepare report', description: 'Monthly', dueDate: '2026-10-12' } },
     ]);
   });
 });

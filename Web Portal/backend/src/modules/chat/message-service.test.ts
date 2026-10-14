@@ -76,13 +76,35 @@ function makeRepos(opts?: { projectMembers?: Record<string, string[]>; users?: s
       if (!p) { p = { conversationId, userId, lastReadAt: at, addedAt: new Date() }; parts.push(p); }
       else p.lastReadAt = at;
     },
+    async setPrefs(conversationId, userId, patch) {
+      const p = parts.find((x) => x.conversationId === conversationId && x.userId === userId)!;
+      Object.assign(p, patch);
+      return p;
+    },
+    async setLastDelivered(conversationId, userId, at) {
+      const p = parts.find((x) => x.conversationId === conversationId && x.userId === userId);
+      if (p && (!p.lastDeliveredAt || p.lastDeliveredAt < at)) p.lastDeliveredAt = at;
+    },
   };
 
   const messages: MessageRepository = {
-    async create(conversationId, userId, body) {
-      const m: Message = { id: id('msg'), conversationId, userId, body, editedAt: null, deletedAt: null, createdAt: new Date(Date.now() + seq) };
+    async create(conversationId, userId, body, extra) {
+      if (extra?.clientId && [...msgs.values()].some((x) => x.conversationId === conversationId && x.userId === userId && x.clientId === extra.clientId)) {
+        throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+      }
+      const m: Message = { id: id('msg'), conversationId, userId, body, editedAt: null, deletedAt: null, createdAt: new Date(Date.now() + seq), replyToId: extra?.replyToId ?? null, clientId: extra?.clientId ?? null };
       msgs.set(m.id, m);
       return m;
+    },
+    async findByClientId(conversationId, userId, clientId) {
+      return [...msgs.values()].find((x) => x.conversationId === conversationId && x.userId === userId && x.clientId === clientId) ?? null;
+    },
+    async search(conversationIds, q, limit) {
+      const needle = q.toLowerCase();
+      return [...msgs.values()]
+        .filter((x) => conversationIds.includes(x.conversationId) && !x.deletedAt && x.body.toLowerCase().includes(needle))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, limit);
     },
     async findById(mid) { return msgs.get(mid) ?? null; },
     async list(conversationId, o) {
@@ -137,6 +159,7 @@ function makeRepos(opts?: { projectMembers?: Record<string, string[]>; users?: s
     async canAccessProject(projectId, userId) { return (projectMembers[projectId] ?? []).includes(userId); },
     async accessibleProjectIds(userId) { return Object.keys(projectMembers).filter((pid) => projectMembers[pid]!.includes(userId)); },
     async isActiveUser(userId) { return activeUsers.has(userId); },
+    async projectMemberIds(projectId) { return [...(projectMembers[projectId] ?? [])]; },
   };
 
   return { conversations, participants, messages, reactions: reactionRepo, attachments, members, storage, removedKeys, projectMembers, msgs };
@@ -147,6 +170,117 @@ let deps: ReturnType<typeof makeRepos>;
 beforeEach(() => {
   deps = makeRepos();
   svc = createMessageService(deps);
+});
+
+describe('sending safely: retries, replies', () => {
+  it('a retried send with the same client id returns the first message instead of a duplicate', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const first = await svc.postMessage(dm.id, 'u1', { body: 'Hello', clientId: 'c-1' });
+    const again = await svc.postMessage(dm.id, 'u1', { body: 'Hello', clientId: 'c-1' });
+    expect(first.created).toBe(true);
+    expect(again.created).toBe(false);
+    expect(again.message.id).toBe(first.message.id);
+    expect((await svc.listMessages(dm.id, 'u1')).messages).toHaveLength(1);
+  });
+
+  it('two retries racing for the same client id still make one message', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const [a, b] = await Promise.all([
+      svc.postMessage(dm.id, 'u1', { body: 'Hi', clientId: 'c-2' }),
+      svc.postMessage(dm.id, 'u1', { body: 'Hi', clientId: 'c-2' }),
+    ]);
+    expect(a.message.id).toBe(b.message.id);
+    expect([a.created, b.created].sort()).toEqual([false, true]);
+  });
+
+  it('a reply carries a short quote of the message it answers; a reply into another conversation is refused', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const q = await svc.postMessage(dm.id, 'u2', { body: 'Can you send the figures?' });
+    const r = await svc.postMessage(dm.id, 'u1', { body: 'Sending now', replyToId: q.message.id });
+    expect(r.message.replyTo).toEqual({ id: q.message.id, userId: 'u2', body: 'Can you send the figures?', deleted: false });
+    const listed = (await svc.listMessages(dm.id, 'u2')).messages.find((m) => m.id === r.message.id)!;
+    expect(listed.replyTo?.body).toBe('Can you send the figures?');
+    const other = await svc.getOrCreateProjectConversation('p1', 'u1');
+    await expect(svc.postMessage(other.id, 'u1', { body: 'x', replyToId: q.message.id })).rejects.toThrow(/reply/i);
+  });
+
+  it('a reply to a message that was later deleted shows it as deleted, without its text', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const q = await svc.postMessage(dm.id, 'u2', { body: 'secret plan' });
+    const r = await svc.postMessage(dm.id, 'u1', { body: 'ok', replyToId: q.message.id });
+    await svc.deleteMessage(q.message.id, 'u2', false);
+    const listed = (await svc.listMessages(dm.id, 'u1')).messages.find((m) => m.id === r.message.id)!;
+    expect(listed.replyTo).toEqual({ id: q.message.id, userId: 'u2', body: '', deleted: true });
+  });
+});
+
+describe('per-person conversation settings', () => {
+  it('favorite, archive and mute are personal — the other person sees none of it', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    await svc.setPreferences(dm.id, 'u1', { favorite: true, archived: true, muted: true });
+    const mine = (await svc.listConversations('u1')).find((s) => s.conversation.id === dm.id)!;
+    expect(mine.prefs).toEqual({ favorite: true, archived: true, muted: true });
+    const theirs = (await svc.listConversations('u2')).find((s) => s.conversation.id === dm.id)!;
+    expect(theirs.prefs).toEqual({ favorite: false, archived: false, muted: false });
+    // Other people's settings are never sent out with the participant list.
+    for (const p of theirs.participants) expect(Object.keys(p).sort()).toEqual(['addedAt', 'conversationId', 'lastDeliveredAt', 'lastReadAt', 'userId']);
+    await svc.setPreferences(dm.id, 'u1', { archived: false });
+    expect((await svc.listConversations('u1')).find((s) => s.conversation.id === dm.id)!.prefs).toEqual({ favorite: true, archived: false, muted: true });
+  });
+
+  it('works for a project channel too, and only for people who can see it', async () => {
+    const ch = await svc.getOrCreateProjectConversation('p1', 'u1');
+    await svc.setPreferences(ch.id, 'u2', { favorite: true });
+    expect((await svc.listConversations('u2')).find((s) => s.conversation.id === ch.id)!.prefs.favorite).toBe(true);
+    await expect(svc.setPreferences(ch.id, 'stranger', { favorite: true })).rejects.toThrow(/access/i);
+  });
+
+  it('a muted direct conversation sends no new-message notification', async () => {
+    const onDirectMessage = vi.fn();
+    svc = createMessageService({ ...deps, onDirectMessage });
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    await svc.postMessage(dm.id, 'u1', { body: 'one' });
+    expect(onDirectMessage).toHaveBeenCalledTimes(1);
+    await svc.setPreferences(dm.id, 'u2', { muted: true });
+    await svc.postMessage(dm.id, 'u1', { body: 'two' });
+    expect(onDirectMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('delivery, search and members', () => {
+  it('records when a person’s app received a conversation (only ever moving forward)', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    await svc.postMessage(dm.id, 'u1', { body: 'hi' });
+    await svc.markDelivered(dm.id, 'u2');
+    const p = (await svc.listConversations('u1')).find((s) => s.conversation.id === dm.id)!.participants.find((x) => x.userId === 'u2')!;
+    expect(p.lastDeliveredAt).toBeInstanceOf(Date);
+    await expect(svc.markDelivered(dm.id, 'u3')).rejects.toThrow(/access/i);
+  });
+
+  it('searches only the conversations you can see, newest first, never deleted messages', async () => {
+    const mine = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const notMine = await svc.getOrCreateDirectConversation('u3', 'u4');
+    const ch = await svc.getOrCreateProjectConversation('p1', 'u1');
+    await svc.postMessage(mine.id, 'u2', { body: 'The Budget is ready' });
+    await svc.postMessage(ch.id, 'u2', { body: 'budget review at 10' });
+    await svc.postMessage(notMine.id, 'u3', { body: 'budget secrets' });
+    const gone = await svc.postMessage(mine.id, 'u1', { body: 'old budget draft' });
+    await svc.deleteMessage(gone.message.id, 'u1', false);
+    const all = await svc.searchMessages('u1', 'BUDGET');
+    expect(all.map((m) => m.body)).toEqual(['budget review at 10', 'The Budget is ready']);
+    const one = await svc.searchMessages('u1', 'budget', { conversationId: mine.id });
+    expect(one.map((m) => m.body)).toEqual(['The Budget is ready']);
+    await expect(svc.searchMessages('u1', 'budget', { conversationId: notMine.id })).rejects.toThrow(/access/i);
+    expect(await svc.searchMessages('u1', 'b')).toEqual([]); // too short to search
+  });
+
+  it('lists a conversation’s members: the project’s people for a channel, the two people for a DM', async () => {
+    const ch = await svc.getOrCreateProjectConversation('p1', 'u1');
+    expect((await svc.listMembers(ch.id, 'u1')).sort()).toEqual(['u1', 'u2', 'u3']);
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u4');
+    expect((await svc.listMembers(dm.id, 'u4')).sort()).toEqual(['u1', 'u4']);
+    await expect(svc.listMembers(dm.id, 'u2')).rejects.toThrow(/access/i);
+  });
 });
 
 describe('project conversations', () => {
@@ -285,6 +419,23 @@ describe('attachments', () => {
 });
 
 describe('unread + read state', () => {
+  it('reports that someone read a conversation, so its notifications can be cleared', async () => {
+    const onRead = vi.fn();
+    svc = createMessageService({ ...deps, onRead });
+    const c = await svc.getOrCreateDirectConversation('u1', 'u2');
+    await svc.sendMessage(c.id, 'u2', 'hi');
+    await svc.markRead(c.id, 'u1');
+    expect(onRead).toHaveBeenCalledWith({ conversationId: c.id, userId: 'u1' });
+  });
+
+  it('still marks the conversation read when that report fails', async () => {
+    svc = createMessageService({ ...deps, onRead: async () => { throw new Error('notifications down'); } });
+    const c = await svc.getOrCreateDirectConversation('u1', 'u2');
+    await svc.sendMessage(c.id, 'u2', 'hi');
+    await expect(svc.markRead(c.id, 'u1')).resolves.toBeUndefined();
+    expect(await svc.unreadCount(c.id, 'u1')).toBe(0);
+  });
+
   it('counts messages from others as unread and clears them on markRead', async () => {
     const c = await svc.getOrCreateProjectConversation('p1', 'u1');
     await svc.sendMessage(c.id, 'u2', 'you around?');

@@ -83,6 +83,8 @@ export function reorderColumnInBoard(
 /** Compose API columns + tasks into the KanbanBoard's view model (columns ordered, tasks grouped, in position order). */
 export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColumnData[] {
   return [...columns]
+    // "Visible" switched off in Manage columns: the column (and the cards in it) is not on the board.
+    .filter((col) => col.enabled !== false)
     .sort((a, b) => a.position - b.position)
     .map((col) => ({
       id: col.id,

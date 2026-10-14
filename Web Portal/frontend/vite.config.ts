@@ -2,9 +2,11 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import os from 'node:os';
 import path from 'node:path';
+import { precompress } from './src/tooling/precompress';
 
 export default defineConfig({
-  plugins: [react()],
+  // precompress: .br/.gz copies of the built scripts and styles, served by the API's own web server.
+  plugins: [react(), precompress()],
   // Keep Vite's dependency cache out of the Dropbox-synced project folder,
   // otherwise Dropbox locks node_modules/.vite and dep optimization fails (EBUSY).
   cacheDir: path.join(os.tmpdir(), 'mico360-vite-cache'),

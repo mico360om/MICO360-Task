@@ -40,6 +40,34 @@ describe('NotificationsBell', () => {
     await waitFor(() => expect(screen.getByText('You were assigned a task')).toBeInTheDocument());
   });
 
+  it('shows which task each notification is about and when it arrived', async () => {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/unread-count')) return json({ data: { count: 1 } });
+      if (u.endsWith('/notifications')) return json({ data: [{ id: 'n1', type: 'TASK_ASSIGNED', title: 'You were assigned a task', body: 'MICO-12 · Prepare the monthly report', readAt: null, createdAt: tenMinutesAgo }] });
+      return json({ data: {} });
+    }));
+    withQuery(<NotificationsBell />);
+    await userEvent.click(await screen.findByRole('button', { name: /notifications/i }));
+    expect(await screen.findByText('MICO-12 · Prepare the monthly report')).toBeInTheDocument();
+    expect(screen.getByText('10m ago')).toBeInTheDocument();
+  });
+
+  it('shows a read notification in a quieter tone, not faded out (faded text failed the contrast check)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/unread-count')) return json({ data: { count: 0 } });
+      if (u.endsWith('/notifications')) return json({ data: [{ id: 'n1', type: 'TASK_ASSIGNED', title: 'An older notification', body: 'MICO-3 · Something', readAt: '2026-10-01T10:00:00Z', createdAt: '2026-10-01T09:00:00Z' }] });
+      return json({ data: {} });
+    }));
+    withQuery(<NotificationsBell />);
+    await userEvent.click(await screen.findByRole('button', { name: /notifications/i }));
+    const title = await screen.findByText('An older notification');
+    for (let el: HTMLElement | null = title; el && el !== document.body; el = el.parentElement) expect(el.className).not.toMatch(/opacity-/);
+    expect(title).toHaveClass('text-ink-2');
+  });
+
   it('marks all read when the "Mark all read" action is used', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       const u = String(url);

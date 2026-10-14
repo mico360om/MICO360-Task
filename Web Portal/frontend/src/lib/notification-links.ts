@@ -9,7 +9,8 @@ export type NotificationTarget = { kind: 'task'; taskId: string } | { kind: 'pat
 export function notificationTarget(n: Pick<ApiNotification, 'entityType' | 'entityId'>): NotificationTarget {
   const type = (n.entityType ?? '').toLowerCase();
   if (type === 'task' && n.entityId) return { kind: 'task', taskId: n.entityId };
-  if (type === 'conversation') return { kind: 'path', to: '/chat' };
+  // A chat notification opens the conversation it is about (ChatRoute reads ?conversation=).
+  if (type === 'conversation') return { kind: 'path', to: n.entityId ? `/chat?conversation=${encodeURIComponent(n.entityId)}` : '/chat' };
   if (type === 'meeting' && n.entityId) return { kind: 'path', to: `/meetings/${n.entityId}` };
   return null;
 }

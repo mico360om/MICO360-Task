@@ -111,3 +111,26 @@ describe('ChecklistService', () => {
     await expect(svc.removeItem('ghost')).rejects.toBeInstanceOf(NotFoundError);
   });
 });
+
+describe('checklist progress is reported, so the task (and its board card) can show it', () => {
+  it('after an item is added, ticked, unticked or removed', async () => {
+    const { repo, taskLookup } = inMemory(['t1']);
+    const seen: Array<[string, number]> = [];
+    const svc = createChecklistService({ repo, taskLookup, onProgress: (taskId, percent) => { seen.push([taskId, percent]); } });
+    const a = await svc.addItem('t1', 'first');
+    const b = await svc.addItem('t1', 'second');
+    await svc.toggleItem(a.id, true);
+    await svc.toggleItem(b.id, true);
+    await svc.toggleItem(b.id, false);
+    await svc.removeItem(b.id);
+    expect(seen).toEqual([['t1', 0], ['t1', 0], ['t1', 50], ['t1', 100], ['t1', 50], ['t1', 100]]);
+  });
+
+  it('a failing report never fails the checklist change', async () => {
+    const { repo, taskLookup } = inMemory(['t1']);
+    const svc = createChecklistService({ repo, taskLookup, onProgress: async () => { throw new Error('task store down'); } });
+    const a = await svc.addItem('t1', 'first');
+    await expect(svc.toggleItem(a.id, true)).resolves.toMatchObject({ done: true });
+  });
+});
+

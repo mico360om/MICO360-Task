@@ -16,5 +16,12 @@ export function checklistApi(client: ApiClient) {
       client.post<{ data: ApiChecklistItem }>(`/tasks/${taskId}/checklist`, { text }).then((r) => r.data),
     toggle: (itemId: string, done: boolean) =>
       client.put<{ data: ApiChecklistItem }>(`/checklist/${itemId}`, { done }).then((r) => r.data),
+    /** Change an item's text. */
+    rename: (itemId: string, text: string) =>
+      client.put<{ data: ApiChecklistItem }>(`/checklist/${itemId}`, { text }).then((r) => r.data),
+    /** Put the task's items in this order (every item id, first to last). */
+    reorder: (taskId: string, orderedIds: string[]) =>
+      client.put<{ data: ApiChecklistItem[] }>(`/tasks/${taskId}/checklist/reorder`, { orderedIds }).then((r) => r.data),
+    remove: (itemId: string) => client.del<unknown>(`/checklist/${itemId}`),
   };
 }

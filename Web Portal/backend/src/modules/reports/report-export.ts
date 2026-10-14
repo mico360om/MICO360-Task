@@ -52,11 +52,15 @@ export async function loadReportBundle(svc: ReportService, opts: { filter: Repor
   return { completion, status, projects, workload, series, tasks };
 }
 
-export function filterSummary(meta: ReportMeta): string {
+/** Sections whose numbers depend on the trend period (the rest cover all time). */
+const PERIOD_SECTIONS: ReportSection[] = ['summary', 'trend'];
+
+/** The filters in words. The trend period is named only when a section that uses it is included. */
+export function filterSummary(meta: ReportMeta, sections: ReportSection[] = ALL_SECTIONS): string {
   return [
     `Project: ${meta.projectName || 'All projects'}`,
     `Team member: ${meta.memberName || 'Everyone'}`,
-    `Trend period: ${formatDay(meta.from)} – ${formatDay(meta.to)}`,
+    ...(sections.some((x) => PERIOD_SECTIONS.includes(x)) ? [`Trend period: ${formatDay(meta.from)} – ${formatDay(meta.to)}`] : []),
   ].join(' · ');
 }
 
@@ -93,8 +97,9 @@ const SECTION_TITLE: Record<ReportSection, string> = {
 // ---------------------------------------------------------------------------
 
 export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: ReportSection[] = ALL_SECTIONS): XlsxSheet[] {
-  const notes = [filterSummary(meta), generatedLine(meta)];
-  const titled = (section: ReportSection) => `${meta.title} — ${SECTION_TITLE[section]}`;
+  const notes = [filterSummary(meta, sections), generatedLine(meta)];
+  // A single-section export is already named after its section: don't say it twice.
+  const titled = (section: ReportSection) => (sections.length === 1 ? meta.title : `${meta.title} — ${SECTION_TITLE[section]}`);
   const sheets: XlsxSheet[] = [];
   const total = b.completion.total;
 
@@ -197,7 +202,7 @@ export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSec
     footerLeft: `MICO360 Tasks · ${generatedLine(meta)}`,
     palette: { brand: BRAND },
   });
-  doc.reportHeader({ title: meta.title, subtitle: meta.projectName || 'All projects', details: [filterSummary(meta), generatedLine(meta)] });
+  doc.reportHeader({ title: meta.title, subtitle: meta.projectName || 'All projects', details: [filterSummary(meta, sections), generatedLine(meta)] });
 
   const total = b.completion.total;
   const empty = () => doc.text(EMPTY, { color: [0.42, 0.4, 0.38], size: 10, gap: 4 });

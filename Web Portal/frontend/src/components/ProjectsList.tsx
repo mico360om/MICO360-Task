@@ -5,7 +5,7 @@ import { SearchableSelect } from './ui/SearchableSelect';
 import { Badge, type BadgeTone } from './ui/Badge';
 import { Avatar } from './ui/Avatar';
 import { EmptyState } from './ui/EmptyState';
-import { assetUrl } from '../api/client';
+import { ProjectAvatar } from './ProjectAvatar';
 
 /** Per-project rollup shown on the card (task stats + owner). All fields optional. */
 export interface ProjectCardMeta {
@@ -25,6 +25,8 @@ export interface ProjectsListProps {
   onChangeStatus?: (id: string, status: ProjectStatus) => void;
   /** Optional per-project rollup keyed by project id. */
   meta?: Record<string, ProjectCardMeta>;
+  /** Open a project's edit form (admins). */
+  onEdit?: (project: ApiProject) => void;
 }
 
 const STATUS_OPTIONS = PROJECT_STATUSES.map((s) => ({ value: s, label: projectStatusLabel(s) }));
@@ -48,7 +50,7 @@ function Stat({ icon, value, label, tone = 'text-ink' }: { icon: React.ReactNode
   );
 }
 
-export function ProjectsList({ projects, canManage, onChangeStatus, meta }: ProjectsListProps) {
+export function ProjectsList({ projects, canManage, onChangeStatus, meta, onEdit }: ProjectsListProps) {
   if (projects.length === 0) {
     return (
       <EmptyState
@@ -80,15 +82,9 @@ export function ProjectsList({ projects, canManage, onChangeStatus, meta }: Proj
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {p.imageUrl ? (
-                    <img src={assetUrl(p.imageUrl)} alt="" className="h-11 w-11 flex-none rounded-xl object-cover shadow-soft" />
-                  ) : (
-                    <span className="grid h-11 w-11 flex-none place-items-center rounded-xl text-sm font-bold text-white shadow-soft" style={{ background: p.color }} aria-hidden="true">
-                      {p.name.slice(0, 2).toUpperCase()}
-                    </span>
-                  )}
+                  <ProjectAvatar project={p} size="lg" className="shadow-soft" />
                   <div className="min-w-0">
-                    <h3 dir="auto" className="truncate text-start font-display text-base font-bold text-ink transition-colors group-hover:text-brand">{p.name}</h3>
+                    <h2 dir="auto" title={p.name} className="truncate text-start font-display text-base font-bold text-ink transition-colors group-hover:text-brand">{p.name}</h2>
                     {p.clientName ? <p dir="auto" className="truncate text-xs text-ink-2">{p.clientName}</p> : <p className="truncate text-xs text-ink-3">Internal</p>}
                   </div>
                 </div>
@@ -153,6 +149,19 @@ export function ProjectsList({ projects, canManage, onChangeStatus, meta }: Proj
                       onChange={(v) => onChangeStatus(p.id, v as ProjectStatus)}
                     />
                   </div>
+                  {onEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(p)}
+                      aria-label={`Edit ${p.name}`}
+                      title="Edit project"
+                      className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-line text-ink-2 transition-colors hover:border-brand hover:text-brand"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+                      </svg>
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <Link to={`/projects/${p.id}`} className="flex items-center gap-1 px-5 pb-4 text-xs font-semibold text-brand opacity-0 transition-all duration-300 group-hover:translate-x-0.5 group-hover:opacity-100">

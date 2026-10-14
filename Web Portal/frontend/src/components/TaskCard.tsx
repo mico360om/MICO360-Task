@@ -87,7 +87,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (
-            <span className="inline-flex items-center gap-1 rounded bg-danger-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-danger">
+            <span className="inline-flex items-center gap-1 rounded bg-danger-soft px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-danger">
               <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M6 6l12 12" /></svg>
               Blocked
             </span>
@@ -138,7 +138,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ground" aria-label={`Progress ${task.progress}%`}>
             <div className="h-full rounded-full bg-brand-sheen transition-[width] duration-500 ease-emphasized" style={{ width: `${task.progress}%` }} />
           </div>
-          <span className="w-7 flex-none text-right text-[10px] tabular-nums text-ink-3">{task.progress}%</span>
+          <span className="w-8 flex-none text-right text-[11px] tabular-nums text-ink-3">{task.progress}%</span>
         </div>
         {task.assignees.length > 0 ? (
           <div className="flex flex-none items-center gap-1">

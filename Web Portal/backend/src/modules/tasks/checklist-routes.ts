@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { ChecklistService } from './checklist-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { noteActivity, type RecordTaskActivity } from '../activity/task-activity';
 import { idString, requiredText } from './validation';
 
 const addSchema = z.object({ text: requiredText });
@@ -21,6 +22,8 @@ export interface ChecklistRouteDeps {
   projectIdOfTask?: (taskId: string) => Promise<string | null>;
   /** Object-level view authorization: may this user see/edit this task's checklist? */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
+  /** Write a line to the task's activity timeline (who did what). */
+  recordActivity?: RecordTaskActivity;
 }
 
 export async function registerChecklistRoutes(app: FastifyInstance, deps: ChecklistRouteDeps): Promise<void> {
@@ -50,6 +53,7 @@ export async function registerChecklistRoutes(app: FastifyInstance, deps: Checkl
     const { text } = addSchema.parse(req.body);
     const item = await checklistService.addItem(id, text);
     await announce(id);
+    await noteActivity(deps.recordActivity, { taskId: id, userId: req.user!.id, action: 'CHECKLIST_ADDED', meta: { text: item.text } });
     return reply.status(201).send({ data: item });
   });
 
@@ -59,10 +63,16 @@ export async function registerChecklistRoutes(app: FastifyInstance, deps: Checkl
     const body = updateSchema.parse(req.body);
     const existing = await checklistService.getItem(itemId);
     if (!(await canView(req, existing.taskId))) return reply.status(403).send(denied);
+    // What it was, copied before the change (the store may hand back the same object, updated).
+    const before = { text: existing.text, done: existing.done };
     let item = existing;
     if (body.text !== undefined) item = await checklistService.editItem(itemId, body.text);
     if (body.done !== undefined) item = await checklistService.toggleItem(itemId, body.done);
     await announce(item.taskId);
+    const note = (action: string, meta: Record<string, unknown>) =>
+      noteActivity(deps.recordActivity, { taskId: item.taskId, userId: req.user!.id, action, meta });
+    if (item.text !== before.text) await note('CHECKLIST_RENAMED', { from: before.text, to: item.text });
+    if (item.done !== before.done) await note(item.done ? 'CHECKLIST_DONE' : 'CHECKLIST_REOPENED', { text: item.text });
     return { data: item };
   });
 
@@ -73,6 +83,7 @@ export async function registerChecklistRoutes(app: FastifyInstance, deps: Checkl
     const { orderedIds } = reorderSchema.parse(req.body);
     const items = await checklistService.reorderItems(id, orderedIds);
     await announce(id);
+    await noteActivity(deps.recordActivity, { taskId: id, userId: req.user!.id, action: 'CHECKLIST_REORDERED', meta: { count: orderedIds.length } });
     return { data: items };
   });
 
@@ -81,7 +92,10 @@ export async function registerChecklistRoutes(app: FastifyInstance, deps: Checkl
     const existing = await checklistService.getItem(itemId);
     if (!(await canView(req, existing.taskId))) return reply.status(403).send(denied);
     const removed = await checklistService.removeItem(itemId);
-    if (removed) await announce(removed.taskId);
+    if (removed) {
+      await announce(removed.taskId);
+      await noteActivity(deps.recordActivity, { taskId: existing.taskId, userId: req.user!.id, action: 'CHECKLIST_REMOVED', meta: { text: existing.text } });
+    }
     return reply.status(204).send();
   });
 }

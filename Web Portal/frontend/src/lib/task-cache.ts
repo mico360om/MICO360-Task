@@ -11,6 +11,7 @@ export const TASK_QUERY_ROOTS = [
   'tasks',
   'project-tasks',
   'calendar-tasks',
+  'calendar',
   'task',
   'assignees',
   'task-activity',

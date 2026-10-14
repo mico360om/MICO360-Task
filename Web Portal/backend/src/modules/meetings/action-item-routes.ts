@@ -37,6 +37,8 @@ export interface ActionItemRouteDeps {
   canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
   /** Inherit the meeting's project on creation (so the item shows up in project scope). */
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
+  /** Board keys of linked tasks (id → key), so an item can name and open its task. */
+  resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
 }
 
 export async function registerActionItemRoutes(app: FastifyInstance, deps: ActionItemRouteDeps): Promise<void> {
@@ -46,6 +48,13 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
 
   const canViewMeeting = (req: FastifyRequest, meetingId: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], meetingId) : Promise.resolve(true);
+
+  /** Add `taskKey` (null when the item has no task, or the task is gone). */
+  async function withTaskKeys<T extends { taskId: string | null }>(items: T[]): Promise<Array<T & { taskKey: string | null }>> {
+    const ids = [...new Set(items.map((i) => i.taskId).filter((t): t is string => Boolean(t)))];
+    const keys = ids.length && deps.resolveTaskKeys ? await deps.resolveTaskKeys(ids) : {};
+    return items.map((i) => ({ ...i, taskKey: (i.taskId && keys[i.taskId]) || null }));
+  }
 
   // The assignee and creator can always work on their own item — even if they never attended the
   // meeting — and admins can touch anything.
@@ -68,14 +77,14 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   // ── Cross-meeting: the caller's own action items ("My Action Items") ──
   app.get('/me/action-items', { preHandler: guard.authenticate }, async (req) => {
     const q = mineQuery.parse(req.query);
-    return { data: await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly }) };
+    return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly })) };
   });
 
   // ── Meeting-scoped register ──
   app.get('/meetings/:id/action-items', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canViewMeeting(req, id))) return reply.status(404).send(notFound);
-    return { data: await actionItemService.listByMeeting(id) };
+    return { data: await withTaskKeys(await actionItemService.listByMeeting(id)) };
   });
 
   app.post('/meetings/:id/action-items', { preHandler: guard.authenticate }, async (req, reply) => {

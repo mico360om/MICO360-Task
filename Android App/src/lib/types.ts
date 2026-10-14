@@ -206,6 +206,48 @@ export interface ApiConversationSummary {
   lastMessage: (Omit<ApiChatMessage, 'reactions'> & { reactions?: ReactionGroup[] }) | null;
 }
 
+/** One line of a task's activity history (newest first from the server). */
+export interface ApiActivityEntry {
+  id: string;
+  taskId: string | null;
+  userId: string;
+  action: string;
+  createdAt: string;
+  /** What changed: { from, to } for a move, { assignee } for an assignment, { changes } for an edit… */
+  meta?: Record<string, unknown> | null;
+  /** Who did it. */
+  actor?: { id: string; name: string } | null;
+}
+
+/** A task's blockers (tasks it waits on) and the tasks that wait on it — by id. */
+export interface ApiDependencyView {
+  blockedBy: string[];
+  blocks: string[];
+}
+
+/** Someone following a task's updates. */
+export interface ApiWatcher {
+  id: string;
+  username: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+/** An AI-recommended priority and why. */
+export interface ApiPrioritySuggestion {
+  priority: Priority;
+  reason: string;
+}
+
+/** Someone an @mention in a task's comments would notify (its project's members and admins). */
+export interface ApiMentionable {
+  id: string;
+  username: string;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
+}
+
 export interface ApiDirectoryUser {
   id: string;
   username: string;

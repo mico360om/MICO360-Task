@@ -14,6 +14,7 @@ function toRecord(p: Project): ProjectRecord {
     status: p.status,
     priority: p.priority,
     color: p.color,
+    icon: p.icon,
     imageUrl: p.imageUrl,
     startDate: p.startDate,
     targetDate: p.targetDate,
@@ -41,6 +42,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
             status: data.status ?? undefined,
             priority: data.priority ?? undefined,
             color: data.color ?? undefined,
+            icon: data.icon ?? undefined,
             startDate: data.startDate ?? undefined,
             targetDate: data.targetDate ?? undefined,
             notes: data.notes ?? undefined,
@@ -63,6 +65,9 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
     async findByCode(code) {
       const p = await prisma.project.findFirst({ where: { code, deletedAt: null } });
       return p ? toRecord(p) : null;
+    },
+    async codeInUse(code) {
+      return (await prisma.project.count({ where: { code } })) > 0;
     },
     async list() {
       const ps = await prisma.project.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } });

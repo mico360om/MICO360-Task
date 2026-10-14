@@ -98,6 +98,9 @@ model User {
   tokenVersion        Int        @default(0)
   // Preferences
   timezone            String     @default("UTC")
+  // Calendar: an own time zone (null = the company's) and the week's first day (0 Sun, 1 Mon, 6 Sat).
+  preferredTimeZone   String?    @db.VarChar(64)
+  weekStart           Int?
   locale              String     @default("en")
   dateFormat          String     @default("YYYY-MM-DD")
   theme               Theme      @default(SYSTEM)
@@ -174,6 +177,7 @@ model Project {
   status      ProjectStatus @default(PLANNING)
   priority    Priority      @default(NORMAL)
   color       String        @default("#8B1E1E")
+  icon        String?       @db.VarChar(32) // one of the web app's project icons; null = initials
   imageUrl    String?
   startDate   DateTime?
   targetDate  DateTime?
@@ -589,6 +593,12 @@ model ConversationParticipant {
   userId         String
   lastReadAt     DateTime?
   addedAt        DateTime     @default(now())
+  /// The person's own settings for this conversation (private to them).
+  favorite        Boolean      @default(false)
+  archivedAt      DateTime?
+  mutedAt         DateTime?
+  /// When their app last received the conversation's messages ("delivered").
+  lastDeliveredAt DateTime?
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@id([conversationId, userId])
@@ -604,11 +614,17 @@ model ChatMessage {
   editedAt       DateTime?
   deletedAt      DateTime?
   createdAt      DateTime         @default(now())
+  /// The message this one answers (same conversation).
+  replyToId      String?
+  /// The sender's own id for this message: a retried send with the same id is not stored twice.
+  clientId       String?          @db.VarChar(64)
   conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   reactions      ChatReaction[]
   attachments    ChatAttachment[]
 
+  @@unique([conversationId, userId, clientId])
   @@index([conversationId, createdAt])
+  @@index([replyToId])
   @@map("chat_messages")
 }
 
@@ -653,6 +669,14 @@ enum MeetingStatus {
 enum AttendeeRole {
   REQUIRED
   OPTIONAL
+}
+
+/// An attendee's answer to the invitation (separate from role and from attendance on the day).
+enum InvitationResponse {
+  PENDING
+  ACCEPTED
+  TENTATIVE
+  DECLINED
 }
 
 enum AttendanceStatus {
@@ -740,6 +764,10 @@ model MeetingAttendee {
   externalEmail String?
   role          AttendeeRole     @default(REQUIRED)
   attendance    AttendanceStatus @default(INVITED)
+  response      InvitationResponse @default(PENDING)
+  respondedAt   DateTime?
+  /// When this person's own invitation was delivered (null = not invited yet).
+  invitedAt     DateTime?
   department    String?
   createdAt     DateTime         @default(now())
   meeting       Meeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)

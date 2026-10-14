@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import { Sidebar } from './Sidebar';
 
-function renderSidebar(isAdmin: boolean) {
+function renderSidebar(isAdmin: boolean, path = '/') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <Sidebar isAdmin={isAdmin} />
     </MemoryRouter>,
   );
@@ -34,5 +34,51 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /system settings/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /audit logs/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /reports/i })).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar on a short screen', () => {
+  const originalRect = Element.prototype.getBoundingClientRect;
+  const originalScroll = Element.prototype.scrollIntoView;
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = originalRect;
+    Element.prototype.scrollIntoView = originalScroll;
+  });
+
+  const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 240, width: 240, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  it('scrolls the list so the link of the current page is in view', () => {
+    // The list scrolls when the window is short: the page you are on must not hide below the fold.
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.classList.contains('overflow-y-auto')) return rect(64, 500);
+      if (this.getAttribute('aria-current') === 'page') return rect(620, 656);
+      return rect(0, 0);
+    };
+    renderSidebar(true, '/admin/audit');
+    const list = screen.getByRole('link', { name: /audit logs/i }).closest('.overflow-y-auto')!;
+    expect(list.scrollTop).toBeGreaterThanOrEqual(156); // 656 - 500: the link's bottom edge reaches the list's
+  });
+
+  it('leaves the list alone when the current link is already visible', () => {
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.classList.contains('overflow-y-auto')) return rect(64, 500);
+      if (this.getAttribute('aria-current') === 'page') return rect(100, 136);
+      return rect(0, 0);
+    };
+    renderSidebar(true, '/dashboard');
+    expect(screen.getByRole('link', { name: /dashboard/i }).closest('.overflow-y-auto')!.scrollTop).toBe(0);
+  });
+
+  it('does not use scrollIntoView, which would make Tab skip the "Skip to content" link in Chrome', () => {
+    const spy = vi.fn();
+    Element.prototype.scrollIntoView = spy;
+    renderSidebar(true, '/admin/audit');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('marks the list as the scrolling part of the rail', () => {
+    renderSidebar(true);
+    const list = screen.getByRole('link', { name: /dashboard/i }).closest('.overflow-y-auto');
+    expect(list).toHaveClass('scroll-shadows');
   });
 });

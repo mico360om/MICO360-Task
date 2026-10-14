@@ -161,6 +161,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       if (filter.tagIds?.length) and.push({ tags: { some: { tagId: { in: filter.tagIds } } } });
       if (filter.dueBefore) and.push({ dueDate: { lte: filter.dueBefore } });
       if (filter.dueAfter) and.push({ dueDate: { gte: filter.dueAfter } });
+      if (filter.recurring) and.push({ recurrenceRule: { not: Prisma.DbNull } });
       const ts = await prisma.task.findMany({
         where: { ...liveTaskWhere, AND: and },
         // Enrich list rows for card display: assignees + lightweight aggregate counts. `_count`

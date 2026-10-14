@@ -61,4 +61,36 @@ describe('SystemSettingsPage', () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/tasks/carry-forward') && c.method === 'POST')).toBe(true));
     await waitFor(() => expect(screen.getByText(/carried 3 tasks forward/i)).toBeInTheDocument());
   });
+
+  it('does not offer a run that would do nothing: with carry-forward switched off the button says why', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET' });
+      return json({ data: [{ key: 'carryForward.enabled', value: false }] });
+    }));
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('switch', { name: /automatic carry-forward/i })).toHaveAttribute('aria-checked', 'false'));
+    const run = screen.getByRole('button', { name: /run carry-forward now/i });
+    expect(run).toBeDisabled();
+    expect(screen.getByText(/switch carry-forward on to run it/i)).toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith('/tasks/carry-forward'))).toBe(false);
+  });
+
+  it('announces the result of a run', async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: /run carry-forward now/i }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/carried 3 tasks forward/i);
+  });
+
+  it('lists the statuses in full and in the order of the chips, whatever order they were ticked in', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{ key: 'carryForward.statuses', value: ['REVIEW', 'TODO', 'BACKLOG', 'IN_PROGRESS', 'BLOCKED'] }] })));
+    renderPage();
+    const value = await screen.findByText('Backlog, To do, In progress, Blocked, Review');
+    expect(value).not.toHaveClass('truncate');
+  });
+
+  it('shows keyboard focus on a status chip (the real checkbox is visually hidden)', async () => {
+    renderPage();
+    const chip = (await screen.findByRole('checkbox', { name: 'Backlog' })).closest('label')!;
+    expect(chip.className).toMatch(/has-\[:focus-visible\]:outline/);
+  });
 });

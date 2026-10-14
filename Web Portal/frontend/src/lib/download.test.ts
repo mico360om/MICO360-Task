@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { downloadTextFile, downloadBlob } from './download';
+import { downloadTextFile, downloadBlob , downloadNameFor } from './download';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -35,3 +35,17 @@ describe('downloadTextFile', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:pdf');
   });
 });
+
+describe('downloadNameFor — the name an attached file is saved under', () => {
+  it('is the file’s own name for anything the browser saves (documents, PDFs, archives)', () => {
+    // The server stores files under random names; without this a download arrived as "46304f6b-….txt".
+    expect(downloadNameFor('FLOW-B note.txt')).toBe('FLOW-B note.txt');
+    expect(downloadNameFor('spec.pdf')).toBe('spec.pdf');
+    expect(downloadNameFor('budget.xlsx')).toBe('budget.xlsx');
+  });
+
+  it('is not set for a picture, which opens for viewing instead', () => {
+    for (const name of ['photo.png', 'scan.JPG', 'a.jpeg', 'b.gif', 'c.webp']) expect(downloadNameFor(name), name).toBeUndefined();
+  });
+});
+

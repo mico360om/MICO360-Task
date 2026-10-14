@@ -129,7 +129,7 @@ function ActionRow({
           <Badge tone={actionStatusTone(item.status)}>{ACTION_STATUS_LABELS[item.status]}</Badge>
           {item.dueDate ? <span className={overdue ? 'font-medium text-danger' : 'text-ink-3'}>due {formatDueDate(item.dueDate, timeZone)}{overdue ? ' · overdue' : ''}</span> : null}
           {item.meetingId ? (
-            <Link to={`/meetings/${item.meetingId}`} className="text-ink-3 hover:text-brand">↗ <span dir="auto">{meetingName ?? 'meeting'}</span></Link>
+            <Link to={`/meetings/${item.meetingId}`} className="tap gap-1 text-ink-3 hover:text-brand">↗ <span dir="auto">{meetingName ?? 'meeting'}</span></Link>
           ) : null}
         </div>
       </div>

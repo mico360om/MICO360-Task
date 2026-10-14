@@ -13,7 +13,7 @@ function makeHarness(
   let clock = new Date('2026-09-26T08:00:00.000Z').getTime();
   const now = () => new Date(clock);
   const store = createMemoryOtpStore(now);
-  const emails: { email: string; code: string }[] = [];
+  const emails: { email: string; code: string; expiresInMinutes?: number }[] = [];
   const warnings: string[] = [];
   const cleared: string[] = [];
   const pending: Promise<void>[] = [];
@@ -33,9 +33,9 @@ function makeHarness(
     },
     otps: store,
     mailer: {
-      async sendLoginCode(email, code) {
+      async sendLoginCode(email, code, options) {
         if (opts.failSend) throw new Error('mailjet 500');
-        emails.push({ email, code });
+        emails.push({ email, code, expiresInMinutes: options?.expiresInMinutes });
       },
       isConfigured: () => opts.configured ?? true,
     },
@@ -62,6 +62,17 @@ describe('OtpService.requestLoginOtp', () => {
     expect(emails).toHaveLength(1);
     expect(store.rows[0]!.codeHash).not.toBe(emails[0]!.code);
     expect(await verifyOtp(emails[0]!.code, store.rows[0]!.codeHash)).toBe(true);
+  });
+
+  it('tells the email how long the code lasts (rounded up to whole minutes)', async () => {
+    const ten = makeHarness();
+    await ten.svc.requestLoginOtp('ada');
+    await ten.flush();
+    expect(ten.emails[0]!.expiresInMinutes).toBe(10);
+    const odd = makeHarness({ ttl: 90 });
+    await odd.svc.requestLoginOtp('ada');
+    await odd.flush();
+    expect(odd.emails[0]!.expiresInMinutes).toBe(2);
   });
 
   it('does not reveal whether the account exists (no store/email, still sent:true)', async () => {

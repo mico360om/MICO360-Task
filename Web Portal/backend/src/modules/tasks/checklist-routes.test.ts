@@ -57,13 +57,13 @@ const tokenService = createTokenService({
   refreshStore: { async save() {}, async findValid() { return null; }, async revoke() {}, async revokeAllForUser() {} },
 });
 
-async function makeApp() {
+async function makeApp(extra: Partial<Parameters<typeof buildApp>[0]> = {}) {
   const checklistService = createChecklistService(inMemory());
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  return buildApp({ authService, tokenService, checklistService });
+  return buildApp({ authService, tokenService, checklistService, ...extra });
 }
 async function token() {
   return (await tokenService.issueTokens({ id: 'u1', roles: ['EMPLOYEE'] })).accessToken;
@@ -75,6 +75,32 @@ beforeEach(async () => {
 });
 
 describe('Checklist routes', () => {
+  it('records who added, ticked, renamed, reopened, reordered and removed a step (task timeline)', async () => {
+    const events: unknown[] = [];
+    const a = await makeApp({ recordTaskActivity: async (e) => { events.push(e); } });
+    const headers = { authorization: `Bearer ${await token()}` };
+    const item = (await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/checklist', headers, payload: { text: 'Verify' } })).json().data;
+    await a.inject({ method: 'PUT', url: `/api/v1/checklist/${item.id}`, headers, payload: { done: true } });
+    await a.inject({ method: 'PUT', url: `/api/v1/checklist/${item.id}`, headers, payload: { text: 'Verify quote' } });
+    await a.inject({ method: 'PUT', url: `/api/v1/checklist/${item.id}`, headers, payload: { done: false } });
+    await a.inject({ method: 'PUT', url: '/api/v1/tasks/t1/checklist/reorder', headers, payload: { orderedIds: [item.id] } });
+    await a.inject({ method: 'DELETE', url: `/api/v1/checklist/${item.id}`, headers });
+    expect(events).toEqual([
+      { taskId: 't1', userId: 'u1', action: 'CHECKLIST_ADDED', meta: { text: 'Verify' } },
+      { taskId: 't1', userId: 'u1', action: 'CHECKLIST_DONE', meta: { text: 'Verify' } },
+      { taskId: 't1', userId: 'u1', action: 'CHECKLIST_RENAMED', meta: { from: 'Verify', to: 'Verify quote' } },
+      { taskId: 't1', userId: 'u1', action: 'CHECKLIST_REOPENED', meta: { text: 'Verify quote' } },
+      { taskId: 't1', userId: 'u1', action: 'CHECKLIST_REORDERED', meta: { count: 1 } },
+      { taskId: 't1', userId: 'u1', action: 'CHECKLIST_REMOVED', meta: { text: 'Verify quote' } },
+    ]);
+  });
+
+  it('a failing timeline never fails the change itself', async () => {
+    const a = await makeApp({ recordTaskActivity: async () => { throw new Error('activity store down'); } });
+    const res = await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/checklist', headers: { authorization: `Bearer ${await token()}` }, payload: { text: 'Still added' } });
+    expect(res.statusCode).toBe(201);
+  });
+
   it('adds an item (201) and reports progress on list', async () => {
     const add = await app.inject({
       method: 'POST',

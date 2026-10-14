@@ -59,11 +59,15 @@ export interface ApiClientOptions {
   onReachable?: () => void;
   /** Per-request timeout in ms (default 20 s). */
   timeoutMs?: number;
+  /** XMLHttpRequest for uploads that report progress (injectable for tests; fetch can't report it). */
+  xhrImpl?: typeof XMLHttpRequest;
 }
 
 export interface RequestOptions {
   /** Extra request headers, e.g. `Idempotency-Key`. */
   headers?: Record<string, string>;
+  /** Uploads: hear how much has been sent so far (0–1). */
+  onProgress?: (fraction: number) => void;
 }
 
 export interface ApiClient {
@@ -93,8 +97,33 @@ export function createApiClient({
   onUnauthorized,
   onReachable,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  xhrImpl,
 }: ApiClientOptions): ApiClient {
   const doFetch = fetchImpl ?? fetch;
+  const Xhr = xhrImpl ?? (typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : undefined);
+
+  /** A multipart POST over XMLHttpRequest, reporting progress — same timeout and errors as `send`. */
+  function sendWithProgress(
+    path: string,
+    form: FormData,
+    headers: Record<string, string>,
+    limitMs: number,
+    onProgress: (fraction: number) => void,
+  ): Promise<{ status: number; ok: boolean; text: string }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new Xhr!();
+      xhr.open('POST', `${baseUrl}${path}`);
+      for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+      xhr.timeout = limitMs;
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => resolve({ status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300, text: xhr.responseText });
+      xhr.onerror = () => reject(new NetworkError('Network request failed.'));
+      xhr.ontimeout = () => reject(new NetworkError('The server took too long to respond.', { timedOut: true }));
+      xhr.send(form);
+    });
+  }
 
   // Single-flight refresh: N parallel 401s share ONE /auth/refresh. The server single-uses
   // refresh tokens, so N rotating refreshes would revoke every result but the last.
@@ -136,6 +165,7 @@ export function createApiClient({
     body: unknown,
     extraHeaders?: Record<string, string>,
     form?: FormData,
+    onProgress?: (fraction: number) => void,
   ): Promise<{ status: number; ok: boolean; text: string }> {
     const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
     // Only declare a JSON content-type when there is a JSON body — Fastify rejects an empty body
@@ -147,6 +177,16 @@ export function createApiClient({
     const limitMs = form ? Math.max(timeoutMs, 120_000) : timeoutMs;
     const token = await getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    if (form && onProgress && Xhr) {
+      const result = await sendWithProgress(path, form, headers, limitMs, onProgress);
+      try {
+        onReachable?.();
+      } catch {
+        /* a listener must never turn a good response into a failure */
+      }
+      return result;
+    }
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     let timedOut = false;
@@ -185,12 +225,12 @@ export function createApiClient({
     // A failed login/OTP/reset/refresh is not a token-expiry — never trigger a refresh for /auth/*.
     const canRefresh = !path.startsWith('/auth/');
 
-    let res = await send(method, path, body, opts?.headers, form);
+    let res = await send(method, path, body, opts?.headers, form, opts?.onProgress);
 
     if (res.status === 401 && canRefresh) {
       const outcome = await refreshOnce();
       if (outcome === 'ok') {
-        res = await send(method, path, body, opts?.headers, form); // retry once with the new token
+        res = await send(method, path, body, opts?.headers, form, opts?.onProgress); // retry once with the new token
         if (res.status === 401) await onUnauthorized?.();
       } else if (outcome === 'invalid') {
         await onUnauthorized?.();

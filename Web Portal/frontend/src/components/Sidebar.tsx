@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import logoW from '../assets/logo-w.png';
 
@@ -175,7 +175,7 @@ export function Sidebar({ isAdmin }: SidebarProps) {
   return (
     <nav
       aria-label="Main"
-      className="sticky top-0 hidden h-screen w-60 flex-none flex-col border-r border-line bg-surface/95 md:flex"
+      className="sticky top-0 hidden h-screen w-60 flex-none flex-col border-r border-line bg-surface/95 md:flex supports-[height:100dvh]:h-dvh"
     >
       <SidebarBody isAdmin={isAdmin} />
     </nav>
@@ -184,14 +184,32 @@ export function Sidebar({ isAdmin }: SidebarProps) {
 
 /** The sidebar's inner content — reused by the desktop rail and the mobile drawer. */
 export function SidebarBody({ isAdmin, onNavigate }: SidebarProps & { onNavigate?: () => void }) {
+  const { pathname } = useLocation();
+  const list = useRef<HTMLDivElement>(null);
+  // On a short window the list scrolls: never leave the link of the current page below the fold.
+  // The list is scrolled directly — scrollIntoView() also moves the point Tab starts from in
+  // Chrome, which made the first Tab skip "Skip to content".
+  useEffect(() => {
+    const box = list.current;
+    const link = box?.querySelector('[aria-current="page"]');
+    if (!box || !link) return;
+    const view = box.getBoundingClientRect();
+    const at = link.getBoundingClientRect();
+    const margin = 8;
+    if (at.bottom > view.bottom) box.scrollTop += at.bottom - view.bottom + margin;
+    else if (at.top < view.top) box.scrollTop -= view.top - at.top + margin;
+  }, [pathname]);
+
   return (
     <>
       <div className="flex h-16 items-center border-b border-line px-5">
-        <img src={logo} alt="MICO360" className="h-9 w-auto max-w-full object-contain dark:hidden" />
-        <img src={logoW} alt="MICO360" className="hidden h-9 w-auto max-w-full object-contain dark:block" />
+        {/* One per theme. `loading="lazy"`: the hidden one is never downloaded. The size attributes
+            reserve the space, so nothing shifts when the image arrives. */}
+        <img src={logo} alt="MICO360" width={409} height={192} loading="lazy" decoding="async" className="h-9 w-auto max-w-full object-contain dark:hidden" />
+        <img src={logoW} alt="MICO360" width={409} height={192} loading="lazy" decoding="async" className="hidden h-9 w-auto max-w-full object-contain dark:block" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3">
+      <div ref={list} className="scroll-shadows flex-1 overflow-y-auto px-3 py-3">
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => isAdmin || !i.adminOnly)} onNavigate={onNavigate} />
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} />
         {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} /> : null}

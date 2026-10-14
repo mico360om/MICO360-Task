@@ -1,5 +1,5 @@
-import { mkdir, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, writeFile, rm, readFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AttachmentStorage, UploadedFile } from './attachment-repository';
 import { extensionForMime } from '../../lib/upload-safety';
@@ -33,5 +33,10 @@ export function createLocalDiskStorage({ baseDir, publicPrefix }: LocalDiskStora
     await rm(join(baseDir, storageKey), { force: true });
   }
 
-  return { save, remove };
+  async function read(storageKey: string): Promise<Buffer> {
+    // Keys are our own random names; basename() keeps a bad key from leaving the folder.
+    return readFile(join(baseDir, basename(storageKey)));
+  }
+
+  return { save, remove, read };
 }

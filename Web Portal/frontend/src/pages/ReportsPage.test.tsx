@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReportsPage } from './ReportsPage';
 import { todayKey } from '../lib/due-date';
@@ -85,6 +85,70 @@ describe('ReportsPage dates (XP-03)', () => {
     expect(screen.getByLabelText('To date')).toHaveValue(today);
     expect(screen.getByLabelText('To date')).toHaveAttribute('max', today);
     await waitFor(() => expect(urls.some((u) => u.includes('/reports/timeseries') && u.includes(`to=${today}`))).toBe(true));
+  });
+});
+
+describe('ReportsPage date range typed by hand', () => {
+  const trendCalls = () => urls.filter((u) => u.includes('/reports/timeseries'));
+
+  it('keeps a half-typed date in the field and waits for a whole one before reloading', async () => {
+    renderPage();
+    await screen.findByLabelText('From date');
+    await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
+    const from = screen.getByLabelText('From date');
+    const before = trendCalls().length;
+
+    // While a part of the date is being typed the browser reports an empty value: it must stay
+    // empty (putting the old date back scrambles the digits typed next) and nothing reloads.
+    fireEvent.change(from, { target: { value: '' } });
+    expect(from).toHaveValue('');
+    // A year still being typed ("0002") is a real date to the browser, not a period to report on.
+    fireEvent.change(from, { target: { value: '0002-09-01' } });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(trendCalls().length).toBe(before);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.change(from, { target: { value: '2026-09-01' } });
+    await waitFor(() => expect(trendCalls().some((u) => u.includes('from=2026-09-01'))).toBe(true));
+    expect(from).toHaveValue('2026-09-01');
+  });
+
+  it('says so when the start is after the end, and keeps showing the last good period', async () => {
+    renderPage();
+    await screen.findByLabelText('From date');
+    await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-09-23' } });
+    await waitFor(() => expect(trendCalls().some((u) => u.includes('to=2026-09-23'))).toBe(true));
+
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-09-28' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent(/start date.*on or before the end date/i);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(trendCalls().some((u) => u.includes('from=2026-09-28'))).toBe(false);
+
+    // Putting it right clears the message and loads the new period.
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-09-20' } });
+    await waitFor(() => expect(trendCalls().some((u) => u.includes('from=2026-09-20') && u.includes('to=2026-09-23'))).toBe(true));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('marks the chosen period for assistive tech, not by colour alone', async () => {
+    renderPage();
+    await screen.findByLabelText('From date');
+    expect(screen.getByRole('button', { name: '30d' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(screen.getByRole('button', { name: '7d' }));
+    expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '30d' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('a preset button puts the dates back in both fields', async () => {
+    renderPage();
+    await screen.findByLabelText('From date');
+    await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '' } });
+    await userEvent.click(screen.getByRole('button', { name: '7d' }));
+    expect(screen.getByLabelText('To date')).toHaveValue(todayKey('Asia/Muscat'));
+    expect(screen.getByLabelText('From date')).not.toHaveValue('');
   });
 });
 

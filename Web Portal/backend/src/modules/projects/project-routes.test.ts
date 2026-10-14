@@ -28,6 +28,7 @@ function inMemoryRepo(): ProjectRepository {
         status: data.status ?? 'PLANNING',
         priority: data.priority ?? 'NORMAL',
         color: data.color ?? '#8B1E1E',
+        icon: data.icon ?? null,
         imageUrl: null,
         ownerId: data.ownerId ?? null,
         startDate: data.startDate ?? null,

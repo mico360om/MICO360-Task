@@ -28,6 +28,9 @@ const DEFAULT_ROLES = ['EMPLOYEE'];
 const isActiveAdmin = (u: UserSummary) => u.status === 'ACTIVE' && u.roles.includes(ADMIN);
 const sameRoles = (a: string[], b: string[]) => a.length === b.length && a.every((r) => b.includes(r)) && b.every((r) => a.includes(r));
 
+/** How long after a self-service password change the old live sockets are closed (see revokeAccess). */
+const OWN_CHANGE_SOCKET_GRACE_MS = 5000;
+
 export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession }: UserServiceDeps) {
   /** Never leave the system without an administrator who can sign in. */
   async function ensureAnotherActiveAdmin(id: string): Promise<void> {
@@ -42,14 +45,29 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     return roles;
   }
 
-  /** Cut every session: stale access tokens (version bump), refresh tokens, live sockets. */
-  async function revokeAccess(id: string): Promise<number> {
+  /**
+   * Cut every session: stale access tokens (version bump), refresh tokens, live sockets.
+   *
+   * `socketsAfterMs`: close the live sockets that much later instead of now. Used when the person
+   * changes their own password — their page gets a fresh session in the answer, and a socket closed
+   * before that answer arrives reconnects with the old, refused session and signs them out. The old
+   * tokens are refused at once either way; a socket only receives live updates.
+   */
+  async function revokeAccess(id: string, socketsAfterMs = 0): Promise<number> {
     const version = await users.bumpTokenVersion(id);
     await revokeSessions?.(id);
-    try {
-      await onSessionsRevoked?.(id);
-    } catch {
-      // Closing sockets is best effort; the token checks above already cut access.
+    const closeSockets = async () => {
+      try {
+        await onSessionsRevoked?.(id);
+      } catch {
+        // Closing sockets is best effort; the token checks above already cut access.
+      }
+    };
+    if (socketsAfterMs > 0) {
+      const timer = setTimeout(() => void closeSockets(), socketsAfterMs);
+      (timer as { unref?: () => void }).unref?.();
+    } else {
+      await closeSockets();
     }
     return version;
   }
@@ -125,7 +143,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     }
     if (!isStrongPassword(newPassword)) throw new WeakPasswordError();
     await users.setPassword(id, await hashPassword(newPassword));
-    const tokenVersion = await revokeAccess(id);
+    const tokenVersion = await revokeAccess(id, OWN_CHANGE_SOCKET_GRACE_MS);
     if (!issueSession) return null;
     const user = await getUser(id);
     return issueSession({ id, roles: user.roles, tokenVersion });

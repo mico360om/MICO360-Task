@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { DependencyService } from './dependency-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { noteActivity, type RecordTaskActivity } from '../activity/task-activity';
 import { idString } from './validation';
 
 const addSchema = z.object({ dependsOnTaskId: idString });
@@ -11,6 +12,8 @@ export interface DependencyRouteDeps {
   guard: AuthGuard;
   /** Object-level view authorization: may this user see/edit this task's dependencies? */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
+  /** Write a line to the task's activity timeline (who did what). */
+  recordActivity?: RecordTaskActivity;
 }
 
 export async function registerDependencyRoutes(app: FastifyInstance, deps: DependencyRouteDeps): Promise<void> {
@@ -42,6 +45,7 @@ export async function registerDependencyRoutes(app: FastifyInstance, deps: Depen
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Task not found.' } });
     }
     const edge = await dependencyService.addDependency(id, dependsOnTaskId);
+    await noteActivity(deps.recordActivity, { taskId: id, userId: req.user!.id, action: 'BLOCKER_ADDED', meta: { dependsOnTaskId } });
     return reply.status(201).send({ data: edge });
   });
 
@@ -49,6 +53,7 @@ export async function registerDependencyRoutes(app: FastifyInstance, deps: Depen
     const { id, dependsOnTaskId } = req.params as { id: string; dependsOnTaskId: string };
     if (!(await canView(req, id))) return reply.status(403).send(denied);
     await dependencyService.removeDependency(id, dependsOnTaskId);
+    await noteActivity(deps.recordActivity, { taskId: id, userId: req.user!.id, action: 'BLOCKER_REMOVED', meta: { dependsOnTaskId } });
     return reply.status(204).send();
   });
 }

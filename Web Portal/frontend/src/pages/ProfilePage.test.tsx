@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ProfilePage } from './ProfilePage';
@@ -90,3 +90,42 @@ describe('ProfilePage — change password', () => {
     expect(screen.getByRole('link', { name: /privacy policy/i })).toHaveAttribute('href', '/privacy');
   });
 });
+
+describe('ProfilePage — photo', () => {
+  const pick = (file: File) => fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } });
+
+  it('says why a file was refused instead of doing nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/avatar')
+        ? json({ error: { code: 'VALIDATION', message: 'Only PNG, JPEG, WebP or GIF images are allowed.' } }, 400)
+        : json({ data: [] })));
+    renderPage();
+    pick(new File(['hello'], 'notes.txt', { type: 'text/plain' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only PNG, JPEG, WebP or GIF images are allowed.');
+    // The button is usable again.
+    expect(screen.getByRole('button', { name: 'Upload photo' })).toBeEnabled();
+  });
+
+  it('says a picture is too large', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/avatar') ? json({ error: { code: 'ERROR', message: 'request file too large' } }, 413) : json({ data: [] })));
+    renderPage();
+    pick(new File(['x'], 'huge.png', { type: 'image/png' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('That picture is too large. Choose a smaller one.');
+  });
+
+  it('clears the message once a picture is accepted', async () => {
+    let ok = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (!String(url).includes('/avatar')) return json({ data: [] });
+      return ok ? json({ data: { ...me, avatarUrl: '/uploads/a.png' } }) : json({ error: { code: 'ERROR', message: 'request file too large' } }, 413);
+    }));
+    renderPage();
+    pick(new File(['x'], 'huge.png', { type: 'image/png' }));
+    await screen.findByRole('alert');
+    ok = true;
+    pick(new File(['x'], 'ok.png', { type: 'image/png' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+});
+

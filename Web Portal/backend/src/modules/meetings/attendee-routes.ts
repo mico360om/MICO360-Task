@@ -5,6 +5,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 
 const roleEnum = z.enum(['REQUIRED', 'OPTIONAL']);
 const attendanceEnum = z.enum(['INVITED', 'PRESENT', 'ABSENT', 'LATE', 'EXCUSED']);
+const responseEnum = z.enum(['PENDING', 'ACCEPTED', 'TENTATIVE', 'DECLINED']);
 
 const addSchema = z
   .object({
@@ -20,6 +21,7 @@ const addSchema = z
 const patchSchema = z.object({
   role: roleEnum.optional(),
   attendance: attendanceEnum.optional(),
+  response: responseEnum.optional(),
   department: z.string().nullable().optional(),
 });
 
@@ -77,13 +79,15 @@ export async function registerAttendeeRoutes(app: FastifyInstance, deps: Attende
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     const body = patchSchema.parse(req.body);
     if (!(await canEdit(req, id))) {
-      // Attendees may record their own attendance; everything else is the organizer's call.
+      // Attendees may record their own attendance and answer their own invitation; everything else
+      // is the organizer's call (who may also record a guest's emailed answer).
       const own = await attendeeService.getAttendee(id, attendeeId);
-      const attendanceOnly = body.role === undefined && body.department === undefined;
-      if (!attendanceOnly || own.userId !== req.user!.id) return reply.status(403).send(cannotEdit);
+      const ownFieldsOnly = body.role === undefined && body.department === undefined;
+      if (!ownFieldsOnly || own.userId !== req.user!.id) return reply.status(403).send(cannotEdit);
     }
     let rec = null;
     if (body.attendance !== undefined) rec = await attendeeService.setAttendance(id, attendeeId, body.attendance);
+    if (body.response !== undefined) rec = await attendeeService.setResponse(id, attendeeId, body.response);
     if (body.role !== undefined || body.department !== undefined) {
       rec = await attendeeService.updateAttendee(id, attendeeId, { role: body.role, department: body.department });
     }

@@ -6,34 +6,15 @@ import {
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
-  pointerWithin,
-  closestCorners,
-  type CollisionDetection,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { KanbanColumn, type KanbanColumnData } from './KanbanColumn';
 import { TaskCard } from './TaskCard';
 import { dropIndex } from '../lib/board';
-
-/**
- * Board collision detection. `closestCenter` mis-picks columns of unequal height (a short/empty
- * neighbour's centre can be nearer than the tall column you're actually over), dropping cards in the
- * wrong column. Instead: use whatever droppable is directly under the pointer (intuitive), fall back
- * to nearest corners, and prefer a card over its column so intra-column reordering still gets a target.
- */
-const collisionDetectionStrategy: CollisionDetection = (args) => {
-  const hits = pointerWithin(args);
-  const collisions = hits.length > 0 ? hits : closestCorners(args);
-  const cardHit = collisions.find((c) => {
-    const container = args.droppableContainers.find((d) => d.id === c.id);
-    return container?.data.current?.sortable != null;
-  });
-  return cardHit ? [cardHit] : collisions;
-};
+import { boardCollisionDetection, boardKeyboardCoordinates } from '../lib/board-collision';
 
 export interface KanbanBoardProps {
   columns: KanbanColumnData[];
@@ -64,7 +45,7 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: KEYBOARD_CODES }),
+    useSensor(KeyboardSensor, { coordinateGetter: boardKeyboardCoordinates, keyboardCodes: KEYBOARD_CODES }),
   );
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const activeTask = activeKey ? columns.flatMap((c) => c.tasks).find((t) => t.key === activeKey) ?? null : null;
@@ -112,12 +93,12 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={collisionDetectionStrategy}
+      collisionDetection={boardCollisionDetection}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveKey(null)}
     >
-      <div className="kanban-scroll flex gap-3 overflow-x-auto pb-3">
+      <div className="kanban-scroll flex gap-3 overflow-x-auto pb-3" tabIndex={0} role="region" aria-label="Board columns">
         {columns.map((column) => (
           <KanbanColumn key={column.id} column={column} onTaskClick={onTaskClick} timeZone={timeZone} />
         ))}

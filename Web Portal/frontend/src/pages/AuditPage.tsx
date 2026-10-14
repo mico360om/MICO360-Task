@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
+import { isBackwards, isWholeDate } from '../lib/date-box';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { apiClient } from '../api/client';
@@ -71,11 +72,18 @@ const NO_FILTERS: Filters = { module: '', userId: '', from: '', to: '' };
 
 export function AuditPage() {
   const timeZone = useCompanyTimeZone();
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  const filtersActive = Object.values(filters).some(Boolean);
+  // What the filter boxes show. A date box may hold an unfinished date while it is typed.
+  const [boxes, setFilters] = useState<Filters>(NO_FILTERS);
+  const filtersActive = Object.values(boxes).some(Boolean);
+  const backwards = isBackwards(boxes.from, boxes.to);
+  // What is asked of the server: only whole dates count, and never a range that ends before it starts.
+  const from = isWholeDate(boxes.from) ? boxes.from : '';
+  const to = isWholeDate(boxes.to) ? boxes.to : '';
+  const filters = useMemo<Filters>(() => ({ module: boxes.module, userId: boxes.userId, from, to }), [boxes.module, boxes.userId, from, to]);
 
   const q = useInfiniteQuery({
     queryKey: ['audit', filters],
+    enabled: !backwards,
     queryFn: ({ pageParam }) => {
       const query: AuditQuery = { limit: AUDIT_PAGE_SIZE, before: pageParam, ...filters };
       return auditApi(apiClient).list(query);
@@ -124,11 +132,21 @@ export function AuditPage() {
     return true;
   });
 
+  // Every module seen since the page opened. Once a module is chosen the server sends only that
+  // one, so building the list from the rows on screen made the other choices disappear.
+  const [knownModules, setKnownModules] = useState<string[]>([]);
+  useEffect(() => {
+    setKnownModules((known) => {
+      const next = new Set(known);
+      for (const r of allRows) if (r.module) next.add(r.module);
+      return next.size === known.length ? known : [...next].sort();
+    });
+  }, [allRows]);
   const moduleOptions = useMemo(() => {
-    const mods = new Set(allRows.map((r) => r.module).filter(Boolean));
+    const mods = new Set(knownModules);
     if (filters.module) mods.add(filters.module);
     return [{ value: '', label: 'All modules' }, ...[...mods].sort().map((m) => ({ value: m, label: m }))];
-  }, [allRows, filters.module]);
+  }, [knownModules, filters.module]);
   const userOptions = [
     { value: '', label: 'Anyone' },
     ...directory.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` })),
@@ -150,27 +168,29 @@ export function AuditPage() {
 
       <div className="card mb-4 flex flex-wrap items-end gap-2 p-2.5">
         <span className="self-center px-1 text-xs font-semibold uppercase tracking-wide text-ink-2">Filter</span>
-        <div className="w-44 max-w-full"><SearchableSelect ariaLabel="Filter by module" value={filters.module} onChange={(v) => set({ module: v })} options={moduleOptions} /></div>
-        <div className="w-48 max-w-full"><SearchableSelect ariaLabel="Filter by user" value={filters.userId} onChange={(v) => set({ userId: v })} options={userOptions} /></div>
+        <div className="w-44 max-w-full"><SearchableSelect ariaLabel="Filter by module" value={boxes.module} onChange={(v) => set({ module: v })} options={moduleOptions} /></div>
+        <div className="w-48 max-w-full"><SearchableSelect ariaLabel="Filter by user" value={boxes.userId} onChange={(v) => set({ userId: v })} options={userOptions} /></div>
         <label className="flex flex-col gap-0.5 text-[11px] text-ink-2">
           From
-          <input type="date" aria-label="From date" value={filters.from} max={filters.to || undefined} onChange={(e) => set({ from: e.target.value })} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand" />
+          <input type="date" aria-label="From date" value={boxes.from} max={to || undefined} aria-invalid={backwards || undefined} onChange={(e) => set({ from: e.target.value })} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand" />
         </label>
         <label className="flex flex-col gap-0.5 text-[11px] text-ink-2">
           To
-          <input type="date" aria-label="To date" value={filters.to} min={filters.from || undefined} onChange={(e) => set({ to: e.target.value })} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand" />
+          <input type="date" aria-label="To date" value={boxes.to} min={from || undefined} aria-invalid={backwards || undefined} onChange={(e) => set({ to: e.target.value })} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand" />
         </label>
         {filtersActive ? (
           <button onClick={() => setFilters(NO_FILTERS)} className="self-center rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
         ) : null}
       </div>
 
-      <div className="card overflow-x-auto">
-        {q.isLoading ? (
+      <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Audit log entries">
+        {backwards ? (
+          <p role="alert" className="p-4 text-sm text-danger">The start date must be on or before the end date.</p>
+        ) : q.isLoading ? (
           <p className="p-4 text-ink-2">Loading…</p>
         ) : q.isError ? (
           <p role="alert" className="p-4 text-danger">
-            Couldn’t load audit logs (admin only).{' '}
+            Couldn’t load the audit log.{' '}
             <button type="button" onClick={() => void q.refetch()} className="font-semibold underline">Retry</button>
           </p>
         ) : rows.length === 0 ? (

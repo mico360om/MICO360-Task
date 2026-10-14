@@ -114,6 +114,8 @@ export interface TaskListFilter {
   tagIds?: string[];
   dueBefore?: Date;
   dueAfter?: Date;
+  /** Only tasks that carry a repeat rule (the newest copy of each series). */
+  recurring?: boolean;
 }
 
 export interface SeriesUpdateOptions {

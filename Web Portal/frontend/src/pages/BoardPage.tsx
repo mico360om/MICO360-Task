@@ -4,32 +4,29 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
 import { columnsApi } from '../api/columns';
-import { tasksApi, type NewTaskInput } from '../api/tasks';
-import { membersApi } from '../api/members';
+import { tasksApi } from '../api/tasks';
 import { shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
 import { todayKey as companyTodayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { ApiError } from '../lib/api-client';
 import { enqueueOffline } from '../lib/offline-replay';
-import { newIdempotencyKey } from '../lib/offline-queue';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { composeBoard, moveTaskInBoard, reorderColumnInBoard } from '../lib/board';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { ColumnManager } from '../components/ColumnManager';
-import { QuickAddTaskForm, type AssigneeOption, type QuickAddValues } from '../components/QuickAddTaskForm';
+import { TaskFormDialog } from '../components/task-form/TaskFormDialog';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
-import { FieldLabel } from '../components/ui/Field';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { useBoardRealtime, type BoardEvent } from '../lib/useBoardRealtime';
-import { useDialog } from '../hooks/useDialog';
 import { useAuthStore } from '../stores/auth-store';
+import { LoadError } from '../components/ui/LoadError';
+import { projectOption } from '../components/project-option';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
-type CreateVars = { input: NewTaskInput; idempotencyKey: string };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
 
 /** Per-user (see lib/user-storage) memory of the last project viewed on the board. */
@@ -208,51 +205,6 @@ export function BoardPage() {
 
   const boardColumns = boardQ.data?.columns ?? [];
 
-  const membersQ = useQuery({
-    queryKey: ['members', projectId],
-    enabled: Boolean(projectId) && addingTask,
-    queryFn: () => membersApi(apiClient).list(projectId as string),
-  });
-  const assigneeOptions: AssigneeOption[] = (membersQ.data ?? []).map((m) => ({
-    id: m.id,
-    label: [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username,
-  }));
-
-  // One request creates the task with its due date and assignees (no second call that can fail
-  // half-way, and no project-owner default when people were picked). The Idempotency-Key is shared
-  // with the offline queue, so if the request did reach the server a replay can't duplicate it.
-  const createMut = useMutation({
-    mutationFn: ({ input, idempotencyKey }: CreateVars) => tasksApi(apiClient).create(input, { idempotencyKey }),
-    onSuccess: () => {
-      void invalidateTaskQueries(qc);
-      setAddingTask(false);
-    },
-    onError: (e, vars) => {
-      // Offline — queue the create so it appears after the next sync (server errors keep the banner).
-      if (!(e instanceof ApiError)) {
-        enqueueOffline('task.create', vars.input, { idempotencyKey: vars.idempotencyKey });
-        setAddingTask(false);
-        setNotice('You’re offline — the task was saved and will sync when you reconnect.');
-      }
-    },
-  });
-
-  function submitNewTask(v: QuickAddValues) {
-    const input: NewTaskInput = {
-      projectId: projectId as string,
-      columnId: newTaskColumn || boardColumns[0]?.id || '',
-      title: v.title,
-      priority: v.priority,
-      boardDate, // land on the day currently being viewed
-      ...(v.description ? { description: v.description } : {}),
-      ...(v.dueDate ? { dueDate: v.dueDate } : {}),
-      ...(v.recurrenceRule ? { recurrenceRule: v.recurrenceRule } : {}),
-      // Only when someone was picked — otherwise the project's default (its owner) applies.
-      ...(v.assigneeIds.length ? { assigneeIds: v.assigneeIds } : {}),
-    };
-    createMut.mutate({ input, idempotencyKey: newIdempotencyKey() });
-  }
-
   function openAddTask() {
     setNewTaskColumn(boardColumns[0]?.id ?? '');
     setAddingTask(true);
@@ -330,13 +282,14 @@ export function BoardPage() {
                     ariaLabel="Select project"
                     value={projectId}
                     onChange={(v) => chooseProject(v)}
-                    options={projects.map((p) => ({ value: p.id, label: p.name, hint: p.code }))}
+                    options={projects.map(projectOption)}
                   />
                 </div>
               ) : null}
               {isAdmin ? (
                 <button
                   onClick={() => setManageColumns((v) => !v)}
+                  aria-expanded={manageColumns}
                   className="rounded-lg border border-line px-3 py-1.5 text-sm text-ink transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:bg-ground"
                 >
                   {manageColumns ? 'Done' : 'Manage columns'}
@@ -428,9 +381,7 @@ export function BoardPage() {
       {loading ? (
         <p className="text-ink-2">Loading…</p>
       ) : error ? (
-        <p role="alert" className="text-danger">
-          Couldn’t load the board. Is the API running?
-        </p>
+        <LoadError what="the board" onRetry={() => { void projectsQ.refetch(); void boardQ.refetch(); }} />
       ) : !projectId ? (
         <p className="text-ink-2">No projects yet — create one to get started.</p>
       ) : (
@@ -448,58 +399,16 @@ export function BoardPage() {
 
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
 
-      {addingTask ? (
-        <NewTaskDialog
-          columns={boardColumns.map((c) => ({ value: c.id, label: c.name }))}
-          column={newTaskColumn}
-          onColumnChange={setNewTaskColumn}
-          assignees={assigneeOptions}
-          submitting={createMut.isPending}
-          error={createMut.isError ? errorText(createMut.error, 'Couldn’t create the task. Please try again.') : null}
-          onSubmit={submitNewTask}
+      {addingTask && projectId ? (
+        // One request creates the task with its people; the board day keeps it on the day being viewed.
+        <TaskFormDialog
+          projectId={projectId}
+          defaultColumnId={newTaskColumn}
+          boardDate={boardDate}
           onClose={() => setAddingTask(false)}
+          onQueued={() => setNotice('You’re offline — the task was saved and will sync when you reconnect.')}
         />
       ) : null}
-    </div>
-  );
-}
-
-interface NewTaskDialogProps {
-  columns: { value: string; label: string }[];
-  column: string;
-  onColumnChange: (id: string) => void;
-  assignees: AssigneeOption[];
-  submitting: boolean;
-  error: string | null;
-  onSubmit: (v: QuickAddValues) => void;
-  onClose: () => void;
-}
-
-/** The board's "New task" dialog: focus moves in, Tab stays inside, Escape closes, focus returns. */
-function NewTaskDialog({ columns, column, onColumnChange, assignees, submitting, error, onSubmit, onClose }: NewTaskDialogProps) {
-  const dialogRef = useDialog(onClose);
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4">
-      <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New task" className="card relative max-h-[calc(100dvh-2rem)] w-full max-w-md animate-scale-in overflow-y-auto p-6">
-        <h2 className="mb-4 font-display text-xl font-bold text-ink">New task</h2>
-        {error ? (
-          <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-        <div className="mb-3 flex flex-col gap-1.5">
-          <FieldLabel>Column</FieldLabel>
-          <SearchableSelect ariaLabel="Column" value={column} onChange={onColumnChange} options={columns} />
-        </div>
-        <QuickAddTaskForm submitting={submitting} assignees={assignees} onSubmit={onSubmit} />
-        <button
-          onClick={onClose}
-          className="mt-3 w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground"
-        >
-          Cancel
-        </button>
-      </div>
     </div>
   );
 }

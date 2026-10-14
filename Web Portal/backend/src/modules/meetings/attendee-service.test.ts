@@ -11,7 +11,7 @@ function inMemory(): AttendeeRepository {
         id: `a${seq++}`, meetingId: d.meetingId, userId: d.userId ?? null,
         externalName: d.externalName ?? null, externalEmail: d.externalEmail ?? null,
         role: d.role ?? 'REQUIRED', attendance: d.attendance ?? 'INVITED', department: d.department ?? null,
-        createdAt: new Date(),
+        response: 'PENDING', respondedAt: null, invitedAt: null, createdAt: new Date(),
       };
       rows.set(rec.id, rec);
       return rec;
@@ -29,6 +29,18 @@ function inMemory(): AttendeeRepository {
 }
 
 describe('AttendeeService', () => {
+  it('records an invitation response with when it was given — separate from role and attendance', async () => {
+    const at = new Date('2026-10-10T08:00:00Z');
+    const svc = createAttendeeService({ attendees: inMemory(), now: () => at });
+    const a = await svc.addAttendee('m1', { userId: 'u2', role: 'OPTIONAL' });
+    expect(a.response).toBe('PENDING');
+    const answered = await svc.setResponse('m1', a.id, 'TENTATIVE');
+    expect(answered).toMatchObject({ response: 'TENTATIVE', respondedAt: at, role: 'OPTIONAL', attendance: 'INVITED' });
+    // Back to "no response" forgets when.
+    expect(await svc.setResponse('m1', a.id, 'PENDING')).toMatchObject({ response: 'PENDING', respondedAt: null });
+    await expect(svc.setResponse('m1', a.id, 'MAYBE' as never)).rejects.toThrow(/response/i);
+  });
+
   it('adds an internal attendee with defaults (REQUIRED / INVITED)', async () => {
     const svc = createAttendeeService({ attendees: inMemory() });
     const a = await svc.addAttendee('m1', { userId: 'u2' });
@@ -51,6 +63,18 @@ describe('AttendeeService', () => {
     await expect(svc.addAttendee('m1', { userId: 'u2' })).rejects.toThrow(/already/i);
     // same user is fine on a different meeting
     await expect(svc.addAttendee('m2', { userId: 'u2' })).resolves.toBeTruthy();
+  });
+
+  it('does not add the same guest twice to one meeting (same email, whatever the letter case)', async () => {
+    const svc = createAttendeeService({ attendees: inMemory() });
+    await svc.addAttendee('m1', { externalName: 'Jane Guest', externalEmail: 'jane@ext.co' });
+    await expect(svc.addAttendee('m1', { externalName: 'Jane G.', externalEmail: ' JANE@ext.co ' })).rejects.toThrow(/already/i);
+    // A guest without an email is matched by name.
+    await svc.addAttendee('m1', { externalName: 'Walk-in Visitor' });
+    await expect(svc.addAttendee('m1', { externalName: 'walk-in visitor' })).rejects.toThrow(/already/i);
+    // Different people, or the same guest at another meeting, are fine.
+    await expect(svc.addAttendee('m1', { externalName: 'Jane Guest', externalEmail: 'jane.other@ext.co' })).resolves.toBeTruthy();
+    await expect(svc.addAttendee('m2', { externalName: 'Jane Guest', externalEmail: 'jane@ext.co' })).resolves.toBeTruthy();
   });
 
   it('marks attendance and validates the status', async () => {

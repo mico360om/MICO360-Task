@@ -48,4 +48,22 @@ describe('SyncStatus', () => {
     expect(getQueue(localStorageQueueStore)).toHaveLength(0);
     expect(screen.queryByRole('button', { name: /not synced/i })).not.toBeInTheDocument();
   });
+
+  it('on a phone shows only the counts, so the controls do not push into the search box', () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    enqueue(localStorageQueueStore, { kind: 'task.create', payload: { title: 'Waiting' }, ownerId: 'u1' });
+    enqueue(localStorageQueueStore, { kind: 'task.create', payload: { title: 'Refused' }, ownerId: 'u1' });
+    const [waiting, refused] = getQueue(localStorageQueueStore);
+    localStorageQueueStore.write([waiting!, { ...refused!, failedAt: Date.now(), lastError: 'Column not found' }]);
+    renderStatus();
+
+    // The words are for tablet width and up; a phone gets the number alone. The names stay complete.
+    const sync = screen.getByRole('button', { name: /sync now/i });
+    expect(sync.querySelector('.sm\\:hidden')).toHaveTextContent(/^1$/);
+    expect(screen.getByText('1 queued')).toHaveClass('hidden', 'sm:inline');
+    const failed = screen.getByRole('button', { name: /1 not synced/i });
+    expect(failed.querySelector('.sm\\:hidden')).toHaveTextContent('1');
+    expect(screen.getByText('1 not synced')).toHaveClass('hidden', 'sm:inline');
+  });
 });
+

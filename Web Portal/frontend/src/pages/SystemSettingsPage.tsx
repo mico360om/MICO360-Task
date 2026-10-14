@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { apiClient } from '../api/client';
 import { systemSettingsApi } from '../api/system-settings';
 import { tasksApi } from '../api/tasks';
+import { LoadError } from '../components/ui/LoadError';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -15,6 +16,9 @@ const CARRY_STATUSES: { value: string; label: string }[] = [
 ];
 const DEFAULT_STATUSES = CARRY_STATUSES.map((s) => s.value);
 const STATUS_LABEL = new Map(CARRY_STATUSES.map((s) => [s.value, s.label] as const));
+/** Sorts statuses the way the chips are laid out (unknown ones last). */
+const byChipOrder = (a: string, b: string) => chipIndex(a) - chipIndex(b);
+const chipIndex = (value: string) => { const i = DEFAULT_STATUSES.indexOf(value); return i < 0 ? DEFAULT_STATUSES.length : i; };
 
 /**
  * The settings this page knows how to show, each with a formatter that returns plain text (or null
@@ -30,7 +34,7 @@ const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => stri
     label: 'Statuses that carry forward',
     format: (v) =>
       Array.isArray(v) && v.every((x) => typeof x === 'string')
-        ? v.map((x) => STATUS_LABEL.get(x as string) ?? String(x)).join(', ') || 'None'
+        ? [...(v as string[])].sort(byChipOrder).map((x) => STATUS_LABEL.get(x) ?? x).join(', ') || 'None'
         : null,
   },
 ];
@@ -125,7 +129,7 @@ export function SystemSettingsPage() {
                 return (
                   <label
                     key={s.value}
-                    className={`flex cursor-pointer select-none items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                    className={`flex cursor-pointer select-none items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] ${
                       on ? 'border-brand bg-brand/10 text-brand' : 'border-line bg-surface text-ink-2 hover:border-brand/30'
                     } ${enabled ? '' : 'pointer-events-none opacity-50'}`}
                   >
@@ -138,10 +142,14 @@ export function SystemSettingsPage() {
           </div>
 
           <div className="flex items-center gap-3 border-t border-line pt-3">
-            <Button size="sm" variant="secondary" loading={runMut.isPending} onClick={() => runMut.mutate()}>
+            <Button size="sm" variant="secondary" loading={runMut.isPending} disabled={!enabled} onClick={() => runMut.mutate()}>
               Run carry-forward now
             </Button>
-            {ranMsg ? <span className="text-sm text-ink-2">{ranMsg}</span> : null}
+            {!enabled ? (
+              <span className="text-sm text-ink-2">Switch carry-forward on to run it.</span>
+            ) : ranMsg ? (
+              <span role="status" className="text-sm text-ink-2">{ranMsg}</span>
+            ) : null}
           </div>
         </section>
 
@@ -151,18 +159,18 @@ export function SystemSettingsPage() {
           {q.isLoading ? (
             <p className="text-ink-2">Loading…</p>
           ) : q.isError ? (
-            <p role="alert" className="text-danger">Couldn’t load settings (admin only).</p>
+            <LoadError what="the settings" onRetry={() => void q.refetch()} />
           ) : shown.rows.length === 0 ? (
             <p className="text-ink-2">Everything is on its default setting.</p>
           ) : (
             <dl className="divide-y divide-line">
               {shown.rows.map((r) => (
-                <div key={r.key} className="flex items-center justify-between gap-4 py-3">
-                  <dt className="min-w-0">
+                <div key={r.key} className="flex items-start justify-between gap-4 py-3">
+                  <dt className="min-w-0 max-w-[60%] flex-none">
                     <span className="block text-sm text-ink">{r.label}</span>
                     <span className="block font-mono text-[11px] text-ink-3">{r.key}</span>
                   </dt>
-                  <dd dir="auto" className="truncate text-sm font-medium text-ink">{r.value}</dd>
+                  <dd dir="auto" className="min-w-0 text-end text-sm font-medium text-ink">{r.value}</dd>
                 </div>
               ))}
             </dl>

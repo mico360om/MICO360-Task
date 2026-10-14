@@ -33,13 +33,13 @@ const tokenService = createTokenService({
   refreshStore: { async save() {}, async findValid() { return null; }, async revoke() {}, async revokeAllForUser() {} },
 });
 
-async function makeApp() {
+async function makeApp(extra: Partial<Parameters<typeof buildApp>[0]> = {}) {
   const dependencyService = createDependencyService(inMemory());
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
-  return buildApp({ authService, tokenService, dependencyService });
+  return buildApp({ authService, tokenService, dependencyService, ...extra });
 }
 async function token(id: string) {
   return (await tokenService.issueTokens({ id, roles: ['EMPLOYEE'] })).accessToken;
@@ -51,6 +51,20 @@ beforeEach(async () => {
 });
 
 describe('Dependency routes', () => {
+  it('records added and removed blockers (task timeline), and nothing for a refused loop', async () => {
+    const events: unknown[] = [];
+    const a = await makeApp({ recordTaskActivity: async (e) => { events.push(e); } });
+    const headers = { authorization: `Bearer ${await token('u1')}` };
+    await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/dependencies', headers, payload: { dependsOnTaskId: 't2' } });
+    const loop = await a.inject({ method: 'POST', url: '/api/v1/tasks/t2/dependencies', headers, payload: { dependsOnTaskId: 't1' } });
+    expect(loop.statusCode).toBe(409);
+    await a.inject({ method: 'DELETE', url: '/api/v1/tasks/t1/dependencies/t2', headers });
+    expect(events).toEqual([
+      { taskId: 't1', userId: 'u1', action: 'BLOCKER_ADDED', meta: { dependsOnTaskId: 't2' } },
+      { taskId: 't1', userId: 'u1', action: 'BLOCKER_REMOVED', meta: { dependsOnTaskId: 't2' } },
+    ]);
+  });
+
   it('adds a dependency (201) and lists it both ways', async () => {
     const res = await app.inject({
       method: 'POST',

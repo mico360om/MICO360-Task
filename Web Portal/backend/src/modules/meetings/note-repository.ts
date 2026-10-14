@@ -31,6 +31,7 @@ export interface UpdateNoteData {
   highlighted?: boolean;
   agendaItemId?: string | null;
   taskId?: string | null;
+  actionItemId?: string | null;
   editedAt?: Date | null;
 }
 

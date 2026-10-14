@@ -16,12 +16,19 @@ import {
   type ProviderKind,
   type RedactedProvider,
 } from '../api/ai';
+import { LoadError } from '../components/ui/LoadError';
 
 const QK = ['ai-config'] as const;
 
 function errMsg(e: unknown): string {
   if (e instanceof ApiError) return e.message;
   return e instanceof Error ? e.message : 'Something went wrong.';
+}
+
+/** Why a change did not happen: the server's own reason when it gave one, else "try again". */
+function failed(what: string, e: unknown): string {
+  const reason = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.message && !/^Request failed/.test(e.message) ? e.message : 'Please try again.';
+  return `${what} ${reason}`;
 }
 
 export function AiSettingsPage() {
@@ -42,9 +49,7 @@ export function AiSettingsPage() {
       {q.isLoading ? (
         <p className="text-ink-2">Loading…</p>
       ) : q.isError ? (
-        <p role="alert" className="card p-5 text-danger">
-          Couldn’t load AI settings (admin only).
-        </p>
+        <LoadError what="the AI settings" onRetry={() => void q.refetch()} className="card p-5" />
       ) : config ? (
         <div className="flex flex-col gap-8">
           <ProvidersSection config={config} apply={apply} api={api} />
@@ -92,7 +97,7 @@ function ProvidersSection({ config, apply, api }: SectionProps) {
 
 function KindBadge({ kind }: { kind: ProviderKind }) {
   return (
-    <span className="rounded-md bg-ground px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-2">{kind}</span>
+    <span className="rounded-md bg-ground px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-2">{kind}</span>
   );
 }
 
@@ -101,12 +106,27 @@ function ProviderCard({ provider: p, apply, api }: { provider: RedactedProvider 
   const [editKey, setEditKey] = useState(false);
   const [key, setKey] = useState('');
 
-  const mToggle = useMutation({ mutationFn: (enabled: boolean) => api.updateProvider(p.id, { enabled }), onSuccess: apply });
+  // A change that fails must say so — a switch that silently springs back looks like it worked.
+  const [problem, setProblem] = useState<string | null>(null);
+  const clear = () => setProblem(null);
+  const mToggle = useMutation({
+    mutationFn: (enabled: boolean) => api.updateProvider(p.id, { enabled }),
+    onMutate: clear,
+    onSuccess: apply,
+    onError: (e) => setProblem(failed('Couldn’t save that change.', e)),
+  });
   const mSaveKey = useMutation({
     mutationFn: (apiKey: string) => api.updateProvider(p.id, { apiKey }),
+    onMutate: clear,
     onSuccess: (c) => { apply(c); setEditKey(false); setKey(''); },
+    onError: (e) => setProblem(failed('Couldn’t save the API key.', e)),
   });
-  const mRemove = useMutation({ mutationFn: () => api.removeProvider(p.id), onSuccess: apply });
+  const mRemove = useMutation({
+    mutationFn: () => api.removeProvider(p.id),
+    onMutate: clear,
+    onSuccess: apply,
+    onError: (e) => setProblem(failed(`Couldn’t remove “${p.name}”.`, e)),
+  });
   const mSync = useMutation({
     mutationFn: () => api.syncProvider(p.id),
     onSuccess: (res) => { apply(res.config); setSync({ msg: `Detected ${res.detected} · ${res.added} added` }); },
@@ -121,7 +141,7 @@ function ProviderCard({ provider: p, apply, api }: { provider: RedactedProvider 
             <span className="truncate font-semibold text-ink">{p.name}</span>
             <KindBadge kind={p.kind} />
             {!p.enabled ? (
-              <span className="rounded-md bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-danger">Disabled</span>
+              <span className="rounded-md bg-danger/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-danger">Disabled</span>
             ) : null}
           </div>
           <p className="mt-0.5 truncate font-mono text-xs text-ink-2">{p.apiBaseUrl}</p>
@@ -167,6 +187,8 @@ function ProviderCard({ provider: p, apply, api }: { provider: RedactedProvider 
           </Button>
         </div>
       ) : null}
+
+      {problem ? <p role="alert" className="text-xs font-medium text-danger">{problem}</p> : null}
 
       <div className="flex items-center justify-between gap-2 border-t border-line pt-3">
         <div aria-live="polite" className={`text-xs ${sync?.error ? 'text-danger' : 'text-ink-2'}`}>
@@ -317,10 +339,30 @@ function ModelsSection({ config, apply, api }: SectionProps) {
   );
 }
 
+/** The most requests a model may run at once (the server's limit). */
+const CONCURRENCY_MAX = 64;
+
 function ModelRow({ model: m, apply, api }: { model: AiModel } & Omit<SectionProps, 'config'>) {
-  const mEnabled = useMutation({ mutationFn: (enabled: boolean) => api.setModelEnabled(m.id, enabled), onSuccess: apply });
-  const mConcurrency = useMutation({ mutationFn: (n: number) => api.updateModel(m.id, { concurrencyLimit: n }), onSuccess: apply });
-  const mRemove = useMutation({ mutationFn: () => api.removeModel(m.id), onSuccess: apply });
+  const [problem, setProblem] = useState<string | null>(null);
+  const clear = () => setProblem(null);
+  const mEnabled = useMutation({
+    mutationFn: (enabled: boolean) => api.setModelEnabled(m.id, enabled),
+    onMutate: clear,
+    onSuccess: apply,
+    onError: (e) => setProblem(failed('Couldn’t save that change.', e)),
+  });
+  const mConcurrency = useMutation({
+    mutationFn: (n: number) => api.updateModel(m.id, { concurrencyLimit: n }),
+    onMutate: clear,
+    onSuccess: apply,
+    onError: (e) => setProblem(failed('Couldn’t save the concurrency limit.', e)),
+  });
+  const mRemove = useMutation({
+    mutationFn: () => api.removeModel(m.id),
+    onMutate: clear,
+    onSuccess: apply,
+    onError: (e) => setProblem(failed(`Couldn’t remove “${m.modelKey}”.`, e)),
+  });
 
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
@@ -328,7 +370,7 @@ function ModelRow({ model: m, apply, api }: { model: AiModel } & Omit<SectionPro
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-medium text-ink">{m.modelKey}</span>
           {!m.available ? (
-            <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-warning" title="Not offered by the provider at last sync">
+            <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-warning" title="Not offered by the provider at last sync">
               Unavailable
             </span>
           ) : null}
@@ -336,7 +378,7 @@ function ModelRow({ model: m, apply, api }: { model: AiModel } & Omit<SectionPro
         {m.displayName !== m.modelKey ? <p className="truncate text-xs text-ink-3">{m.displayName}</p> : null}
         <div className="mt-1 flex flex-wrap gap-1">
           {m.capabilities.map((c) => (
-            <span key={c} className="rounded bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium text-brand">{CAPABILITY_LABELS[c]}</span>
+            <span key={c} className="rounded bg-brand/10 px-1.5 py-0.5 text-[11px] font-medium text-brand">{CAPABILITY_LABELS[c]}</span>
           ))}
         </div>
       </div>
@@ -346,10 +388,16 @@ function ModelRow({ model: m, apply, api }: { model: AiModel } & Omit<SectionPro
         <input
           type="number"
           min={1}
-          max={64}
+          max={CONCURRENCY_MAX}
           defaultValue={m.concurrencyLimit}
           aria-label={`Concurrency limit for ${m.modelKey}`}
-          onBlur={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n !== m.concurrencyLimit) mConcurrency.mutate(n); }}
+          onBlur={(e) => {
+            // The box shows what will really be stored: a whole number from 1 to 64.
+            const typed = Number(e.target.value);
+            const n = Number.isFinite(typed) && e.target.value !== '' ? Math.min(CONCURRENCY_MAX, Math.max(1, Math.round(typed))) : m.concurrencyLimit;
+            e.target.value = String(n);
+            if (n !== m.concurrencyLimit) mConcurrency.mutate(n);
+          }}
           className="w-14 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink"
         />
       </label>
@@ -377,6 +425,7 @@ function ModelRow({ model: m, apply, api }: { model: AiModel } & Omit<SectionPro
       >
         ×
       </button>
+      {problem ? <p role="alert" className="basis-full text-xs font-medium text-danger">{problem}</p> : null}
     </li>
   );
 }

@@ -24,7 +24,7 @@ const tokenService = createTokenService({
 
 async function makeApp() {
   const reportService = createReportService({
-    data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar' }]; } },
+    data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar', name: 'Omar Ahmed' }]; } },
   });
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
@@ -92,7 +92,9 @@ describe('Report routes (admin only)', () => {
     expect(csvLines(csv.body).filter(Boolean).slice(1)).toEqual(['p2,RIG,1,0,0,0']);
 
     const workload = await app.inject({ method: 'GET', url: '/api/v1/reports/workload.csv?userId=u2', headers: admin });
-    expect(csvLines(workload.body).filter(Boolean).slice(1)).toEqual(['u2,omar,1,0,0']);
+    // The person's name is in the file, as it is in the Excel version (a username alone says little).
+    expect(csvLines(workload.body).filter(Boolean)[0]).toBe('userId,username,name,assigned,completed,overdue');
+    expect(csvLines(workload.body).filter(Boolean).slice(1)).toEqual(['u2,omar,Omar Ahmed,1,0,0']);
 
     const status = await app.inject({ method: 'GET', url: '/api/v1/reports/status.xls?projectId=p1&userId=u1', headers: admin });
     expect(status.statusCode).toBe(200);

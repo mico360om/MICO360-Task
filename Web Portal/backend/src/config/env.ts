@@ -48,6 +48,8 @@ const EnvSchema = z.object({
   COMPANY_WEBSITE_URL: z.string().default('https://mico360.example'),
   COMPANY_ADDRESS: z.string().default('MICO360, Muscat, Sultanate of Oman'),
   EMAIL_LOGO_URL: z.string().optional().default(''),
+  /** Development only: save every email as files in this folder instead of sending it (ignored in production). */
+  EMAIL_OUTBOX_DIR: z.string().optional().default(''),
   // IANA time zone treated as the company's single source of truth for date/time display.
   COMPANY_TIMEZONE: z.string().default('Asia/Muscat'),
   // Optional link for the web app's "Download for Android" button (e.g. a Play Store or file URL).
@@ -60,7 +62,8 @@ const EnvSchema = z.object({
   UPLOAD_MAX_TOTAL_BYTES_PER_TASK: z.coerce.number().int().positive().default(50 * 1024 * 1024),
   UPLOAD_ALLOWED_MIME: z
     .string()
-    .default('image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,application/zip'),
+    // Office files in their modern, macro-free formats (.docx/.xlsx/.pptx) — never the old .doc/.xls/.ppt.
+    .default('image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation'),
   // AI providers on private / internal addresses (e.g. Ollama on localhost) are refused unless 'true'.
   AI_ALLOW_PRIVATE_HOSTS: z
     .string()

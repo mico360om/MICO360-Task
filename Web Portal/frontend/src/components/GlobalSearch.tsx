@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { searchApi } from '../api/search';
+import { projectsApi } from '../api/projects';
+import { ProjectAvatar } from './ProjectAvatar';
 import { columnsApi } from '../api/columns';
 import { tasksApi } from '../api/tasks';
 import { assigneesApi } from '../api/assignees';
@@ -15,6 +17,8 @@ interface PaletteItem {
   group: string;
   primary: React.ReactNode;
   hint?: string;
+  /** Optional picture before the text (a project's). */
+  icon?: React.ReactNode;
   /** Optional muted second line (e.g. a meeting search snippet). */
   secondary?: string;
   run: () => void | Promise<void>;
@@ -30,6 +34,10 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const [, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const myId = useAuthStore((s) => s.user?.id);
+  // Where a person in the results leads: yourself → your profile; an admin → the user list; anyone
+  // else → a conversation with that person (the user list is admin-only, so it was a dead end).
+  const personPath = (userId: string) => (userId === myId ? '/profile' : isAdmin ? '/admin/users' : `/chat?dm=${encodeURIComponent(userId)}`);
 
   const [term, setTerm] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -64,6 +72,8 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     queryFn: () => searchApi(apiClient).search(debounced),
     enabled: searchEnabled,
   });
+  // Found projects show their picture; the project list is normally cached already.
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list(), enabled: searchEnabled });
 
   // ── Action executors ──
   // Commands act only on the task whose key matches exactly — search is a substring match, so
@@ -156,14 +166,41 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     const r = q.data;
     if (searchEnabled && r) {
       for (const t of r.tasks.slice(0, 6)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: t.title, hint: t.key, run: () => openTask(t.id) });
-      for (const p of r.projects.slice(0, 5)) out.push({ id: `proj-${p.id}`, group: 'Projects', primary: p.name, hint: p.code, run: () => { navigate(`/projects/${p.id}`); reset(); } });
-      for (const u of r.users.slice(0, 5)) out.push({ id: `user-${u.id}`, group: 'People', primary: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username, run: () => { navigate('/admin/users'); reset(); } });
+      const looks = Array.isArray(projectsQ.data) ? projectsQ.data : [];
+      for (const p of r.projects.slice(0, 5)) {
+        const look = looks.find((x) => x.id === p.id);
+        out.push({
+          id: `proj-${p.id}`, group: 'Projects', primary: p.name, hint: p.code,
+          icon: <ProjectAvatar project={{ name: p.name, color: look?.color, icon: look?.icon, imageUrl: look?.imageUrl }} size="sm" />,
+          run: () => { navigate(`/projects/${p.id}`); reset(); },
+        });
+      }
+      for (const u of r.users.slice(0, 5)) out.push({ id: `user-${u.id}`, group: 'People', primary: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username, run: () => { navigate(personPath(u.id)); reset(); } });
       for (const m of (r.meetings ?? []).slice(0, 6)) out.push({ id: `meeting-${m.id}`, group: 'Meetings', primary: m.title, secondary: m.snippet, run: () => { navigate(`/meetings/${m.id}`); reset(); } });
     }
     return out;
-  }, [raw, isAdmin, q.data, searchEnabled]);
+  }, [raw, isAdmin, myId, q.data, searchEnabled, projectsQ.data]);
 
   useEffect(() => { setActive(0); }, [items.length]);
+
+  // Arrowing through a long list: scroll it so the highlighted row stays in view (it used to run
+  // off the bottom, and Enter then opened a row nobody could see).
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    const row = list?.querySelector('[data-active="true"]');
+    if (!list || !row) return;
+    const view = list.getBoundingClientRect();
+    const at = row.getBoundingClientRect();
+    if (at.bottom > view.bottom) list.scrollTop += at.bottom - view.bottom;
+    else if (at.top < view.top) list.scrollTop -= view.top - at.top;
+  }, [active]);
+
+  // The list closes a moment after the box loses focus (so a click on a result still lands).
+  // Focusing the box again cancels that — otherwise a quick Escape + Ctrl K left it closed.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; } };
+  useEffect(() => cancelClose, []);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(items.length - 1, i + 1)); }
@@ -176,7 +213,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   let idx = -1; // running index across groups for keyboard highlight
 
   return (
-    <div className="relative w-full min-w-0 max-w-full sm:w-72">
+    <div className="relative w-full min-w-[6.5rem] max-w-full sm:w-72">
       <div className="relative">
         <svg viewBox="0 0 24 24" width="15" height="15" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
         <input
@@ -188,16 +225,16 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           placeholder="Search or type a command…"
           value={term}
           onChange={(e) => { setTerm(e.target.value); setStatus(null); }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 160)}
+          onFocus={() => { cancelClose(); setOpen(true); }}
+          onBlur={() => { cancelClose(); closeTimer.current = setTimeout(() => setOpen(false), 160); }}
           onKeyDown={onKeyDown}
           className="w-full rounded-lg border border-line bg-ground py-1.5 pl-8 pr-9 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20"
         />
-        <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:block">⌘K</kbd>
+        <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:block">{SHORTCUT_HINT()}</kbd>
       </div>
 
       {showPanel ? (
-        <div className="absolute left-0 z-40 mt-1 w-96 max-w-[92vw] overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
+        <div className="fixed inset-x-2 top-14 z-40 overflow-hidden rounded-xl border border-line bg-surface shadow-lg sm:absolute sm:inset-x-auto sm:left-0 sm:top-auto sm:mt-1 sm:w-96">
           {status ? (
             <p className={`border-b border-line px-3 py-2 text-sm ${busy ? 'text-ink-2' : status.includes('✓') ? 'text-success' : 'text-danger'}`}>
               {busy ? <span className="mr-1.5 inline-block h-3 w-3 animate-spin rounded-full border-2 border-brand/30 border-t-brand align-middle" /> : null}
@@ -210,7 +247,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           ) : items.length === 0 && searchEnabled ? (
             <p className="px-3 py-3 text-sm text-ink-2">No matches for “{debounced}”.</p>
           ) : (
-            <div className="max-h-96 overflow-y-auto py-1">
+            <div ref={listRef} className="max-h-96 overflow-y-auto py-1">
               {groupItems(items).map(([group, groupItemList]) => (
                 <div key={group} className="py-1">
                   <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">{group}</p>
@@ -221,11 +258,15 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                       <button
                         key={it.id}
                         type="button"
+                        data-active={i === active}
                         onMouseDown={(e) => e.preventDefault()}
-                        onMouseEnter={() => setActive(i)}
+                        // A *moving* mouse chooses a row. `mouseenter` also fires when the list simply
+                        // appears under a pointer at rest — Enter then opened that row, not the first.
+                        onMouseMove={() => { if (i !== active) setActive(i); }}
                         onClick={() => void it.run()}
                         className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'}`}
                       >
+                        {it.icon}
                         {it.hint ? <span className="font-mono text-xs text-ink-2">{it.hint}</span> : null}
                         <span className="min-w-0 flex-1">
                           <span dir="auto" className="block truncate text-start">{it.primary}</span>
@@ -243,6 +284,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     </div>
   );
 }
+
+/** The search shortcut as this keyboard has it: ⌘K on Apple devices, Ctrl K elsewhere. */
+const SHORTCUT_HINT = (): string => (/mac|iphone|ipad|ipod/i.test(typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent) ? '⌘K' : 'Ctrl K');
 
 /** Group items in stable order for rendering. */
 function groupItems(items: PaletteItem[]): [string, PaletteItem[]][] {

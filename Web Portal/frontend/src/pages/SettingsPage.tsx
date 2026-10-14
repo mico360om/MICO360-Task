@@ -7,6 +7,9 @@ import { apiClient, assetUrl } from '../api/client';
 import { notificationsApi } from '../api/notifications';
 import { usersApi } from '../api/users';
 import { useThemeChoice, type ThemeChoice } from '../lib/theme';
+import { DatePreferences } from '../components/DatePreferences';
+import { LoadError } from '../components/ui/LoadError';
+import { photoUploadProblem } from '../lib/photo-upload';
 
 const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
@@ -51,12 +54,17 @@ export function SettingsPage() {
 
   const avatarRef = useRef<HTMLInputElement>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  // "Keep me signed in": the session survives a browser restart; otherwise it ends with this window.
+  const remembered = useAuthStore((st) => st.remember);
+  const [photoProblem, setPhotoProblem] = useState<string | null>(null);
+  const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const setSession = useAuthStore((s) => s.setSession);
   async function onAvatarPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setAvatarBusy(true);
+    setPhotoProblem(null);
     try {
       const updated = await usersApi(apiClient).uploadAvatar(file);
       const { accessToken, refreshToken } = useAuthStore.getState();
@@ -68,12 +76,16 @@ export function SettingsPage() {
         });
       }
       void qc.invalidateQueries({ queryKey: ['users'] });
+    } catch (err) {
+      // A refused file (not a picture, too large) must say so — it used to change nothing, silently.
+      setPhotoProblem(photoUploadProblem(err));
     } finally {
       setAvatarBusy(false);
     }
   }
   async function onAvatarRemove() {
     setAvatarBusy(true);
+    setPhotoProblem(null);
     try {
       const updated = await usersApi(apiClient).removeAvatar();
       const { accessToken, refreshToken } = useAuthStore.getState();
@@ -85,6 +97,8 @@ export function SettingsPage() {
         });
       }
       void qc.invalidateQueries({ queryKey: ['users'] });
+    } catch {
+      setPhotoProblem('Couldn’t remove the photo. Please try again.');
     } finally {
       setAvatarBusy(false);
     }
@@ -98,6 +112,7 @@ export function SettingsPage() {
     // Always send the whole preferences object so changing one setting never drops another.
     mutationFn: (next: { muted: string[]; reminderLeadMinutes?: number }) => notificationsApi(apiClient).setPreferences(next),
     onMutate: async (next) => {
+      setSaveProblem(null);
       await qc.cancelQueries({ queryKey: ['notification-prefs'] });
       const prev = qc.getQueryData(['notification-prefs']);
       qc.setQueryData(['notification-prefs'], next);
@@ -105,6 +120,8 @@ export function SettingsPage() {
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(['notification-prefs'], ctx.prev);
+      // The switch goes back to what is stored — say why, or it looks like a glitch.
+      setSaveProblem('Couldn’t save that change. Please try again.');
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['notification-prefs'] }),
   });
@@ -154,6 +171,7 @@ export function SettingsPage() {
                   </button>
                 ) : null}
               </div>
+              {photoProblem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{photoProblem}</p> : null}
             </div>
           </div>
           <dl className="flex flex-col gap-3 text-sm">
@@ -175,8 +193,9 @@ export function SettingsPage() {
         {/* Notifications */}
         <section className="card p-5">
           <h2 className="eyebrow mb-4">Notifications</h2>
+          {saveProblem ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{saveProblem}</p> : null}
           {prefsQ.isError ? (
-            <p role="alert" className="text-sm text-danger">Couldn’t load your notification preferences.</p>
+            <LoadError what="your notification preferences" onRetry={() => void prefsQ.refetch()} />
           ) : (
             <ul className="flex flex-col divide-y divide-line">
               {NOTIF_TYPES.map((n) => {
@@ -240,13 +259,28 @@ export function SettingsPage() {
           </div>
         </section>
 
+        {/* Calendar & dates */}
+        <section className="card p-5 lg:col-span-2">
+          <h2 className="eyebrow mb-4">Calendar &amp; dates</h2>
+          <DatePreferences />
+        </section>
+
         {/* Security & session */}
         <section className="card p-5 lg:col-span-2">
           <h2 className="eyebrow mb-4">Security &amp; session</h2>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <div className="text-sm font-medium text-ink">You’re signed in for 30 days</div>
-              <div className="text-xs text-ink-2">Your session refreshes silently, so you won’t be asked to sign in again for a month.</div>
+              {remembered ? (
+                <>
+                  <div className="text-sm font-medium text-ink">You’re signed in for 30 days</div>
+                  <div className="text-xs text-ink-2">Your session refreshes silently, so you won’t be asked to sign in again for a month.</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-medium text-ink">You’re signed in until you close this browser</div>
+                  <div className="text-xs text-ink-2">“Keep me signed in” was not ticked, so you’ll sign in again next time.</div>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Link

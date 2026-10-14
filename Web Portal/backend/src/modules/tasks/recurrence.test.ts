@@ -233,3 +233,12 @@ describe('isValidRule', () => {
     expect(isValidRule({ freq: 'MONTHLY', interval: 1, anchorDay: 0 })).toBe(false);
   });
 });
+
+describe('resumeFrom — one occurrence moved on its own', () => {
+  it('is a valid part of a rule only as a calendar day', () => {
+    expect(isValidRule({ freq: 'WEEKLY', interval: 1, resumeFrom: '2026-10-05' })).toBe(true);
+    expect(isValidRule({ freq: 'WEEKLY', interval: 1, resumeFrom: null })).toBe(true);
+    expect(isValidRule({ freq: 'WEEKLY', interval: 1, resumeFrom: '5 Oct' })).toBe(false);
+    expect(isValidRule({ freq: 'WEEKLY', interval: 1, resumeFrom: '2026-13-45' })).toBe(false);
+  });
+});

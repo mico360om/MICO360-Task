@@ -19,13 +19,16 @@ export interface SavedView {
   builtIn?: boolean;
 }
 
+/** Status filter value for "everything that is not completed" (the other values are board categories). */
+export const OPEN_STATUS = 'OPEN';
+
 export const EMPTY_FILTERS: TaskFilters = { project: '', status: '', priority: '', assignee: '', due: '', sort: 'due' };
 
 /** App-provided starting points — closes the "session-only filters" gap out of the box. */
 export const BUILT_IN_VIEWS: SavedView[] = [
   { id: 'builtin:overdue', name: 'My overdue', builtIn: true, filters: { ...EMPTY_FILTERS, due: 'overdue', sort: 'due' } },
   { id: 'builtin:sprint', name: 'This sprint', builtIn: true, filters: { ...EMPTY_FILTERS, due: 'week', sort: 'due' } },
-  { id: 'builtin:urgent', name: 'Urgent open', builtIn: true, filters: { ...EMPTY_FILTERS, priority: 'URGENT', sort: 'due' } },
+  { id: 'builtin:urgent', name: 'Urgent open', builtIn: true, filters: { ...EMPTY_FILTERS, status: OPEN_STATUS, priority: 'URGENT', sort: 'due' } },
 ];
 
 /** Pre-per-user builds stored everyone's views under one key; the first signed-in reader adopts them. */

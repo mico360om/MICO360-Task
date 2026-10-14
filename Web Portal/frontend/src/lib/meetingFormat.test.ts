@@ -106,3 +106,22 @@ describe('normalizeMeetingLink', () => {
     expect(safeMeetingHref(null)).toBeNull();
   });
 });
+
+describe('meeting list day and times', () => {
+  it('shows the day and the start–end times in the given zone', async () => {
+    const { formatMeetingDay, formatMeetingTimes } = await import('./meetingFormat');
+    // In the viewer's own locale; the zone decides the day and the hour.
+    const tz = 'Asia/Muscat';
+    const day = (iso: string) => new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: tz }).format(new Date(iso));
+    const time = (iso: string) => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(new Date(iso));
+    expect(formatMeetingDay('2026-10-01T06:00:00.000Z', tz)).toBe(day('2026-10-01T06:00:00.000Z'));
+    // 22:00 UTC is already the next day in Muscat.
+    expect(formatMeetingDay('2026-10-01T22:00:00.000Z', tz)).toBe(day('2026-10-02T06:00:00.000Z'));
+    expect(formatMeetingTimes('2026-10-01T06:00:00.000Z', '2026-10-01T07:30:00.000Z', tz)).toBe(`${time('2026-10-01T06:00:00.000Z')} – ${time('2026-10-01T07:30:00.000Z')}`);
+    expect(formatMeetingTimes('2026-10-01T06:00:00.000Z', null, tz)).toBe(time('2026-10-01T06:00:00.000Z'));
+    // Ends on another day: say which.
+    expect(formatMeetingTimes('2026-10-01T18:00:00.000Z', '2026-10-02T06:00:00.000Z', tz)).toBe(
+      `${time('2026-10-01T18:00:00.000Z')} – ${day('2026-10-02T06:00:00.000Z')} ${time('2026-10-02T06:00:00.000Z')}`,
+    );
+  });
+});

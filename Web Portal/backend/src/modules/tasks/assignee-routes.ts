@@ -46,7 +46,7 @@ export async function registerAssigneeRoutes(app: FastifyInstance, deps: Assigne
   app.delete('/tasks/:id/assignees/:userId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id, userId } = req.params as { id: string; userId: string };
     if (!(await canView(req, id))) return reply.status(403).send(denied);
-    await assigneeService.unassignUser(id, userId);
+    await assigneeService.unassignUser(id, userId, req.user!.id);
     await announce(id, await assigneeService.listAssignees(id));
     return reply.status(204).send();
   });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildApp } from '../../app';
 import { createMeetingService } from './meeting-service';
 import { createMeetingAccess } from './meeting-access';
@@ -68,7 +68,7 @@ const projectAccess = {
   },
 };
 
-async function makeApp() {
+async function makeApp(extra: Partial<Parameters<typeof buildApp>[0]> = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -76,7 +76,7 @@ async function makeApp() {
   const meetings = inMemory();
   const meetingService = createMeetingService({ meetings });
   const meetingAccess = createMeetingAccess({ meetings, projectAccess });
-  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess });
+  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, ...extra });
   return app;
 }
 
@@ -148,6 +148,18 @@ describe('Meeting routes', () => {
     const titles = res.json().data.map((m: { title: string }) => m.title);
     expect(titles).toContain('Mine A');
     expect(titles).not.toContain('Someone else');
+  });
+
+  it('gives each listed meeting its attendee and open action-item counts', async () => {
+    const meetingListCounts = vi.fn(async (ids: string[]) => Object.fromEntries(ids.map((id, i) => [id, { attendeeCount: i + 2, openActionItemCount: i }])));
+    const app = await makeApp({ meetingListCounts });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Counted', startAt: '2026-10-01T09:00:00Z' } });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/meetings', headers: { authorization: auth } });
+    const [m] = res.json().data as Array<{ title: string; attendeeCount: number; openActionItemCount: number }>;
+    expect(m).toMatchObject({ title: 'Counted', attendeeCount: 2, openActionItemCount: 0 });
+    // One lookup for the whole page, not one per meeting.
+    expect(meetingListCounts).toHaveBeenCalledTimes(1);
   });
 
   it('cancels a meeting the organizer owns', async () => {

@@ -161,8 +161,9 @@ export function TextField({
   error,
   required,
   style,
+  inputRef,
   ...props
-}: TextInputProps & { label?: string; error?: string | null; required?: boolean }) {
+}: TextInputProps & { label?: string; error?: string | null; required?: boolean; inputRef?: React.Ref<TextInput> }) {
   const c = useColors();
   const s = useUiStyles();
   // TalkBack names the field after its visible label and reads the error with it (MOB-10).
@@ -182,6 +183,7 @@ export function TextField({
         </Text>
       ) : null}
       <TextInput
+        ref={inputRef}
         placeholderTextColor={c.ink3}
         style={[s.input, error ? s.inputError : null, style]}
         {...props}

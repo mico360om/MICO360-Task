@@ -1,3 +1,4 @@
+import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage } from '../../lib/upload-safety';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { MAX_MESSAGE_LENGTH, type MessageService } from './message-service';
@@ -6,7 +7,15 @@ import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { sniffMime, SNIFFABLE } from '../../lib/magic-mime';
 import { ValidationError } from '../../lib/http-errors';
 
-const sendSchema = z.object({ body: z.string().min(1).max(MAX_MESSAGE_LENGTH) });
+/** A client id lets a retried send be recognised (letters, digits, - and _ only). */
+const clientIdSchema = z.string().regex(/^[\w-]{1,64}$/);
+const sendSchema = z.object({
+  body: z.string().min(1).max(MAX_MESSAGE_LENGTH),
+  replyToId: z.string().min(1).max(64).nullable().optional(),
+  clientId: clientIdSchema.optional(),
+});
+const prefsSchema = z.object({ favorite: z.boolean().optional(), archived: z.boolean().optional(), muted: z.boolean().optional() }).strict();
+const searchQuery = z.object({ q: z.string().max(200).default(''), conversationId: z.string().min(1).optional() });
 const editSchema = z.object({ body: z.string().min(1).max(MAX_MESSAGE_LENGTH) });
 const directSchema = z.object({ userId: z.string().min(1) });
 const reactionSchema = z.object({ emoji: z.string().min(1).max(32) });
@@ -75,12 +84,40 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     return { data: messages };
   });
 
+  // Send. A retry with the same clientId gets the first message back (200) — never a duplicate.
   app.post('/conversations/:id/messages', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { body } = sendSchema.parse(req.body);
-    const message = await chat.sendMessage(id, req.user!.id, body);
+    const { body, replyToId, clientId } = sendSchema.parse(req.body);
+    const { message, created } = await chat.postMessage(id, req.user!.id, { body, replyToId, clientId });
+    if (!created) return reply.status(200).send({ data: message });
     await announce(id, 'chat:message', { conversationId: id, message });
     return reply.status(201).send({ data: message });
+  });
+
+  // The caller's own settings for a conversation: favorite, archived, muted.
+  app.put('/conversations/:id/prefs', { preHandler: guard.authenticate }, async (req) => {
+    const { id } = req.params as { id: string };
+    return { data: await chat.setPreferences(id, req.user!.id, prefsSchema.parse(req.body ?? {})) };
+  });
+
+  // The caller's app has received this conversation's messages: the senders see "delivered".
+  app.post('/conversations/:id/delivered', { preHandler: guard.authenticate }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    await chat.markDelivered(id, req.user!.id);
+    await announce(id, 'chat:delivered', { conversationId: id, userId: req.user!.id, at: new Date().toISOString() });
+    return reply.status(204).send();
+  });
+
+  // Who is in the conversation (user ids): a channel's project people, or a DM's two people.
+  app.get('/conversations/:id/members', { preHandler: guard.authenticate }, async (req) => {
+    const { id } = req.params as { id: string };
+    return { data: await chat.listMembers(id, req.user!.id) };
+  });
+
+  // Search message text in all of the caller's conversations, or in one of them.
+  app.get('/chat/search', { preHandler: guard.authenticate }, async (req) => {
+    const { q, conversationId } = searchQuery.parse(req.query);
+    return { data: await chat.searchMessages(req.user!.id, q, { conversationId }) };
   });
 
   app.post('/conversations/:id/read', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -100,35 +137,52 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     await chat.assertCanPost(id, req.user!.id);
     const file = await req.file();
     if (!file) throw new ValidationError('No file uploaded.');
+    const field = (name: string): string | undefined => {
+      const f = file.fields?.[name];
+      return f && !Array.isArray(f) && 'value' in f && typeof f.value === 'string' ? f.value : undefined;
+    };
+    const clientIdRaw = field('clientId');
+    const clientId = clientIdRaw !== undefined ? clientIdSchema.parse(clientIdRaw) : undefined;
+    const replyToId = field('replyToId') || undefined;
+    // A retried upload: the first one already arrived — answer with it, store nothing again.
+    if (clientId) {
+      const earlier = await chat.findSent(id, req.user!.id, clientId);
+      if (earlier) return reply.status(200).send({ data: earlier });
+    }
     const content = await file.toBuffer();
     if (content.length === 0) throw new ValidationError('File is empty.');
     const max = deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024;
-    if (content.length > max) throw new ValidationError(`File exceeds the ${max}-byte limit.`);
+    if (content.length > max) throw new ValidationError(fileTooLargeMessage(max));
     const allowed = deps.attachmentAllowedMime ?? [];
-    if (allowed.length > 0 && !allowed.includes(file.mimetype)) throw new ValidationError(`File type ${file.mimetype} is not allowed.`);
+    if (allowed.length > 0 && !allowed.includes(file.mimetype)) throw new ValidationError(fileTypeNotAllowedMessage(file.filename));
     if (SNIFFABLE.has(file.mimetype)) {
       const actual = sniffMime(content);
-      if (actual !== file.mimetype) throw new ValidationError(`File content does not match its declared type (${file.mimetype}).`);
+      if (actual !== file.mimetype) throw new ValidationError(fileContentMismatchMessage(file.filename));
     }
     const captionField = file.fields?.body;
     const caption = captionField && !Array.isArray(captionField) && 'value' in captionField && typeof captionField.value === 'string' ? captionField.value : '';
     if (caption.trim().length > MAX_MESSAGE_LENGTH) throw new ValidationError(`A caption can be at most ${MAX_MESSAGE_LENGTH} characters.`);
     const stored = await storage.save({ filename: file.filename, mimeType: file.mimetype, content });
-    let message;
+    let result;
     try {
-      message = await chat.sendMessage(id, req.user!.id, caption, {
-        fileName: file.filename,
-        mimeType: file.mimetype,
-        sizeBytes: stored.sizeBytes,
-        storageKey: stored.storageKey,
+      result = await chat.postMessage(id, req.user!.id, {
+        body: caption,
+        replyToId,
+        clientId,
+        attachment: { fileName: file.filename, mimeType: file.mimetype, sizeBytes: stored.sizeBytes, storageKey: stored.storageKey },
       });
     } catch (err) {
       // No message, no file: don't leave an orphan upload behind.
       await storage.remove(stored.storageKey).catch(() => {});
       throw err;
     }
-    await announce(id, 'chat:message', { conversationId: id, message });
-    return reply.status(201).send({ data: message });
+    if (!result.created) {
+      // Two copies of the same upload raced: keep the first, drop this file.
+      await storage.remove(stored.storageKey).catch(() => {});
+      return reply.status(200).send({ data: result.message });
+    }
+    await announce(id, 'chat:message', { conversationId: id, message: result.message });
+    return reply.status(201).send({ data: result.message });
   });
 
   app.patch('/messages/:id', { preHandler: guard.authenticate }, async (req) => {

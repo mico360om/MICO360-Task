@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { GlobalSearch } from './GlobalSearch';
+import { useAuthStore } from '../stores/auth-store';
+
+/** Shows where the app is, so a test can see where a result led. */
+function Where() {
+  const { pathname, search } = useLocation();
+  return <output data-testid="where">{pathname + search}</output>;
+}
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -27,6 +34,16 @@ describe('GlobalSearch', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/search?q=mico'))).toBe(true));
     expect(await screen.findByText('Prepare report')).toBeInTheDocument();
     expect(screen.getByText('MICO Ops')).toBeInTheDocument();
+  });
+
+  it('shows a found project with its picture', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(String(url).endsWith('/projects')
+      ? json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO Ops', color: '#4338CA', icon: 'bolt' }] })
+      : json({ data: { tasks: [], projects: [{ id: 'p1', code: 'MICO', name: 'MICO Ops' }], users: [] } }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'mico');
+    const row = (await screen.findByText('MICO Ops')).closest('button')!;
+    await waitFor(() => expect(row.querySelector('[data-project-avatar="icon"]')).not.toBeNull());
   });
 
   it('does not search for very short queries', async () => {
@@ -65,4 +82,105 @@ describe('GlobalSearch', () => {
     expect(await screen.findByText('No task WEB-5.')).toBeInTheDocument();
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/move') || String(c[0]).includes('/columns'))).toBe(false);
   });
+
+  describe('a person in the results', () => {
+    const people = { tasks: [], projects: [], users: [{ id: 'u7', username: 'sara', firstName: 'Sara', lastName: 'Ahmed' }, { id: 'me', username: 'me', firstName: 'Me', lastName: 'Myself' }] };
+    const signIn = (roles: string[]) => useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles }, accessToken: 'at', refreshToken: 'rt' });
+    afterEach(() => useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false }));
+
+    async function pick(name: string) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: people }))));
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'sar');
+      await userEvent.click(await screen.findByText(name));
+      return screen.getByTestId('where').textContent;
+    }
+
+    it('opens a conversation with them for an employee (the admin user list is closed to employees)', async () => {
+      signIn(['EMPLOYEE']);
+      expect(await pick('Sara Ahmed')).toBe('/chat?dm=u7');
+    });
+
+    it('opens the user list for an admin', async () => {
+      signIn(['ADMIN']);
+      expect(await pick('Sara Ahmed')).toBe('/admin/users');
+    });
+
+    it('opens your own profile when it is you', async () => {
+      signIn(['EMPLOYEE']);
+      expect(await pick('Me Myself')).toBe('/profile');
+    });
+  });
+
+  describe('keyboard and mouse together', () => {
+    const many = { tasks: Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, key: `MICO-${i}`, title: `Task ${i}`, projectId: 'p1' })), projects: [], users: [] };
+    const type = async (text: string) => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: many }))));
+      setup(<GlobalSearch debounceMs={0} />);
+      const box = screen.getByRole('searchbox', { name: /search/i });
+      await userEvent.type(box, text);
+      await screen.findByText('Task 5');
+      return box;
+    };
+    const row = (title: string) => screen.getByText(title).closest('button')!;
+
+    it('keeps the highlighted result in view while arrowing down a long list', async () => {
+      const box = await type('task');
+      const list = row('Task 0').closest('.overflow-y-auto') as HTMLElement;
+      // The list shows 100px at a time; each row is 40px tall, stacked from the top.
+      Object.defineProperty(list, 'clientHeight', { configurable: true, value: 100 });
+      list.getBoundingClientRect = () => ({ top: 0, bottom: 100, left: 0, right: 300, width: 300, height: 100, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      for (let i = 0; i < 6; i++) {
+        const top = i * 40;
+        row(`Task ${i}`).getBoundingClientRect = () => ({ top: top - list.scrollTop, bottom: top + 40 - list.scrollTop, left: 0, right: 300, width: 300, height: 40, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+      }
+      const first = [...list.querySelectorAll('button')].indexOf(row('Task 0'));
+      for (let i = 0; i < first + 5; i++) fireEvent.keyDown(box, { key: 'ArrowDown' }); // onto "Task 5" (rows before it are "Go to" items)
+      expect(row('Task 5').className).toContain('bg-brand/10');
+      expect(list.scrollTop).toBeGreaterThan(0);
+      const at = row('Task 5').getBoundingClientRect();
+      expect(at.bottom).toBeLessThanOrEqual(100);
+    });
+
+    it('Enter opens the first result even when the mouse pointer happens to rest over another row', async () => {
+      const box = await type('task');
+      // The list appears under a pointer that is not moving: the browser reports "enter", not "move".
+      fireEvent.mouseEnter(row('Task 3'));
+      expect(row('Task 3').className).not.toContain('bg-brand/10');
+      // Moving the mouse onto a row does choose it.
+      fireEvent.mouseMove(row('Task 4'));
+      expect(row('Task 4').className).toContain('bg-brand/10');
+      expect(box).toBeInTheDocument();
+    });
+
+    it('shows the shortcut the keyboard really has (Ctrl K on Windows and Linux, ⌘K on a Mac)', async () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: many }))));
+      const platform = vi.spyOn(navigator, 'platform', 'get');
+      platform.mockReturnValue('Win32');
+      const { unmount } = setup(<GlobalSearch debounceMs={0} />);
+      expect(screen.getByText('Ctrl K')).toBeInTheDocument();
+      unmount();
+      platform.mockReturnValue('MacIntel');
+      setup(<GlobalSearch debounceMs={0} />);
+      expect(screen.getByText('⌘K')).toBeInTheDocument();
+    });
+
+    it('reopens the list when the box is focused again straight after it closed', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: many }))));
+        setup(<GlobalSearch debounceMs={0} />);
+        const box = screen.getByRole('searchbox', { name: /search/i });
+        fireEvent.focus(box);
+        expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+        fireEvent.blur(box);   // starts the short "close" delay…
+        fireEvent.focus(box);  // …and the box is focused again before it runs out
+        await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+        expect(screen.getByText('Dashboard')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });
+

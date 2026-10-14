@@ -1,5 +1,7 @@
+import { officePreview, type OfficePreview } from '../../lib/office-preview';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { sniffMime, SNIFFABLE } from '../../lib/magic-mime';
+import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage } from '../../lib/upload-safety';
 import type {
   AttachmentRecord,
   AttachmentRepository,
@@ -35,16 +37,16 @@ export function createAttachmentService({
     await ensureTask(taskId);
     if (file.content.length === 0) throw new ValidationError('File is empty.');
     if (file.content.length > maxSizeBytes) {
-      throw new ValidationError(`File exceeds the ${maxSizeBytes}-byte limit.`);
+      throw new ValidationError(fileTooLargeMessage(maxSizeBytes));
     }
     if (allowedMimeTypes.length > 0 && !allowedMimeTypes.includes(file.mimeType)) {
-      throw new ValidationError(`File type ${file.mimeType} is not allowed.`);
+      throw new ValidationError(fileTypeNotAllowedMessage(file.filename));
     }
     // Reject a spoofed Content-Type: if we can sniff the declared type, the bytes must match.
     if (SNIFFABLE.has(file.mimeType)) {
       const actual = sniffMime(file.content);
       if (actual !== file.mimeType) {
-        throw new ValidationError(`File content does not match its declared type (${file.mimeType}).`);
+        throw new ValidationError(fileContentMismatchMessage(file.filename));
       }
     }
     // Per-task storage quota.
@@ -72,7 +74,8 @@ export function createAttachmentService({
     return repo.list(taskId);
   }
 
-  async function remove(id: string, userId: string, isAdmin: boolean): Promise<void> {
+  /** Delete an attachment (its uploader or an admin); returns what was removed. */
+  async function remove(id: string, userId: string, isAdmin: boolean): Promise<AttachmentRecord> {
     const rec = await repo.findById(id);
     if (!rec) throw new NotFoundError('Attachment not found.');
     if (rec.uploadedById !== userId && !isAdmin) {
@@ -80,9 +83,26 @@ export function createAttachmentService({
     }
     await storage.remove(rec.storageKey);
     await repo.delete(id);
+    return rec;
   }
 
-  return { upload, list, remove };
+  /** One attachment (NotFound when it doesn't exist). */
+  async function get(id: string): Promise<AttachmentRecord> {
+    const rec = await repo.findById(id);
+    if (!rec) throw new NotFoundError('Attachment not found.');
+    return rec;
+  }
+
+  /**
+   * A plain-text preview of a Word, Excel or PowerPoint attachment; null when the file has none.
+   * Throws PreviewError when it is damaged or too big to unpack safely.
+   */
+  async function preview(rec: AttachmentRecord): Promise<OfficePreview | null> {
+    if (!storage.read || !/\.(docx|xlsx|pptx)$/i.test(rec.filename)) return null;
+    return officePreview(await storage.read(rec.storageKey), rec.filename);
+  }
+
+  return { upload, list, remove, get, preview };
 }
 
 export type AttachmentService = ReturnType<typeof createAttachmentService>;

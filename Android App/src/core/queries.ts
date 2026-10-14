@@ -130,6 +130,8 @@ export function useChecklistMutations(taskId: string) {
   const qc = useQueryClient();
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['task', taskId, 'checklist'] });
+    void qc.invalidateQueries({ queryKey: ['task', taskId, 'activity'] });
+    void qc.invalidateQueries({ queryKey: ['task', taskId], exact: true }); // progress follows the checklist
   };
   const add = useMutation({
     mutationFn: ({ text, idempotencyKey }: Keyed<{ text: string }>) => resources.tasks.addChecklistItem(taskId, text, { idempotencyKey }),
@@ -142,7 +144,9 @@ export function useChecklistMutations(taskId: string) {
     onError: (err, { itemId, patch }) => queueOnOffline(queue, currentUserId(), err, 'checklist.update', { itemId, patch }),
   });
   const remove = useMutation({ mutationFn: (itemId: string) => resources.tasks.removeChecklistItem(itemId), onSuccess: invalidate });
-  return { add, update, remove };
+  /** Save a new order (every item id, first to last). Needs a connection. */
+  const reorder = useMutation({ mutationFn: (orderedIds: string[]) => resources.tasks.reorderChecklist(taskId, orderedIds), onSuccess: invalidate });
+  return { add, update, remove, reorder };
 }
 
 // ── Comments ─────────────────────────────────────────────────────────────────
@@ -151,19 +155,31 @@ export function useTaskComments(taskId: string) {
   return useQuery({ queryKey: ['task', taskId, 'comments'], queryFn: () => resources.tasks.comments(taskId) });
 }
 
+/** The people who can be @mentioned in a task's comments. */
+export function useTaskMentionable(taskId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['task', taskId, 'mentionable'], queryFn: () => resources.tasks.mentionable(taskId), staleTime: 60_000 });
+}
+
 export function useCommentMutations(taskId: string) {
   const { resources, queue, currentUserId } = useServices();
   const qc = useQueryClient();
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['task', taskId, 'comments'] });
+    void qc.invalidateQueries({ queryKey: ['task', taskId, 'activity'] });
   };
   const add = useMutation({
     mutationFn: ({ body, idempotencyKey }: Keyed<{ body: string }>) => resources.tasks.addComment(taskId, body, undefined, { idempotencyKey }),
     onSuccess: invalidate,
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'comment.add', { id: taskId, body: v.body }, v.idempotencyKey),
   });
+  /** Change the text of your own comment. Needs a connection. */
+  const edit = useMutation({
+    mutationFn: ({ commentId, body }: { commentId: string; body: string }) => resources.tasks.editComment(commentId, body),
+    onSuccess: invalidate,
+  });
   const remove = useMutation({ mutationFn: (commentId: string) => resources.tasks.removeComment(commentId), onSuccess: invalidate });
-  return { add, remove };
+  return { add, edit, remove };
 }
 
 // ── Attachments ──────────────────────────────────────────────────────────────
@@ -178,13 +194,74 @@ export function useAttachmentMutations(taskId: string) {
   const qc = useQueryClient();
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['task', taskId, 'attachments'] });
+    void qc.invalidateQueries({ queryKey: ['task', taskId, 'activity'] });
   };
   const upload = useMutation({
-    mutationFn: (part: { uri: string; name: string; type: string }) => resources.tasks.uploadAttachment(taskId, part),
+    mutationFn: ({ part, onProgress }: { part: { uri: string; name: string; type: string }; onProgress?: (fraction: number) => void }) =>
+      resources.tasks.uploadAttachment(taskId, part, onProgress),
     onSuccess: invalidate,
   });
   const remove = useMutation({ mutationFn: (attachmentId: string) => resources.tasks.removeAttachment(attachmentId), onSuccess: invalidate });
   return { upload, remove };
+}
+
+// ── Activity, blockers, watching, deleting ──────────────────────────────────
+/** The task's activity history (newest first). */
+export function useTaskActivity(taskId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['task', taskId, 'activity'], queryFn: () => resources.tasks.activity(taskId) });
+}
+
+/** What the task waits on and what waits on it (ids). */
+export function useTaskDependencies(taskId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['task', taskId, 'dependencies'], queryFn: () => resources.tasks.dependencies(taskId) });
+}
+
+/** Add / remove a blocker. Needs a connection: the server checks for loops. */
+export function useDependencyMutations(taskId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['task', taskId, 'dependencies'] });
+    void qc.invalidateQueries({ queryKey: ['task', taskId, 'activity'] });
+  };
+  const add = useMutation({ mutationFn: (dependsOnTaskId: string) => resources.tasks.addDependency(taskId, dependsOnTaskId), onSuccess: invalidate });
+  const remove = useMutation({ mutationFn: (dependsOnTaskId: string) => resources.tasks.removeDependency(taskId, dependsOnTaskId), onSuccess: invalidate });
+  return { add, remove };
+}
+
+/** Whether I follow the task, who does, and a toggle. */
+export function useTaskWatch(taskId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  const status = useQuery({ queryKey: ['task', taskId, 'watch'], queryFn: () => resources.tasks.watchStatus(taskId) });
+  const watchers = useQuery({ queryKey: ['task', taskId, 'watchers'], queryFn: () => resources.tasks.watchers(taskId) });
+  const toggle = useMutation({
+    mutationFn: async () => {
+      if (status.data) await resources.tasks.unwatch(taskId);
+      else await resources.tasks.watch(taskId);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['task', taskId, 'watch'] });
+      void qc.invalidateQueries({ queryKey: ['task', taskId, 'watchers'] });
+    },
+  });
+  return { status, watchers, toggle };
+}
+
+/** Delete the task (or its whole repeating series). Needs a connection. */
+export function useDeleteTask(taskId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scope?: 'series') => resources.tasks.remove(taskId, scope),
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: ['task', taskId] });
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      void qc.invalidateQueries({ queryKey: ['project'] });
+    },
+  });
 }
 
 // ── Notification preferences ─────────────────────────────────────────────────

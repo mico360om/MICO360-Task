@@ -110,7 +110,7 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
   const dir = isRtl(locale) ? 'rtl' : 'ltr';
 
   const logo = brand.logoUrl
-    ? `<img src="${safeHref(brand.logoUrl)}" alt="${escapeHtml(brand.productName)}" width="46" height="46" style="display:block;border:0;width:46px;height:46px;border-radius:12px;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:800;color:${c.onBrand}"/>`
+    ? `<img src="${safeHref(brand.logoUrl)}" alt="${escapeHtml(brand.productName)}" width="94" height="44" style="display:block;border:0;width:94px;height:44px;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:800;color:${c.onBrand}"/>`
     : `<span style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.3px;color:${c.onBrand}">${escapeHtml(brand.wordmark.pre)}<span style="opacity:0.85">${escapeHtml(brand.wordmark.mid)}</span> <span style="font-weight:600;opacity:0.9">${escapeHtml(brand.wordmark.post)}</span></span>`;
 
   const blocksHtml = model.blocks.map((b) => renderBlockHtml(b, brand)).join('\n');

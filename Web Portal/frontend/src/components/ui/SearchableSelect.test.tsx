@@ -89,4 +89,35 @@ describe('SearchableSelect', () => {
     expect(panel).not.toBeNull();
     expect(panel?.parentElement).toBe(document.body);
   });
+
+  it('is a valid listbox for screen readers: options sit directly in it, and the filter box names the highlighted one', async () => {
+    render(<SearchableSelect options={opts} value="" onChange={() => {}} ariaLabel="Project" />);
+    await userEvent.click(screen.getByRole('button', { name: /project/i }));
+    const listbox = screen.getByRole('listbox');
+    // The <li> wrappers are presentational, so the listbox's children are its options.
+    for (const li of listbox.querySelectorAll('li')) expect(li).toHaveAttribute('role', 'presentation');
+    const filter = screen.getByRole('combobox', { name: /filter project/i });
+    const options = screen.getAllByRole('option');
+    expect(filter).toHaveAttribute('aria-activedescendant', options[0]!.id);
+    await userEvent.keyboard('{ArrowDown}');
+    expect(filter).toHaveAttribute('aria-activedescendant', options[1]!.id);
+  });
+});
+
+describe('SearchableSelect — pictures and errors', () => {
+  it('shows an option’s picture in the list and on the trigger', async () => {
+    const withIcons = opts.map((o) => ({ ...o, icon: <span data-testid={`icon-${o.value}`} /> }));
+    render(<SearchableSelect options={withIcons} value="p2" onChange={() => {}} ariaLabel="Project" />);
+    const trigger = screen.getByRole('button', { name: /project/i });
+    expect(trigger.querySelector('[data-testid="icon-p2"]')).not.toBeNull();
+    await userEvent.click(trigger);
+    expect(screen.getByRole('option', { name: /Rig Inspection Portal/i }).querySelector('[data-testid="icon-p3"]')).not.toBeNull();
+  });
+
+  it('can be marked invalid and point at its error message', () => {
+    render(<SearchableSelect options={opts} value="" onChange={() => {}} ariaLabel="Project" invalid describedBy="project-error" />);
+    const trigger = screen.getByRole('button', { name: /project/i });
+    expect(trigger).toHaveAttribute('aria-invalid', 'true');
+    expect(trigger).toHaveAttribute('aria-describedby', 'project-error');
+  });
 });

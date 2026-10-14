@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
@@ -21,6 +21,7 @@ import { useCompanyTimeZone } from '../lib/company-clock';
 import { useDialog } from '../hooks/useDialog';
 import { useAuthStore } from '../stores/auth-store';
 import { TaskDrawer, type DrawerTaskRef } from './TaskDrawer';
+import { TaskFormDialog } from './task-form/TaskFormDialog';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -39,6 +40,19 @@ function failureText(e: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Run an action for the drawer, turning a failure into an Error carrying the message to show. */
+async function attempt<T>(action: () => Promise<T>, fallback: string): Promise<T> {
+  try {
+    return await action();
+  } catch (e) {
+    throw new Error(failureText(e, fallback));
+  }
+}
+
+/** "First Last", or the username when someone has no name set. */
+const fullName = (u: { firstName: string | null; lastName: string | null; username: string }) =>
+  [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
+
 export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProps) {
   const queryClient = useQueryClient();
   const timeZone = useCompanyTimeZone();
@@ -48,11 +62,17 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   // in every state (loading, not found, loaded), so the drawer can always be dismissed.
   const dialogRef = useDialog(onClose, { initialFocus: 'container' });
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const failed = (fallback: string) => (e: unknown) => setActionError(failureText(e, fallback));
 
   const taskQ = useQuery({ queryKey: ['task', taskId], queryFn: () => tasksApi(apiClient).get(taskId) });
   const checklistQ = useQuery({ queryKey: ['checklist', taskId], queryFn: () => checklistApi(apiClient).list(taskId) });
   const commentsQ = useQuery({ queryKey: ['comments', taskId], queryFn: () => commentsApi(apiClient).list(taskId) });
+  const mentionableQ = useQuery({ queryKey: ['mentionable', taskId], queryFn: () => commentsApi(apiClient).mentionable(taskId), staleTime: 60_000 });
+  const mentionable = useMemo(
+    () => (Array.isArray(mentionableQ.data) ? mentionableQ.data : []).map((p) => ({ id: p.id, username: p.username, name: fullName(p), avatarUrl: p.avatarUrl })),
+    [mentionableQ.data],
+  );
   const attachmentsQ = useQuery({ queryKey: ['attachments', taskId], queryFn: () => attachmentsApi(apiClient).list(taskId) });
   const dependenciesQ = useQuery({ queryKey: ['dependencies', taskId], queryFn: () => dependenciesApi(apiClient).list(taskId) });
   const projectId = taskQ.data?.projectId;
@@ -66,6 +86,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     queryFn: () => columnsApi(apiClient).list(projectId as string),
     enabled: !!projectId,
   });
+  const columns = Array.isArray(columnsQ.data) ? columnsQ.data : [];
   // The task's project team: who can be assigned (any member may assign — not only admins) and
   // whether I manage the project (managers and admins may delete tasks).
   const membersQ = useQuery({
@@ -80,9 +101,10 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   const watchStatusQ = useQuery({ queryKey: ['task-watch', taskId], queryFn: () => watchersApi(apiClient).status(taskId) });
   const watchersQ = useQuery({ queryKey: ['task-watchers', taskId], queryFn: () => watchersApi(apiClient).list(taskId) });
 
-  /** After any change to this task, refresh every view that shows tasks (board, lists, calendar, dashboard…). */
+  /** After any change to this task, refresh every view that shows tasks (board, lists, calendar, dashboard…) and its timeline. */
   const refreshTaskViews = () => {
     setActionError(null);
+    void queryClient.invalidateQueries({ queryKey: ['task-activity', taskId] });
     void invalidateTaskQueries(queryClient);
   };
 
@@ -101,7 +123,6 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   const moveM = useMutation({
     mutationFn: (columnId: string) => tasksApi(apiClient).move(taskId, columnId),
     onSuccess: refreshTaskViews,
-    onError: failed('Couldn’t change the status.'),
   });
 
   const invalidateAttachments = () => {
@@ -109,36 +130,33 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     refreshTaskViews(); // card attachment counts
   };
   const uploadM = useMutation({
-    mutationFn: (file: File) => attachmentsApi(apiClient).upload(taskId, file),
+    mutationFn: ({ file, onProgress }: { file: File; onProgress?: (fraction: number) => void }) => attachmentsApi(apiClient).upload(taskId, file, onProgress),
     onSuccess: invalidateAttachments,
-    onError: failed('Couldn’t upload that file.'),
   });
   const deleteM = useMutation({
     mutationFn: (id: string) => attachmentsApi(apiClient).remove(id),
     onSuccess: invalidateAttachments,
-    onError: failed('Couldn’t remove the attachment.'),
   });
 
-  const invalidateDeps = () => queryClient.invalidateQueries({ queryKey: ['dependencies', taskId] });
+  const invalidateDeps = () => {
+    void queryClient.invalidateQueries({ queryKey: ['dependencies', taskId] });
+    void queryClient.invalidateQueries({ queryKey: ['task-activity', taskId] }); // the timeline names the blocker
+  };
   const addDepM = useMutation({
     mutationFn: (dependsOnTaskId: string) => dependenciesApi(apiClient).add(taskId, dependsOnTaskId),
     onSuccess: invalidateDeps,
-    onError: failed('Couldn’t add the blocker.'),
   });
   const removeDepM = useMutation({
     mutationFn: (dependsOnTaskId: string) => dependenciesApi(apiClient).remove(taskId, dependsOnTaskId),
     onSuccess: invalidateDeps,
-    onError: failed('Couldn’t remove the blocker.'),
   });
 
   const recurrenceM = useMutation({
     mutationFn: (rule: RecurrenceRule | null) => tasksApi(apiClient).update(taskId, { recurrenceRule: rule }),
     onSuccess: refreshTaskViews,
-    onError: failed('Couldn’t save the repeat rule.'),
   });
 
-  // Edits are awaited by the drawer: the form closes only once the save succeeded and shows the
-  // server's reason inline when it didn't (the user's edits stay in the form).
+  // Inline edits are awaited by the drawer, which shows "Saving… / Saved" or the server's reason.
   const editM = useMutation({
     mutationFn: (input: {
       patch: { title?: string; description?: string; priority?: Priority; dueDate?: string | null };
@@ -161,38 +179,41 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
     refreshTaskViews(); // progress + checklist counts on cards
   };
-  const toggleItemM = useMutation({
-    mutationFn: ({ id, done }: { id: string; done: boolean }) => checklistApi(apiClient).toggle(id, done),
+  const removeItemM = useMutation({
+    mutationFn: (id: string) => checklistApi(apiClient).remove(id),
     onSuccess: invalidateChecklist,
-    onError: failed('Couldn’t update the checklist.'),
+    onError: failed('Couldn’t remove the checklist item.'),
   });
-  const addItemM = useMutation({
-    mutationFn: (text: string) => checklistApi(apiClient).add(taskId, text),
-    onSuccess: invalidateChecklist,
-    onError: failed('Couldn’t add the checklist item.'),
+  const editCommentM = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: string }) => commentsApi(apiClient).update(id, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', taskId] }),
   });
-
+  const deleteCommentM = useMutation({
+    mutationFn: (id: string) => commentsApi(apiClient).remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
+      refreshTaskViews(); // comment counts
+    },
+    onError: failed('Couldn’t delete the comment.'),
+  });
   const addCommentM = useMutation({
     mutationFn: (body: string) => commentsApi(apiClient).add(taskId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
       refreshTaskViews(); // comment counts
     },
-    onError: failed('Couldn’t post the comment.'),
   });
 
-  // AI: break the task into checklist steps, then add each one and refresh the checklist.
+  // AI: break the task into steps — returned for the user to review; nothing is added here.
   const suggestChecklist = async () => {
     const t = taskQ.data;
-    if (!t) return;
-    const steps = await aiApi(apiClient).breakdown(t.title, t.description ?? undefined);
-    for (const step of steps) await checklistApi(apiClient).add(taskId, step);
-    await queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
+    if (!t) return [];
+    return attempt(() => aiApi(apiClient).breakdown(t.title, t.description ?? undefined), 'The AI suggestion failed.');
   };
-  // AI: recommend a priority for the task (the drawer applies it into its edit form).
+  // AI: recommend a priority for the task (the drawer shows it for the user to apply).
   const suggestPriority = async () => {
     const t = taskQ.data!;
-    return aiApi(apiClient).suggestPriority(t.title, t.description ?? undefined, t.dueDate ?? null);
+    return attempt(() => aiApi(apiClient).suggestPriority(t.title, t.description ?? undefined, t.dueDate ?? null), 'The AI suggestion failed.');
   };
 
   const assigneesQ = useQuery({ queryKey: ['assignees', taskId], queryFn: () => assigneesApi(apiClient).list(taskId) });
@@ -203,7 +224,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     const u = directory.find((d) => d.id === userId);
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Unknown';
   };
-  const authorAvatar = (userId: string) => directory.find((d) => d.id === userId)?.avatarUrl ?? null;
+  const avatarOf = (userId: string) => directory.find((d) => d.id === userId)?.avatarUrl ?? null;
   const invalidateAssignees = () => {
     queryClient.invalidateQueries({ queryKey: ['assignees', taskId] });
     refreshTaskViews(); // card avatars, My Tasks, calendar filters
@@ -211,18 +232,19 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   const assignM = useMutation({
     mutationFn: (userId: string) => assigneesApi(apiClient).assign(taskId, userId),
     onSuccess: invalidateAssignees,
-    onError: failed('Couldn’t assign that person.'),
   });
   const unassignM = useMutation({
     mutationFn: (userId: string) => assigneesApi(apiClient).unassign(taskId, userId),
     onSuccess: invalidateAssignees,
-    onError: failed('Couldn’t remove that assignee.'),
   });
-  const fullName = (u: { firstName: string; lastName: string; username: string }) =>
-    [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
+  // Linked tasks with their current status, from the project's tasks and columns.
+  const columnById = new Map(columns.map((c) => [c.id, c]));
   const taskRefs = new Map<string, DrawerTaskRef>(
-    (projectTasksQ.data ?? []).map((t) => [t.id, { id: t.id, key: t.key, title: t.title }]),
+    (projectTasksQ.data ?? []).map((t) => {
+      const col = columnById.get(t.columnId);
+      return [t.id, { id: t.id, key: t.key, title: t.title, statusName: col?.name, statusCategory: col?.category, done: col ? col.category === 'DONE' : Boolean(t.completedAt) }];
+    }),
   );
   const toRef = (id: string): DrawerTaskRef => taskRefs.get(id) ?? { id, key: id, title: id };
   const dependencies = dependenciesQ.data
@@ -242,7 +264,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="h-full w-full max-w-md outline-none animate-slide-in-right sm:max-w-lg lg:max-w-3xl xl:max-w-4xl"
+        className="h-full w-full outline-none animate-slide-in-right sm:max-w-xl md:max-w-2xl lg:max-w-4xl xl:max-w-5xl"
         onClick={(e) => e.stopPropagation()}
       >
         {taskQ.data ? (
@@ -252,43 +274,79 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
             actionError={actionError}
             onDismissError={() => setActionError(null)}
             checklist={checklistQ.data?.items ?? []}
-            onToggleChecklistItem={(id, done) => toggleItemM.mutate({ id, done })}
-            onAddChecklistItem={(text) => addItemM.mutate(text)}
+            onToggleChecklistItem={(id, done) =>
+              attempt(async () => {
+                await checklistApi(apiClient).toggle(id, done);
+                invalidateChecklist();
+              }, 'Couldn’t update the checklist.')
+            }
+            onAddChecklistItem={(text) =>
+              attempt(async () => {
+                await checklistApi(apiClient).add(taskId, text);
+                invalidateChecklist();
+              }, 'Couldn’t add the checklist item.')
+            }
+            onRenameChecklistItem={(id, text) =>
+              attempt(async () => {
+                await checklistApi(apiClient).rename(id, text);
+                invalidateChecklist();
+              }, 'Couldn’t rename the checklist item.')
+            }
+            onReorderChecklist={(orderedIds) =>
+              attempt(async () => {
+                await checklistApi(apiClient).reorder(taskId, orderedIds);
+                await queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
+              }, 'Couldn’t reorder the checklist.')
+            }
+            onRemoveChecklistItem={(id) => removeItemM.mutate(id)}
             onSuggestChecklist={suggestChecklist}
             onSuggestPriority={suggestPriority}
             comments={(commentsQ.data ?? []).map((c) => ({
               id: c.id,
               body: c.body,
               authorName: authorName(c.userId),
-              authorAvatar: authorAvatar(c.userId),
+              authorAvatar: avatarOf(c.userId),
               createdAt: c.createdAt,
+              edited: Boolean(c.editedAt),
+              // The server allows the author to edit, and the author or an admin to delete.
+              canEdit: c.userId === myId,
+              canDelete: c.userId === myId || isAdmin,
             }))}
-            onAddComment={(body) => addCommentM.mutate(body)}
-            assignees={(assigneesQ.data ?? []).map((a) => ({ id: a.id, name: fullName(a) }))}
-            assignableUsers={members.map((u) => ({ id: u.id, name: fullName(u) }))}
-            onAssignUser={(userId) => assignM.mutate(userId)}
-            onUnassignUser={(userId) => unassignM.mutate(userId)}
-            attachments={(attachmentsQ.data ?? []).map((a) => ({ id: a.id, filename: a.filename, url: a.url, sizeBytes: a.sizeBytes }))}
-            onUploadFile={(file) => uploadM.mutate(file)}
-            onDeleteAttachment={(id) => deleteM.mutate(id)}
+            onAddComment={(body) => attempt(() => addCommentM.mutateAsync(body), 'Couldn’t post the comment.').then(() => undefined)}
+            onEditComment={(id, body) => attempt(() => editCommentM.mutateAsync({ id, body }), 'Couldn’t save the comment.').then(() => undefined)}
+            onDeleteComment={(id) => deleteCommentM.mutate(id)}
+            mentionable={mentionable}
+            assignees={(assigneesQ.data ?? []).map((a) => ({ id: a.id, name: fullName(a), avatarUrl: avatarOf(a.id) }))}
+            assignableUsers={members.map((u) => ({ id: u.id, name: fullName(u), avatarUrl: avatarOf(u.id) }))}
+            onAssignUser={(userId) => attempt(() => assignM.mutateAsync(userId), 'Couldn’t assign that person.').then(() => undefined)}
+            onUnassignUser={(userId) => attempt(() => unassignM.mutateAsync(userId), 'Couldn’t remove that assignee.').then(() => undefined)}
+            attachments={(attachmentsQ.data ?? []).map((a) => ({
+              id: a.id,
+              filename: a.filename,
+              url: a.url,
+              sizeBytes: a.sizeBytes,
+              mimeType: a.mimeType,
+              // The server lets the uploader, or an admin, delete a file.
+              canDelete: a.uploadedById === myId || isAdmin,
+            }))}
+            onUploadFile={(file, onProgress) => attempt(() => uploadM.mutateAsync({ file, onProgress }), 'Couldn’t upload that file.')}
+            onPreviewAttachment={(id) => attachmentsApi(apiClient).preview(id)}
+            onDeleteAttachment={(id) => attempt(() => deleteM.mutateAsync(id), 'Couldn’t remove the attachment.').then(() => undefined)}
             dependencies={dependencies}
-            availableTasks={(projectTasksQ.data ?? []).map((t) => ({ id: t.id, key: t.key, title: t.title }))}
-            onAddDependency={(id) => addDepM.mutate(id)}
-            onRemoveDependency={(id) => removeDepM.mutate(id)}
-            onSetRecurrence={(rule) => recurrenceM.mutate(rule)}
-            statusColumns={(Array.isArray(columnsQ.data) ? columnsQ.data : []).map((c) => ({ id: c.id, name: c.name, category: c.category }))}
-            onChangeStatus={(columnId) => moveM.mutate(columnId)}
-            activity={(Array.isArray(activityQ.data) ? activityQ.data : [])
-              .slice(0, 20)
-              .map((a) => ({ id: a.id, action: a.action, actorName: a.actor?.name ?? authorName(a.userId), createdAt: a.createdAt }))}
-            onSaveEdit={async (patch, scope) => {
-              try {
-                await editM.mutateAsync({ patch, scope });
-              } catch (e) {
-                throw new Error(failureText(e, 'Couldn’t save your changes.'));
-              }
-            }}
-            savePending={editM.isPending}
+            availableTasks={[...taskRefs.values()]}
+            onAddDependency={(id) => attempt(() => addDepM.mutateAsync(id), 'Couldn’t add the blocker.').then(() => undefined)}
+            onRemoveDependency={(id) => attempt(() => removeDepM.mutateAsync(id), 'Couldn’t remove the blocker.').then(() => undefined)}
+            onSetRecurrence={(rule) => attempt(() => recurrenceM.mutateAsync(rule), 'Couldn’t save the repeat rule.').then(() => undefined)}
+            statusColumns={columns.map((c) => ({ id: c.id, name: c.name, category: c.category }))}
+            onChangeStatus={(columnId) => attempt(() => moveM.mutateAsync(columnId), 'Couldn’t change the status.').then(() => undefined)}
+            activity={(Array.isArray(activityQ.data) ? activityQ.data : []).map((a) => ({
+              id: a.id,
+              action: a.action,
+              actorName: a.actor?.name ?? authorName(a.userId),
+              createdAt: a.createdAt,
+              meta: a.meta ?? null,
+            }))}
+            onSaveEdit={(patch, scope) => attempt(() => editM.mutateAsync({ patch, scope }), 'Couldn’t save your changes.').then(() => undefined)}
             // Only admins and this project's managers may delete — don't offer a button that can't work.
             onDelete={canDelete ? (scope) => deleteTaskM.mutate(scope) : undefined}
             watching={watchStatusQ.data ?? false}
@@ -299,6 +357,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
               const t = taskQ.data!;
               downloadBlob(fileNameOf(blob) ?? `${t.key}-${fileSlug(t.title)}.${format}`, blob);
             }}
+            onEdit={() => setEditing(true)}
             onClose={onClose}
           />
         ) : taskQ.isError ? (
@@ -324,6 +383,12 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
           </div>
         )}
       </div>
+      {editing && taskQ.data ? (
+        // Its own layer above the panel; clicks inside it must not reach the panel's backdrop.
+        <div onClick={(e) => e.stopPropagation()}>
+          <TaskFormDialog task={taskQ.data} onClose={() => setEditing(false)} onSaved={() => setActionError(null)} />
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

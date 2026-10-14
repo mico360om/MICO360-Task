@@ -14,7 +14,7 @@ function actionRepo(): ActionItemRepository {
   return {
     async create(d: CreateActionItemData) {
       const now = new Date();
-      const rec: ActionItemRecord = { id: `ai${seq++}`, meetingId: d.meetingId ?? null, agendaItemId: d.agendaItemId ?? null, sourceNoteId: d.sourceNoteId ?? null, projectId: d.projectId ?? null, description: d.description, assigneeId: d.assigneeId ?? null, priority: d.priority ?? 'NORMAL', status: d.status ?? 'OPEN', dueDate: d.dueDate ?? null, progress: 0, completedAt: null, taskId: null, createdById: d.createdById, createdAt: now, updatedAt: now };
+      const rec: ActionItemRecord = { id: `ai${seq++}`, meetingId: d.meetingId ?? null, agendaItemId: d.agendaItemId ?? null, sourceNoteId: d.sourceNoteId ?? null, projectId: d.projectId ?? null, description: d.description, assigneeId: d.assigneeId ?? null, priority: d.priority ?? 'NORMAL', status: d.status ?? 'OPEN', dueDate: d.dueDate ?? null, progress: 0, completedAt: null, taskId: d.taskId ?? null, createdById: d.createdById, createdAt: now, updatedAt: now };
       rows.set(rec.id, rec); return rec;
     },
     async findById(id) { return rows.get(id) ?? null; },
@@ -67,6 +67,20 @@ async function ownedMeeting(app: Awaited<ReturnType<typeof makeApp>>, owner: str
 }
 
 describe('Action item routes', () => {
+  it('names the linked task of each item by its key, so the list can open it', async () => {
+    const authService = createAuthService({ users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} }, maxAttempts: 5 });
+    const meetings = meetingRepo();
+    const meetingService = createMeetingService({ meetings });
+    const actionItemService = createActionItemService({ actionItems: actionRepo() });
+    const app = await buildApp({ authService, tokenService, meetingService, actionItemService, resolveTaskKeys: async (ids) => Object.fromEntries(ids.map((i) => [i, `KEY-${i}`])) });
+    const id = await ownedMeeting(app, 'u1');
+    await actionItemService.addItem(id, 'u1', { description: 'Linked', taskId: 't7' });
+    await actionItemService.addItem(id, 'u1', { description: 'Not linked' });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/action-items`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    const items = res.json().data as Array<{ description: string; taskKey: string | null }>;
+    expect(items.map((i) => [i.description, i.taskKey])).toEqual([['Linked', 'KEY-t7'], ['Not linked', null]]);
+  });
+
   it('adds an action item to a meeting the caller organizes', async () => {
     const app = await makeApp();
     const id = await ownedMeeting(app, 'u1');

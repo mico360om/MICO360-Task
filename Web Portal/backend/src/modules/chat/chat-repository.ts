@@ -22,6 +22,19 @@ export interface Participant {
   /** Last time the user read this conversation; null = never read (everything is unread). */
   lastReadAt: Date | null;
   addedAt: Date;
+  /** Personal settings (never shown to the other people in the conversation). */
+  favorite?: boolean;
+  archivedAt?: Date | null;
+  mutedAt?: Date | null;
+  /** Last time this person's app received the conversation's messages ("delivered"). */
+  lastDeliveredAt?: Date | null;
+}
+
+/** A person's own settings for one conversation. */
+export interface ParticipantPrefsPatch {
+  favorite?: boolean;
+  archivedAt?: Date | null;
+  mutedAt?: Date | null;
 }
 
 export interface Message {
@@ -33,6 +46,10 @@ export interface Message {
   /** Soft-delete tombstone; a deleted message keeps its row so history stays intact. */
   deletedAt: Date | null;
   createdAt: Date;
+  /** The message this one answers (same conversation). */
+  replyToId?: string | null;
+  /** The sender's own id for this message, so a retried send is recognised (unique per sender). */
+  clientId?: string | null;
 }
 
 export interface Reaction {
@@ -73,6 +90,10 @@ export interface ParticipantRepository {
   listConversationIdsForUser(userId: string): Promise<string[]>;
   /** Upsert the user's read marker for a conversation. */
   setLastRead(conversationId: string, userId: string, at: Date): Promise<void>;
+  /** Change a participant's own settings (the row must exist). */
+  setPrefs?(conversationId: string, userId: string, patch: ParticipantPrefsPatch): Promise<Participant>;
+  /** Move the delivered marker forward (never back). */
+  setLastDelivered?(conversationId: string, userId: string, at: Date): Promise<void>;
 }
 
 export interface MessageListOptions {
@@ -82,7 +103,11 @@ export interface MessageListOptions {
 }
 
 export interface MessageRepository {
-  create(conversationId: string, userId: string, body: string): Promise<Message>;
+  /** Rejects with a unique-constraint error when the sender already used this clientId here. */
+  create(conversationId: string, userId: string, body: string, extra?: { replyToId?: string | null; clientId?: string | null }): Promise<Message>;
+  findByClientId?(conversationId: string, userId: string, clientId: string): Promise<Message | null>;
+  /** Live (not deleted) messages in these conversations whose text contains `q` (any case), newest first. */
+  search?(conversationIds: string[], q: string, limit: number): Promise<Message[]>;
   findById(id: string): Promise<Message | null>;
   /** Newest-first page of a conversation's messages (callers reverse for display). */
   list(conversationId: string, opts: MessageListOptions): Promise<Message[]>;
@@ -126,4 +151,6 @@ export interface ChatMemberLookup {
   accessibleProjectIds(userId: string): Promise<string[]>;
   /** Is this an existing, active user — someone a DM can be started with? */
   isActiveUser(userId: string): Promise<boolean>;
+  /** Everyone who can see a project's channel (owner, manager, creator, members). */
+  projectMemberIds?(projectId: string): Promise<string[]>;
 }

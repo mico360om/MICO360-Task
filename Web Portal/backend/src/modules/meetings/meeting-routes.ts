@@ -49,6 +49,13 @@ const updateSchema = z.object({
   recurrenceRule: recurrenceSchema.nullable().optional(),
 });
 
+const inviteBody = z.object({
+  /** Only people who haven't had an invitation yet. */
+  onlyNew: z.boolean().optional(),
+  /** Send everyone a fresh invitation although invitations already went out. */
+  resend: z.boolean().optional(),
+});
+
 const listQuery = z.object({
   projectId: z.string().optional(),
   status: statusEnum.optional(),
@@ -69,9 +76,17 @@ export interface MeetingRouteDeps {
   /** Project ids the user may see (null = admin) — scopes the list + gates project meetings on create/move. */
   accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
   /** Calendar invitations / cancellations (enables POST /meetings/:id/invites + automatic updates). */
-  notify?: Pick<MeetingNotifyService, 'sendInvites' | 'sendCancellation'>;
+  notify?: Pick<MeetingNotifyService, 'sendInvites' | 'sendCancellation'> & Partial<Pick<MeetingNotifyService, 'previewInvites'>>;
   /** Structured logger for best-effort background sends. */
   logger?: Pick<Logger, 'error'>;
+  /** Attendee and open action-item counts per meeting id (one lookup for the whole list). */
+  listCounts?: (meetingIds: string[]) => Promise<Record<string, MeetingListCounts>>;
+}
+
+export interface MeetingListCounts {
+  attendeeCount: number;
+  /** Action items still to do (not completed or cancelled). */
+  openActionItemCount: number;
 }
 
 /** Did a change alter what invitees see in their calendar (so an updated invitation is due)? */
@@ -139,7 +154,10 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       ...(q.mine ? { organizerId: req.user!.id } : {}),
       scope: q.mine ? { userId: req.user!.id, projectIds: [] } : { userId: req.user!.id, projectIds },
     });
-    return { data: await withEditFlags(req, data) };
+    const flagged = await withEditFlags(req, data);
+    if (!deps.listCounts || flagged.length === 0) return { data: flagged };
+    const counts = await deps.listCounts(flagged.map((m) => m.id));
+    return { data: flagged.map((m) => ({ ...m, attendeeCount: counts[m.id]?.attendeeCount ?? 0, openActionItemCount: counts[m.id]?.openActionItemCount ?? 0 })) };
   });
 
   app.post('/meetings', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -218,14 +236,32 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     return { data: { ...meeting, canEdit: true } };
   });
 
-  // Send (or re-send) calendar invitations with an .ics to the organizer + attendees.
+  // Who an invitation would go to and anything to fix first (sends nothing).
+  app.get('/meetings/:id/invites/preview', { preHandler: guard.authenticate }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!(await canView(req, id))) return reply.status(403).send(forbidden);
+    if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
+    if (!deps.notify?.previewInvites) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
+    return { data: await deps.notify.previewInvites(id) };
+  });
+
+  // Send calendar invitations with an .ics to the organizer + attendees — or only to people who
+  // haven't had one yet. Sending everyone a second set needs { resend: true }, so a double click
+  // or a stale page can't mail the whole list twice.
   app.post('/meetings/:id/invites', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
     if (!deps.notify) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
-    const result = await deps.notify.sendInvites(id);
-    return { data: result };
+    const body = inviteBody.parse(req.body ?? {});
+    if (body.onlyNew) return { data: await deps.notify.sendInvites(id, { onlyNew: true }) };
+    const meeting = await meetingService.getMeeting(id);
+    if (meeting.invitesSentAt && !body.resend) {
+      return reply.status(409).send({
+        error: { code: 'INVITES_ALREADY_SENT', message: 'Invitations were already sent. Confirm to send everyone an updated invitation.', invitesSentAt: meeting.invitesSentAt },
+      });
+    }
+    return { data: await deps.notify.sendInvites(id) };
   });
 
   app.delete('/meetings/:id', { preHandler: guard.authenticate }, async (req, reply) => {

@@ -9,10 +9,17 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
  * security headers, and unknown client-side routes (/board/123) fall back to index.html.
  */
 
-/** Where a hosted copy of the Android app lives in the web root (the release packages put it there). */
+/**
+ * Where a hosted copy of the Android app lives in the web root (the release packages put it there).
+ * One address for every release: a new build replaces the file, and the sign-in page's "Download
+ * for Android" button always points here (the web app's lib/android-app-link.ts says the same).
+ */
 export const HOSTED_APK_PATH = '/downloads/MICO360-Tasks.apk';
 
-/** The "Download for Android" link: the configured one, else the APK this web root hosts, else null. */
+/**
+ * The "Download for Android" link: the configured one, else the APK this web root hosts, else null
+ * (the web app then offers the hosted address anyway, and asks the site whether the file is there).
+ */
 export function androidAppLink(configured: string, webRoot: string | null): string | null {
   if (configured.trim()) return configured.trim();
   if (webRoot && existsSync(join(webRoot, ...HOSTED_APK_PATH.split('/').filter(Boolean)))) return HOSTED_APK_PATH;
@@ -31,8 +38,8 @@ export function webAppCsp(host: string | undefined): string {
   return [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com data:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
     "img-src 'self' data: blob:",
     `connect-src 'self'${ws}`,
     "frame-ancestors 'none'",
@@ -51,6 +58,22 @@ export function isClientRoute(method: string, url: string): boolean {
   const last = path.slice(path.lastIndexOf('/') + 1);
   return !last.includes('.') || last.endsWith('.html');
 }
+
+/** Pages a search engine may list: the site root (it shows the sign-in page), sign-in, privacy and terms. */
+const INDEXABLE_PAGES = new Set(['/', '/login', '/privacy', '/terms']);
+
+/**
+ * The X-Robots-Tag for a page: null for the public pages, `noindex, nofollow` for everything else —
+ * the signed-in pages, and password-recovery links (/reset carries a token in its address).
+ * The web app sets the same rule in its robots meta tag; deploy/ has it for nginx and Hostinger.
+ */
+export function robotsTagFor(url: string): string | null {
+  const path = url.split(/[?#]/)[0]!.replace(/\/+$/, '') || '/';
+  return INDEXABLE_PAGES.has(path) ? null : 'noindex, nofollow';
+}
+
+/** A pre-compressed copy written by the web build (see the frontend's vite.config). */
+const COMPRESSED_COPY = /\.(br|gz)$/i;
 
 /** Cache policy for a web-app file: hashed build assets are immutable, everything else revalidates. */
 export function cacheControlFor(url: string): string {
@@ -77,8 +100,17 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string 
     // index.html is sent by the fallback below so it always gets the page headers.
     index: false,
     cacheControl: false,
+    // The web build writes a .br and a .gz copy next to each large text file. A browser that accepts
+    // one gets it (about a third of the bytes); when there is no copy the plain file is sent. This
+    // matters where nothing in front of the API compresses for it (the Windows server install).
+    preCompressed: true,
+    // The copies are an encoding of a file, never a file to ask for by name.
+    allowedPath: (pathName) => !COMPRESSED_COPY.test(pathName),
     setHeaders: (reply) => {
       reply.header('Cache-Control', cacheControlFor(reply.request.url));
+      // The Android app downloads under its own name from any link (a shared one too), as nginx and
+      // the Hostinger rules send it.
+      if (reply.request.url.split('?')[0] === HOSTED_APK_PATH) reply.header('Content-Disposition', 'attachment; filename="MICO360-Tasks.apk"');
     },
   });
 
@@ -88,14 +120,17 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string 
     return payload;
   });
 
-  const sendIndex = (reply: FastifyReply) =>
-    reply.code(200).header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(indexHtml);
+  const sendIndex = (req: FastifyRequest, reply: FastifyReply) => {
+    const robots = robotsTagFor(req.url);
+    if (robots) reply.header('X-Robots-Tag', robots);
+    return reply.code(200).header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(indexHtml);
+  };
 
   // The static wildcard would answer "/" with a directory 403.
-  app.get('/', (_req, reply) => sendIndex(reply));
+  app.get('/', (req, reply) => sendIndex(req, reply));
 
   app.setNotFoundHandler((req, reply) => {
-    if (isClientRoute(req.method, req.url)) return sendIndex(reply);
+    if (isClientRoute(req.method, req.url)) return sendIndex(req, reply);
     return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Not found.' } });
   });
 }

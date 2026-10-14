@@ -25,6 +25,17 @@ export function createPrismaCommentRepository(prisma: PrismaClient): CommentRepo
     async delete(id) {
       await prisma.comment.update({ where: { id }, data: { deletedAt: new Date() } });
     },
+    async listMentionable(taskId) {
+      const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true } });
+      if (!task) return [];
+      const ids = await projectAudienceIds(prisma, task.projectId);
+      if (ids.length === 0) return [];
+      return prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true },
+        orderBy: [{ firstName: 'asc' }, { username: 'asc' }],
+      });
+    },
     async listMentionableUsernames(taskId) {
       const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true } });
       if (!task) return [];

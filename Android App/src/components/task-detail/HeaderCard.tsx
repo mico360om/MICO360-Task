@@ -1,0 +1,151 @@
+import React, { useMemo, useState } from 'react';
+import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
+import { useColors } from '../../core/theme';
+import { TextField, Button } from '../ui';
+import { priorityColor } from '../TaskRow';
+import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import type { ApiTask } from '../../lib/types';
+import { recurrenceSummary } from '../../lib/recurrence-summary';
+import { IconButton, SaveNote, Tag, useSave } from './kit';
+
+const PRIORITY_LABEL: Record<string, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
+/** The task title column's limit (VARCHAR 191). */
+const TITLE_MAX = 191;
+
+/**
+ * The top of the task: reference, status, priority and due date at a glance, the title (edited in
+ * place), and a "⋯" menu for the secondary actions (watching, exporting).
+ */
+export function HeaderCard({
+  task,
+  statusName,
+  statusCategory,
+  due,
+  onSaveTitle,
+  watching,
+  watcherCount,
+  onToggleWatch,
+  onExport,
+  exporting,
+}: {
+  task: ApiTask;
+  statusName?: string;
+  statusCategory?: string;
+  due: { text: string | null; overdue: boolean };
+  onSaveTitle?: (title: string) => Promise<unknown>;
+  watching: boolean;
+  watcherCount: number;
+  onToggleWatch: () => void;
+  onExport: (format: 'xlsx' | 'pdf') => void;
+  exporting: 'xlsx' | 'pdf' | null;
+}) {
+  const c = useColors();
+  const s = useMemo(() => makeStyles(c), [c]);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [menu, setMenu] = useState(false);
+  const save = useSave();
+
+  async function commit() {
+    if (draft === null) return;
+    const title = draft.trim();
+    if (!title) {
+      save.fail('A title is required.');
+      return;
+    }
+    if (title === task.title) {
+      setDraft(null);
+      return;
+    }
+    if (await save.run(() => onSaveTitle?.(title), 'Couldn’t save the title.', true)) setDraft(null);
+  }
+
+  const action = (label: string, act: () => void, a11y?: string) => (
+    <Pressable
+      key={label}
+      accessibilityRole="menuitem"
+      accessibilityLabel={a11y ?? label}
+      onPress={() => {
+        setMenu(false);
+        act();
+      }}
+      style={({ pressed }) => [s.menuItem, pressed && { backgroundColor: c.ground }]}
+    >
+      <Text style={s.menuText}>{label}</Text>
+    </Pressable>
+  );
+
+  return (
+    <View style={s.wrap}>
+      <View style={s.topRow}>
+        <View style={s.meta}>
+          <Text style={s.key}>{task.key}</Text>
+          {statusName ? <Tag label={statusName} color={categoryColorOf(c, statusCategory ?? 'TODO')} /> : null}
+          <Tag label={PRIORITY_LABEL[task.priority] ?? task.priority} color={priorityColor(c, task.priority)} />
+          {due.text ? <Tag label={due.text} tone={due.overdue ? 'danger' : undefined} /> : null}
+        </View>
+        <IconButton glyph="⋯" label="More actions" onPress={() => setMenu(true)} tone="brand" />
+      </View>
+
+      {draft === null ? (
+        <View style={s.titleRow}>
+          <Text style={s.title} accessibilityRole="header">
+            {task.title}
+          </Text>
+          {onSaveTitle ? <IconButton glyph="✎" label="Edit title" onPress={() => { save.reset(); setDraft(task.title); }} /> : null}
+        </View>
+      ) : (
+        <View>
+          <TextField
+            label="Title"
+            value={draft}
+            onChangeText={setDraft}
+            maxLength={TITLE_MAX}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={() => void commit()}
+          />
+          <View style={s.editActions}>
+            <Button title="Cancel" variant="ghost" onPress={() => { setDraft(null); save.reset(); }} style={s.flex} />
+            <Button title="Save" accessibilityLabel="Save title" onPress={() => void commit()} loading={save.busy} style={s.flex} />
+          </View>
+        </View>
+      )}
+      <SaveNote state={save.state} />
+      {task.recurrenceRule ? (
+        <Text style={s.recurrence}>🔁 {recurrenceSummary(task.recurrenceRule)}</Text>
+      ) : task.recurrenceParentId ? (
+        <Text style={s.recurrence}>🔁 Part of a repeating series</Text>
+      ) : null}
+
+      <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
+        <Pressable style={s.backdrop} onPress={() => setMenu(false)} accessibilityLabel="Close menu">
+          <View style={s.sheet} accessibilityRole="menu">
+            <Text style={s.sheetTitle}>{task.key}</Text>
+            {action(watching ? `Stop watching (${watcherCount})` : `Watch this task${watcherCount ? ` (${watcherCount})` : ''}`, onToggleWatch, watching ? 'Stop watching this task' : 'Watch this task')}
+            {action(exporting === 'xlsx' ? 'Preparing Excel…' : 'Export as Excel', () => onExport('xlsx'))}
+            {action(exporting === 'pdf' ? 'Preparing PDF…' : 'Export as PDF', () => onExport('pdf'))}
+            {action('Cancel', () => {})}
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
+    wrap: { gap: spacing.xs },
+    topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    meta: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
+    key: { fontSize: fontSize.xs, fontWeight: '800', color: c.brand, letterSpacing: 1, marginRight: spacing.xs },
+    titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
+    title: { flex: 1, fontSize: fontSize.xl, fontWeight: '800', color: c.ink, paddingTop: spacing.xs },
+    editActions: { flexDirection: 'row', gap: spacing.sm },
+    flex: { flex: 1 },
+    recurrence: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600' },
+    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+    sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingVertical: spacing.sm, paddingBottom: spacing.xl },
+    sheetTitle: { fontSize: fontSize.xs, fontWeight: '800', color: c.ink3, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, letterSpacing: 1 },
+    menuItem: { minHeight: 52, justifyContent: 'center', paddingHorizontal: spacing.lg },
+    menuText: { fontSize: fontSize.md, color: c.ink, fontWeight: '600' },
+  });

@@ -243,3 +243,23 @@ describe('RecurrenceService.runSchedule (on-schedule series)', () => {
     expect(failures).toEqual(['boom']);
   });
 });
+
+describe('RecurrenceService — an occurrence moved on its own keeps the series on schedule', () => {
+  it('makes the next copy from the date the moved one replaced, and the copy does not keep the note', async () => {
+    const { p, spawned } = port();
+    const svc = make(p, utc('2026-10-07'));
+    // Weekly on its due day; this week's copy (due Mon 5 Oct) was moved to Wed 7 Oct on its own.
+    const task: RecurringTask = { id: 't1', dueDate: midnight('2026-10-07'), recurrenceRule: { freq: 'WEEKLY', interval: 1, resumeFrom: '2026-10-05' }, recurrenceParentId: null };
+    await svc.onTaskCompleted(task);
+    expect(spawned[0]!.nextDueDate.toISOString()).toBe(midnight('2026-10-12').toISOString());
+    expect(spawned[0]!.rule.resumeFrom).toBeUndefined();
+  });
+
+  it('on-schedule series too', async () => {
+    const head: RecurringTask = { id: 't1', dueDate: midnight('2026-10-07'), recurrenceRule: { freq: 'WEEKLY', interval: 1, createNext: 'ON_SCHEDULE', resumeFrom: '2026-10-05' }, recurrenceParentId: null };
+    const { p, spawned } = port(1, [head]);
+    await make(p, utc('2026-10-12')).runSchedule();
+    expect(spawned[0]!.nextDueDate.toISOString()).toBe(midnight('2026-10-12').toISOString());
+    expect(spawned[0]!.rule.resumeFrom).toBeUndefined();
+  });
+});

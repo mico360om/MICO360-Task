@@ -72,7 +72,7 @@ describe('DashboardPage (admin)', () => {
     await waitFor(() => expect(screen.getByText('Tasks by status')).toBeInTheDocument());
     expect(screen.getByText('Project completion')).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText('MICO360').length).toBeGreaterThan(0));
-    expect(screen.getByText('DONE')).toBeInTheDocument(); // status chart label
+    expect(screen.getAllByText('Done').length).toBeGreaterThan(0); // status chart label, named as on the board (not the raw DONE code)
     expect(screen.getByLabelText(/filter by project/i)).toBeInTheDocument();
   });
 });

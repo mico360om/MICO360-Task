@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface PanelRect {
@@ -13,6 +13,8 @@ export interface SelectOption {
   label: string;
   /** Optional secondary text shown to the right of the label (e.g. a code or status). */
   hint?: string;
+  /** Optional picture before the label (a project's icon, a status dot) — decorative. */
+  icon?: ReactNode;
 }
 
 export interface SearchableSelectProps {
@@ -26,6 +28,11 @@ export interface SearchableSelectProps {
   emptyText?: string;
   className?: string;
   id?: string;
+  /** Marks the field as wrong (with its message's id in `describedBy`). */
+  invalid?: boolean;
+  describedBy?: string;
+  /** 'lg': as tall as the large form fields (44px). */
+  size?: 'md' | 'lg';
 }
 
 /**
@@ -45,6 +52,9 @@ export function SearchableSelect({
   emptyText = 'No matches',
   className,
   id,
+  invalid,
+  describedBy,
+  size = 'md',
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -152,11 +162,16 @@ export function SearchableSelect({
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-50"
+        className={`flex w-full items-center justify-between gap-2 border bg-surface text-left text-sm text-ink ${size === 'lg' ? '!min-h-[44px] rounded-xl px-3.5 py-2' : 'rounded-lg px-3 py-2'} outline-none transition-colors focus:ring-2 disabled:opacity-50 ${invalid ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-line focus:border-brand focus:ring-brand/20'}`}
       >
-        <span dir="auto" className={`truncate text-start ${selected ? 'text-ink' : 'text-ink-2'}`}>{selected ? selected.label : placeholder}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          {selected?.icon ? <span aria-hidden="true" className="flex flex-none">{selected.icon}</span> : null}
+          <span dir="auto" className={`truncate text-start ${selected ? 'text-ink' : 'text-ink-2'}`}>{selected ? selected.label : placeholder}</span>
+        </span>
         <span aria-hidden className="shrink-0 text-ink-2">▾</span>
       </button>
 
@@ -179,9 +194,11 @@ export function SearchableSelect({
             ref={inputRef}
             type="text"
             role="combobox"
+            aria-label={`Filter ${ariaLabel ?? 'options'}`}
             aria-controls={listId}
             aria-expanded
             aria-autocomplete="list"
+            aria-activedescendant={filtered[active] ? `${listId}-${active}` : undefined}
             value={query}
             placeholder="Type to filter…"
             dir="auto"
@@ -193,14 +210,16 @@ export function SearchableSelect({
             className="w-full border-b border-line bg-surface px-3 py-2 text-sm text-ink outline-none"
           />
           <ul id={listId} role="listbox" className="max-h-56 overflow-y-auto py-1">
+            {/* The <li>s are layout only: the listbox's children, to a screen reader, are its options. */}
             {filtered.length === 0 ? (
-              <li className="px-3 py-2 text-sm text-ink-2">{emptyText}</li>
+              <li role="presentation" className="px-3 py-2 text-sm text-ink-2">{emptyText}</li>
             ) : (
               filtered.map((o, i) => (
-                <li key={o.value}>
+                <li key={o.value} role="presentation">
                   <button
                     type="button"
                     role="option"
+                    id={`${listId}-${i}`}
                     aria-selected={o.value === value}
                     onClick={() => choose(o.value)}
                     onMouseEnter={() => setActive(i)}
@@ -208,7 +227,10 @@ export function SearchableSelect({
                       i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'
                     }`}
                   >
-                    <span dir="auto" className="truncate text-start">{o.label}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      {o.icon ? <span aria-hidden="true" className="flex flex-none">{o.icon}</span> : null}
+                      <span dir="auto" className="truncate text-start">{o.label}</span>
+                    </span>
                     {o.hint ? <span className="shrink-0 text-xs text-ink-2">{o.hint}</span> : null}
                   </button>
                 </li>

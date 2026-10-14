@@ -74,6 +74,85 @@ describe('api client', () => {
     expect(headers['Authorization']).toBe('Bearer tok123'); // auth still attached
   });
 
+  describe('upload with progress', () => {
+    class FakeXhr {
+      static sent: FakeXhr[] = [];
+      upload: { onprogress: ((e: { loaded: number; total: number; lengthComputable: boolean }) => void) | null } = { onprogress: null };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      status = 0;
+      responseText = '';
+      method = '';
+      url = '';
+      headers: Record<string, string> = {};
+      body: unknown;
+      open(method: string, url: string) {
+        this.method = method;
+        this.url = url;
+      }
+      setRequestHeader(name: string, value: string) {
+        this.headers[name] = value;
+      }
+      send(body: unknown) {
+        this.body = body;
+        FakeXhr.sent.push(this);
+      }
+      respond(status: number, body: unknown) {
+        this.status = status;
+        this.responseText = JSON.stringify(body);
+        this.onload?.();
+      }
+    }
+    beforeEach(() => {
+      FakeXhr.sent = [];
+      vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    });
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+
+    it('reports how far the upload is, then resolves with the response', async () => {
+      const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok123' });
+      const fd = new FormData();
+      const progress: number[] = [];
+      const done = api.upload<{ data: { id: string } }>('/tasks/t1/attachments', fd, { onProgress: (f) => progress.push(f) });
+      const xhr = FakeXhr.sent[0]!;
+      expect(xhr).toMatchObject({ method: 'POST', url: 'http://api.test/tasks/t1/attachments', body: fd });
+      expect(xhr.headers['Authorization']).toBe('Bearer tok123');
+      expect(xhr.headers['Content-Type']).toBeUndefined();
+      xhr.upload.onprogress?.({ loaded: 25, total: 100, lengthComputable: true });
+      xhr.upload.onprogress?.({ loaded: 100, total: 100, lengthComputable: true });
+      xhr.respond(201, { data: { id: 'a1' } });
+      expect((await done).data.id).toBe('a1');
+      expect(progress).toEqual([0.25, 1]);
+    });
+
+    it('refreshes an expired token once and sends the file again', async () => {
+      let token = 'old';
+      const refreshTokens = vi.fn(async () => {
+        token = 'new';
+        return 'refreshed' as const;
+      });
+      const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => token, refreshTokens });
+      const done = api.upload<{ data: { id: string } }>('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
+      FakeXhr.sent[0]!.respond(401, { error: { code: 'UNAUTHORIZED', message: 'Expired' } });
+      await tick();
+      await tick();
+      expect(refreshTokens).toHaveBeenCalledTimes(1);
+      expect(FakeXhr.sent[1]!.headers['Authorization']).toBe('Bearer new');
+      FakeXhr.sent[1]!.respond(201, { data: { id: 'a2' } });
+      expect((await done).data.id).toBe('a2');
+    });
+
+    it('rejects with the server’s reason, or a network error when the connection drops', async () => {
+      const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok' });
+      const refused = api.upload('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
+      FakeXhr.sent[0]!.respond(413, { error: { code: 'TOO_LARGE', message: 'File too large.' } });
+      await expect(refused).rejects.toMatchObject({ status: 413, message: 'File too large.' });
+      const dropped = api.upload('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
+      FakeXhr.sent[1]!.onerror?.();
+      await expect(dropped).rejects.toBeInstanceOf(TypeError);
+    });
+  });
+
   it('getText returns the raw response body and attaches the bearer token', async () => {
     const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
       Promise.resolve(new Response('a,b\r\n1,2', { status: 200, headers: { 'content-type': 'text/csv' } })),

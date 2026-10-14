@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { buildApp } from '../../app';
 import { createTaskService } from './task-service';
 import { createTagService } from './tag-service';
@@ -532,5 +532,86 @@ describe('Task routes — object-level authorization', () => {
     expect(mem.rows.get(t1)!.position).toBe(1);
     // Unknown column → 404.
     expect((await a.inject({ method: 'PUT', url: '/api/v1/columns/ghost/tasks/reorder', headers: emp, payload: { orderedIds: [t1] } })).statusCode).toBe(404);
+  });
+});
+
+describe('GET /calendar — the visible range only, with the coming copies of repeating tasks', () => {
+  const membership: Record<string, string[]> = { p1: ['u1'], p2: [] };
+  const projectAccess = {
+    async canViewProject(userId: string, roles: string[], projectId: string) {
+      return roles.includes('ADMIN') || (membership[projectId] ?? []).includes(userId);
+    },
+    async canViewTask() { return true; },
+    async canViewColumn() { return true; },
+    async accessibleProjectIds(userId: string, roles: string[]) {
+      if (roles.includes('ADMIN')) return null;
+      return Object.entries(membership).filter(([, u]) => u.includes(userId)).map(([p]) => p);
+    },
+  };
+  const day = (k: string) => new Date(`${k}T00:00:00.000Z`);
+
+  async function build() {
+    const mem = inMemory();
+    const taskService = createTaskService(mem);
+    const counted: string[] = [];
+    const a = await buildApp({ authService, tokenService, taskService, projectAccess, seriesInstanceCount: async (id: string) => { counted.push(id); return 1; } });
+    const add = (title: string, projectId: string, columnId: string, dueDate: Date | null, extra: Partial<CreateTaskData> = {}) =>
+      mem.tasks.create({ key: `K-${title}`, title, projectId, columnId, dueDate, createdById: 'u1', ...extra } as CreateTaskData);
+    return { a, add, counted };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it('returns the tasks due in the range for projects you can see (by their calendar day)', async () => {
+    const { a, add } = await build();
+    await add('first of the month', 'p1', 'c1', day('2026-10-01'));
+    await add('mid month, timed', 'p1', 'c1', new Date('2026-10-15T09:00:00.000Z'));
+    await add('last of the month', 'p1', 'c1', day('2026-10-31'));
+    await add('next month', 'p1', 'c1', day('2026-11-01'));
+    await add('last month', 'p1', 'c1', day('2026-09-30'));
+    await add('no date', 'p1', 'c1', null);
+    await add('someone else’s project', 'p2', 'c3', day('2026-10-10'));
+    const res = await a.inject({ method: 'GET', url: '/api/v1/calendar?from=2026-10-01&to=2026-10-31', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.tasks.map((t: { title: string }) => t.title).sort()).toEqual(['first of the month', 'last of the month', 'mid month, timed']);
+    // An admin sees every project.
+    const all = await a.inject({ method: 'GET', url: '/api/v1/calendar?from=2026-10-01&to=2026-10-31', headers: { authorization: `Bearer ${await tokenFor('admin', ['ADMIN'])}` } });
+    expect(all.json().data.tasks).toHaveLength(4);
+  });
+
+  it('adds the dates a repeating task will be copied to, marked as projected, without creating tasks', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T08:00:00.000Z'));
+    const { a, add, counted } = await build();
+    const head = await add('Weekly check', 'p1', 'c1', day('2026-10-05'), { recurrenceRule: { freq: 'WEEKLY', interval: 1, count: 10 } });
+    await add('Hidden weekly', 'p2', 'c3', day('2026-10-05'), { recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
+    const res = await a.inject({ method: 'GET', url: '/api/v1/calendar?from=2026-10-01&to=2026-10-31', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    const data = res.json().data;
+    expect(data.occurrences).toEqual(['2026-10-12', '2026-10-19', '2026-10-26'].map((date) => ({ taskId: head.id, seriesId: head.id, date })));
+    expect(data.series.map((s: { id: string }) => s.id)).toEqual([head.id]);
+    expect(counted).toEqual([head.id]); // a series with a number of occurrences counts its copies
+    // Nothing was created: the range still holds one real task.
+    expect(data.tasks.map((t: { id: string }) => t.id)).toEqual([head.id]);
+  });
+
+  it('refuses a range that ends before it starts, is too long, or is not a date', async () => {
+    const { a } = await build();
+    const headers = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    for (const qs of ['from=2026-10-31&to=2026-10-01', 'from=2026-01-01&to=2026-12-31', 'from=Oct&to=2026-10-31', 'from=2026-10-01']) {
+      expect((await a.inject({ method: 'GET', url: `/api/v1/calendar?${qs}`, headers })).statusCode).toBe(400);
+    }
+  });
+
+  it('accepts a repeat rule noting the day a moved occurrence replaced', async () => {
+    const { a, add } = await build();
+    const t = await add('Weekly check', 'p1', 'c1', day('2026-10-05'), { recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
+    const res = await a.inject({
+      method: 'PUT',
+      url: `/api/v1/tasks/${t.id}`,
+      headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` },
+      payload: { dueDate: '2026-10-07', recurrenceRule: { freq: 'WEEKLY', interval: 1, resumeFrom: '2026-10-05' } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.recurrenceRule.resumeFrom).toBe('2026-10-05');
   });
 });

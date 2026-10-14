@@ -32,6 +32,7 @@ export function Button({
   disabled,
   children,
   className = '',
+  onClick,
   ...rest
 }: ButtonProps) {
   return (
@@ -39,8 +40,19 @@ export function Button({
       {...rest}
       data-variant={variant}
       aria-busy={loading}
-      disabled={disabled || loading}
-      className={`group relative inline-flex select-none items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-200 ease-emphasized disabled:pointer-events-none disabled:opacity-60 ${VARIANTS[variant]} ${SIZES[size]} ${className}`.trim()}
+      // A busy button is announced as unavailable and ignores presses, but is not natively disabled:
+      // that would drop keyboard focus to the page, and someone saving from the keyboard would lose
+      // their place in the dialog when the save comes back refused.
+      aria-disabled={loading || undefined}
+      disabled={disabled}
+      onClick={(event) => {
+        if (loading) {
+          event.preventDefault();
+          return;
+        }
+        onClick?.(event);
+      }}
+      className={`group relative inline-flex select-none items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-200 ease-emphasized disabled:pointer-events-none disabled:opacity-60 aria-disabled:pointer-events-none aria-disabled:opacity-60 ${VARIANTS[variant]} ${SIZES[size]} ${className}`.trim()}
     >
       {loading ? (
         <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">

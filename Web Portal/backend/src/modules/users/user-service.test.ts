@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createUserService, type UserServiceDeps } from './user-service';
 import { createMemoryUserRepository } from './memory-user-repository';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
@@ -167,6 +167,30 @@ describe('UserService', () => {
     expect(revoked).toEqual([u.id]);
     expect(session).toEqual({ accessToken: 'new-access', refreshToken: 'new-refresh' });
     expect(issued).toEqual([{ id: u.id, roles: ['EMPLOYEE'], tokenVersion: 1 }]); // issued after the bump
+  });
+
+  describe('live connections after a password change', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('your own change closes them a moment later, so the answer (with the new session) arrives first', async () => {
+      // Closed at once, this page reconnected with its old — now refused — session before the answer
+      // came back, and on a slow connection the person was signed out of the page they had just used.
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { svc, revoked, disconnected } = make({ issueSession: async () => ({ accessToken: 'new-access', refreshToken: 'new-refresh' }) });
+      const u = await svc.createUser(person({ password: 'OldPass1!' }));
+      await svc.changeOwnPassword(u.id, 'OldPass1!', 'NextPass1!');
+      expect(revoked).toEqual([u.id]);      // old tokens are refused immediately
+      expect(disconnected).toEqual([]);     // …the sockets follow shortly
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(disconnected).toEqual([u.id]);
+    });
+
+    it('an administrator’s reset, or a suspension, closes them immediately', async () => {
+      const { svc, disconnected } = make();
+      const u = await svc.createUser(person());
+      await svc.adminResetPassword(u.id, 'NextPass1!');
+      expect(disconnected).toEqual([u.id]);
+    });
   });
 
   it('rejects a self password change when the current password is wrong', async () => {

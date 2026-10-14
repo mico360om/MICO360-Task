@@ -93,6 +93,16 @@ describe('CommentService', () => {
     expect(calls).toEqual([{ taskId: 't1', authorId: 'u1', usernames: ['ada', 'omar'] }]);
   });
 
+  it('gives the mention hook the comment’s text (for the email)', async () => {
+    const bodies: string[] = [];
+    const svc = createCommentService({
+      ...inMemory(['t1']),
+      onMention: (_taskId, _authorId, _usernames, body) => { bodies.push(body ?? ''); },
+    });
+    await svc.addComment('t1', 'u1', 'ping @ada please');
+    expect(bodies).toEqual(['ping @ada please']);
+  });
+
   it('matches mentions against the usernames of people who can open the task', async () => {
     const calls: string[][] = [];
     const mem = inMemory(['t1']);
@@ -104,6 +114,14 @@ describe('CommentService', () => {
     });
     await svc.addComment('t1', 'u1', 'ping @ahmed.ali and @zed, mail sales@mico.om');
     expect(calls).toEqual([['ahmed.ali']]);
+  });
+
+  it('lists the people who can be mentioned on a task (the people an @mention would notify)', async () => {
+    const mem = inMemory(['t1']);
+    const people = [{ id: 'u2', username: 'ahmed.ali', firstName: 'Ahmed', lastName: 'Ali', avatarUrl: null }];
+    const svc = createCommentService({ ...mem, repo: { ...mem.repo, async listMentionable() { return people; } } });
+    expect(await svc.mentionable('t1')).toEqual(people);
+    await expect(svc.mentionable('nope')).rejects.toThrow(/not found/i);
   });
 
   it('does not fire onMention when nobody with access is mentioned', async () => {

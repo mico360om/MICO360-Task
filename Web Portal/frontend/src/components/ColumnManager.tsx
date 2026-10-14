@@ -67,7 +67,7 @@ export function ColumnManager({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="hidden items-center gap-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3 sm:flex">
+      <div className="hidden items-center gap-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3 lg:flex">
         <span className="w-5" aria-hidden />
         <span className="w-7" aria-hidden />
         <span className="flex-1">Column</span>
@@ -181,7 +181,7 @@ function ColumnRow({ col, first, last, confirming, onRename, onSetColor, onSetCa
     <li
       ref={setNodeRef}
       style={style}
-      className={`flex flex-wrap items-center gap-2 rounded-xl border bg-surface p-2 pl-1 transition-colors sm:flex-nowrap ${isDragging ? 'border-brand/40 shadow-lift' : 'border-line'} ${col.enabled ? '' : 'opacity-70'}`}
+      className={`flex flex-wrap items-center gap-2 rounded-xl border bg-surface p-2 pl-1 transition-colors lg:flex-nowrap ${isDragging ? 'border-brand/40 shadow-lift' : 'border-line'} ${col.enabled ? '' : 'opacity-70'}`}
     >
       {/* Drag handle */}
       <button
@@ -214,12 +214,12 @@ function ColumnRow({ col, first, last, confirming, onRename, onSetColor, onSetCa
           aria-label={`Status of ${col.name}`}
           value={col.category}
           onChange={(e) => onSetCategory(col.id, e.target.value as ColumnCategory)}
-          className={fieldClass(false, 'w-full flex-none sm:w-36')}
+          className={fieldClass(false, 'w-full flex-none lg:w-36')}
         >
           {STATUS_ORDER.map((cat) => <option key={cat} value={cat}>{statusMeta(cat).label}</option>)}
         </select>
       ) : (
-        <span className="inline-flex w-full flex-none items-center gap-1.5 rounded-md bg-ground px-2 py-1 text-xs font-medium text-ink-2 sm:w-36">
+        <span className="inline-flex w-full flex-none items-center gap-1.5 rounded-md bg-ground px-2 py-1 text-xs font-medium text-ink-2 lg:w-36">
           <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} aria-hidden />
           {meta.label}
         </span>
@@ -228,8 +228,9 @@ function ColumnRow({ col, first, last, confirming, onRename, onSetColor, onSetCa
       {/* Visibility toggle */}
       <label className="flex w-16 flex-none items-center justify-center" title={col.enabled ? 'Visible on the board' : 'Hidden from the board'}>
         <input type="checkbox" aria-label={`Enable ${col.name}`} checked={col.enabled} onChange={(e) => onToggleEnabled(col.id, e.target.checked)} className="peer sr-only" />
-        <span className="relative h-5 w-9 cursor-pointer rounded-full bg-line transition-colors peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40">
-          <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+        {/* The knob is inside the track, so it is moved from the track (`peer-checked` only reaches siblings of the box). */}
+        <span data-switch-track className="relative h-5 w-9 cursor-pointer rounded-full bg-line transition-colors peer-checked:bg-brand peer-checked:[&>span]:translate-x-4 peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40">
+          <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform" />
         </span>
       </label>
 

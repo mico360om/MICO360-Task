@@ -41,9 +41,13 @@ function makeRepos() {
     async listByConversation(conversationId) { return parts.filter((x) => x.conversationId === conversationId); },
     async listConversationIdsForUser(userId) { return [...new Set(parts.filter((x) => x.userId === userId).map((x) => x.conversationId))]; },
     async setLastRead(conversationId, userId, at) { let p = parts.find((x) => x.conversationId === conversationId && x.userId === userId); if (!p) { p = { conversationId, userId, lastReadAt: at, addedAt: new Date() }; parts.push(p); } else p.lastReadAt = at; },
+    async setPrefs(conversationId, userId, patch) { const p = parts.find((x) => x.conversationId === conversationId && x.userId === userId)!; Object.assign(p, patch); return p; },
+    async setLastDelivered(conversationId, userId, at) { const p = parts.find((x) => x.conversationId === conversationId && x.userId === userId); if (p) p.lastDeliveredAt = at; },
   };
   const messages: MessageRepository = {
-    async create(conversationId, userId, body) { const m: Message = { id: id('msg'), conversationId, userId, body, editedAt: null, deletedAt: null, createdAt: new Date(Date.now() + seq) }; msgs.set(m.id, m); return m; },
+    async create(conversationId, userId, body, extra) { const m: Message = { id: id('msg'), conversationId, userId, body, editedAt: null, deletedAt: null, createdAt: new Date(Date.now() + seq), replyToId: extra?.replyToId ?? null, clientId: extra?.clientId ?? null }; msgs.set(m.id, m); return m; },
+    async findByClientId(cid, uid, clientId) { return [...msgs.values()].find((m) => m.conversationId === cid && m.userId === uid && m.clientId === clientId) ?? null; },
+    async search(ids, q, limit) { return [...msgs.values()].filter((m) => ids.includes(m.conversationId) && !m.deletedAt && m.body.toLowerCase().includes(q.toLowerCase())).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit); },
     async findById(mid) { return msgs.get(mid) ?? null; },
     async list(conversationId, o) { let l = [...msgs.values()].filter((m) => m.conversationId === conversationId); if (o.before) l = l.filter((m) => m.createdAt < o.before!); return l.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, o.limit); },
     async update(mid, body) { const m = { ...msgs.get(mid)!, body, editedAt: new Date() }; msgs.set(mid, m); return m; },
@@ -60,6 +64,7 @@ function makeRepos() {
     async canAccessProject(pid, uid) { return (members[pid] ?? []).includes(uid); },
     async accessibleProjectIds(uid) { return Object.keys(members).filter((pid) => members[pid]!.includes(uid)); },
     async isActiveUser(uid) { return ['u1', 'u2', 'u3'].includes(uid); },
+    async projectMemberIds(pid) { return [...(members[pid] ?? [])]; },
   };
   return { conversations, participants, messages, reactions: reactionRepo, members: memberLookup };
 }
@@ -155,6 +160,79 @@ describe('Chat routes — project channel', () => {
     const res = await app.inject({ method: 'POST', url: `/api/v1/messages/${msgId}/reactions`, headers: await auth('u2'), payload: { emoji: '👍' } });
     expect(res.statusCode).toBe(201);
     expect(projectEvents.some((e) => e.event === 'chat:reaction')).toBe(true);
+  });
+});
+
+describe('Chat routes — retries, replies, settings, delivery, search, members', () => {
+  const dm = async () => (await app.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers: await auth('u1'), payload: { userId: 'u2' } })).json().data.id as string;
+
+  it('a retried send with the same client id answers 200 with the same message and announces it once', async () => {
+    const convId = await dm();
+    const headers = await auth('u1');
+    const first = await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers, payload: { body: 'hello', clientId: 'c-1' } });
+    const again = await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers, payload: { body: 'hello', clientId: 'c-1' } });
+    expect([first.statusCode, again.statusCode]).toEqual([201, 200]);
+    expect(again.json().data.id).toBe(first.json().data.id);
+    expect(userEvents.filter((e) => e.event === 'chat:message' && e.userId === 'u2')).toHaveLength(1);
+  });
+
+  it('a retried file upload with the same client id stores nothing new', async () => {
+    const convId = await dm();
+    const headers = await auth('u1');
+    const send = () => {
+      const boundary = '----mico360retry';
+      const payload = [`--${boundary}\r\nContent-Disposition: form-data; name="clientId"\r\n\r\nup-1\r\n`, `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="notes.txt"\r\nContent-Type: text/plain\r\n\r\nhello\r\n`, `--${boundary}--\r\n`].join('');
+      return app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, 'content-type': `multipart/form-data; boundary=${boundary}` }, payload });
+    };
+    const a = await send();
+    const b = await send();
+    expect([a.statusCode, b.statusCode]).toEqual([201, 200]);
+    expect(b.json().data.id).toBe(a.json().data.id);
+    expect(storage.saved).toHaveLength(1);
+  });
+
+  it('a reply comes back with the quote of the message it answers', async () => {
+    const convId = await dm();
+    const q = (await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers: await auth('u2'), payload: { body: 'Ready?' } })).json().data;
+    const r = await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers: await auth('u1'), payload: { body: 'Yes', replyToId: q.id } });
+    expect(r.json().data.replyTo).toMatchObject({ id: q.id, userId: 'u2', body: 'Ready?' });
+  });
+
+  it('saves favorite / archived / muted for the caller only; outsiders are refused', async () => {
+    const convId = await dm();
+    const res = await app.inject({ method: 'PUT', url: `/api/v1/conversations/${convId}/prefs`, headers: await auth('u1'), payload: { favorite: true, muted: true } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual({ favorite: true, archived: false, muted: true });
+    const inbox = (await app.inject({ method: 'GET', url: '/api/v1/conversations', headers: await auth('u1') })).json().data;
+    expect(inbox.find((s: { conversation: { id: string } }) => s.conversation.id === convId).prefs.favorite).toBe(true);
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/conversations/${convId}/prefs`, headers: await auth('u3'), payload: { favorite: true } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/conversations/${convId}/prefs`, headers: await auth('u1'), payload: { favorite: 'yes' } })).statusCode).toBe(400);
+  });
+
+  it('records delivery and tells the sender (chat:delivered)', async () => {
+    const convId = await dm();
+    const res = await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/delivered`, headers: await auth('u2') });
+    expect(res.statusCode).toBe(204);
+    expect(userEvents.some((e) => e.event === 'chat:delivered' && e.userId === 'u1')).toBe(true);
+    expect((await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/delivered`, headers: await auth('u3') })).statusCode).toBe(403);
+  });
+
+  it('searches the caller’s own conversations (and one conversation), never others', async () => {
+    const convId = await dm();
+    await app.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers: await auth('u2'), payload: { body: 'Quarterly budget attached' } });
+    const all = await app.inject({ method: 'GET', url: '/api/v1/chat/search?q=budget', headers: await auth('u1') });
+    expect(all.statusCode).toBe(200);
+    expect(all.json().data.map((m: { body: string; conversationId: string }) => [m.body, m.conversationId])).toEqual([['Quarterly budget attached', convId]]);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/chat/search?q=budget', headers: await auth('u3') })).json().data).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/chat/search?q=budget&conversationId=${convId}`, headers: await auth('u3') })).statusCode).toBe(403);
+  });
+
+  it('lists the members of a channel and of a direct conversation', async () => {
+    const headers = await auth('u1');
+    const channel = (await app.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    expect((await app.inject({ method: 'GET', url: `/api/v1/conversations/${channel}/members`, headers })).json().data.sort()).toEqual(['u1', 'u2', 'u3']);
+    const convId = await dm();
+    expect((await app.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/members`, headers: await auth('u3') })).statusCode).toBe(403);
   });
 });
 

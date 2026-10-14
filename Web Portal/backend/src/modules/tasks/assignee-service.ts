@@ -6,9 +6,11 @@ export interface AssigneeServiceDeps {
   taskLookup: TaskLookup;
   /** Fired after users are assigned (used to create notifications + activity). `actorId` is who assigned them. */
   onAssigned?: (taskId: string, userIds: string[], actorId?: string) => void | Promise<void>;
+  /** Fired after someone is taken off a task, with who did it (activity timeline). */
+  onUnassigned?: (taskId: string, userId: string, actorId?: string) => void | Promise<void>;
 }
 
-export function createAssigneeService({ repo, taskLookup, onAssigned }: AssigneeServiceDeps) {
+export function createAssigneeService({ repo, taskLookup, onAssigned, onUnassigned }: AssigneeServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
@@ -51,9 +53,10 @@ export function createAssigneeService({ repo, taskLookup, onAssigned }: Assignee
     if (userIds.length > 0) await onAssigned?.(taskId, userIds, actorId);
   }
 
-  async function unassignUser(taskId: string, userId: string): Promise<void> {
+  async function unassignUser(taskId: string, userId: string, actorId?: string): Promise<void> {
     await ensureTask(taskId);
     await repo.remove(taskId, userId);
+    await onUnassigned?.(taskId, userId, actorId);
   }
 
   async function listAssignees(taskId: string): Promise<AssigneeUser[]> {

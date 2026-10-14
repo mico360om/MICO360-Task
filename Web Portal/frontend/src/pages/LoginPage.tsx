@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
-import { androidAppLink, type AndroidAppLink } from '../lib/android-app-link';
+import { androidAppLink, checkHostedApk, type AndroidAppLink } from '../lib/android-app-link';
 import { LoginForm } from '../features/auth/LoginForm';
 import { createApiClient, ApiError } from '../lib/api-client';
 import { useAuthStore, type Session } from '../stores/auth-store';
@@ -27,9 +27,25 @@ export function LoginPage() {
   const [lockedForSeconds, setLockedForSeconds] = useState<number | null>(null);
   // Public config: when outbound email isn't set up, don't offer "email me a code" (it can't be sent).
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
-  const emailEnabled = configQ.data?.emailEnabled !== false;
-  // "Download for Android": the server's link (its own APK or ANDROID_APP_URL), else the releases page.
+  // Offered only once the server has said email works: shown first and then removed, the "Email code"
+  // tab made the form jump (and stayed for good when the answer never came).
+  const emailEnabled = configQ.data?.emailEnabled === true;
+  // A reset link is emailed too. Known to be off: say who can help instead. Unknown (the server did
+  // not answer): keep the link — the reset page explains if it cannot send.
+  const emailOff = configQ.data?.emailEnabled === false;
+  const canReset = emailEnabled || configQ.isError;
+  // "Download for Android": the APK this site hosts at its own, unchanging address (or an address the
+  // administrator configured). A hosted file the site does not have would be a link that fails, so
+  // the site is asked first; until it answers, the button is offered.
   const androidLink = androidAppLink(configQ.data?.androidAppUrl);
+  const apkQ = useQuery({
+    queryKey: ['android-apk', androidLink.href],
+    queryFn: () => checkHostedApk(androidLink.href),
+    enabled: androidLink.hosted,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+  const androidAvailable = !androidLink.hosted || apkQ.data !== false;
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
@@ -80,8 +96,13 @@ export function LoginPage() {
     setErrorCode(null);
     try {
       await api.post('/auth/otp/request', { identifier });
+      // A new code replaces the one before it (the server stops accepting the old one).
+      setInfo(
+        codeSent
+          ? 'We’ve sent a new code. Use the newest one — the earlier code no longer works.'
+          : 'If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.',
+      );
       setCodeSent(true);
-      setInfo('If that account exists, we’ve emailed a one-time code. Enter it below to sign in.');
     } catch (e) {
       fail(e);
     } finally {
@@ -122,7 +143,8 @@ export function LoginPage() {
 
         {/* Brand chip — the white logo carries the MICO360 wordmark; a small tagline gives product context. */}
         <div className="relative z-10 flex items-center gap-4">
-          <img src={logoW} alt="MICO360" className="h-12 w-auto object-contain" />
+          {/* Above the fold: fetched at once (a lazy image is left out of the browser's early scan). */}
+          <img src={logoW} alt="MICO360" width={409} height={192} decoding="async" className="h-12 w-auto object-contain" />
           <span aria-hidden="true" className="h-8 w-px bg-white/15" />
           <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/50">Task Management</span>
         </div>
@@ -133,11 +155,11 @@ export function LoginPage() {
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
               <span className="h-1.5 w-1.5 rounded-full bg-brand-3" /> Built for teams
             </span>
-            <h1 className="mt-5 font-display text-[2.75rem] font-extrabold leading-[1.05] tracking-tight text-balance">
+            <h2 className="mt-5 font-display text-[2.75rem] font-extrabold leading-[1.05] tracking-tight text-balance">
               Every task,
               <br />
               <span className="bg-gradient-to-r from-brand-3 to-[#e08a6f] bg-clip-text text-transparent">in one board.</span>
-            </h1>
+            </h2>
             <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/65">
               From a quick capture to a shipped sprint. Kanban boards move themselves, teammates stay in sync in real time,
               and nothing slips without a trail.
@@ -168,10 +190,10 @@ export function LoginPage() {
         <div className="w-full max-w-md">
           <div className="rounded-[1.75rem] border border-line bg-surface p-8 shadow-lift sm:p-9">
             <div className="mb-6 lg:hidden">
-              <img src={logo} alt="MICO360 Tasks" className="h-11 w-auto object-contain" />
+              <img src={logo} alt="MICO360 Tasks" width={409} height={192} className="h-11 w-auto object-contain" />
             </div>
 
-            <h2 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Welcome back</h2>
+            <h1 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Welcome back</h1>
             <p className="mt-1 text-sm text-ink-2">Sign in to continue to MICO360 Tasks.</p>
 
             <div className="mt-6">
@@ -186,7 +208,8 @@ export function LoginPage() {
                 loading={loading}
                 codeSent={codeSent}
                 onModeChange={clearMessages}
-                forgotTo="/forgot"
+                forgotTo={canReset ? '/forgot' : undefined}
+                canResetByEmail={!emailOff}
               />
             </div>
 
@@ -200,15 +223,19 @@ export function LoginPage() {
           <div className="mt-6 flex flex-col items-center gap-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-ink-3">Get the mobile app</span>
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <StoreBadge kind="android" link={androidLink} />
+              <StoreBadge kind="android" link={androidLink} available={androidAvailable} />
               <StoreBadge kind="ios" />
             </div>
             <div className="mt-1 flex items-center gap-3 text-xs text-ink-3">
-              <Link to="/forgot" className="hover:text-brand">Forgot password?</Link>
+              {canReset ? (
+                <>
+                  <Link to="/forgot" className="tap hover:text-brand">Forgot password?</Link>
+                  <span aria-hidden="true">·</span>
+                </>
+              ) : null}
+              <Link to="/privacy" className="tap hover:text-brand">Privacy</Link>
               <span aria-hidden="true">·</span>
-              <Link to="/privacy" className="hover:text-brand">Privacy</Link>
-              <span aria-hidden="true">·</span>
-              <Link to="/terms" className="hover:text-brand">Terms</Link>
+              <Link to="/terms" className="tap hover:text-brand">Terms</Link>
             </div>
           </div>
         </div>
@@ -277,18 +304,20 @@ function BoardMock() {
   );
 }
 
-function StoreBadge({ kind, link }: { kind: 'android' | 'ios'; link?: AndroidAppLink }) {
+function StoreBadge({ kind, link, available = true }: { kind: 'android' | 'ios'; link?: AndroidAppLink; available?: boolean }) {
   const android = kind === 'android';
+  // A download only while there is one: iOS isn't available yet, and the Android APK may not
+  // have been put on this site. Either is a label, not a link that goes nowhere.
+  const live = android && Boolean(link) && available;
   const className = `inline-flex items-center gap-2.5 rounded-xl border px-4 py-2 transition ${
-    android ? 'border-line bg-ink text-white hover:-translate-y-0.5 hover:shadow-lift' : 'cursor-default border-line bg-surface text-ink-3'
+    live ? 'border-line bg-ink text-surface hover:-translate-y-0.5 hover:shadow-lift' : 'cursor-default border-line bg-surface text-ink-3'
   }`;
-  // iOS isn't available yet: a label, not a link that goes nowhere.
-  const Tag = android ? 'a' : 'span';
-  const linkProps = android && link
+  const Tag = live ? 'a' : 'span';
+  const linkProps = live && link
     ? link.hosted
       ? { href: link.href, download: 'MICO360-Tasks.apk' }
       : { href: link.href, target: '_blank', rel: 'noopener noreferrer' }
-    : { 'aria-label': 'iOS app coming soon' };
+    : { 'aria-label': android ? 'Android app not available yet' : 'iOS app coming soon' };
   return (
     <Tag {...linkProps} className={className}>
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
@@ -299,7 +328,9 @@ function StoreBadge({ kind, link }: { kind: 'android' | 'ios'; link?: AndroidApp
         )}
       </svg>
       <span className="text-left leading-tight">
-        <span className="block text-[9px] font-medium uppercase tracking-wide opacity-70">{android ? 'Download for' : 'Coming soon on'}</span>
+        <span className={`block text-[11px] font-medium uppercase tracking-wide ${live ? 'opacity-80' : ''}`}>
+          {live ? 'Download for' : android ? 'Not available yet' : 'Coming soon on'}
+        </span>
         <span className="block text-sm font-bold">{android ? 'Android (APK)' : 'iOS'}</span>
       </span>
     </Tag>

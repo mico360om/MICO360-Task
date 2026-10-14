@@ -23,6 +23,19 @@ describe('loadEnv', () => {
     ).toThrow(/differ/i);
   });
 
+  it('accepts Word, Excel and PowerPoint files by default — the macro-free formats only', () => {
+    const allowed = loadEnv({ ...base, NODE_ENV: 'development' } as NodeJS.ProcessEnv).UPLOAD_ALLOWED_MIME.split(',');
+    expect(allowed).toEqual(expect.arrayContaining([
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/pdf',
+      'image/png',
+    ]));
+    expect(allowed).not.toContain('application/msword');
+    expect(allowed).not.toContain('application/vnd.ms-excel');
+  });
+
   it('defaults the lock length, AI limits and private-host policy', () => {
     const env = loadEnv({ ...base, NODE_ENV: 'development' } as NodeJS.ProcessEnv);
     expect(env.ACCOUNT_LOCK_MINUTES).toBe(15);

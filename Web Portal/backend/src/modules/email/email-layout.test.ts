@@ -123,6 +123,14 @@ describe('renderEmail — layout', () => {
     expect(html).toContain('alt="MICO360 Tasks"');
   });
 
+  it('shows the logo as a wordmark, at its own proportions (not squeezed into a square)', () => {
+    const { html } = renderEmail({ preheader: 'x', heading: 'h', blocks: [], brand: { logoUrl: 'https://cdn.test/email-logo.png' } });
+    const img = html.match(/<img src="https:\/\/cdn.test\/email-logo.png"[^>]*>/)?.[0] ?? '';
+    expect(img).toContain('width="94"');
+    expect(img).toContain('height="44"');
+    expect(img).toContain('width:94px;height:44px');
+  });
+
   it('applies brand overrides', () => {
     const { html } = renderEmail({
       preheader: 'x',

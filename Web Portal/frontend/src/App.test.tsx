@@ -39,4 +39,21 @@ describe('App routing', () => {
     const nav = screen.getByRole('navigation', { name: /main/i });
     expect(within(nav).getByRole('link', { name: /projects/i })).toBeInTheDocument();
   });
+
+  it('titles the tab after the page and marks signed-in pages noindex', () => {
+    const robots = () => document.head.querySelector('meta[name="robots"]')?.getAttribute('content') ?? null;
+    const signedOut = renderApp('/dashboard');
+    // Signed out: the visitor is on the public sign-in page.
+    expect(document.title).toBe('Sign in · MICO360 Tasks');
+    expect(robots()).toBeNull();
+    signedOut.unmount();
+    useAuthStore.getState().setSession({
+      user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] },
+      accessToken: 'at',
+      refreshToken: 'rt',
+    });
+    renderApp('/dashboard');
+    expect(document.title).toBe('Dashboard · MICO360 Tasks');
+    expect(robots()).toBe('noindex, nofollow');
+  });
 });

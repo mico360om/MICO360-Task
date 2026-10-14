@@ -8,6 +8,8 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { filterAndSortTasks, SORT_FIELDS, type TaskFilterCriteria } from './task-filter';
 import { boardDateFromKey } from './board-date';
 import { calendarDay, dateInput, hours, idString, longText, queryBoolean, requiredText, VARCHAR_MAX } from './validation';
+import { projectOccurrences } from './calendar-projection';
+import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -50,7 +52,13 @@ const recurrenceSchema = z.object({
   paused: z.boolean().optional(),
   /** Make the next copy when this one is completed (default) or on each due date. */
   createNext: z.enum(['ON_COMPLETE', 'ON_SCHEDULE']).optional(),
+  /** The day an occurrence moved on its own replaced: the series carries on from it. */
+  resumeFrom: calendarDay.nullable().optional(),
 });
+
+/** The calendar asks for one visible range at a time (a month grid is 42 days). */
+const MAX_CALENDAR_DAYS = 100;
+const calendarQuerySchema = z.object({ from: calendarDay, to: calendarDay });
 
 const createSchema = z.object({
   title: requiredText,
@@ -110,6 +118,8 @@ export interface TaskRouteDeps {
   projectOwnerOf?: (projectId: string) => Promise<string | null>;
   /** When provided, exposes an admin endpoint to run the per-date carry-forward sweep on demand. */
   carryForwardService?: CarryForwardService;
+  /** How many copies a recurring series already has (for series with a set number of occurrences). */
+  countSeries?: (seriesId: string) => Promise<number>;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -158,6 +168,41 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     const offset = params.offset ?? 0;
     const limit = params.limit ?? data.length;
     return { data: data.slice(offset, offset + limit), meta: { total: data.length, offset, limit } };
+  });
+
+  // The calendar: tasks due in one visible range (projects the caller can see), plus the days the
+  // repeating ones among them will be copied to — computed, never stored ("projected").
+  app.get('/calendar', { preHandler: guard.authenticate }, async (req, reply) => {
+    const { from, to } = calendarQuerySchema.parse(req.query);
+    const span = Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+    if (span < 0 || span > MAX_CALENDAR_DAYS) {
+      return reply.status(400).send({ error: { code: 'VALIDATION', message: `Ask for 1 to ${MAX_CALENDAR_DAYS + 1} days, ending on or after the start.` } });
+    }
+    const allowedIds = await scopeOf(req);
+    const scope = allowedIds ? { projectIds: allowedIds } : {};
+    const visible = <T extends { projectId: string }>(rows: T[]) => (allowedIds ? rows.filter((t) => allowedIds.includes(t.projectId)) : rows);
+    const tz = taskService.timeZone;
+    const dayStart = (key: string) => new Date(`${key}T00:00:00.000Z`);
+    // A due date is a day (UTC midnight) or an instant read in company time: a day either side of
+    // the range covers both, then each is placed on its own calendar day.
+    const near = await taskService.listTasks({ ...scope, dueAfter: dayStart(shiftDayKey(from, -1)), dueBefore: dayStart(shiftDayKey(to, 2)) });
+    const tasks = visible(near).filter((t) => {
+      const key = dueDayKey(t.dueDate, tz);
+      return key !== null && key >= from && key <= to;
+    });
+    const today = todayKey(tz);
+    const occurrences: { taskId: string; seriesId: string; date: string }[] = [];
+    const series = [];
+    for (const head of visible(await taskService.listTasks({ ...scope, recurring: true }))) {
+      if (!head.recurrenceRule) continue;
+      const seriesId = head.recurrenceParentId ?? head.id;
+      const existing = head.recurrenceRule.count != null && deps.countSeries ? await deps.countSeries(seriesId) : 1;
+      const days = projectOccurrences(head, { from, to, today }, existing);
+      if (days.length === 0) continue;
+      series.push(head);
+      for (const date of days) occurrences.push({ taskId: head.id, seriesId, date });
+    }
+    return { data: { from, to, timeZone: tz, tasks, occurrences, series } };
   });
 
   // Tasks assigned to the current user (My Tasks) — only in projects they can still see.

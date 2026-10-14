@@ -7,6 +7,10 @@ export interface RecurrenceEditorProps {
   onChange: (rule: RecurrenceRule | null) => void;
   /** The task's due date ('YYYY-MM-DD' or ISO): previews the next dates and suggests "the 2nd Tuesday". */
   dueDate?: string | null;
+  /** Inside a labelled row (the task's details): the choice fills the row; its own label is for screen readers only. */
+  compact?: boolean;
+  /** The form around it picks the frequency (see withFrequency): show only the schedule options. */
+  hideFrequency?: boolean;
 }
 
 const FREQS: RecurrenceRule['freq'][] = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
@@ -25,7 +29,30 @@ const UNIT: Record<RecurrenceRule['freq'], string> = {
   YEARLY: 'year(s)',
 };
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const control = 'rounded-md border border-line bg-surface px-2 py-1 text-ink';
+const control = 'h-10 rounded-lg border border-line bg-surface px-2.5 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9';
+
+export const REPEAT_FREQUENCIES = FREQS;
+export const REPEAT_LABEL = FREQ_LABEL;
+
+/**
+ * The rule after choosing a frequency ('NONE' = no repeat): keeps how the series ends and when copies
+ * are made, and drops the old frequency's day choices.
+ */
+export function withFrequency(rule: RecurrenceRule | null, freq: string): RecurrenceRule | null {
+  if (freq === 'NONE' || !freq) return null;
+  const next: RecurrenceRule = { freq: freq as RecurrenceRule['freq'], interval: rule?.interval ?? 1 };
+  if (rule?.count != null) next.count = rule.count;
+  if (rule?.until != null) next.until = rule.until;
+  if (rule?.createNext) next.createNext = rule.createNext;
+  if (rule?.paused) next.paused = rule.paused;
+  return next;
+}
+
+/** The weekday (0 = Sunday) of a 'YYYY-MM-DD' day, or null. */
+function weekdayOf(dueKey: string): number | null {
+  const d = new Date(`${dueKey}T00:00:00.000Z`);
+  return dueKey && !Number.isNaN(d.getTime()) ? d.getUTCDay() : null;
+}
 
 /** A rule without the given keys (undefined keys vanish when the rule is sent as JSON anyway). */
 function without(rule: RecurrenceRule, ...keys: (keyof RecurrenceRule)[]): RecurrenceRule {
@@ -42,19 +69,12 @@ function nthWeekdayOf(dueKey: string): NonNullable<RecurrenceRule['nthWeekday']>
   return { week: week >= 5 ? -1 : (week as 1 | 2 | 3 | 4), day: d.getUTCDay() };
 }
 
-export function RecurrenceEditor({ value, onChange, dueDate }: RecurrenceEditorProps) {
+export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hideFrequency = false }: RecurrenceEditorProps) {
   const rule = value;
   const dueKey = dueDate ? dueDate.slice(0, 10) : '';
 
   function setFreq(freq: string) {
-    if (freq === 'NONE') { onChange(null); return; }
-    // Keep how the series ends and when copies are made; drop the old frequency's day choices.
-    const next: RecurrenceRule = { freq: freq as RecurrenceRule['freq'], interval: rule?.interval ?? 1 };
-    if (rule?.count != null) next.count = rule.count;
-    if (rule?.until != null) next.until = rule.until;
-    if (rule?.createNext) next.createNext = rule.createNext;
-    if (rule?.paused) next.paused = rule.paused;
-    onChange(next);
+    onChange(withFrequency(rule, freq));
   }
 
   function setInterval(n: number) {
@@ -62,9 +82,12 @@ export function RecurrenceEditor({ value, onChange, dueDate }: RecurrenceEditorP
     onChange({ ...rule, interval: Number.isFinite(n) && n >= 1 ? n : 1 });
   }
 
+  // A weekly rule without chosen days repeats on the due date's weekday — shown as chosen.
+  const dueWeekday = weekdayOf(dueKey);
+  const weekdays = rule?.weekdays?.length ? rule.weekdays : dueWeekday !== null ? [dueWeekday] : [];
   function toggleWeekday(day: number) {
     if (!rule) return;
-    const current = new Set(rule.weekdays ?? []);
+    const current = new Set(weekdays);
     if (current.has(day)) current.delete(day);
     else current.add(day);
     onChange({ ...rule, weekdays: [...current].sort((a, b) => a - b) });
@@ -115,16 +138,16 @@ export function RecurrenceEditor({ value, onChange, dueDate }: RecurrenceEditorP
   const monthBased = rule?.freq === 'MONTHLY' || rule?.freq === 'QUARTERLY';
 
   return (
-    <div className="flex flex-col gap-2 text-sm">
-      <label className="flex items-center gap-2">
-        <span className="text-ink-2">Repeat</span>
-        <select aria-label="Repeat" value={rule?.freq ?? 'NONE'} onChange={(e) => setFreq(e.target.value)} className={control}>
+    <div className="flex flex-col gap-2.5 text-sm">
+      {hideFrequency ? null : <label className="flex items-center gap-2">
+        <span className={compact ? 'sr-only' : 'text-ink-2'}>Repeat</span>
+        <select aria-label="Repeat" value={rule?.freq ?? 'NONE'} onChange={(e) => setFreq(e.target.value)} className={compact ? 'h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9' : control}>
           <option value="NONE">Does not repeat</option>
           {FREQS.map((f) => (
             <option key={f} value={f}>{FREQ_LABEL[f]}</option>
           ))}
         </select>
-      </label>
+      </label>}
 
       {rule ? (
         <label className="flex items-center gap-2">
@@ -142,9 +165,9 @@ export function RecurrenceEditor({ value, onChange, dueDate }: RecurrenceEditorP
       ) : null}
 
       {rule?.freq === 'WEEKLY' ? (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1.5">
           {DAY_NAMES.map((name, day) => {
-            const on = (rule.weekdays ?? []).includes(day);
+            const on = weekdays.includes(day);
             return (
               <button
                 key={day}
@@ -152,7 +175,7 @@ export function RecurrenceEditor({ value, onChange, dueDate }: RecurrenceEditorP
                 aria-label={name}
                 aria-pressed={on}
                 onClick={() => toggleWeekday(day)}
-                className={`rounded-md border px-2 py-1 text-xs ${on ? 'border-brand bg-brand/10 text-brand' : 'border-line text-ink-2'}`}
+                className={`h-9 min-w-[2.75rem] rounded-lg border px-2 text-xs font-semibold transition-colors ${on ? 'border-brand bg-brand/10 text-brand' : 'border-line text-ink-2 hover:border-ink-3'}`}
               >
                 {name}
               </button>

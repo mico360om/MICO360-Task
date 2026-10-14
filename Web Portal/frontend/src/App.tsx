@@ -1,11 +1,12 @@
 import { lazy, Suspense, type ComponentType } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { ProtectedRoute, returnPathFrom } from './features/auth/ProtectedRoute';
 import { AdminRoute } from './features/auth/AdminRoute';
 import { AppShell } from './components/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { useAuthStore } from './stores/auth-store';
+import { usePageMeta } from './lib/page-meta';
 
 // Eager: the auth flow + the landing dashboard (first paint on a slow device should not wait
 // on a second chunk). Everything else is code-split so a low-resource client only downloads
@@ -33,7 +34,8 @@ const CalendarPage = lazyPage(() => import('./pages/CalendarPage'), 'CalendarPag
 const MeetingsPage = lazyPage(() => import('./pages/MeetingsPage'), 'MeetingsPage');
 const MeetingDetailPage = lazyPage(() => import('./pages/MeetingDetailPage'), 'MeetingDetailPage');
 const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'MyActionItemsPage');
-const ChatPage = lazyPage(() => import('./pages/ChatPage'), 'ChatPage');
+// Takes props (see ChatRoute), so it is loaded with its own type rather than through lazyPage.
+const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
@@ -52,7 +54,24 @@ function LoginRoute() {
   return isAuthenticated ? <Navigate to={returnPathFrom(location.state)} replace /> : <LoginPage />;
 }
 
+/**
+ * /chat, optionally asked to open something: ?dm=<user id> (a person picked in the search) or
+ * ?conversation=<id> (a notification). Once it is open the address is tidied back to /chat.
+ */
+function ChatRoute() {
+  const [params, setParams] = useSearchParams();
+  return (
+    <ChatPage
+      startDirectWith={params.get('dm')}
+      openConversationId={params.get('conversation')}
+      onOpened={() => setParams({}, { replace: true })}
+    />
+  );
+}
+
 export function App() {
+  // Tab title per page, and noindex on everything that isn't a public page.
+  usePageMeta();
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
@@ -73,7 +92,7 @@ export function App() {
             <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />
-            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/chat" element={<ChatRoute />} />
             <Route path="/activity" element={<ActivityPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

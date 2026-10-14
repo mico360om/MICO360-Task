@@ -130,6 +130,24 @@ export function formatMeetingRange(startAt: string, endAt: string | null, timeZo
   return sameDay ? `${day} · ${startTime} – ${endTime}` : `${day} ${startTime} – ${fmt('date', timeZone).format(end)} ${endTime}`;
 }
 
+/** "Thu, Oct 1" — the meeting's day in `timeZone`. */
+export function formatMeetingDay(startAt: string, timeZone?: string): string {
+  const d = new Date(startAt);
+  return Number.isNaN(d.getTime()) ? '' : fmt('date', timeZone).format(d);
+}
+
+/** "10:00 AM – 11:30 AM" in `timeZone` (the end day is named when the meeting runs past midnight). */
+export function formatMeetingTimes(startAt: string, endAt: string | null, timeZone?: string): string {
+  const start = new Date(startAt);
+  if (Number.isNaN(start.getTime())) return '';
+  const startTime = fmt('time', timeZone).format(start);
+  const end = endAt ? new Date(endAt) : null;
+  if (!end || Number.isNaN(end.getTime())) return startTime;
+  const sameDay = fmt('day', timeZone).format(start) === fmt('day', timeZone).format(end);
+  const endTime = fmt('time', timeZone).format(end);
+  return sameDay ? `${startTime} – ${endTime}` : `${startTime} – ${fmt('date', timeZone).format(end)} ${endTime}`;
+}
+
 /** Short clock time for a note/event timestamp, e.g. "9:14 AM", in `timeZone` when given. */
 export function formatClockTime(iso: string, timeZone?: string): string {
   const d = new Date(iso);

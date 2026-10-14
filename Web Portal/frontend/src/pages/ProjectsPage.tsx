@@ -1,26 +1,28 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, type ProjectStatus } from '../api/projects';
+import { projectsApi, type ApiProject, type ProjectStatus } from '../api/projects';
 import { tasksApi } from '../api/tasks';
 import { usersApi } from '../api/users';
 import { apiClient } from '../api/client';
 import { ProjectsList, type ProjectCardMeta } from '../components/ProjectsList';
-import { NewProjectModal } from '../components/NewProjectModal';
+import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { useAuthStore } from '../stores/auth-store';
 import { isOverdue } from '../lib/due-date';
 import { isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
+import { LoadError } from '../components/ui/LoadError';
 
 export function ProjectsPage() {
   const qc = useQueryClient();
   const { isAdmin } = useAuthStore();
   const admin = isAdmin();
-  const [showNew, setShowNew] = useState(false);
+  // The project form: null = closed, 'new' = create, a project = edit it.
+  const [form, setForm] = useState<'new' | ApiProject | null>(null);
   const timeZone = useCompanyTimeZone();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['projects'],
     queryFn: () => projectsApi(apiClient).list(),
   });
@@ -69,7 +71,7 @@ export function ProjectsPage() {
         eyebrow="Workspace"
         title="Projects"
         subtitle={admin ? 'Create, browse and manage your projects.' : 'Browse and open the projects you have access to.'}
-        actions={admin ? <Button onClick={() => setShowNew(true)}>+ New project</Button> : undefined}
+        actions={admin ? <Button onClick={() => setForm('new')}>+ New project</Button> : undefined}
       />
       <div>
         {isLoading ? (
@@ -83,20 +85,19 @@ export function ProjectsPage() {
             ))}
           </div>
         ) : isError ? (
-          <p role="alert" className="text-danger">
-            Couldn’t load projects. Is the API running?
-          </p>
+          <LoadError what="projects" onRetry={() => void refetch()} />
         ) : (
           <ProjectsList
             projects={projects}
             meta={meta}
             canManage={admin}
             onChangeStatus={(id, status) => statusMut.mutate({ id, status })}
+            onEdit={admin ? (p) => setForm(p) : undefined}
           />
         )}
       </div>
 
-      {showNew ? <NewProjectModal onClose={() => setShowNew(false)} /> : null}
+      {form ? <ProjectFormDialog project={form === 'new' ? null : form} onClose={() => setForm(null)} /> : null}
     </div>
   );
 }

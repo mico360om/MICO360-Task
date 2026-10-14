@@ -13,6 +13,43 @@ import { ProfileMenu } from './ProfileMenu';
 import { flushOfflineQueue } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
+import { useDialog } from '../hooks/useDialog';
+
+/**
+ * The phone's navigation menu: a dialog over the page. Focus moves into it and stays there, Escape
+ * and the Close button dismiss it, and focus then returns to the menu button. (It used to be a
+ * plain panel: Escape did nothing and Tab went to the page hidden behind it.)
+ */
+function MobileMenu({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
+  const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
+  return (
+    <div className="fixed inset-0 z-50 md:hidden">
+      <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        tabIndex={-1}
+        className="absolute left-0 top-0 flex h-full w-64 max-w-[85vw] flex-col border-r border-line bg-surface shadow-lift outline-none animate-slide-in-right"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close menu"
+          className="absolute right-2 top-3.5 z-10 grid h-9 w-9 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+        <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
+          <SidebarBody isAdmin={isAdmin} onNavigate={onClose} />
+        </nav>
+      </div>
+    </div>
+  );
+}
 
 /** Authenticated app layout: role-aware sidebar + glass top header + routed content (T6.1). */
 export function AppShell() {
@@ -68,21 +105,7 @@ export function AppShell() {
       <Sidebar isAdmin={isAdmin()} />
 
       {/* Mobile drawer */}
-      {drawerOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className="absolute inset-0 bg-ink/40 animate-fade-in"
-            onClick={() => setDrawerOpen(false)}
-            aria-hidden="true"
-          />
-          <nav
-            aria-label="Main"
-            className="absolute left-0 top-0 flex h-full w-64 flex-col border-r border-line bg-surface shadow-lift animate-slide-in-right"
-          >
-            <SidebarBody isAdmin={isAdmin()} onNavigate={() => setDrawerOpen(false)} />
-          </nav>
-        </div>
-      ) : null}
+      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} onClose={() => setDrawerOpen(false)} /> : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="glass sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 sm:px-6">
@@ -96,7 +119,7 @@ export function AppShell() {
                 <path d="M4 7h16M4 12h16M4 17h16" />
               </svg>
             </button>
-            <span className="hidden sm:block">
+            <span className="hidden sm:block md:hidden lg:block">
               <SystemClock />
             </span>
             <GlobalSearch />

@@ -9,12 +9,15 @@ function json(body: unknown, status = 200): Response {
 }
 
 let posted: Record<string, unknown> | null = null;
+/** What the server answers to the create request (default: created). */
+let answer: () => Response;
 beforeEach(() => {
   posted = null;
+  answer = () => json({ data: { id: 'u9' } }, 201);
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
     if (init?.method === 'POST') {
       posted = JSON.parse(String(init.body));
-      return json({ data: { id: 'u9' } }, 201);
+      return answer();
     }
     return json({ data: [] });
   }));
@@ -52,8 +55,42 @@ describe('CreateUserModal', () => {
   it('rejects a weak password with the shared rule (no request sent)', async () => {
     renderModal();
     await fill('abcdef'); // 6 chars, no digit — the old rule accepted this
-    expect(screen.getByRole('alert')).toHaveTextContent('Fill in every field. Use at least 8 characters, including a letter and a number.');
+    // Every field IS filled in: name the real problem only.
+    expect(screen.getByRole('alert')).toHaveTextContent(/^Use at least 8 characters, including a letter and a number.$/);
     expect(posted).toBeNull();
+  });
+
+  it('asks for the missing details when a field is empty', async () => {
+    renderModal();
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
+    await userEvent.click(screen.getByRole('button', { name: /create user/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Fill in every field.');
+    expect(posted).toBeNull();
+  });
+
+  it('says the email is not valid when the server refuses it — not that it is "already in use"', async () => {
+    answer = () => json({ error: { code: 'VALIDATION', message: 'Invalid input.', details: { formErrors: [], fieldErrors: { email: ['Invalid email'] } } } }, 400);
+    const onClose = renderModal();
+    await fill('Welcome123');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/enter a valid email address/i);
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/in use/i);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('says the email or username is taken when it is', async () => {
+    answer = () => json({ error: { code: 'DUPLICATE_USER', message: 'A user with this email or username already exists.' } }, 409);
+    renderModal();
+    await fill('Welcome123');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/email or username is already in use/i);
+  });
+
+  it('does not blame the details when the server itself failed', async () => {
+    answer = () => json({ error: { code: 'INTERNAL', message: 'Something went wrong' } }, 500);
+    renderModal();
+    await fill('Welcome123');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/couldn’t create the account/i);
+    expect(alert).not.toHaveTextContent(/in use/i);
   });
 
   it('creates the user with a strong password', async () => {

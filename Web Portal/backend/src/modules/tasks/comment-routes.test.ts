@@ -35,7 +35,7 @@ const tokenService = createTokenService({
 
 const events: { projectId: string; event: string; payload: unknown }[] = [];
 
-async function makeApp() {
+async function makeApp(extra: Partial<Parameters<typeof buildApp>[0]> = {}) {
   const commentService = createCommentService(inMemory());
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
@@ -48,6 +48,7 @@ async function makeApp() {
     commentService,
     taskService,
     onTaskEvent: (projectId, event, payload) => { events.push({ projectId, event, payload }); },
+    ...extra,
   });
 }
 async function token(id: string) {
@@ -61,6 +62,13 @@ beforeEach(async () => {
 });
 
 describe('Comment routes', () => {
+  it('records who commented (task timeline)', async () => {
+    const recorded: unknown[] = [];
+    const a = await makeApp({ recordTaskActivity: async (e) => { recorded.push(e); } });
+    const res = await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/comments', headers: { authorization: `Bearer ${await token('u1')}` }, payload: { body: 'Looks good' } });
+    expect(recorded).toEqual([{ taskId: 't1', userId: 'u1', action: 'COMMENTED', meta: { commentId: res.json().data.id } }]);
+  });
+
   it('adds a comment (201) and lists it', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -115,6 +123,31 @@ describe('Comment routes', () => {
 });
 
 describe('Comment routes — authors who lost access to the task', () => {
+  it('GET /tasks/:id/mentionable lists who can be mentioned, only to someone who can see the task', async () => {
+    let canSee = true;
+    const projectAccess = {
+      async canViewProject() { return true; },
+      async canViewTask() { return canSee; },
+      async canViewColumn() { return true; },
+      async accessibleProjectIds() { return null; },
+    };
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const mem = inMemory();
+    const people = [{ id: 'u2', username: 'flowa.main', firstName: 'Main', lastName: 'Flow', avatarUrl: null }];
+    const commentService = createCommentService({ ...mem, repo: { ...mem.repo, async listMentionable() { return people; } } });
+    const a = await buildApp({ authService, tokenService, commentService, projectAccess });
+    const headers = { authorization: `Bearer ${await token('u1')}` };
+    const ok = await a.inject({ method: 'GET', url: '/api/v1/tasks/t1/mentionable', headers });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data).toEqual(people);
+    canSee = false;
+    expect((await a.inject({ method: 'GET', url: '/api/v1/tasks/t1/mentionable', headers })).statusCode).toBe(403);
+    expect((await a.inject({ method: 'GET', url: '/api/v1/tasks/t1/mentionable' })).statusCode).toBe(401);
+  });
+
   it('403s editing or deleting your own comment once you can no longer see its task', async () => {
     let canSee = true;
     const projectAccess = {

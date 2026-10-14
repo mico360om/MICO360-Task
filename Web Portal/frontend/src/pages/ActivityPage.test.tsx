@@ -68,4 +68,21 @@ describe('ActivityPage', () => {
     expect(screen.queryByText('MICO-7')).not.toBeInTheDocument(); // the MOVED entry is filtered out
     expect(screen.getByText('MICO-8')).toBeInTheDocument();
   });
+
+  it('a filter with no matches says so, and offers the full list — it does not claim there is no activity', async () => {
+    renderPage();
+    await screen.findAllByText(/ago|just now/);
+    // Pick a kind of activity that the fixture does not contain.
+    const chips = ['Created', 'Moved', 'Completed', 'Assigned'];
+    for (const name of chips) {
+      await userEvent.click(screen.getByRole('button', { name }));
+      if (screen.queryByText(/no .* activity/i)) break;
+    }
+    const empty = screen.getByText(/no .* activity/i);
+    expect(empty).toBeInTheDocument();
+    expect(screen.queryByText('No activity yet')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /show all activity/i }));
+    expect(screen.queryByText(/no .* activity/i)).not.toBeInTheDocument();
+  });
 });
+

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ProjectsPage } from './ProjectsPage';
+import { useAuthStore } from '../stores/auth-store';
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -20,7 +22,10 @@ beforeEach(() => {
     ),
   );
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+});
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -36,6 +41,37 @@ function renderPage() {
 describe('ProjectsPage', () => {
   it('loads and renders projects fetched from the API', async () => {
     renderPage();
+    await waitFor(() => expect(screen.getByText('MICO360 Platform')).toBeInTheDocument());
+  });
+
+  it('opens the new-project form for an admin, and the edit form from a card', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /new project/i }));
+    expect(await screen.findByRole('dialog', { name: 'New project' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit MICO360 Platform' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit project' });
+    expect(within(dialog).getByLabelText(/^name/i)).toHaveValue('MICO360 Platform');
+  });
+});
+
+describe('ProjectsPage when the projects cannot be loaded', () => {
+  it('says so in plain words and loads them on Retry', async () => {
+    const ok = fetch;
+    let fail = true;
+    vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) =>
+      fail ? new Response(JSON.stringify({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }), { status: 500, headers: { 'content-type': 'application/json' } }) : ok(...args),
+    ));
+    renderPage();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Couldn’t load projects.');
+    expect(alert).not.toHaveTextContent(/API/);
+    fail = false;
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.getByText('MICO360 Platform')).toBeInTheDocument());
   });
 });

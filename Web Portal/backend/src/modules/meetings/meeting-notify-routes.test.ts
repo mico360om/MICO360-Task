@@ -45,6 +45,7 @@ async function makeApp(withNotify: boolean) {
   const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return false; }, async accessibleProjectIds() { return []; } } });
   const notify = {
     sendInvites: vi.fn(async () => ({ sent: 3, failed: 0 })),
+    previewInvites: vi.fn(async () => ({ recipients: [{ name: 'Aisha', email: 'aisha@x.co', kind: 'organizer', attendeeIds: [], alreadyInvited: false }], missingEmail: [], problems: [], invitesSentAt: null })),
     sendCancellation: vi.fn(async () => ({ sent: 3, failed: 0 })),
     sendAttendeeRemoved: vi.fn(async () => ({ sent: 1, failed: 0 })),
     sendMinutes: vi.fn(async () => ({ sent: 3, failed: 0 })),
@@ -125,6 +126,35 @@ describe('Meeting invite/cancel routes', () => {
     const res = await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${deleted}`, headers: { authorization: auth } });
     expect(res.statusCode).toBe(204);
     expect(notify.sendCancellation).toHaveBeenCalledWith(deleted, { meeting: expect.objectContaining({ id: deleted, title: 'Weekly' }) });
+  });
+
+  it('won’t send everyone a second invitation unless the organizer confirms it (409)', async () => {
+    const { app, notify, meetings } = await makeApp(true);
+    const auth = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const id = await makeMeeting(app, 'u1');
+    await meetings.markInvitesSent(id, new Date('2026-10-01T08:00:00Z'));
+    const again = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/invites`, headers: auth });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error.code).toBe('INVITES_ALREADY_SENT');
+    expect(notify.sendInvites).not.toHaveBeenCalled();
+    // Only the people who haven't had one yet…
+    const fresh = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/invites`, headers: auth, payload: { onlyNew: true } });
+    expect(fresh.statusCode).toBe(200);
+    expect(notify.sendInvites).toHaveBeenLastCalledWith(id, { onlyNew: true });
+    // …or everyone again, on purpose.
+    expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/invites`, headers: auth, payload: { resend: true } })).statusCode).toBe(200);
+    expect(notify.sendInvites).toHaveBeenLastCalledWith(id);
+  });
+
+  it('previews the invitation for whoever may send it, and nobody else', async () => {
+    const { app, notify } = await makeApp(true);
+    const id = await makeMeeting(app, 'u1');
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/invites/preview`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.recipients[0].email).toBe('aisha@x.co');
+    expect(notify.sendInvites).not.toHaveBeenCalled();
+    const outsider = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/invites/preview`, headers: { authorization: `Bearer ${await tokenFor('u9', ['EMPLOYEE'])}` } });
+    expect(outsider.statusCode).toBe(403);
   });
 
   it('returns per-recipient results from the invite endpoint (NTF-02)', async () => {

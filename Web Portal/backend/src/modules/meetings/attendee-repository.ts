@@ -1,5 +1,7 @@
 export type AttendeeRole = 'REQUIRED' | 'OPTIONAL';
 export type AttendanceStatus = 'INVITED' | 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
+/** The answer to the invitation — separate from the role (required/optional) and from attendance on the day. */
+export type InvitationResponse = 'PENDING' | 'ACCEPTED' | 'TENTATIVE' | 'DECLINED';
 
 export interface AttendeeRecord {
   id: string;
@@ -10,6 +12,10 @@ export interface AttendeeRecord {
   externalEmail: string | null;
   role: AttendeeRole;
   attendance: AttendanceStatus;
+  response: InvitationResponse;
+  respondedAt: Date | null;
+  /** When this person's own invitation was delivered (null = not invited yet). */
+  invitedAt: Date | null;
   department: string | null;
   createdAt: Date;
 }
@@ -28,6 +34,8 @@ export interface UpdateAttendeeData {
   role?: AttendeeRole;
   attendance?: AttendanceStatus;
   department?: string | null;
+  response?: InvitationResponse;
+  respondedAt?: Date | null;
 }
 
 export interface AttendeeRepository {
@@ -38,4 +46,6 @@ export interface AttendeeRepository {
   distinctUserIdsForMeetings(meetingIds: string[]): Promise<string[]>;
   update(id: string, patch: UpdateAttendeeData): Promise<AttendeeRecord>;
   remove(id: string): Promise<void>;
+  /** Stamp these attendees as invited (their invitation was delivered at `at`). */
+  markInvited?(ids: string[], at: Date): Promise<void>;
 }

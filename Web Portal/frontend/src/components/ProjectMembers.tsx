@@ -22,6 +22,8 @@ export interface ProjectMembersProps {
 /** Per-project team management with manager grants (T9.3 / T2.7). */
 export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemove, onSetRole }: ProjectMembersProps) {
   const [toAdd, setToAdd] = useState('');
+  // Removing takes the person off the project at once: the first press asks, the second removes.
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const memberIds = new Set(members.map((m) => m.id));
   const addable = addableUsers.filter((u) => !memberIds.has(u.id));
 
@@ -35,7 +37,7 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
             <li key={m.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm">
               <span dir="auto" className="text-ink">{m.name}</span>
               {m.role === 'MANAGER' ? (
-                <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Manager</span>
+                <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand">Manager</span>
               ) : null}
               {canManage && onSetRole ? (
                 m.role === 'MANAGER' ? (
@@ -49,13 +51,21 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
                 )
               ) : null}
               {canManage ? (
-                <button
-                  onClick={() => onRemove(m.id)}
-                  aria-label={`Remove ${m.name}`}
-                  className={`${canManage && onSetRole ? '' : 'ml-auto'} rounded px-1 text-ink-2 hover:bg-ground hover:text-danger`}
-                >
-                  ×
-                </button>
+                confirmRemove === m.id ? (
+                  <span className={`${canManage && onSetRole ? '' : 'ml-auto'} flex items-center gap-1.5 text-xs`}>
+                    <span className="text-ink-2">Remove?</span>
+                    <button onClick={() => { setConfirmRemove(null); onRemove(m.id); }} className="rounded px-1.5 py-0.5 font-semibold text-danger hover:bg-danger-soft">Yes, remove</button>
+                    <button onClick={() => setConfirmRemove(null)} className="rounded px-1.5 py-0.5 text-ink-2 hover:bg-ground">Keep</button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmRemove(m.id)}
+                    aria-label={`Remove ${m.name}`}
+                    className={`${canManage && onSetRole ? '' : 'ml-auto'} rounded px-1 text-ink-2 hover:bg-ground hover:text-danger`}
+                  >
+                    ×
+                  </button>
+                )
               ) : null}
             </li>
           ))

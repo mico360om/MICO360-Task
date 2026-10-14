@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupTasksByDueDate, monthGrid, weekDays, shiftMonth, monthOf } from './calendar';
+import { groupTasksByDueDate, monthGrid, monthWeeks, visibleRange, weekDays, weekdayLabels, shiftMonth, monthOf } from './calendar';
 import type { ApiTask } from '../api/tasks';
 
 const dow = (key: string) => new Date(`${key}T00:00:00Z`).getUTCDay();
@@ -86,5 +86,34 @@ describe('groupTasksByDueDate in the company zone', () => {
     const t: ApiTask = { ...base, id: '1', key: 'A', dueDate: '2026-09-30T00:00:00.000Z' };
     expect(groupTasksByDueDate([t], 'America/New_York')[0]!.date).toBe('2026-09-30');
     expect(groupTasksByDueDate([t], 'Asia/Muscat')[0]!.date).toBe('2026-09-30');
+  });
+});
+
+describe('week start (Sunday, Monday or Saturday)', () => {
+  it('starts the month grid and the week on the chosen day', () => {
+    expect(monthGrid(2026, 9, 1)[0]![0]!.key).toBe('2026-09-28'); // Monday before 1 Oct (a Thursday)
+    expect(monthGrid(2026, 9, 6)[0]![0]!.key).toBe('2026-09-26'); // Saturday
+    expect(weekDays('2026-10-10', 1)).toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11']);
+    expect(weekDays('2026-10-10', 6)[0]).toBe('2026-10-10');
+    expect(weekdayLabels(1)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+    expect(weekdayLabels(6)[0]).toBe('Sat');
+  });
+
+  it('shows only the weeks that touch the month (no empty rows)', () => {
+    const weeks = monthWeeks(2026, 1, 0); // February 2026: Sun 1 – Sat 28, exactly 4 weeks
+    expect(weeks).toHaveLength(4);
+    expect(monthWeeks(2026, 9, 0)).toHaveLength(5); // October 2026
+    expect(monthWeeks(2026, 7, 0)).toHaveLength(6); // August 2026 (starts on a Saturday)
+  });
+});
+
+describe('visibleRange — what each view asks the server for', () => {
+  it('month: the grid’s first to last day; week: its 7 days; agenda: the month', () => {
+    expect(visibleRange('month', '2026-10-10', 0)).toEqual({ from: '2026-09-27', to: '2026-10-31' });
+    expect(visibleRange('month', '2026-10-10', 1)).toEqual({ from: '2026-09-28', to: '2026-11-01' });
+    expect(visibleRange('week', '2026-10-10', 0)).toEqual({ from: '2026-10-04', to: '2026-10-10' });
+    expect(visibleRange('agenda', '2026-10-10', 0)).toEqual({ from: '2026-10-01', to: '2026-10-31' });
+    // Across a year boundary.
+    expect(visibleRange('week', '2026-12-31', 1)).toEqual({ from: '2026-12-28', to: '2027-01-03' });
   });
 });

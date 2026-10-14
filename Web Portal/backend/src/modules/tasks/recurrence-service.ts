@@ -55,15 +55,29 @@ export function createRecurrenceService({ tasks, now = () => new Date(), timeZon
     return (await tasks.countInstances(task.recurrenceParentId ?? task.id)) >= rule.count;
   }
 
+  /**
+   * Where the series continues from: the day a copy moved on its own replaced ("this occurrence
+   * only"), else the copy's own due date.
+   */
+  const baseOf = (task: RecurringTask, rule: RecurrenceRule, fallback: Date | null): Date | null =>
+    rule.resumeFrom ? dayStart(rule.resumeFrom) : (task.dueDate ?? fallback);
+
+  /** The rule the next copy carries: a moved copy's note stays with that copy. */
+  function forNextCopy(rule: RecurrenceRule): RecurrenceRule {
+    const next = { ...rule };
+    delete next.resumeFrom;
+    return next;
+  }
+
   /** Make the copy that follows `task`: the next date that isn't already past. */
   async function spawnFollowing(task: RecurringTask, raw: RecurrenceRule): Promise<SpawnedTask | null> {
     const today = todayKey();
-    const base = task.dueDate ?? dayStart(today);
+    const base = baseOf(task, raw, dayStart(today))!;
     const rule = withAnchorDay(raw, base);
     const next = nextDueDate(base, rule, today);
     if (!next) return null; // the series has ended (until)
     if (await seriesFull(task, rule)) return null;
-    return tasks.spawnNext(task.id, next, rule);
+    return tasks.spawnNext(task.id, next, forNextCopy(rule));
   }
 
   /**
@@ -97,12 +111,12 @@ export function createRecurrenceService({ tasks, now = () => new Date(), timeZon
       const raw = activeRule(head);
       if (!raw || raw.createNext !== 'ON_SCHEDULE') continue;
       try {
-        const base = head.dueDate ?? (head.startDate ? dayStart(boardDateKey(head.startDate, timeZone)) : null);
+        const base = baseOf(head, raw, head.startDate ? dayStart(boardDateKey(head.startDate, timeZone)) : null);
         if (!base) continue;
         const rule = withAnchorDay(raw, base);
         const owed = scheduledOccurrence(base, rule, today);
         if (!owed || (await seriesFull(head, rule))) continue;
-        const next = await tasks.spawnNext(head.id, owed, rule);
+        const next = await tasks.spawnNext(head.id, owed, forNextCopy(rule));
         if (next) made.push(next);
       } catch (err) {
         // One broken series must not stop the others; the next sweep retries it.

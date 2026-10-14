@@ -24,6 +24,7 @@ import {
   genericNotificationEmail,
   type EmailContent,
   type TemplateOptions,
+  type LoginCodeOptions,
 } from './email-templates';
 
 /** One row per send attempt in email_log. */
@@ -122,7 +123,7 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     isConfigured,
 
     // Auth & account
-    sendLoginCode: (email: string, code: string, opts?: TemplateOptions) => deliver('otp', email, otpCodeEmail(code, opts), { essential: true }),
+    sendLoginCode: (email: string, code: string, opts?: LoginCodeOptions) => deliver('otp', email, otpCodeEmail(code, opts), { essential: true }),
     sendPasswordReset: (email: string, link: string, opts?: TemplateOptions) =>
       deliver('password-reset', email, passwordResetEmail(link, opts), { essential: true }),
     sendActivation: (email: string, username: string, link: string, opts?: TemplateOptions) =>

@@ -2,10 +2,10 @@
 
 | In this folder | What it is |
 | --- | --- |
-| `MICO360-Tasks-0.3.0.apk` | The Android app for phones with Android 6.0 or newer (about 70 MB) |
+| `MICO360-Tasks-0.4.0.apk` | The Android app for phones with Android 6.0 or newer (about 70 MB) |
 
-Package `com.mico360.tasks`, version 0.3.0 (build 3). It is signed with the same key as 0.1.0 and
-0.2.0, so it installs as an update over them.
+Package `com.mico360.tasks`, version 0.4.0 (build 4). It is signed with the same key as 0.1.0, 0.2.0
+and 0.3.0, so it installs as an update over them.
 
 ## Install on a phone
 
@@ -22,10 +22,10 @@ Package `com.mico360.tasks`, version 0.3.0 (build 3). It is signed with the same
 
 ## Giving it to staff
 
-- **From the live site:** upload this APK to the web server as
-  `public_html/downloads/MICO360-Tasks.apk` and set `ANDROID_APP_URL=/downloads/MICO360-Tasks.apk`
-  (see `../1-Hostinger-Web-Server/README.md`). The sign-in page's **Download for Android** button
-  then serves it.
+- **From the live site:** the sign-in page's **Download for Android** button always downloads
+  `https://task.mico360.com/downloads/MICO360-Tasks.apk`. The site package puts this APK there
+  (`public_html/downloads/`); to publish a new build, replace that one file under the same name —
+  the address never changes (see `../1-Hostinger-Web-Server/README.md`).
 - **From an office server:** nothing to do. The Windows installer already includes this APK, and
   the office server's sign-in page offers it.
 

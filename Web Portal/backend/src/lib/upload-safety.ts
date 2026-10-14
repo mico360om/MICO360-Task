@@ -39,9 +39,39 @@ export function uploadResponseHeaders(filePath: string): Record<string, string> 
   const headers: Record<string, string> = {
     'X-Content-Type-Options': 'nosniff',
     'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",
+    // People's files: the browser may keep a copy (and revalidate it); shared caches may not.
+    'Cache-Control': 'private, no-cache',
   };
   if (!INLINE_EXTENSIONS.has(extname(filePath).toLowerCase())) {
     headers['Content-Disposition'] = 'attachment';
   }
   return headers;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Why an upload was refused — said to the person who chose the file, so never a raw MIME type
+// ("application/x-msdownload") or a byte count ("10485760-byte limit").
+// ---------------------------------------------------------------------------------------------
+
+function readableSize(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${Number.isInteger(mb) ? mb : Number(mb.toFixed(1))} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+export function fileTooLargeMessage(maxBytes: number): string {
+  return `That file is too large — the limit is ${readableSize(maxBytes)}.`;
+}
+
+export function fileTypeNotAllowedMessage(fileName: string | undefined | null): string {
+  const ext = extname(fileName ?? '').toLowerCase();
+  const what = ext ? `“${ext}” files` : 'This kind of file';
+  return `${what} can’t be attached. Try a document, image, PDF or zip instead.`;
+}
+
+export function fileContentMismatchMessage(fileName: string | undefined | null): string {
+  const name = (fileName ?? '').trim();
+  const ext = extname(name).toLowerCase();
+  return name && ext ? `“${name}” isn’t really a ${ext} file — it may be damaged or renamed.` : 'That file isn’t what its name says — it may be damaged or renamed.';
+}
+

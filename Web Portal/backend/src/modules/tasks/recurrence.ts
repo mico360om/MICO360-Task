@@ -35,12 +35,25 @@ export interface RecurrenceRule {
    * ON_SCHEDULE: a copy is made on each due date, whether or not the previous one is done.
    */
   createNext?: CreateNext;
+  /**
+   * Set when the newest copy was moved to another day on its own ("this occurrence only"): the
+   * schedule date it replaced. The next copy follows from this date, so the series stays on its
+   * days; the copy made next doesn't carry it.
+   */
+  resumeFrom?: string | null;
 }
 
 const FREQS: Frequency[] = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
 const CREATE_NEXT: CreateNext[] = ['ON_COMPLETE', 'ON_SCHEDULE'];
 /** Safety bound when skipping past occurrences (a daily series ~27 years overdue). */
 const MAX_STEPS = 10_000;
+
+/** A real calendar day written 'YYYY-MM-DD'. */
+function isDayKey(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
 
 /** Validate a recurrence rule's shape (used before persisting or computing). */
 export function isValidRule(rule: RecurrenceRule): boolean {
@@ -52,6 +65,7 @@ export function isValidRule(rule: RecurrenceRule): boolean {
   if (rule.anchorDay != null && (!Number.isInteger(rule.anchorDay) || rule.anchorDay < 1 || rule.anchorDay > 31)) return false;
   if (rule.until != null && Number.isNaN(Date.parse(rule.until))) return false;
   if (rule.createNext != null && !CREATE_NEXT.includes(rule.createNext)) return false;
+  if (rule.resumeFrom != null && !isDayKey(rule.resumeFrom)) return false;
   if (rule.nthWeekday != null) {
     const { week, day } = rule.nthWeekday;
     if (rule.freq !== 'MONTHLY' && rule.freq !== 'QUARTERLY') return false;

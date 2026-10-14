@@ -55,6 +55,14 @@ beforeEach(() => {
   );
 });
 afterEach(() => vi.restoreAllMocks());
+beforeEach(() => localStorage.clear());
+
+async function pickOmar() {
+  const box = screen.getByRole('combobox', { name: 'Add people' });
+  await userEvent.click(box);
+  await userEvent.type(box, 'om');
+  await userEvent.click(await screen.findByRole('option', { name: /Omar A/ }));
+}
 
 function renderModal(props: Partial<{ onClose: () => void; onCreated: () => void }> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -73,8 +81,9 @@ describe('NewTaskModal', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));
     await userEvent.type(screen.getByLabelText(/task title/i), 'Ship it');
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Omar A' }));
-    await userEvent.click(screen.getByRole('button', { name: /add task/i }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Add people' })).toBeEnabled());
+    await pickOmar();
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
 
     await waitFor(() => expect(posted).toBeTruthy());
     // Assignees go in the create request itself — no second call, no project-owner default on top.
@@ -89,25 +98,27 @@ describe('NewTaskModal', () => {
     renderModal();
     await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));
     await userEvent.type(screen.getByLabelText(/task title/i), 'Daily check');
-    await userEvent.selectOptions(screen.getByLabelText(/^repeat$/i), 'DAILY');
+    await userEvent.click(screen.getByRole('button', { name: 'Repeat' }));
+    await userEvent.click(screen.getByRole('option', { name: 'Daily' }));
     await userEvent.selectOptions(screen.getByLabelText(/create the next copy/i), 'ON_SCHEDULE');
-    await userEvent.click(screen.getByRole('button', { name: /add task/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted!.body).toMatchObject({ title: 'Daily check', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } });
   });
 
-  it('fits short screens: the dialog scrolls instead of pushing "Add task" off-screen', async () => {
+  it('fits short screens: the fields scroll between a fixed header and footer, so "Create task" stays in view', async () => {
     renderModal();
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
-    expect(dialog.className).toMatch(/max-h-\[calc\(100dvh-2rem\)\]/);
-    expect(dialog.className).toContain('overflow-y-auto');
+    expect(dialog.className).toMatch(/sm:max-h-\[90dvh\]/);
+    const body = screen.getByLabelText(/task title/i).closest('.overflow-y-auto')!;
+    expect(body.contains(screen.getByRole('button', { name: 'Create task' }))).toBe(false);
   });
 
   it('leaves assigneeIds out when nobody is picked (the project default applies)', async () => {
     renderModal();
     await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));
     await userEvent.type(screen.getByLabelText(/task title/i), 'Solo');
-    await userEvent.click(screen.getByRole('button', { name: /add task/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted!.body).not.toHaveProperty('assigneeIds');
   });
@@ -118,8 +129,8 @@ describe('NewTaskModal', () => {
     try {
       renderModal();
       await waitFor(() => expect(screen.getByRole('button', { name: /^column$/i })).toHaveTextContent('To Do'));
-      await userEvent.type(screen.getByPlaceholderText(/describe a task/i), 'review the report tomorrow');
-      await userEvent.click(screen.getByRole('button', { name: /parse/i }));
+      await userEvent.type(screen.getByLabelText(/describe it in plain english/i), 'review the report tomorrow');
+      await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
       await waitFor(() => expect(parsed).toBeTruthy());
       expect(parsed).toMatchObject({ text: 'review the report tomorrow', today: '2026-09-27' });
     } finally {
@@ -133,7 +144,7 @@ describe('NewTaskModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /^column$/i }));
     await userEvent.click(screen.getByRole('option', { name: 'Done' }));
     await userEvent.type(screen.getByLabelText(/task title/i), 'Done task');
-    await userEvent.click(screen.getByRole('button', { name: /add task/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(posted).toBeTruthy());
     expect(posted!.body).toMatchObject({ columnId: 'c2', title: 'Done task' });
   });

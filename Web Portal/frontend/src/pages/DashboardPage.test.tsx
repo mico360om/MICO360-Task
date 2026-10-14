@@ -81,4 +81,31 @@ describe('DashboardPage', () => {
     expect(await screen.findByText(/couldn’t load due tasks/i)).toBeInTheDocument();
     expect(screen.queryByText(/you’re all clear/i)).not.toBeInTheDocument();
   });
+
+  it('shows the charts as loading (not "no data") until the numbers arrive, and as an error if they fail', async () => {
+    let release: (r: Response) => void = () => {};
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const ok = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) => (String(args[0]).includes('/reports/') ? pending : ok(...args))));
+    renderPage();
+    expect(await screen.findByLabelText('Loading the status chart')).toBeInTheDocument();
+    expect(screen.getByLabelText('Loading project completion')).toBeInTheDocument();
+    expect(screen.queryByText(/no data to chart yet/i)).not.toBeInTheDocument();
+    release(new Response(JSON.stringify({ error: { code: 'INTERNAL', message: 'x' } }), { status: 500, headers: { 'content-type': 'application/json' } }));
+    await waitFor(() => expect(screen.getByText(/Couldn’t load project completion/)).toBeInTheDocument());
+    expect(screen.queryByText(/no data to chart yet/i)).not.toBeInTheDocument();
+  });
+
+  it('names the statuses in plain words and in board order (not raw codes like IN_PROGRESS)', async () => {
+    const ok = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) =>
+      String(args[0]).endsWith('/reports/status') ? json({ data: { DONE: 2, IN_PROGRESS: 4, BACKLOG: 1 } }) : ok(...args),
+    ));
+    renderPage();
+    const chart = await screen.findByRole('list', { name: /tasks by status/i });
+    await waitFor(() => expect(chart).toHaveTextContent('In Progress'));
+    expect(chart).not.toHaveTextContent(/IN_PROGRESS|BACKLOG/);
+    const labels = [...chart.querySelectorAll('li')].map((li) => li.textContent?.split(':')[0]?.trim());
+    expect(labels).toEqual(['Backlog', 'In Progress', 'Done']);
+  });
 });

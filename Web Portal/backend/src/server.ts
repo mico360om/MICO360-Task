@@ -23,14 +23,18 @@ import { createProjectAccess } from './modules/projects/project-access';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
+import { directMessageTitle } from './modules/chat/chat-notices';
+import { taskNoticeBody } from './modules/notifications/task-notice';
 import { DEFAULT_CARRY_STATUSES } from './modules/tasks/board-date';
 import { createAssigneeService } from './modules/tasks/assignee-service';
+import { taskChanges } from './modules/tasks/task-changes';
+import type { RecordTaskActivity } from './modules/activity/task-activity';
 import { createWatcherService } from './modules/tasks/watcher-service';
 import { createPrismaWatcherRepository } from './modules/tasks/prisma-watcher-repository';
 import { createPrismaAssigneeRepository, createPrismaTaskLookup } from './modules/tasks/prisma-assignee-repository';
 import { createTagService } from './modules/tasks/tag-service';
 import { createPrismaTagRepository } from './modules/tasks/prisma-tag-repository';
-import { createChecklistService } from './modules/tasks/checklist-service';
+import { createChecklistService, progressFromItems } from './modules/tasks/checklist-service';
 import { createPrismaChecklistRepository } from './modules/tasks/prisma-checklist-repository';
 import { createCommentService } from './modules/tasks/comment-service';
 import { createPrismaCommentRepository } from './modules/tasks/prisma-comment-repository';
@@ -50,6 +54,7 @@ import { createDependencyService } from './modules/tasks/dependency-service';
 import { createPrismaDependencyRepository } from './modules/tasks/prisma-dependency-repository';
 import { createRecurrenceService } from './modules/tasks/recurrence-service';
 import { createPrismaRecurrencePort } from './modules/tasks/prisma-recurrence-port';
+import { createPrismaPreferences } from './modules/users/user-preferences';
 import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
@@ -57,6 +62,7 @@ import { createPrismaNotificationRepository, createPrismaPreferenceStore, create
 import { planReminders } from './modules/notifications/reminder';
 import { dispatchReminders } from './modules/notifications/reminder-dispatch';
 import { buildDigests } from './modules/notifications/notification-digest';
+import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
@@ -159,7 +165,7 @@ import { hashPassword } from './lib/password';
 import { createEmailService } from './modules/email/email-service';
 import { createMeetingNotifyService } from './modules/meetings/meeting-notify-service';
 import { configureBrand } from './modules/email/brand';
-import { createMailjetTransport } from './modules/email/mailer';
+import { chooseTransport } from './modules/email/outbox-transport';
 import { createEmailWebhookService } from './modules/email/email-webhook-service';
 import { createPrismaEmailEventStore, createPrismaEmailLogStore, createPrismaSuppressionChecker } from './modules/email/prisma-email-event-store';
 import { createRealtime } from './realtime/realtime';
@@ -207,6 +213,7 @@ async function main(): Promise<void> {
   let onTaskMoved: (task: TaskRec, prevColumnId: string, actorId?: string) => Promise<void> = async () => {};
   let onTaskCreated: (task: TaskRec) => Promise<void> = async () => {};
   let onTaskDeleting: (task: TaskRec) => Promise<void> = async () => {};
+  let onTaskUpdated: (before: TaskRec, after: TaskRec, actorId?: string) => Promise<void> = async () => {};
 
   const companyTz = resolveTimeZone(env.COMPANY_TIMEZONE);
   const taskService = createTaskService({
@@ -221,13 +228,17 @@ async function main(): Promise<void> {
       },
     },
     onMoved: (task, prevColumnId, actorId) => onTaskMoved(task, prevColumnId, actorId),
+    // A re-opened task goes back to what its checklist says (it was forced to 100% when completed).
+    checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
     onCreated: (task) => onTaskCreated(task),
+    onUpdated: (before, after, actorId) => onTaskUpdated(before, after, actorId),
     onDeleting: (task) => onTaskDeleting(task),
   });
 
   // The next occurrence lands on today's board in the company time zone.
+  const recurrencePort = createPrismaRecurrencePort(prisma, { timeZone: companyTz });
   const recurrenceService = createRecurrenceService({
-    tasks: createPrismaRecurrencePort(prisma, { timeZone: companyTz }),
+    tasks: recurrencePort,
     timeZone: companyTz,
     onError: (err, taskId) => logger.error('recurring task: next copy failed', { err, taskId }),
   });
@@ -235,11 +246,13 @@ async function main(): Promise<void> {
 
   // Late-bound so assignment can create notifications + activity once those services exist (below).
   let onTaskAssigned: (taskId: string, userIds: string[], actorId?: string) => Promise<void> = async () => {};
+  let onTaskUnassigned: (taskId: string, userId: string, actorId?: string) => Promise<void> = async () => {};
 
   const assigneeService = createAssigneeService({
     repo: createPrismaAssigneeRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
     onAssigned: (taskId, userIds, actorId) => onTaskAssigned(taskId, userIds, actorId),
+    onUnassigned: (taskId, userId, actorId) => onTaskUnassigned(taskId, userId, actorId),
   });
 
   const watcherRepo = createPrismaWatcherRepository(prisma);
@@ -280,23 +293,29 @@ async function main(): Promise<void> {
   const checklistService = createChecklistService({
     repo: createPrismaChecklistRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
+    // The task's own progress (what the board card shows) follows its checklist while it is open;
+    // a completed task stays at 100%.
+    onProgress: async (taskId, percent) => {
+      await prisma.task.updateMany({ where: { id: taskId, completedAt: null }, data: { progress: percent } });
+    },
   });
 
   // Late-bound so a comment @mention can notify the mentioned users once notifications exist (below).
-  let onCommentMention: (taskId: string, authorId: string, usernames: string[]) => Promise<void> = async () => {};
+  let onCommentMention: (taskId: string, authorId: string, usernames: string[], body?: string) => Promise<void> = async () => {};
   // Late-bound so any comment notifies the task's assignees once notifications exist (below).
   let onComment: (taskId: string, authorId: string, commentId: string) => Promise<void> = async () => {};
 
   const commentService = createCommentService({
     repo: createPrismaCommentRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
-    onMention: (taskId, authorId, usernames) => onCommentMention(taskId, authorId, usernames),
+    onMention: (taskId, authorId, usernames, body) => onCommentMention(taskId, authorId, usernames, body),
     onComment: (taskId, authorId, commentId) => onComment(taskId, authorId, commentId),
   });
 
   // Late-bound chat notification hooks (wired once notifications exist, below).
   let onChatMention: (usernames: string[], authorId: string, conversationId: string) => Promise<void> = async () => {};
   let onChatDirect: (recipientId: string, authorId: string, conversationId: string) => Promise<void> = async () => {};
+  let onChatRead: (conversationId: string, userId: string) => Promise<void> = async () => {};
 
   // Shared file storage + allow-list for task AND chat attachments.
   const attachmentStorage = createLocalDiskStorage({ baseDir: env.UPLOAD_DIR, publicPrefix: '/uploads' });
@@ -311,6 +330,7 @@ async function main(): Promise<void> {
     members: createPrismaChatMemberLookup(prisma),
     onMention: (e) => onChatMention(e.usernames, e.authorId, e.conversationId),
     onDirectMessage: (e) => onChatDirect(e.recipientId, e.authorId, e.conversationId),
+    onRead: (e) => onChatRead(e.conversationId, e.userId),
     logger,
   });
 
@@ -445,8 +465,9 @@ async function main(): Promise<void> {
   });
   // Late-bound: the notify service (email) is created further down.
   let onAttendeeRemoved: (meetingId: string, attendee: AttendeeRecord) => void = () => {};
+  const attendeeRepository = createPrismaAttendeeRepository(prisma);
   const attendeeService = createAttendeeService({
-    attendees: createPrismaAttendeeRepository(prisma),
+    attendees: attendeeRepository,
     canEditMeeting,
     onChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:attendees'),
     onRemoved: (meetingId, attendee) => onAttendeeRemoved(meetingId, attendee),
@@ -476,18 +497,49 @@ async function main(): Promise<void> {
     taskService,
     columnService,
     assignees: assigneeService,
+    actionItems: actionItemService,
   });
+  const meetingListCounts = async (ids: string[]) => {
+    const [attendees, open] = await Promise.all([
+      prisma.meetingAttendee.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids } }, _count: { _all: true } }),
+      prisma.actionItem.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, status: { notIn: ['COMPLETED', 'CANCELLED'] } }, _count: { _all: true } }),
+    ]);
+    const out: Record<string, { attendeeCount: number; openActionItemCount: number }> = {};
+    for (const id of ids) out[id] = { attendeeCount: 0, openActionItemCount: 0 };
+    for (const a of attendees) out[a.meetingId]!.attendeeCount = a._count._all;
+    for (const o of open) if (o.meetingId) out[o.meetingId]!.openActionItemCount = o._count._all;
+    return out;
+  };
+  const resolveTaskKeys = async (ids: string[]) =>
+    Object.fromEntries((await prisma.task.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, key: true } })).map((t) => [t.id, t.key]));
 
   const activityService = createActivityService({ activities: createPrismaActivityRepository(prisma) });
+  // Timeline lines from the task's checklist, comment, file and blocker routes: filed under the
+  // task's project (so project feeds see them), a blocker named by its key and title.
+  const recordTaskActivity: RecordTaskActivity = async ({ taskId, userId, action, meta }) => {
+    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
+    let details = meta ?? {};
+    if (typeof details.dependsOnTaskId === 'string') {
+      const blocker = await prisma.task.findUnique({ where: { id: details.dependsOnTaskId }, select: { key: true, title: true } });
+      details = { ...details, key: blocker?.key ?? null, title: blocker?.title ?? null };
+    }
+    await activityService.record({ taskId, projectId: task?.projectId ?? null, userId, action, meta: details });
+  };
+
+  /** Which task a notification is about ("MICO-12 · Title"), so the rows in the bell can be told apart. */
+  const taskNotice = async (taskId: string): Promise<string | null> =>
+    taskNoticeBody(await prisma.task.findUnique({ where: { id: taskId }, select: { key: true, title: true } }));
 
   // Now that notifications + activity exist, make task assignment actually fire them.
   onTaskAssigned = async (taskId, userIds, actorId) => {
+    const about = await taskNotice(taskId);
     // Self-assignment isn't news to the person who did it.
     for (const userId of await visibleTaskRecipients(taskId, userIds, actorId)) {
       await notificationService.notify({
         userId,
         type: 'TASK_ASSIGNED',
         title: 'You were assigned a task',
+        body: about,
         entityType: 'task',
         entityId: taskId,
       });
@@ -504,6 +556,25 @@ async function main(): Promise<void> {
         await activityService.record({ taskId, projectId: t?.projectId ?? null, userId: actorId, action: 'ASSIGNED', meta: { assigneeId: userId, assignee: nameOf(userId) } });
       }
     }
+  };
+
+  // Taking someone off a task: one activity row naming them, attributed to whoever did it.
+  onTaskUnassigned = async (taskId, userId, actorId) => {
+    if (!actorId) return;
+    const [t, u] = await Promise.all([
+      prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { username: true, firstName: true, lastName: true } }),
+    ]);
+    const assignee = u ? [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username : userId;
+    await activityService.record({ taskId, projectId: t?.projectId ?? null, userId: actorId, action: 'UNASSIGNED', meta: { assigneeId: userId, assignee } });
+  };
+
+  // An edit: one activity row listing what changed (old → new), so the timeline can say it.
+  onTaskUpdated = async (before, after, actorId) => {
+    if (!actorId) return;
+    const changes = taskChanges(before, after, companyTz);
+    if (changes.length === 0) return;
+    await activityService.record({ taskId: after.id, projectId: after.projectId, userId: actorId, action: 'UPDATED', meta: { changes } });
   };
 
   onTaskCreated = async (task) => {
@@ -536,6 +607,7 @@ async function main(): Promise<void> {
         userId,
         type: 'TASK_STATUS',
         title: `Task moved to ${toCol?.name ?? 'a new stage'}`,
+        body: taskNoticeBody(task),
         entityType: 'task',
         entityId: task.id,
       });
@@ -623,27 +695,31 @@ async function main(): Promise<void> {
   const reminderTimer = setInterval(() => void runReminders(), 6 * 60 * 60 * 1000);
   reminderTimer.unref?.();
 
-  // A comment @mention notifies each mentioned user who can open the task (never the author).
-  onCommentMention = async (taskId, authorId, usernames) => {
-    const mentioned = await prisma.user.findMany({ where: { username: { in: usernames } }, select: { id: true } });
-    for (const userId of await visibleTaskRecipients(taskId, mentioned.map((m) => m.id), authorId)) {
-      await notificationService.notify({
-        userId,
-        type: 'MENTION',
-        title: 'You were mentioned in a comment',
-        entityType: 'task',
-        entityId: taskId,
-      });
-    }
-  };
+  // A comment @mention notifies each mentioned user who can open the task (never the author): in
+  // the app and, unless they muted mentions, by email quoting the comment (best-effort).
+  onCommentMention = createMentionNotifier({
+    usersByUsername: (usernames) => prisma.user.findMany({ where: { username: { in: usernames } }, select: { id: true, email: true } }),
+    visibleRecipients: visibleTaskRecipients,
+    notify: (input) => notificationService.notify(input),
+    task: (taskId) => prisma.task.findUnique({ where: { id: taskId }, select: { key: true, title: true } }),
+    authorName: async (authorId) => {
+      const u = await prisma.user.findUnique({ where: { id: authorId }, select: { firstName: true, lastName: true, username: true } });
+      return u ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username : 'A teammate';
+    },
+    sendMentionEmail: (email, params) => emailService.sendMention(email, params),
+    appUrl: env.APP_URL,
+    logger,
+  });
 
   // Any comment notifies the task's assignees + watchers (except the comment's author).
   onComment = async (taskId, authorId) => {
+    const about = await taskNotice(taskId);
     for (const userId of await taskRecipientIds(taskId, authorId)) {
       await notificationService.notify({
         userId,
         type: 'TASK_COMMENT',
         title: 'New comment on your task',
+        body: about,
         entityType: 'task',
         entityId: taskId,
       });
@@ -666,16 +742,26 @@ async function main(): Promise<void> {
       });
     }
   };
-  // A direct message notifies its recipient.
+  // A direct message notifies its recipient: one waiting notification per conversation, saying who
+  // it is from and how many messages are waiting (not one anonymous notification per message).
   onChatDirect = async (recipientId, authorId, conversationId) => {
     if (recipientId === authorId) return;
-    await notificationService.notify({
+    const [author, waiting] = await Promise.all([
+      prisma.user.findUnique({ where: { id: authorId }, select: { firstName: true, lastName: true, username: true } }),
+      chatService.unreadCount(conversationId, recipientId).catch(() => 1),
+    ]);
+    const senderName = author ? `${author.firstName ?? ''} ${author.lastName ?? ''}`.trim() || author.username : null;
+    await notificationService.notifyOnce({
       userId: recipientId,
       type: 'CHAT_MESSAGE',
-      title: 'New direct message',
+      title: directMessageTitle(senderName, waiting),
       entityType: 'conversation',
       entityId: conversationId,
     });
+  };
+  // Opening a conversation is reading what its notifications were about: clear them.
+  onChatRead = async (conversationId, userId) => {
+    await notificationService.markEntityRead(userId, 'conversation', conversationId);
   };
 
   const auditService = createAuditService({ audit: createPrismaAuditRepository(prisma) });
@@ -729,16 +815,28 @@ async function main(): Promise<void> {
     websiteUrl: env.COMPANY_WEBSITE_URL,
     companyAddress: env.COMPANY_ADDRESS,
     appUrl: env.APP_URL,
-    // Use the hosted system logo (white, for the brand-red header) unless overridden.
-    logoUrl: env.EMAIL_LOGO_URL || `${env.API_BASE_URL}/email-assets/logo-w.png`,
+    // The white MICO360 wordmark for the brand-red header, hosted by this server, unless overridden.
+    logoUrl: env.EMAIL_LOGO_URL || `${env.API_BASE_URL}/email-assets/email-logo.png`,
   });
 
+  // Mailjet when its keys are set; on a development machine, optionally a local test mailbox.
+  const mail = chooseTransport({
+    nodeEnv: env.NODE_ENV,
+    mailjet: { apiKey: env.MAILJET_API_KEY, secretKey: env.MAILJET_SECRET_KEY, from: env.MAIL_FROM },
+    outboxDir: env.EMAIL_OUTBOX_DIR,
+  });
   const emailService = createEmailService({
-    transport: createMailjetTransport({ apiKey: env.MAILJET_API_KEY, secretKey: env.MAILJET_SECRET_KEY, from: env.MAIL_FROM }),
+    transport: mail.transport,
     isSuppressed: createPrismaSuppressionChecker(prisma),
     log: createPrismaEmailLogStore(prisma),
     logger,
   });
+  if (mail.kind === 'outbox') {
+    logger.warn('Email is saved to a local test mailbox, not sent (EMAIL_OUTBOX_DIR)', { dir: env.EMAIL_OUTBOX_DIR });
+  }
+  if (mail.outboxIgnored) {
+    logger.warn('EMAIL_OUTBOX_DIR is ignored in production: set the Mailjet keys to send email');
+  }
   if (!emailService.isConfigured()) {
     logger.warn('Mailjet keys are not set: sign-in codes, password-reset links and meeting invitations are disabled');
   }
@@ -753,7 +851,10 @@ async function main(): Promise<void> {
   };
   const meetingNotifyService = createMeetingNotifyService({
     meetings: meetingRepository,
-    attendees: { listByMeeting: (id) => attendeeService.listAttendees(id) },
+    attendees: {
+      listByMeeting: (id) => attendeeService.listAttendees(id),
+      markInvited: (ids, at) => attendeeRepository.markInvited!(ids, at),
+    },
     email: emailService,
     resolveUser: resolveMeetingUser,
     resolveProjectName: async (projectId) => (await resolveProject(projectId))?.name ?? null,
@@ -900,6 +1001,9 @@ async function main(): Promise<void> {
   const userStateLookup = createPrismaUserStateLookup(prisma);
 
   const app = await buildApp({
+    seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
+    userPreferences: createPrismaPreferences(prisma),
+    recordTaskActivity,
     userState: userStateLookup,
     onTaskEvent: (projectId, event, payload) => broadcast(projectId, event, payload),
     onChatUserEvent: (userId, event, payload) => broadcastToUser(userId, event, payload),
@@ -953,6 +1057,8 @@ async function main(): Promise<void> {
     meetingNotifyService,
     actionItemService,
     resolveMeetingProjectId,
+    resolveTaskKeys,
+    meetingListCounts,
     resolveUserNames,
     resolveProject,
     activityService,
@@ -1043,7 +1149,7 @@ async function main(): Promise<void> {
         const task = await taskService.getTask(made.id);
         broadcast(task.projectId, 'task:created', task);
         for (const userId of await taskRecipientIds(task.id)) {
-          await notificationService.notify({ userId, type: 'TASK_ASSIGNED', title: 'A recurring task is ready', body: task.title, entityType: 'task', entityId: task.id });
+          await notificationService.notify({ userId, type: 'TASK_ASSIGNED', title: 'A recurring task is ready', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
         }
       }
     }).catch((err) => {

@@ -56,7 +56,7 @@ const REPORTS: ReportDef[] = [
     title: 'User Workload',
     file: 'user-workload',
     section: 'workload',
-    columns: ['userId', 'username', 'assigned', 'completed', 'overdue'],
+    columns: ['userId', 'username', 'name', 'assigned', 'completed', 'overdue'],
     load: async (svc, filter) => (await svc.workloadReport(filter)) as unknown as Record<string, unknown>[],
   },
 ];

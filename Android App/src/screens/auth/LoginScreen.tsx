@@ -7,6 +7,7 @@ import { Button, TextField, ErrorNote } from '../../components/ui';
 import { ApiError, isNetworkError } from '../../lib/api-client';
 import { authErrorMessage, isAccountLocked } from '../../lib/auth-errors';
 import { parseServerAddress, probeServer, serverLabel, sitePageUrl } from '../../lib/server-address';
+import { fetchEmailEnabled, isCodeComplete, normaliseCode, resendLabel, resendWaitSeconds } from '../../lib/email-sign-in';
 import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
 import type { AuthScreenProps } from '../../navigation/types';
 import logo from '../../../assets/logo.png';
@@ -22,6 +23,10 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
+  // When the last code was sent, and a clock that ticks while "Resend" waits out the server's limit.
+  const [sentAt, setSentAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const resendWait = resendWaitSeconds(sentAt, now);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -101,11 +106,16 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const submitPassword = () => afterLogin(auth.login(identifier.trim(), password));
 
   async function requestCode() {
+    if (codeSent && resendWait > 0) return;
     setBusy(true);
     setError(null);
     setLocked(false);
     try {
       await auth.requestOtp(identifier.trim());
+      const at = Date.now();
+      setSentAt(at);
+      setNow(at);
+      setCode('');
       setCodeSent(true);
     } catch (e) {
       handleError(e);
@@ -116,12 +126,41 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
 
   const submitCode = () => afterLogin(auth.verifyOtp(identifier.trim(), code.trim()));
 
+  /** Back to the first step, to send the code somewhere else. */
+  function useDifferentAddress() {
+    setCodeSent(false);
+    setSentAt(null);
+    setCode('');
+    setError(null);
+  }
+
+  useEffect(() => {
+    if (resendWait <= 0) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [resendWait > 0, sentAt]);
+
   // Server choice: task.mico360.com by default, or e.g. a self-hosted server on the office network.
   const server = useServer();
   const [editingServer, setEditingServer] = useState(false);
   const [serverInput, setServerInput] = useState('');
   const [serverError, setServerError] = useState<string | null>(null);
   const [checkingServer, setCheckingServer] = useState(false);
+
+  // Email codes and reset links need the server's email to be set up: ask the chosen server, and
+  // offer "Email code" only once it has said yes (the same rule as the web app).
+  const [emailEnabled, setEmailEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    setEmailEnabled(null);
+    void fetchEmailEnabled(server.baseUrl).then((enabled) => {
+      if (active) setEmailEnabled(enabled);
+    });
+    return () => { active = false; };
+  }, [server.baseUrl]);
+  useEffect(() => {
+    if (emailEnabled !== true && mode === 'otp') setMode('password');
+  }, [emailEnabled, mode]);
 
   function startServerEdit() {
     setServerInput(server.baseUrl.replace(/\/api\/v\d+$/, ''));
@@ -169,10 +208,12 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
             </View>
           ) : null}
 
-          <View style={styles.tabs}>
-            <ModeTab label="Password" active={mode === 'password'} onPress={() => setMode('password')} styles={styles} />
-            <ModeTab label="Email code" active={mode === 'otp'} onPress={() => setMode('otp')} styles={styles} />
-          </View>
+          {emailEnabled === true ? (
+            <View style={styles.tabs}>
+              <ModeTab label="Password" active={mode === 'password'} onPress={() => setMode('password')} styles={styles} />
+              <ModeTab label="Email code" active={mode === 'otp'} onPress={() => setMode('otp')} styles={styles} />
+            </View>
+          ) : null}
 
           {locked ? (
             <View style={styles.lockedNote} accessibilityRole="alert" accessibilityLiveRegion="assertive">
@@ -194,6 +235,9 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
             value={identifier}
             onChangeText={setIdentifier}
             placeholder="you@company.com"
+            // The code just sent belongs to this address: changing it means asking for a new code.
+            editable={!(mode === 'otp' && codeSent)}
+            style={mode === 'otp' && codeSent ? styles.lockedInput : undefined}
           />
 
           {mode === 'password' ? (
@@ -207,27 +251,51 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                 placeholder="••••••••"
               />
               <Button title="Sign in" onPress={submitPassword} loading={busy} disabled={!identifier || !password} />
-              <Pressable onPress={() => navigation.navigate('Forgot')} style={styles.forgot} accessibilityRole="link">
-                <Text style={styles.forgotText}>Forgot your password?</Text>
-              </Pressable>
+              {emailEnabled === false ? (
+                // No email on this server: a reset link could not be sent.
+                <Text style={[styles.note, styles.noteBelow]}>Forgot your password? Ask your administrator to reset it.</Text>
+              ) : (
+                <Pressable onPress={() => navigation.navigate('Forgot')} style={styles.forgot} accessibilityRole="link">
+                  <Text style={styles.forgotText}>Forgot your password?</Text>
+                </Pressable>
+              )}
             </>
           ) : (
             <>
               {codeSent ? (
                 <>
+                  <Text style={styles.note} accessibilityLiveRegion="polite">
+                    If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.
+                  </Text>
                   <TextField
-                    label="6-digit code"
+                    label="One-time code"
                     required
                     keyboardType="number-pad"
+                    textContentType="oneTimeCode"
+                    autoComplete="sms-otp"
+                    autoFocus
                     value={code}
-                    onChangeText={setCode}
-                    placeholder="123456"
-                    maxLength={6}
+                    onChangeText={(text) => setCode(normaliseCode(text))}
+                    placeholder="6-digit code"
+                    maxLength={10}
                   />
-                  <Button title="Verify & sign in" onPress={submitCode} loading={busy} disabled={code.length < 6} />
-                  <Pressable onPress={requestCode} style={styles.forgot} accessibilityRole="button" accessibilityLabel="Resend code">
-                    <Text style={styles.forgotText}>Resend code</Text>
-                  </Pressable>
+                  <Button title="Verify & sign in" onPress={submitCode} loading={busy} disabled={!isCodeComplete(code)} />
+                  <View style={styles.codeLinks}>
+                    <Pressable
+                      onPress={requestCode}
+                      disabled={resendWait > 0 || busy}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: resendWait > 0 || busy }}
+                      // A steady name while it waits: a label that changed every second would be re-read.
+                      accessibilityLabel={resendWait > 0 ? 'Resend code, available after a minute' : 'Resend code'}
+                      hitSlop={8}
+                    >
+                      <Text style={resendWait > 0 ? styles.linkMuted : styles.forgotText}>{resendLabel(resendWait)}</Text>
+                    </Pressable>
+                    <Pressable onPress={useDifferentAddress} accessibilityRole="button" hitSlop={8}>
+                      <Text style={styles.linkMuted}>Use a different email</Text>
+                    </Pressable>
+                  </View>
                 </>
               ) : (
                 <Button title="Email me a code" onPress={requestCode} loading={busy} disabled={!identifier} />
@@ -317,6 +385,12 @@ const makeStyles = (c: Palette) =>
     tabTextActive: { color: c.brand },
     forgot: { alignItems: 'center', marginTop: spacing.md },
     forgotText: { color: c.brand, fontSize: fontSize.sm, fontWeight: '600' },
+    linkMuted: { color: c.ink2, fontSize: fontSize.sm, fontWeight: '600' },
+    lockedInput: { backgroundColor: c.line, color: c.ink2 },
+    codeLinks: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.md },
+    note: { color: c.ink2, fontSize: fontSize.sm, marginBottom: spacing.md, textAlign: 'center' },
+    // Under a button, the same gap as the "Forgot your password?" link it replaces.
+    noteBelow: { marginTop: spacing.md, marginBottom: 0 },
     lockedNote: {
       backgroundColor: c.errorWash,
       borderWidth: 1,

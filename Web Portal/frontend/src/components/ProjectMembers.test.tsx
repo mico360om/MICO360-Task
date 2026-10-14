@@ -22,7 +22,13 @@ describe('ProjectMembers', () => {
     const onAdd = vi.fn();
     const onRemove = vi.fn();
     render(<ProjectMembers members={members} addableUsers={addable} canManage onAdd={onAdd} onRemove={onRemove} />);
+    // Removing takes someone off the project at once, so it asks first.
     await userEvent.click(screen.getByRole('button', { name: /remove Ada Lovelace/i }));
+    expect(onRemove).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Keep' }));
+    expect(onRemove).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /remove Ada Lovelace/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Yes, remove' }));
     expect(onRemove).toHaveBeenCalledWith('u1');
     await userEvent.selectOptions(screen.getByLabelText(/add a member/i), 'u2');
     await userEvent.click(screen.getByRole('button', { name: /^add$/i }));

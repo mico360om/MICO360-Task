@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { inspectPdf } from '../../lib/pdf-inspect';
 import { buildApp } from '../../app';
 import { createMeetingService } from './meeting-service';
 import { createMeetingAccess } from './meeting-access';
@@ -42,7 +43,7 @@ function attendeeRepo(): AttendeeRepository {
   let seq = 0;
   return {
     async add(d: CreateAttendeeData) {
-      const rec: AttendeeRecord = { id: `a${seq++}`, meetingId: d.meetingId, userId: d.userId ?? null, externalName: d.externalName ?? null, externalEmail: d.externalEmail ?? null, role: d.role ?? 'REQUIRED', attendance: d.attendance ?? 'INVITED', department: d.department ?? null, createdAt: new Date() };
+      const rec: AttendeeRecord = { id: `a${seq++}`, meetingId: d.meetingId, userId: d.userId ?? null, externalName: d.externalName ?? null, externalEmail: d.externalEmail ?? null, role: d.role ?? 'REQUIRED', attendance: d.attendance ?? 'INVITED', department: d.department ?? null, response: 'PENDING', respondedAt: null, invitedAt: null, createdAt: new Date() };
       rows.set(rec.id, rec); return rec;
     },
     async findById(id) { return rows.get(id) ?? null; },
@@ -87,7 +88,7 @@ const tokenService = createTokenService({
 });
 const tokenFor = async (id: string, roles: string[]) => (await tokenService.issueTokens({ id, roles })).accessToken;
 
-async function makeApp(attendeesOf: Record<string, string[]> = {}) {
+async function makeApp(attendeesOf: Record<string, string[]> = {}, actionItemService?: unknown, meetingNotifyService?: unknown) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -99,7 +100,7 @@ async function makeApp(attendeesOf: Record<string, string[]> = {}) {
   const agendaService = createAgendaService({ agenda: agendaRepo() });
   const noteService = createNoteService({ notes: noteRepo() });
   const resolveUserNames = async (ids: string[]) => new Map(ids.map((i) => [i, `User ${i}`]));
-  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, attendeeService, agendaService, noteService, resolveUserNames, appConfig: { timeZone: 'UTC', productName: 'MICO360', companyName: 'MICO360 Softwares' } });
+  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, attendeeService, agendaService, noteService, resolveUserNames, actionItemService: actionItemService as never, meetingNotifyService: meetingNotifyService as never, resolveTaskKeys: async (ids: string[]) => Object.fromEntries(ids.map((i) => [i, `KEY-${i}`])), appConfig: { timeZone: 'UTC', productName: 'MICO360', companyName: 'MICO360 Softwares' } });
   return app;
 }
 
@@ -119,6 +120,60 @@ describe('Minutes PDF route', () => {
     const body = res.rawPayload.toString('latin1');
     expect(body.startsWith('%PDF-1.')).toBe(true);
     expect(body.trimEnd().endsWith('%%EOF')).toBe(true);
+  });
+
+  it('puts the meeting’s action items in the minutes', async () => {
+    const actionItemService = {
+      listByMeeting: async (meetingId: string) => [
+        { id: 'a1', meetingId, description: 'Book the conference room', assigneeId: 'u7', priority: 'HIGH', status: 'IN_PROGRESS', dueDate: new Date('2026-10-05T00:00:00Z') },
+      ],
+    };
+    const app = await makeApp({}, actionItemService);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Q4 Planning Sync', startAt: '2026-10-01T09:00:00Z' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    const text = inspectPdf(res.rawPayload).pages.flat();
+    expect(text).toContain('Action Items');
+    expect(text).toContain('Book the conference room');
+    expect(text).toEqual(expect.arrayContaining(['User u7', 'Oct 5, 2026', 'In progress', 'High']));
+  });
+
+  it('prints an action item’s due day in the meeting’s time zone (a due date stored as local midnight is not a day early)', async () => {
+    const actionItemService = {
+      listByMeeting: async (meetingId: string) => [
+        // 10 Oct 2026 00:00 in Muscat (UTC+4) = 9 Oct 20:00 UTC.
+        { id: 'a1', meetingId, description: 'Send the revised quote', assigneeId: 'u7', priority: 'NORMAL', status: 'OPEN', dueDate: new Date('2026-10-09T20:00:00Z') },
+      ],
+    };
+    const app = await makeApp({}, actionItemService);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Pricing review', startAt: '2026-10-01T09:00:00Z', timeZone: 'Asia/Muscat' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    const text = inspectPdf(res.rawPayload).pages.flat();
+    expect(text.some((l) => l.includes('Send the revised quote'))).toBe(true);
+    expect(text.some((l) => l.includes('Oct 10, 2026'))).toBe(true);
+    expect(text.some((l) => l.includes('Oct 9, 2026'))).toBe(false);
+  });
+
+  it('names each action item’s task, and doesn’t print a tracked action note twice', async () => {
+    const actionItemService = {
+      listByMeeting: async (meetingId: string) => [
+        { id: 'a1', meetingId, description: 'Order the banners', assigneeId: null, priority: 'NORMAL', status: 'OPEN', dueDate: null, taskId: 't9', sourceNoteId: null },
+      ],
+    };
+    const app = await makeApp({}, actionItemService);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Launch prep', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
+    const note = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/notes`, headers: { authorization: auth }, payload: { body: 'Order the banners', type: 'ACTION' } })).json().data;
+    // The fake action item came from this note.
+    actionItemService.listByMeeting = async (meetingId: string) => [
+      { id: 'a1', meetingId, description: 'Order the banners', assigneeId: null, priority: 'NORMAL', status: 'OPEN', dueDate: null, taskId: 't9', sourceNoteId: note.id },
+    ];
+    const text = inspectPdf((await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes.pdf`, headers: { authorization: auth } })).rawPayload).pages.flat();
+    expect(text).toContain('KEY-t9');
+    expect(text.filter((l) => l === 'Order the banners')).toHaveLength(1);
   });
 
   it('hides the minutes from an outsider (404)', async () => {
@@ -142,5 +197,39 @@ describe('Minutes email route', () => {
     // The organizer passes the permission check (then hits "email not configured" in this app).
     const organizer = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
     expect(organizer.statusCode).toBe(503);
+  });
+
+  function notifyFake() {
+    return {
+      sendMinutes: vi.fn(async () => ({ sent: 1, failed: 0, recipients: [], skipped: [] })),
+      previewMinutes: vi.fn(async () => ({ subject: 'Minutes: Board sync', html: '<p>Board sync</p>', text: 'Board sync', attachmentName: 'minutes-board-sync.pdf', recipients: [], missingEmail: [] })),
+    };
+  }
+
+  it('emails the minutes only to the people the organizer picked', async () => {
+    const notify = notifyFake();
+    const app = await makeApp({}, undefined, notify);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
+    const res = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth }, payload: { recipients: ['a@x.co'] } });
+    expect(res.statusCode).toBe(200);
+    expect(notify.sendMinutes).toHaveBeenCalledWith(id, expect.any(Buffer), { only: ['a@x.co'] });
+    // No list = everyone, as before.
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth } });
+    expect(notify.sendMinutes).toHaveBeenLastCalledWith(id, expect.any(Buffer));
+  });
+
+  it('previews the minutes email for a meeting editor only', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const notify = notifyFake();
+    const app = await makeApp(attendeesOf, undefined, notify);
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
+    attendeesOf[id] = ['u2'];
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/preview`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.subject).toBe('Minutes: Board sync');
+    expect(notify.sendMinutes).not.toHaveBeenCalled();
+    const attendee = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/preview`, headers: { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` } });
+    expect(attendee.statusCode).toBe(403);
   });
 });

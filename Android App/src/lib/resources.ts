@@ -13,6 +13,11 @@ import type {
   ApiConversationSummary,
   ApiDirectoryUser,
   ApiMember,
+  ApiMentionable,
+  ApiActivityEntry,
+  ApiDependencyView,
+  ApiWatcher,
+  ApiPrioritySuggestion,
   ApiNotification,
   ApiProject,
   ApiProjectProgress,
@@ -111,7 +116,8 @@ export function resourcesApi(client: ApiClient) {
         data(client.put<Envelope<ApiTask>>(`/tasks/${id}`, body)),
       move: (id: string, columnId: string, position?: number) =>
         data(client.patch<Envelope<ApiTask>>(`/tasks/${id}/move`, { columnId, position })),
-      remove: (id: string) => client.del<void>(`/tasks/${id}`),
+      /** Delete a task — with 'series', every copy of a repeating task. */
+      remove: (id: string, scope?: 'series') => client.del<void>(scope ? `/tasks/${id}?scope=${scope}` : `/tasks/${id}`),
       // Tags: read a task's tags, replace the whole set (find-or-create by name), or detach one.
       tags: (id: string) => data(client.get<Envelope<ApiTag[]>>(`/tasks/${id}/tags`)),
       setTags: (id: string, tags: string[]) => data(client.put<Envelope<ApiTag[]>>(`/tasks/${id}/tags`, { tags })),
@@ -132,6 +138,8 @@ export function resourcesApi(client: ApiClient) {
       removeChecklistItem: (itemId: string) => client.del<void>(`/checklist/${itemId}`),
       // Comments: list, add (supports @mentions), edit (own), remove (own/admin).
       comments: (id: string) => data(client.get<Envelope<ApiComment[]>>(`/tasks/${id}/comments`)),
+      // Who an @mention in this task's comments would notify — suggested while typing.
+      mentionable: (id: string) => data(client.get<Envelope<ApiMentionable[]>>(`/tasks/${id}/mentionable`)),
       addComment: (id: string, body: string, parentId?: string, opts?: WriteOptions) =>
         data(
           client.post<Envelope<ApiComment>>(
@@ -144,13 +152,32 @@ export function resourcesApi(client: ApiClient) {
       removeComment: (commentId: string) => client.del<void>(`/comments/${commentId}`),
       // Attachments (files on a task): list, upload one picked file, remove.
       attachments: (id: string) => data(client.get<Envelope<ApiAttachment[]>>(`/tasks/${id}/attachments`)),
-      uploadAttachment: (id: string, part: { uri: string; name: string; type: string }) => {
+      /** Upload one picked file; `onProgress` hears how much has been sent (0–1). */
+      uploadAttachment: (id: string, part: { uri: string; name: string; type: string }, onProgress?: (fraction: number) => void) => {
         const form = new FormData();
         // React Native sends a { uri, name, type } part as the file's bytes.
         form.append('file', part as unknown as Blob);
-        return data(client.upload<Envelope<ApiAttachment>>(`/tasks/${id}/attachments`, form));
+        return data(client.upload<Envelope<ApiAttachment>>(`/tasks/${id}/attachments`, form, onProgress ? { onProgress } : undefined));
       },
       removeAttachment: (attachmentId: string) => client.del<void>(`/attachments/${attachmentId}`),
+      /** The task's activity history (newest first). */
+      activity: (id: string) => data(client.get<Envelope<ApiActivityEntry[]>>(`/tasks/${id}/activity`)),
+      /** Blockers: what the task waits on, and what waits on it. */
+      dependencies: (id: string) => data(client.get<Envelope<ApiDependencyView>>(`/tasks/${id}/dependencies`)),
+      addDependency: (id: string, dependsOnTaskId: string) => data(client.post<Envelope<unknown>>(`/tasks/${id}/dependencies`, { dependsOnTaskId })),
+      removeDependency: (id: string, dependsOnTaskId: string) => client.del<void>(`/tasks/${id}/dependencies/${dependsOnTaskId}`),
+      /** Following a task's updates. */
+      watchStatus: (id: string) => data(client.get<Envelope<{ watching: boolean }>>(`/tasks/${id}/watch`)).then((r) => r.watching),
+      watch: (id: string) => data(client.post<Envelope<{ watching: boolean }>>(`/tasks/${id}/watch`)),
+      unwatch: (id: string) => client.del<void>(`/tasks/${id}/watch`),
+      watchers: (id: string) => data(client.get<Envelope<ApiWatcher[]>>(`/tasks/${id}/watchers`)),
+    },
+    /** AI help — suggestions the user reviews before anything changes. */
+    ai: {
+      breakdown: (title: string, description?: string) =>
+        data(client.post<Envelope<{ items: string[] }>>('/ai/breakdown', { title, description })).then((r) => r?.items ?? []),
+      suggestPriority: (title: string, description?: string, dueDate?: string | null) =>
+        data(client.post<Envelope<ApiPrioritySuggestion>>('/ai/suggest-priority', { title, description, dueDate })),
     },
     /** Shared tag catalog for suggestions/autocomplete. */
     tagCatalog: () => data(client.get<Envelope<ApiTag[]>>('/tags')),

@@ -37,13 +37,19 @@ function linkFallback(url: string): Block {
 // Authentication & account
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function otpCodeEmail(code: string, opts?: TemplateOptions): EmailContent {
+export interface LoginCodeOptions extends TemplateOptions {
+  /** How long the code lasts (the server's OTP_TTL_SECONDS, in whole minutes). Default 10. */
+  expiresInMinutes?: number;
+}
+
+export function otpCodeEmail(code: string, opts?: LoginCodeOptions): EmailContent {
+  const minutes = Math.max(1, Math.round(opts?.expiresInMinutes ?? 10));
   return build(
     `Your ${productName(opts)} login code`,
     `Your one-time login code is ${code}`,
     'Your login code',
     [
-      { kind: 'text', text: 'Use this one-time code to finish signing in. It expires in 10 minutes.' },
+      { kind: 'text', text: `Use this one-time code to finish signing in. It expires in ${minutes} minute${minutes === 1 ? '' : 's'}.` },
       { kind: 'code', code, note: 'Never share this code with anyone.' },
       { kind: 'callout', text: 'If you didn’t try to sign in, you can safely ignore this email — your account is still secure.', tone: 'info' },
     ],

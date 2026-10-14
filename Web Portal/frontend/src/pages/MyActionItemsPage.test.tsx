@@ -70,15 +70,17 @@ describe('MyActionItemsPage', () => {
 });
 
 describe('MeetingsPage', () => {
-  it('shows meeting times in company time and titles with automatic direction', async () => {
+  it('shows meeting times in company time and titles isolated inline (bdi), not pushed to the other side', async () => {
     routes = (u) =>
       u.endsWith('/meetings')
         ? json({ data: [{ id: 'm1', title: 'مراجعة المشروع', description: null, category: null, status: 'SCHEDULED', projectId: null, organizerId: 'u1', location: null, onlineLink: null, startAt: '2026-10-01T06:00:00.000Z', endAt: null, timeZone: null, recurrenceRule: null, recurrenceParentId: null, templateId: null, transcript: null, invitesSentAt: null, reminderSentAt: null, createdById: 'u1', createdAt: '', updatedAt: '' }] })
         : undefined;
     renderIt(<MeetingsPage />);
     const title = await screen.findByText('مراجعة المشروع');
-    expect(title).toHaveAttribute('dir', 'auto');
-    expect(screen.getByText(/10:00/)).toBeInTheDocument();
+    // <bdi> keeps the Arabic text's own direction while it stays aligned with the row's details.
+    expect(title.tagName).toBe('BDI');
+    expect(title.closest('[dir="auto"]')).toBeNull();
+    expect(screen.getAllByText(/10:00/).length).toBeGreaterThan(0);
   });
 
   it('offers a retry when meetings fail to load', async () => {

@@ -279,6 +279,24 @@ describe('TaskService', () => {
     expect(otherDone.completedAt?.toISOString()).toBe('2026-09-08T10:00:00.000Z');
   });
 
+  it('a re-opened task is no longer shown as 100% done: progress follows its checklist (0 without one)', async () => {
+    const t = await svc.createTask({ title: 'Reopen me', projectId: 'p1', columnId: 'c1', createdById: 'u1' });
+    expect((await svc.moveTask(t.id, 'done')).progress).toBe(100);
+    expect((await svc.moveTask(t.id, 'c1')).progress).toBe(0);
+
+    // With a checklist that is half done, re-opening goes back to 50%.
+    const withList = createTaskService({ tasks: mem.tasks, projects: mem.projects, checklistPercent: async () => 50 });
+    await withList.moveTask(t.id, 'done');
+    expect((await withList.moveTask(t.id, 'c1')).progress).toBe(50);
+  });
+
+  it('moving an unfinished task between open columns leaves its progress alone', async () => {
+    const withList = createTaskService({ tasks: mem.tasks, projects: mem.projects, checklistPercent: async () => 50 });
+    const t = await withList.createTask({ title: 'Just moving', projectId: 'p1', columnId: 'c1', createdById: 'u1' });
+    await mem.tasks.update(t.id, { progress: 30 });
+    expect((await withList.moveTask(t.id, 'c2')).progress).toBe(30);
+  });
+
   it('completes a task created straight into a DONE column', async () => {
     const fixed = new Date('2026-09-08T10:00:00.000Z');
     const svc2 = createTaskService({ tasks: mem.tasks, projects: mem.projects, now: () => fixed });
@@ -402,6 +420,18 @@ describe('TaskService', () => {
     expect(ok.title).toBe('Fresh');
     const ok2 = await svc.updateTask(t.id, { title: 'Fresher' }); // no expectedVersion → allowed
     expect(ok2.title).toBe('Fresher');
+  });
+
+  it('fires onUpdated with the task before and after an edit, and who made it', async () => {
+    const calls: { before: string; after: string; actor?: string }[] = [];
+    const withHook = createTaskService({
+      tasks: mem.tasks,
+      projects: mem.projects,
+      onUpdated: (before, after, actor) => { calls.push({ before: before.title, after: after.title, actor }); },
+    });
+    const t = await withHook.createTask({ ...base, title: 'Old' });
+    await withHook.updateTask(t.id, { title: 'New' }, undefined, 'one', 'u2');
+    expect(calls).toEqual([{ before: 'Old', after: 'New', actor: 'u2' }]);
   });
 
   it('fires the onMoved hook with the moved task', async () => {

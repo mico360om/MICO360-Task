@@ -12,6 +12,8 @@ export interface ProjectRecord {
   status: ProjectStatus;
   priority: Priority;
   color: string;
+  /** One of PROJECT_ICONS, or null for the project's initials. */
+  icon: string | null;
   imageUrl: string | null;
   startDate: Date | null;
   targetDate: Date | null;
@@ -31,6 +33,7 @@ export interface CreateProjectData {
   status?: ProjectStatus;
   priority?: Priority;
   color?: string;
+  icon?: string | null;
   startDate?: Date | null;
   targetDate?: Date | null;
   notes?: string | null;
@@ -46,6 +49,7 @@ export interface UpdateProjectData {
   status?: ProjectStatus;
   priority?: Priority;
   color?: string;
+  icon?: string | null;
   imageUrl?: string | null;
   startDate?: Date | null;
   targetDate?: Date | null;
@@ -66,6 +70,8 @@ export interface ProjectRepository {
   create(data: CreateProjectData): Promise<ProjectRecord>;
   findById(id: string): Promise<ProjectRecord | null>;
   findByCode(code: string): Promise<ProjectRecord | null>;
+  /** Whether any project — deleted ones too — has this code (the database keeps codes unique). */
+  codeInUse?(code: string): Promise<boolean>;
   list(): Promise<ProjectRecord[]>;
   /** Projects a non-admin user may see: those they own, manage, created, or are a member of. */
   listForUser(userId: string): Promise<ProjectRecord[]>;

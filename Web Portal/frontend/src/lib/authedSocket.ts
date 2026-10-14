@@ -18,6 +18,8 @@ export interface AuthedSocketOptions {
    * which is when callers should re-join rooms and refetch whatever they may have missed.
    */
   onConnect?: (socket: Socket, isReconnect: boolean) => void;
+  /** Runs whenever the connection drops (socket.io then reconnects by itself, or we do). */
+  onDisconnect?: (reason: string) => void;
   /**
    * How to get a fresh access token after the server rejects the handshake. Defaults to the API
    * client's shared, cross-tab-safe `refreshSession` (so a socket never races the API client for
@@ -91,6 +93,7 @@ export function openAuthedSocket(opts: AuthedSocketOptions = {}): AuthedSocket {
   });
 
   socket.on('disconnect', (reason: string) => {
+    if (!closed) opts.onDisconnect?.(reason);
     if (reason !== 'io server disconnect' || closed) return;
     const now = Date.now();
     serverDisconnects = serverDisconnects.filter((t) => now - t < 60_000);

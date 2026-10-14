@@ -47,6 +47,15 @@ describe('UsersPage (admin management)', () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/status') && c.body?.status === 'SUSPENDED')).toBe(true));
   });
 
+  it('names each row’s buttons after the user, so a screen reader does not hear "Edit, Edit, Edit"', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Edit omar' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Delete omar' }));
+    expect(screen.getByRole('button', { name: 'Confirm deleting omar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'No, keep omar' })).toBeInTheDocument();
+  });
+
   it('creates a new user from the modal', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
@@ -65,7 +74,7 @@ describe('UsersPage (admin management)', () => {
   it('edits a user’s email and roles from the edit modal', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^edit /i })[0]!);
     const email = await screen.findByLabelText(/email/i);
     await userEvent.clear(email);
     await userEvent.type(email, 'omar2@x.co');
@@ -108,7 +117,7 @@ describe('UsersPage (admin management)', () => {
     }));
     renderPage();
     await waitFor(() => expect(screen.getByText('admin')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^edit /i })[0]!);
     expect(await screen.findByText(/can’t change your own roles or account status/i)).toBeInTheDocument();
     expect(screen.getByLabelText('Administrator')).toBeDisabled();
     expect(screen.getByLabelText(/account status/i)).toBeDisabled();
@@ -134,7 +143,7 @@ describe('UsersPage (admin management)', () => {
   it('applies the shared password rule when an admin resets a password (SEC-12)', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^edit /i })[0]!);
     expect(screen.getByText(/at least 8 characters, with a letter and a number/i)).toBeInTheDocument();
     await userEvent.type(await screen.findByLabelText(/new password/i), 'abc123');
     await userEvent.click(screen.getByRole('button', { name: /^reset$/i }));
@@ -145,7 +154,7 @@ describe('UsersPage (admin management)', () => {
   it('resets a user’s password from the edit modal', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    await userEvent.click(screen.getAllByRole('button', { name: /^edit /i })[0]!);
     await userEvent.type(await screen.findByLabelText(/new password/i), 'FreshPass1!');
     await userEvent.click(screen.getByRole('button', { name: /^reset$/i }));
     await waitFor(() =>

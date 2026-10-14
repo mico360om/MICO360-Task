@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import type { RecordTaskActivity } from './modules/activity/task-activity';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -34,6 +35,7 @@ import type { AttachmentService } from './modules/tasks/attachment-service';
 import { registerDependencyRoutes } from './modules/tasks/dependency-routes';
 import type { DependencyService } from './modules/tasks/dependency-service';
 import { registerUserRoutes } from './modules/users/user-routes';
+import { registerPreferenceRoutes, type PreferencesRepository } from './modules/users/user-preferences';
 import type { UserService } from './modules/users/user-service';
 import { registerNotificationRoutes } from './modules/notifications/notification-routes';
 import type { NotificationService } from './modules/notifications/notification-service';
@@ -77,6 +79,12 @@ import type { CorsOriginMatcher } from './lib/cors-origins';
 import type { DataExporter } from './modules/users/data-export';
 
 export interface AppDeps extends AuthRouteDeps {
+  /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
+  userPreferences?: PreferencesRepository;
+  /** How many copies a recurring series has (the calendar's projected dates respect its count). */
+  seriesInstanceCount?: (seriesId: string) => Promise<number>;
+  /** Write a line to a task's activity timeline — checklist, comment, file and blocker changes. */
+  recordTaskActivity?: RecordTaskActivity;
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
   /** Public app config surfaced at GET /api/v1/config (company time zone, names, whether email works). */
   appConfig?: { timeZone: string; productName: string; companyName: string; emailEnabled?: boolean; androidAppUrl?: string | null };
@@ -130,6 +138,10 @@ export interface AppDeps extends AuthRouteDeps {
   actionItemService?: ActionItemService;
   /** Inherit a meeting's project id on action-item creation. */
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
+  /** Attendee / open action-item counts for the meetings list. */
+  meetingListCounts?: (meetingIds: string[]) => Promise<Record<string, { attendeeCount: number; openActionItemCount: number }>>;
+  /** Board keys of tasks by id (meeting action items name their linked task). */
+  resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
   /** Resolve user ids → display names for server-rendered documents (e.g. meeting minutes). */
   resolveUserNames?: (ids: string[]) => Promise<Map<string, string>>;
   /** Resolve a project id → its details for server-rendered documents (meeting minutes header). */
@@ -252,6 +264,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (req.url.startsWith('/uploads/') || req.url.startsWith('/email-assets/')) {
       reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
+    // Private data. API answers are never stored by a browser or a proxy (a shared computer's Back
+    // button or a caching proxy must not replay someone's tasks), and neither they nor uploaded
+    // files may appear in a search engine.
+    if (req.url.startsWith('/api/')) {
+      if (!reply.hasHeader('Cache-Control')) reply.header('Cache-Control', 'no-store');
+      reply.header('X-Robots-Tag', 'noindex, nofollow');
+    } else if (req.url.startsWith('/uploads/')) {
+      reply.header('X-Robots-Tag', 'noindex, nofollow');
+    }
     return payload;
   });
 
@@ -296,7 +317,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // Lets sign-in screens hide "email me a code" / password reset when email isn't set up.
       emailEnabled: deps.appConfig?.emailEnabled ?? true,
       // Where the "Download for Android" button points: ANDROID_APP_URL, or the APK a self-contained
-      // install hosts at /downloads/MICO360-Tasks.apk. Null: the web app opens the public releases page.
+      // install hosts at /downloads/MICO360-Tasks.apk. Null: the web app offers that same address
+      // on its own site (the file is put there by the site package) and asks the site whether the
+      // file is there; it never sends anyone to a code-hosting page.
       androidAppUrl: deps.appConfig?.androidAppUrl || null,
       serverTime: new Date().toISOString(),
     },
@@ -376,6 +399,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           tagService: deps.tagService,
           assigneeService: deps.assigneeService,
           carryForwardService: deps.carryForwardService,
+          countSeries: deps.seriesInstanceCount,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -423,6 +447,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             ? async (taskId) => (await deps.taskService!.getTask(taskId)).projectId
             : undefined,
           canViewTask,
+          recordActivity: deps.recordTaskActivity,
         });
       }
       if (deps.commentService) {
@@ -434,6 +459,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             ? async (taskId) => (await deps.taskService!.getTask(taskId)).projectId
             : undefined,
           canViewTask,
+          recordActivity: deps.recordTaskActivity,
         });
       }
       if (deps.chatService) {
@@ -453,10 +479,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           maxSizeBytes: deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024,
           canViewTask,
+          recordActivity: deps.recordTaskActivity,
         });
       }
       if (deps.dependencyService) {
-        await registerDependencyRoutes(api, { dependencyService: deps.dependencyService, guard, canViewTask });
+        await registerDependencyRoutes(api, { dependencyService: deps.dependencyService, guard, canViewTask, recordActivity: deps.recordTaskActivity });
+      }
+      if (deps.userPreferences) {
+        // A static path, so /users/me/preferences is never read as the admin route /users/:id.
+        await registerPreferenceRoutes(api, { repo: deps.userPreferences, guard });
       }
       if (deps.userService) {
         await registerUserRoutes(api, {
@@ -482,7 +513,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds });
       }
       if (deps.meetingService) {
-        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger });
+        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts });
       }
       if (deps.attendeeService) {
         await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting });
@@ -496,6 +527,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           canViewMeeting,
           resolveMeetingProjectId: deps.resolveMeetingProjectId,
+          resolveTaskKeys: deps.resolveTaskKeys,
         });
       }
       if (deps.noteService) {
@@ -513,10 +545,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           attendeeService: deps.attendeeService,
           agendaService: deps.agendaService,
           noteService: deps.noteService,
+          actionItemService: deps.actionItemService,
           guard,
           canViewMeeting,
           resolveUserNames: deps.resolveUserNames,
           resolveProject: deps.resolveProject,
+          resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,
         });
       }

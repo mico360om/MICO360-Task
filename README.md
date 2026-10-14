@@ -28,13 +28,13 @@ npm workspaces: `Web Portal/backend`, `Web Portal/frontend`, `Extension` (worksp
 
 ## Test status
 
-`npm test` in each app → **2,225 passing** (backend 1,178 · web 521 · Android 340 · extension 186),
+`npm test` in each app → **3,040 passing** (backend 1,385 · web 1,024 · Android 424 · extension 207),
 with typecheck and lint clean everywhere. Plus `npm run test:db` (Prisma integration on MySQL 8)
 and `npm run test:e2e` (live-API lifecycle), and the release acceptance test
-`tools/release/verify-server.mjs` (77 checks against a freshly installed server — web app, sign-in,
+`tools/release/verify-server.mjs` (83 checks against a freshly installed server — web app, sign-in,
 users, Arabic projects/tasks, recurring tasks, files, reports, chat + realtime, meetings, permissions).
 
-## Release packages (v0.3.0)
+## Release packages (v0.4.0)
 
 `node tools/release/build-release.mjs` builds the Windows installer, the Hostinger server package and
 the Chrome extension zip into `Installer/`, one folder per environment (Hostinger web server, Windows

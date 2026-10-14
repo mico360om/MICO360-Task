@@ -77,7 +77,7 @@ export function ProfileMenu() {
             <div className="min-w-0">
               <p dir="auto" className="truncate text-sm font-semibold text-ink">{user?.username}</p>
               <p className="truncate text-xs text-ink-2">{user?.email}</p>
-              <span className="mt-0.5 inline-block rounded bg-ground px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-2">
+              <span className="mt-0.5 inline-block rounded bg-ground px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-2">
                 {admin ? 'Administrator' : 'Employee'}
               </span>
             </div>

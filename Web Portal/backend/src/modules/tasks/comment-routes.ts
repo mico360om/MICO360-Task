@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { CommentService } from './comment-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { noteActivity, type RecordTaskActivity } from '../activity/task-activity';
 import { idString, longText } from './validation';
 
 const commentBody = longText.refine((s) => s.trim().length > 0, { message: 'A comment cannot be empty.' });
@@ -17,6 +18,8 @@ export interface CommentRouteDeps {
   projectIdOfTask?: (taskId: string) => Promise<string | null>;
   /** Object-level view authorization: may this user see/comment on this task? */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
+  /** Write a line to the task's activity timeline (who did what). */
+  recordActivity?: RecordTaskActivity;
 }
 
 export async function registerCommentRoutes(app: FastifyInstance, deps: CommentRouteDeps): Promise<void> {
@@ -37,12 +40,20 @@ export async function registerCommentRoutes(app: FastifyInstance, deps: CommentR
     return { data: await commentService.listComments(id) };
   });
 
+  // The people an @mention in this task's comments would notify (its project's audience).
+  app.get('/tasks/:id/mentionable', { preHandler: guard.authenticate }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!(await canView(req, id))) return reply.status(403).send(denied);
+    return { data: await commentService.mentionable(id) };
+  });
+
   app.post('/tasks/:id/comments', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(denied);
     const { body, parentId } = createSchema.parse(req.body);
     const comment = await commentService.addComment(id, req.user!.id, body, parentId);
     await announce(id, 'comment:created', { taskId: id, comment });
+    await noteActivity(deps.recordActivity, { taskId: id, userId: req.user!.id, action: 'COMMENTED', meta: { commentId: comment.id } });
     return reply.status(201).send({ data: comment });
   });
 

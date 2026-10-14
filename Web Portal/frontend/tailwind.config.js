@@ -3,6 +3,11 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: ['selector', ':root[data-theme="dark"]'],
   theme: {
+    // The usual widths (640 / 768 / 1024 / 1280 / 1536px at the default 16px text), in em so they
+    // follow the reader's default text size: sizes here are rem, so with larger text the layout must
+    // switch to its narrower form sooner — exactly what page zoom does. In px, a laptop set to
+    // "very large" text kept the desktop layout with a third less room (cut and overlapping text).
+    screens: { sm: '40em', md: '48em', lg: '64em', xl: '80em', '2xl': '96em' },
     extend: {
       // Colors are CSS variables (space-separated RGB) so the palette can be re-themed at
       // runtime (light/dark) without changing components. Light values live in index.css :root
@@ -35,6 +40,20 @@ export default {
           review: 'rgb(var(--c-cat-review) / <alpha-value>)',
           done: 'rgb(var(--c-cat-done) / <alpha-value>)',
         },
+      },
+      // As text, the brand and status colours use their "text tone" so small labels reach 4.5:1 on white,
+      // on the page ground and on their own soft tint; bg-/border-/ring- utilities keep the fill colour.
+      textColor: {
+        brand: {
+          DEFAULT: 'rgb(var(--c-brand-text) / <alpha-value>)',
+          2: 'rgb(var(--c-brand-2) / <alpha-value>)',
+          3: 'rgb(var(--c-brand-3) / <alpha-value>)',
+          ink: 'rgb(var(--c-brand-ink) / <alpha-value>)',
+        },
+        danger: { DEFAULT: 'rgb(var(--c-danger-text) / <alpha-value>)', soft: 'rgb(var(--c-danger-soft) / <alpha-value>)' },
+        success: { DEFAULT: 'rgb(var(--c-success-text) / <alpha-value>)', soft: 'rgb(var(--c-success-soft) / <alpha-value>)' },
+        warning: { DEFAULT: 'rgb(var(--c-warning-text) / <alpha-value>)', soft: 'rgb(var(--c-warning-soft) / <alpha-value>)' },
+        info: { DEFAULT: 'rgb(var(--c-info-text) / <alpha-value>)', soft: 'rgb(var(--c-info-soft) / <alpha-value>)' },
       },
       fontFamily: {
         sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],

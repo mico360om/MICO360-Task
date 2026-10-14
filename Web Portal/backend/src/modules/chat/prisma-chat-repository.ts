@@ -78,13 +78,35 @@ export function createPrismaParticipantRepository(prisma: PrismaClient): Partici
         update: { lastReadAt: at },
       });
     },
+    async setPrefs(conversationId, userId, patch) {
+      return prisma.conversationParticipant.update({ where: { conversationId_userId: { conversationId, userId } }, data: patch });
+    },
+    async setLastDelivered(conversationId, userId, at) {
+      // Only ever forward: a late request from an old tab can't move "delivered" back.
+      await prisma.conversationParticipant.updateMany({
+        where: { conversationId, userId, OR: [{ lastDeliveredAt: null }, { lastDeliveredAt: { lt: at } }] },
+        data: { lastDeliveredAt: at },
+      });
+    },
   };
 }
 
 export function createPrismaMessageRepository(prisma: PrismaClient): MessageRepository {
   return {
-    async create(conversationId, userId, body) {
-      return prisma.chatMessage.create({ data: { conversationId, userId, body } });
+    async create(conversationId, userId, body, extra) {
+      return prisma.chatMessage.create({ data: { conversationId, userId, body, replyToId: extra?.replyToId ?? null, clientId: extra?.clientId ?? null } });
+    },
+    async findByClientId(conversationId, userId, clientId) {
+      return prisma.chatMessage.findUnique({ where: { conversationId_userId_clientId: { conversationId, userId, clientId } } });
+    },
+    async search(conversationIds, q, limit) {
+      if (conversationIds.length === 0) return [];
+      // The column's collation is case-insensitive, so "budget" also finds "Budget".
+      return prisma.chatMessage.findMany({
+        where: { conversationId: { in: conversationIds }, deletedAt: null, body: { contains: q } },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
     },
     async findById(id) {
       return prisma.chatMessage.findUnique({ where: { id } });
@@ -189,6 +211,16 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
     async isActiveUser(userId) {
       const u = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
       return u !== null;
+    },
+    async projectMemberIds(projectId) {
+      const p = await prisma.project.findFirst({
+        where: { id: projectId, deletedAt: null },
+        select: { ownerId: true, managerId: true, createdById: true, members: { select: { userId: true } } },
+      });
+      if (!p) return [];
+      const ids = [p.ownerId, p.managerId, p.createdById, ...p.members.map((m) => m.userId)].filter((x): x is string => !!x);
+      const active = await prisma.user.findMany({ where: { id: { in: [...new Set(ids)] }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
+      return active.map((u) => u.id);
     },
   };
 }

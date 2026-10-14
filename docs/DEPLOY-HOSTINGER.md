@@ -103,9 +103,17 @@ Environment variables**, and add each `KEY = VALUE` from that file. At minimum:
 | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` | the **rotated** Mailjet keys — without them sign-in codes, password-reset links and meeting invitations are disabled (the API answers 503 `EMAIL_NOT_CONFIGURED`) |
 | `MAILJET_WEBHOOK_TOKEN` | a random secret; also put it in Mailjet's event-webhook URL (see `docs/EMAIL.md`). In production the webhook refuses every event until it is set. |
 
-Optional: `ANDROID_APP_URL` (where the sign-in page's "Download for Android" points — upload the APK as
-`public_html/downloads/MICO360-Tasks.apk` and set `/downloads/MICO360-Tasks.apk`; blank = the GitHub
-releases page), `FCM_SERVICE_ACCOUNT_JSON` or `FCM_SERVICE_ACCOUNT_FILE` (Firebase service-account key —
+To check the phone-app download after an upload, from any machine (no sign-in, no GitHub):
+`curl -sI https://task.mico360.com/downloads/MICO360-Tasks.apk` should answer `200`, with
+`content-type: application/vnd.android.package-archive` and the file's size; on a phone, the
+sign-in page's button saves the file and Android offers to install it.
+
+Optional: `ANDROID_APP_URL` (only to send the sign-in page's "Download for Android" button somewhere
+other than the site's own APK — a store page, say. Blank is right for the usual set-up: the button
+downloads `https://task.mico360.com/downloads/MICO360-Tasks.apk`, the file the site package puts in
+`public_html/downloads/`; to publish a new build, replace that one file, the address never changes;
+until the file is there the button says "Not available yet"), `FCM_SERVICE_ACCOUNT_JSON` or
+`FCM_SERVICE_ACCOUNT_FILE` (Firebase service-account key —
 turns on phone push), `ACCOUNT_LOCK_MINUTES` (first lockout length, default 15), `RATE_LIMIT_MAX` /
 `AUTH_RATE_LIMIT_MAX` (per-minute limits, default 600 / 20), `AI_ALLOW_PRIVATE_HOSTS=true` (only for
 an AI provider on the internal network, e.g. a local Ollama), `AI_USER_REQUESTS_PER_MINUTE` /

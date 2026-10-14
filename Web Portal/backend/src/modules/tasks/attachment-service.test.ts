@@ -88,6 +88,13 @@ describe('AttachmentService.upload', () => {
     expect(mem.saved).toHaveLength(0);
   });
 
+  it('explains a refusal in plain words (no raw type names or byte counts)', async () => {
+    const exe: UploadedFile = { filename: 'setup.exe', mimeType: 'application/x-msdownload', content: Buffer.from('MZ') };
+    await expect(svc.upload('t1', 'u1', exe)).rejects.toThrow('“.exe” files can’t be attached. Try a document, image, PDF or zip instead.');
+    const big: UploadedFile = { filename: 'big.png', mimeType: 'image/png', content: Buffer.alloc(2048) };
+    await expect(svc.upload('t1', 'u1', big)).rejects.toThrow('That file is too large — the limit is 1 KB.');
+  });
+
   it('rejects an empty file', async () => {
     const empty: UploadedFile = { filename: 'empty.png', mimeType: 'image/png', content: Buffer.alloc(0) };
     await expect(svc.upload('t1', 'u1', empty)).rejects.toBeInstanceOf(ValidationError);

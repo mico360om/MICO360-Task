@@ -27,6 +27,15 @@ function inMemory(): NotificationRepository {
     async markRead(id) { const n = { ...rows.get(id)!, readAt: new Date() }; rows.set(id, n); return n; },
     async markAllRead(userId) { for (const n of rows.values()) if (n.userId === userId && !n.readAt) n.readAt = new Date(); },
     async unreadCount(userId) { return [...rows.values()].filter((n) => n.userId === userId && !n.readAt).length; },
+    async findUnread(userId, type, entityType, entityId) {
+      return [...rows.values()].reverse().find((n) => n.userId === userId && n.type === type && n.entityType === entityType && n.entityId === entityId && !n.readAt) ?? null;
+    },
+    async refresh(id, data) { const n = { ...rows.get(id)!, title: data.title, body: data.body ?? null, createdAt: new Date() }; rows.set(id, n); return n; },
+    async markEntityRead(userId, entityType, entityId) {
+      let count = 0;
+      for (const n of rows.values()) if (n.userId === userId && n.entityType === entityType && n.entityId === entityId && !n.readAt) { n.readAt = new Date(); count += 1; }
+      return count;
+    },
   };
 }
 
@@ -62,6 +71,66 @@ describe('NotificationService', () => {
     await svc.notify({ userId: 'u1', type: 'X', title: 'b' });
     await svc.markAllRead('u1');
     expect(await svc.unreadCount('u1')).toBe(0);
+  });
+
+  describe('one waiting notification per conversation (direct messages)', () => {
+    const dm = (title: string, conversation = 'c1') => ({ userId: 'u1', type: 'CHAT_MESSAGE', title, entityType: 'conversation', entityId: conversation });
+
+    it('a second message in the same conversation updates the waiting notification instead of adding one', async () => {
+      const first = (await svc.notifyOnce(dm('New message from Aisha Khan')))!;
+      const second = (await svc.notifyOnce(dm('2 new messages from Aisha Khan')))!;
+      expect(second.id).toBe(first.id);
+      expect(await svc.unreadCount('u1')).toBe(1);
+      expect((await svc.listForUser('u1')).map((n) => n.title)).toEqual(['2 new messages from Aisha Khan']);
+    });
+
+    it('two messages arriving at the same moment still leave one waiting notification', async () => {
+      const [first, second] = await Promise.all([
+        svc.notifyOnce(dm('New message from Aisha Khan')),
+        svc.notifyOnce(dm('2 new messages from Aisha Khan')),
+      ]);
+      expect(second!.id).toBe(first!.id);
+      expect(await svc.unreadCount('u1')).toBe(1);
+      expect((await svc.listForUser('u1')).map((n) => n.title)).toEqual(['2 new messages from Aisha Khan']);
+      // The next one, on its own, still finds that row.
+      const third = (await svc.notifyOnce(dm('3 new messages from Aisha Khan')))!;
+      expect(third.id).toBe(first!.id);
+      expect(await svc.unreadCount('u1')).toBe(1);
+    });
+
+    it('another conversation, or one already read, gets its own notification', async () => {
+      const first = (await svc.notifyOnce(dm('New message from Aisha Khan')))!;
+      await svc.notifyOnce(dm('New message from Omar Ahmed', 'c2'));
+      expect(await svc.unreadCount('u1')).toBe(2);
+      await svc.markRead(first.id, 'u1');
+      const again = (await svc.notifyOnce(dm('New message from Aisha Khan')))!;
+      expect(again.id).not.toBe(first.id);
+      expect(await svc.unreadCount('u1')).toBe(2);
+    });
+
+    it('reading the conversation clears its notifications, and only its own', async () => {
+      await svc.notifyOnce(dm('New message from Aisha Khan'));
+      await svc.notify({ userId: 'u1', type: 'CHAT_MENTION', title: 'You were mentioned in chat', entityType: 'conversation', entityId: 'c1' });
+      await svc.notifyOnce(dm('New message from Omar Ahmed', 'c2'));
+      await svc.notify({ userId: 'u2', type: 'CHAT_MESSAGE', title: 'for someone else', entityType: 'conversation', entityId: 'c1' });
+
+      expect(await svc.markEntityRead('u1', 'conversation', 'c1')).toBe(2);
+      expect(await svc.unreadCount('u1')).toBe(1);
+      expect(await svc.unreadCount('u2')).toBe(1);
+    });
+
+    it('respects a muted type and still pushes each message to the phone', async () => {
+      const push = { sendToUser: vi.fn(async () => 1) };
+      const prefs = { get: async () => ({ muted: ['CHAT_MESSAGE'] }), set: async (_: string, p: unknown) => p };
+      const muted = createNotificationService({ notifications: inMemory(), preferences: prefs as never, push });
+      expect(await muted.notifyOnce(dm('x'))).toBeNull();
+      expect(push.sendToUser).not.toHaveBeenCalled();
+
+      const loud = createNotificationService({ notifications: inMemory(), push });
+      await loud.notifyOnce(dm('New message from Aisha Khan'));
+      await loud.notifyOnce(dm('2 new messages from Aisha Khan'));
+      expect(push.sendToUser).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('suppresses a muted notification type per user preferences', async () => {

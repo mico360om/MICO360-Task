@@ -1,0 +1,9 @@
+# MICO360 Tasks is a private workspace. Only the sign-in, privacy and terms pages are public;
+# every other page answers with "noindex" (X-Robots-Tag header and robots meta tag).
+User-agent: *
+Disallow: /api/
+Disallow: /uploads/
+Disallow: /socket.io/
+Disallow: /downloads/
+Disallow: /reset
+Disallow: /forgot

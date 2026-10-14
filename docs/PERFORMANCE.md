@@ -25,6 +25,18 @@ or the network is tight.
   reconnect; list reads fall back to a local cache.
 - **No page-level horizontal overflow**, relative units, and skeletons keep layout stable
   during slow loads (no jank on reflow).
+- **Fonts ship with the app.** IBM Plex Sans and Archivo are bundled as plain per-weight files (`src/assets/fonts`,
+  SIL Open Font License) instead of being fetched from Google Fonts. Nothing is requested from
+  another site, so a page never stalls on a slow or unreachable font host — an office install
+  with no internet used to wait on it for every page — and no visit is reported to a third
+  party. `font-display: swap` shows text at once; each face is split by script
+  (`unicode-range`), so the "latin-ext" files download only when a page needs them.
+- **Right-sized images.** The two logos are stored at 4× their display size (they were 2330 px
+  wide for a ~100 px slot); the one for the other theme is `loading="lazy"` and is never
+  downloaded.
+- **One live connection per feature, kept open.** The chat listener joins and leaves project
+  rooms on its existing socket when the project list arrives, instead of dropping the
+  connection and opening a new one on every page load.
 
 ### Server (Node + Fastify + Prisma)
 - **Runs compiled JavaScript** in production (`node dist/src/server.js`) — no on-the-fly TS
@@ -67,12 +79,16 @@ teams. The lease locks make horizontal scaling safe when you do add workers.
   box, 128–256 MB is a reasonable floor.
 
 ### Serving the frontend
-- Serve the built `dist/` as **static files from nginx or a CDN**, not from Node. The
+- Serve the built `dist/` as **static files from nginx or a CDN** where you can. The
   filenames are content-hashed, so set long-lived immutable caching on `assets/*` and
   `no-cache` on `index.html`.
 - Enable **gzip/brotli** at the edge (nginx/CDN). The app ships pre-minified; edge compression
-  cuts the JS/JSON/PDF transfer roughly 3–4× for slow links. (Compressing in Node instead
-  trades CPU for bandwidth — prefer the edge on CPU-constrained servers.)
+  cuts the JS/JSON/PDF transfer roughly 3–4× for slow links.
+- **When the API serves the web app itself** (the Windows server install, or any setup with
+  nothing in front of Node) the build's **pre-compressed copies** are used: `vite build` writes
+  a `.br` and a `.gz` file next to each script and stylesheet (`src/tooling/precompress.ts`), and
+  the API sends the copy the browser accepts (`preCompressed` in `lib/web-app.ts`). No CPU is
+  spent compressing per request. Scripts and styles go from about 810 KB to about 220 KB.
 
 ### Storage
 - Uploaded files (`UPLOAD_DIR`) and the SQLite-free Postgres/MySQL data are the only growth.
@@ -86,6 +102,22 @@ teams. The lease locks make horizontal scaling safe when you do add workers.
   concurrency grows.
 - **Client:** any browser from the last few years on a 2 GB-RAM device; the initial payload is
   ~130 KB gzip and each screen adds a few KB more only when opened.
+
+## Measured (October 2026 audit)
+
+Cold load on an emulated slow connection (1.6 Mbps down, 150 ms latency, CPU slowed 4×), the API
+serving the web app itself:
+
+| Page      | Transferred before → after | Largest paint before → after |
+|-----------|----------------------------|------------------------------|
+| Sign-in   | 748 KB → 306 KB            | 3.2 s → 1.5 s                |
+| Dashboard | 869 KB → 445 KB            | 4.7 s → 2.1 s                |
+| Board     | 794 KB → 331 KB            | 4.4 s → 1.9 s                |
+| My Tasks  | 786 KB → 329 KB            | 4.3 s → 2.2 s                |
+| Reports   | 785 KB → 350 KB            | 4.5 s → 2.4 s                |
+
+Requests to other sites: 3 → 0. The gains come from the pre-compressed assets, the bundled
+fonts and the smaller logos described above.
 
 ## Verifying
 - `npm run build --workspace @mico360/frontend` prints the per-chunk sizes — confirm no single

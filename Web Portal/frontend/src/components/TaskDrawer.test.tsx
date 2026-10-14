@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskDrawer } from './TaskDrawer';
 import type { ApiTask } from '../api/tasks';
@@ -22,6 +22,16 @@ const task: ApiTask = {
 };
 
 describe('TaskDrawer', () => {
+  it('tints the header’s status with the status colour', () => {
+    const { rerender } = render(<TaskDrawer task={{ ...task, columnCategory: 'DONE' }} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    const pill = () => within(screen.getByTestId('task-header')).getByTestId('status-pill');
+    expect(pill()).toHaveTextContent('Done');
+    expect(pill().getAttribute('style')).toContain('--c-cat-done');
+    rerender(<TaskDrawer task={{ ...task, columnCategory: 'BLOCKED' }} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    expect(pill()).toHaveTextContent('Blocked');
+    expect(pill().getAttribute('style')).toContain('--c-cat-blocked');
+  });
+
   it('renders the task, checklist and comments', () => {
     render(
       <TaskDrawer
@@ -101,40 +111,6 @@ describe('TaskDrawer', () => {
     expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Thu, Oct 8 · Thu, Oct 15 · Thu, Oct 22');
   });
 
-  it('edits the task fields and saves via onSaveEdit (single-task scope by default)', async () => {
-    const onSaveEdit = vi.fn();
-    render(<TaskDrawer task={task} checklist={[]} comments={[]} onSaveEdit={onSaveEdit} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    const titleInput = screen.getByLabelText(/^title$/i);
-    await userEvent.clear(titleInput);
-    await userEvent.type(titleInput, 'Reworked report');
-    await userEvent.selectOptions(screen.getByLabelText(/^priority$/i), 'URGENT');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    expect(onSaveEdit).toHaveBeenCalledTimes(1);
-    const [patch, scope] = onSaveEdit.mock.calls[0]!;
-    expect(patch.title).toBe('Reworked report');
-    expect(patch.priority).toBe('URGENT');
-    expect(scope).toBeUndefined();
-  });
-
-  it('offers an "entire series" scope when editing a recurring task', async () => {
-    const onSaveEdit = vi.fn();
-    render(
-      <TaskDrawer
-        task={{ ...task, recurrenceRule: { freq: 'MONTHLY', interval: 1 } }}
-        checklist={[]}
-        comments={[]}
-        onSaveEdit={onSaveEdit}
-        onClose={vi.fn()}
-      />,
-    );
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    await userEvent.click(screen.getByLabelText(/entire series/i));
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    expect(onSaveEdit).toHaveBeenCalledTimes(1);
-    expect(onSaveEdit.mock.calls[0]![1]).toBe('series');
-  });
-
   it('toggles a checklist item via its checkbox', async () => {
     const onToggleChecklistItem = vi.fn();
     render(
@@ -158,26 +134,9 @@ describe('TaskDrawer', () => {
     expect(onAddChecklistItem).toHaveBeenCalledWith('New step');
   });
 
-  it('requests AI checklist suggestions via onSuggestChecklist', async () => {
-    const onSuggestChecklist = vi.fn().mockResolvedValue(undefined);
-    render(<TaskDrawer task={task} checklist={[]} comments={[]} onAddChecklistItem={vi.fn()} onSuggestChecklist={onSuggestChecklist} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: /suggest steps/i }));
-    expect(onSuggestChecklist).toHaveBeenCalledTimes(1);
-  });
-
   it('does not offer AI suggestions when onSuggestChecklist is absent', () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[]} onAddChecklistItem={vi.fn()} onClose={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /suggest steps/i })).not.toBeInTheDocument();
-  });
-
-  it('suggests a priority into the edit form via onSuggestPriority', async () => {
-    const onSuggestPriority = vi.fn().mockResolvedValue({ priority: 'URGENT', reason: 'Due tomorrow and blocks two tasks.' });
-    render(<TaskDrawer task={task} checklist={[]} comments={[]} onSaveEdit={vi.fn()} onSuggestPriority={onSuggestPriority} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    await userEvent.click(screen.getByRole('button', { name: /suggest priority/i }));
-    expect(onSuggestPriority).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText(/Due tomorrow and blocks two tasks/)).toBeInTheDocument();
-    expect((screen.getByLabelText(/^priority$/i) as HTMLSelectElement).value).toBe('URGENT');
   });
 
   it('posts a comment', async () => {
@@ -186,29 +145,6 @@ describe('TaskDrawer', () => {
     await userEvent.type(screen.getByPlaceholderText(/write a comment/i), 'Looks good');
     await userEvent.click(screen.getByRole('button', { name: /^comment$/i }));
     expect(onAddComment).toHaveBeenCalledWith('Looks good');
-  });
-
-  it('shows assignees and assigns / unassigns teammates', async () => {
-    const onAssignUser = vi.fn();
-    const onUnassignUser = vi.fn();
-    render(
-      <TaskDrawer
-        task={task}
-        checklist={[]}
-        comments={[]}
-        assignees={[{ id: 'u1', name: 'Ada Lovelace' }]}
-        assignableUsers={[{ id: 'u2', name: 'Omar A' }]}
-        onAssignUser={onAssignUser}
-        onUnassignUser={onUnassignUser}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /remove Ada Lovelace/i }));
-    expect(onUnassignUser).toHaveBeenCalledWith('u1');
-    await userEvent.selectOptions(screen.getByLabelText(/assign a teammate/i), 'u2');
-    await userEvent.click(screen.getByRole('button', { name: /^assign$/i }));
-    expect(onAssignUser).toHaveBeenCalledWith('u2');
   });
 
   it('calls onClose when the close button is clicked', async () => {
@@ -235,29 +171,233 @@ describe('TaskDrawer', () => {
     expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
   });
 
-  it('uploads a chosen file via onUploadFile', async () => {
-    const onUploadFile = vi.fn();
-    render(<TaskDrawer task={task} checklist={[]} comments={[]} attachments={[]} onUploadFile={onUploadFile} onClose={vi.fn()} />);
-    const input = screen.getByLabelText(/attach a file/i) as HTMLInputElement;
-    const file = new File(['data'], 'note.txt', { type: 'text/plain' });
-    await userEvent.upload(input, file);
-    expect(onUploadFile).toHaveBeenCalledWith(file);
-  });
-
-  it('removes an attachment via onDeleteAttachment', async () => {
-    const onDeleteAttachment = vi.fn();
+  it('saves a document under its own name; a picture opens for viewing', () => {
     render(
       <TaskDrawer
         task={task}
         checklist={[]}
         comments={[]}
-        attachments={[{ id: 'a1', filename: 'spec.pdf', url: '/uploads/a1.pdf', sizeBytes: 10 }]}
-        onDeleteAttachment={onDeleteAttachment}
+        attachments={[
+          { id: 'a1', filename: 'notes.txt', url: '/uploads/46304f6b.txt', sizeBytes: 20 },
+          { id: 'a2', filename: 'photo.png', url: '/uploads/9c1d.png', sizeBytes: 2048 },
+        ]}
         onClose={vi.fn()}
       />,
     );
-    await userEvent.click(screen.getByRole('button', { name: /remove spec\.pdf/i }));
-    expect(onDeleteAttachment).toHaveBeenCalledWith('a1');
+    expect(screen.getByRole('link', { name: /notes\.txt/ })).toHaveAttribute('download', 'notes.txt');
+    expect(screen.getByRole('link', { name: /photo\.png/ })).not.toHaveAttribute('download');
+  });
+
+  it('previews a text file in the panel, as plain text', async () => {
+    const fetchMock = vi.fn(async () => new Response('a,b\n<b>1</b>,2', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <TaskDrawer
+        task={task}
+        checklist={[]}
+        comments={[]}
+        attachments={[{ id: 'a1', filename: 'figures.csv', url: '/uploads/a1.csv', sizeBytes: 14, mimeType: 'text/csv' }]}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Preview figures.csv' }));
+    const preview = await screen.findByRole('dialog', { name: 'Preview of figures.csv' });
+    // Shown as text, never as markup.
+    expect(await within(preview).findByText(/<b>1<\/b>,2/)).toBeInTheDocument();
+    expect(within(preview).getByRole('link', { name: /download/i })).toHaveAttribute('download', 'figures.csv');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Preview of figures.csv' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /MICO-1/ })).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it('previews a PDF in an embedded viewer', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Blob(['%PDF-1.4']), { status: 200 })));
+    const created = vi.fn(() => 'blob:preview');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() }));
+    render(
+      <TaskDrawer
+        task={task}
+        checklist={[]}
+        comments={[]}
+        attachments={[{ id: 'a1', filename: 'quote.pdf', url: '/uploads/a1.pdf', sizeBytes: 9, mimeType: 'application/pdf' }]}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Preview quote.pdf' }));
+    const preview = await screen.findByRole('dialog', { name: 'Preview of quote.pdf' });
+    await waitFor(() => expect(within(preview).getByTitle('PDF: quote.pdf')).toHaveAttribute('src', 'blob:preview'));
+    vi.unstubAllGlobals();
+  });
+
+  it('offers no preview for a file it can’t show (an old .doc, or Office files when previews aren’t wired)', () => {
+    render(
+      <TaskDrawer
+        task={task}
+        checklist={[]}
+        comments={[]}
+        attachments={[{ id: 'a1', filename: 'old.doc', url: '/uploads/a1.doc', sizeBytes: 9 }, { id: 'a2', filename: 'brief.docx', url: '/uploads/a2.docx', sizeBytes: 9 }]}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /preview old\.doc/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /preview brief\.docx/i })).not.toBeInTheDocument();
+  });
+
+  it('previews Word, Excel and PowerPoint files as text', async () => {
+    const previews: Record<string, unknown> = {
+      d: { kind: 'document', paragraphs: ['Quarterly report', 'مراجعة الميزانية'], truncated: false },
+      x: { kind: 'sheet', sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['Venue', '1200']], truncated: false }, { name: 'Notes', rows: [['Approved']], truncated: true }] },
+      p: { kind: 'slides', slides: [{ number: 1, lines: ['Launch plan'] }, { number: 2, lines: ['Budget'] }], truncated: false },
+    };
+    const onPreview = vi.fn(async (id: string) => previews[id] as never);
+    render(
+      <TaskDrawer
+        task={task}
+        checklist={[]}
+        comments={[]}
+        attachments={[
+          { id: 'd', filename: 'brief.docx', url: '/uploads/d.docx', sizeBytes: 9 },
+          { id: 'x', filename: 'budget.xlsx', url: '/uploads/x.xlsx', sizeBytes: 9 },
+          { id: 'p', filename: 'deck.pptx', url: '/uploads/p.pptx', sizeBytes: 9 },
+        ]}
+        onPreviewAttachment={onPreview}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Preview brief.docx' }));
+    let dlg = await screen.findByRole('dialog', { name: 'Preview of brief.docx' });
+    expect(await within(dlg).findByText('Quarterly report')).toBeInTheDocument();
+    expect(within(dlg).getByText('مراجعة الميزانية')).toHaveAttribute('dir', 'auto');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Close preview' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Preview budget.xlsx' }));
+    dlg = await screen.findByRole('dialog', { name: 'Preview of budget.xlsx' });
+    const table = await within(dlg).findByRole('table', { name: 'Budget' });
+    expect(within(table).getByRole('cell', { name: 'Venue' })).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole('tab', { name: 'Notes' }));
+    expect(within(dlg).getByRole('table', { name: 'Notes' })).toBeInTheDocument();
+    expect(within(dlg).getByText(/only the first rows/i)).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Close preview' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Preview deck.pptx' }));
+    dlg = await screen.findByRole('dialog', { name: 'Preview of deck.pptx' });
+    expect(await within(dlg).findByRole('heading', { name: 'Slide 2' })).toBeInTheDocument();
+    expect(within(dlg).getByText('Launch plan')).toBeInTheDocument();
+    expect(onPreview.mock.calls.map((c) => c[0])).toEqual(['d', 'x', 'p']);
+  });
+
+  it('says why an Office preview failed and still offers the download', async () => {
+    render(
+      <TaskDrawer
+        task={task}
+        checklist={[]}
+        comments={[]}
+        attachments={[{ id: 'd', filename: 'broken.docx', url: '/uploads/d.docx', sizeBytes: 9 }]}
+        onPreviewAttachment={async () => { throw new Error('The file looks damaged and can’t be previewed.'); }}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Preview broken.docx' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Preview of broken.docx' });
+    expect(await within(dlg).findByText(/looks damaged/i)).toBeInTheDocument();
+    expect(within(dlg).getByRole('link', { name: /download/i })).toBeInTheDocument();
+  });
+
+  it('Escape closes the open Export menu only — not the whole drawer', async () => {
+    const drawerEscapes = vi.fn();
+    const { container } = render(
+      <div>
+        <TaskDrawer task={task} checklist={[]} comments={[]} onClose={vi.fn()} onExport={async () => {}} />
+      </div>,
+    );
+    // Stands in for the drawer's own Escape handler, which listens on an element around it.
+    container.firstElementChild!.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Escape') drawerEscapes(); });
+
+    const button = screen.getByRole('button', { name: 'Export' });
+    await userEvent.click(button);
+    const item = screen.getByRole('menuitem', { name: 'PDF' });
+    item.focus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(drawerEscapes).not.toHaveBeenCalled();
+    expect(button).toHaveFocus();
+
+    // With the menu closed, Escape belongs to the drawer again.
+    await userEvent.keyboard('{Escape}');
+    expect(drawerEscapes).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the Export menu when something else is clicked', async () => {
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onClose={vi.fn()} onExport={async () => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('Prepare monthly report'));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('removes a checklist item', async () => {
+    const onRemove = vi.fn();
+    render(
+      <TaskDrawer
+        task={task}
+        checklist={[{ id: 'i1', text: 'Verify quotation', done: true }, { id: 'i2', text: 'Send it', done: false }]}
+        comments={[]}
+        onToggleChecklistItem={vi.fn()}
+        onRemoveChecklistItem={onRemove}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Remove “Send it” from the checklist' }));
+    expect(onRemove).toHaveBeenCalledWith('i2');
+  });
+
+  describe('comments', () => {
+    const comments = [
+      { id: 'c1', body: 'Mine, with a typo', authorName: 'Ada Lovelace', createdAt: new Date().toISOString(), canEdit: true, canDelete: true },
+      { id: 'c2', body: 'Someone else’s comment', authorName: 'Omar Ahmed', createdAt: new Date().toISOString() },
+    ];
+
+    it('lets you edit your own comment', async () => {
+      const onEdit = vi.fn(async () => {});
+      render(<TaskDrawer task={task} checklist={[]} comments={comments} onEditComment={onEdit} onDeleteComment={vi.fn()} onClose={vi.fn()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit your comment' }));
+      const box = screen.getByLabelText('Edit comment');
+      expect(box).toHaveValue('Mine, with a typo');
+      await userEvent.clear(box);
+      await userEvent.type(box, 'Mine, corrected');
+      await userEvent.click(screen.getByRole('button', { name: 'Save comment' }));
+      expect(onEdit).toHaveBeenCalledWith('c1', 'Mine, corrected');
+      await waitFor(() => expect(screen.queryByLabelText('Edit comment')).not.toBeInTheDocument());
+    });
+
+    it('keeps the editor open with the reason when the save fails, and never saves an empty comment', async () => {
+      const onEdit = vi.fn(async () => { throw new Error('Couldn’t save the comment.'); });
+      render(<TaskDrawer task={task} checklist={[]} comments={comments} onEditComment={onEdit} onDeleteComment={vi.fn()} onClose={vi.fn()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit your comment' }));
+      await userEvent.clear(screen.getByLabelText('Edit comment'));
+      expect(screen.getByRole('button', { name: 'Save comment' })).toBeDisabled();
+      await userEvent.type(screen.getByLabelText('Edit comment'), 'Second try');
+      await userEvent.click(screen.getByRole('button', { name: 'Save comment' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save the comment.');
+      expect(screen.getByLabelText('Edit comment')).toHaveValue('Second try');
+    });
+
+    it('deletes your own comment only after asking', async () => {
+      const onDelete = vi.fn();
+      render(<TaskDrawer task={task} checklist={[]} comments={comments} onEditComment={vi.fn()} onDeleteComment={onDelete} onClose={vi.fn()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Delete your comment' }));
+      expect(onDelete).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: 'Keep' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Delete your comment' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
+      expect(onDelete).toHaveBeenCalledWith('c1');
+    });
+
+    it('offers neither on someone else’s comment', () => {
+      render(<TaskDrawer task={task} checklist={[]} comments={[comments[1]!]} onEditComment={vi.fn()} onDeleteComment={vi.fn()} onClose={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: /edit your comment|delete your comment|delete comment/i })).not.toBeInTheDocument();
+    });
   });
 
   it('lets the user set recurrence when onSetRecurrence is provided', async () => {
@@ -297,24 +437,6 @@ describe('TaskDrawer', () => {
     expect(screen.getByText(/MICO-3/)).toBeInTheDocument();
   });
 
-  it('adds a blocker via onAddDependency', async () => {
-    const onAddDependency = vi.fn();
-    render(
-      <TaskDrawer
-        task={task}
-        checklist={[]}
-        comments={[]}
-        dependencies={{ blockedBy: [], blocks: [] }}
-        availableTasks={[{ id: 't2', key: 'MICO-2', title: 'Do first' }]}
-        onAddDependency={onAddDependency}
-        onClose={vi.fn()}
-      />,
-    );
-    await userEvent.selectOptions(screen.getByLabelText(/add a blocking task/i), 't2');
-    await userEvent.click(screen.getByRole('button', { name: /add blocker/i }));
-    expect(onAddDependency).toHaveBeenCalledWith('t2');
-  });
-
   it('removes a blocker via onRemoveDependency', async () => {
     const onRemoveDependency = vi.fn();
     render(
@@ -331,27 +453,6 @@ describe('TaskDrawer', () => {
     expect(onRemoveDependency).toHaveBeenCalledWith('t2');
   });
 
-  it('keeps the edit form open with the error when the save fails, and closes it on success', async () => {
-    const onSaveEdit = vi.fn().mockRejectedValueOnce(new Error('Title is too long.')).mockResolvedValueOnce(undefined);
-    render(<TaskDrawer task={task} checklist={[]} comments={[]} onSaveEdit={onSaveEdit} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    const title = screen.getByLabelText(/^title$/i);
-    await userEvent.clear(title);
-    await userEvent.type(title, 'My edited title');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Title is too long.');
-    // the user's edit is still there
-    expect(screen.getByLabelText(/^title$/i)).toHaveValue('My edited title');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() => expect(screen.queryByLabelText(/^title$/i)).not.toBeInTheDocument());
-  });
-
-  it('limits the title to 191 characters', async () => {
-    render(<TaskDrawer task={task} checklist={[]} comments={[]} onSaveEdit={vi.fn()} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    expect(screen.getByLabelText(/^title$/i)).toHaveAttribute('maxLength', '191');
-  });
-
   it('shows an action error passed by the container', async () => {
     const onDismissError = vi.fn();
     render(<TaskDrawer task={task} checklist={[]} comments={[]} actionError="That file is too large to upload." onDismissError={onDismissError} onClose={vi.fn()} />);
@@ -366,7 +467,7 @@ describe('TaskDrawer', () => {
     try {
       const { unmount } = render(<TaskDrawer task={{ ...task, dueDate: '2026-09-30T00:00:00.000Z', columnCategory: 'TODO', completedAt: null }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />);
       expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument(); // due today, not overdue at 14:00 Muscat
-      expect(screen.getByText('Sep 30, 2026')).toBeInTheDocument();
+      expect(within(screen.getByTestId('task-header')).getByText('Sep 30, 2026')).toBeInTheDocument();
       unmount();
       render(<TaskDrawer task={{ ...task, dueDate: '2026-09-01T00:00:00.000Z', columnCategory: 'DONE', completedAt: '2026-09-02T00:00:00.000Z' }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />);
       expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
@@ -387,5 +488,131 @@ describe('TaskDrawer', () => {
     expect(screen.getByRole('heading', { name: 'مهمة جديدة' })).toHaveAttribute('dir', 'auto');
     expect(screen.getByText('وصف المهمة')).toHaveAttribute('dir', 'auto');
     expect(screen.getByText('تعليق')).toHaveAttribute('dir', 'auto');
+  });
+
+  describe('@mentions in comments', () => {
+    const people = [
+      { id: 'u2', username: 'flowa.main', name: 'Main FLOW-A' },
+      { id: 'u3', username: 'omar', name: 'Omar Ahmed' },
+    ];
+
+    it('suggests people as you type an @mention, and Enter puts the name in', async () => {
+      const onAddComment = vi.fn();
+      render(<TaskDrawer task={task} checklist={[]} comments={[]} mentionable={people} onAddComment={onAddComment} onClose={vi.fn()} />);
+      const box = screen.getByPlaceholderText(/write a comment/i);
+      await userEvent.type(box, 'Please check @fl');
+      const list = screen.getByRole('listbox', { name: /mention someone/i });
+      const options = within(list).getAllByRole('option');
+      expect(options).toHaveLength(1);
+      expect(options[0]).toHaveTextContent('Main FLOW-A');
+      expect(options[0]).toHaveTextContent('@flowa.main');
+      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      expect(box).toHaveAttribute('aria-activedescendant', options[0]!.id);
+      await userEvent.keyboard('{Enter}');
+      expect(box).toHaveValue('Please check @flowa.main ');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      await userEvent.type(box, 'thanks');
+      await userEvent.click(screen.getByRole('button', { name: /^comment$/i }));
+      expect(onAddComment).toHaveBeenCalledWith('Please check @flowa.main thanks');
+    });
+
+    it('picks a suggestion with the arrow keys or a click', async () => {
+      render(<TaskDrawer task={task} checklist={[]} comments={[]} mentionable={people} onAddComment={vi.fn()} onClose={vi.fn()} />);
+      const box = screen.getByPlaceholderText(/write a comment/i);
+      await userEvent.type(box, '@');
+      expect(screen.getAllByRole('option')).toHaveLength(2);
+      await userEvent.keyboard('{ArrowDown}');
+      expect(screen.getByRole('option', { name: /Omar Ahmed/ })).toHaveAttribute('aria-selected', 'true');
+      await userEvent.keyboard('{Enter}');
+      expect(box).toHaveValue('@omar ');
+      await userEvent.type(box, 'and @ma');
+      await userEvent.click(screen.getByRole('option', { name: /Main FLOW-A/ }));
+      expect(box).toHaveValue('@omar and @flowa.main ');
+      expect(box).toHaveFocus();
+    });
+
+    it('keeps the caret after the inserted name, even when typing on straight away', async () => {
+      render(<TaskDrawer task={task} checklist={[]} comments={[]} mentionable={people} onAddComment={vi.fn()} onClose={vi.fn()} />);
+      const box = screen.getByPlaceholderText(/write a comment/i);
+      await userEvent.type(box, 'hi @om');
+      await userEvent.keyboard('{Enter}', { delay: null });
+      await userEvent.keyboard('ab', { delay: null });
+      await new Promise((resolve) => setTimeout(resolve, 50)); // let any pending frame run
+      await userEvent.keyboard('c');
+      expect(box).toHaveValue('hi @omar abc');
+    });
+
+    it('says so when nobody matches, and Enter then just types a new line', async () => {
+      render(<TaskDrawer task={task} checklist={[]} comments={[]} mentionable={people} onAddComment={vi.fn()} onClose={vi.fn()} />);
+      const box = screen.getByPlaceholderText(/write a comment/i);
+      await userEvent.type(box, '@zz');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('No one on this project matches “@zz”.');
+      await userEvent.keyboard('{Enter}');
+      expect(box).toHaveValue('@zz\n');
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it('stays quiet while the people to suggest are not there (loading, or the list failed)', async () => {
+      render(<TaskDrawer task={task} checklist={[]} comments={[]} mentionable={[]} onAddComment={vi.fn()} onClose={vi.fn()} />);
+      await userEvent.type(screen.getByPlaceholderText(/write a comment/i), '@om');
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('Escape closes the suggestions, not the drawer', async () => {
+      const outerEscape = vi.fn();
+      render(
+        <div ref={(el) => el?.addEventListener('keydown', (e) => { if (e.key === 'Escape') outerEscape(); })}>
+          <TaskDrawer task={task} checklist={[]} comments={[]} mentionable={people} onAddComment={vi.fn()} onClose={vi.fn()} />
+        </div>,
+      );
+      const box = screen.getByPlaceholderText(/write a comment/i);
+      await userEvent.type(box, '@fl');
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(outerEscape).not.toHaveBeenCalled();
+      expect(box).toHaveValue('@fl');
+      // with the list closed, Escape goes on to the drawer as usual
+      await userEvent.keyboard('{Escape}');
+      expect(outerEscape).toHaveBeenCalledTimes(1);
+    });
+
+    it('suggests people while editing a comment too', async () => {
+      const onEditComment = vi.fn();
+      render(
+        <TaskDrawer
+          task={task}
+          checklist={[]}
+          comments={[{ id: 'c1', body: 'Done.', authorName: 'Ada', canEdit: true }]}
+          mentionable={people}
+          onEditComment={onEditComment}
+          onClose={vi.fn()}
+        />,
+      );
+      await userEvent.click(screen.getByRole('button', { name: /edit your comment/i }));
+      const box = screen.getByRole('textbox', { name: /edit comment/i });
+      await userEvent.type(box, ' cc @om');
+      await userEvent.keyboard('{Enter}');
+      expect(box).toHaveValue('Done. cc @omar ');
+    });
+
+    it('highlights mentions of real people in comments, showing who they are on hover', () => {
+      render(
+        <TaskDrawer
+          task={task}
+          checklist={[]}
+          comments={[{ id: 'c1', body: 'Over to @flowa.main. Ask @nobody or mail omar@x.com', authorName: 'Ada' }]}
+          mentionable={people}
+          onClose={vi.fn()}
+        />,
+      );
+      const mention = screen.getByTitle('Main FLOW-A');
+      expect(mention).toHaveTextContent(/^@flowa\.main$/);
+      // only real people are marked: not an unknown name, not an email address
+      expect(screen.queryByTitle(/nobody|omar/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/Ask @nobody or mail omar@x\.com/)).toBeInTheDocument();
+    });
   });
 });

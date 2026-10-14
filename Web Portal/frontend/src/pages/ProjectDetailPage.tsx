@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, assetUrl } from '../api/client';
+import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
 import { membersApi } from '../api/members';
 import { usersApi } from '../api/users';
@@ -19,6 +19,11 @@ import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { isOverdue as isPastDue } from '../lib/due-date';
 import { formatDueDay } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
+import { PageProblem, isMissing } from '../components/ui/PageProblem';
+import { ProjectAvatar } from '../components/ProjectAvatar';
+import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
+import { usePageName } from '../lib/page-meta';
+import { ApiError } from '../lib/api-client';
 
 type Tab = 'overview' | 'tasks' | 'team';
 
@@ -63,8 +68,14 @@ export function ProjectDetailPage() {
     [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
   const project = projectQ.data;
+  usePageName(project?.name);
   const members = Array.isArray(membersQ.data) ? membersQ.data : [];
   const canManage = isAdmin || members.some((m) => m.id === myId && m.role === 'MANAGER');
+  // The project's own details (name, look, owner…) are an admin's to change — the server refuses anyone
+  // else, so a manager is not shown controls that would fail. Managers run the team (see the Team tab).
+  const canEditProject = isAdmin;
+  const [detailsProblem, setDetailsProblem] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
   const ownerName = (ownerId: string | null) => {
@@ -74,10 +85,15 @@ export function ProjectDetailPage() {
   };
   const ownerOptions = [
     { value: '', label: 'No owner' },
-    ...directory.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` })),
+    ...directory.map((u) => {
+      const label = `${u.firstName} ${u.lastName}`.trim() || u.username;
+      return { value: u.id, label, hint: `@${u.username}`, icon: <Avatar name={label} size="sm" src={u.avatarUrl} /> };
+    }),
   ];
   const ownerMut = useMutation({
     mutationFn: (ownerId: string | null) => projectsApi(apiClient).update(id, { ownerId }),
+    onMutate: () => setDetailsProblem(null),
+    onError: (e) => setDetailsProblem(e instanceof ApiError && e.status === 403 ? 'Only an administrator can change the project owner.' : 'Couldn’t change the owner. Please try again.'),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['project', id] });
       void qc.invalidateQueries({ queryKey: ['projects'] });
@@ -137,54 +153,39 @@ export function ProjectDetailPage() {
     );
   };
 
-  // ---- Project image -----------------------------------------------------
-  const imageRef = useRef<HTMLInputElement>(null);
-  const [imageBusy, setImageBusy] = useState(false);
-  async function onImagePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !id) return;
-    setImageBusy(true);
-    try {
-      await projectsApi(apiClient).uploadImage(id, file);
-      await qc.invalidateQueries({ queryKey: ['project', id] });
-      void qc.invalidateQueries({ queryKey: ['projects'] });
-    } finally {
-      setImageBusy(false);
-    }
+  // No project to show: say which problem it is instead of rendering an empty shell of the page.
+  if (projectQ.isError && !project) {
+    const missing = isMissing(projectQ.error);
+    return (
+      <PageProblem
+        title={missing ? 'Project not found' : 'Couldn’t load this project'}
+        message={missing ? 'It may have been deleted, or the link is wrong.' : 'Check your connection and try again.'}
+        backTo="/projects"
+        backLabel="Back to projects"
+        onRetry={missing ? undefined : () => void projectQ.refetch()}
+        retrying={projectQ.isFetching}
+      />
+    );
   }
-  async function onImageRemove() {
-    if (!id) return;
-    setImageBusy(true);
-    try {
-      await projectsApi(apiClient).removeImage(id);
-      await qc.invalidateQueries({ queryKey: ['project', id] });
-      void qc.invalidateQueries({ queryKey: ['projects'] });
-    } finally {
-      setImageBusy(false);
-    }
-  }
+
+  const statsReady = !tasksQ.isLoading && !columnsQ.isLoading;
 
   return (
     <div>
-      <Link to="/projects" className="text-sm text-ink-2 hover:text-brand">← Projects</Link>
+      <Link to="/projects" className="tap text-sm text-ink-2 hover:text-brand">← Projects</Link>
 
       {/* Header */}
       <div className="mt-1 flex items-start gap-4">
-        {project?.imageUrl ? (
-          <img src={assetUrl(project.imageUrl)} alt={project.name} className="h-16 w-16 flex-none rounded-2xl border border-line object-cover shadow-soft" />
+        {!project ? (
+          <span className="skeleton h-16 w-16 flex-none rounded-2xl" aria-hidden="true" />
         ) : (
-          <span
-            className="grid h-16 w-16 flex-none place-items-center rounded-2xl text-xl font-bold text-white shadow-soft"
-            style={{ background: project?.color ?? 'rgb(var(--c-brand))' }}
-            aria-hidden="true"
-          >
-            {(project?.name ?? '?').slice(0, 2).toUpperCase()}
-          </span>
+          <ProjectAvatar project={project} size="xl" label className="shadow-soft" />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 dir="auto" className="font-display text-2xl font-bold text-ink">{project?.name ?? 'Project'}</h1>
+            <h1 dir="auto" className="font-display text-2xl font-bold text-ink">
+              {project ? project.name : <><span className="sr-only">Loading project…</span><span className="skeleton inline-block h-7 w-56 max-w-full align-middle" aria-hidden="true" /></>}
+            </h1>
             {project ? <Badge tone={PROJECT_STATUS_TONE[project.status] ?? 'neutral'} dot>{statusLabel(project.status)}</Badge> : null}
           </div>
           {project ? (
@@ -195,29 +196,31 @@ export function ProjectDetailPage() {
               <span>Owner: {ownerName(project.ownerId)}</span>
             </p>
           ) : null}
-          {canManage && project ? (
-            <div className="mt-1 flex items-center gap-3">
-              <input ref={imageRef} type="file" accept="image/*" hidden onChange={onImagePick} />
-              <button type="button" onClick={() => imageRef.current?.click()} disabled={imageBusy} className="text-xs font-semibold text-brand hover:underline disabled:opacity-50">
-                {imageBusy ? 'Uploading…' : project.imageUrl ? 'Change image' : 'Upload image'}
-              </button>
-              {project.imageUrl ? (
-                <button type="button" onClick={onImageRemove} disabled={imageBusy} className="text-xs text-ink-2 hover:text-danger hover:underline disabled:opacity-50">
-                  Remove
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          {detailsProblem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{detailsProblem}</p> : null}
         </div>
+        {canEditProject && project ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+            </svg>
+            <span className="max-sm:sr-only">Edit project</span>
+          </button>
+        ) : null}
       </div>
+      {editing && project ? <ProjectFormDialog project={project} onClose={() => setEditing(false)} /> : null}
 
       {/* Stat tiles — a snapshot of every task by status */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <StatTile label="Total tasks" value={stats.total} />
-        <StatTile label="Completed" value={stats.completed} tone="success" />
-        <StatTile label="In progress" value={stats.inProgress} tone="info" />
-        <StatTile label="Overdue" value={stats.overdue} tone="danger" />
-        <StatTile label="Completion" value={`${stats.pct}%`} tone="brand" />
+        {/* "—" until the tasks arrive: a zero would read as "this project has no tasks". */}
+        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} />
+        <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="success" />
+        <StatTile label="In progress" value={statsReady ? stats.inProgress : '—'} tone="info" />
+        <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" />
+        <StatTile label="Completion" value={statsReady ? `${stats.pct}%` : '—'} tone="brand" />
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-ground">
         <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${stats.pct}%` }} />
@@ -257,8 +260,8 @@ export function ProjectDetailPage() {
                   <p dir="auto" className="text-start text-sm text-ink-2">{project.description || 'No description yet.'}</p>
                   <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
                     <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Owner</span>
-                    {canManage ? (
-                      <div className="w-60">
+                    {canEditProject ? (
+                      <div className="w-60 max-w-full">
                         <SearchableSelect
                           ariaLabel="Project owner"
                           placeholder="No owner"
@@ -333,7 +336,7 @@ export function ProjectDetailPage() {
                 <section key={g.id}>
                   <div className="mb-2 flex items-center gap-2 px-1">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: g.color }} aria-hidden />
-                    <h3 className="text-sm font-bold text-ink">{g.name}</h3>
+                    <h2 className="text-sm font-bold text-ink">{g.name}</h2>
                     <span className="rounded-full bg-ground px-2 text-xs font-semibold text-ink-2">{g.tasks.length}</span>
                   </div>
                   <div className="card divide-y divide-line overflow-hidden">

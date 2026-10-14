@@ -2,16 +2,151 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fonts ship with the app (IBM Plex Sans for text, Archivo for headings — both SIL Open Font
+   License, see src/assets/fonts). Nothing is fetched from another site: pages do not stall when a
+   font host is slow, an office install without internet looks the same, and no visit is reported to
+   a third party. `swap` shows text at once in the fallback font. Each face is split by script
+   (unicode-range), so the "latin-ext" files download only when a page has such letters. */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-ext-500-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-500-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/ibm-plex-sans-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-ext-800-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-800-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-ext-900-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('./assets/fonts/archivo-latin-900-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   color-scheme: light;
   /* Light palette (space-separated RGB) — identical to the original hex values. */
   --c-brand: 139 30 30;
+  --c-brand-text: 139 30 30; /* the brand colour as text (differs from the fill in the dark theme) */
   --c-brand-2: 168 51 38;
   --c-brand-3: 199 81 63;
   --c-brand-ink: 94 20 20;
   --c-ink: 33 27 26;
   --c-ink-2: 108 98 95;
-  --c-ink-3: 122 111 107; /* #7A6F6B — ~4.5:1 on white, meets WCAG AA (was 148 137 133 ≈ 3.3:1) */
+  --c-ink-3: 115 105 101; /* #736965 — 4.5:1 or better on white AND on the page ground (#7A6F6B was 4.36 on the ground) */
   --c-line: 230 223 220;
   --c-line-2: 239 234 231;
   --c-surface: 255 255 255;
@@ -26,6 +161,12 @@
   --c-warning-soft: 251 241 225;
   --c-info: 58 110 165;
   --c-info-soft: 233 240 247;
+  /* Text tones: the status colours as TEXT, dark enough for 4.5:1 on white, on the page ground and
+     on their own soft tint. Fills, borders and icons keep the colours above (see tailwind.config). */
+  --c-danger-text: 192 66 47;
+  --c-success-text: 44 120 80;
+  --c-warning-text: 154 99 14;
+  --c-info-text: 58 110 165;
   --c-cat-backlog: 148 137 133;
   --c-cat-todo: 154 145 141;
   --c-cat-progress: 184 118 17;
@@ -39,20 +180,21 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
-    --c-brand: 218 106 85;
+    --c-brand: 188 62 44;
+    --c-brand-text: 224 122 102;
     --c-brand-2: 199 81 63;
     --c-brand-3: 216 108 90;
     --c-brand-ink: 120 30 30;
     --c-ink: 244 240 238;
     --c-ink-2: 178 168 163;
-    --c-ink-3: 138 127 122;
+    --c-ink-3: 150 140 135;
     --c-line: 58 50 47;
     --c-line-2: 48 41 39;
     --c-surface: 36 31 29;
     --c-surface-2: 44 38 36;
     --c-ground: 24 20 19;
     --c-ground-2: 32 27 25;
-    --c-danger: 232 106 87;
+    --c-danger: 200 72 54;
     --c-danger-soft: 58 35 32;
     --c-success: 74 176 122;
     --c-success-soft: 30 46 38;
@@ -60,6 +202,10 @@
     --c-warning-soft: 54 42 24;
     --c-info: 108 160 214;
     --c-info-soft: 28 38 50;
+    --c-danger-text: 232 106 87;
+    --c-success-text: 74 176 122;
+    --c-warning-text: 220 158 66;
+    --c-info-text: 108 160 214;
     --c-cat-backlog: 168 157 152;
     --c-cat-todo: 172 163 158;
     --c-cat-progress: 214 152 60;
@@ -70,20 +216,21 @@
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --c-brand: 218 106 85;
+  --c-brand: 188 62 44;
+  --c-brand-text: 224 122 102;
   --c-brand-2: 199 81 63;
   --c-brand-3: 216 108 90;
   --c-brand-ink: 120 30 30;
   --c-ink: 244 240 238;
   --c-ink-2: 178 168 163;
-  --c-ink-3: 138 127 122;
+  --c-ink-3: 150 140 135;
   --c-line: 58 50 47;
   --c-line-2: 48 41 39;
   --c-surface: 36 31 29;
   --c-surface-2: 44 38 36;
   --c-ground: 24 20 19;
   --c-ground-2: 32 27 25;
-  --c-danger: 232 106 87;
+  --c-danger: 200 72 54;
   --c-danger-soft: 58 35 32;
   --c-success: 74 176 122;
   --c-success-soft: 30 46 38;
@@ -91,6 +238,10 @@
   --c-warning-soft: 54 42 24;
   --c-info: 108 160 214;
   --c-info-soft: 28 38 50;
+  --c-danger-text: 232 106 87;
+  --c-success-text: 74 176 122;
+  --c-warning-text: 220 158 66;
+  --c-info-text: 108 160 214;
   --c-cat-backlog: 168 157 152;
   --c-cat-todo: 172 163 158;
   --c-cat-progress: 214 152 60;
@@ -112,15 +263,60 @@
     font-family: 'IBM Plex Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* A long word, link or file name wraps instead of running past its box. */
+    overflow-wrap: break-word;
+  }
+  /* One long title must never push a card past the screen edge. By default a grid item cannot be
+     narrower than its content (min-width: auto), so a single unbreakable or truncated line widens
+     the whole column — and with it every card in the grid. Let grid items shrink to their column. */
+  [class~='grid'] > * {
+    min-width: 0;
+  }
+  /* A text box in a row may shrink with the row. By default it refuses to go below its built-in
+     width (about 20 characters), which pushes the row past the screen edge on a narrow phone or
+     with large text. */
+  input,
+  select,
+  textarea {
+    min-width: 0;
   }
   h1, h2, h3 {
     letter-spacing: -0.01em;
   }
-  /* Keyboard focus only — visible, on-brand, never on mouse click. */
+  /* Touch screens: a finger needs a bigger target than a mouse pointer. On a coarse pointer every
+     control is at least 32px in each direction (WCAG 2.2 asks for 24px), tick boxes are 24px, and
+     a text link that stands alone gets the `tap` class. With a mouse the layout stays as dense as before. */
+  @media (pointer: coarse) {
+    button:not([role='switch']),
+    [role='button'],
+    [role='tab'],
+    [role='menuitem'],
+    [role='option'],
+    select,
+    summary {
+      min-height: 2rem;
+      min-width: 2rem;
+    }
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']),
+    textarea {
+      min-height: 2rem;
+    }
+    input[type='checkbox']:not(.sr-only),
+    input[type='radio']:not(.sr-only) {
+      width: 1.5rem;
+      height: 1.5rem;
+    }
+    .tap {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2rem;
+    }
+  }
+  /* Keyboard focus only — never on mouse click. A solid 2px ring in the brand colour (theme-aware),
+     set off from the control so it stays visible on any background, light or dark. */
   :focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(139, 30, 30, 0.2);
-    border-radius: 0.5rem;
+    outline: 2px solid rgb(var(--c-brand-text));
+    outline-offset: 2px;
   }
   ::selection {
     background: rgba(139, 30, 30, 0.16);
@@ -147,6 +343,14 @@
 }
 
 @layer components {
+  /* The chat fills the window under the top bar (--chat-top), less any part a phone's keyboard
+     covers (--chat-kb). dvh is the height really visible on a phone; vh is the fallback. */
+  .chat-frame {
+    height: calc(100vh - var(--chat-top, 57px) - var(--chat-kb, 0px));
+    height: calc(100dvh - var(--chat-top, 57px) - var(--chat-kb, 0px));
+    min-height: 22rem;
+  }
+
   /* Clearer, always-present horizontal scrollbar for the Kanban board. */
   .kanban-scroll {
     scrollbar-width: auto;
@@ -184,12 +388,26 @@
   .gradient-text {
     @apply bg-brand-sheen bg-clip-text text-transparent;
   }
+  /* On dark surfaces the deep end of the brand gradient is unreadable: use its light end. */
+  :root[data-theme='dark'] .gradient-text {
+    background-image: linear-gradient(135deg, #f0a08c 0%, #e07a66 100%);
+  }
   /* Loading skeleton shimmer. */
   .skeleton {
     @apply rounded-lg bg-line/70;
     background-image: linear-gradient(90deg, transparent 0%, rgb(var(--c-surface) / 0.7) 50%, transparent 100%);
     background-size: 200% 100%;
     @apply animate-shimmer;
+  }
+  /* A list that scrolls shows a soft shadow at the edge where more is hidden, so nothing below the
+     fold goes unnoticed (the sidebar on a short laptop screen). Pure CSS: the two "covers" scroll
+     with the content and hide the shadow once that end is reached. */
+  .scroll-shadows {
+    background:
+      linear-gradient(rgb(var(--c-surface)) 40%, rgb(var(--c-surface) / 0)) top / 100% 2rem no-repeat local,
+      linear-gradient(rgb(var(--c-surface) / 0), rgb(var(--c-surface)) 60%) bottom / 100% 2rem no-repeat local,
+      linear-gradient(rgb(var(--c-ink) / 0.14), rgb(var(--c-ink) / 0)) top / 100% 0.6rem no-repeat scroll,
+      linear-gradient(rgb(var(--c-ink) / 0), rgb(var(--c-ink) / 0.14)) bottom / 100% 0.6rem no-repeat scroll;
   }
   /* Frosted top bar (theme-aware). */
   .glass {

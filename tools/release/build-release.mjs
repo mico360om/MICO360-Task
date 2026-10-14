@@ -198,7 +198,8 @@ function compile(out, sources, { resources = [], stage }) {
   const refs = ['mscorlib', 'System', 'System.Core', 'System.Drawing', 'System.Windows.Forms', 'System.IO.Compression', 'System.IO.Compression.FileSystem'];
   run('dotnet', [
     findCsc(),
-    '-nologo', '-nostdlib', '-noconfig', '-target:winexe', '-langversion:latest', '-optimize+', '-warnaserror-', '-nowarn:1701,1702',
+    // -deterministic: the same sources always give the same bytes, so an antivirus verdict is repeatable.
+    '-nologo', '-nostdlib', '-noconfig', '-target:winexe', '-langversion:latest', '-optimize+', '-deterministic', '-warnaserror-', '-nowarn:1701,1702',
     `-out:${out}`,
     `-win32manifest:${path.join(WIN_SRC, 'app.manifest')}`,
     `-win32icon:${path.join(stage, 'app.ico')}`,
@@ -229,6 +230,14 @@ function antivirusCheck(file) {
   }
   if (!/Total OK:\s+[1-9]/.test(res.stdout ?? '')) throw new Error(`Kaspersky could not scan ${path.basename(file)}:
 ${(res.stdout ?? '').slice(-600)}`);
+  // Real-time protection can still remove a program that this scan passed (seen: a 0.4.0 launcher
+  // vanished seconds later and the installer shipped without it), so make sure it is still there.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15_000);
+  try {
+    fs.readFileSync(file);
+  } catch {
+    throw new Error(`${path.basename(file)} was removed by Kaspersky after its scan — do not ship this build. Code-sign the programs and report the false positive to Kaspersky, then rebuild.`);
+  }
   console.log(`  antivirus check (Kaspersky): ${path.basename(file)} is clean`);
 }
 
@@ -343,11 +352,13 @@ function buildWindows() {
 [assembly: AssemblyInformationalVersion("${VERSION}")]
 `,
   );
-  const shared = fs.readdirSync(path.join(WIN_SRC, 'Shared')).map((f) => path.join(WIN_SRC, 'Shared', f));
+  const shared = (...files) => files.map((f) => path.join(WIN_SRC, 'Shared', f));
   const logoW = path.join(BACKEND, 'assets', 'logo-w.png');
-  // Each program's own source first, then the shared code.
-  compile(path.join(payload, 'MICO360 Tasks Server.exe'), [path.join(WIN_SRC, 'Launcher', 'Program.cs'), ...shared], { stage, resources: [[logoW, 'logo-w.png']] });
-  compile(path.join(payload, 'Uninstall.exe'), [path.join(WIN_SRC, 'Uninstall', 'Program.cs'), ...shared], { stage, resources: [[logoW, 'logo-w.png']] });
+  // Each program's own source first, then only the shared code it uses. The launcher carries no
+  // install/uninstall code (Installation.cs): it never uses it, and a launcher build with the
+  // uninstaller's clean-up inside was flagged by Kaspersky as VHO:Trojan.Win32.SelfDel.gen.
+  compile(path.join(payload, 'MICO360 Tasks Server.exe'), [path.join(WIN_SRC, 'Launcher', 'Program.cs'), ...shared('ServerCore.cs', 'Ui.cs', 'AdminFields.cs')], { stage, resources: [[logoW, 'logo-w.png']] });
+  compile(path.join(payload, 'Uninstall.exe'), [path.join(WIN_SRC, 'Uninstall', 'Program.cs'), ...shared('ServerCore.cs', 'Ui.cs', 'Installation.cs')], { stage, resources: [[logoW, 'logo-w.png']] });
   antivirusCheck(path.join(payload, 'MICO360 Tasks Server.exe'));
   antivirusCheck(path.join(payload, 'Uninstall.exe'));
   fs.writeFileSync(
@@ -378,13 +389,16 @@ Microsoft Visual C++ runtime — licenses in the "licenses" folder.
   );
 
   log('Packing the installer payload');
+  for (const exe of ['MICO360 Tasks Server.exe', 'Uninstall.exe']) {
+    if (!fs.existsSync(path.join(payload, exe))) throw new Error(`${exe} is missing from the installer payload (removed by the antivirus?) — do not ship this build.`);
+  }
   const payloadZip = path.join(stage, 'payload.zip');
   zipDir(payload, payloadZip);
   console.log(`payload.zip: ${sizeMb(payloadZip)} MB`);
 
   fs.mkdirSync(TARGET.windows, { recursive: true });
   const setupExe = path.join(TARGET.windows, `MICO360-Tasks-Server-Setup-${VERSION}.exe`);
-  compile(setupExe, [path.join(WIN_SRC, 'Setup', 'Program.cs'), ...shared], {
+  compile(setupExe, [path.join(WIN_SRC, 'Setup', 'Program.cs'), ...shared('ServerCore.cs', 'Ui.cs', 'AdminFields.cs', 'Installation.cs')], {
     stage,
     resources: [[payloadZip, 'payload.zip'], [logoW, 'logo-w.png']],
   });
@@ -453,6 +467,16 @@ function buildHostinger() {
   const skip = /\/(node_modules|dist|uploads|coverage|\.vite|\.turbo)(\/|$)|\/\.env(?!\.example$)[^/]*$|\.log$|tsconfig\.tsbuildinfo$|\/prisma\/seed\.ts$/;
   copy(BACKEND, path.join(pkg, 'backend'), (f) => !skip.test(f.slice(BACKEND.replace(/\\/g, '/').length)));
   copy(path.join(FRONTEND, 'dist'), path.join(pkg, 'public_html'));
+  // The Android app, at the address the sign-in page's "Download for Android" button always uses
+  // (/downloads/MICO360-Tasks.apk): uploading public_html/ publishes the new build in place, so the
+  // link never changes. Build it first with build-apk.sh.
+  const siteApk = path.join(TARGET.android, `MICO360-Tasks-${VERSION}.apk`);
+  if (fs.existsSync(siteApk)) {
+    fs.mkdirSync(path.join(pkg, 'public_html', 'downloads'), { recursive: true });
+    fs.copyFileSync(siteApk, path.join(pkg, 'public_html', 'downloads', 'MICO360-Tasks.apk'));
+  } else {
+    console.warn(`! ${path.relative(ROOT, siteApk)} not found — the site package will not include the Android app (run build-apk.sh first).`);
+  }
   copy(path.join(ROOT, 'deploy'), path.join(pkg, 'deploy'));
   fs.mkdirSync(path.join(pkg, 'docs'));
   for (const doc of ['DEPLOY-HOSTINGER.md', 'DEPLOYMENT.md', 'EMAIL.md']) fs.copyFileSync(path.join(ROOT, 'docs', doc), path.join(pkg, 'docs', doc));
@@ -474,11 +498,12 @@ backend/      The API. Upload it as the Node.js app. Put the live settings file 
               It installs, builds, creates or updates the tables, and creates the one administrator
               (khurram@prolens-team.com unless ADMIN_EMAIL says otherwise). The database starts empty:
               no test users or demo data. See docs/DEPLOY-HOSTINGER.md.
-public_html/  The web app. Upload its contents (including .well-known/) to the site's web root.
-              Merge deploy/hostinger/htaccess-security-headers.txt into the existing .htaccess.
-              To offer the phone app from the site, upload the APK as public_html/downloads/MICO360-Tasks.apk
-              and set ANDROID_APP_URL=/downloads/MICO360-Tasks.apk (otherwise "Download for Android" on the
-              sign-in page opens the GitHub releases page).
+public_html/  The web app. Upload its contents (including .well-known/ and downloads/) to the site's
+              web root. Merge deploy/hostinger/htaccess-security-headers.txt into the existing .htaccess.
+              downloads/MICO360-Tasks.apk is the phone app: the sign-in page's "Download for Android"
+              button always downloads https://task.mico360.com/downloads/MICO360-Tasks.apk. To publish a
+              new build later, replace that one file (same name); the address never changes. Until the
+              file is there the button says "Not available yet".
 deploy/       Reference nginx config and security headers.
 docs/         Deployment, email and Hostinger runbooks.
 

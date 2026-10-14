@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { RecurrenceEditor } from './RecurrenceEditor';
+import { RecurrenceEditor, withFrequency } from './RecurrenceEditor';
 
 describe('RecurrenceEditor', () => {
   it('shows "Does not repeat" and no interval control when the value is null', () => {
@@ -81,5 +81,31 @@ describe('RecurrenceEditor', () => {
     render(<RecurrenceEditor value={{ freq: 'MONTHLY', interval: 1 }} onChange={onChange} />);
     fireEvent.change(screen.getByLabelText(/day of month/i), { target: { value: '15' } });
     expect(onChange).toHaveBeenLastCalledWith({ freq: 'MONTHLY', interval: 1, dayOfMonth: 15 });
+  });
+
+  it('compact: the choice fills its row, its own “Repeat” label kept for screen readers only', () => {
+    render(<RecurrenceEditor value={null} onChange={vi.fn()} compact />);
+    expect(screen.getByText('Repeat', { selector: 'span' })).toHaveClass('sr-only');
+    expect(screen.getByLabelText('Repeat')).toHaveClass('w-full');
+  });
+
+  it('can leave the frequency to the form around it, showing only the schedule options', () => {
+    render(<RecurrenceEditor value={{ freq: 'DAILY', interval: 2 }} onChange={vi.fn()} hideFrequency />);
+    expect(screen.queryByLabelText('Repeat')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Repeat every')).toHaveValue(2);
+  });
+
+  it('weekly without chosen days: the due date’s weekday shows as chosen, and adding a day keeps it', async () => {
+    const onChange = vi.fn();
+    render(<RecurrenceEditor value={{ freq: 'WEEKLY', interval: 1 }} dueDate="2026-10-01" onChange={onChange} />);
+    expect(screen.getByRole('button', { name: 'Thu' })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(screen.getByRole('button', { name: 'Mon' }));
+    expect(onChange).toHaveBeenCalledWith({ freq: 'WEEKLY', interval: 1, weekdays: [1, 4] });
+  });
+
+  it('withFrequency: a new frequency keeps how the series ends and drops the old day choices', () => {
+    expect(withFrequency(null, 'NONE')).toBeNull();
+    expect(withFrequency(null, 'DAILY')).toEqual({ freq: 'DAILY', interval: 1 });
+    expect(withFrequency({ freq: 'WEEKLY', interval: 2, weekdays: [1], count: 4, createNext: 'ON_SCHEDULE' }, 'MONTHLY')).toEqual({ freq: 'MONTHLY', interval: 2, count: 4, createNext: 'ON_SCHEDULE' });
   });
 });

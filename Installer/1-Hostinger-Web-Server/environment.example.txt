@@ -41,6 +41,8 @@ COMPANY_WEBSITE_URL=https://mico360.com
 COMPANY_TIMEZONE=Asia/Muscat
 
 # --- Optional ---------------------------------------------------------------
-# Where "Download for Android" on the sign-in page points. Upload the APK as
-# public_html/downloads/MICO360-Tasks.apk first, then uncomment:
-# ANDROID_APP_URL=/downloads/MICO360-Tasks.apk
+# "Download for Android" on the sign-in page downloads the site's own APK,
+# public_html/downloads/MICO360-Tasks.apk (the site package puts it there; a new
+# build replaces the file, the address never changes). Nothing to set. Only to send
+# the button elsewhere (a store page), uncomment:
+# ANDROID_APP_URL=https://…

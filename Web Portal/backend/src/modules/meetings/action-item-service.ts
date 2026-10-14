@@ -24,6 +24,7 @@ export interface AddActionItemInput {
   agendaItemId?: string | null;
   sourceNoteId?: string | null;
   projectId?: string | null;
+  taskId?: string | null;
 }
 
 export interface UpdateActionItemInput {
@@ -106,6 +107,7 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
         agendaItemId: trim(input.agendaItemId),
         sourceNoteId: trim(input.sourceNoteId),
         projectId: trim(input.projectId),
+        taskId: trim(input.taskId),
       });
       deps.onChanged?.(meetingId);
       return rec;

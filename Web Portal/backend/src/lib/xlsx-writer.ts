@@ -289,7 +289,8 @@ function crc32(buf: Buffer): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-function zip(entries: { name: string; data: Buffer }[], when: Date): Buffer {
+/** A zip package of these entries (deflated, UTF-8 names) — also used by tests to build Office files. */
+export function zip(entries: { name: string; data: Buffer }[], when: Date): Buffer {
   const dosTime = (when.getHours() << 11) | (when.getMinutes() << 5) | Math.floor(when.getSeconds() / 2);
   const dosDate = ((when.getFullYear() - 1980) << 9) | ((when.getMonth() + 1) << 5) | when.getDate();
   const locals: Buffer[] = [];

@@ -129,4 +129,44 @@ describe('createTaskFromNote', () => {
     expect(res.assigneeError).toMatch(/project members/);
     expect(f.note.taskId).toBe((res.task as { id: string }).id);
   });
+
+  describe('an action-item note', () => {
+    function withActionItems(f: ReturnType<typeof fakes>) {
+      const addItem = vi.fn(async (_meetingId: string | null, _by: string, input: Record<string, unknown>) => ({ id: 'ai1', ...input }) as never);
+      return { addItem, svc: createNoteTaskService({ ...f, actionItems: { addItem } } as never) };
+    }
+
+    it('is tracked as an action item linked to the new task, with its owner, due date and priority', async () => {
+      const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+      const { addItem, svc } = withActionItems(f);
+      const res = await svc.createTaskFromNote('m1', 'n1', 'u1', { title: 'Draft the OKRs', assigneeId: 'u2', priority: 'HIGH', dueDate: '2026-11-01T00:00:00.000Z' });
+      const taskId = (res.task as { id: string }).id;
+      expect(addItem).toHaveBeenCalledWith('m1', 'u1', expect.objectContaining({
+        description: 'Draft the OKRs', assigneeId: 'u2', priority: 'HIGH', sourceNoteId: 'n1', projectId: 'p1', taskId,
+      }));
+      const due = (addItem.mock.calls[0]![2] as { dueDate: Date }).dueDate;
+      expect(due.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+      // The note points at both, so neither can be created twice.
+      expect(f.noteService.linkTask).toHaveBeenCalledWith('m1', 'n1', taskId, 'ai1');
+      expect(res.actionItem).toMatchObject({ id: 'ai1', taskId });
+    });
+
+    it('only for action notes — a decision becomes a task without an action item', async () => {
+      const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+      f.note.type = 'DECISION';
+      const { addItem, svc } = withActionItems(f);
+      const res = await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+      expect(addItem).not.toHaveBeenCalled();
+      expect(res.actionItem).toBeUndefined();
+    });
+
+    it('keeps the task when the action item can’t be saved, and says so', async () => {
+      const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+      const { addItem, svc } = withActionItems(f);
+      addItem.mockRejectedValueOnce(new Error('db down'));
+      const res = await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+      expect(f.note.taskId).toBe((res.task as { id: string }).id);
+      expect(res.actionItemError).toMatch(/action item/i);
+    });
+  });
 });

@@ -26,6 +26,13 @@ describe('email templates (existing signatures preserved)', () => {
     expect(e.text).toContain('123456'); // plain-text alternative too
   });
 
+  it('otpCodeEmail states how long the code lasts (the server’s setting, not a fixed 10 minutes)', () => {
+    expect(otpCodeEmail('123456').text).toContain('It expires in 10 minutes.');
+    expect(otpCodeEmail('123456', { expiresInMinutes: 15 }).text).toContain('It expires in 15 minutes.');
+    expect(otpCodeEmail('123456', { expiresInMinutes: 15 }).html).toContain('It expires in 15 minutes.');
+    expect(otpCodeEmail('123456', { expiresInMinutes: 1 }).text).toContain('It expires in 1 minute.');
+  });
+
   it('taskAssignedEmail includes the task key', () => {
     const e = taskAssignedEmail('Prepare report', 'MICO-1');
     expect(e.subject).toContain('MICO-1');

@@ -18,13 +18,16 @@ import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
 import { runBulk, type BulkAction, type BulkDeps } from '../lib/bulkActions';
-import { type TaskFilters } from '../lib/savedViews';
+import { OPEN_STATUS, type TaskFilters } from '../lib/savedViews';
 import { dueDayKey, shiftDayKey, todayKey as companyTodayKey } from '../lib/due-date';
 import { formatDueDay, isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
+import { LoadError } from '../components/ui/LoadError';
+import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
+import { projectOption } from '../components/project-option';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -60,18 +63,10 @@ interface Enriched {
   /** The due date's calendar day, formatted (e.g. "Sep 30"). */
   dueLabel: string;
   projectName: string | null;
+  project: ProjectLook | null;
 }
 
 /** Stop a key/click on a row's checkbox from also opening the task (Space must select the row). */
-const stopRowActivation = (ev: React.SyntheticEvent) => ev.stopPropagation();
-/** Enter/Space on the row itself (not on a control inside it) opens the task. */
-const rowKeyDown = (onOpen: () => void) => (ev: React.KeyboardEvent<HTMLDivElement>) => {
-  if (ev.target !== ev.currentTarget) return;
-  if (ev.key === 'Enter' || ev.key === ' ') {
-    ev.preventDefault();
-    onOpen();
-  }
-};
 
 export function MyTasksPage() {
   const tasksQ = useQuery({ queryKey: ['my-tasks'], queryFn: () => tasksApi(apiClient).mine() });
@@ -110,7 +105,7 @@ export function MyTasksPage() {
       const overdue = !!dueKey && dueKey < tKey && !done;
       const dueToday = !!dueKey && dueKey === tKey;
       const dueLabel = formatDueDay(task.dueDate, timeZone, { month: 'short', day: 'numeric' });
-      return { task, cat, done, overdue, dueToday, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null };
+      return { task, cat, done, overdue, dueToday, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null, project: projectById.get(task.projectId) ?? null };
     });
   }, [tasks, projectById, timeZone]);
 
@@ -119,12 +114,19 @@ export function MyTasksPage() {
     const ids = [...new Set(tasks.map((t) => t.projectId))];
     return [
       { value: '', label: 'All projects' },
-      ...ids.map((id) => ({ value: id, label: projectById.get(id)?.name ?? 'Project', hint: projectById.get(id)?.code })),
+      ...ids.map((id) => {
+        const p = projectById.get(id);
+        return p ? projectOption(p) : { value: id, label: 'Project' };
+      }),
     ];
   }, [tasks, projectById]);
   const statusOptions = useMemo(() => {
     const present = new Set(enriched.map((e) => e.cat));
-    return [{ value: '', label: 'All statuses' }, ...STATUS_ORDER.filter((c) => present.has(c)).map((c) => ({ value: c, label: statusMeta(c).label }))];
+    return [
+      { value: '', label: 'All statuses' },
+      { value: OPEN_STATUS, label: 'Open (not completed)' },
+      ...STATUS_ORDER.filter((c) => present.has(c)).map((c) => ({ value: c, label: statusMeta(c).label })),
+    ];
   }, [enriched]);
   const priorityOptions = [
     { value: '', label: 'All priorities' },
@@ -144,7 +146,7 @@ export function MyTasksPage() {
     const wK = shiftDayKey(tK, 7);
     return enriched.filter((e) => {
       if (project && e.task.projectId !== project) return false;
-      if (status && e.cat !== status) return false;
+      if (status === OPEN_STATUS ? e.done : status && e.cat !== status) return false;
       if (priority && e.task.priority !== priority) return false;
       if (assignee && !(e.task.assignees ?? []).some((a) => a.id === assignee)) return false;
       if (due === 'overdue' && !e.overdue) return false;
@@ -261,7 +263,7 @@ export function MyTasksPage() {
       {counts.total > 0 ? (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Chip active={!filtersActive} onClick={clearFilters} label="All" value={counts.total} />
-          <Chip active={status === ''} onClick={() => { setDue(''); setStatus(''); }} label="Open" value={counts.open} tone="info" plain />
+          <Chip active={status === OPEN_STATUS} onClick={() => setStatus(status === OPEN_STATUS ? '' : OPEN_STATUS)} label="Open" value={counts.open} tone="info" />
           <Chip active={due === 'overdue'} onClick={() => setDue(due === 'overdue' ? '' : 'overdue')} label="Overdue" value={counts.overdue} tone="danger" />
           <Chip active={status === 'DONE'} onClick={() => setStatus(status === 'DONE' ? '' : 'DONE')} label="Completed" value={counts.done} tone="success" />
         </div>
@@ -280,7 +282,7 @@ export function MyTasksPage() {
           ) : null}
 
           <div className="ml-auto flex items-center gap-2">
-            <div className="hidden items-center gap-1.5 text-xs text-ink-2 sm:flex">
+            <div className="flex items-center gap-1.5 text-xs text-ink-2">
               <span aria-hidden>Sort</span>
               <div className="w-32"><SearchableSelect ariaLabel="Sort tasks" value={sort} onChange={(v) => setSort(v as Sort)} options={SORT_OPTIONS} /></div>
             </div>
@@ -302,7 +304,7 @@ export function MyTasksPage() {
           {Array.from({ length: 8 }).map((_, i) => <div key={i} className="skeleton h-32 rounded-2xl" />)}
         </div>
       ) : tasksQ.isError ? (
-        <p role="alert" className="text-danger">Couldn’t load your tasks.</p>
+        <LoadError what="your tasks" onRetry={() => void tasksQ.refetch()} />
       ) : counts.total === 0 ? (
         <EmptyState
           icon={CheckIcon}
@@ -369,6 +371,7 @@ function Chip({ label, value, onClick, active, tone = 'neutral', plain = false }
   return (
     <button
       onClick={onClick}
+      aria-pressed={!!active}
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
         active ? 'border-brand/40 bg-brand/10 text-brand' : 'border-line bg-surface text-ink-2 hover:border-brand/30 hover:text-ink'
       }`}
@@ -424,30 +427,35 @@ function Assignees({ list }: { list: { id: string; name: string }[] }) {
   );
 }
 
+/**
+ * The "select this task" checkbox of a card or row. It sits above the row's click area, and its
+ * label pads the 16px box out to a 28px target so it can be hit with a finger.
+ */
+function SelectBox({ taskKey, checked, onChange }: { taskKey: string; checked: boolean; onChange: () => void }) {
+  return (
+    <label className="relative z-10 -m-1.5 grid h-7 w-7 flex-none cursor-pointer place-items-center">
+      <input type="checkbox" aria-label={`Select ${taskKey}`} checked={checked} onChange={onChange} className="h-4 w-4 cursor-pointer accent-brand" />
+    </label>
+  );
+}
+
 function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpen: () => void; selected?: boolean; onToggleSelect?: () => void }) {
   const t = e.task;
   return (
+    // The title button opens the task; its ::after covers the card, so a click anywhere works, while
+    // the select checkbox sits above it as a separate control (never one control inside another).
     <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={rowKeyDown(onOpen)}
-      className={`card card-hover group flex cursor-pointer flex-col gap-2.5 p-3.5 outline-none ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : ''}`}
+      className={`card card-hover group relative flex flex-col gap-2.5 p-3.5 focus-within:border-brand/40 ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : ''}`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {onToggleSelect ? (
-            <input
-              type="checkbox"
-              aria-label={`Select ${t.key}`}
-              checked={!!selected}
-              onClick={stopRowActivation}
-              onKeyDown={stopRowActivation}
-              onChange={onToggleSelect}
-              className="h-3.5 w-3.5 flex-none accent-brand"
-            />
-          ) : null}
-          {e.projectName ? <span dir="auto" className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-3">{e.projectName}</span> : <span />}
+          {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
+          {e.project ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ProjectAvatar project={e.project} size="xs" />
+              <span dir="auto" title={e.project.name} className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-3">{e.project.name}</span>
+            </span>
+          ) : <span />}
         </div>
         <PriorityBadge priority={t.priority} />
       </div>
@@ -455,7 +463,14 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
         <StatusPill category={e.cat} />
       </div>
-      <p dir="auto" className={`line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}>{t.title}</p>
+      <button
+        type="button"
+        onClick={onOpen}
+        dir="auto"
+        className={`line-clamp-2 cursor-pointer text-start text-sm font-medium leading-snug text-ink outline-none transition-colors after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-brand/60 group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}
+      >
+        {t.title}
+      </button>
 
       <div className="mt-auto flex flex-col gap-2 pt-1">
         <div className="flex items-center gap-1.5 text-[11px]">
@@ -465,7 +480,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-1 items-center gap-1.5">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ground"><div className="h-full rounded-full bg-brand-sheen transition-[width] duration-500" style={{ width: `${t.progress}%` }} /></div>
-            <span className="w-8 flex-none text-right text-[10px] tabular-nums text-ink-3">{t.progress}%</span>
+            <span className="w-9 flex-none text-right text-[11px] tabular-nums text-ink-3">{t.progress}%</span>
           </div>
           <Assignees list={t.assignees ?? []} />
         </div>
@@ -479,34 +494,41 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
   const m = statusMeta(e.cat);
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={rowKeyDown(onOpen)}
-      className={`flex cursor-pointer items-center gap-3 px-4 py-2.5 outline-none transition-colors hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
+      className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
     >
-      {onToggleSelect ? (
-        <input
-          type="checkbox"
-          aria-label={`Select ${t.key}`}
-          checked={!!selected}
-          onClick={stopRowActivation}
-          onKeyDown={stopRowActivation}
-          onChange={onToggleSelect}
-          className="h-3.5 w-3.5 flex-none accent-brand"
-        />
-      ) : null}
+      {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
       <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: m.color }} title={m.label} aria-hidden />
-      <span className="w-16 flex-none font-mono text-xs text-ink-3">{t.key}</span>
-      <span dir="auto" className={`min-w-0 flex-1 truncate text-start text-sm font-medium text-ink ${e.done ? 'line-through opacity-70' : ''}`}>{t.title}</span>
-      {e.projectName ? <span dir="auto" className="hidden w-32 flex-none truncate text-xs text-ink-2 lg:block">{e.projectName}</span> : null}
+      <span className="hidden w-16 flex-none font-mono text-xs text-ink-3 sm:block">{t.key}</span>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={onOpen}
+          dir="auto"
+          title={t.title}
+          className={`block w-full cursor-pointer truncate text-start text-sm font-medium text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand/60 ${e.done ? 'line-through opacity-70' : ''}`}
+        >
+          {t.title}
+        </button>
+        {/* Phones have no room for the columns: the same facts go on a second line. */}
+        <div data-phone-meta className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
+          <span className="font-mono text-[11px] text-ink-3">{t.key}</span>
+          <PriorityBadge priority={t.priority} />
+          <DueLabel e={e} className="text-xs tabular-nums" />
+        </div>
+      </div>
+      {e.project ? (
+        <span className="hidden w-36 flex-none items-center gap-1.5 xl:flex">
+          <ProjectAvatar project={e.project} size="xs" />
+          <span dir="auto" title={e.project.name} className="truncate text-xs text-ink-2">{e.project.name}</span>
+        </span>
+      ) : null}
       <span className="hidden sm:block"><PriorityBadge priority={t.priority} /></span>
       <DueLabel e={e} className="hidden w-24 flex-none text-right text-xs tabular-nums sm:block" />
-      <div className="hidden w-20 flex-none items-center gap-1.5 md:flex">
+      <div className="hidden w-20 flex-none items-center gap-1.5 lg:flex">
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ground"><div className="h-full rounded-full bg-brand-sheen" style={{ width: `${t.progress}%` }} /></div>
-        <span className="w-7 text-right text-[10px] tabular-nums text-ink-3">{t.progress}%</span>
+        <span className="w-8 text-right text-[11px] tabular-nums text-ink-3">{t.progress}%</span>
       </div>
-      <span className="hidden md:block"><Assignees list={t.assignees ?? []} /></span>
+      <span className="hidden lg:block"><Assignees list={t.assignees ?? []} /></span>
     </div>
   );
 }

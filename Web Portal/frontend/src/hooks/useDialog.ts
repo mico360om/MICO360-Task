@@ -6,6 +6,9 @@ const FOCUSABLE =
 /** Real form fields, preferred for initial focus so a dialog opens on its first input, not a close button. */
 const FIELD = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
 
+/** Open dialogs, oldest first — the last one is on top. */
+const openDialogs: HTMLElement[] = [];
+
 /**
  * Standard modal-dialog behaviour for a `role="dialog"` element, generalised from the
  * TaskDrawer's Escape handler: Escape closes, focus moves to the first field on open,
@@ -14,6 +17,10 @@ const FIELD = 'input:not([disabled]), select:not([disabled]), textarea:not([disa
  * Attach the returned ref to the dialog container. The keydown listener lives on that
  * element (not `document`), so a portaled child that manages its own Escape — e.g. an
  * open SearchableSelect panel — closes only itself, never the whole dialog.
+ *
+ * One exception: when focus has fallen out of everything (it sits on `<body>` — e.g. the focused
+ * Save button was disabled while the request ran), no element receives the key. The topmost dialog
+ * then answers it from `document`, so Escape still closes and Tab comes back inside.
  */
 export interface UseDialogOptions {
   /**
@@ -67,9 +74,23 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(onClose: () =>
       }
     };
 
+    const onLostFocusKey = (e: KeyboardEvent) => {
+      if (openDialogs[openDialogs.length - 1] !== dialog) return;
+      const active = document.activeElement as (HTMLElement & { disabled?: boolean }) | null;
+      // Lost = on <body> (Chrome, Safari) or still on a control that has since been disabled (Firefox).
+      const lost = !active || active === document.body || active.disabled === true;
+      if (!lost) return;
+      onKeyDown(e);
+    };
+
+    openDialogs.push(dialog);
     dialog.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onLostFocusKey);
     return () => {
       dialog.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onLostFocusKey);
+      const at = openDialogs.indexOf(dialog);
+      if (at >= 0) openDialogs.splice(at, 1);
       previouslyFocused?.focus?.();
     };
     // Runs once for the life of the dialog; onClose is always read through onCloseRef.

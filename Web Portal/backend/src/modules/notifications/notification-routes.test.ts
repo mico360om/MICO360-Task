@@ -19,6 +19,15 @@ function inMemory(): NotificationRepository {
     async markRead(id) { const n = { ...rows.get(id)!, readAt: new Date() }; rows.set(id, n); return n; },
     async markAllRead(userId) { for (const n of rows.values()) if (n.userId === userId) n.readAt = new Date(); },
     async unreadCount(userId) { return [...rows.values()].filter((n) => n.userId === userId && !n.readAt).length; },
+    async findUnread(userId, type, entityType, entityId) {
+      return [...rows.values()].reverse().find((n) => n.userId === userId && n.type === type && n.entityType === entityType && n.entityId === entityId && !n.readAt) ?? null;
+    },
+    async refresh(id, data) { const n = { ...rows.get(id)!, title: data.title, body: data.body ?? null, createdAt: new Date() }; rows.set(id, n); return n; },
+    async markEntityRead(userId, entityType, entityId) {
+      let count = 0;
+      for (const n of rows.values()) if (n.userId === userId && n.entityType === entityType && n.entityId === entityId && !n.readAt) { n.readAt = new Date(); count += 1; }
+      return count;
+    },
   };
 }
 

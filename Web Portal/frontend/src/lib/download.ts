@@ -39,3 +39,15 @@ export function downloadBlob(filename: string, blob: Blob): void {
 export function downloadTextFile(filename: string, content: string, mimeType = 'text/plain'): void {
   downloadBlob(filename, new Blob([content], { type: `${mimeType};charset=utf-8` }));
 }
+
+/** Pictures the server lets the browser show in a tab; everything else is sent as a download. */
+const OPENS_IN_BROWSER = /\.(png|jpe?g|gif|webp)$/i;
+
+/**
+ * The `download` name for a link to an attached file: the file's own name, so it is not saved under
+ * the random name the server stores it as. Undefined for a picture, which opens for viewing.
+ */
+export function downloadNameFor(filename: string): string | undefined {
+  return OPENS_IN_BROWSER.test(filename) ? undefined : filename;
+}
+

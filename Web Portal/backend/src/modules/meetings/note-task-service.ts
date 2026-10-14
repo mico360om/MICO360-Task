@@ -3,10 +3,14 @@ import type { Priority } from '../tasks/task-repository';
 import type { TaskRecord } from '../tasks/task-repository';
 import type { NoteService } from './note-service';
 import type { NoteRecord } from './note-repository';
+import type { ActionItemRecord } from './action-item-repository';
+import type { AddActionItemInput } from './action-item-service';
 
 /** Collaborators, kept as narrow structural types so this composes services without hard coupling. */
 export interface NoteTaskDeps {
   noteService: Pick<NoteService, 'getNote' | 'linkTask' | 'claimForTask' | 'releaseTaskClaim'>;
+  /** Optional — when present, an action-item note is also tracked as an action item linked to the task. */
+  actionItems?: { addItem: (meetingId: string | null, createdById: string, input: AddActionItemInput) => Promise<ActionItemRecord> };
   meetingService: { getMeeting: (id: string) => Promise<{ id: string; title: string; projectId: string | null }> };
   taskService: { createTask: (input: NewTaskInput) => Promise<TaskRecord> };
   columnService: { listColumns: (projectId: string) => Promise<ColumnLike[]> };
@@ -52,7 +56,7 @@ export interface NoteTaskService {
     createdById: string,
     overrides: CreateTaskFromNoteOverrides,
     opts?: CreateTaskFromNoteOptions,
-  ): Promise<{ task: TaskRecord; note: NoteRecord; assigneeError?: string }>;
+  ): Promise<{ task: TaskRecord; note: NoteRecord; assigneeError?: string; actionItem?: ActionItemRecord; actionItemError?: string }>;
 }
 
 /** First line of the note, trimmed to a sensible task-title length. */
@@ -127,8 +131,30 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
         throw err;
       }
 
+      // An action-item note is tracked on the meeting's action items too, already linked to the
+      // task, so nobody types it in twice. A failure here never loses the task.
+      let actionItem: ActionItemRecord | undefined;
+      let actionItemError: string | undefined;
+      if (note.type === 'ACTION' && deps.actionItems) {
+        try {
+          actionItem = await deps.actionItems.addItem(meetingId, createdById, {
+            description: title,
+            assigneeId: overrides.assigneeId ?? null,
+            priority: overrides.priority ?? 'NORMAL',
+            dueDate: dueDate ?? null,
+            sourceNoteId: note.id,
+            projectId,
+            taskId: task.id,
+          });
+        } catch {
+          actionItemError = 'The task was created, but it couldn’t be added to the action items.';
+        }
+      }
+
       // Link first: once the task exists the note must point at it, even if assignment fails.
-      const linked = await noteService.linkTask(meetingId, noteId, task.id);
+      const linked = actionItem
+        ? await noteService.linkTask(meetingId, noteId, task.id, actionItem.id)
+        : await noteService.linkTask(meetingId, noteId, task.id);
 
       let assigneeError: string | undefined;
       if (overrides.assigneeId && deps.assignees) {
@@ -138,7 +164,13 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
           assigneeError = (err as Error).message || 'The task was created but could not be assigned.';
         }
       }
-      return { task, note: linked, ...(assigneeError ? { assigneeError } : {}) };
+      return {
+        task,
+        note: linked,
+        ...(assigneeError ? { assigneeError } : {}),
+        ...(actionItem ? { actionItem } : {}),
+        ...(actionItemError ? { actionItemError } : {}),
+      };
     },
   };
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { useAuthStore } from '../stores/auth-store';
@@ -22,10 +22,22 @@ beforeEach(() => {
       const u = String(url);
       if (/\/export\.(xlsx|pdf)$/.test(u)) return new Response('file-bytes', { status: 200 });
       if (u.includes('/members')) return json({ data: MEMBERS });
+      if (u.endsWith('/tasks/t1/mentionable')) return json({ data: [{ id: 'u9', username: 'sara.k', firstName: 'Sara', lastName: 'Khan', avatarUrl: null }] });
       if (u.includes('/checklist')) return json({ data: { items: [{ id: 'i1', taskId: 't1', text: 'Verify quotation', done: true, position: 0 }], progress: 100 } });
       if (u.includes('/comments')) return json({ data: [{ id: 'c1', taskId: 't1', userId: 'u1', body: 'Started on this.', createdAt: '' }] });
-      if (u.includes('/attachments')) return json({ data: [{ id: 'a1', taskId: 't1', uploadedById: 'u1', filename: 'spec.pdf', mimeType: 'application/pdf', sizeBytes: 2048, url: '/uploads/a1.pdf', createdAt: '' }] });
+      if (u.includes('/attachments')) return json({ data: [
+        { id: 'a1', taskId: 't1', uploadedById: 'u1', filename: 'spec.pdf', mimeType: 'application/pdf', sizeBytes: 2048, url: '/uploads/a1.pdf', createdAt: '' },
+        { id: 'a2', taskId: 't1', uploadedById: 'u2', filename: 'theirs.pdf', mimeType: 'application/pdf', sizeBytes: 10, url: '/uploads/a2.pdf', createdAt: '' },
+      ] });
       if (u.includes('/dependencies')) return json({ data: { blockedBy: ['t2'], blocks: [] } });
+      if (u.endsWith('/projects/p1/columns')) return json({ data: [
+        { id: 'c1', projectId: 'p1', name: 'To Do', category: 'TODO', position: 0 },
+        { id: 'c9', projectId: 'p1', name: 'Done', category: 'DONE', position: 1 },
+      ] });
+      if (u.endsWith('/tasks/t1/activity')) return json({ data: [
+        { id: 'ac1', taskId: 't1', projectId: 'p1', userId: 'u2', action: 'MOVED', createdAt: new Date().toISOString(), actor: { id: 'u2', name: 'Omar A' }, meta: { from: 'Backlog', to: 'To Do' } },
+      ] });
+      if (u.endsWith('/ai/breakdown')) return json({ data: { items: ['Collect figures', 'Draft report'] } });
       if (u.includes('/assignees')) return json({ data: [] });
       if (u.endsWith('/users')) return json({ data: [] });
       // project task list (has a query string)
@@ -55,6 +67,23 @@ describe('TaskDrawerContainer', () => {
     // dependency id t2 is resolved to its task key/title via the project task list
     await waitFor(() => expect(screen.getByText('Do first')).toBeInTheDocument());
     expect(screen.getByText('MICO-2')).toBeInTheDocument();
+  });
+
+  it('opens the full edit form from the panel, filled in with the task', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit task' }));
+    const form = await screen.findByRole('dialog', { name: 'Edit task' });
+    expect(within(form).getByLabelText(/^task title/i)).toHaveValue('Prepare report');
+    expect(within(form).getByLabelText(/^description/i)).toHaveValue('Do it');
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Column' })).toHaveTextContent('To Do'));
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(form).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Task MICO-1' })).toBeInTheDocument(); // the panel stays open
   });
 
   it('downloads the task as Excel or PDF, named after its key and title', async () => {
@@ -109,11 +138,10 @@ describe('TaskDrawerContainer', () => {
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
-    const titleInput = screen.getByLabelText(/^title$/i);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    const titleInput = screen.getByRole('textbox', { name: 'Title' });
     await userEvent.clear(titleInput);
-    await userEvent.type(titleInput, 'Reworked report');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await userEvent.type(titleInput, 'Reworked report{Enter}');
     await waitFor(() => {
       const put = calls.find((c) => c.method === 'PUT' && /\/tasks\/t1$/.test(c.url));
       expect(put).toBeTruthy();
@@ -128,8 +156,9 @@ describe('TaskDrawerContainer', () => {
         <TaskDrawerContainer taskId="t1" onClose={() => {}} />
       </QueryClientProvider>,
     );
-    const picker = await screen.findByRole('combobox', { name: /assign a teammate/i });
-    expect(picker).toHaveTextContent('Omar A');
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Add assignee' }));
+    expect(await screen.findByRole('option', { name: /Omar A/ })).toBeInTheDocument();
     const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
     expect(calls.some((u) => /\/users$/.test(u))).toBe(false);
   });
@@ -141,7 +170,9 @@ describe('TaskDrawerContainer', () => {
         <TaskDrawerContainer taskId="t1" onClose={() => {}} />
       </QueryClientProvider>,
     );
-    await screen.findByRole('combobox', { name: /assign a teammate/i }); // members loaded
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Add assignee' }));
+    await screen.findByRole('option', { name: /Omar A/ }); // members loaded
     expect(screen.queryByRole('button', { name: /delete task/i })).not.toBeInTheDocument();
   });
 
@@ -161,10 +192,7 @@ describe('TaskDrawerContainer', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the reason when an action fails (e.g. an oversized upload)', async () => {
-    const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) =>
-      init?.method === 'POST' && String(url).includes('/attachments') ? json({ error: { code: 'TOO_LARGE', message: 'File too large' } }, 413) : base(url, init)));
+  it('suggests the people an @mention in a comment would notify', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
@@ -172,8 +200,100 @@ describe('TaskDrawerContainer', () => {
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
-    const input = screen.getByLabelText(/attach a file/i);
-    await userEvent.upload(input, new File(['x'], 'huge.bin'));
-    expect(await screen.findByText('That file is too large to upload.')).toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText(/write a comment/i), '@sa');
+    expect(await screen.findByRole('option', { name: /Sara Khan/ })).toHaveTextContent('@sara.k');
+  });
+
+  it('shows the reason when an upload fails (e.g. an oversized file)', async () => {
+    // Uploads go over XMLHttpRequest (for progress): answer this one "too large".
+    class TooLarge {
+      upload = { onprogress: null };
+      status = 0;
+      responseText = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      open() {}
+      setRequestHeader() {}
+      send() {
+        this.status = 413;
+        this.responseText = JSON.stringify({ error: { code: 'TOO_LARGE', message: 'File too large' } });
+        setTimeout(() => this.onload?.(), 0);
+      }
+    }
+    vi.stubGlobal('XMLHttpRequest', TooLarge);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    await userEvent.upload(screen.getByLabelText('Attach files'), new File(['x'], 'huge.bin'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('huge.bin: That file is too large to upload.');
+  });
+
+  it('offers to delete only your own files', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('button', { name: 'Delete spec.pdf' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete theirs.pdf' })).not.toBeInTheDocument();
+  });
+
+  it('shows the timeline with what changed, and a blocker’s status', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    const timeline = await screen.findByRole('list', { name: 'Activity' });
+    expect(timeline).toHaveTextContent('Omar A moved this task');
+    expect(timeline).toHaveTextContent('Backlog→To Do');
+    expect(await screen.findByText('Waiting on 1 open task')).toBeInTheDocument();
+  });
+
+  it('adds AI-suggested steps only after you review them', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /suggest steps/i }));
+    await screen.findByRole('group', { name: 'Suggested steps' });
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const added = () =>
+      fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST' && String(c[0]).endsWith('/tasks/t1/checklist'));
+    expect(added()).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2 steps' }));
+    await waitFor(() => expect(added()).toHaveLength(2));
+    expect(added().map((c) => JSON.parse(String((c[1] as RequestInit).body)).text)).toEqual(['Collect figures', 'Draft report']);
+  });
+
+  it('saves a new checklist order through the reorder endpoint', async () => {
+    const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
+      String(url).endsWith('/tasks/t1/checklist') && (init?.method ?? 'GET') === 'GET'
+        ? json({ data: { items: [{ id: 'i1', taskId: 't1', text: 'First', done: false, position: 0 }, { id: 'i2', taskId: 't1', text: 'Second', done: false, position: 1 }], progress: 0 } })
+        : base(url, init),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    (await screen.findByRole('button', { name: 'Reorder “First”' })).focus();
+    await userEvent.keyboard('{ArrowDown}');
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/tasks/t1/checklist/reorder'));
+      expect(put && JSON.parse(String((put[1] as RequestInit).body))).toEqual({ orderedIds: ['i2', 'i1'] });
+    });
   });
 });

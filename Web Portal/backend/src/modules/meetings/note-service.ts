@@ -47,7 +47,8 @@ export interface NoteService {
   /** Give back a claim whose task was never created. */
   releaseTaskClaim(noteId: string, claim: string): Promise<void>;
   /** Record that a note was promoted to a board Task (Phase 4). */
-  linkTask(meetingId: string, noteId: string, taskId: string): Promise<NoteRecord>;
+  /** Point the note at the task made from it (and at the action item tracking it, when there is one). */
+  linkTask(meetingId: string, noteId: string, taskId: string, actionItemId?: string): Promise<NoteRecord>;
 }
 
 const trim = (v: string | null | undefined): string | null => {
@@ -147,9 +148,9 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
       await notes.releaseTaskClaim(noteId, claim);
     },
 
-    async linkTask(meetingId, noteId, taskId) {
+    async linkTask(meetingId, noteId, taskId, actionItemId) {
       await requireInMeeting(meetingId, noteId);
-      const rec = await notes.update(noteId, { taskId });
+      const rec = await notes.update(noteId, { taskId, ...(actionItemId ? { actionItemId } : {}) });
       deps.onChanged?.(meetingId);
       return rec;
     },

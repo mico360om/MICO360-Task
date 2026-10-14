@@ -73,6 +73,33 @@ describe('ProjectDetailPage', () => {
     expect(calls.some((u) => u.endsWith('/users'))).toBe(false);
   });
 
+  it('offers editing the project and its owner only to an admin — the server refuses them to anyone else', async () => {
+    // A project manager (the default user here) may manage the team, not the project's own details.
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    expect(screen.queryByRole('button', { name: /edit project/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /project owner/i })).not.toBeInTheDocument();
+    expect(screen.getByText('No owner')).toBeInTheDocument(); // the owner is still shown, as text
+  });
+
+  it('shows the project picture in the header: its icon on its colour, or its initials', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    const header = screen.getByRole('img', { name: 'MICO Platform' });
+    expect(header).toHaveTextContent('MP'); // no icon or picture saved yet → initials on the project colour
+    expect(header).toHaveStyle({ background: '#8B1E1E' });
+  });
+
+  it('lets an admin open the edit form, filled in with the project', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'm@b.c', username: 'manager', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /edit project/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit project' });
+    expect(within(dialog).getByLabelText(/^name/i)).toHaveValue('MICO Platform');
+    expect(within(dialog).getByLabelText(/^code/i)).toHaveValue('MICO');
+    expect(screen.getByRole('button', { name: /project owner/i })).toBeInTheDocument();
+  });
+
   it('opens the board of THIS project', async () => {
     renderPage();
     const link = await screen.findByRole('link', { name: /open board/i });
@@ -83,5 +110,50 @@ describe('ProjectDetailPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Overdue').previousElementSibling).toHaveTextContent('1'));
     expect(screen.getByText('Completed').previousElementSibling).toHaveTextContent('1');
+  });
+
+  it('a project that does not exist gets a clear "not found" page, not a broken one', async () => {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (/\/projects\/p1$/.test(u)) return json({ error: { code: 'NOT_FOUND', message: 'Project not found.' } }, 404);
+      return base(url, init);
+    }));
+    renderPage();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Project not found' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to projects/i })).toHaveAttribute('href', '/projects');
+    // Nothing of the empty page shell (tabs, zero counters) is shown, and there is nothing to retry.
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
+  });
+
+  it('a project that fails to load says so and offers to try again', async () => {
+    const base = fetch;
+    let fail = true;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (/\/projects\/p1$/.test(u) && fail) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
+      return base(url, init);
+    }));
+    renderPage();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Couldn’t load this project' })).toBeInTheDocument();
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'MICO Platform' })).toBeInTheDocument();
+  });
+
+  it('shows placeholders, not zero counters, while the project and its tasks are loading', async () => {
+    const base = fetch;
+    const never = new Promise<Response>(() => {});
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (/\/projects\/p1$/.test(u) || u.includes('/tasks')) return never;
+      return base(url, init);
+    }));
+    renderPage();
+    expect(await screen.findByLabelText('Loading project')).toBeInTheDocument();
+    // All five tiles (total, completed, in progress, overdue, completion) wait for the data.
+    expect(screen.getAllByText('—')).toHaveLength(5);
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
   });
 });

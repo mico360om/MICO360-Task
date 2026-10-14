@@ -33,6 +33,14 @@ describe('composeBoard', () => {
     expect(board[1]!.tasks[0]!.recurring).toBe(false);
   });
 
+  it('leaves out a column switched to hidden in "Manage columns" (it used to stay on the board)', () => {
+    const board = composeBoard(columns.map((c, i) => (i === 0 ? { ...c, enabled: false } : c)), tasks);
+    expect(board.map((c) => c.id)).toEqual(columns.slice(1).map((c) => c.id));
+    // A column that says nothing about visibility (older data) is shown.
+    const legacy = columns.map((c) => ({ id: c.id, projectId: c.projectId, name: c.name, category: c.category, position: c.position, color: c.color }));
+    expect(composeBoard(legacy as typeof columns, tasks)).toHaveLength(columns.length);
+  });
+
   it('produces empty task lists for columns with no tasks', () => {
     const board = composeBoard(columns, []);
     expect(board[0]!.tasks).toHaveLength(0);

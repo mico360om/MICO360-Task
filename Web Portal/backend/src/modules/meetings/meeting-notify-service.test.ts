@@ -16,7 +16,7 @@ function meeting(over: Partial<MeetingRecord> = {}): MeetingRecord {
 }
 
 function attendee(over: Partial<AttendeeRecord>): AttendeeRecord {
-  return { id: 'a', meetingId: 'm1', userId: null, externalName: null, externalEmail: null, role: 'REQUIRED', attendance: 'INVITED', department: null, createdAt: new Date(), ...over };
+  return { id: 'a', meetingId: 'm1', userId: null, externalName: null, externalEmail: null, role: 'REQUIRED', attendance: 'INVITED', response: 'PENDING', respondedAt: null, invitedAt: null, department: null, createdAt: new Date(), ...over };
 }
 
 const directory: Record<string, { name: string; email: string }> = {
@@ -43,7 +43,7 @@ function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRec
     markReminderSent: vi.fn(async () => {}),
     listUpcomingWithoutReminder: vi.fn(async () => over.upcoming ?? []),
   };
-  const attendees = { listByMeeting: vi.fn(async () => over.attendees ?? []) };
+  const attendees = { listByMeeting: vi.fn(async () => over.attendees ?? []), markInvited: vi.fn(async (_ids: string[], _at: Date) => {}) };
   const logger = { error: vi.fn(), warn: vi.fn() };
   const svc = createMeetingNotifyService({
     meetings: meetings as never,
@@ -128,14 +128,14 @@ describe('MeetingNotifyService — delivery results (NTF-02)', () => {
 
   it('reports sent/failed per recipient and still stamps invitesSentAt when some were delivered', async () => {
     const { svc, meetings, logger } = makeService({ attendees: guests, failFor: (to) => (to === 'guest@ext.co' ? new EmailDeliveryError(to, 400) : null) });
-    expect(await svc.sendInvites('m1')).toEqual({ sent: 2, failed: 1 });
+    expect(await svc.sendInvites('m1')).toMatchObject({ sent: 2, failed: 1 });
     expect(meetings.markInvitesSent).toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledTimes(1);
   });
 
   it('does not mark invitations sent when none were delivered', async () => {
     const { svc, meetings } = makeService({ attendees: guests, failFor: (to) => new EmailDeliveryError(to, 500) });
-    expect(await svc.sendInvites('m1')).toEqual({ sent: 0, failed: 3 });
+    expect(await svc.sendInvites('m1')).toMatchObject({ sent: 0, failed: 3 });
     expect(meetings.markInvitesSent).not.toHaveBeenCalled();
   });
 
@@ -155,7 +155,7 @@ describe('MeetingNotifyService — delivery results (NTF-02)', () => {
   it('counts cancellation and minutes results too', async () => {
     const { svc } = makeService({ attendees: guests, failFor: (to) => (to === 'khurram@mico360.test' ? new EmailDeliveryError(to) : null) });
     expect(await svc.sendCancellation('m1')).toEqual({ sent: 2, failed: 1 });
-    expect(await svc.sendMinutes('m1', Buffer.from('%PDF'))).toEqual({ sent: 2, failed: 1 });
+    expect(await svc.sendMinutes('m1', Buffer.from('%PDF'))).toMatchObject({ sent: 2, failed: 1 });
   });
 
   it('leaves the reminder unmarked when every send failed, so the next sweep retries', async () => {
@@ -163,6 +163,83 @@ describe('MeetingNotifyService — delivery results (NTF-02)', () => {
     const { svc, meetings } = makeService({ meetingRow: m, upcoming: [m], failFor: (to) => new EmailDeliveryError(to, 500) });
     expect(await svc.runReminderSweep(60 * 60 * 1000)).toEqual({ meetings: 1, sent: 0, failed: 1 });
     expect(meetings.markReminderSent).not.toHaveBeenCalled();
+  });
+});
+
+describe('MeetingNotifyService — checking before sending, and who got what', () => {
+  const sentAt = new Date('2026-10-01T00:00:00Z');
+  const roster = [
+    attendee({ id: 'a-u2', userId: 'u2', invitedAt: sentAt }),
+    attendee({ id: 'a-guest', externalName: 'Late Guest', externalEmail: 'late@ext.co', role: 'OPTIONAL' }),
+    attendee({ id: 'a-noemail', externalName: 'No Email' }),
+  ];
+
+  it('lists each recipient’s outcome and who was skipped for having no email', async () => {
+    const { svc } = makeService({ attendees: roster, failFor: (to) => (to === 'late@ext.co' ? new EmailDeliveryError(to, 400) : null) });
+    const r = await svc.sendInvites('m1');
+    expect(r.recipients).toEqual([
+      expect.objectContaining({ email: 'aisha@mico360.test', name: 'Aisha Khan', kind: 'organizer', ok: true }),
+      expect.objectContaining({ email: 'khurram@mico360.test', kind: 'member', ok: true }),
+      expect.objectContaining({ email: 'late@ext.co', kind: 'guest', ok: false }),
+    ]);
+    expect(r.skipped).toEqual([{ name: 'No Email', reason: 'no email address' }]);
+  });
+
+  it('records which attendees received their invitation', async () => {
+    const { svc, attendees } = makeService({ attendees: roster });
+    await svc.sendInvites('m1');
+    expect(attendees.markInvited).toHaveBeenCalledWith(['a-u2', 'a-guest'], expect.any(Date));
+  });
+
+  it('can invite only the people who haven’t had an invitation yet', async () => {
+    const { svc, email, attendees } = makeService({ meetingRow: meeting({ invitesSentAt: sentAt }), attendees: roster });
+    const r = await svc.sendInvites('m1', { onlyNew: true });
+    expect(email.sendMeetingInvite.mock.calls.map((c) => c[0])).toEqual(['late@ext.co']);
+    expect(r).toMatchObject({ sent: 1, failed: 0 });
+    expect(attendees.markInvited).toHaveBeenCalledWith(['a-guest'], expect.any(Date));
+  });
+
+  it('previews the invitation: recipients, who already has one, and what needs fixing first', async () => {
+    const { svc, email } = makeService({ meetingRow: meeting({ invitesSentAt: sentAt, location: null, onlineLink: null }), attendees: roster });
+    const p = await svc.previewInvites('m1');
+    expect(email.sendMeetingInvite).not.toHaveBeenCalled();
+    expect(p.recipients.map((r) => [r.email, r.alreadyInvited])).toEqual([
+      ['aisha@mico360.test', true],
+      ['khurram@mico360.test', true],
+      ['late@ext.co', false],
+    ]);
+    expect(p.missingEmail).toEqual([{ name: 'No Email', attendeeId: 'a-noemail' }]);
+    expect(p.invitesSentAt).toEqual(sentAt);
+    expect(p.problems).toContainEqual(expect.objectContaining({ level: 'warning', message: expect.stringMatching(/place|link/i) }));
+    expect(p.problems.some((x) => x.level === 'error')).toBe(false);
+  });
+
+  it('blocks invitations with nobody to invite, for a cancelled meeting, and warns when it’s in the past', async () => {
+    const lonely = await makeService({ attendees: [] }).svc.previewInvites('m1');
+    expect(lonely.problems).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringMatching(/attendee/i) }));
+    const cancelled = await makeService({ meetingRow: meeting({ status: 'CANCELLED' }), attendees: roster }).svc.previewInvites('m1');
+    expect(cancelled.problems).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringMatching(/cancelled/i) }));
+    const past = await makeService({ meetingRow: meeting({ startAt: new Date('2026-10-01T09:00:00Z'), endAt: null }), attendees: roster }).svc.previewInvites('m1');
+    expect(past.problems).toContainEqual(expect.objectContaining({ level: 'warning', message: expect.stringMatching(/already/i) }));
+  });
+
+  it('emails the minutes only to the recipients chosen', async () => {
+    const { svc, email } = makeService({ attendees: roster });
+    const r = await svc.sendMinutes('m1', Buffer.from('%PDF'), { only: ['LATE@ext.co', 'stranger@evil.example'] });
+    expect(email.sendMeetingMinutes.mock.calls.map((c) => c[0])).toEqual(['late@ext.co']);
+    expect(r).toMatchObject({ sent: 1, failed: 0 });
+    await expect(svc.sendMinutes('m1', Buffer.from('%PDF'), { only: ['stranger@evil.example'] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('previews the minutes email exactly as it will be sent', async () => {
+    const { svc, email } = makeService({ attendees: roster });
+    const p = await svc.previewMinutes('m1');
+    expect(email.sendMeetingMinutes).not.toHaveBeenCalled();
+    expect(p.subject).toBe('Minutes: Sprint Review');
+    expect(p.html).toContain('Sprint Review');
+    expect(p.attachmentName).toBe('minutes-sprint-review.pdf');
+    expect(p.recipients.map((r) => r.email)).toEqual(['aisha@mico360.test', 'khurram@mico360.test', 'late@ext.co']);
+    expect(p.missingEmail.map((m) => m.name)).toEqual(['No Email']);
   });
 });
 
@@ -177,7 +254,7 @@ describe('MeetingNotifyService — time zones and resilience (MTG-01/03)', () =>
 
   it('falls back to the company zone for an invalid stored zone instead of failing', async () => {
     const { svc, email } = makeService({ meetingRow: meeting({ timeZone: 'Muscat', startAt: new Date('2026-10-05T06:00:00Z'), endAt: null }) });
-    await expect(svc.sendInvites('m1')).resolves.toEqual({ sent: 1, failed: 0 });
+    await expect(svc.sendInvites('m1')).resolves.toMatchObject({ sent: 1, failed: 0 });
     expect((email.sendMeetingInvite.mock.calls[0]![1] as { whenLabel: string }).whenLabel).toContain('10:00 AM');
   });
 

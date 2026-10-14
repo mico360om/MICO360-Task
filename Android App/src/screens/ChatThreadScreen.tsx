@@ -5,6 +5,8 @@ import { keyed, useConversationMessages, useSendMessage, useDirectory } from '..
 import { useSession, useMyQueuedChanges } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote } from '../components/ui';
+import { MentionSuggestions, MentionText, useMentionInput } from '../components/Mentions';
+import type { MentionPerson } from '../lib/mentions';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiChatMessage } from '../lib/types';
@@ -29,6 +31,11 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   const myId = session?.user?.id;
   const [draft, setDraft] = useState('');
   const [sendErr, setSendErr] = useState<string | null>(null);
+  const mentionPeople = useMemo<MentionPerson[]>(
+    () => (dirQ.data ?? []).map((u) => ({ id: u.id, username: u.username, name: `${u.firstName} ${u.lastName}`.trim() })),
+    [dirQ.data],
+  );
+  const draftMention = useMentionInput(draft, setDraft, mentionPeople);
   const scrollRef = React.useRef<ScrollView>(null);
 
   useLayoutEffect(() => {
@@ -95,7 +102,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
                 {m.deletedAt ? (
                   <Text style={styles.deleted}>This message was deleted.</Text>
                 ) : (
-                  <Text style={styles.body}>{m.body}</Text>
+                  <MentionText style={styles.body} body={m.body} people={mentionPeople} />
                 )}
                 {!m.deletedAt && (m.attachments ?? []).length > 0 ? (
                   <View style={styles.attachments}>
@@ -134,9 +141,14 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
             <ErrorNote message={sendErr} />
           </View>
         ) : null}
+        <View style={styles.mentionWrap}>
+          <MentionSuggestions menu={draftMention.menu} onPick={draftMention.pick} />
+        </View>
         <View style={styles.composer}>
           <View style={styles.inputWrap}>
             <TextInput
+              ref={draftMention.inputRef}
+              onSelectionChange={draftMention.onSelectionChange}
               style={styles.input}
               value={draft}
               onChangeText={(v) => {
@@ -184,6 +196,7 @@ const makeStyles = (c: Palette) =>
     time: { fontSize: fontSize.xs, color: c.ink3 },
     edited: { fontSize: fontSize.xs, color: c.ink3 },
     body: { fontSize: fontSize.md, color: c.ink },
+    mentionWrap: { paddingHorizontal: spacing.md },
     deleted: { fontSize: fontSize.md, fontStyle: 'italic', color: c.ink3 },
     attachments: { flexDirection: 'row', gap: spacing.xs, marginTop: 4, flexWrap: 'wrap' },
     attachChip: { borderWidth: 1, borderColor: c.line, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.surface },

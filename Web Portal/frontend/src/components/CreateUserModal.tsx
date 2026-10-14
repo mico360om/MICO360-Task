@@ -7,6 +7,7 @@ import { FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
 import { ApiError } from '../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
+import { ModalPortal } from './ui/ModalPortal';
 
 export interface CreateUserModalProps {
   onClose: () => void;
@@ -14,6 +15,22 @@ export interface CreateUserModalProps {
 }
 
 type Role = 'EMPLOYEE' | 'ADMIN';
+
+/** Why the server refused the new account, in words that point at the detail to fix. */
+function createFailure(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.code === 'WEAK_PASSWORD') return PASSWORD_RULE_ERROR;
+    if (e.code === 'DUPLICATE_USER' || e.status === 409) return 'That email or username is already in use. Choose a different one.';
+    const fields = (e.details as { fieldErrors?: Record<string, string[] | undefined> } | undefined)?.fieldErrors ?? {};
+    if (fields.email?.length) return 'Enter a valid email address, like name@company.com.';
+    const [field, messages] = Object.entries(fields).find(([, m]) => m?.length) ?? [];
+    if (field && messages?.[0]) return `Check the ${FIELD_NAMES[field] ?? field}: ${messages[0]}`;
+    if (e.status === 403) return 'You don’t have permission to create accounts.';
+  }
+  return 'Couldn’t create the account. Please try again.';
+}
+
+const FIELD_NAMES: Record<string, string> = { firstName: 'first name', lastName: 'last name', username: 'username', password: 'password', roleNames: 'role' };
 
 /** Admin dialog to create a new account (name, credentials, role). Used by User Management + Team. */
 export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
@@ -37,77 +54,78 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
       onCreated?.();
       onClose();
     },
-    onError: (e) =>
-      setError(
-        e instanceof ApiError && e.code === 'WEAK_PASSWORD'
-          ? PASSWORD_RULE_ERROR
-          : 'Couldn’t create the account. Check the details (email/username may already be in use).',
-      ),
+    onError: (e) => setError(createFailure(e)),
   });
 
   function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     // Same rule as the server (8+ characters with a letter and a number), so it never rejects what we accept.
-    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || !isStrongPassword(password)) {
-      setError(`Fill in every field. ${PASSWORD_RULE_ERROR}`);
+    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || !password) {
+      setError('Fill in every field.');
       firstRef.current?.focus();
+      return;
+    }
+    if (!isStrongPassword(password)) {
+      setError(PASSWORD_RULE_ERROR);
       return;
     }
     createMut.mutate();
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4">
-      <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New user" className="card relative w-full max-w-md animate-scale-in p-6">
-        <h2 className="mb-4 font-display text-xl font-bold text-ink">New user</h2>
-        {error ? (
-          <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
-              <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+    <ModalPortal>
+      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New user" className="card relative max-h-[calc(100dvh-2rem)] w-full max-w-md animate-scale-in overflow-y-auto p-6">
+          <h2 className="mb-4 font-display text-xl font-bold text-ink">New user</h2>
+          {error ? (
+            <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
+          <form onSubmit={submit} className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
+                <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
+                <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
-              <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel htmlFor="nu-username" required>Username</FieldLabel>
-            <input id="nu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
-            <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="nu-password" required>Temp password</FieldLabel>
-              <input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={fieldClass(false)} autoComplete="new-password" aria-describedby="nu-password-hint" />
-              <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+              <FieldLabel htmlFor="nu-username" required>Username</FieldLabel>
+              <input id="nu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
             </div>
             <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="nu-role">Role</FieldLabel>
-              <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20">
-                <option value="EMPLOYEE">Employee</option>
-                <option value="ADMIN">Administrator</option>
-              </select>
+              <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
+              <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
             </div>
-          </div>
-          <Button type="submit" loading={createMut.isPending}>
-            {createMut.isPending ? 'Creating…' : 'Create user'}
-          </Button>
-          <button type="button" onClick={onClose} className="w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground">
-            Cancel
-          </button>
-        </form>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel htmlFor="nu-password" required>Temp password</FieldLabel>
+                <input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={fieldClass(false)} autoComplete="new-password" aria-describedby="nu-password-hint" />
+                <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel htmlFor="nu-role">Role</FieldLabel>
+                <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20">
+                  <option value="EMPLOYEE">Employee</option>
+                  <option value="ADMIN">Administrator</option>
+                </select>
+              </div>
+            </div>
+            <Button type="submit" loading={createMut.isPending}>
+              {createMut.isPending ? 'Creating…' : 'Create user'}
+            </Button>
+            <button type="button" onClick={onClose} className="w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground">
+              Cancel
+            </button>
+          </form>
+        </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

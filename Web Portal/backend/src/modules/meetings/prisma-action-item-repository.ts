@@ -42,6 +42,7 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
           priority: data.priority ?? 'NORMAL',
           status: data.status ?? 'OPEN',
           dueDate: data.dueDate ?? null,
+          taskId: data.taskId ?? null,
           createdById: data.createdById,
         },
       });

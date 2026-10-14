@@ -4,6 +4,8 @@ export type MeetingStatus = 'DRAFT' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' 
 export type AttendeeRole = 'REQUIRED' | 'OPTIONAL';
 export type AttendanceStatus = 'INVITED' | 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
 export type MeetingNoteType = 'DISCUSSION' | 'DECISION' | 'ACTION' | 'ISSUE' | 'QUESTION' | 'INFORMATION';
+/** The answer to the invitation — separate from the role (required/optional) and from attendance on the day. */
+export type InvitationResponse = 'PENDING' | 'ACCEPTED' | 'TENTATIVE' | 'DECLINED';
 
 export interface RecurrenceRule {
   freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
@@ -42,6 +44,10 @@ export interface Meeting {
    * email, attendees, agenda). Missing on older servers — treat that as `true`.
    */
   canEdit?: boolean;
+  /** List only: how many people are on the meeting (older servers leave it out). */
+  attendeeCount?: number;
+  /** List only: action items still to do. */
+  openActionItemCount?: number;
 }
 
 export interface Attendee {
@@ -52,6 +58,11 @@ export interface Attendee {
   externalEmail: string | null;
   role: AttendeeRole;
   attendance: AttendanceStatus;
+  /** Older servers leave these out (treat as no answer / not invited). */
+  response?: InvitationResponse;
+  respondedAt?: string | null;
+  /** When this person's own invitation was delivered (null = not invited yet). */
+  invitedAt?: string | null;
   department: string | null;
   createdAt: string;
 }
@@ -86,6 +97,8 @@ export interface ActionItem {
   updatedAt: string;
   /** Computed by the server: past due and still actionable. */
   overdue: boolean;
+  /** Board key of the linked task (null when there is none). */
+  taskKey?: string | null;
 }
 
 export interface NewActionItemInput {
@@ -210,6 +223,46 @@ export interface NewAttendeeInput {
   department?: string | null;
 }
 
+export type RecipientKind = 'organizer' | 'member' | 'guest';
+
+export interface Recipient {
+  name: string;
+  email: string;
+  kind: RecipientKind;
+  attendeeIds: string[];
+  alreadyInvited: boolean;
+}
+
+export interface SendProblem {
+  /** 'error' blocks sending; 'warning' can be sent anyway. */
+  level: 'error' | 'warning';
+  message: string;
+}
+
+export interface InvitePreview {
+  recipients: Recipient[];
+  missingEmail: { name: string; attendeeId: string }[];
+  problems: SendProblem[];
+  invitesSentAt: string | null;
+}
+
+export interface MinutesPreview {
+  subject: string;
+  html: string;
+  text: string;
+  attachmentName: string;
+  recipients: Recipient[];
+  missingEmail: { name: string; attendeeId: string }[];
+}
+
+/** What happened to each email of a send. Older servers answer with the totals only. */
+export interface SendReport {
+  sent: number;
+  failed?: number;
+  recipients?: { name: string; email: string; kind: RecipientKind; ok: boolean; error?: string }[];
+  skipped?: { name: string; reason: string }[];
+}
+
 export interface MeetingListFilter {
   projectId?: string;
   status?: MeetingStatus;
@@ -224,8 +277,16 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   CANCELLED: 'Cancelled',
 };
 
+export const RESPONSE_LABELS: Record<InvitationResponse, string> = {
+  PENDING: 'No response',
+  ACCEPTED: 'Accepted',
+  TENTATIVE: 'Maybe',
+  DECLINED: 'Declined',
+};
+
+/** Attendance on the day. INVITED is simply "not recorded yet" — the invitation itself is the response. */
 export const ATTENDANCE_LABELS: Record<AttendanceStatus, string> = {
-  INVITED: 'Invited',
+  INVITED: 'Not recorded',
   PRESENT: 'Present',
   ABSENT: 'Absent',
   LATE: 'Late',
@@ -258,7 +319,7 @@ export function meetingsApi(client: ApiClient) {
     listAttendees: (meetingId: string) => client.get<{ data: Attendee[] }>(`/meetings/${meetingId}/attendees`).then((r) => r.data),
     addAttendee: (meetingId: string, input: NewAttendeeInput) =>
       client.post<{ data: Attendee }>(`/meetings/${meetingId}/attendees`, input).then((r) => r.data),
-    updateAttendee: (meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; attendance?: AttendanceStatus; department?: string | null }) =>
+    updateAttendee: (meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; attendance?: AttendanceStatus; response?: InvitationResponse; department?: string | null }) =>
       client.patch<{ data: Attendee }>(`/meetings/${meetingId}/attendees/${attendeeId}`, patch).then((r) => r.data),
     removeAttendee: (meetingId: string, attendeeId: string) => client.del<void>(`/meetings/${meetingId}/attendees/${attendeeId}`),
     suggestAttendees: (meetingId: string, previousMeetingIds: string[]) =>
@@ -288,7 +349,8 @@ export function meetingsApi(client: ApiClient) {
     /** ⭐ Promote a note into a board task; returns the created task and the back-linked note. */
     createTaskFromNote: (meetingId: string, noteId: string, input: CreateTaskFromNoteInput) =>
       // `assigneeError`: the task was created, but assigning it failed (e.g. the person can't see the project).
-      client.post<{ data: { task: NoteTask; note: MeetingNote; assigneeError?: string } }>(`/meetings/${meetingId}/notes/${noteId}/task`, input).then((r) => r.data),
+      // `actionItem`: an action note is also tracked as an action item linked to the task.
+      client.post<{ data: { task: NoteTask; note: MeetingNote; assigneeError?: string; actionItem?: ActionItem; actionItemError?: string } }>(`/meetings/${meetingId}/notes/${noteId}/task`, input).then((r) => r.data),
 
     /** Download the Minutes of Meeting as a PDF blob. */
     exportMinutesPdf: (meetingId: string) => client.getBlob(`/meetings/${meetingId}/minutes.pdf`),
@@ -306,9 +368,18 @@ export function meetingsApi(client: ApiClient) {
       return client.get<{ data: ActionItem[] }>(`/me/action-items${s ? `?${s}` : ''}`).then((r) => r.data);
     },
 
-    /** Send calendar invitations (.ics) to the organizer + attendees. */
-    sendInvites: (meetingId: string) => client.post<{ data: { sent: number } }>(`/meetings/${meetingId}/invites`).then((r) => r.data),
-    /** Email the branded minutes PDF to the organizer + attendees. */
-    sendMinutes: (meetingId: string) => client.post<{ data: { sent: number } }>(`/meetings/${meetingId}/minutes/send`).then((r) => r.data),
+    /** Who an invitation would go to, and anything to fix first (sends nothing). */
+    previewInvites: (meetingId: string) => client.get<{ data: InvitePreview }>(`/meetings/${meetingId}/invites/preview`).then((r) => r.data),
+    /**
+     * Send calendar invitations (.ics): to everyone, or only to people not invited yet. Once
+     * invitations went out, sending everyone again needs `resend` (the server answers 409 otherwise).
+     */
+    sendInvites: (meetingId: string, opts: { onlyNew?: boolean; resend?: boolean } = {}) =>
+      client.post<{ data: SendReport }>(`/meetings/${meetingId}/invites`, opts).then((r) => r.data),
+    /** The minutes email as it will be sent, and to whom (sends nothing). */
+    previewMinutes: (meetingId: string) => client.get<{ data: MinutesPreview }>(`/meetings/${meetingId}/minutes/preview`).then((r) => r.data),
+    /** Email the branded minutes PDF — to everyone, or to the chosen people's addresses. */
+    sendMinutes: (meetingId: string, recipients?: string[]) =>
+      client.post<{ data: SendReport }>(`/meetings/${meetingId}/minutes/send`, recipients ? { recipients } : {}).then((r) => r.data),
   };
 }

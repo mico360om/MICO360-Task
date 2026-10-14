@@ -42,7 +42,7 @@ function attendeeRepo(): AttendeeRepository {
       const rec: AttendeeRecord = {
         id: `a${seq++}`, meetingId: d.meetingId, userId: d.userId ?? null, externalName: d.externalName ?? null,
         externalEmail: d.externalEmail ?? null, role: d.role ?? 'REQUIRED', attendance: d.attendance ?? 'INVITED',
-        department: d.department ?? null, createdAt: new Date(),
+        department: d.department ?? null, response: 'PENDING', respondedAt: null, invitedAt: null, createdAt: new Date(),
       };
       rows.set(rec.id, rec);
       return rec;
@@ -168,6 +168,27 @@ describe('Attendee routes — only meeting editors change the roster (SEC-06)', 
     // The organizer's removal fires the hook that retracts the calendar invitation (MTG-02).
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/attendees/${u3Row}`, headers: organizer })).statusCode).toBe(204);
     expect(removed).toEqual([{ meetingId: id, attendeeId: u3Row }]);
+  });
+
+  it('lets an attendee answer their own invitation, and the organizer record a guest’s answer', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const { app } = await makeApp(attendeesOf);
+    const id = await ownedMeeting(app, 'u1');
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const u2Row = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: organizer, payload: { userId: 'u2' } })).json().data.id;
+    const u3Row = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: organizer, payload: { userId: 'u3' } })).json().data.id;
+    const guest = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: organizer, payload: { externalName: 'Guest', externalEmail: 'g@ext.co' } })).json().data.id;
+    attendeesOf[id] = ['u2', 'u3'];
+    const u2 = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+
+    const own = await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${u2Row}`, headers: u2, payload: { response: 'ACCEPTED' } });
+    expect(own.statusCode).toBe(200);
+    expect(own.json().data).toMatchObject({ response: 'ACCEPTED' });
+    expect(own.json().data.respondedAt).toBeTruthy();
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${u3Row}`, headers: u2, payload: { response: 'DECLINED' } })).statusCode).toBe(403);
+    const recorded = await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${guest}`, headers: organizer, payload: { response: 'DECLINED' } });
+    expect(recorded.json().data.response).toBe('DECLINED');
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${guest}`, headers: organizer, payload: { response: 'MAYBE' } })).statusCode).toBe(400);
   });
 
   it('suggests attendees only from previous meetings the caller can see (SEC-22)', async () => {

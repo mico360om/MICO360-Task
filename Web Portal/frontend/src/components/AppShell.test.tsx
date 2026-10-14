@@ -65,4 +65,33 @@ describe('AppShell', () => {
     expect(getQueue(localStorageQueueStore)).toHaveLength(0);
     vi.unstubAllGlobals();
   });
+
+  describe('phone menu', () => {
+    it('opens as a dialog with focus inside it, and closes with Escape', async () => {
+      renderShell();
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      const opener = screen.getByRole('button', { name: 'Open menu' });
+      await userEvent.click(opener);
+      const menu = screen.getByRole('dialog', { name: 'Menu' });
+      expect(menu).toHaveAttribute('aria-modal', 'true');
+      expect(menu.contains(document.activeElement)).toBe(true);
+
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+    });
+
+    it('has a Close button, and closes when a page is chosen', async () => {
+      renderShell();
+      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Close menu' }));
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+      const menu = screen.getByRole('dialog', { name: 'Menu' });
+      await userEvent.click(menu.querySelector('a[href="/dashboard"]')!);
+      expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    });
+  });
 });
+

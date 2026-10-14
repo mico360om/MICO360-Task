@@ -76,8 +76,11 @@ export function SyncStatus() {
   const syncing = fetching > 0;
   const dot = syncing ? 'animate-pulse bg-warning' : pending > 0 ? 'bg-warning' : 'bg-success';
   const label = syncing ? 'Syncing…' : pending > 0 ? `${pending} queued` : `Synced ${rel(lastSync, nowMs)}`;
+  // On a phone or tablet the header has no room for "Synced just now", so the control appears only when there
+  // is something to act on: changes waiting to sync, or changes that could not be saved.
+  const needsAttention = pending > 0 || failed.length > 0;
   return (
-    <div className="relative hidden items-center gap-1.5 md:inline-flex">
+    <div className={`relative items-center gap-1.5 lg:inline-flex ${needsAttention ? 'inline-flex' : 'hidden'}`}>
       <button
         onClick={() => void syncNow()}
         aria-label="Sync now"
@@ -91,21 +94,31 @@ export function SyncStatus() {
         className="inline-flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink-2 transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:bg-ground"
       >
         <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
-        <span>{label}</span>
+        {pending > 0 ? (
+          // Waiting changes: the count alone on a phone (the words would push into the search box).
+          <>
+            <span className="tabular-nums sm:hidden" aria-hidden="true">{pending}</span>
+            <span className="hidden sm:inline">{label}</span>
+          </>
+        ) : (
+          <span className="hidden lg:inline">{label}</span>
+        )}
       </button>
 
       {failed.length > 0 ? (
         <button
           onClick={() => setReviewOpen((o) => !o)}
           aria-expanded={reviewOpen}
-          className="rounded-lg border border-danger/30 bg-danger-soft px-2 py-1.5 text-xs font-semibold text-danger"
+          aria-label={`${failed.length} not synced`}
+          className="inline-flex items-center gap-1 rounded-lg border border-danger/30 bg-danger-soft px-2 py-1.5 text-xs font-semibold text-danger"
         >
-          {failed.length} not synced
+          <span className="sm:hidden" aria-hidden="true">! {failed.length}</span>
+          <span className="hidden sm:inline">{failed.length} not synced</span>
         </button>
       ) : null}
 
       {reviewOpen && failed.length > 0 ? (
-        <div role="dialog" aria-label="Changes that could not be synced" className="absolute right-0 top-full z-40 mt-2 w-80 rounded-xl border border-line bg-surface p-3 shadow-lift">
+        <div role="dialog" aria-label="Changes that could not be synced" className="fixed inset-x-2 top-14 z-40 rounded-xl border border-line bg-surface p-3 shadow-lift lg:absolute lg:inset-x-auto lg:right-0 lg:top-full lg:mt-2 lg:w-80">
           <p className="mb-2 text-xs text-ink-2">These offline changes couldn’t be saved. Retry them, or discard them.</p>
           <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto">
             {failed.map((m) => (

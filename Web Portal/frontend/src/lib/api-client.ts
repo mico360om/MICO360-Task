@@ -41,12 +41,20 @@ export interface ApiClient {
   put<T = unknown>(path: string, body?: unknown): Promise<T>;
   patch<T = unknown>(path: string, body?: unknown): Promise<T>;
   del<T = unknown>(path: string): Promise<T>;
-  /** POST multipart form data (e.g. file uploads); the browser sets the boundary. */
-  upload<T = unknown>(path: string, form: FormData): Promise<T>;
+  /**
+   * POST multipart form data (e.g. file uploads); the browser sets the boundary. With `onProgress`
+   * it reports how much has been sent (0–1) as it goes.
+   */
+  upload<T = unknown>(path: string, form: FormData, opts?: UploadOptions): Promise<T>;
   /** GET a raw text body (e.g. a CSV export) with auth attached. */
   getText(path: string): Promise<string>;
   /** GET a binary body (e.g. an Excel or PDF export) as a Blob, with auth attached. */
   getBlob(path: string): Promise<Blob>;
+}
+
+export interface UploadOptions {
+  /** Called as the body is sent, with the fraction sent so far (0–1). */
+  onProgress?: (fraction: number) => void;
 }
 
 function errorFrom(status: number, text: string): ApiError {
@@ -123,11 +131,40 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return (text ? JSON.parse(text) : {}) as T;
   }
 
-  async function upload<T>(path: string, form: FormData): Promise<T> {
-    const res = await authedFetch('POST', path, { form });
-    const text = await res.text();
-    if (!res.ok) throw errorFrom(res.status, text);
-    return (text ? JSON.parse(text) : {}) as T;
+  /** One multipart POST over XMLHttpRequest — fetch can't report upload progress. */
+  function sendWithProgress(path: string, form: FormData, token: string | null, onProgress: (fraction: number) => void) {
+    return new Promise<{ status: number; text: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${baseUrl}${path}`);
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+      // Same as a failed fetch, so callers report it as a connection problem.
+      xhr.onerror = () => reject(new TypeError('Network request failed'));
+      xhr.send(form);
+    });
+  }
+
+  async function upload<T>(path: string, form: FormData, opts?: UploadOptions): Promise<T> {
+    const onProgress = opts?.onProgress;
+    if (!onProgress || typeof XMLHttpRequest === 'undefined') {
+      const res = await authedFetch('POST', path, { form });
+      const text = await res.text();
+      if (!res.ok) throw errorFrom(res.status, text);
+      return (text ? JSON.parse(text) : {}) as T;
+    }
+    // The same refresh-once-on-401 rule as every other request.
+    const token = getToken();
+    let res = await sendWithProgress(path, form, token, onProgress);
+    if (res.status === 401) {
+      const outcome = await refreshOnce(token);
+      if (outcome === 'refreshed') res = await sendWithProgress(path, form, getToken(), onProgress);
+      else if (outcome === 'invalid') onUnauthorized?.();
+    }
+    if (res.status < 200 || res.status >= 300) throw errorFrom(res.status, res.text);
+    return (res.text ? JSON.parse(res.text) : {}) as T;
   }
 
   async function getText(path: string): Promise<string> {

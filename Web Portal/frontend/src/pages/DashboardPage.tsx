@@ -14,10 +14,13 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Avatar } from '../components/ui/Avatar';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { namedProjectOption } from '../components/project-option';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { daysUntilDue } from '../lib/due-date';
 import { isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
+import { LoadError } from '../components/ui/LoadError';
+import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 
 // Category colours reference the shared design tokens (rgb(var(--…))) so the
 // charts adapt to light/dark theme instead of being pinned to light-mode hex.
@@ -92,9 +95,13 @@ export function DashboardPage() {
     (acc, p) => ({ total: acc.total + p.total, completed: acc.completed + p.completed, overdue: acc.overdue + p.overdue }),
     { total: 0, completed: 0, overdue: 0 },
   );
-  const statusData = Object.entries(statusQ.data ?? {}).map(([category, count]) => ({
-    label: category, value: count, color: CATEGORY_COLOR[category] ?? 'rgb(var(--c-brand))',
-  }));
+  // Board order, named like everywhere else in the app (not the raw category codes).
+  const statusRank = (category: string) => { const i = STATUS_ORDER.indexOf(category as (typeof STATUS_ORDER)[number]); return i < 0 ? STATUS_ORDER.length : i; };
+  const statusData = Object.entries(statusQ.data ?? {})
+    .sort(([a], [b]) => statusRank(a) - statusRank(b))
+    .map(([category, count]) => ({
+      label: STATUS_META[category]?.label ?? category, value: count, color: CATEGORY_COLOR[category] ?? 'rgb(var(--c-brand))',
+    }));
   const perfFiltered = projectFilter ? perf.filter((p) => p.projectId === projectFilter) : perf;
   const perfData = perfFiltered.map((p) => ({ label: p.projectName, value: p.completionPct, color: completionColor(p.completionPct) }));
 
@@ -133,7 +140,7 @@ export function DashboardPage() {
             Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link to="/board" className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-brand shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift">
+            <Link to="/board" className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#8B1E1E] shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift">
               Open board
             </Link>
             <Link to="/my-tasks" className="rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-white/20">
@@ -159,7 +166,13 @@ export function DashboardPage() {
               <Reveal>
                 <section className="card p-5">
                   <h2 className="eyebrow mb-3">Tasks by status</h2>
-                  {statusQ.isError ? <p className="text-sm text-danger">Couldn’t load (admin only).</p> : <BarChart data={statusData} />}
+                  {statusQ.isLoading ? (
+                    <div className="skeleton h-40 rounded-lg" aria-label="Loading the status chart" />
+                  ) : statusQ.isError ? (
+                    <LoadError what="the status chart" onRetry={() => void statusQ.refetch()} />
+                  ) : (
+                    <BarChart data={statusData} ariaLabel="Tasks by status" />
+                  )}
                 </section>
               </Reveal>
               <Reveal delay={1}>
@@ -171,11 +184,18 @@ export function DashboardPage() {
                         ariaLabel="Filter by project"
                         value={projectFilter}
                         onChange={(v) => setProjectFilter(v)}
-                        options={[{ value: '', label: 'All projects' }, ...perf.map((p) => ({ value: p.projectId, label: p.projectName }))]}
+                        options={[{ value: '', label: 'All projects' }, ...perf.map((p) => namedProjectOption(p.projectId, p.projectName, Array.isArray(projectsQ.data) ? projectsQ.data : null))]}
                       />
                     </div>
                   </div>
-                  <BarChart data={perfData} unit="%" />
+                  {/* An outage must not read as "no data yet". */}
+                  {perfQ.isLoading ? (
+                    <div className="skeleton h-40 rounded-lg" aria-label="Loading project completion" />
+                  ) : perfQ.isError ? (
+                    <LoadError what="project completion" onRetry={() => void perfQ.refetch()} />
+                  ) : (
+                    <BarChart data={perfData} unit="%" ariaLabel="Project completion" />
+                  )}
                 </section>
               </Reveal>
             </>
@@ -184,12 +204,12 @@ export function DashboardPage() {
               <section className="card p-5">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="eyebrow">Your open tasks</h2>
-                  <Link to="/my-tasks" className="text-xs font-semibold text-brand hover:underline">View all</Link>
+                  <Link to="/my-tasks" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
                 </div>
                 {myTasksQ.isLoading ? (
                   <div className="skeleton h-24 rounded-lg" aria-label="Loading your tasks" />
                 ) : myTasksQ.isError ? (
-                  <LoadError what="your tasks" onRetry={() => void myTasksQ.refetch()} />
+                  <LoadError what="your tasks" onRetry={() => void myTasksQ.refetch()} className="py-4 text-center" />
                 ) : openTasks.length === 0 ? (
                   <EmptyState bare title="Nothing open assigned to you" description="Open tasks assigned to you will appear here." />
                 ) : (
@@ -210,19 +230,19 @@ export function DashboardPage() {
             <section className="card p-5">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="eyebrow">Due soon</h2>
-                <Link to="/calendar" className="text-xs font-semibold text-brand hover:underline">Calendar</Link>
+                <Link to="/calendar" className="tap text-xs font-semibold text-brand hover:underline">Calendar</Link>
               </div>
               {allTasksQ.isLoading ? (
                 <div className="skeleton h-24 rounded-lg" aria-label="Loading due tasks" />
               ) : allTasksQ.isError ? (
                 // An outage must never read as "all clear".
-                <LoadError what="due tasks" onRetry={() => void allTasksQ.refetch()} />
+                <LoadError what="due tasks" onRetry={() => void allTasksQ.refetch()} className="py-4 text-center" />
               ) : dueSoon.length === 0 ? (
                 <p className="py-4 text-center text-sm text-ink-2">Nothing due — you’re all clear. 🎉</p>
               ) : (
                 <ul className="flex flex-col">
                   {dueSoon.map((t) => (
-                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => setOpenTaskId(t.id)} showDue />
+                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => setOpenTaskId(t.id)} showDue stacked />
                   ))}
                 </ul>
               )}
@@ -233,10 +253,10 @@ export function DashboardPage() {
             <section className="card p-5">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="eyebrow">Recent activity</h2>
-                <Link to="/activity" className="text-xs font-semibold text-brand hover:underline">View all</Link>
+                <Link to="/activity" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
               </div>
               {activityQ.isError ? (
-                <LoadError what="recent activity" onRetry={() => void activityQ.refetch()} />
+                <LoadError what="recent activity" onRetry={() => void activityQ.refetch()} className="py-4 text-center" />
               ) : recent.length === 0 ? (
                 <p className="py-4 text-center text-sm text-ink-2">{activityQ.isLoading ? 'Loading…' : 'No activity yet.'}</p>
               ) : (
@@ -256,27 +276,17 @@ export function DashboardPage() {
   );
 }
 
-function LoadError({ what, onRetry }: { what: string; onRetry: () => void }) {
-  return (
-    <p role="alert" className="py-4 text-center text-sm text-danger">
-      Couldn’t load {what}.{' '}
-      <button onClick={onRetry} className="font-semibold underline">
-        Retry
-      </button>
-    </p>
-  );
-}
-
-function TaskRow({ task, onOpen, showDue, timeZone }: { task: ApiTask; onOpen: () => void; showDue?: boolean; timeZone: string }) {
+/** One task. `stacked`: in a narrow column the title takes the first line and the key + due date the second. */
+function TaskRow({ task, onOpen, showDue, timeZone, stacked }: { task: ApiTask; onOpen: () => void; showDue?: boolean; timeZone: string; stacked?: boolean }) {
   const due = showDue && task.dueDate ? dueMeta(task.dueDate, timeZone) : null;
   return (
     <li>
       <button
         onClick={onOpen}
-        className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors hover:bg-ground"
+        className={`flex w-full items-center gap-x-2 gap-y-1 rounded-xl px-2 py-2 text-left text-sm transition-colors hover:bg-ground ${stacked ? 'lg:flex-wrap lg:justify-between 2xl:flex-nowrap' : ''}`}
       >
         <span className="rounded-md bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
-        <span dir="auto" className="min-w-0 flex-1 truncate text-start text-ink">{task.title}</span>
+        <span dir="auto" title={task.title} className={`min-w-0 flex-1 truncate text-start text-ink ${stacked ? 'lg:order-first lg:flex-none lg:basis-full 2xl:order-none 2xl:flex-1 2xl:basis-0' : ''}`}>{task.title}</span>
         {due ? (
           <span className={`whitespace-nowrap text-xs font-medium ${due.overdue ? 'text-danger' : 'text-ink-2'}`}>{due.label}</span>
         ) : (

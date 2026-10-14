@@ -78,7 +78,7 @@ export function UsersPage() {
         </p>
       ) : null}
 
-      <div className="card overflow-x-auto">
+      <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Users">
         {q.isLoading ? (
           <p className="p-4 text-ink-2">Loading…</p>
         ) : q.isError ? (
@@ -129,6 +129,7 @@ export function UsersPage() {
                         ) : null}
                         <button
                           onClick={() => setEditing(u)}
+                          aria-label={`Edit ${u.username}`}
                           className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink"
                         >
                           Edit
@@ -150,11 +151,12 @@ export function UsersPage() {
                             <button
                               onClick={() => deleteMut.mutate(u.id)}
                               disabled={deleteMut.isPending}
+                              aria-label={`Confirm deleting ${u.username}`}
                               className="rounded-lg bg-danger px-2 py-1 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-50"
                             >
                               {deleteMut.isPending ? 'Deleting…' : 'Confirm'}
                             </button>
-                            <button onClick={() => { setConfirmId(null); deleteMut.reset(); }} className="rounded-lg px-2 py-1 text-xs text-ink-2 hover:bg-ground">
+                            <button onClick={() => { setConfirmId(null); deleteMut.reset(); }} aria-label={`No, keep ${u.username}`} className="rounded-lg px-2 py-1 text-xs text-ink-2 hover:bg-ground">
                               No
                             </button>
                             {deleteMut.isError ? (
@@ -165,6 +167,7 @@ export function UsersPage() {
                           <button
                             onClick={() => { deleteMut.reset(); setConfirmId(u.id); }}
                             disabled={isSelf}
+                            aria-label={`Delete ${u.username}`}
                             title={isSelf ? 'You can’t delete your own account' : 'Delete user'}
                             className="rounded-lg border border-line px-2 py-1 text-xs text-danger transition-colors hover:bg-danger-soft disabled:opacity-40"
                           >

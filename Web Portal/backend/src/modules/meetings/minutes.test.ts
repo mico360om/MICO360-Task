@@ -25,8 +25,8 @@ const data: MinutesData = {
     description: 'Review Q3 outcomes and lock Q4 priorities.',
   },
   attendees: [
-    { name: 'Ada Lovelace', roleLabel: 'Required', attendanceLabel: 'Present', external: false, email: null },
-    { name: 'Guest Visitor', roleLabel: 'Optional', attendanceLabel: 'Invited', external: true, email: 'guest@ext.co' },
+    { name: 'Ada Lovelace', roleLabel: 'Required', responseLabel: 'Accepted', attendanceLabel: 'Present', external: false, email: null },
+    { name: 'Guest Visitor', roleLabel: 'Optional', responseLabel: 'No response', attendanceLabel: 'Not recorded', external: true, email: 'guest@ext.co' },
   ],
   agenda: [
     { title: 'Review Q3 outcomes', presenterName: 'Ada Lovelace', expectedMinutes: 20, completed: true },
@@ -61,11 +61,90 @@ describe('buildMinutesPdf', () => {
     expect(text).toContain('Draft the Q4 OKRs by Friday.');
   });
 
-  it('marks a standalone meeting and lists attendees with attendance', () => {
+  it('tables the meeting’s action items: owner, due day, priority, status and linked task', () => {
+    const text = lines({
+      ...data,
+      actionItems: [
+        { description: 'Book the conference room', ownerName: 'Grace Hopper', dueDate: '2026-10-05', statusLabel: 'In progress', priorityLabel: 'High', taskKey: 'MICO-12' },
+        { description: 'Send the vendor shortlist', ownerName: null, dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal' },
+      ],
+    });
+    expect(text).toContain('Action Items');
+    expect(text).toEqual(expect.arrayContaining(['Action', 'Owner', 'Due', 'Priority', 'Status', 'Task']));
+    expect(text).toEqual(expect.arrayContaining(['Book the conference room', 'Grace Hopper', 'Oct 5, 2026', 'High', 'In progress', 'MICO-12']));
+    // No owner or date: say so rather than leave a gap.
+    expect(text).toEqual(expect.arrayContaining(['Send the vendor shortlist', 'Unassigned', '—', 'Open']));
+    // An action note that isn't tracked as an item is still there.
+    expect(text).toContain('Draft the Q4 OKRs by Friday.');
+  });
+
+  it('doesn’t repeat an action note that is already tracked as an action item', () => {
+    const text = lines({
+      ...data,
+      notes: [{ typeLabel: 'Action Item', type: 'ACTION', body: 'Book the conference room', authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:20:00.000Z', highlighted: false, trackedAsActionItem: true }],
+      actionItems: [{ description: 'Book the conference room', ownerName: 'Grace Hopper', dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal' }],
+    });
+    expect(text.filter((l) => l === 'Book the conference room')).toHaveLength(1);
+  });
+
+  it('opens with a summary: attendance, agenda covered, decisions and open action items', () => {
+    const text = lines({ ...data, actionItems: [{ description: 'Book the room', ownerName: null, dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal', open: true }] });
+    expect(text).toEqual(expect.arrayContaining(['Attendees present', '1/2', 'Agenda items covered', 'Decisions made', 'Open action items']));
+  });
+
+  it('shows the meeting’s time zone by name', () => {
+    expect(lines({ ...data, meeting: { ...data.meeting, timeZone: 'Asia/Dubai' } })).toEqual(expect.arrayContaining(['Time zone', 'Asia/Dubai']));
+  });
+
+  it('tables the agenda with presenters and planned time, and totals it against the meeting length', () => {
+    const text = lines(data);
+    expect(text).toEqual(expect.arrayContaining(['#', 'Item', 'Presenter', 'Planned', 'Covered']));
+    expect(text).toEqual(expect.arrayContaining(['Review Q3 outcomes', 'Ada Lovelace', '20 min', 'Yes']));
+    expect(text).toContain('Planned time: 20 min of a 90 min meeting');
+  });
+
+  it('groups the discussion by kind and marks key points', () => {
+    const text = lines({
+      ...data,
+      notes: [
+        { typeLabel: 'Discussion', type: 'DISCUSSION', body: 'Aligned on focus.', authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:05:00.000Z', highlighted: true },
+        { typeLabel: 'Issue', type: 'ISSUE', body: 'Vendor is late.', authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:06:00.000Z', highlighted: false },
+        { typeLabel: 'Question', type: 'QUESTION', body: 'Who signs off?', authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:07:00.000Z', highlighted: false },
+        { typeLabel: 'Information', type: 'INFORMATION', body: 'Budget is approved.', authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:08:00.000Z', highlighted: false },
+      ],
+    });
+    const at = (s: string) => text.indexOf(s);
+    expect(at('Issues')).toBeGreaterThan(-1);
+    expect(at('Questions')).toBeGreaterThan(at('Issues'));
+    expect(at('Information')).toBeGreaterThan(at('Questions'));
+    expect(at('Vendor is late.')).toBeGreaterThan(at('Issues'));
+    expect(text.some((l) => l.includes('Key point'))).toBe(true);
+  });
+
+  it('has an Action Items section for action items alone (no note of that type)', () => {
+    const text = lines({
+      ...data,
+      notes: data.notes.filter((n) => n.type !== 'ACTION'),
+      actionItems: [{ description: 'Book the conference room', ownerName: 'Grace Hopper', dueDate: '2026-10-05', statusLabel: 'Open', priorityLabel: 'Normal' }],
+    });
+    expect(text).toContain('Action Items');
+    expect(text).toContain('Book the conference room');
+  });
+
+  it('keeps the due date on its calendar day whatever the meeting’s time zone', () => {
+    const item = { description: 'File the report', ownerName: 'Ada Lovelace', dueDate: '2026-10-05', statusLabel: 'Open', priorityLabel: 'Normal' };
+    for (const timeZone of ['Pacific/Honolulu', 'Asia/Muscat', 'Pacific/Kiritimati']) {
+      const text = lines({ ...data, meeting: { ...data.meeting, timeZone }, actionItems: [item] });
+      expect(text.some((l) => l.includes('Oct 5, 2026')), timeZone).toBe(true);
+    }
+  });
+
+  it('marks a standalone meeting and tables attendees: role, invitation response and attendance apart', () => {
     const text = lines(data);
     expect(text).toContain('Standalone meeting');
-    expect(text).toContain('Ada Lovelace  —  Required · Present');
-    expect(text).toContain('Guest Visitor  <guest@ext.co>  —  Guest · Optional · Invited'); // external attendee tagged
+    expect(text).toEqual(expect.arrayContaining(['Name', 'Email', 'Role', 'Response', 'Attendance']));
+    expect(text).toEqual(expect.arrayContaining(['Ada Lovelace', 'Required', 'Accepted', 'Present']));
+    expect(text).toEqual(expect.arrayContaining(['Guest Visitor', 'guest@ext.co', 'Optional · Guest', 'No response', 'Not recorded']));
   });
 
   it('shows a friendly section when a meeting has no notes or agenda', () => {
@@ -118,14 +197,14 @@ describe('buildMinutesPdf', () => {
       ...data,
       notes: [{ typeLabel: 'Discussion', type: 'DISCUSSION', body: 'Weigh option (A) vs (B)\\C', authorName: 'X', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false }],
     };
-    expect(lines(tricky)).toContain('[Discussion] Weigh option (A) vs (B)\\C');
+    expect(lines(tricky)).toContain('Weigh option (A) vs (B)\\C');
   });
 
   it('prints Arabic titles, names and notes as Arabic text (no "?"), with mixed lines kept whole', () => {
     const arabic: MinutesData = {
       ...data,
       meeting: { ...data.meeting, title: 'اجتماع مراجعة الميزانية', organizerName: 'خالد البلوشي', location: 'قاعة الاجتماعات (الطابق الثاني)', description: 'مراجعة الميزانية التشغيلية' },
-      attendees: [{ name: 'سالم الراشدي', roleLabel: 'Optional', attendanceLabel: 'Absent', external: true, email: 'salem@ext.om' }],
+      attendees: [{ name: 'سالم الراشدي', roleLabel: 'Optional', responseLabel: 'Declined', attendanceLabel: 'Absent', external: true, email: 'salem@ext.om' }],
       agenda: [{ title: 'مراجعة نتائج الربع الثالث', presenterName: 'خالد البلوشي', expectedMinutes: 20, completed: true }],
       notes: [
         { typeLabel: 'Decision', type: 'DECISION', body: 'الموعد 10:30 in Room B', authorName: 'خالد البلوشي', createdAt: '2026-10-01T09:15:00.000Z', highlighted: false },
@@ -139,10 +218,10 @@ describe('buildMinutesPdf', () => {
     expect(text).toContain('خالد البلوشي');
     expect(text).toContain('قاعة الاجتماعات (الطابق الثاني)');
     expect(text).toContain('مراجعة الميزانية التشغيلية');
-    expect(text).toContain('سالم الراشدي  <salem@ext.om>  —  Guest · Optional · Absent');
-    expect(text).toContain('مراجعة نتائج الربع الثالث  (خالد البلوشي · 20 min · done)');
+    expect(text).toEqual(expect.arrayContaining(['سالم الراشدي', 'salem@ext.om', 'Declined', 'Absent']));
+    expect(text).toEqual(expect.arrayContaining(['مراجعة نتائج الربع الثالث', '20 min']));
     expect(text).toContain('الموعد 10:30 in Room B');
-    expect(text).toContain('[Discussion] ناقش الفريق خطة التوظيف للعام القادم.');
+    expect(text).toContain('ناقش الفريق خطة التوظيف للعام القادم.');
     expect(text.join('\n')).not.toMatch(/\?{2,}/);
     // the Arabic glyphs come from the embedded Naskh font
     expect(pdf.toString('latin1')).toMatch(/\/FontName \/[A-Z]{6}\+NotoNaskhArabic-(Bold|Regular)/);

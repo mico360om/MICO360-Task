@@ -31,6 +31,8 @@ export interface CreateActionItemData {
   priority?: Priority;
   status?: ActionItemStatus;
   dueDate?: Date | null;
+  /** The board task this item is tracked as (set when it comes from a note turned into a task). */
+  taskId?: string | null;
   createdById: string;
 }
 

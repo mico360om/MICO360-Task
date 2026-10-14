@@ -4,6 +4,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { apiClient } from '../api/client';
 import { notificationsApi, NOTIFICATIONS_KEY } from '../api/notifications';
 import { useOpenNotification } from '../lib/notification-links';
+import { relativeTime } from '../lib/relative-time';
 
 const BellIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -51,8 +52,11 @@ export function NotificationsPage() {
               onClick={() => open(n)}
               className={`rounded-lg border border-line bg-surface p-3 text-start transition-colors hover:border-brand/40 hover:bg-brand/5 ${n.readAt ? '' : 'border-l-4 border-l-brand'}`}
             >
-              <div dir="auto" className="text-sm font-medium text-ink">{n.title}</div>
-              {n.body ? <div dir="auto" className="mt-0.5 text-xs text-ink-2">{n.body}</div> : null}
+              <div className="flex items-baseline justify-between gap-3">
+                <div dir="auto" className="min-w-0 text-sm font-medium text-ink">{n.title}</div>
+                {relativeTime(n.createdAt) ? <time dateTime={n.createdAt} className="flex-none text-xs text-ink-3">{relativeTime(n.createdAt)}</time> : null}
+              </div>
+              {n.body ? <div dir="auto" className="mt-0.5 whitespace-pre-line text-xs text-ink-2">{n.body}</div> : null}
             </button>
           ))
         )}

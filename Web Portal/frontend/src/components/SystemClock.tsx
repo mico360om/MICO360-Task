@@ -18,9 +18,9 @@ export function SystemClock() {
         <circle cx="12" cy="12" r="9" />
         <path d="M12 7.5V12l3 1.8" />
       </svg>
-      <span className="hidden text-[13px] font-medium text-ink lg:inline">{date}</span>
-      <span className="hidden text-line lg:inline" aria-hidden="true">|</span>
-      <span className="text-[13px] font-semibold text-ink tabular-nums">{time}</span>
+      <span className="hidden whitespace-nowrap text-[13px] font-medium text-ink xl:inline">{date}</span>
+      <span className="hidden text-line xl:inline" aria-hidden="true">|</span>
+      <span className="whitespace-nowrap text-[13px] font-semibold text-ink tabular-nums">{time}</span>
     </div>
   );
 }

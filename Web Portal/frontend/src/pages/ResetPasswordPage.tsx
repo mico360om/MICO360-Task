@@ -14,6 +14,7 @@ export function ResetPasswordPage() {
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkRefused, setLinkRefused] = useState(false);
   const [errors, setErrors] = useState<{ password?: string; confirm?: string }>({});
   const [done, setDone] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -22,6 +23,7 @@ export function ResetPasswordPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setLinkRefused(false);
     const next: { password?: string; confirm?: string } = {};
     if (!password) next.password = 'New password is required.';
     else if (!isStrongPassword(password)) next.password = PASSWORD_RULE_ERROR;
@@ -42,6 +44,8 @@ export function ResetPasswordPage() {
       setDone(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Unable to reach the server. Try again.');
+      // The server refused the link itself (used, expired or wrong): only a new link will do.
+      setLinkRefused(err instanceof ApiError && err.status === 400 && /link|token|expired/i.test(`${err.code} ${err.message}`));
     } finally {
       setLoading(false);
     }
@@ -51,7 +55,7 @@ export function ResetPasswordPage() {
     return (
       <AuthShell title="Invalid reset link">
         <p className="text-sm text-ink-2">This link is missing its reset token. Request a new one to continue.</p>
-        <Link to="/forgot" className="mt-6 inline-block text-sm font-medium text-brand hover:underline">
+        <Link to="/forgot" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
           Request a new reset link
         </Link>
       </AuthShell>
@@ -62,7 +66,7 @@ export function ResetPasswordPage() {
     return (
       <AuthShell title="Password updated">
         <p className="text-sm text-ink-2">Your password has been changed and your account is unlocked. You can sign in now.</p>
-        <Link to="/login" className="mt-6 inline-block text-sm font-medium text-brand hover:underline">
+        <Link to="/login" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
           Go to sign in →
         </Link>
       </AuthShell>
@@ -123,6 +127,9 @@ export function ResetPasswordPage() {
           <p role="alert" className="text-sm text-danger">
             {error}
           </p>
+        ) : null}
+        {error && linkRefused ? (
+          <Link to="/forgot" className="tap text-sm font-semibold text-brand hover:underline">Request a new reset link</Link>
         ) : null}
 
         <button

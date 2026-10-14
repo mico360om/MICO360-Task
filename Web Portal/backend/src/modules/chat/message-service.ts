@@ -44,17 +44,45 @@ export interface ReactionGroup {
   userIds: string[];
 }
 
+/** A short quote of the message being answered (no text once that message is deleted). */
+export interface ReplyQuote {
+  id: string;
+  userId: string;
+  body: string;
+  deleted: boolean;
+}
+
 /** A message enriched with its grouped reactions + attachments, as returned to clients. */
 export interface MessageView extends Message {
   reactions: ReactionGroup[];
   attachments: AttachmentView[];
+  replyTo: ReplyQuote | null;
+}
+
+/** What everyone may know about a participant (their personal settings stay private). */
+export type PublicParticipant = Pick<Participant, 'conversationId' | 'userId' | 'lastReadAt' | 'addedAt'> & { lastDeliveredAt: Date | null };
+
+export interface ConversationPrefs {
+  favorite: boolean;
+  archived: boolean;
+  muted: boolean;
 }
 
 export interface ConversationSummary {
   conversation: Conversation;
-  participants: Participant[];
+  participants: PublicParticipant[];
   unread: number;
   lastMessage: Message | null;
+  /** The signed-in person's own settings for this conversation. */
+  prefs: ConversationPrefs;
+}
+
+/** What to send: text (may be empty with a file), an optional file, reply and retry id. */
+export interface PostMessageInput {
+  body: string;
+  attachment?: StoredFileMeta;
+  replyToId?: string | null;
+  clientId?: string | null;
 }
 
 export interface MentionEvent {
@@ -84,11 +112,28 @@ export interface MessageServiceDeps {
   onMention?: (e: MentionEvent) => void | Promise<void>;
   /** Fired when a DM is sent (used to notify the recipient). */
   onDirectMessage?: (e: DirectMessageEvent) => void | Promise<void>;
+  /** Fired when someone reads a conversation (used to clear the notifications about it). */
+  onRead?: (e: { conversationId: string; userId: string }) => void | Promise<void>;
   /** Where failed (best-effort) notification hooks are reported. */
   logger?: Pick<Logger, 'error'>;
 }
 
 const DEFAULT_LIMIT = 50;
+/** Longest quote of a replied-to message. */
+const QUOTE_LENGTH = 200;
+/** Shortest search, and most results. */
+const SEARCH_MIN = 2;
+const SEARCH_LIMIT = 50;
+
+const publicParticipant = (p: Participant): PublicParticipant => ({
+  conversationId: p.conversationId,
+  userId: p.userId,
+  lastReadAt: p.lastReadAt,
+  addedAt: p.addedAt,
+  lastDeliveredAt: p.lastDeliveredAt ?? null,
+});
+const prefsOf = (p: Participant | null): ConversationPrefs => ({ favorite: !!p?.favorite, archived: !!p?.archivedAt, muted: !!p?.mutedAt });
+const isUniqueViolation = (err: unknown) => (err as { code?: string })?.code === 'P2002' || /unique constraint/i.test(String((err as Error)?.message ?? ''));
 
 /** A deleted message keeps its row (history order, reply context) but none of its content. */
 function redact<M extends Message>(m: M): M {
@@ -165,18 +210,34 @@ export function createMessageService(deps: MessageServiceDeps) {
     return conv;
   }
 
-  async function sendMessage(
-    conversationId: string,
-    userId: string,
-    body: string,
-    attachment?: StoredFileMeta,
-  ): Promise<Message> {
+  /**
+   * Post a message. A retry that carries the same `clientId` as an earlier send gets that message
+   * back (`created: false`) instead of a duplicate — also when two retries race each other.
+   */
+  async function postMessage(conversationId: string, userId: string, input: PostMessageInput): Promise<{ message: MessageView; created: boolean }> {
     const conv = await load(conversationId);
     await assertAccess(conv, userId);
+    const clientId = input.clientId?.trim() || null;
+    const already = async () => (clientId && messages.findByClientId ? messages.findByClientId(conversationId, userId, clientId) : null);
+    const earlier = await already();
+    if (earlier) return { message: (await viewOf([earlier]))[0]!, created: false };
     // A caption may be empty when a file is attached; a plain message may not.
-    const text = cleanBody(body, !!attachment);
-    const message = await messages.create(conversationId, userId, text);
-    if (attachment && deps.attachments) await deps.attachments.create(message.id, attachment);
+    const text = cleanBody(input.body, !!input.attachment);
+    let replyToId: string | null = null;
+    if (input.replyToId) {
+      const parent = await messages.findById(input.replyToId);
+      if (!parent || parent.conversationId !== conversationId || parent.deletedAt) throw new ValidationError('You can only reply to a message in this conversation.');
+      replyToId = parent.id;
+    }
+    let message: Message;
+    try {
+      message = await messages.create(conversationId, userId, text, { replyToId, clientId });
+    } catch (err) {
+      const raced = isUniqueViolation(err) ? await already() : null;
+      if (raced) return { message: (await viewOf([raced]))[0]!, created: false };
+      throw err;
+    }
+    if (input.attachment && deps.attachments) await deps.attachments.create(message.id, input.attachment);
 
     const usernames = parseMentions(text);
     if (usernames.length > 0) {
@@ -184,12 +245,63 @@ export function createMessageService(deps: MessageServiceDeps) {
     }
 
     if (conv.kind === 'DIRECT') {
-      const others = (await participants.listByConversation(conversationId)).filter((p) => p.userId !== userId);
+      // Someone who muted this conversation isn't told about each new message.
+      const others = (await participants.listByConversation(conversationId)).filter((p) => p.userId !== userId && !p.mutedAt);
       for (const p of others) {
         await bestEffort('direct message', () => deps.onDirectMessage?.({ conversationId, message, authorId: userId, recipientId: p.userId }));
       }
     }
-    return message;
+    return { message: (await viewOf([message]))[0]!, created: true };
+  }
+
+  /** The message this sender already posted with this client id (a retry), or null. */
+  async function findSent(conversationId: string, userId: string, clientId: string): Promise<MessageView | null> {
+    await assertAccess(await load(conversationId), userId);
+    const m = messages.findByClientId ? await messages.findByClientId(conversationId, userId, clientId) : null;
+    return m ? (await viewOf([m]))[0]! : null;
+  }
+
+  async function sendMessage(conversationId: string, userId: string, body: string, attachment?: StoredFileMeta): Promise<Message> {
+    return (await postMessage(conversationId, userId, { body, attachment })).message;
+  }
+
+  /** Messages as clients see them: reactions grouped, files listed, replies quoted, deleted ones emptied. */
+  async function viewOf(ordered: Message[]): Promise<MessageView[]> {
+    const ids = ordered.filter((m) => !m.deletedAt).map((m) => m.id);
+    const rows = ids.length ? await reactions.listByMessages(ids) : [];
+    const byMessage = new Map<string, Map<string, string[]>>();
+    for (const r of rows) {
+      const emojis = byMessage.get(r.messageId) ?? new Map<string, string[]>();
+      const users = emojis.get(r.emoji) ?? [];
+      users.push(r.userId);
+      emojis.set(r.emoji, users);
+      byMessage.set(r.messageId, emojis);
+    }
+    const attachmentRows = deps.attachments && ids.length ? await deps.attachments.listByMessages(ids) : [];
+    const attByMessage = new Map<string, AttachmentView[]>();
+    for (const a of attachmentRows) {
+      const list = attByMessage.get(a.messageId) ?? [];
+      list.push({ ...a, url: `${ATTACHMENT_URL_PREFIX}/${a.storageKey}` });
+      attByMessage.set(a.messageId, list);
+    }
+    const parentIds = [...new Set(ordered.map((m) => m.replyToId).filter((x): x is string => !!x))];
+    const parents = new Map<string, Message>();
+    for (const pid of parentIds) {
+      const p = ordered.find((m) => m.id === pid) ?? (await messages.findById(pid));
+      if (p) parents.set(pid, p);
+    }
+    const quote = (pid: string | null | undefined): ReplyQuote | null => {
+      const p = pid ? parents.get(pid) : undefined;
+      if (!p) return null;
+      return { id: p.id, userId: p.userId, body: p.deletedAt ? '' : p.body.slice(0, QUOTE_LENGTH), deleted: !!p.deletedAt };
+    };
+    // Deleted messages come back as tombstones: deletedAt set, no text, reactions or files.
+    return ordered.map<MessageView>((m) => ({
+      ...redact(m),
+      reactions: m.deletedAt ? [] : [...(byMessage.get(m.id)?.entries() ?? [])].map(([emoji, userIds]) => ({ emoji, userIds })),
+      attachments: m.deletedAt ? [] : attByMessage.get(m.id) ?? [],
+      replyTo: quote(m.replyToId),
+    }));
   }
 
   async function listMessages(
@@ -201,30 +313,7 @@ export function createMessageService(deps: MessageServiceDeps) {
     await assertAccess(conv, userId);
     const page = await messages.list(conversationId, { before: opts?.before, limit: opts?.limit ?? DEFAULT_LIMIT });
     const ordered = [...page].reverse(); // repo returns newest-first; display oldest-first
-    const ids = ordered.filter((m) => !m.deletedAt).map((m) => m.id);
-    const rows = await reactions.listByMessages(ids);
-    const byMessage = new Map<string, Map<string, string[]>>();
-    for (const r of rows) {
-      const emojis = byMessage.get(r.messageId) ?? new Map<string, string[]>();
-      const users = emojis.get(r.emoji) ?? [];
-      users.push(r.userId);
-      emojis.set(r.emoji, users);
-      byMessage.set(r.messageId, emojis);
-    }
-    const attachmentRows = deps.attachments ? await deps.attachments.listByMessages(ids) : [];
-    const attByMessage = new Map<string, AttachmentView[]>();
-    for (const a of attachmentRows) {
-      const list = attByMessage.get(a.messageId) ?? [];
-      list.push({ ...a, url: `${ATTACHMENT_URL_PREFIX}/${a.storageKey}` });
-      attByMessage.set(a.messageId, list);
-    }
-    // Deleted messages come back as tombstones: deletedAt set, no text, reactions or files.
-    const view = ordered.map<MessageView>((m) => ({
-      ...redact(m),
-      reactions: m.deletedAt ? [] : [...(byMessage.get(m.id)?.entries() ?? [])].map(([emoji, userIds]) => ({ emoji, userIds })),
-      attachments: m.deletedAt ? [] : attByMessage.get(m.id) ?? [],
-    }));
-    return { messages: view };
+    return { messages: await viewOf(ordered) };
   }
 
   async function messageConversation(messageId: string): Promise<{ message: Message; conv: Conversation }> {
@@ -279,6 +368,7 @@ export function createMessageService(deps: MessageServiceDeps) {
     const latest = await messages.latest(conversationId);
     if (latest && latest.createdAt > at) at = latest.createdAt;
     await participants.setLastRead(conversationId, userId, at);
+    await bestEffort('read', () => deps.onRead?.({ conversationId, userId }));
   }
 
   async function unreadCount(conversationId: string, userId: string): Promise<number> {
@@ -304,9 +394,10 @@ export function createMessageService(deps: MessageServiceDeps) {
         const latest = await messages.latest(conversation.id);
         return {
           conversation,
-          participants: await participants.listByConversation(conversation.id),
+          participants: (await participants.listByConversation(conversation.id)).map(publicParticipant),
           unread: await messages.countAfter(conversation.id, p?.lastReadAt ?? null, userId),
           lastMessage: latest ? redact(latest) : null,
+          prefs: prefsOf(p),
         };
       }),
     );
@@ -314,6 +405,57 @@ export function createMessageService(deps: MessageServiceDeps) {
     return summaries.sort(
       (a, b) => (b.lastMessage?.createdAt.getTime() ?? 0) - (a.lastMessage?.createdAt.getTime() ?? 0),
     );
+  }
+
+  /** Favorite, archive or mute a conversation — for this person only. */
+  async function setPreferences(conversationId: string, userId: string, patch: Partial<ConversationPrefs>): Promise<ConversationPrefs> {
+    const conv = await load(conversationId);
+    await assertAccess(conv, userId);
+    if (!participants.setPrefs) throw new ValidationError('Conversation settings are not available.');
+    await participants.add(conversationId, userId); // a channel's row is created lazily
+    const now = new Date();
+    const row = await participants.setPrefs(conversationId, userId, {
+      ...(patch.favorite !== undefined ? { favorite: patch.favorite } : {}),
+      ...(patch.archived !== undefined ? { archivedAt: patch.archived ? now : null } : {}),
+      ...(patch.muted !== undefined ? { mutedAt: patch.muted ? now : null } : {}),
+    });
+    return prefsOf(row);
+  }
+
+  /** This person's app has received the conversation's messages so far ("delivered"). */
+  async function markDelivered(conversationId: string, userId: string): Promise<void> {
+    const conv = await load(conversationId);
+    await assertAccess(conv, userId);
+    if (!participants.setLastDelivered) return;
+    await participants.add(conversationId, userId);
+    await participants.setLastDelivered(conversationId, userId, new Date());
+  }
+
+  /** Conversations this person can open right now (DMs they're in + channels of projects they see). */
+  async function accessibleConversationIds(userId: string): Promise<string[]> {
+    const [participantConvs, projectConvs] = await Promise.all([
+      participants.listConversationIdsForUser(userId).then((ids) => conversations.listByIds(ids)),
+      members.accessibleProjectIds(userId).then((ids) => conversations.listProjectConversations(ids)),
+    ]);
+    return [...new Set([...participantConvs.filter((c) => c.kind === 'DIRECT'), ...projectConvs].map((c) => c.id))];
+  }
+
+  /** Messages containing the words, in one conversation or in all of this person's conversations. */
+  async function searchMessages(userId: string, q: string, opts?: { conversationId?: string; limit?: number }): Promise<Message[]> {
+    const text = q.trim();
+    if (opts?.conversationId) await assertAccess(await load(opts.conversationId), userId);
+    if (text.length < SEARCH_MIN || !messages.search) return [];
+    const ids = opts?.conversationId ? [opts.conversationId] : await accessibleConversationIds(userId);
+    if (ids.length === 0) return [];
+    return messages.search(ids, text, Math.min(opts?.limit ?? SEARCH_LIMIT, SEARCH_LIMIT));
+  }
+
+  /** Who is in a conversation: a channel's project people, or the people in a direct conversation. */
+  async function listMembers(conversationId: string, userId: string): Promise<string[]> {
+    const conv = await load(conversationId);
+    await assertAccess(conv, userId);
+    if (conv.kind === 'PROJECT' && conv.projectId && members.projectMemberIds) return members.projectMemberIds(conv.projectId);
+    return (await participants.listByConversation(conversationId)).map((p) => p.userId);
   }
 
   /** A user left a project: drop their channel participant row so nothing lingers in their inbox. */
@@ -337,6 +479,12 @@ export function createMessageService(deps: MessageServiceDeps) {
     getOrCreateDirectConversation,
     conversationTargets,
     sendMessage,
+    postMessage,
+    findSent,
+    setPreferences,
+    markDelivered,
+    searchMessages,
+    listMembers,
     listMessages,
     editMessage,
     deleteMessage,

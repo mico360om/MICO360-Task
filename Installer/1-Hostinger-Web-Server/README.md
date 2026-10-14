@@ -5,7 +5,7 @@ by default.
 
 | In this folder | What it is |
 | --- | --- |
-| `MICO360-Tasks-Server-Hostinger-0.3.0.zip` | The server package: `backend/` (the API), `public_html/` (the web app), `deploy/` (security headers) and `docs/` |
+| `MICO360-Tasks-Server-Hostinger-0.4.0.zip` | The server package: `backend/` (the API), `public_html/` (the web app), `deploy/` (security headers) and `docs/` |
 | `environment.txt` | The live server's settings, ready to upload as its `.env`. **Private:** it holds this system's secret keys. It is not in git; keep it out of emails and chats. |
 | `environment.example.txt` | The same settings without the secrets. `environment.txt` was made from it. |
 
@@ -55,9 +55,12 @@ The server starts with an empty database and one administrator: **khurram@prolen
   then restart. Without them, sign-in works with a password, but email sign-in codes, password-reset
   emails and meeting invitations are off. Put the `MAILJET_WEBHOOK_TOKEN` value from `.env` into
   Mailjet's event-webhook address ([docs/EMAIL.md](../../docs/EMAIL.md)).
-- **Phone app download from the site (optional).** Upload
-  `../3-Android-App/MICO360-Tasks-0.3.0.apk` as `public_html/downloads/MICO360-Tasks.apk`, add
-  `ANDROID_APP_URL=/downloads/MICO360-Tasks.apk` to `.env`, and restart.
+- **Phone app download from the site.** The site package's `public_html/downloads/MICO360-Tasks.apk`
+  is the app; once `public_html/` is uploaded, the sign-in page's **Download for Android** button
+  downloads `https://task.mico360.com/downloads/MICO360-Tasks.apk`. Nothing to set in `.env`. To
+  publish a new build later, replace that one file (same name) — the address never changes. If the
+  package was built without the APK, upload `../3-Android-App/MICO360-Tasks-0.4.0.apk` there under
+  that name; until the file is there the button says "Not available yet".
 - **Keep the settings across redeploys (recommended).** Copy every line of `.env` into hPanel →
   Node.js → Environment variables. Hostinger can redeploy into a fresh folder, and a new folder
   has no `.env`.

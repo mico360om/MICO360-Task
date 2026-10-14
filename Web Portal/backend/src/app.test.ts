@@ -59,6 +59,23 @@ describe('CORS for trusted origins (the Chrome extension, a separately hosted we
   });
 });
 
+describe('private data: caching and search engines', () => {
+  it('API answers are never stored (no-store) and never indexed', async () => {
+    const app = await buildApp({ authService, tokenService });
+    for (const url of ['/api/v1/health', '/api/v1/config', '/api/v1/tasks/mine']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.headers['cache-control'], url).toBe('no-store');
+      expect(res.headers['x-robots-tag'], url).toBe('noindex, nofollow');
+    }
+  });
+
+  it('uploaded files are never indexed', async () => {
+    const app = await buildApp({ authService, tokenService });
+    const res = await app.inject({ method: 'GET', url: '/uploads/some-file.pdf' });
+    expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
+  });
+});
+
 describe('public asset CORP headers', () => {
   it('relaxes Cross-Origin-Resource-Policy to cross-origin for /uploads/* so the SPA can embed them from another origin', async () => {
     const app = await buildApp({ authService, tokenService });

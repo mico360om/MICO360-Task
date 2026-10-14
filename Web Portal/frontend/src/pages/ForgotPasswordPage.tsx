@@ -44,7 +44,7 @@ export function ForgotPasswordPage() {
           If an account matches <span className="font-medium text-ink">{identifier}</span>, we’ve emailed a link to
           reset your password. The link expires in an hour.
         </p>
-        <Link to="/login" className="mt-6 inline-block text-sm font-medium text-brand hover:underline">
+        <Link to="/login" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
           ← Back to sign in
         </Link>
       </AuthShell>
@@ -91,7 +91,7 @@ export function ForgotPasswordPage() {
           {loading ? 'Sending…' : 'Send reset link'}
         </button>
 
-        <Link to="/login" className="text-center text-xs font-medium text-ink-2 hover:text-brand">
+        <Link to="/login" className="tap justify-center text-center text-xs font-medium text-ink-2 hover:text-brand">
           ← Back to sign in
         </Link>
       </form>
