@@ -51,6 +51,10 @@ die()  { printf '\n\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 note() { printf '\033[1;33m    %s\033[0m\n' "$*"; }
 
 command -v node >/dev/null || die "node is not on PATH. Activate the Hostinger Node.js environment first."
+# Node 22.12+, or 20.19+: a dependency (content-disposition 3, used by @fastify/static) is an ES
+# module loaded with require(), which older versions refuse — the server would stop at start.
+node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit((a === 20 && b >= 19) || (a === 22 && b >= 12) || a >= 23 ? 0 : 1)' \
+  || die "Node.js $(node -v) is too old for this version. Choose Node.js 22 (or 20.19 or later) in hPanel → Node.js, then run this again."
 
 ENV_FILE=".env"
 

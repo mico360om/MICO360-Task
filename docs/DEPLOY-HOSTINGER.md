@@ -31,6 +31,17 @@ so `deploy.sh` installs the tested dependency versions with `npm ci`. `public_ht
 web app for the site's web root, including `.well-known/`. `deploy/` holds the security-header
 snippets.
 
+**Deploying straight from GitHub instead** (a Hostinger Node.js app connected to the repository):
+
+- the repository root's `npm run build` generates the Prisma client and builds the API and the
+  web app;
+- `npm start` applies pending migrations, then starts the API, which also serves the web app when
+  `WEB_ROOT=../frontend/dist` is set;
+- Node.js 22, or 20.19 or later.
+
+The exact settings are in "Deploying from GitHub instead" in
+[Installer/1-Hostinger-Web-Server/README.md](../Installer/1-Hostinger-Web-Server/README.md).
+
 ## Fast path — one command (`deploy.sh`)
 
 After creating an **empty** MySQL database in hPanel (Step 1 below), the single

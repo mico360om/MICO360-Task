@@ -5,7 +5,7 @@ One folder for each place the system installs. Each folder holds the package for
 
 | Folder | Environment | Package |
 | --- | --- | --- |
-| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 20+ and MySQL 8) | `MICO360-Tasks-Server-Hostinger-0.4.0.zip` and the live settings file |
+| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 22, or 20.19 or later, and MySQL 8) | `MICO360-Tasks-Server-Hostinger-0.4.0.zip` and the live settings file |
 | [`2-Windows-Office-Server/`](2-Windows-Office-Server/README.md) | A complete server on one Windows 10/11 computer, for an office network | `MICO360-Tasks-Server-Setup-0.4.0.exe` |
 | [`3-Android-App/`](3-Android-App/README.md) | Android 6.0+ phones | `MICO360-Tasks-0.4.0.apk` |
 | [`4-Chrome-Extension/`](4-Chrome-Extension/README.md) | Chrome and Edge | `MICO360-Tasks-Chrome-Extension-0.4.0.zip` |

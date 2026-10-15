@@ -79,6 +79,42 @@ RESET_DATA=1 CONFIRM_RESET='<database name>' ADMIN_PASSWORD='<your admin passwor
 Upload the new `backend/` and `public_html/`, keep `.env`, run `bash deploy.sh` and restart. The
 database is updated in place and your data is kept.
 
+## Deploying from GitHub instead
+
+Hostinger can build the app straight from the GitHub repository (hPanel → Websites → Node.js →
+import a Git repository) instead of the package in this folder. Use these settings:
+
+| Setting | Value |
+| --- | --- |
+| Repository / branch | `mico360om/MICO360-Task`, branch **`fix/audit-findings`** (the 0.4.0 code; `main` is still the older version until it is merged) |
+| Node.js version | **22.x** (20.x works only from 20.19 on: an older Node 20 stops the server at start) |
+| Root directory | the repository root |
+| Build command | `npm run build` (it generates the database client, then builds the server and the web app) |
+| Start command | `npm start` (it brings the database up to date, then starts the server) |
+
+Environment variables (hPanel → the Node.js app → Environment variables):
+
+- every line of `environment.txt` in this folder;
+- `DATABASE_URL=mysql://<user>:<password>@localhost:3306/<database>`. If the password has special
+  characters such as `@ : / # %`, write them URL-encoded, for example `@` as `%40`;
+- `WEB_ROOT=../frontend/dist`, so the same app serves the web pages;
+- `UPLOAD_DIR=/home/<your hPanel user>/mico360-data/uploads`, a folder outside the app, so
+  uploaded files survive each redeploy;
+- don't set `PORT`: Hostinger sets it.
+
+On the first deployment only, create the administrator once over SSH, from the app's folder:
+
+```bash
+ADMIN_EMAIL='khurram@prolens-team.com' ADMIN_USERNAME='khurram' ADMIN_PASSWORD='<your admin password>' npm run bootstrap --workspace @mico360/backend
+```
+
+Coming from 0.3.0? Back up the database first. The first start applies the four new migrations, and
+your data is kept.
+
+The phone app is not in GitHub. To make **Download for Android** work, copy
+`../3-Android-App/MICO360-Tasks-0.4.0.apk` to `Web Portal/frontend/dist/downloads/MICO360-Tasks.apk`
+in the app's folder after each deployment. Each build replaces that folder.
+
 ## Do not run on the live server
 
 - `tools/release/verify-server.mjs` (the acceptance test): it creates test users, projects and
