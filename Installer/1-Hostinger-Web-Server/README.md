@@ -98,14 +98,21 @@ Node.js Web App, connected to GitHub) instead of the package in this folder. Use
 Environment variables (hPanel → the Node.js app → Environment variables):
 
 - every line of `environment.txt` in this folder;
-- `DATABASE_URL=mysql://<user>:<password>@localhost:3306/<database>`. If the password has special
-  characters such as `@ : / # %`, write them URL-encoded, for example `@` as `%40`;
+- `DATABASE_URL=mysql://<user>:<password>@127.0.0.1:3306/<database>`. Use `127.0.0.1`, not
+  `localhost`: on Hostinger, `localhost` can resolve to IPv6, which the database user isn't granted.
+  If the password has special characters such as `@ : / # %`, write them URL-encoded, for example
+  `@` as `%40`;
 - `UPLOAD_DIR=/home/<your hPanel user>/mico360-data/uploads`, a folder outside the app, so
   uploaded files survive each redeploy;
 - don't set `PORT`: Hostinger sets it. `WEB_ROOT` isn't needed: `server.mjs` serves the built web
   app.
 
-On the first deployment only, create the administrator once over SSH, from the app's folder:
+**First administrator:** add `ADMIN_PASSWORD=<your admin password>` (8 or more characters with a
+letter and a number) to the environment variables. On the next start `server.mjs` creates
+`khurram@prolens-team.com` (username `khurram`) if no administrator exists yet; it never changes an
+existing one. After you have signed in, delete `ADMIN_PASSWORD` from the variables. To use another
+address or name, also set `ADMIN_EMAIL` and `ADMIN_USERNAME`. With SSH you can instead run this
+once, from the app's folder:
 
 ```bash
 ADMIN_EMAIL='khurram@prolens-team.com' ADMIN_USERNAME='khurram' ADMIN_PASSWORD='<your admin password>' npm run bootstrap --workspace @mico360/backend

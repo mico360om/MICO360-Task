@@ -17,8 +17,8 @@
 #
 # ── Inputs (environment variables; values given here always win over .env) ────
 # Database (either give DATABASE_URL directly, OR the three DB_* parts):
-#   DATABASE_URL   mysql://user:pass@localhost:3306/dbname
-#   DB_USER, DB_PASSWORD, DB_NAME   (+ optional DB_HOST=localhost, DB_PORT=3306)
+#   DATABASE_URL   mysql://user:pass@127.0.0.1:3306/dbname
+#   DB_USER, DB_PASSWORD, DB_NAME   (+ optional DB_HOST=127.0.0.1, DB_PORT=3306)
 # Admin:
 #   ADMIN_PASSWORD          required when no admin exists yet (never stored)
 #   ADMIN_EMAIL, ADMIN_USERNAME, ADMIN_FIRST_NAME, ADMIN_LAST_NAME   (optional)
@@ -109,8 +109,8 @@ urlencode() { node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))
 if [ -n "${DATABASE_URL:-}" ]; then
   log "Using DATABASE_URL from the command line"
 elif [ -n "${DB_USER:-}" ] && [ -n "${DB_PASSWORD:-}" ] && [ -n "${DB_NAME:-}" ]; then
-  DATABASE_URL="mysql://$(urlencode "$DB_USER"):$(urlencode "$DB_PASSWORD")@${DB_HOST:-localhost}:${DB_PORT:-3306}/$(urlencode "$DB_NAME")"
-  log "Assembled DATABASE_URL for database '${DB_NAME}' on ${DB_HOST:-localhost}"
+  DATABASE_URL="mysql://$(urlencode "$DB_USER"):$(urlencode "$DB_PASSWORD")@${DB_HOST:-127.0.0.1}:${DB_PORT:-3306}/$(urlencode "$DB_NAME")"
+  log "Assembled DATABASE_URL for database '${DB_NAME}' on ${DB_HOST:-127.0.0.1}"
 else
   resolve_var DATABASE_URL
   [ -n "${DATABASE_URL:-}" ] || die "No database configured. Set DATABASE_URL, or pass DB_USER + DB_PASSWORD + DB_NAME. (Create the empty MySQL database in hPanel first.)"

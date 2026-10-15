@@ -24,4 +24,20 @@ if (migrate.status !== 0) {
   process.exit(migrate.status ?? 1);
 }
 
+// First administrator, for hosts without a shell: when ADMIN_PASSWORD is set, create the admin if
+// none exists yet (it never changes an existing one). Remove ADMIN_PASSWORD after the first sign-in.
+if (process.env.ADMIN_PASSWORD) {
+  const admin = spawnSync(process.execPath, [path.join(backend, 'dist', 'src', 'scripts', 'bootstrap.js')], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'khurram@prolens-team.com',
+      ADMIN_USERNAME: process.env.ADMIN_USERNAME || 'khurram',
+      ADMIN_FIRST_NAME: process.env.ADMIN_FIRST_NAME || 'Khurram',
+      ADMIN_LAST_NAME: process.env.ADMIN_LAST_NAME || 'Admin',
+    },
+  });
+  if (admin.status !== 0) console.error('The first administrator could not be created; the server starts anyway.');
+}
+
 await import(pathToFileURL(path.join(backend, 'dist', 'src', 'server.js')).href);

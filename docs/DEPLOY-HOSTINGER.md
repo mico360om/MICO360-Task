@@ -88,7 +88,7 @@ hPanel → **Databases → MySQL Databases**:
 Build the connection string:
 
 ```
-mysql://u116607139_tasks:YOUR_DB_PASSWORD@localhost:3306/u116607139_tasks
+mysql://u116607139_tasks:YOUR_DB_PASSWORD@127.0.0.1:3306/u116607139_tasks
 ```
 
 ## Step 2 — Set the environment variables
