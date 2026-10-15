@@ -128,86 +128,91 @@ export function MeetingFormModal({ meeting, onClose, onSaved }: MeetingFormModal
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
         <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className="card relative max-h-[calc(100dvh-2rem)] w-full max-w-lg animate-scale-in overflow-y-auto p-6">
-          <h2 className="mb-4 font-display text-xl font-bold text-ink">{editing ? 'Edit meeting' : 'Schedule a meeting'}</h2>
-          {error ? (
-            <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
-          ) : null}
-          <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="mf-title" required>Title</FieldLabel>
-              <input id="mf-title" ref={titleRef} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Weekly project sync" className={fieldClass(false)} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden">
+          {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
+          <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col" noValidate>
+            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6">
+              <h2 className="mb-1 font-display text-xl font-bold text-ink">{editing ? 'Edit meeting' : 'Schedule a meeting'}</h2>
+              {error ? (
+                <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
+              ) : null}
               <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="mf-start" required>Starts</FieldLabel>
-                <input
-                  id="mf-start"
-                  type="datetime-local"
-                  value={start}
-                  aria-describedby="mf-tz"
-                  onChange={(e) => { timesTouched.current = true; setStart(e.target.value); }}
-                  className={fieldClass(false)}
-                />
+                <FieldLabel htmlFor="mf-title" required>Title</FieldLabel>
+                <input id="mf-title" ref={titleRef} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Weekly project sync" className={fieldClass(false)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="mf-start" required>Starts</FieldLabel>
+                  <input
+                    id="mf-start"
+                    type="datetime-local"
+                    value={start}
+                    aria-describedby="mf-tz"
+                    onChange={(e) => { timesTouched.current = true; setStart(e.target.value); }}
+                    className={fieldClass(false)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="mf-end">Ends</FieldLabel>
+                  <input
+                    id="mf-end"
+                    type="datetime-local"
+                    value={end}
+                    aria-describedby="mf-tz"
+                    onChange={(e) => { timesTouched.current = true; setEnd(e.target.value); }}
+                    className={fieldClass(false)}
+                  />
+                </div>
+                <p id="mf-tz" className="col-span-2 -mt-1 text-xs text-ink-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
               </div>
               <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="mf-end">Ends</FieldLabel>
-                <input
-                  id="mf-end"
-                  type="datetime-local"
-                  value={end}
-                  aria-describedby="mf-tz"
-                  onChange={(e) => { timesTouched.current = true; setEnd(e.target.value); }}
-                  className={fieldClass(false)}
-                />
+                <FieldLabel>Project</FieldLabel>
+                <SearchableSelect ariaLabel="Project" placeholder="No project (standalone)" options={projectOptions} value={projectId} onChange={setProjectId} />
+                <p className="text-xs text-ink-2">Optional — leave blank for a standalone meeting.</p>
               </div>
-              <p id="mf-tz" className="col-span-2 -mt-1 text-xs text-ink-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel>Project</FieldLabel>
-              <SearchableSelect ariaLabel="Project" placeholder="No project (standalone)" options={projectOptions} value={projectId} onChange={setProjectId} />
-              <p className="text-xs text-ink-2">Optional — leave blank for a standalone meeting.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="mf-loc">Location</FieldLabel>
+                  <input id="mf-loc" dir="auto" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Room 2 / Office" className={fieldClass(false)} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="mf-link">Online link</FieldLabel>
+                  <input
+                    id="mf-link"
+                    ref={linkRef}
+                    type="url"
+                    inputMode="url"
+                    dir="ltr"
+                    value={onlineLink}
+                    aria-invalid={linkError ? true : undefined}
+                    aria-describedby={linkError ? 'mf-link-error' : undefined}
+                    onChange={(e) => { setOnlineLink(e.target.value); if (linkError) setLinkError(null); }}
+                    onBlur={() => { const n = normalizeMeetingLink(onlineLink); if (n && n !== onlineLink) setOnlineLink(n); }}
+                    placeholder="https://…"
+                    className={fieldClass(!!linkError)}
+                  />
+                </div>
+                {linkError ? <p id="mf-link-error" role="alert" className="col-span-2 -mt-1 text-xs font-medium text-danger">{linkError}</p> : null}
+              </div>
               <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="mf-loc">Location</FieldLabel>
-                <input id="mf-loc" dir="auto" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Room 2 / Office" className={fieldClass(false)} />
+                <FieldLabel>Status</FieldLabel>
+                <SearchableSelect ariaLabel="Status" options={statusOptions} value={status} onChange={(v) => setStatus(v as MeetingStatus)} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="mf-link">Online link</FieldLabel>
-                <input
-                  id="mf-link"
-                  ref={linkRef}
-                  type="url"
-                  inputMode="url"
-                  dir="ltr"
-                  value={onlineLink}
-                  aria-invalid={linkError ? true : undefined}
-                  aria-describedby={linkError ? 'mf-link-error' : undefined}
-                  onChange={(e) => { setOnlineLink(e.target.value); if (linkError) setLinkError(null); }}
-                  onBlur={() => { const n = normalizeMeetingLink(onlineLink); if (n && n !== onlineLink) setOnlineLink(n); }}
-                  placeholder="https://…"
-                  className={fieldClass(!!linkError)}
-                />
+                <FieldLabel htmlFor="mf-desc">Description</FieldLabel>
+                <textarea id="mf-desc" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional agenda summary" className={fieldClass(false)} />
               </div>
-              {linkError ? <p id="mf-link-error" role="alert" className="col-span-2 -mt-1 text-xs font-medium text-danger">{linkError}</p> : null}
             </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel>Status</FieldLabel>
-              <SearchableSelect ariaLabel="Status" options={statusOptions} value={status} onChange={(v) => setStatus(v as MeetingStatus)} />
+            <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
+              <button type="button" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">
+                Cancel
+              </button>
+              <Button type="submit" loading={saveMut.isPending} className="!min-h-[44px] flex-[2]">
+                {saveMut.isPending ? (editing ? 'Saving…' : 'Scheduling…') : editing ? 'Save changes' : 'Schedule meeting'}
+              </Button>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="mf-desc">Description</FieldLabel>
-              <textarea id="mf-desc" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional agenda summary" className={fieldClass(false)} />
-            </div>
-            <Button type="submit" loading={saveMut.isPending}>
-              {saveMut.isPending ? (editing ? 'Saving…' : 'Scheduling…') : editing ? 'Save changes' : 'Schedule meeting'}
-            </Button>
-            <button type="button" onClick={onClose} className="w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground">
-              Cancel
-            </button>
           </form>
         </div>
       </div>

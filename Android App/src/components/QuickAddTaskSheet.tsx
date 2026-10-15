@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Modal, View, Text, Pressable, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { Modal, View, Text, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices } from '../core/providers';
@@ -12,6 +12,7 @@ import { newIdempotencyKey } from '../lib/idempotency';
 import { spacing, radius, fontSize, categoryColorOf, type Palette } from '../lib/theme';
 import type { ApiColumn, Priority, RecurrenceRule } from '../lib/types';
 import { RecurrenceEditor } from './RecurrenceEditor';
+import { KeyboardAwareScrollView } from './KeyboardAware';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
@@ -127,14 +128,14 @@ export function QuickAddTaskSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.fill}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      {/* On Android the modal's window already shrinks for the keyboard; shrinking it here as well
+          left the sheet's buttons under the keyboard once it had been opened twice. */}
+      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close new task" />
         <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
         <Text style={styles.title} accessibilityRole="header">New task</Text>
-        <ScrollView keyboardShouldPersistTaps="handled" style={styles.body}>
+        {/* The fields scroll and keep the one being typed in above the keyboard; the buttons stay below. */}
+        <KeyboardAwareScrollView style={styles.body}>
           {error ? <ErrorNote message={error} /> : null}
           {notice ? <NoticeNote message={notice} /> : null}
           <TextField label="Title" required value={title} onChangeText={setTitle} placeholder="What needs doing?" autoFocus />
@@ -246,7 +247,7 @@ export function QuickAddTaskSheet({
               <Text style={[styles.chipText, assignToMe && styles.chipTextActive]}>Assign to me</Text>
             </Pressable>
           ) : null}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         <View style={styles.actions}>
           <Button title="Cancel" variant="ghost" onPress={onClose} style={styles.action} />
@@ -270,7 +271,8 @@ const makeStyles = (c: Palette) =>
       gap: spacing.sm,
       maxHeight: '88%',
     },
-    body: { flexGrow: 0 },
+    // The fields shrink (and scroll) when the keyboard leaves less room, so the buttons stay in view.
+    body: { flexGrow: 0, flexShrink: 1 },
     multiline: { minHeight: 76, paddingTop: spacing.sm, textAlignVertical: 'top' },
     row: { flexDirection: 'row', gap: spacing.sm },
     rowItem: { flex: 1 },

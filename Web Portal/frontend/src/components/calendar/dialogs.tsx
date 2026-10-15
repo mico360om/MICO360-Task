@@ -11,7 +11,7 @@ function Shell({ label, onClose, children, wide = false }: { label: string; onCl
   const ref = useDialog(onClose, { initialFocus: 'container' });
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+      <div className="above-keyboard fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
         <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={ref}
@@ -19,7 +19,7 @@ function Shell({ label, onClose, children, wide = false }: { label: string; onCl
           aria-modal="true"
           aria-label={label}
           tabIndex={-1}
-          className={`card relative flex max-h-[min(90dvh,44rem)] w-full flex-col overflow-hidden rounded-b-none outline-none animate-scale-in sm:rounded-2xl ${wide ? 'sm:max-w-lg' : 'sm:max-w-md'}`}
+          className={`card relative flex max-h-[min(calc(var(--visible-height)*0.9),44rem)] w-full flex-col overflow-hidden rounded-b-none outline-none animate-scale-in sm:rounded-2xl ${wide ? 'sm:max-w-lg' : 'sm:max-w-md'}`}
         >
           {children}
         </div>

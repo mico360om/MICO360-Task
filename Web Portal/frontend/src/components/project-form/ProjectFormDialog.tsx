@@ -271,14 +271,14 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
+      <div className="above-keyboard fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
         <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={requestClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label={editing ? 'Edit project' : 'New project'}
-          className="relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[min(92dvh,54rem)] sm:max-w-2xl sm:rounded-2xl"
+          className="keyboard-flow-cramped relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[min(calc(var(--visible-height)*0.92),54rem)] sm:max-w-2xl sm:rounded-2xl"
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-5 py-4">
             <h2 id={ids.title} className="flex-1 font-display text-xl font-bold text-ink">{editing ? 'Edit project' : 'New project'}</h2>
@@ -287,8 +287,8 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
             </button>
           </div>
 
-          <form onSubmit={(e) => void submit(e)} noValidate className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+          <form onSubmit={(e) => void submit(e)} noValidate className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
+            <div className="keyboard-flow-body min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
               {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
 
               {/* Identity: the picture beside the name and code. */}

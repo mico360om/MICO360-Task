@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { TextField, Button } from '../ui';
+import { KeyboardGroup } from '../KeyboardAware';
 import { priorityColor } from '../TaskRow';
 import { RecurrenceEditor } from '../RecurrenceEditor';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
@@ -283,7 +284,7 @@ export function DetailsCard({
           ) : null}
         </View>
         {picking ? (
-          <View style={s.picker}>
+          <KeyboardGroup style={s.picker}>
             <TextField value={query} onChangeText={setQuery} placeholder="Search by name…" accessibilityLabel="Find a teammate" autoFocus autoCapitalize="none" />
             {matches.length === 0 ? (
               <Text style={s.muted}>{members.length === assignedIds.size ? 'Everyone on the project is assigned.' : 'No teammate matches.'}</Text>
@@ -305,7 +306,7 @@ export function DetailsCard({
               ))
             )}
             <Button title="Done" variant="ghost" onPress={() => { setPicking(false); setQuery(''); }} />
-          </View>
+          </KeyboardGroup>
         ) : null}
         <SaveNote state={peopleSave.state} />
       </Prop>
@@ -322,7 +323,7 @@ export function DetailsCard({
             </Pressable>
           </View>
         ) : (
-          <View style={{ gap: spacing.xs }}>
+          <KeyboardGroup style={{ gap: spacing.xs }}>
             <TextField value={tagsDraft} onChangeText={setTagsDraft} placeholder="comma, separated" accessibilityLabel="Tags, separated by commas" autoCapitalize="none" />
             <View style={s.row}>
               <Button title="Cancel" variant="ghost" onPress={() => setTagsDraft(null)} style={s.flex} />
@@ -333,7 +334,7 @@ export function DetailsCard({
                 style={s.flex}
               />
             </View>
-          </View>
+          </KeyboardGroup>
         )}
         <SaveNote state={tagsSave.state} />
       </Prop>

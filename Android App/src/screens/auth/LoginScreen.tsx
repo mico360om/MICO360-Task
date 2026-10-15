@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, Pressable, ScrollView, Linking } from 'react-native';
+import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, Pressable, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useServer } from '../../core/providers';
 import { useColors } from '../../core/theme';
 import { Button, TextField, ErrorNote } from '../../components/ui';
+import { KeyboardAwareScrollView, KeyboardGroup } from '../../components/KeyboardAware';
 import { ApiError, isNetworkError } from '../../lib/api-client';
 import { authErrorMessage, isAccountLocked } from '../../lib/auth-errors';
 import { parseServerAddress, probeServer, serverLabel, sitePageUrl } from '../../lib/server-address';
@@ -189,7 +190,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollView contentContainerStyle={styles.scroll}>
           <View style={styles.brand}>
             <Image source={logo} style={styles.logo} resizeMode="contain" accessibilityRole="image" accessibilityLabel="MICO360" />
             <Text style={styles.title}>Welcome back</Text>
@@ -226,86 +227,92 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
             <ErrorNote message={error} />
           ) : null}
 
-          <TextField
-            label="Email or username"
-            required
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            value={identifier}
-            onChangeText={setIdentifier}
-            placeholder="you@company.com"
-            // The code just sent belongs to this address: changing it means asking for a new code.
-            editable={!(mode === 'otp' && codeSent)}
-            style={mode === 'otp' && codeSent ? styles.lockedInput : undefined}
-          />
+          {/* Typing keeps the form in view above the keyboard: all of it when it fits, else the
+              field — the password, code and server address each with their buttons. */}
+          <KeyboardGroup>
+            <TextField
+              label="Email or username"
+              required
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              value={identifier}
+              onChangeText={setIdentifier}
+              placeholder="you@company.com"
+              // The code just sent belongs to this address: changing it means asking for a new code.
+              editable={!(mode === 'otp' && codeSent)}
+              style={mode === 'otp' && codeSent ? styles.lockedInput : undefined}
+            />
 
-          {mode === 'password' ? (
-            <>
-              <TextField
-                label="Password"
-                required
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-              />
-              <Button title="Sign in" onPress={submitPassword} loading={busy} disabled={!identifier || !password} />
-              {emailEnabled === false ? (
-                // No email on this server: a reset link could not be sent.
-                <Text style={[styles.note, styles.noteBelow]}>Forgot your password? Ask your administrator to reset it.</Text>
-              ) : (
-                <Pressable onPress={() => navigation.navigate('Forgot')} style={styles.forgot} accessibilityRole="link">
-                  <Text style={styles.forgotText}>Forgot your password?</Text>
-                </Pressable>
-              )}
-            </>
-          ) : (
-            <>
-              {codeSent ? (
-                <>
-                  <Text style={styles.note} accessibilityLiveRegion="polite">
-                    If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.
-                  </Text>
-                  <TextField
-                    label="One-time code"
-                    required
-                    keyboardType="number-pad"
-                    textContentType="oneTimeCode"
-                    autoComplete="sms-otp"
-                    autoFocus
-                    value={code}
-                    onChangeText={(text) => setCode(normaliseCode(text))}
-                    placeholder="6-digit code"
-                    maxLength={10}
-                  />
-                  <Button title="Verify & sign in" onPress={submitCode} loading={busy} disabled={!isCodeComplete(code)} />
-                  <View style={styles.codeLinks}>
-                    <Pressable
-                      onPress={requestCode}
-                      disabled={resendWait > 0 || busy}
-                      accessibilityRole="button"
-                      accessibilityState={{ disabled: resendWait > 0 || busy }}
-                      // A steady name while it waits: a label that changed every second would be re-read.
-                      accessibilityLabel={resendWait > 0 ? 'Resend code, available after a minute' : 'Resend code'}
-                      hitSlop={8}
-                    >
-                      <Text style={resendWait > 0 ? styles.linkMuted : styles.forgotText}>{resendLabel(resendWait)}</Text>
-                    </Pressable>
-                    <Pressable onPress={useDifferentAddress} accessibilityRole="button" hitSlop={8}>
-                      <Text style={styles.linkMuted}>Use a different email</Text>
-                    </Pressable>
-                  </View>
-                </>
-              ) : (
-                <Button title="Email me a code" onPress={requestCode} loading={busy} disabled={!identifier} />
-              )}
-            </>
-          )}
+            {mode === 'password' ? (
+              <KeyboardGroup>
+                <TextField
+                  label="Password"
+                  required
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                />
+                <Button title="Sign in" onPress={submitPassword} loading={busy} disabled={!identifier || !password} />
+                {emailEnabled === false ? (
+                  // No email on this server: a reset link could not be sent.
+                  <Text style={[styles.note, styles.noteBelow]}>Forgot your password? Ask your administrator to reset it.</Text>
+                ) : (
+                  <Pressable onPress={() => navigation.navigate('Forgot')} style={styles.forgot} accessibilityRole="link">
+                    <Text style={styles.forgotText}>Forgot your password?</Text>
+                  </Pressable>
+                )}
+              </KeyboardGroup>
+            ) : (
+              <>
+                {codeSent ? (
+                  <>
+                    <Text style={styles.note} accessibilityLiveRegion="polite">
+                      If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.
+                    </Text>
+                    <KeyboardGroup>
+                      <TextField
+                        label="One-time code"
+                        required
+                        keyboardType="number-pad"
+                        textContentType="oneTimeCode"
+                        autoComplete="sms-otp"
+                        autoFocus
+                        value={code}
+                        onChangeText={(text) => setCode(normaliseCode(text))}
+                        placeholder="6-digit code"
+                        maxLength={10}
+                      />
+                      <Button title="Verify & sign in" onPress={submitCode} loading={busy} disabled={!isCodeComplete(code)} />
+                      <View style={styles.codeLinks}>
+                        <Pressable
+                          onPress={requestCode}
+                          disabled={resendWait > 0 || busy}
+                          accessibilityRole="button"
+                          accessibilityState={{ disabled: resendWait > 0 || busy }}
+                          // A steady name while it waits: a label that changed every second would be re-read.
+                          accessibilityLabel={resendWait > 0 ? 'Resend code, available after a minute' : 'Resend code'}
+                          hitSlop={8}
+                        >
+                          <Text style={resendWait > 0 ? styles.linkMuted : styles.forgotText}>{resendLabel(resendWait)}</Text>
+                        </Pressable>
+                        <Pressable onPress={useDifferentAddress} accessibilityRole="button" hitSlop={8}>
+                          <Text style={styles.linkMuted}>Use a different email</Text>
+                        </Pressable>
+                      </View>
+                    </KeyboardGroup>
+                  </>
+                ) : (
+                  <Button title="Email me a code" onPress={requestCode} loading={busy} disabled={!identifier} />
+                )}
+              </>
+            )}
+          </KeyboardGroup>
 
           <View style={styles.serverBox}>
             {editingServer ? (
-              <>
+              <KeyboardGroup style={styles.serverForm}>
                 <TextField
                   label="Server address"
                   autoCapitalize="none"
@@ -325,7 +332,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                 <Pressable onPress={() => setEditingServer(false)} style={styles.forgot} accessibilityRole="button">
                   <Text style={styles.serverText}>Cancel</Text>
                 </Pressable>
-              </>
+              </KeyboardGroup>
             ) : (
               <Pressable
                 onPress={startServerEdit}
@@ -345,7 +352,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
               <Text style={styles.serverText}>Privacy policy</Text>
             </Pressable>
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -403,6 +410,7 @@ const makeStyles = (c: Palette) =>
     lockedTitle: { color: c.danger, fontSize: fontSize.md, fontWeight: '700' },
     lockedBody: { color: c.ink, fontSize: fontSize.sm },
     serverBox: { marginTop: spacing.xl, paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: c.line, alignItems: 'stretch', gap: spacing.sm },
+    serverForm: { gap: spacing.sm },
     serverText: { textAlign: 'center', color: c.ink3, fontSize: fontSize.xs },
     privacy: { alignItems: 'center', paddingVertical: spacing.xs },
   });

@@ -16,6 +16,7 @@ import { typeStyle, type TypeRole } from '../lib/typography';
 import { toneStyle, type Tone } from '../lib/tone';
 import { fieldA11y } from '../lib/a11y';
 import { useColors } from '../core/theme';
+import { useKeepAboveKeyboard } from './KeyboardAware';
 
 /** Build the themed stylesheet for the current palette. */
 function makeStyles(c: Palette) {
@@ -162,10 +163,14 @@ export function TextField({
   required,
   style,
   inputRef,
+  onFocus,
+  onBlur,
   ...props
 }: TextInputProps & { label?: string; error?: string | null; required?: boolean; inputRef?: React.Ref<TextInput> }) {
   const c = useColors();
   const s = useUiStyles();
+  // Inside a KeyboardAwareScrollView, typing keeps the label, box and error above the keyboard.
+  const keep = useKeepAboveKeyboard();
   // TalkBack names the field after its visible label and reads the error with it (MOB-10).
   const a11y = fieldA11y({
     label,
@@ -175,7 +180,7 @@ export function TextField({
     explicitLabel: props.accessibilityLabel,
   });
   return (
-    <View style={s.fieldWrap}>
+    <View ref={keep.ref} collapsable={false} style={s.fieldWrap}>
       {label ? (
         <Text style={s.fieldLabel} importantForAccessibility="no">
           {label}
@@ -188,6 +193,14 @@ export function TextField({
         style={[s.input, error ? s.inputError : null, style]}
         {...props}
         {...a11y}
+        onFocus={(e) => {
+          keep.onFocus();
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          keep.onBlur();
+          onBlur?.(e);
+        }}
       />
       {error ? (
         <Text style={s.fieldError} accessibilityRole="alert" accessibilityLiveRegion="polite">

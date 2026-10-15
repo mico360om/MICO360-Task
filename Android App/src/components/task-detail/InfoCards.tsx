@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Image, StyleSheet, Alert } from 'react-native';
 import { useColors } from '../../core/theme';
 import { TextField, Button } from '../ui';
+import { KeyboardGroup } from '../KeyboardAware';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { buildTimeline, type FeedEntry, type TimelineKind } from '../../lib/activity-feed';
 import { fileKind } from '../../lib/file-kind';
@@ -220,32 +221,34 @@ export function BlockersCard({
       {blockedBy.map((d) => (
         <RefLine key={d.id} t={d} onRemove={() => void save.run(() => onRemove(d.id), 'Couldn’t remove the blocker.')} />
       ))}
-      <TextField
-        value={query}
-        onChangeText={(v) => {
-          setQuery(v);
-          if (save.state.status === 'error') save.reset();
-        }}
-        placeholder="Add a blocker — search by key or title…"
-        accessibilityLabel="Add a blocking task"
-        autoCapitalize="none"
-      />
-      {query.trim() && matches.length === 0 ? <Text style={s.muted}>No task matches (a task can’t block itself or one it already blocks).</Text> : null}
-      {matches.map((t) => (
-        <Pressable
-          key={t.id}
-          accessibilityRole="button"
-          accessibilityLabel={`Add blocker ${t.key} ${t.title}`}
-          onPress={() => void save.run(() => onAdd(t.id), 'Couldn’t add the blocker.').then((ok) => ok && setQuery(''))}
-          style={({ pressed }) => [s.option, pressed && { backgroundColor: c.brandWash }]}
-        >
-          <Text style={s.refKey}>{t.key}</Text>
-          <Text style={[s.refTitle, s.flex]} numberOfLines={1}>
-            {t.title}
-          </Text>
-          {t.statusName ? <Text style={s.when}>{t.statusName}</Text> : null}
-        </Pressable>
-      ))}
+      <KeyboardGroup style={{ gap: spacing.sm }}>
+        <TextField
+          value={query}
+          onChangeText={(v) => {
+            setQuery(v);
+            if (save.state.status === 'error') save.reset();
+          }}
+          placeholder="Add a blocker — search by key or title…"
+          accessibilityLabel="Add a blocking task"
+          autoCapitalize="none"
+        />
+        {query.trim() && matches.length === 0 ? <Text style={s.muted}>No task matches (a task can’t block itself or one it already blocks).</Text> : null}
+        {matches.map((t) => (
+          <Pressable
+            key={t.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Add blocker ${t.key} ${t.title}`}
+            onPress={() => void save.run(() => onAdd(t.id), 'Couldn’t add the blocker.').then((ok) => ok && setQuery(''))}
+            style={({ pressed }) => [s.option, pressed && { backgroundColor: c.brandWash }]}
+          >
+            <Text style={s.refKey}>{t.key}</Text>
+            <Text style={[s.refTitle, s.flex]} numberOfLines={1}>
+              {t.title}
+            </Text>
+            {t.statusName ? <Text style={s.when}>{t.statusName}</Text> : null}
+          </Pressable>
+        ))}
+      </KeyboardGroup>
       <SaveNote state={save.state} />
       {blocks.length > 0 ? (
         <>

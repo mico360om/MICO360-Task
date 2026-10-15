@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, Alert, Linking, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, RefreshControl, Alert, Linking, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -46,6 +46,7 @@ import { DetailsCard, type TaskPatch } from '../components/task-detail/DetailsCa
 import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '../components/task-detail/WorkCards';
 import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../components/task-detail/InfoCards';
 import { failureText } from '../components/task-detail/kit';
+import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 
 /** At this width and up (tablets, landscape) the details sit beside the work in a second column. */
 const TWO_COLUMNS_FROM = 720;
@@ -285,9 +286,9 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
-      <ScrollView
+      {/* Typing in a field (or a comment) keeps it and its buttons above the keyboard. */}
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={taskQ.isRefetching} onRefresh={refreshAll} />}
       >
         <HeaderCard
@@ -333,7 +334,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
             <Button title="Delete task" variant="ghost" onPress={confirmDelete} loading={deleteTask.isPending} accessibilityLabel="Delete task" />
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

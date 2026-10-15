@@ -137,6 +137,13 @@
 }
 
 :root {
+  /* Where the browser doesn't shrink the page for a phone's on-screen keyboard (iPhone Safari): how
+     much of the window bottom it covers, and how far the page was slid up to show a field. Set by
+     lib/keyboard-aware.ts, 0 elsewhere. --visible-height is what is left on screen: dialogs size
+     themselves from it instead of 100dvh. */
+  --keyboard-inset: 0px;
+  --visible-top: 0px;
+  --visible-height: calc(100vh - var(--keyboard-inset) - var(--visible-top));
   color-scheme: light;
   /* Light palette (space-separated RGB) — identical to the original hex values. */
   --c-brand: 139 30 30;
@@ -343,11 +350,10 @@
 }
 
 @layer components {
-  /* The chat fills the window under the top bar (--chat-top), less any part a phone's keyboard
-     covers (--chat-kb). dvh is the height really visible on a phone; vh is the fallback. */
+  /* The chat fills the window under the top bar (--chat-top), above any part a phone's keyboard
+     covers (--visible-height, see :root). */
   .chat-frame {
-    height: calc(100vh - var(--chat-top, 57px) - var(--chat-kb, 0px));
-    height: calc(100dvh - var(--chat-top, 57px) - var(--chat-kb, 0px));
+    height: calc(var(--visible-height) - var(--chat-top, 57px));
     min-height: 22rem;
   }
 
@@ -417,7 +423,50 @@
   }
 }
 
+@supports (height: 100dvh) {
+  :root {
+    --visible-height: calc(100dvh - var(--keyboard-inset) - var(--visible-top));
+  }
+}
+
 @layer utilities {
+  /* A full-window layer (dialog, drawer) that covers just the part on screen: it ends at the top of
+     a phone's on-screen keyboard, and starts where the browser slid the page up to. */
+  .above-keyboard {
+    top: var(--visible-top, 0px);
+    bottom: var(--keyboard-inset, 0px);
+  }
+  /* While a phone keyboard is open (data-keyboard, set by lib/keyboard-aware.ts)… */
+  /* …where it covers the page instead of shrinking it (iPhone), a page as tall as the window
+     couldn't scroll its form above the keyboard: give it that much more room meanwhile. */
+  html[data-keyboard] body {
+    padding-bottom: var(--keyboard-inset, 0px);
+  }
+  /* …a panel with a pinned header and footer scrolls as one, so the field being typed in gets all
+     the room there is: the task panel always; dialogs whose footer holds their buttons only when
+     the keyboard leaves very little ("cramped": a phone held sideways). */
+  html[data-keyboard] .keyboard-flow,
+  html[data-keyboard='cramped'] .keyboard-flow-cramped {
+    overflow-y: auto;
+  }
+  html[data-keyboard] .keyboard-flow .keyboard-flow-body,
+  html[data-keyboard='cramped'] .keyboard-flow-cramped .keyboard-flow-body {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+  /* …and when cramped, the app's top bar scrolls away instead of covering half of what is left,
+     and dialogs use every pixel above the keyboard. */
+  html[data-keyboard='cramped'] .keyboard-unstick {
+    position: static;
+  }
+  html[data-keyboard='cramped'] .above-keyboard {
+    padding: 0;
+  }
+  html[data-keyboard='cramped'] .keyboard-flow-cramped {
+    max-height: var(--visible-height);
+  }
+
   /* Scroll-reveal: hidden until .is-visible is added by the useInView hook. */
   .reveal {
     opacity: 0;

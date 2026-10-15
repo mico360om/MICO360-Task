@@ -39,3 +39,11 @@ export function applyChatEvent(conversationId: string, messages: ApiChatMessage[
 export function unreadTotal(summaries: ApiConversationSummary[]): number {
   return summaries.reduce((sum, s) => sum + (s.unread || 0), 0);
 }
+
+/**
+ * Whether the conversation is scrolled to its newest message (within a finger's width), so it can
+ * stay there when the on-screen keyboard opens and the list gets shorter.
+ */
+export function isAtLatest({ offset, viewport, content }: { offset: number; viewport: number; content: number }): boolean {
+  return offset + viewport >= content - 40;
+}

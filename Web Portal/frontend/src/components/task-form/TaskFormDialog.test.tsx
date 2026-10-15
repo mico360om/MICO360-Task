@@ -110,7 +110,7 @@ describe('New task form', () => {
     expect(within(dialog).getByRole('heading', { name: 'New task' })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Close' })).toBeInTheDocument();
     expect(dialog.className).toMatch(/sm:w-\[min\(800px,calc\(100vw-32px\)\)\]/);
-    expect(dialog.className).toMatch(/sm:max-h-\[90dvh\]/);
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)\*0\.9\)\]/);
     const body = screen.getByLabelText(/^task title/i).closest('.overflow-y-auto')!;
     expect(body).not.toBeNull();
     expect(body.contains(screen.getByRole('button', { name: 'Create task' }))).toBe(false);

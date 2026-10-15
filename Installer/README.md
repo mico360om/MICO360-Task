@@ -105,6 +105,20 @@ automatically when the new version is deployed:
   - @mentions in task comments and chat.
   - The email-code sign-in above.
   - A clear message when a task can't be opened (deleted, no access, offline).
+- **Typing on a phone (web app and Android app):** the on-screen keyboard no longer hides what
+  you are typing into.
+  - When a field is focused and the keyboard opens, the screen scrolls so the field is above the
+    keyboard with some room, together with its label, any hint or error, and the buttons that go
+    with it (Save, Send, Sign in…). When the field and its buttons can't both fit, the field comes
+    first.
+  - Pop-up forms end at the keyboard, and their fields scroll while the buttons stay in view.
+    New/Edit meeting, New user and Create task from note now have a button bar like New task.
+  - On iPhone, where the browser doesn't shrink the page for the keyboard, pop-ups and the chat now
+    fit into the part of the screen that is left.
+  - With a phone held sideways, the keyboard leaves very little room. Pop-ups and the task panel
+    then scroll as one piece and the top bar scrolls away, so the field itself always has room.
+  - In the Android app's chat, the newest message stays in view when the keyboard opens.
+  - When the keyboard closes, everything returns to its full size and the field stays in view.
 - **Fixes found in testing:**
   - Meeting agenda and action-item rows were squeezed on narrow screens.
   - The meetings filter row wrapped badly.
@@ -121,7 +135,7 @@ and the Chrome extension, are unchanged.
 ## How these builds were tested (October 2026)
 
 - **Unit and component tests (14 October, on 0.4.0):**
-  - backend 1,385 · web 1,024 · Android 424 · extension 207, all passing;
+  - backend 1,385 · web 1,058 · Android 440 · extension 207, all passing;
   - typecheck and lint clean in every app;
   - the Android production bundle builds.
 - **MySQL 8.0 (14 October):**
@@ -149,6 +163,32 @@ and the Chrome extension, are unchanged.
   - The 0.3.0 installer couldn't be used to rehearse an upgrade: Kaspersky's current signatures
     detect it, and Windows refused to run it. Don't hand out 0.3.0 any more. The same migrations were
     tested from 0.3.0 with the web-server package (above).
+- **Typing above the on-screen keyboard (15 October):** tested on an Android emulator with its real
+  keyboard, on a small phone (360 × 640), a regular phone, a tablet and a phone held sideways.
+  - **Web app, in Chrome:**
+    - sign-in, New meeting, New project, New task, New user, a task comment, chat and a meeting's
+      agenda;
+    - each field was tapped and measured;
+    - the same checks ran a second time with the keyboard laid over the page the way iPhone Safari
+      does it;
+    - 611 checks across the four screen sizes, none failed. Each field and its buttons were above
+      the keyboard and not covered, every pop-up stayed on screen, and the screen returned to full
+      size afterwards;
+    - the browser tests for the forms that changed still pass: meeting form 30, meetings 78, task
+      form 69, project form 97, chat 90, chat by keyboard and touch 12, task panel 73;
+    - every pop-up still sits inside the window at phone and short-laptop sizes.
+  - **Android app, before the fix (small phone):** 14 failures. Fields sat flush against the
+    keyboard, and Sign in, Use this server, Save and Save tags were under it.
+  - **Android app, after the fix:** 46 of 46 on each of the small phone, the regular phone and the
+    tablet, covering:
+    - sign-in (server address, password) and forgot password;
+    - a task's title, description, checklist, tags and comment;
+    - the New task sheet;
+    - chat.
+
+    The tablet run found one more bug, now fixed: the New task sheet adjusted for the keyboard
+    twice, and the second time it was opened its buttons ended up under the keyboard.
+  - Every screen returned to full height when the keyboard closed.
 - **Chrome extension 0.4.0:** the zip holds manifest version 0.4.0 and 43 files, with no test
   helpers.
 - **Feature tests in a real browser (10 October, desktop and phone):**

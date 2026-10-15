@@ -8,6 +8,7 @@ import { Loader, ErrorNote } from '../components/ui';
 import { MentionSuggestions, MentionText, useMentionInput } from '../components/Mentions';
 import type { MentionPerson } from '../lib/mentions';
 import { ApiError, isNetworkError } from '../lib/api-client';
+import { isAtLatest } from '../lib/chat';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiChatMessage } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
@@ -37,6 +38,8 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   );
   const draftMention = useMentionInput(draft, setDraft, mentionPeople);
   const scrollRef = React.useRef<ScrollView>(null);
+  // Reading the newest message: when the keyboard opens and the list gets shorter, it stays in view.
+  const atLatest = React.useRef(true);
 
   useLayoutEffect(() => {
     navigation.setOptions({ title });
@@ -81,7 +84,18 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.scroll}
+          scrollEventThrottle={32}
+          onScroll={(e) => {
+            const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+            atLatest.current = isAtLatest({ offset: contentOffset.y, viewport: layoutMeasurement.height, content: contentSize.height });
+          }}
+          onLayout={() => {
+            if (atLatest.current) scrollRef.current?.scrollToEnd({ animated: false });
+          }}
+        >
           {messagesQ.isError && !messagesQ.data ? (
             // A failed load is not "No messages yet" (MOB-08).
             <ErrorNote

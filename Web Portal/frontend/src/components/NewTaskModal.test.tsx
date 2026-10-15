@@ -109,7 +109,7 @@ describe('NewTaskModal', () => {
   it('fits short screens: the fields scroll between a fixed header and footer, so "Create task" stays in view', async () => {
     renderModal();
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
-    expect(dialog.className).toMatch(/sm:max-h-\[90dvh\]/);
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)\*0\.9\)\]/);
     const body = screen.getByLabelText(/task title/i).closest('.overflow-y-auto')!;
     expect(body.contains(screen.getByRole('button', { name: 'Create task' }))).toBe(false);
   });

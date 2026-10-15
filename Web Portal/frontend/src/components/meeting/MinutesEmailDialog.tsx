@@ -46,9 +46,9 @@ export function MinutesEmailDialog({ meeting, onClose }: { meeting: Meeting; onC
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
         <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={send.isPending ? undefined : onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="minutes-title" className="card relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl animate-scale-in flex-col overflow-hidden">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="minutes-title" className="card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-2xl animate-scale-in flex-col overflow-hidden">
           <div className="border-b border-line px-5 py-4">
             <h2 id="minutes-title" className="font-display text-lg font-semibold text-ink">Email the minutes</h2>
             <p className="mt-0.5 text-sm text-ink-2">The minutes go as a PDF attachment. Check the email and choose who gets it.</p>

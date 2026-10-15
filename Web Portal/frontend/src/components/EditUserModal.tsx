@@ -135,14 +135,14 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
         <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label={`Edit ${user.username}`}
-          className="card relative max-h-[calc(100dvh-2rem)] w-full max-w-lg animate-scale-in overflow-y-auto p-6"
+          className="card relative max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in overflow-y-auto p-6"
         >
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>

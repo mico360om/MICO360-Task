@@ -128,7 +128,7 @@ describe('BoardPage', () => {
     await screen.findByText('Prepare report');
     await userEvent.click(await screen.findByRole('button', { name: /\+ new task/i }));
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
-    expect(dialog.className).toMatch(/sm:max-h-\[90dvh\]/);
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)\*0\.9\)\]/);
     const body = within(dialog).getByLabelText(/task title/i).closest('.overflow-y-auto')!;
     expect(body.contains(within(dialog).getByRole('button', { name: 'Create task' }))).toBe(false);
   });

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices } from '../../core/providers';
 import { useColors } from '../../core/theme';
 import { Button, TextField, ErrorNote, Heading, Muted } from '../../components/ui';
+import { KeyboardAwareScrollView, KeyboardGroup } from '../../components/KeyboardAware';
 import { ApiError, isNetworkError } from '../../lib/api-client';
 import { extractResetToken } from '../../lib/deep-link';
 import { spacing, type Palette } from '../../lib/theme';
@@ -69,7 +70,7 @@ export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'Rese
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView contentContainerStyle={styles.scroll}>
         <Heading>Choose a new password</Heading>
         {fromLink ? (
           <Muted>Your reset link was opened in the app. Enter your new password below.</Muted>
@@ -88,31 +89,36 @@ export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'Rese
             placeholder="https://task.mico360.com/reset?token=…"
           />
         ) : null}
-        <TextField
-          label="New password"
-          required
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          placeholder="At least 8 chars, a letter and a number"
-          error={weak ? 'Use at least 8 characters, including a letter and a number.' : null}
-        />
-        <TextField
-          label="Confirm password"
-          required
-          secureTextEntry
-          value={confirm}
-          onChangeText={setConfirm}
-          error={mismatch ? 'Passwords do not match.' : null}
-        />
-        <Button
-          title="Update password"
-          onPress={submit}
-          loading={busy}
-          disabled={!token || !password || mismatch || weak}
-        />
+        {/* Typing keeps the passwords and "Update password" in view above the keyboard when they fit. */}
+        <KeyboardGroup style={styles.group}>
+          <TextField
+            label="New password"
+            required
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+            placeholder="At least 8 chars, a letter and a number"
+            error={weak ? 'Use at least 8 characters, including a letter and a number.' : null}
+          />
+          <KeyboardGroup style={styles.group}>
+            <TextField
+              label="Confirm password"
+              required
+              secureTextEntry
+              value={confirm}
+              onChangeText={setConfirm}
+              error={mismatch ? 'Passwords do not match.' : null}
+            />
+            <Button
+              title="Update password"
+              onPress={submit}
+              loading={busy}
+              disabled={!token || !password || mismatch || weak}
+            />
+          </KeyboardGroup>
+        </KeyboardGroup>
         <Button title="Back to sign in" variant="ghost" onPress={() => navigation.navigate('Login')} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -121,4 +127,5 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
     scroll: { padding: spacing.xl, flexGrow: 1, justifyContent: 'center', gap: spacing.md },
+    group: { gap: spacing.md },
   });

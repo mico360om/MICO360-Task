@@ -8,9 +8,11 @@ import { initTheme } from './lib/theme';
 import { createAppQueryClient } from './lib/query-client';
 import { bindQueryCacheToSession } from './lib/session-lifecycle';
 import { initAuthSync } from './stores/auth-store';
+import { installKeyboardAwareness } from './lib/keyboard-aware';
 import './index.css';
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
+installKeyboardAwareness(); // keep the field being typed in (and its buttons) above a phone keyboard
 
 const queryClient = createAppQueryClient();
 

@@ -260,7 +260,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   // Portalled to <body> so the overlay's `position: fixed` is viewport-relative — never confined to
   // a transformed ancestor (the page-transition wrapper), which would offset/clip the drawer.
   return createPortal(
-    <div className="fixed inset-0 z-40 flex justify-end bg-ink/40 animate-fade-in" onClick={onClose}>
+    <div className="above-keyboard fixed inset-0 z-40 flex justify-end bg-ink/40 animate-fade-in" onClick={onClose}>
       <div
         ref={dialogRef}
         tabIndex={-1}

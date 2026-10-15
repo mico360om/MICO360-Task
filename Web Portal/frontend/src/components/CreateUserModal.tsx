@@ -75,54 +75,59 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
         <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New user" className="card relative max-h-[calc(100dvh-2rem)] w-full max-w-md animate-scale-in overflow-y-auto p-6">
-          <h2 className="mb-4 font-display text-xl font-bold text-ink">New user</h2>
-          {error ? (
-            <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-              {error}
-            </p>
-          ) : null}
-          <form onSubmit={submit} className="flex flex-col gap-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
-                <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New user" className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-md animate-scale-in flex-col overflow-hidden">
+          {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
+          <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
+            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6">
+              <h2 className="mb-1 font-display text-xl font-bold text-ink">New user</h2>
+              {error ? (
+                <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+                  {error}
+                </p>
+              ) : null}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
+                  <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
+                  <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
+                </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
-                <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="nu-username" required>Username</FieldLabel>
-              <input id="nu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
-              <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="nu-password" required>Temp password</FieldLabel>
-                <input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={fieldClass(false)} autoComplete="new-password" aria-describedby="nu-password-hint" />
-                <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+                <FieldLabel htmlFor="nu-username" required>Username</FieldLabel>
+                <input id="nu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="nu-role">Role</FieldLabel>
-                <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20">
-                  <option value="EMPLOYEE">Employee</option>
-                  <option value="ADMIN">Administrator</option>
-                </select>
+                <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
+                <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="nu-password" required>Temp password</FieldLabel>
+                  <input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={fieldClass(false)} autoComplete="new-password" aria-describedby="nu-password-hint" />
+                  <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="nu-role">Role</FieldLabel>
+                  <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20">
+                    <option value="EMPLOYEE">Employee</option>
+                    <option value="ADMIN">Administrator</option>
+                  </select>
+                </div>
               </div>
             </div>
-            <Button type="submit" loading={createMut.isPending}>
-              {createMut.isPending ? 'Creating…' : 'Create user'}
-            </Button>
-            <button type="button" onClick={onClose} className="w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground">
-              Cancel
-            </button>
+            <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
+              <button type="button" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">
+                Cancel
+              </button>
+              <Button type="submit" loading={createMut.isPending} className="!min-h-[44px] flex-[2]">
+                {createMut.isPending ? 'Creating…' : 'Create user'}
+              </Button>
+            </div>
           </form>
         </div>
       </div>

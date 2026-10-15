@@ -29,16 +29,20 @@ const PROJECT_FORM: [name: RegExp, element: ReactElement] = [/new project/i, <Pr
 const TASK_FORM: [name: RegExp, element: ReactElement] = [/new task/i, <NewTaskModal onClose={() => {}} />];
 
 describe('dialogs on short screens', () => {
-  it.each(DIALOGS)('%s: is never taller than the screen and scrolls, so its buttons stay reachable', async (name, element) => {
+  it.each(DIALOGS)('%s: is never taller than the screen above the keyboard; its fields scroll while its buttons stay in view', async (name, element) => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <MemoryRouter>{element}</MemoryRouter>
       </QueryClientProvider>,
     );
     const dialog = await screen.findByRole('dialog', { name });
-    // dvh: the height that is really visible on a phone (the address bar and keyboard excluded).
-    expect(dialog.className).toMatch(/max-h-\[calc\(100dvh-2rem\)\]/);
-    expect(dialog.className).toContain('overflow-y-auto');
+    // --visible-height: the height really visible on a phone — no address bar, and above the
+    // on-screen keyboard, which the layer itself also stops at (index.css).
+    expect(dialog.className).toMatch(/max-h-\[calc\(var\(--visible-height\)-2rem\)\]/);
+    expect(dialog.closest('.fixed')!.className).toContain('above-keyboard');
+    const scroller = dialog.querySelector('.overflow-y-auto');
+    expect(scroller).not.toBeNull();
+    expect(scroller!.contains(dialog.querySelector('button[type="submit"]'))).toBe(false);
   });
 
   it('new project: fills a phone screen, scrolls its fields and keeps its buttons outside the scrolling part', async () => {
@@ -49,7 +53,8 @@ describe('dialogs on short screens', () => {
     );
     const dialog = await screen.findByRole('dialog', { name: PROJECT_FORM[0] });
     expect(dialog.className).toMatch(/(^|\s)h-full(\s|$)/); // a full-height sheet on a phone
-    expect(dialog.className).toMatch(/sm:max-h-\[min\(92dvh/); // a centred card on wider screens, never taller than the window
+    expect(dialog.className).toMatch(/sm:max-h-\[min\(calc\(var\(--visible-height\)\*0\.92\)/); // a centred card on wider screens, never taller than the window
+    expect(dialog.closest('.fixed')!.className).toContain('above-keyboard');
     const scroller = screen.getByLabelText(/^name/i).closest('.overflow-y-auto');
     expect(scroller).not.toBeNull();
     expect(scroller!.contains(screen.getByRole('button', { name: 'Create project' }))).toBe(false);
@@ -64,7 +69,8 @@ describe('dialogs on short screens', () => {
     const dialog = await screen.findByRole('dialog', { name: TASK_FORM[0] });
     expect(dialog.className).toMatch(/(^|\s)h-full(\s|$)/);
     expect(dialog.className).toMatch(/sm:w-\[min\(800px,calc\(100vw-32px\)\)\]/);
-    expect(dialog.className).toMatch(/sm:max-h-\[90dvh\]/);
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)\*0\.9\)\]/);
+    expect(dialog.closest('.fixed')!.className).toContain('above-keyboard');
     const scroller = screen.getByLabelText(/^task title/i).closest('.overflow-y-auto');
     expect(scroller).not.toBeNull();
     expect(scroller!.contains(screen.getByRole('button', { name: 'Create task' }))).toBe(false);

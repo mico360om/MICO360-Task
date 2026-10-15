@@ -77,26 +77,6 @@ function reasonOf(err: unknown): string {
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 /**
- * Keeps the message box above a phone's on-screen keyboard: when the keyboard covers part of the
- * window (iOS doesn't shrink the page for it), the chat gets that much shorter.
- */
-function useKeyboardInset(): number {
-  const [inset, setInset] = useState(0);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setInset(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)));
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
-  }, []);
-  return inset;
-}
-
-/**
  * How far down the page the chat starts, plus the page's bottom padding: the chat is the window's
  * height less that, so it fills the screen without the page itself scrolling. Measured, because the
  * top bar's height depends on what it holds.
@@ -145,7 +125,6 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   const qc = useQueryClient();
   const online = usePresence();
   const isOnline = useCallback((userId?: string | null): boolean => !!userId && online.has(userId), [online]);
-  const keyboardInset = useKeyboardInset();
   const frameRef = useRef<HTMLDivElement>(null);
   const frameOffset = useFrameOffset(frameRef);
 
@@ -795,7 +774,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
       <div
         className="chat-frame grid overflow-hidden border-line bg-surface [--chat-top:57px] sm:rounded-2xl sm:border sm:shadow-soft sm:[--chat-top:105px] lg:grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)] lg:[--chat-top:121px]"
         ref={frameRef}
-        style={{ ...(frameOffset !== null ? { '--chat-top': `${frameOffset}px` } : {}), ...(keyboardInset ? { '--chat-kb': `${keyboardInset}px` } : {}) } as React.CSSProperties}
+        style={frameOffset !== null ? ({ '--chat-top': `${frameOffset}px` } as React.CSSProperties) : undefined}
       >
         <ChatSidebar
           hidden={showThread}

@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices } from '../../core/providers';
 import { useColors } from '../../core/theme';
 import { Button, TextField, ErrorNote, Heading, Muted } from '../../components/ui';
+import { KeyboardAwareScrollView, KeyboardGroup } from '../../components/KeyboardAware';
 import { spacing, type Palette } from '../../lib/theme';
 import type { AuthScreenProps } from '../../navigation/types';
 import { ApiError, isNetworkError } from '../../lib/api-client';
@@ -39,7 +40,7 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) 
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView contentContainerStyle={styles.scroll}>
         <Heading>Reset your password</Heading>
         <Muted style={styles.intro}>
           Enter your email or username and we&apos;ll send a link to reset your password and unlock your account.
@@ -61,7 +62,8 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) 
             <Button title="Back to sign in" variant="ghost" onPress={() => navigation.navigate('Login')} />
           </View>
         ) : (
-          <>
+          // Typing keeps the field and its buttons in view above the keyboard.
+          <KeyboardGroup style={styles.group}>
             <TextField
               label="Email or username"
               required
@@ -74,9 +76,9 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) 
             />
             <Button title="Send reset link" onPress={submit} loading={busy} disabled={!identifier} />
             <Button title="Back to sign in" variant="ghost" onPress={() => navigation.navigate('Login')} />
-          </>
+          </KeyboardGroup>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -87,5 +89,6 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.xl, flexGrow: 1, justifyContent: 'center', gap: spacing.md },
     intro: { marginBottom: spacing.md },
     sent: { gap: spacing.md },
+    group: { gap: spacing.md },
     sentTitle: { fontSize: 18, fontWeight: '700', color: c.ink },
   });

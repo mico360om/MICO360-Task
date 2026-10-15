@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { TextField, Button } from '../ui';
+import { KeyboardGroup } from '../KeyboardAware';
 import { priorityColor } from '../TaskRow';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
@@ -94,7 +95,8 @@ export function HeaderCard({
           {onSaveTitle ? <IconButton glyph="✎" label="Edit title" onPress={() => { save.reset(); setDraft(task.title); }} /> : null}
         </View>
       ) : (
-        <View>
+        // Typing keeps the title and its Save / Cancel above the keyboard.
+        <KeyboardGroup>
           <TextField
             label="Title"
             value={draft}
@@ -108,7 +110,7 @@ export function HeaderCard({
             <Button title="Cancel" variant="ghost" onPress={() => { setDraft(null); save.reset(); }} style={s.flex} />
             <Button title="Save" accessibilityLabel="Save title" onPress={() => void commit()} loading={save.busy} style={s.flex} />
           </View>
-        </View>
+        </KeyboardGroup>
       )}
       <SaveNote state={save.state} />
       {task.recurrenceRule ? (

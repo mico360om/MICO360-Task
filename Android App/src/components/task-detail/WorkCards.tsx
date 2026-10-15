@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { useColors } from '../../core/theme';
 import { TextField, Button } from '../ui';
+import { KeyboardGroup } from '../KeyboardAware';
 import { MentionSuggestions, MentionText, useMentionInput } from '../Mentions';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { moveBy } from '../../lib/task-detail';
@@ -27,13 +28,13 @@ export function DescriptionCard({ description, onSave }: { description: string |
   return (
     <SectionCard title="Description" right={onSave && draft === null && description ? <IconButton glyph="✎" label="Edit description" onPress={() => { save.reset(); setDraft(description); }} /> : undefined}>
       {draft !== null ? (
-        <View style={{ gap: spacing.xs }}>
+        <KeyboardGroup style={{ gap: spacing.xs }}>
           <TextField value={draft} onChangeText={setDraft} multiline numberOfLines={4} accessibilityLabel="Description" placeholder="What needs doing, and how will we know it’s done?" autoFocus style={s.multiline} />
           <View style={s.row}>
             <Button title="Cancel" variant="ghost" onPress={() => { setDraft(null); save.reset(); }} style={s.flex} />
             <Button title="Save" accessibilityLabel="Save description" onPress={() => void commit()} loading={save.busy} style={s.flex} />
           </View>
-        </View>
+        </KeyboardGroup>
       ) : description ? (
         <Text style={s.body}>{description}</Text>
       ) : onSave ? (
@@ -81,14 +82,14 @@ function ChecklistRow({
   }
   if (draft !== null) {
     return (
-      <View style={{ gap: spacing.xs }}>
+      <KeyboardGroup style={{ gap: spacing.xs }}>
         <TextField value={draft} onChangeText={setDraft} accessibilityLabel="Checklist item" autoFocus onSubmitEditing={() => void commit()} returnKeyType="done" />
         <View style={s.row}>
           <Button title="Cancel" variant="ghost" onPress={() => setDraft(null)} style={s.flex} />
           <Button title="Save" accessibilityLabel="Save step" onPress={() => void commit()} loading={save.busy} style={s.flex} />
         </View>
         <SaveNote state={save.state} />
-      </View>
+      </KeyboardGroup>
     );
   }
   return (
@@ -273,7 +274,7 @@ export function ChecklistCard({
         ))
       )}
       <SaveNote state={save.state} />
-      <View style={s.addRow}>
+      <KeyboardGroup style={s.addRow}>
         <View style={s.flex}>
           <TextField
             value={newItem}
@@ -290,7 +291,7 @@ export function ChecklistCard({
           />
         </View>
         <Button title="Add" accessibilityLabel="Add item" onPress={() => void addTyped(newItem)} disabled={!newItem.trim()} />
-      </View>
+      </KeyboardGroup>
     </SectionCard>
   );
 }
@@ -336,7 +337,7 @@ function CommentRow({ cm, people, onEdit, onDelete }: { cm: CommentView; people:
       {draft === null ? (
         <MentionText style={s.body} body={cm.body} people={people} />
       ) : (
-        <View style={{ gap: spacing.xs }}>
+        <KeyboardGroup style={{ gap: spacing.xs }}>
           <TextField value={draft} onChangeText={setDraft} multiline accessibilityLabel="Edit comment" autoFocus />
           <View style={s.row}>
             <Button title="Cancel" variant="ghost" onPress={() => setDraft(null)} style={s.flex} />
@@ -349,7 +350,7 @@ function CommentRow({ cm, people, onEdit, onDelete }: { cm: CommentView; people:
               style={s.flex}
             />
           </View>
-        </View>
+        </KeyboardGroup>
       )}
       <SaveNote state={save.state} />
     </View>
@@ -395,24 +396,27 @@ export function CommentsCard({
           <Text style={s.when}>Sending when you’re back online…</Text>
         </View>
       ))}
-      <MentionSuggestions menu={mention.menu} onPick={mention.pick} noMatchText={(query) => `No one on this project matches “@${query}”.`} />
-      <View style={s.addRow}>
-        <View style={s.flex}>
-          <TextField
-            inputRef={mention.inputRef}
-            onSelectionChange={mention.onSelectionChange}
-            value={draft}
-            onChangeText={(v) => {
-              setDraft(v);
-              if (save.state.status === 'error') save.reset();
-            }}
-            placeholder="Write a comment… use @name to mention"
-            accessibilityLabel="New comment"
-            multiline
-          />
+      {/* Typing keeps the suggestions, the box and Send above the keyboard. */}
+      <KeyboardGroup style={{ gap: spacing.sm }}>
+        <MentionSuggestions menu={mention.menu} onPick={mention.pick} noMatchText={(query) => `No one on this project matches “@${query}”.`} />
+        <View style={s.addRow}>
+          <View style={s.flex}>
+            <TextField
+              inputRef={mention.inputRef}
+              onSelectionChange={mention.onSelectionChange}
+              value={draft}
+              onChangeText={(v) => {
+                setDraft(v);
+                if (save.state.status === 'error') save.reset();
+              }}
+              placeholder="Write a comment… use @name to mention"
+              accessibilityLabel="New comment"
+              multiline
+            />
+          </View>
+          <Button title="Send" accessibilityLabel="Send comment" onPress={() => void send()} loading={save.busy} disabled={!draft.trim()} />
         </View>
-        <Button title="Send" accessibilityLabel="Send comment" onPress={() => void send()} loading={save.busy} disabled={!draft.trim()} />
-      </View>
+      </KeyboardGroup>
       <SaveNote state={save.state} />
     </SectionCard>
   );

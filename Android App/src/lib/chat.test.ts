@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyChatEvent, unreadTotal, type ChatEvent } from './chat';
+import { applyChatEvent, isAtLatest, unreadTotal, type ChatEvent } from './chat';
 import type { ApiChatMessage, ApiConversationSummary } from './types';
 
 const msg = (over: Partial<ApiChatMessage> = {}): ApiChatMessage => ({
@@ -44,5 +44,20 @@ describe('unreadTotal', () => {
       { conversation: { id: 'c2', kind: 'DIRECT', projectId: null, createdAt: '' }, participants: [], unread: 2, lastMessage: null },
     ] as ApiConversationSummary[];
     expect(unreadTotal(summaries)).toBe(5);
+  });
+});
+
+describe('isAtLatest', () => {
+  // Scrolled to (or within a finger's width of) the newest message: the chat keeps it in view when
+  // the keyboard opens and the list gets shorter.
+  it('is true at the bottom of the conversation, or nearly', () => {
+    expect(isAtLatest({ offset: 600, viewport: 400, content: 1000 })).toBe(true);
+    expect(isAtLatest({ offset: 570, viewport: 400, content: 1000 })).toBe(true);
+  });
+  it('is false while reading older messages', () => {
+    expect(isAtLatest({ offset: 300, viewport: 400, content: 1000 })).toBe(false);
+  });
+  it('is true when everything fits on screen', () => {
+    expect(isAtLatest({ offset: 0, viewport: 400, content: 250 })).toBe(true);
   });
 });

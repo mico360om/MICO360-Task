@@ -168,7 +168,7 @@ export function TaskDrawer({
   // One column on a phone; on a wide screen the details, files and links sit beside the work and
   // the discussion. The document order is the phone's order, so reading and Tab follow it everywhere.
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Task ${task.key}`} className="flex h-full w-full flex-col border-s border-line bg-surface shadow-lg">
+    <div role="dialog" aria-modal="true" aria-label={`Task ${task.key}`} className="keyboard-flow flex h-full w-full flex-col border-s border-line bg-surface shadow-lg">
       {/* A plain div, not <header>: inside a dialog that would be a second page "banner" landmark. */}
       <div data-testid="task-header" className="flex-none border-b border-line px-4 pb-3 pt-3 sm:px-6 sm:pt-4">
         <div className="flex items-center gap-2">
@@ -234,7 +234,7 @@ export function TaskDrawer({
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
+      <div className="keyboard-flow-body flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
         {actionError ? (
           <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
             <span>{actionError}</span>
