@@ -178,7 +178,9 @@ describe('api client', () => {
     vi.stubGlobal('fetch', fetchMock);
     const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok123' });
     const blob = await api.getBlob('/reports/projects.pdf');
-    expect(blob).toBeInstanceOf(Blob);
+    // Not `toBeInstanceOf(Blob)`: depending on the Node version, fetch's Blob and the test page's
+    // Blob are different classes (in a browser they are one), so check what it is instead.
+    expect(Object.prototype.toString.call(blob)).toBe('[object Blob]');
     expect(blob.size).toBe(8); // '%PDF-1.4'
     expect(blob.type).toContain('application/pdf');
     const init = fetchMock.mock.calls[0]![1]!;
