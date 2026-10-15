@@ -12,7 +12,7 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "start": "npm run prisma:deploy --workspace @mico360/backend && npm run start --workspace @mico360/backend",
+    "start": "node server.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:up": "docker compose -f \"Web Portal/backend/docker-compose.yml\" up -d mysql",
     "db:down": "docker compose -f \"Web Portal/backend/docker-compose.yml\" down"

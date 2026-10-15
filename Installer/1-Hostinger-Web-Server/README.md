@@ -81,26 +81,29 @@ database is updated in place and your data is kept.
 
 ## Deploying from GitHub instead
 
-Hostinger can build the app straight from the GitHub repository (hPanel → Websites → Node.js →
-import a Git repository) instead of the package in this folder. Use these settings:
+Hostinger can build the app straight from the GitHub repository (hPanel → Websites → Add Website →
+Node.js Web App, connected to GitHub) instead of the package in this folder. Use these settings:
 
 | Setting | Value |
 | --- | --- |
-| Repository / branch | `mico360om/MICO360-Task`, branch **`fix/audit-findings`** (the 0.4.0 code; `main` is still the older version until it is merged) |
+| Repository / branch | `mico360om/MICO360-Task`, branch **`main`** |
+| Framework | **Fastify** (the server; it also serves the web app) |
 | Node.js version | **22.x** (20.x works only from 20.19 on: an older Node 20 stops the server at start) |
-| Root directory | the repository root |
-| Build command | `npm run build` (it generates the database client, then builds the server and the web app) |
-| Start command | `npm start` (it brings the database up to date, then starts the server) |
+| Root directory | leave empty: the repository root |
+| Build script | `build`. It generates the database client, then builds the server and the web app |
+| Output directory | leave empty |
+| Entry file | `server.mjs`. It brings the database up to date, then starts the server, which serves the web pages too |
+| Package manager | npm |
 
 Environment variables (hPanel → the Node.js app → Environment variables):
 
 - every line of `environment.txt` in this folder;
 - `DATABASE_URL=mysql://<user>:<password>@localhost:3306/<database>`. If the password has special
   characters such as `@ : / # %`, write them URL-encoded, for example `@` as `%40`;
-- `WEB_ROOT=../frontend/dist`, so the same app serves the web pages;
 - `UPLOAD_DIR=/home/<your hPanel user>/mico360-data/uploads`, a folder outside the app, so
   uploaded files survive each redeploy;
-- don't set `PORT`: Hostinger sets it.
+- don't set `PORT`: Hostinger sets it. `WEB_ROOT` isn't needed: `server.mjs` serves the built web
+  app.
 
 On the first deployment only, create the administrator once over SSH, from the app's folder:
 

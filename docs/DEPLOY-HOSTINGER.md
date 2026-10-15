@@ -33,10 +33,11 @@ snippets.
 
 **Deploying straight from GitHub instead** (a Hostinger Node.js app connected to the repository):
 
-- the repository root's `npm run build` generates the Prisma client and builds the API and the
-  web app;
-- `npm start` applies pending migrations, then starts the API, which also serves the web app when
-  `WEB_ROOT=../frontend/dist` is set;
+- framework Fastify;
+- the repository root's `npm run build` (build script `build`) generates the Prisma client and
+  builds the API and the web app;
+- entry file `server.mjs` (also what `npm start` runs) applies pending migrations, then starts the
+  API, which serves the built web app as well;
 - Node.js 22, or 20.19 or later.
 
 The exact settings are in "Deploying from GitHub instead" in
