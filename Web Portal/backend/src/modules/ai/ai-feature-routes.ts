@@ -21,7 +21,7 @@ export interface AiFeatureRouteDeps {
   guard: AuthGuard;
 }
 
-const requester = (req: FastifyRequest) => ({ userId: req.user!.id });
+const requester = (req: FastifyRequest) => ({ userId: req.user!.id, roles: req.user!.roles ?? [] });
 
 /** Product-facing AI endpoints (task breakdown, NL capture, project summary, priority) — any signed-in user, rate-limited per user. */
 export async function registerAiFeatureRoutes(app: FastifyInstance, deps: AiFeatureRouteDeps): Promise<void> {

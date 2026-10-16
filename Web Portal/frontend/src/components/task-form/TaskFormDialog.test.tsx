@@ -330,6 +330,85 @@ describe('Describe it in plain English', () => {
     expect(screen.getByLabelText(/^due date/i)).toHaveValue('2026-10-16');
   });
 
+  const fuller = () =>
+    json({
+      data: {
+        title: 'Send the site report',
+        description: 'Include the inspection photos.',
+        dueDate: '2026-10-19',
+        priority: null,
+        recurrence: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
+        project: { id: 'p2', code: 'OPS', number: 'PDO-7', name: 'Ops Board' },
+      },
+    });
+
+  it('also suggests a description, a repeat and the project, and fills them in', async () => {
+    parseReply = fuller;
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/describe it in plain english/i), 'send the OPS site report every monday with photos');
+    await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
+    const found = await screen.findByRole('group', { name: 'Suggested details' });
+    expect(within(found).getByRole('checkbox', { name: 'Description: Include the inspection photos.' })).toBeChecked();
+    expect(within(found).getByRole('checkbox', { name: /^Repeat: Repeats every week on Mon$/ })).toBeChecked();
+    expect(within(found).getByRole('checkbox', { name: 'Project: Ops Board · OPS · PDO-7' })).toBeChecked();
+    expect(found).toHaveTextContent('Replaces MICO360 Platform');
+    await userEvent.click(within(found).getByRole('button', { name: 'Use selected details' }));
+    expect(screen.getByLabelText(/^description/i)).toHaveValue('Include the inspection photos.');
+    expect(screen.getByRole('button', { name: 'Repeat' })).toHaveTextContent('Weekly');
+    expect(within(screen.getByRole('group', { name: 'Repeat schedule' })).getByRole('button', { name: 'Mon' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Project' })).toHaveTextContent('Ops Board');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('To Do'));
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({
+      projectId: 'p2',
+      columnId: 'd1',
+      title: 'Send the site report',
+      description: 'Include the inspection photos.',
+      dueDate: '2026-10-19',
+      recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
+    });
+  });
+
+  it('does not offer another project on a board, where the project is fixed', async () => {
+    parseReply = fuller;
+    renderDialog({ projectId: 'p1', defaultColumnId: 'c1' });
+    await ready();
+    await userEvent.type(screen.getByLabelText(/describe it in plain english/i), 'send the OPS site report every monday');
+    await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
+    const found = await screen.findByRole('group', { name: 'Suggested details' });
+    expect(within(found).queryByRole('checkbox', { name: /^project:/i })).not.toBeInTheDocument();
+    expect(within(found).getByRole('checkbox', { name: /^repeat:/i })).toBeInTheDocument();
+  });
+
+  it('never silently replaces a project, description or repeat you chose yourself', async () => {
+    parseReply = fuller;
+    renderDialog();
+    await ready();
+    await pick('Project', /Ops Board/);
+    await pick('Project', /MICO360 Platform/);
+    await userEvent.type(screen.getByLabelText(/^description/i), 'My own notes');
+    await pick('Repeat', 'Daily');
+    await userEvent.type(screen.getByLabelText(/describe it in plain english/i), 'send the OPS site report every monday');
+    await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
+    const found = await screen.findByRole('group', { name: 'Suggested details' });
+    expect(within(found).getByRole('checkbox', { name: /^project:/i })).not.toBeChecked();
+    expect(within(found).getByRole('checkbox', { name: /^description:/i })).not.toBeChecked();
+    expect(within(found).getByRole('checkbox', { name: /^repeat:/i })).not.toBeChecked();
+    expect(found).toHaveTextContent('Replaces “My own notes”');
+  });
+
+  it('ignores a project that is not in your list', async () => {
+    parseReply = () => json({ data: { title: 'X', project: { id: 'p9', code: 'SEC', number: null, name: 'Secret' } } });
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/describe it in plain english/i), 'x for SEC');
+    await userEvent.click(screen.getByRole('button', { name: 'Fill task details' }));
+    const found = await screen.findByRole('group', { name: 'Suggested details' });
+    expect(within(found).queryByRole('checkbox', { name: /^project:/i })).not.toBeInTheDocument();
+  });
+
   it('shows progress while reading and a clear message when it fails, keeping the text', async () => {
     let answer: (r: Response) => void = () => {};
     parseReply = () => new Promise<Response>((r) => { answer = r; }) as unknown as Response;

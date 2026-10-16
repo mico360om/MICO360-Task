@@ -4,6 +4,8 @@ export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 export interface ProjectRecord {
   id: string;
   code: string;
+  /** The project's own number (e.g. the client's job number), free text; null when it has none. */
+  number: string | null;
   name: string;
   description: string | null;
   clientName: string | null;
@@ -25,6 +27,7 @@ export interface ProjectRecord {
 
 export interface CreateProjectData {
   code: string;
+  number?: string | null;
   name: string;
   description?: string | null;
   clientName?: string | null;
@@ -41,6 +44,7 @@ export interface CreateProjectData {
 }
 
 export interface UpdateProjectData {
+  number?: string | null;
   name?: string;
   description?: string | null;
   clientName?: string | null;

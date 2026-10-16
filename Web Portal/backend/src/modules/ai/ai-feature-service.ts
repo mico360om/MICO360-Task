@@ -5,8 +5,23 @@ import { effectiveModel, type AiConfig, type AiModel } from './ai-config';
 import { complete, type ChatModel } from './ai-completion';
 import { createSafeFetch } from './ai-network';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
+import { isValidRule, type RecurrenceRule } from '../tasks/recurrence';
+
+/** A project a person can add tasks to, as "Describe it in plain English" may suggest it. */
+export interface DescribableProject {
+  id: string;
+  code: string;
+  number: string | null;
+  name: string;
+  status: string;
+}
 
 export interface AiFeatureServiceDeps {
+  /**
+   * The projects the person may add tasks to (archived ones are left out here), so a described
+   * task can suggest one. Without it, no project is suggested.
+   */
+  listProjectsFor?: (user: { id: string; roles: string[] }) => Promise<DescribableProject[]>;
   repo: AiConfigRepository;
   fetchImpl?: typeof fetch;
   /** Per-user request budget. Default 10 a minute, 200 a day. */
@@ -22,9 +37,10 @@ export interface AiFeatureServiceDeps {
   now?: () => Date;
 }
 
-/** The signed-in user an AI request is made for (per-user limits). */
+/** The signed-in user an AI request is made for (per-user limits; their roles decide which projects they see). */
 export interface AiRequester {
   userId: string;
+  roles?: string[];
 }
 
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
@@ -43,6 +59,7 @@ export interface ProjectSummaryInput {
  */
 export function createAiFeatureService({
   repo,
+  listProjectsFor,
   fetchImpl,
   limits,
   timeZone = 'Asia/Muscat',
@@ -92,24 +109,48 @@ export function createAiFeatureService({
     return items;
   }
 
-  /** Turn a free-text note into a structured task (title + optional due date + priority). */
-  async function parseTask(
-    input: { text: string; today?: string },
-    requester?: AiRequester,
-  ): Promise<{ title: string; dueDate: string | null; priority: Priority | null }> {
+  /**
+   * Turn a free-text note into a task: a title, and only what the note says of a description,
+   * due date, priority, repeat and project. The project is one the person can add tasks to: the
+   * one whose number or code is written in the note, else the one the model names.
+   */
+  async function parseTask(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedTask> {
     // "Today" is the company-local date: before 04:00 in Muscat the UTC date is still yesterday.
     const today = input.today ?? todayKey(timeZone, now());
+    const projects =
+      listProjectsFor && requester
+        ? (await listProjectsFor({ id: requester.userId, roles: requester.roles ?? [] }))
+            .filter((p) => p.status !== 'ARCHIVED')
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .slice(0, MAX_PROMPT_PROJECTS)
+        : [];
+    const projectList = projects.length
+      ? `\nProjects (code | number | name), one per line:\n${projects.map((p) => `${p.code} | ${p.number ?? '-'} | ${p.name}`).join('\n')}`
+      : '';
     const text = await run(
-      `Extract a single task from the user's note. Today is ${today}. Reply with ONLY JSON: {"title": string, "dueDate": string|null (YYYY-MM-DD, resolve relative dates like "Friday"/"tomorrow"), "priority": "LOW"|"NORMAL"|"HIGH"|"URGENT"|null}. Keep the title concise; drop date/priority words from it.`,
+      [
+        `Extract a single task from the user's note. Today is ${today}. Reply with ONLY JSON:`,
+        '{"title": string, "description": string|null, "dueDate": string|null, "priority": "LOW"|"NORMAL"|"HIGH"|"URGENT"|null,',
+        ' "repeat": null | {"freq": "DAILY"|"WEEKLY"|"MONTHLY"|"QUARTERLY"|"YEARLY", "interval": number, "weekdays"?: number[] (0=Sunday…6=Saturday, WEEKLY only), "dayOfMonth"?: number (MONTHLY/QUARTERLY), "until"?: "YYYY-MM-DD", "count"?: number},',
+        ' "project": string|null}.',
+        'Title: concise, without date, priority, repeat or project words. Description: only details the note gives beyond the title, in a sentence or two; else null.',
+        'dueDate: YYYY-MM-DD, resolving relative dates like "Friday" or "tomorrow"; null if none. Repeat: only if the note says the task repeats; else null.',
+        projects.length ? 'project: the code of the project from the list the note is about; null if none fits.' : 'project: null.',
+      ].join('\n') + projectList,
       input.text,
-      256,
+      600,
       requester,
     );
     const obj = parseJsonObject(text);
     const title = typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : input.text.trim();
+    const rawDescription = typeof obj.description === 'string' ? obj.description.trim().slice(0, 4000) : '';
+    const description = rawDescription && normalise(rawDescription) !== normalise(title) ? rawDescription : null;
     const dueDate = typeof obj.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.dueDate) ? obj.dueDate : null;
     const priority = PRIORITIES.includes(obj.priority as Priority) ? (obj.priority as Priority) : null;
-    return { title, dueDate, priority };
+    const recurrence = toRepeatRule(obj.repeat);
+    const match = matchProject(input.text, typeof obj.project === 'string' ? obj.project : null, projects);
+    const project = match ? { id: match.id, code: match.code, number: match.number, name: match.name } : null;
+    return { title, description, dueDate, priority, recurrence, project };
   }
 
   /** A concise 2–3 sentence status summary for a project. */
@@ -150,6 +191,69 @@ export function createAiFeatureService({
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;
+
+/** What a plain-English note fills in (null where it says nothing). */
+export interface DescribedTask {
+  title: string;
+  description: string | null;
+  dueDate: string | null;
+  priority: Priority | null;
+  recurrence: RecurrenceRule | null;
+  project: { id: string; code: string; number: string | null; name: string } | null;
+}
+
+/** At most this many projects are listed in the prompt (each one is a line). */
+const MAX_PROMPT_PROJECTS = 100;
+const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] as const;
+
+const normalise = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const isDay = (v: unknown): v is string =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+const wholeInt = (v: unknown, min: number, max: number): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : undefined;
+
+/**
+ * A model's "repeat" as a rule the task form can use, or null. Only the fields the form edits are
+ * kept (frequency, interval, weekdays, day of month, end date or count); anything else is dropped.
+ */
+export function toRepeatRule(value: unknown): RecurrenceRule | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (!FREQUENCIES.includes(v.freq as (typeof FREQUENCIES)[number])) return null;
+  if (typeof v.interval === 'number' && v.interval < 1) return null;
+  const rule: RecurrenceRule = { freq: v.freq as RecurrenceRule['freq'], interval: wholeInt(v.interval, 1, 99) ?? 1 };
+  if (rule.freq === 'WEEKLY' && Array.isArray(v.weekdays)) {
+    const days = [...new Set(v.weekdays.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b);
+    if (days.length) rule.weekdays = days;
+  }
+  if ((rule.freq === 'MONTHLY' || rule.freq === 'QUARTERLY') && Number.isInteger(v.dayOfMonth) && (v.dayOfMonth as number) >= 1 && (v.dayOfMonth as number) <= 31) {
+    rule.dayOfMonth = v.dayOfMonth as number;
+  }
+  if (isDay(v.until)) rule.until = v.until;
+  else if (Number.isInteger(v.count) && (v.count as number) >= 1) rule.count = Math.min(999, v.count as number);
+  return isValidRule(rule) ? rule : null;
+}
+
+/**
+ * The project a note is about, among the ones the person can use: one whose number is written in
+ * the note (any case) or whose code is (in capitals, as codes are written, so the word "web" isn't
+ * the WEB project), else the one the model named by code, number or name. Never one outside the list.
+ */
+export function matchProject<P extends { code: string; number: string | null; name: string }>(
+  note: string,
+  named: string | null,
+  projects: P[],
+): P | null {
+  const token = (s: string, flags: string) => new RegExp(`(^|[^\\p{L}\\p{N}])${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}\\p{N}])`, `u${flags}`);
+  const written = projects.filter((p) => (p.number && token(p.number, 'i').test(note)) || token(p.code, '').test(note));
+  if (written.length === 1) return written[0]!;
+  if (named) {
+    const n = normalise(named);
+    const byName = projects.filter((p) => normalise(p.code) === n || (p.number && normalise(p.number) === n) || normalise(p.name) === n);
+    if (byName.length === 1) return byName[0]!;
+  }
+  return null;
+}
 
 // ── Output parsing (LLMs sometimes wrap JSON in prose / code fences) ──────────
 /** Extract a JSON string[] from model output, tolerating prose/fences; falls back to line parsing. */

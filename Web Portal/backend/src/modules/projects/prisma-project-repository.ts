@@ -6,6 +6,7 @@ function toRecord(p: Project): ProjectRecord {
   return {
     id: p.id,
     code: p.code,
+    number: p.number,
     name: p.name,
     description: p.description,
     clientName: p.clientName,
@@ -33,6 +34,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
         const p = await prisma.project.create({
           data: {
             code: data.code,
+            number: data.number ?? undefined,
             name: data.name,
             createdById: data.createdById,
             description: data.description ?? undefined,

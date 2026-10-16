@@ -787,6 +787,8 @@ async function main(): Promise<void> {
   // within per-user limits and each model's concurrency limit.
   const aiFeatureService = createAiFeatureService({
     repo: aiConfigRepository,
+    // "Describe it in plain English" may suggest one of the projects the person can see.
+    listProjectsFor: (user) => projectService.listVisibleProjects(user),
     timeZone: companyTz,
     allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS,
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },

@@ -28,6 +28,8 @@ const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
 const createSchema = z.object({
   code: z.string().max(40).transform(normalizeCode).refine((c) => CODE_PATTERN.test(c), CODE_RULE),
+  // The project's own number (e.g. the client's job number): free text, up to 40 characters; empty = none.
+  number: z.string().trim().max(40, 'A project number has at most 40 characters.').transform((n) => n || null).nullable().optional(),
   name: requiredText,
   description: longText.optional(),
   clientName: shortText.optional(),

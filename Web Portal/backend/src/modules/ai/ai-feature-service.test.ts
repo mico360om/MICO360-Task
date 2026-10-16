@@ -32,8 +32,11 @@ describe('AiFeatureService', () => {
     const svc = serviceWith('{"title":"Review the quarterly report","dueDate":"2026-09-18","priority":"HIGH"}');
     expect(await svc.parseTask({ text: 'review the quarterly report by Friday, high priority', today: '2026-09-14' })).toEqual({
       title: 'Review the quarterly report',
+      description: null,
       dueDate: '2026-09-18',
       priority: 'HIGH',
+      recurrence: null,
+      project: null,
     });
   });
 
@@ -129,5 +132,101 @@ describe('AiFeatureService: which model answers', () => {
     const { svc, used } = capturing({ ...two, defaults: { chat: 'big' } });
     await svc.breakdownTask({ title: 'X' });
     expect(used).toEqual(['gpt-4o']);
+  });
+});
+
+describe('AiFeatureService: describing a task in plain English', () => {
+  const projects = [
+    { id: 'p1', code: 'RIG1', number: 'PDO-2026-014', name: 'Rig Inspection Portal', status: 'ACTIVE' as const },
+    { id: 'p2', code: 'WEB', number: null, name: 'Company Website', status: 'ACTIVE' as const },
+    { id: 'p3', code: 'OLD', number: '1999', name: 'Old Archive Project', status: 'ARCHIVED' as const },
+  ];
+  function describing(answer: Record<string, unknown>, opts: { withProjects?: boolean } = {}) {
+    const prompts: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init!.body));
+      prompts.push(body.messages.map((m: { content: string }) => m.content).join('\n'));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(answer) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const svc = createAiFeatureService({
+      repo: createMemoryAiConfigRepository(config),
+      fetchImpl,
+      ...(opts.withProjects === false ? {} : { listProjectsFor: async () => projects }),
+    });
+    return { svc, prompts };
+  }
+  const me = { userId: 'u1', roles: ['EMPLOYEE'] };
+
+  it('suggests a description and a repeat as well as the title, date and priority', async () => {
+    const { svc } = describing({
+      title: 'Send the weekly site report',
+      description: 'Include the inspection photos and the open defects list.',
+      dueDate: '2026-09-21',
+      priority: 'HIGH',
+      repeat: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
+      project: null,
+    });
+    expect(await svc.parseTask({ text: 'send the site report every monday with photos and open defects, important', today: '2026-09-14' }, me)).toEqual({
+      title: 'Send the weekly site report',
+      description: 'Include the inspection photos and the open defects list.',
+      dueDate: '2026-09-21',
+      priority: 'HIGH',
+      recurrence: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
+      project: null,
+    });
+  });
+
+  it('keeps only a repeat the app can use', async () => {
+    const parse = async (repeat: unknown) => (await describing({ title: 'X', repeat }).svc.parseTask({ text: 'x', today: '2026-09-14' }, me)).recurrence;
+    expect(await parse({ freq: 'HOURLY', interval: 1 })).toBeNull();
+    expect(await parse({ freq: 'MONTHLY', interval: 0 })).toBeNull();
+    expect(await parse('every week')).toBeNull();
+    expect(await parse({ freq: 'MONTHLY', interval: 1, dayOfMonth: 31, until: '2026-12-31', paused: true, junk: 'x' })).toEqual({ freq: 'MONTHLY', interval: 1, dayOfMonth: 31, until: '2026-12-31' });
+    expect(await parse({ freq: 'WEEKLY', interval: 2, weekdays: [5, 1, 1, 9], count: 6, until: 'soon' })).toEqual({ freq: 'WEEKLY', interval: 2, weekdays: [1, 5], count: 6 });
+    expect(await parse({ freq: 'DAILY', interval: 500 })).toEqual({ freq: 'DAILY', interval: 99 });
+  });
+
+  it('leaves the description out when it only repeats the title', async () => {
+    const { svc } = describing({ title: 'Call the client', description: 'Call the client.' });
+    expect((await svc.parseTask({ text: 'call the client', today: '2026-09-14' }, me)).description).toBeNull();
+  });
+
+  it('shows the AI the person’s own projects (code, number and name), not archived ones', async () => {
+    const { svc, prompts } = describing({ title: 'X' });
+    await svc.parseTask({ text: 'x', today: '2026-09-14' }, me);
+    expect(prompts[0]).toContain('RIG1');
+    expect(prompts[0]).toContain('PDO-2026-014');
+    expect(prompts[0]).toContain('Company Website');
+    expect(prompts[0]).not.toContain('Old Archive Project');
+  });
+
+  it('suggests the project the AI names, by code, number or name', async () => {
+    for (const named of ['RIG1', 'pdo-2026-014', 'Rig Inspection Portal']) {
+      const { svc } = describing({ title: 'Check the forms', project: named });
+      expect((await svc.parseTask({ text: 'check the forms', today: '2026-09-14' }, me)).project, named).toEqual({ id: 'p1', code: 'RIG1', number: 'PDO-2026-014', name: 'Rig Inspection Portal' });
+    }
+  });
+
+  it('suggests the project whose code or number is written in the note, even when the AI misses it', async () => {
+    const byNumber = describing({ title: 'Check the forms', project: null });
+    expect((await byNumber.svc.parseTask({ text: 'check the forms for PDO-2026-014 by friday', today: '2026-09-14' }, me)).project?.id).toBe('p1');
+    const byCode = describing({ title: 'Fix the header', project: 'RIG1' });
+    expect((await byCode.svc.parseTask({ text: 'WEB: fix the header', today: '2026-09-14' }, me)).project?.id).toBe('p2');
+    // A code is matched as written (in capitals): the word "web" in a note is not the WEB project.
+    const word = describing({ title: 'Update the web form', project: null });
+    expect((await word.svc.parseTask({ text: 'update the web form', today: '2026-09-14' }, me)).project).toBeNull();
+  });
+
+  it('never suggests a project the person can’t add tasks to', async () => {
+    for (const named of ['SECRET', 'OLD', '1999']) {
+      const { svc } = describing({ title: 'X', project: named });
+      expect((await svc.parseTask({ text: 'about project 1999', today: '2026-09-14' }, me)).project, named).toBeNull();
+    }
+  });
+
+  it('works without a project list', async () => {
+    const { svc, prompts } = describing({ title: 'X', project: 'RIG1' }, { withProjects: false });
+    expect((await svc.parseTask({ text: 'x', today: '2026-09-14' }, me)).project).toBeNull();
+    expect(prompts[0]).not.toContain('Projects');
   });
 });

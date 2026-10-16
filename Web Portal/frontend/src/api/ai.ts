@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import type { RecurrenceRule } from '../lib/recurrence';
 
 /** Capabilities a model can serve. "document" = Document Processing. Mirrors the backend. */
 export const AI_CAPABILITIES = ['chat', 'ocr', 'vision', 'document', 'embedding'] as const;
@@ -181,10 +182,15 @@ export function aiApi(client: ApiClient) {
   };
 }
 
+/** What a plain-English note fills in; a field the note says nothing about is null (or absent, from an older server). */
 export interface AiTaskDraft {
   title: string;
+  description?: string | null;
   dueDate: string | null;
   priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | null;
+  recurrence?: RecurrenceRule | null;
+  /** One of the person's projects, by id; the server never suggests one outside their list. */
+  project?: { id: string; code: string; number: string | null; name: string } | null;
 }
 export interface AiProjectStats {
   total: number;

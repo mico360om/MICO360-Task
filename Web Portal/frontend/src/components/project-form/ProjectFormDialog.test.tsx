@@ -242,6 +242,29 @@ describe('Project image', () => {
 });
 
 describe('Edit project form', () => {
+  it('takes an optional project number beside the code', async () => {
+    const { onSaved } = renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    const number = within(dialog).getByLabelText(/^project number/i);
+    expect(within(dialog).getByText(/project number/i, { selector: 'label' })).toHaveTextContent(/optional/i);
+    expect(number).toHaveAttribute('maxLength', '40');
+    await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig Inspection Portal');
+    await userEvent.type(number, ' PDO-2026-014 ');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(posts(/\/projects$/)[0]!.body).toMatchObject({ code: 'RIP', name: 'Rig Inspection Portal', number: 'PDO-2026-014' });
+  });
+
+  it('changes or clears a project’s number', async () => {
+    const { onSaved } = renderForm({ project: { ...existing, number: '1024' } });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    expect(within(dialog).getByLabelText(/^project number/i)).toHaveValue('1024');
+    await userEvent.clear(within(dialog).getByLabelText(/^project number/i));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(requests.find((r) => r.method === 'PUT')!.body).toEqual({ number: null });
+  });
+
   it('starts from the project, keeps its code, and saves only what changed', async () => {
     const { onSaved } = renderForm({ project: existing });
     const dialog = screen.getByRole('dialog', { name: 'Edit project' });

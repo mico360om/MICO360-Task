@@ -64,6 +64,15 @@ function renderPage() {
 }
 
 describe('ProjectDetailPage', () => {
+  it('shows the project number under the name, beside the code', async () => {
+    const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } });
+    const base = globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).endsWith('/projects/p1') ? json({ data: { ...PROJECT, number: 'PDO-2026-014' } }) : base(url, init))));
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    expect(await screen.findByText('Project no.', { exact: false })).toHaveTextContent('Project no. PDO-2026-014');
+  });
+
   it('lets a project manager add members, picking from the people directory', async () => {
     renderPage();
     await screen.findByText('MICO Platform');

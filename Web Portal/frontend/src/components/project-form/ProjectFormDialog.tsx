@@ -19,12 +19,15 @@ import { priorityOptions } from '../priority-option';
 const NAME_MAX = 191;
 const DESCRIPTION_MAX = 20_000;
 const DEFAULT_COLOR = '#8B1E1E';
+/** The server keeps up to 40 characters of a project number. */
+const PROJECT_NUMBER_MAX = 40;
 
 const STATUS_DOT: Record<ProjectStatus, string> = { PLANNING: 'bg-info', ACTIVE: 'bg-success', ON_HOLD: 'bg-warning', COMPLETED: 'bg-brand', ARCHIVED: 'bg-ink-3' };
 
 interface Draft {
   name: string;
   code: string;
+  number: string;
   clientName: string;
   description: string;
   status: ProjectStatus;
@@ -37,6 +40,7 @@ interface Draft {
 const draftOf = (p?: ApiProject | null): Draft => ({
   name: p?.name ?? '',
   code: p?.code ?? '',
+  number: p?.number ?? '',
   clientName: p?.clientName ?? '',
   description: p?.description ?? '',
   status: p?.status ?? 'PLANNING',
@@ -50,6 +54,7 @@ const draftOf = (p?: ApiProject | null): Draft => ({
 function changes(before: Draft, after: Draft): Partial<NewProjectInput> {
   const patch: Partial<NewProjectInput> = {};
   if (after.name.trim() !== before.name.trim()) patch.name = after.name.trim();
+  if (after.number.trim() !== before.number.trim()) patch.number = after.number.trim() || null;
   if (after.clientName.trim() !== before.clientName.trim()) patch.clientName = after.clientName.trim();
   if (after.description.trim() !== before.description.trim()) patch.description = after.description.trim();
   if (after.status !== before.status) patch.status = after.status;
@@ -109,7 +114,7 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
   const busy = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
-  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), desc: useId(), owner: useId() };
+  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId() };
 
   const dirty = image.kind !== 'keep' || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
@@ -213,6 +218,7 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
           created = await projectsApi(apiClient).create({
             code: draft.code,
             name: draft.name.trim(),
+            ...(draft.number.trim() ? { number: draft.number.trim() } : {}),
             ...(draft.clientName.trim() ? { clientName: draft.clientName.trim() } : {}),
             ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
             status: draft.status,
@@ -379,19 +385,35 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
                 />
               ) : null}
 
-              <div>
-                <Label htmlFor={ids.client} optional>Client</Label>
-                <input
-                  id={ids.client}
-                  list={ids.clients}
-                  value={draft.clientName}
-                  onChange={(e) => set({ clientName: e.target.value })}
-                  dir="auto"
-                  maxLength={NAME_MAX}
-                  placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'}
-                  className={input(false)}
-                />
-                <datalist id={ids.clients}>{clients.map((c) => <option key={c} value={c} />)}</datalist>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor={ids.client} optional>Client</Label>
+                  <input
+                    id={ids.client}
+                    list={ids.clients}
+                    value={draft.clientName}
+                    onChange={(e) => set({ clientName: e.target.value })}
+                    dir="auto"
+                    maxLength={NAME_MAX}
+                    placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'}
+                    className={input(false)}
+                  />
+                  <datalist id={ids.clients}>{clients.map((c) => <option key={c} value={c} />)}</datalist>
+                </div>
+                <div>
+                  <Label htmlFor={ids.number} optional>Project number</Label>
+                  <input
+                    id={ids.number}
+                    value={draft.number}
+                    onChange={(e) => set({ number: e.target.value })}
+                    maxLength={PROJECT_NUMBER_MAX}
+                    spellCheck={false}
+                    aria-describedby={ids.numberNote}
+                    placeholder="e.g. PDO-2026-014"
+                    className={`${input(false)} font-mono`}
+                  />
+                  <p id={ids.numberNote} className="mt-1 text-xs text-ink-2">The client’s job or contract number, if there is one.</p>
+                </div>
               </div>
 
               <div>

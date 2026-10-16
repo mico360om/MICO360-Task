@@ -389,9 +389,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
               {!editing && !noProjects ? (
                 <DescribeTask
                   onParse={(text) => aiApi(apiClient).parseTask(text, todayKey(timeZone))}
-                  current={{ title: draft.title, dueDate: draft.dueDate, priority: draft.priority }}
-                  initial={{ title: saved.title, dueDate: saved.dueDate, priority: saved.priority }}
-                  onApply={(patch) => {
+                  current={{ title: draft.title, description: draft.description, dueDate: draft.dueDate, priority: draft.priority, rule: draft.rule, projectId: draft.projectId }}
+                  initial={{ title: saved.title, description: saved.description, dueDate: saved.dueDate, priority: saved.priority, rule: saved.rule, projectId: saved.projectId }}
+                  projects={projectFixed ? undefined : openProjects}
+                  projectChosen={placeChosen}
+                  repeatText={scheduleText}
+                  onApply={({ projectId, ...patch }) => {
+                    if (projectId) chooseProject(projectId); // its columns and people follow, as when picked by hand
                     set(patch);
                     if (patch.title) setTitleError(null);
                   }}

@@ -31,6 +31,12 @@ describe('ProjectsList', () => {
     expect(screen.getByText('Active')).toBeInTheDocument();
   });
 
+  it('shows a project’s number beside its code, when it has one', () => {
+    wrap(<ProjectsList projects={[{ ...project, number: 'PDO-2026-014' }, { ...project, id: 'p2', code: 'OPS', name: 'Ops' }]} />);
+    expect(screen.getByTitle('Project number')).toHaveTextContent('PDO-2026-014');
+    expect(screen.getAllByTitle('Project number')).toHaveLength(1);
+  });
+
   it('shows an empty state', () => {
     wrap(<ProjectsList projects={[]} />);
     expect(screen.getByText(/no projects yet/i)).toBeInTheDocument();

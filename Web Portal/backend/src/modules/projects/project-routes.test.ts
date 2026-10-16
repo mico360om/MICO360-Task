@@ -24,6 +24,7 @@ function inMemoryRepo(): ProjectRepository {
         name: data.name,
         description: data.description ?? null,
         clientName: data.clientName ?? null,
+        number: data.number ?? null,
         managerId: data.managerId ?? null,
         status: data.status ?? 'PLANNING',
         priority: data.priority ?? 'NORMAL',
@@ -238,5 +239,35 @@ describe('Project routes', () => {
     expect(actions).toEqual(['project.create', 'project.update', 'project.archive', 'project.delete']);
     expect(auditRecords.every((r) => r.userId === 'admin')).toBe(true); // token id is 'admin'
     expect(auditRecords[0]!.entityId).toBe(id);
+  });
+});
+
+describe('Project number', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+
+  it('keeps an optional project number next to the code, trimmed', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG1', name: 'Rig Inspection Portal', number: '  PDO-2026-014 ' } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.number).toBe('PDO-2026-014');
+  });
+
+  it('stores no number when none is given or it is left empty', async () => {
+    const none = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'AAA', name: 'A' } });
+    expect(none.json().data.number).toBeNull();
+    const empty = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'BBB', name: 'B', number: '   ' } });
+    expect(empty.json().data.number).toBeNull();
+  });
+
+  it('can be changed or cleared later', async () => {
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG1', name: 'Rig', number: '1024' } })).json().data.id;
+    const changed = await app.inject({ method: 'PUT', url: `/api/v1/projects/${id}`, headers: await admin(), payload: { number: '1025' } });
+    expect(changed.json().data.number).toBe('1025');
+    const cleared = await app.inject({ method: 'PUT', url: `/api/v1/projects/${id}`, headers: await admin(), payload: { number: '' } });
+    expect(cleared.json().data.number).toBeNull();
+  });
+
+  it('refuses a number longer than 40 characters', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG1', name: 'Rig', number: 'x'.repeat(41) } });
+    expect(res.statusCode).toBe(400);
   });
 });

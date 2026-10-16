@@ -165,6 +165,7 @@ model Department {
 model Project {
   id          String        @id @default(cuid())
   code        String        @unique
+  number      String?       @db.VarChar(40) // the client's / contract project number, free text (optional)
   name        String
   description String?       @db.Text
   clientName  String?

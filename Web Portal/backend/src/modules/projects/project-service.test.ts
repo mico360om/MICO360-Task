@@ -24,6 +24,7 @@ function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember
         name: data.name,
         description: data.description ?? null,
         clientName: data.clientName ?? null,
+        number: data.number ?? null,
         managerId: data.managerId ?? null,
         status: data.status ?? 'PLANNING',
         priority: data.priority ?? 'NORMAL',

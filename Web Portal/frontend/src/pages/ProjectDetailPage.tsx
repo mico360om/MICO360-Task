@@ -191,6 +191,7 @@ export function ProjectDetailPage() {
           {project ? (
             <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-ink-2">
               <span className="font-mono">{project.code}</span>
+              {project.number ? <><span aria-hidden>·</span><span>Project no. <span className="font-mono">{project.number}</span></span></> : null}
               {project.clientName ? <><span aria-hidden>·</span><span dir="auto">{project.clientName}</span></> : null}
               <span aria-hidden>·</span>
               <span>Owner: {ownerName(project.ownerId)}</span>

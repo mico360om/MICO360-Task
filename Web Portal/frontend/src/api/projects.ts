@@ -6,6 +6,8 @@ export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'A
 export interface ApiProject {
   id: string;
   code: string;
+  /** The project's own number (e.g. the client's job or contract number); null when it has none. */
+  number?: string | null;
   name: string;
   description: string | null;
   clientName: string | null;
@@ -25,6 +27,8 @@ export interface ApiProject {
 export interface NewProjectInput {
   code: string;
   name: string;
+  /** Up to 40 characters; null (or empty) for none. */
+  number?: string | null;
   description?: string;
   clientName?: string;
   status?: ProjectStatus;

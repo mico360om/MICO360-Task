@@ -77,7 +77,10 @@ export function ProjectsList({ projects, canManage, onChangeStatus, meta, onEdit
               <Link to={`/projects/${p.id}`} className="flex flex-1 flex-col gap-3 overflow-hidden rounded-t-2xl p-5">
                 <span className="absolute inset-x-0 top-0 h-1" style={{ background: p.color }} aria-hidden="true" />
                 <div className="flex items-center justify-between gap-2">
-                  <span className="rounded-md bg-ground px-2 py-0.5 font-mono text-xs text-ink-2">{p.code}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="rounded-md bg-ground px-2 py-0.5 font-mono text-xs text-ink-2">{p.code}</span>
+                    {p.number ? <span title="Project number" className="truncate rounded-md bg-ground px-2 py-0.5 font-mono text-xs text-ink-2">{p.number}</span> : null}
+                  </span>
                   <Badge tone={STATUS_TONE[p.status]} dot>{projectStatusLabel(p.status)}</Badge>
                 </div>
 

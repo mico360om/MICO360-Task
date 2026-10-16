@@ -17,7 +17,7 @@ function repo(): ProjectRepository {
     async create(data: CreateProjectData) {
       const now = new Date();
       const rec: ProjectRecord = {
-        id: `p${seq++}`, code: data.code, name: data.name, description: data.description ?? null, clientName: data.clientName ?? null,
+        id: `p${seq++}`, code: data.code, number: data.number ?? null, name: data.name, description: data.description ?? null, clientName: data.clientName ?? null,
         managerId: data.managerId ?? null, ownerId: data.ownerId ?? null, status: data.status ?? 'PLANNING', priority: data.priority ?? 'NORMAL',
         color: data.color ?? '#8B1E1E', icon: data.icon ?? null, imageUrl: null, startDate: null, targetDate: null, notes: null,
         createdById: data.createdById, createdAt: now, updatedAt: now,
