@@ -125,6 +125,25 @@ The phone app is not in GitHub. To make **Download for Android** work, copy
 `../3-Android-App/MICO360-Tasks-0.4.0.apk` to `Web Portal/frontend/dist/downloads/MICO360-Tasks.apk`
 in the app's folder after each deployment. Each build replaces that folder.
 
+## Updating the live site
+
+The live site is the GitHub-built Node.js app above. There are two ways to put a new version on it:
+
+- **From GitHub:** hPanel → Websites → task.mico360.com → Node.js → **Redeploy**. It builds branch
+  `main` again.
+- **From a file:** `MICO360-Tasks-0.4.0-NodeApp-<commit>.zip` in this folder is the repository at
+  that commit. It holds the same files the GitHub build uses: about 3.4 MB, with no `node_modules`
+  and no `.env`. In the Node.js app's deployment settings:
+  - upload it as an archive instead of using GitHub;
+  - keep the settings in the table above: Node 22, build script `build`, entry file `server.mjs`,
+    root directory empty;
+  - leave the environment variables as they are.
+
+  To make a new one: `git archive --format=zip -o <file>.zip <commit>`.
+
+Then check `https://task.mico360.com/api/v1/projects/x/meetings-overview`. An answer of 401
+(sign-in needed) means the new version is live; 404 means the old one is still running.
+
 ## Do not run on the live server
 
 - `tools/release/verify-server.mjs` (the acceptance test): it creates test users, projects and
