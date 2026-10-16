@@ -6,14 +6,14 @@ installer. No administrator rights are needed.
 
 | In this folder | What it is |
 | --- | --- |
-| `MICO360-Tasks-Server-Setup-0.4.0.exe` | The installer (about 175 MB) |
+| `MICO360-Tasks-Server-Setup-1.0.0.exe` | The installer (about 175 MB) |
 
 The server starts with an empty database and the one administrator you create in step 3. There are
 no test users, projects or tasks.
 
 ## Install
 
-1. Run `MICO360-Tasks-Server-Setup-0.4.0.exe`.
+1. Run `MICO360-Tasks-Server-Setup-1.0.0.exe`.
 2. Choose:
    - the **program folder** and the **data folder** (put the data folder on a disk that is backed up);
    - the **port** (4000 unless something else uses it);
@@ -35,7 +35,7 @@ The administrator comes from environment variables, never from the command line:
 set MICO360_ADMIN_EMAIL=khurram@prolens-team.com
 set MICO360_ADMIN_USERNAME=khurram
 set MICO360_ADMIN_PASSWORD=<your admin password>
-MICO360-Tasks-Server-Setup-0.4.0.exe /S /D=C:\MICO360\Server /DATA=D:\MICO360Data /PORT=4000 /AUTOSTART /LAUNCH
+MICO360-Tasks-Server-Setup-1.0.0.exe /S /D=C:\MICO360\Server /DATA=D:\MICO360Data /PORT=4000 /AUTOSTART /LAUNCH
 ```
 
 ## After installing

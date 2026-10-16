@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { getEnv, parseTrustProxy } from './config/env';
 import { prisma } from './lib/prisma';
 import { buildApp } from './app';
@@ -6,6 +6,7 @@ import { createPrismaIdempotencyStore } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
 import { registerWebApp, androidAppLink } from './lib/web-app';
+import { loadReleaseFile } from './modules/about/build-info';
 import { resolve as resolvePath } from 'node:path';
 import { createPrismaDataExporter } from './modules/users/data-export';
 import { createAuthService } from './modules/auth/auth-service';
@@ -1041,7 +1042,15 @@ async function main(): Promise<void> {
   // a suspended, deleted or demoted user loses access at once, not when their token expires.
   const userStateLookup = createPrismaUserStateLookup(prisma);
 
+  // The running build's version, build time and changelog (written by the build: dist/src/release.json).
+  // package.json sits beside src/ when running from source, and two levels up from dist/src/.
+  const packageFile = [resolvePath(__dirname, '..', 'package.json'), resolvePath(__dirname, '..', '..', 'package.json')].find((f) => existsSync(f))!;
+  const packageVersion = (JSON.parse(readFileSync(packageFile, 'utf8')) as { version: string }).version;
+  const release = loadReleaseFile(resolvePath(__dirname, 'release.json'), { version: packageVersion, startedAt: new Date() });
+  logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
+
   const app = await buildApp({
+    about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
     userPreferences: createPrismaPreferences(prisma),
     recordTaskActivity,

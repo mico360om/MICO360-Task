@@ -457,10 +457,10 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
                 </div>
               ) : null}
               <div className="flex gap-2 sm:justify-end">
-                <button type="button" onClick={requestClose} disabled={saving} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">
+                <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={requestClose} disabled={saving} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">
                   Cancel
                 </button>
-                <Button type="submit" loading={saving} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[10rem]">
+                <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saving} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[10rem]">
                   {saving ? (editing ? 'Saving…' : 'Creating…') : editing ? 'Save changes' : 'Create project'}
                 </Button>
               </div>

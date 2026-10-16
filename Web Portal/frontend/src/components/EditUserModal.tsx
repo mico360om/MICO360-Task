@@ -220,7 +220,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
               </div>
             </fieldset>
 
-            <Button type="submit" loading={saveMut.isPending}>
+            <Button type="submit" shortcut="save" showShortcut loading={saveMut.isPending}>
               {saveMut.isPending ? 'Saving…' : 'Save changes'}
             </Button>
           </form>

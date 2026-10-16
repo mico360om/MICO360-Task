@@ -25,6 +25,7 @@ import { useBoardRealtime, type BoardEvent } from '../lib/useBoardRealtime';
 import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
 import { projectOption } from '../components/project-option';
+import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
@@ -209,6 +210,7 @@ export function BoardPage() {
     setNewTaskColumn(boardColumns[0]?.id ?? '');
     setAddingTask(true);
   }
+  useShortcut('new', openAddTask, { enabled: boardColumns.length > 0 });
 
   // Live board: refetch when another client creates/moves/updates/deletes/reassigns a task (T7.4).
   const onLiveEvent = useCallback(
@@ -295,7 +297,7 @@ export function BoardPage() {
                   {manageColumns ? 'Done' : 'Manage columns'}
                 </button>
               ) : null}
-              <Button onClick={openAddTask} disabled={boardColumns.length === 0}>
+              <Button onClick={openAddTask} disabled={boardColumns.length === 0} title="New task" shortcut="new">
                 + New task
               </Button>
             </>

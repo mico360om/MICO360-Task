@@ -87,7 +87,7 @@ function ChangePasswordCard() {
           <FieldLabel htmlFor="cp-confirm" required>Confirm new password</FieldLabel>
           <input id="cp-confirm" type="password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setDone(null); }} autoComplete="new-password" className={fieldClass(false)} />
         </div>
-        <Button type="submit" loading={mut.isPending} className="self-start">
+        <Button type="submit" shortcut="save" loading={mut.isPending} className="self-start">
           {mut.isPending ? 'Updating…' : 'Update password'}
         </Button>
       </form>

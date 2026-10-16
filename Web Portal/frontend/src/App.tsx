@@ -37,6 +37,7 @@ const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'M
 // Takes props (see ChatRoute), so it is loaded with its own type rather than through lazyPage.
 const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
+const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
 function RouteFallback() {
@@ -97,6 +98,7 @@ export function App() {
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/about" element={<AboutPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />

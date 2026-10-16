@@ -1,12 +1,23 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { precompress } from './src/tooling/precompress';
+import { buildInfo } from './src/tooling/build-info';
+
+// This build's version (package.json, set by tools/release/release.mjs) and the time it was made:
+// compiled into the app and published as build-info.json, never taken from a browser's clock.
+const version = (JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
+const builtAt = new Date().toISOString();
 
 export default defineConfig({
   // precompress: .br/.gz copies of the built scripts and styles, served by the API's own web server.
-  plugins: [react(), precompress()],
+  plugins: [react(), precompress(), buildInfo({ version, builtAt })],
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+    __APP_BUILT_AT__: JSON.stringify(builtAt),
+  },
   // Keep Vite's dependency cache out of the Dropbox-synced project folder,
   // otherwise Dropbox locks node_modules/.vite and dep optimization fails (EBUSY).
   cacheDir: path.join(os.tmpdir(), 'mico360-vite-cache'),

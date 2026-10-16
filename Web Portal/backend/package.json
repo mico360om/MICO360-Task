@@ -1,6 +1,6 @@
 {
   "name": "@mico360/backend",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
   "description": "MICO360 Tasks backend API (Fastify + Prisma + MySQL).",
   "main": "dist/src/server.js",
@@ -11,6 +11,7 @@
     "dev": "tsx watch src/server.ts",
     "prebuild": "prisma generate",
     "build": "tsc -p tsconfig.json",
+    "postbuild": "node dist/src/scripts/write-build-info.js",
     "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",

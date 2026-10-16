@@ -29,6 +29,7 @@ import { invalidateTaskQueries } from '../lib/task-cache';
 import { PageHeader } from '../components/ui/PageHeader';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { NewTaskModal } from '../components/NewTaskModal';
+import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { CalendarFilterBar, CalendarToolbar } from '../components/calendar/CalendarToolbar';
 import { Legend, MeetingChip, TaskChip, dayLabel, useMediaQuery } from '../components/calendar/calendar-ui';
 import { AgendaView, MobileMonth, MonthView, WeekView, type ViewProps } from '../components/calendar/views';
@@ -209,6 +210,8 @@ export function CalendarPage() {
   }
 
   const canCreate = projects.some((p) => p.status !== 'ARCHIVED' && p.status !== 'COMPLETED');
+  // N adds a task due on the day the calendar is showing.
+  useShortcut('new', () => setCreateOn(cursor), { enabled: canCreate });
   const viewProps: ViewProps = {
     today,
     weekStart,

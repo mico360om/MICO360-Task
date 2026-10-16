@@ -66,7 +66,7 @@ export function InlineTitle({ title, onSave }: { title: string; onSave?: (title:
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' || ((e.ctrlKey || e.metaKey) && e.code === 'KeyS')) {
               e.preventDefault();
               void commit();
             }
@@ -151,7 +151,7 @@ export function InlineDescription({ description, onSave }: { description: string
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            if ((e.key === 'Enter' || e.code === 'KeyS') && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
               void commit();
             }

@@ -23,6 +23,8 @@ import { useProjectRealtime, type ProjectChange } from '../lib/useProjectRealtim
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
+import { NewTaskModal } from '../components/NewTaskModal';
+import { ShortcutHint, useShortcut, useShortcutHint } from '../components/shortcuts/ShortcutProvider';
 import { OverviewTab } from '../components/project-dashboard/OverviewTab';
 import { TasksTab, type TaskFilter, type TaskGroup } from '../components/project-dashboard/TasksTab';
 import { MeetingsTab } from '../components/project-dashboard/MeetingsTab';
@@ -180,6 +182,11 @@ export function ProjectDetailPage() {
 
   const overview = meetingsQ.data && Array.isArray(meetingsQ.data.meetings) ? meetingsQ.data : null;
   const canSchedule = !!project && project.status !== 'ARCHIVED' && project.status !== 'COMPLETED';
+  // N adds a task to this project (a meeting on the Meetings tab); E edits the project.
+  const [newTask, setNewTask] = useState(false);
+  useShortcut('new', () => (tab === 'meetings' ? setNewMeeting(true) : setNewTask(true)), { enabled: canSchedule });
+  useShortcut('edit', () => setEditing(true), { enabled: canEditProject && !!project });
+  const editHint = useShortcutHint('edit');
 
   // AI: a plain-language status summary from the live task stats + a few open task titles.
   const summarizeProject = () => {
@@ -245,16 +252,20 @@ export function ProjectDetailPage() {
           <button
             type="button"
             onClick={() => setEditing(true)}
+            title={editHint?.title('Edit project')}
+            aria-keyshortcuts={editHint?.aria}
             className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
             </svg>
             <span className="max-sm:sr-only">Edit project</span>
+            <ShortcutHint action="edit" />
           </button>
         ) : null}
       </div>
       {editing && project ? <ProjectFormDialog project={project} onClose={() => setEditing(false)} /> : null}
+      {newTask ? <NewTaskModal projectId={id} onClose={() => setNewTask(false)} /> : null}
 
       {/* Stat tiles — a snapshot of every task by where it stands */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

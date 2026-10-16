@@ -154,7 +154,14 @@ function buildWeb() {
   log('Building the web app and the API');
   run('npm', ['run', 'build', '--workspace', '@mico360/frontend'], { cwd: ROOT });
   run('npm', ['run', 'build', '--workspace', '@mico360/backend'], { cwd: ROOT });
-  for (const f of [path.join(FRONTEND, 'dist', 'index.html'), path.join(FRONTEND, 'dist', '.well-known', 'assetlinks.json'), path.join(BACKEND, 'dist', 'src', 'server.js')]) {
+  // release.json and build-info.json: the version and build time every page's footer shows.
+  for (const f of [
+    path.join(FRONTEND, 'dist', 'index.html'),
+    path.join(FRONTEND, 'dist', '.well-known', 'assetlinks.json'),
+    path.join(FRONTEND, 'dist', 'build-info.json'),
+    path.join(BACKEND, 'dist', 'src', 'server.js'),
+    path.join(BACKEND, 'dist', 'src', 'release.json'),
+  ]) {
     if (!fs.existsSync(f)) throw new Error(`Build output missing: ${f}`);
   }
 }
@@ -466,6 +473,8 @@ function buildHostinger() {
   // and creates test accounts — development only).
   const skip = /\/(node_modules|dist|uploads|coverage|\.vite|\.turbo)(\/|$)|\/\.env(?!\.example$)[^/]*$|\.log$|tsconfig\.tsbuildinfo$|\/prisma\/seed\.ts$/;
   copy(BACKEND, path.join(pkg, 'backend'), (f) => !skip.test(f.slice(BACKEND.replace(/\\/g, '/').length)));
+  // The server is built on the host (deploy.sh); that build writes the version history from this.
+  fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(pkg, 'backend', 'CHANGELOG.md'));
   copy(path.join(FRONTEND, 'dist'), path.join(pkg, 'public_html'));
   // The Android app, at the address the sign-in page's "Download for Android" button always uses
   // (/downloads/MICO360-Tasks.apk): uploading public_html/ publishes the new build in place, so the

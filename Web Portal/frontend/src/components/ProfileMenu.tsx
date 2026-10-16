@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom';
 import { assetUrl } from '../api/client';
 import { useAuthStore } from '../stores/auth-store';
 import { failedChanges, pendingCount } from '../lib/offline-replay';
+import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
 
 /** Header account button + dropdown menu: identity, profile, settings and log out. */
 export function ProfileMenu() {
   const { user, isAdmin, logout } = useAuthStore();
   const [open, setOpen] = useState(false);
+  const { openHelp } = useShortcutSettings();
   // Unsynced offline changes are discarded on sign-out, so ask first when there are any.
   const [confirmUnsynced, setConfirmUnsynced] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -94,6 +96,27 @@ export function ProfileMenu() {
                 <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 6.8 19.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4.6 15H4.5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 4.6V4.5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-1.1 2.7v.1a1.6 1.6 0 0 0 1.1 1.5z" />
               </svg>
               Settings
+            </Link>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                openHelp();
+              }}
+              className={`${itemClass} w-full`}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="2.5" y="6" width="19" height="12" rx="2" /><path d="M6.5 10h1M10.5 10h1M14.5 10h1M8 14h8" />
+              </svg>
+              Keyboard shortcuts
+              <ShortcutHint action="help" className="ms-auto" />
+            </button>
+            <Link to="/about" role="menuitem" onClick={() => setOpen(false)} className={itemClass}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5v.01" />
+              </svg>
+              About and version history
             </Link>
           </div>
           <div className="border-t border-line p-1.5">

@@ -1,4 +1,6 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Children, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import type { ShortcutAction } from '../../lib/shortcuts';
+import { ShortcutHint, useShortcutHint } from '../shortcuts/ShortcutProvider';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
@@ -7,8 +9,19 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
   loading?: boolean;
+  /** The keyboard shortcut this button stands for: added to its tooltip and `aria-keyshortcuts`. */
+  shortcut?: ShortcutAction;
+  /** Also show the shortcut's keys on the button (desktop only). */
+  showShortcut?: boolean;
   children: ReactNode;
 }
+
+/** The button's own words, for its tooltip. */
+const textOf = (children: ReactNode) =>
+  Children.toArray(children)
+    .filter((c): c is string | number => typeof c === 'string' || typeof c === 'number')
+    .join('')
+    .trim();
 
 const VARIANTS: Record<Variant, string> = {
   primary:
@@ -33,11 +46,18 @@ export function Button({
   children,
   className = '',
   onClick,
+  shortcut,
+  showShortcut = false,
+  title,
   ...rest
 }: ButtonProps) {
+  const hint = useShortcutHint(shortcut);
+  const label = title ?? (rest['aria-label'] as string | undefined) ?? textOf(children);
   return (
     <button
       {...rest}
+      title={hint ? (label ? hint.title(label) : hint.keys) : title}
+      aria-keyshortcuts={hint?.aria}
       data-variant={variant}
       aria-busy={loading}
       // A busy button is announced as unavailable and ignores presses, but is not natively disabled:
@@ -61,6 +81,7 @@ export function Button({
         </svg>
       ) : null}
       {children}
+      {showShortcut && shortcut ? <ShortcutHint action={shortcut} /> : null}
     </button>
   );
 }

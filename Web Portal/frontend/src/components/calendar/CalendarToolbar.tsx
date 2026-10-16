@@ -3,6 +3,7 @@ import type { CalendarView } from '../../lib/calendar';
 import { SearchableSelect, type SelectOption } from '../ui/SearchableSelect';
 import { DEFAULT_FILTERS, PRIORITIES, STATUS_FILTERS, activeFilterCount, type CalendarFilters } from '../../lib/calendar-model';
 import { PRIORITY_LABEL, STATUS_META } from './calendar-ui';
+import { useShortcutHint } from '../shortcuts/ShortcutProvider';
 
 const VIEWS: { v: CalendarView; label: string }[] = [
   { v: 'month', label: 'Month' },
@@ -26,6 +27,7 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
   onGoTo: (day: string) => void;
   onNew?: () => void;
 }) {
+  const newHint = useShortcutHint('new');
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div role="group" aria-label="View" className="inline-flex rounded-xl border border-line bg-surface p-1">
@@ -63,7 +65,7 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
           />
         </label>
         {onNew ? (
-          <button type="button" onClick={onNew} className="h-10 rounded-xl bg-brand-gradient px-4 text-sm font-semibold text-white shadow-brand">+ Task</button>
+          <button type="button" onClick={onNew} title={newHint ? newHint.title('New task') : undefined} aria-keyshortcuts={newHint?.aria} className="h-10 rounded-xl bg-brand-gradient px-4 text-sm font-semibold text-white shadow-brand">+ Task</button>
         ) : null}
       </div>
     </div>
@@ -100,6 +102,7 @@ export function CalendarFilterBar({ filters, onChange, projectOptions, assigneeO
           </span>
           <input
             type="search"
+            data-page-search
             value={filters.q}
             onChange={(e) => set({ q: e.target.value })}
             aria-label="Search tasks"

@@ -72,6 +72,7 @@ import type { ActivityService } from './modules/activity/activity-service';
 import { registerAuditRoutes } from './modules/audit/audit-routes';
 import type { AuditService } from './modules/audit/audit-service';
 import { registerSettingsRoutes } from './modules/settings/settings-routes';
+import { registerAboutRoutes, type AboutRouteDeps } from './modules/about/about-routes';
 import type { SettingsService } from './modules/settings/settings-service';
 import { registerAiRoutes } from './modules/ai/ai-config-routes';
 import type { AiConfigService } from './modules/ai/ai-config-service';
@@ -161,6 +162,8 @@ export interface AppDeps extends AuthRouteDeps {
   activityService?: ActivityService;
   auditService?: AuditService;
   settingsService?: SettingsService;
+  /** The running build's version and the changelog (GET /version, /releases). */
+  about?: Pick<AboutRouteDeps, 'release'>;
   aiConfigService?: AiConfigService;
   /** Product-facing AI features (task breakdown, NL capture, project summary, priority). */
   aiFeatureService?: AiFeatureService;
@@ -356,6 +359,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(
     async (api) => {
       await registerAuthRoutes(api, deps);
+      if (deps.about) await registerAboutRoutes(api, { release: deps.about.release, guard });
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
       if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage) {
         await api.register(multipart, { limits: { fileSize: deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024, files: 1 } });

@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { GlobalSearch } from './GlobalSearch';
 import { useAuthStore } from '../stores/auth-store';
+import { ShortcutProvider } from './shortcuts/ShortcutProvider';
 
 /** Shows where the app is, so a test can see where a result led. */
 function Where() {
@@ -153,16 +154,27 @@ describe('GlobalSearch', () => {
       expect(box).toBeInTheDocument();
     });
 
-    it('shows the shortcut the keyboard really has (Ctrl K on Windows and Linux, ⌘K on a Mac)', async () => {
+    it('shows the shortcut the keyboard really has (Ctrl+K on Windows and Linux, ⌘K on a Mac)', async () => {
       vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: many }))));
       const platform = vi.spyOn(navigator, 'platform', 'get');
       platform.mockReturnValue('Win32');
       const { unmount } = setup(<GlobalSearch debounceMs={0} />);
-      expect(screen.getByText('Ctrl K')).toBeInTheDocument();
+      expect(screen.getByText('Ctrl+K')).toBeInTheDocument();
       unmount();
       platform.mockReturnValue('MacIntel');
       setup(<GlobalSearch debounceMs={0} />);
       expect(screen.getByText('⌘K')).toBeInTheDocument();
+    });
+
+    it('is reached with Ctrl+K from anywhere in the app', () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: many }))));
+      setup(<ShortcutProvider><GlobalSearch debounceMs={0} /></ShortcutProvider>);
+      const e = new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
+      act(() => {
+        document.body.dispatchEvent(e);
+      });
+      expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search' }));
+      expect(e.defaultPrevented).toBe(true);
     });
 
     it('reopens the list when the box is focused again straight after it closed', async () => {

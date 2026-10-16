@@ -8,6 +8,7 @@ import { apiClient } from '../api/client';
 import { usersApi, type ApiUser, type UserStatus } from '../api/users';
 import { ApiError } from '../lib/api-client';
 import { useAuthStore } from '../stores/auth-store';
+import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 
 const STATUS_TONE: Record<UserStatus, string> = {
   ACTIVE: 'bg-success-soft text-success',
@@ -25,6 +26,7 @@ export function UsersPage() {
   const qc = useQueryClient();
   const meId = useAuthStore((s) => s.user?.id);
   const [creating, setCreating] = useState(false);
+  useShortcut('new', () => setCreating(true));
   const [editing, setEditing] = useState<ApiUser | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
@@ -59,7 +61,7 @@ export function UsersPage() {
         eyebrow="Admin"
         title="User &amp; Profile Management"
         subtitle="Create and edit accounts, assign roles, control access, and reset passwords."
-        actions={<Button onClick={() => setCreating(true)}>+ New user</Button>}
+        actions={<Button onClick={() => setCreating(true)} title="New user" shortcut="new">+ New user</Button>}
       />
 
       {notice ? (

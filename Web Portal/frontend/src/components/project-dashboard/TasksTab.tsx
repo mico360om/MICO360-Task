@@ -121,7 +121,7 @@ export function TasksTab({
         </div>
         <label className="relative sm:w-60">
           <span className="sr-only">Find a task</span>
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…" className="h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+          <input type="search" data-page-search value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…" className="h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
         </label>
       </div>
       {shown.length === 0 ? (

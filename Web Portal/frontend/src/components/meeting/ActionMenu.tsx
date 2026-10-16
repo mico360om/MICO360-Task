@@ -1,11 +1,15 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { useMenu } from '../task-drawer/menus';
+import { ShortcutHint, useShortcutSettings } from '../shortcuts/ShortcutProvider';
+import { SHORTCUTS, ariaKeyshortcuts, type ShortcutAction } from '../../lib/shortcuts';
 
 export interface ActionMenuItem {
   label: string;
   onSelect: () => void;
   /** Destructive: shown in red, after a divider. */
   danger?: boolean;
+  /** The keyboard shortcut that does the same, shown beside the item. */
+  shortcut?: ShortcutAction;
   icon?: ReactNode;
 }
 
@@ -40,6 +44,9 @@ export function ActionMenu({
   buttonClassName?: string;
 }) {
   const { open, setOpen, wrap, trigger } = useMenu();
+  const { platform, singleKeys } = useShortcutSettings();
+  const ariaFor = (a?: ShortcutAction) =>
+    a && (singleKeys || !SHORTCUTS.find((s) => s.action === a)?.single) ? ariaKeyshortcuts(a, platform) : undefined;
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,6 +77,7 @@ export function ActionMenu({
       role="menuitem"
       type="button"
       tabIndex={-1}
+      aria-keyshortcuts={ariaFor(it.shortcut)}
       onClick={() => {
         setOpen(false);
         // Back to the menu's button first: a dialog the item opens returns focus there when it closes
@@ -83,6 +91,7 @@ export function ActionMenu({
     >
       {it.icon}
       {it.label}
+      {it.shortcut ? <ShortcutHint action={it.shortcut} className="ms-auto" /> : null}
     </button>
   );
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
 import { MilestoneIcon } from './TaskCard';
@@ -16,6 +16,7 @@ import { ActivityTimeline, type DrawerActivity } from './task-drawer/activity';
 import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview } from './task-drawer/attachments';
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
+import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
 
 export type { DrawerAssignee, DrawerStatusColumn, DrawerChecklistItem, DrawerComment, DrawerActivity, DrawerAttachment, DrawerDependencies, DrawerTaskRef };
 
@@ -156,6 +157,17 @@ export function TaskDrawer({
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // E edits the task and Delete asks to delete it, while this panel is open.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  useShortcut('edit', () => onEdit?.(), { scope: rootRef, enabled: !!onEdit });
+  useShortcut('delete', () => setConfirmingDelete(true), { scope: rootRef, enabled: !!onDelete });
+  const editHint = useShortcutHint('edit');
+  const deleteHint = useShortcutHint('delete');
+  // Asked to delete: focus moves to the safe answer, so Enter keeps the task.
+  useEffect(() => {
+    if (confirmingDelete) keepRef.current?.focus();
+  }, [confirmingDelete]);
   // Every copy of a recurring series can be edited or deleted as a series; the newest carries the rule.
   const inSeries = Boolean(task.recurrenceRule || task.recurrenceParentId);
   const [scope, setScope] = useState<'one' | 'series'>('one');
@@ -169,7 +181,7 @@ export function TaskDrawer({
   // One column on a phone; on a wide screen the details, files and links sit beside the work and
   // the discussion. The document order is the phone's order, so reading and Tab follow it everywhere.
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Task ${task.key}`} className="keyboard-flow flex h-full w-full flex-col border-s border-line bg-surface shadow-lg">
+    <div ref={rootRef} data-shortcut-refresh role="dialog" aria-modal="true" aria-label={`Task ${task.key}`} className="keyboard-flow flex h-full w-full flex-col border-s border-line bg-surface shadow-lg">
       {/* A plain div, not <header>: inside a dialog that would be a second page "banner" landmark. */}
       <div data-testid="task-header" className="flex-none border-b border-line px-4 pb-3 pt-3 sm:px-6 sm:pt-4">
         <div className="flex items-center gap-2">
@@ -197,13 +209,15 @@ export function TaskDrawer({
                 type="button"
                 onClick={onEdit}
                 aria-label="Edit task"
-                title="Edit every detail of the task"
+                title={editHint ? editHint.title('Edit every detail of the task') : 'Edit every detail of the task'}
+                aria-keyshortcuts={editHint?.aria}
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
                 </svg>
                 <span aria-hidden="true" className="hidden sm:inline">Edit</span>
+                <ShortcutHint action="edit" />
               </button>
             ) : null}
             {onToggleWatch ? <WatchButton watching={Boolean(watching)} count={watcherCount} onToggle={onToggleWatch} className="hidden sm:inline-flex" /> : null}
@@ -321,7 +335,7 @@ export function TaskDrawer({
                   Entire series
                 </button>
               ) : null}
-              <button type="button" onClick={() => setConfirmingDelete(false)} className="h-9 rounded-lg px-3 text-xs font-medium text-ink-2 transition-colors hover:bg-ground sm:h-8">
+              <button ref={keepRef} type="button" onClick={() => setConfirmingDelete(false)} className="h-9 rounded-lg px-3 text-xs font-medium text-ink-2 transition-colors hover:bg-ground sm:h-8">
                 Cancel
               </button>
             </div>
@@ -329,12 +343,15 @@ export function TaskDrawer({
             <button
               type="button"
               onClick={() => setConfirmingDelete(true)}
+              title={deleteHint?.title('Delete task')}
+              aria-keyshortcuts={deleteHint?.aria}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-8"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" />
               </svg>
               Delete task
+              <ShortcutHint action="delete" />
             </button>
           )}
         </footer>

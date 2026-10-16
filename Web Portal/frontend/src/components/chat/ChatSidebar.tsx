@@ -198,6 +198,7 @@ export function ChatSidebar(p: ChatSidebarProps) {
           <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-ink-2"><SearchIcon size={16} /></span>
           <input
             type="search"
+            data-page-search
             value={p.query}
             onChange={(e) => p.onQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && p.query.trim().length >= 2) p.onMessageSearch(true); }}

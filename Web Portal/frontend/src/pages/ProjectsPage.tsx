@@ -13,6 +13,7 @@ import { isOverdue } from '../lib/due-date';
 import { isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { LoadError } from '../components/ui/LoadError';
+import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 
 export function ProjectsPage() {
   const qc = useQueryClient();
@@ -20,6 +21,7 @@ export function ProjectsPage() {
   const admin = isAdmin();
   // The project form: null = closed, 'new' = create, a project = edit it.
   const [form, setForm] = useState<'new' | ApiProject | null>(null);
+  useShortcut('new', () => setForm('new'), { enabled: admin });
   const timeZone = useCompanyTimeZone();
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -71,7 +73,7 @@ export function ProjectsPage() {
         eyebrow="Workspace"
         title="Projects"
         subtitle={admin ? 'Create, browse and manage your projects.' : 'Browse and open the projects you have access to.'}
-        actions={admin ? <Button onClick={() => setForm('new')}>+ New project</Button> : undefined}
+        actions={admin ? <Button onClick={() => setForm('new')} title="New project" shortcut="new">+ New project</Button> : undefined}
       />
       <div>
         {isLoading ? (

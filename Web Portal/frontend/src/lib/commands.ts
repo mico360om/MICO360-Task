@@ -19,6 +19,7 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'reports', label: 'Reports', to: '/reports', keywords: ['analytics', 'stats', 'charts', 'trends'], admin: true },
   { id: 'settings', label: 'Settings', to: '/settings', keywords: ['preferences'] },
   { id: 'profile', label: 'Profile', to: '/profile', keywords: ['account', 'me'] },
+  { id: 'about', label: 'About and version history', to: '/about', keywords: ['version', 'release', 'changelog', 'what’s new', 'whats new', 'updates'] },
   { id: 'admin-users', label: 'User Management', to: '/admin/users', keywords: ['users', 'people', 'team', 'admin'], admin: true },
   { id: 'admin-ai', label: 'AI Management', to: '/admin/ai', keywords: ['ai', 'models', 'providers', 'admin'], admin: true },
   { id: 'admin-settings', label: 'System Settings', to: '/admin/settings', keywords: ['system', 'admin', 'config'], admin: true },

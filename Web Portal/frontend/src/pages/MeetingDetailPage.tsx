@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { meetingsApi, type Meeting, type MeetingStatus } from '../api/meetings';
@@ -86,6 +87,11 @@ export function MeetingDetailPage() {
   const exportPdf = () => void exportMinutes(meeting!).catch((err) => setNotice({ text: meetingFailure(err, 'Couldn’t export the minutes.'), error: true }));
   const exportFinalPdf = () => void exportMinutes(meeting!, 'final').catch((err) => setNotice({ text: meetingFailure(err, 'Couldn’t export the final minutes.'), error: true }));
 
+  // E edits the meeting and Delete asks to delete it, for those who may.
+  const mayEdit = !!meeting && meeting.canEdit !== false;
+  useShortcut('edit', () => setDialog('edit'), { enabled: mayEdit && meeting?.status !== 'CANCELLED' });
+  useShortcut('delete', () => setDialog('delete'), { enabled: mayEdit });
+
   if (meetingQ.isLoading) {
     return (
       <div aria-busy="true">
@@ -132,7 +138,7 @@ export function MeetingDetailPage() {
 
   // Everything that isn't the main button; the destructive pair sits apart at the bottom.
   const menu: ActionMenuItem[] = [];
-  if (canEdit && meeting.status !== 'CANCELLED') menu.push({ label: 'Edit details', onSelect: () => setDialog('edit') });
+  if (canEdit && meeting.status !== 'CANCELLED') menu.push({ label: 'Edit details', shortcut: 'edit', onSelect: () => setDialog('edit') });
   if (canEdit && meeting.status === 'DRAFT') menu.push({ label: 'Schedule without inviting', onSelect: () => statusMut.mutate('SCHEDULED') });
   if (canEdit && !ended && primary !== 'invite' && primary !== 'schedule') menu.push({ label: 'Invitations…', onSelect: () => setDialog('invite') });
   if (canEdit && meeting.status === 'SCHEDULED' && primary !== 'start') menu.push({ label: 'Start meeting', onSelect: () => statusMut.mutate('IN_PROGRESS') });
@@ -141,7 +147,7 @@ export function MeetingDetailPage() {
   if (finalQ.data?.status === 'FINAL') menu.push({ label: 'Export final minutes (PDF)', onSelect: exportFinalPdf });
   if (primary !== 'duplicate') menu.push({ label: 'Duplicate', onSelect: () => duplicate.mutate(meeting.id) });
   if (canEdit && !ended) menu.push({ label: 'Cancel meeting…', danger: true, onSelect: () => setDialog('cancel') });
-  if (canEdit) menu.push({ label: 'Delete meeting…', danger: true, onSelect: () => setDialog('delete') });
+  if (canEdit) menu.push({ label: 'Delete meeting…', danger: true, shortcut: 'delete', onSelect: () => setDialog('delete') });
 
   const about = [
     meeting.category ? { k: 'Category', v: <bdi>{meeting.category}</bdi> } : null,

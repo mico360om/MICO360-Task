@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -90,7 +90,19 @@ function applyPageHeaders(req: FastifyRequest, reply: FastifyReply): void {
 
 export async function registerWebApp(app: FastifyInstance, opts: { root: string }): Promise<void> {
   const { default: fastifyStatic } = await import('@fastify/static');
-  const indexHtml = readFileSync(join(opts.root, 'index.html'));
+  // The start page names the build's asset files, so it is re-read whenever a new build replaces it:
+  // a web app rebuilt in place is served at once, never an old page pointing at removed files.
+  const indexFile = join(opts.root, 'index.html');
+  let index = { mtimeMs: statSync(indexFile).mtimeMs, html: readFileSync(indexFile) };
+  const indexHtml = (): Buffer => {
+    try {
+      const mtimeMs = statSync(indexFile).mtimeMs;
+      if (mtimeMs !== index.mtimeMs) index = { mtimeMs, html: readFileSync(indexFile) };
+    } catch {
+      // Mid-deployment (the file is being replaced): keep serving the last good copy.
+    }
+    return index.html;
+  };
 
   await app.register(fastifyStatic, {
     root: opts.root,
@@ -123,7 +135,7 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string 
   const sendIndex = (req: FastifyRequest, reply: FastifyReply) => {
     const robots = robotsTagFor(req.url);
     if (robots) reply.header('X-Robots-Tag', robots);
-    return reply.code(200).header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(indexHtml);
+    return reply.code(200).header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(indexHtml());
   };
 
   // The static wildcard would answer "/" with a directory 403.

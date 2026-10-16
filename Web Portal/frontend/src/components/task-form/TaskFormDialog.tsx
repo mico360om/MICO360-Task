@@ -539,10 +539,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
             </div>
 
             <div className="flex flex-none items-center gap-2 border-t border-line bg-surface px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
-              <button type="button" onClick={requestClose} disabled={saving} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">
+              <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={requestClose} disabled={saving} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">
                 Cancel
               </button>
-              <Button type="submit" loading={saving} disabled={noProjects} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9.5rem]">
+              <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saving} disabled={noProjects} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9.5rem]">
                 {saving ? (editing ? 'Saving…' : 'Creating…') : editing ? 'Save changes' : 'Create task'}
               </Button>
             </div>

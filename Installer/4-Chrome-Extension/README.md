@@ -2,7 +2,7 @@
 
 | In this folder | What it is |
 | --- | --- |
-| `MICO360-Tasks-Chrome-Extension-0.4.0.zip` | The extension for Chrome and Edge (Manifest V3, version 0.4.0) |
+| `MICO360-Tasks-Chrome-Extension-1.0.0.zip` | The extension for Chrome and Edge (Manifest V3, version 1.0.0) |
 
 ## Install without the Web Store
 

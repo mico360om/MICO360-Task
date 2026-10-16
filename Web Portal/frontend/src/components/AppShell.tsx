@@ -14,6 +14,8 @@ import { flushOfflineQueue } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
 import { useDialog } from '../hooks/useDialog';
+import { ShortcutProvider } from './shortcuts/ShortcutProvider';
+import { AppFooter } from './AppFooter';
 
 /**
  * The phone's navigation menu: a dialog over the page. Focus moves into it and stays there, Escape
@@ -93,6 +95,7 @@ export function AppShell() {
   }, [qc]);
 
   return (
+    <ShortcutProvider>
     <div className="flex min-h-screen">
       <ChatSoundNotifier />
       <a
@@ -126,7 +129,8 @@ export function AppShell() {
           </div>
           <div className="flex flex-none items-center gap-2">
             <SyncStatus />
-            <NewTaskButton size="sm" compact />
+            {/* The header's N is the fallback: a page with its own "New …" takes the key. */}
+            <NewTaskButton size="sm" compact shortcutPriority={0} />
             <span className="hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
             <NotificationsBell />
             <ProfileMenu />
@@ -141,10 +145,13 @@ export function AppShell() {
             <Outlet />
           </div>
         </main>
+        {/* The version and when it was last updated, on every page (below the page, never over it). */}
+        <AppFooter />
       </div>
 
       {/* Global task drawer — opened from search/command palette or any ?task= link */}
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={closeTask} /> : null}
     </div>
+    </ShortcutProvider>
   );
 }

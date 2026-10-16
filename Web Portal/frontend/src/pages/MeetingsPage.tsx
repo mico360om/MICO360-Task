@@ -18,6 +18,7 @@ import { meetingStatusTone, formatMeetingDay, formatMeetingTimes } from '../lib/
 import { filterMeetings, groupMeetings, hasActiveFilters, type DateRange, type GroupKey, type MeetingFilters, type MeetingSort } from '../lib/meeting-list';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
+import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 
 type Scope = 'all' | 'mine';
 const STATUSES: MeetingStatus[] = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'DRAFT', 'CANCELLED'];
@@ -71,6 +72,7 @@ export function MeetingsPage() {
   const timeZone = useCompanyTimeZone();
   const { filters, scope, sort, set } = useListState();
   const [showNew, setShowNew] = useState(false);
+  useShortcut('new', () => setShowNew(true));
   const [shown, setShown] = useState<Partial<Record<GroupKey, number>>>({});
   const [editing, setEditing] = useState<Meeting | null>(null);
   const [cancelling, setCancelling] = useState<Meeting | null>(null);
@@ -133,7 +135,7 @@ export function MeetingsPage() {
         eyebrow="Workspace"
         title="Meetings"
         subtitle="Plan meetings, capture decisions and follow up on action items."
-        actions={<Button onClick={() => setShowNew(true)}>+ New meeting</Button>}
+        actions={<Button onClick={() => setShowNew(true)} title="New meeting" shortcut="new">+ New meeting</Button>}
       />
 
       {/* Whose meetings: a choice of its own, apart from the filters below. */}
@@ -169,6 +171,7 @@ export function MeetingsPage() {
           <input
             id="ml-search"
             type="search"
+            data-page-search
             aria-label="Search meetings"
             dir="auto"
             value={filters.q}

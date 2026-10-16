@@ -328,10 +328,10 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
               </div>
             </div>
             <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
-              <button type="button" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">
+              <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">
                 Cancel
               </button>
-              <Button type="submit" loading={saveMut.isPending} className="!min-h-[44px] flex-[2]">
+              <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saveMut.isPending} className="!min-h-[44px] flex-[2]">
                 {saveMut.isPending ? (editing ? 'Saving…' : 'Scheduling…') : editing ? 'Save changes' : 'Schedule meeting'}
               </Button>
             </div>

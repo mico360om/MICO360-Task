@@ -40,7 +40,7 @@ export function ConfirmDialog({ title, children, confirmLabel, keepLabel = 'Keep
           {children ? <div id="confirm-body" className="mt-2 text-sm text-ink-2">{children}</div> : null}
           {error ? <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="secondary" onClick={onClose} disabled={busy}>{keepLabel}</Button>
+            <Button variant="secondary" onClick={onClose} disabled={busy} shortcut="cancel">{keepLabel}</Button>
             <Button variant={tone} onClick={onConfirm} loading={busy}>{confirmLabel}</Button>
           </div>
         </div>

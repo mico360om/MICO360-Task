@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { brotliCompressSync, brotliDecompressSync, gzipSync, gunzipSync } from 'node:zlib';
@@ -114,6 +114,23 @@ describe('registerWebApp', () => {
     expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
     expect(res.headers['content-security-policy']).toContain('ws://localhost:4000');
     expect(res.headers['x-frame-options']).toBe('DENY');
+  });
+
+  it('serves the new index.html after the web app is rebuilt in place, without a restart', async () => {
+    const indexFile = join(root, 'index.html');
+    const original = '<!doctype html><title>MICO360</title><div id="root"></div>';
+    try {
+      // A new build writes new asset names into index.html (and removes the old assets).
+      writeFileSync(indexFile, '<!doctype html><title>MICO360</title><div id="root"></div><script src="/assets/app-new999.js"></script>');
+      const later = new Date(Date.now() + 5000);
+      utimesSync(indexFile, later, later);
+      for (const url of ['/', '/dashboard']) {
+        const res = await app.inject({ method: 'GET', url, headers: { host: 'localhost:4000' } });
+        expect(res.body).toContain('app-new999.js');
+      }
+    } finally {
+      writeFileSync(indexFile, original);
+    }
   });
 
   it('marks private pages noindex and leaves the public pages indexable', async () => {

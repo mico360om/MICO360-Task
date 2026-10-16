@@ -2,9 +2,9 @@
 
 | In this folder | What it is |
 | --- | --- |
-| `MICO360-Tasks-0.4.0.apk` | The Android app for phones with Android 6.0 or newer (about 70 MB) |
+| `MICO360-Tasks-1.0.0.apk` | The Android app for phones with Android 6.0 or newer (about 70 MB) |
 
-Package `com.mico360.tasks`, version 0.4.0 (build 4). It is signed with the same key as 0.1.0, 0.2.0
+Package `com.mico360.tasks`, version 1.0.0 (build 5). It is signed with the same key as 0.1.0, 0.2.0
 and 0.3.0, so it installs as an update over them.
 
 ## Install on a phone

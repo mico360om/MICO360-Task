@@ -28,13 +28,13 @@ npm workspaces: `Web Portal/backend`, `Web Portal/frontend`, `Extension` (worksp
 
 ## Test status
 
-`npm test` in each app → **3,424 passing** (backend 1,619 · web 1,142 · Android 456 · extension 207),
+`npm test` in each app → **3,488 passing** (backend 1,635 · web 1,190 · Android 456 · extension 207),
 with typecheck and lint clean everywhere. Plus `npm run test:db` (Prisma integration on MySQL 8)
 and `npm run test:e2e` (live-API lifecycle), and the release acceptance test
 `tools/release/verify-server.mjs` (83 checks against a freshly installed server — web app, sign-in,
 users, Arabic projects/tasks, recurring tasks, files, reports, chat + realtime, meetings, permissions).
 
-## Release packages (v0.4.0)
+## Release packages (v1.0.0)
 
 `node tools/release/build-release.mjs` builds the Windows installer, the Hostinger server package and
 the Chrome extension zip into `Installer/`, one folder per environment (Hostinger web server, Windows
@@ -54,6 +54,8 @@ The self-contained Windows server is documented in [`docs/WINDOWS-SERVER.md`](do
 - **Dependencies** — blocking / blocked-by edges with server-side **cycle detection** (rejects direct + transitive loops).
 - **Recurring tasks** — daily, weekly (chosen days), monthly or quarterly (a day of the month, or "the 2nd Tuesday" / "the last Friday") and yearly schedules, every N periods, ending never / after N / on a date, pausable. The next copy is made **when this one is done** (default) or **on each due date** (hourly server job) and keeps the details, assignees, watchers, tags and checklist. A task never gets two next copies (unique database guard), so completing it twice or from several apps at once makes one. Set and edit repeats in the web app, the Chrome extension and the Android app — see [docs/RECURRING-TASKS.md](docs/RECURRING-TASKS.md).
 - **Meetings** — agenda, notes, attendees, invitations (.ics), minutes (PDF, AI-drafted final minutes) and action items. Meetings can **repeat** (daily, weekly on chosen days, monthly…, ending never, after N or on a date). Each meeting of a series is a real meeting, created about three months ahead. Change, cancel or delete one meeting or all upcoming ones; invitees' calendars follow. See [docs/RECURRING-MEETINGS.md](docs/RECURRING-MEETINGS.md).
+- **Versions and release tracking** — every signed-in page's footer shows `Version: v1.0.0 | Last Updated: <date, time> (Oman Time)` from the deployed build, and **About** lists each release (security fixes for admins only). One version for server, web, Android and extension; `npm run release` sets it from [CHANGELOG.md](CHANGELOG.md). See [docs/RELEASES.md](docs/RELEASES.md).
+- **Keyboard shortcuts** — Ctrl+S save, Ctrl+Enter submit, Esc cancel, Ctrl+K search, and on a page N add new, E edit, Delete, R refresh and / search. Ctrl+/ lists them. Buttons show their shortcut, single keys never fire while typing and can be switched off, and keys work on a Mac (⌘) and with the Arabic layout. See [docs/KEYBOARD-SHORTCUTS.md](docs/KEYBOARD-SHORTCUTS.md).
 - **Project dashboard** — per project: details and timeline, milestones (tasks marked as milestones), deadlines, team, tasks by phase, and meetings with minutes, decisions and action items. It updates live. The Android app's project screen shows the milestones, deadlines and meetings too, and its calendar shows meetings beside tasks.
 - **Comments** — CRUD + `@mentions` + author/admin permissions; a mention **notifies** the user.
 - **Attachments** — multipart file upload (type + size validation), local-disk storage (S3-ready port), download, delete; files served at `/uploads/<key>`.

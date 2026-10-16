@@ -1,14 +1,19 @@
-# MICO360 Tasks 0.4.0 — ready to deploy
+# MICO360 Tasks 1.0.0 — ready to deploy
+
+1.0.0 is the first release with version tracking: every page shows the version and when it was last
+updated, and **About** lists what each release changed ([CHANGELOG.md](../CHANGELOG.md),
+[docs/RELEASES.md](../docs/RELEASES.md)). It includes all the work prepared as 0.4.0. The packages
+in these folders are rebuilt as 1.0.0 together with the Android app (see "Android APK" below).
 
 One folder for each place the system installs. Each folder holds the package for that place and a
 `README.md` with the steps.
 
 | Folder | Environment | Package |
 | --- | --- | --- |
-| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 22, or 20.19 or later, and MySQL 8) | `MICO360-Tasks-Server-Hostinger-0.4.0.zip` and the live settings file |
-| [`2-Windows-Office-Server/`](2-Windows-Office-Server/README.md) | A complete server on one Windows 10/11 computer, for an office network | `MICO360-Tasks-Server-Setup-0.4.0.exe` |
-| [`3-Android-App/`](3-Android-App/README.md) | Android 6.0+ phones | `MICO360-Tasks-0.4.0.apk` |
-| [`4-Chrome-Extension/`](4-Chrome-Extension/README.md) | Chrome and Edge | `MICO360-Tasks-Chrome-Extension-0.4.0.zip` |
+| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 22, or 20.19 or later, and MySQL 8) | `MICO360-Tasks-Server-Hostinger-1.0.0.zip` and the live settings file |
+| [`2-Windows-Office-Server/`](2-Windows-Office-Server/README.md) | A complete server on one Windows 10/11 computer, for an office network | `MICO360-Tasks-Server-Setup-1.0.0.exe` |
+| [`3-Android-App/`](3-Android-App/README.md) | Android 6.0+ phones | `MICO360-Tasks-1.0.0.apk` |
+| [`4-Chrome-Extension/`](4-Chrome-Extension/README.md) | Chrome and Edge | `MICO360-Tasks-Chrome-Extension-1.0.0.zip` |
 
 `SHA256SUMS.txt` lists the checksum of every package.
 
@@ -24,10 +29,10 @@ The packages are built from this repository by `node tools/release/build-release
 Windows installer, extension) and `bash tools/release/build-apk.sh` (Android). The binaries and the
 live settings file are not committed to git; the guides are.
 
-## Upgrading from 0.3.0
+## Upgrading from 0.3.0 or 0.4.0
 
-Your data is kept. 0.4.0 adds four database migrations. They only add columns, and they are applied
-automatically when the new version is deployed:
+Your data is kept. Since 0.3.0 there are six database migrations (the last two came after 0.4.0).
+They only add columns and tables, and they are applied automatically when the new version is deployed:
 
 | Migration | What it adds |
 | --- | --- |
@@ -35,16 +40,18 @@ automatically when the new version is deployed:
 | `20261010140000_chat_prefs_replies_retries` | Per-person chat settings (favourite, archived, muted, delivered), replies, and a send id so a retried message is never stored twice. |
 | `20261010180000_user_date_preferences` | Each person's own time zone and first day of the week (empty = the company's). |
 | `20261010200000_project_icon` | A project's icon. |
+| `20261016120000_project_number` | A project's own number (e.g. the client's job number). |
+| `20261016140000_meeting_series_milestones` | Repeating meetings (each meeting's place in its series) and the milestone flag on tasks. |
 
 - **Web server (folder 1):** back up the database first (hPanel → Databases → Backups, or
   `mysqldump`). Then follow "Later updates" in its guide: upload the new `backend/` and
   `public_html/`, keep `.env`, run `bash deploy.sh` and restart.
 - **Windows office server (folder 2):** run the new Setup on the same computer.
-- **Android app (folder 3):** install it over 0.3.0. It is signed with the same key.
+- **Android app (folder 3):** install it over 0.3.0 or 0.4.0. It is signed with the same key.
 - **Chrome extension (folder 4):** replace the unpacked folder, or upload the new zip to the Chrome
   Web Store.
 
-## What's new in 0.4.0
+## What's new in 1.0.0
 
 - **Task details panel (web), redesigned:**
   - Compact: two columns on a computer, one on a phone.
@@ -197,6 +204,28 @@ automatically when the new version is deployed:
   - The calendar now uses the compact month below 1024 px.
   - Menus return focus to their button.
   - Task detail rows wrap at large text sizes.
+- **Version and release tracking:**
+  - Every signed-in page's footer shows the version and when the running copy was last updated
+    (deployed), in Oman time: `Version: v1.0.0 | Last Updated: 16/10/2026, 08:17 PM (Oman Time)`.
+    Both come from the build, never from the browser.
+  - **About and version history** (footer, profile menu or search) lists each release's new
+    features, improvements and bug fixes. Admins also see its security fixes and what is deployed:
+    the server and web app builds, the code revision, and whether the two match.
+  - A page left open across a deployment says "A new version is available" and offers to reload.
+    The server serves a rebuilt web app at once, even without a restart.
+  - One version for the server, web app, Android app and extension. `npm run release` sets it
+    everywhere from CHANGELOG.md, and a test fails if anything drifts.
+- **Keyboard shortcuts (web app):**
+  - Anywhere: Ctrl+S saves and Ctrl+Enter submits the form or dialog you're in, Esc cancels, and
+    Ctrl+K searches.
+  - On a page: N adds new (a task, project, meeting or user, depending on the page), E edits and
+    Delete deletes the open task, meeting or project (always asking first), R refreshes, and /
+    jumps to the page's search box.
+  - Ctrl+/ (or ?) shows the list, which can also switch the single keys off.
+  - Buttons show their shortcut in their tooltip and to screen readers; dialogs' main buttons and
+    menu items show the keys.
+  - On a Mac it's ⌘, the keys work with the Arabic layout, and no browser shortcut is taken over.
+    See [docs/KEYBOARD-SHORTCUTS.md](../docs/KEYBOARD-SHORTCUTS.md).
 - **Android app:**
   - A project's screen shows its project number, its milestones (done, late, or how many days
     left), what's late or due in the next two weeks, and its meetings: the next ones, its repeating
@@ -214,7 +243,7 @@ Chrome extension, are unchanged.
 ## How these builds were tested (October 2026)
 
 - **Unit and component tests (16 October, on 0.4.0):**
-  - backend 1,619 · web 1,142 · Android 456 · extension 207, all passing. The log-out test with
+  - backend 1,635 · web 1,190 · Android 456 · extension 207, all passing. The log-out test with
     unsynced offline changes had failed only while a local server was running on port 4000 (the
     test's live-update socket reached it); it now has a stand-in socket;
   - typecheck and lint clean in every app;
@@ -333,6 +362,14 @@ Chrome extension, are unchanged.
   - editing a cancelled meeting's details for the whole series sent a cancellation.
   - Checked again in the browser: repeating meetings 53, edge cases 36, meetings 78, calendar 64;
     and on the real database (API) 15 of 15.
+- **Keyboard shortcuts, tested (16 October):** a browser test of every shortcut in every module,
+  33 of 33. It covers the Arabic layout, a Mac, a phone, single keys switched off and an
+  accessibility check of the key hints. The forms, meetings and calendar tests still pass: task
+  form 69, project form 97, meetings 78, calendar 64.
+- **Version tracking, tested (16 October):** a browser test of the footer on ten pages (computer and
+  phone), the About page as admin and as a regular user, a stale copy, and a real redeployment that
+  an open page notices, with the new build time shown after reloading: 21 of 21. Chat 90, shortcuts
+  33 and meetings 78 still pass.
 - **Repeating meetings and the project dashboard (16 October), in a real browser:** 53 of 53
   checks, against MySQL, with invitation emails and calendar files in the test mailbox.
   - A weekly Tue/Thu series with an end date made in the New Meeting form: every meeting is
@@ -365,7 +402,7 @@ Chrome extension, are unchanged.
 - **Chrome extension (10 October):** the board 10 of 10, recurring tasks 15 of 15, reports 20 of 20.
 - **Android test build on an Android 14 emulator (10 October):** email-code sign-in 12, task details
   40, task delete 2.
-- **Android APK 0.4.0:** not built yet. `bash tools/release/build-apk.sh` needs the release
+- **Android APK 1.0.0 (build 5):** not built yet. `bash tools/release/build-apk.sh` needs the release
   keystore's password. Once it is built, the Windows installer and the web-server package are
   rebuilt so both carry it, and `SHA256SUMS.txt` is regenerated.
 

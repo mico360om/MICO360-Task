@@ -351,9 +351,9 @@
 
 @layer components {
   /* The chat fills the window under the top bar (--chat-top), above any part a phone's keyboard
-     covers (--visible-height, see :root). */
+     covers (--visible-height, see :root), leaving room for the page footer (--app-footer-space). */
   .chat-frame {
-    height: calc(var(--visible-height) - var(--chat-top, 57px));
+    height: calc(var(--visible-height) - var(--chat-top, 57px) - var(--app-footer-space, 0px));
     min-height: 22rem;
   }
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import logoW from '../assets/logo-w.png';
+import { RUNNING_BUILD } from '../lib/release';
 
 interface NavItem {
   label: string;
@@ -221,7 +222,7 @@ export function SidebarBody({ isAdmin, onNavigate }: SidebarProps & { onNavigate
           <span className="truncate">Settings</span>
         </NavLink>
         <div className="px-3 pt-2 text-[11px] text-ink-3">
-          <span className="gradient-text font-semibold">MICO360</span> · v1
+          <span className="gradient-text font-semibold">MICO360</span> · v{RUNNING_BUILD.version}
         </div>
       </div>
     </>

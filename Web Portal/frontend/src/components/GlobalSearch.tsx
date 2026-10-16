@@ -11,6 +11,8 @@ import { assigneesApi } from '../api/assignees';
 import { matchNavCommands, parseCommand } from '../lib/commands';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
+import { useShortcut, useShortcutSettings } from './shortcuts/ShortcutProvider';
+import { ariaKeyshortcuts, shortcutLabel } from '../lib/shortcuts';
 
 interface PaletteItem {
   id: string;
@@ -52,18 +54,16 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     return () => clearTimeout(t);
   }, [term, debounceMs]);
 
-  // ⌘K / Ctrl-K focuses the palette from anywhere.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        inputRef.current?.focus();
-        setOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // ⌘K / Ctrl+K (and / on a page without its own search box) focuses the palette from anywhere.
+  const { platform } = useShortcutSettings();
+  useShortcut(
+    'search',
+    () => {
+      inputRef.current?.focus();
+      setOpen(true);
+    },
+    { priority: 0 },
+  );
 
   const raw = term.trim();
   const searchEnabled = debounced.trim().length >= 2;
@@ -221,6 +221,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           type="search"
           role="searchbox"
           aria-label="Search"
+          aria-keyshortcuts={ariaKeyshortcuts('search', platform)}
           dir="auto"
           placeholder="Search or type a command…"
           value={term}
@@ -230,7 +231,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           onKeyDown={onKeyDown}
           className="w-full rounded-lg border border-line bg-ground py-1.5 pl-8 pr-9 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20"
         />
-        <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:block">{SHORTCUT_HINT()}</kbd>
+        <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:block">{shortcutLabel('search', platform)}</kbd>
       </div>
 
       {showPanel ? (
@@ -284,9 +285,6 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     </div>
   );
 }
-
-/** The search shortcut as this keyboard has it: ⌘K on Apple devices, Ctrl K elsewhere. */
-const SHORTCUT_HINT = (): string => (/mac|iphone|ipad|ipod/i.test(typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent) ? '⌘K' : 'Ctrl K');
 
 /** Group items in stable order for rendering. */
 function groupItems(items: PaletteItem[]): [string, PaletteItem[]][] {
