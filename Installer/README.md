@@ -1,19 +1,21 @@
-# MICO360 Tasks 1.0.0 — ready to deploy
+# MICO360 Tasks 1.0.1 — ready to deploy
 
 1.0.0 is the first release with version tracking: every page shows the version and when it was last
 updated, and **About** lists what each release changed ([CHANGELOG.md](../CHANGELOG.md),
 [docs/RELEASES.md](../docs/RELEASES.md)). It includes all the work prepared as 0.4.0. The packages
-in these folders are rebuilt as 1.0.0 together with the Android app (see "Android APK" below).
+in these folders are rebuilt as 1.0.1 together with the Android app (see "Android APK" below).
+1.0.1 fixes the deployment from GitHub: the build tools are installed even where the server is
+set up as production (see [CHANGELOG.md](../CHANGELOG.md)).
 
 One folder for each place the system installs. Each folder holds the package for that place and a
 `README.md` with the steps.
 
 | Folder | Environment | Package |
 | --- | --- | --- |
-| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 22, or 20.19 or later, and MySQL 8) | `MICO360-Tasks-Server-Hostinger-1.0.0.zip` and the live settings file |
-| [`2-Windows-Office-Server/`](2-Windows-Office-Server/README.md) | A complete server on one Windows 10/11 computer, for an office network | `MICO360-Tasks-Server-Setup-1.0.0.exe` |
-| [`3-Android-App/`](3-Android-App/README.md) | Android 6.0+ phones | `MICO360-Tasks-1.0.0.apk` |
-| [`4-Chrome-Extension/`](4-Chrome-Extension/README.md) | Chrome and Edge | `MICO360-Tasks-Chrome-Extension-1.0.0.zip` |
+| [`1-Hostinger-Web-Server/`](1-Hostinger-Web-Server/README.md) | The live system at `https://task.mico360.com` (Hostinger, or any Linux host with Node.js 22, or 20.19 or later, and MySQL 8) | `MICO360-Tasks-Server-Hostinger-1.0.1.zip` and the live settings file |
+| [`2-Windows-Office-Server/`](2-Windows-Office-Server/README.md) | A complete server on one Windows 10/11 computer, for an office network | `MICO360-Tasks-Server-Setup-1.0.1.exe` |
+| [`3-Android-App/`](3-Android-App/README.md) | Android 6.0+ phones | `MICO360-Tasks-1.0.1.apk` |
+| [`4-Chrome-Extension/`](4-Chrome-Extension/README.md) | Chrome and Edge | `MICO360-Tasks-Chrome-Extension-1.0.1.zip` |
 
 `SHA256SUMS.txt` lists the checksum of every package.
 
@@ -402,7 +404,7 @@ Chrome extension, are unchanged.
 - **Chrome extension (10 October):** the board 10 of 10, recurring tasks 15 of 15, reports 20 of 20.
 - **Android test build on an Android 14 emulator (10 October):** email-code sign-in 12, task details
   40, task delete 2.
-- **Android APK 1.0.0 (build 5):** not built yet. `bash tools/release/build-apk.sh` needs the release
+- **Android APK 1.0.1 (build 6):** not built yet. `bash tools/release/build-apk.sh` needs the release
   keystore's password. Once it is built, the Windows installer and the web-server package are
   rebuilt so both carry it, and `SHA256SUMS.txt` is regenerated.
 

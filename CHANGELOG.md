@@ -14,6 +14,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-17
+
+### Bug fixes
+- Deploying the web server from GitHub works again. Its build tools are now installed even where
+  the server is set up as production; since 16 October every deployment had stopped with
+  "tsc: command not found", so the site had stayed on its earlier version.
+
 ## [1.0.0] - 2026-10-17
 
 ### New features

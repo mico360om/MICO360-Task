@@ -5,7 +5,7 @@ by default.
 
 | In this folder | What it is |
 | --- | --- |
-| `MICO360-Tasks-Server-Hostinger-1.0.0.zip` | The server package: `backend/` (the API), `public_html/` (the web app), `deploy/` (security headers) and `docs/` |
+| `MICO360-Tasks-Server-Hostinger-1.0.1.zip` | The server package: `backend/` (the API), `public_html/` (the web app), `deploy/` (security headers) and `docs/` |
 | `environment.txt` | The live server's settings, ready to upload as its `.env`. **Private:** it holds this system's secret keys. It is not in git; keep it out of emails and chats. |
 | `environment.example.txt` | The same settings without the secrets. `environment.txt` was made from it. |
 
@@ -59,7 +59,7 @@ The server starts with an empty database and one administrator: **khurram@prolen
   is the app; once `public_html/` is uploaded, the sign-in page's **Download for Android** button
   downloads `https://task.mico360.com/downloads/MICO360-Tasks.apk`. Nothing to set in `.env`. To
   publish a new build later, replace that one file (same name) — the address never changes. If the
-  package was built without the APK, upload `../3-Android-App/MICO360-Tasks-1.0.0.apk` there under
+  package was built without the APK, upload `../3-Android-App/MICO360-Tasks-1.0.1.apk` there under
   that name; until the file is there the button says "Not available yet".
 - **Keep the settings across redeploys (recommended).** Copy every line of `.env` into hPanel →
   Node.js → Environment variables. Hostinger can redeploy into a fresh folder, and a new folder
@@ -95,6 +95,10 @@ Node.js Web App, connected to GitHub) instead of the package in this folder. Use
 | Entry file | `server.mjs`. It brings the database up to date, then starts the server, which serves the web pages too |
 | Package manager | npm |
 
+The repository's `.npmrc` (`include=dev`) makes the install bring the build tools (TypeScript, Vite)
+even when `NODE_ENV=production` is among the environment variables. Without it the build stops with
+"tsc: command not found".
+
 Environment variables (hPanel → the Node.js app → Environment variables):
 
 - every line of `environment.txt` in this folder;
@@ -122,7 +126,7 @@ Coming from 0.3.0? Back up the database first. The first start applies the four 
 your data is kept.
 
 The phone app is not in GitHub. To make **Download for Android** work, copy
-`../3-Android-App/MICO360-Tasks-1.0.0.apk` to `Web Portal/frontend/dist/downloads/MICO360-Tasks.apk`
+`../3-Android-App/MICO360-Tasks-1.0.1.apk` to `Web Portal/frontend/dist/downloads/MICO360-Tasks.apk`
 in the app's folder after each deployment. Each build replaces that folder.
 
 ## Updating the live site
