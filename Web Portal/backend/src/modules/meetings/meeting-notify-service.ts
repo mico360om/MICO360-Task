@@ -113,8 +113,9 @@ export interface MeetingNotifyService {
   /**
    * Cancel the event in invitees' calendars. Pass the record when the meeting is already deleted.
    * A meeting of a series cancels just that meeting, or with scope 'series' its upcoming meetings.
+   * `alsoTo`: other meetings of the series whose people who have the series hear too.
    */
-  sendCancellation(meetingId: string, opts?: { meeting?: MeetingRecord; scope?: SeriesScope; note?: 'moved' }): Promise<DeliveryReport>;
+  sendCancellation(meetingId: string, opts?: { meeting?: MeetingRecord; scope?: SeriesScope; note?: 'moved'; alsoTo?: MeetingRecord[] }): Promise<DeliveryReport>;
   /**
    * Remove the event from one attendee's calendar after they were taken off an invited meeting —
    * the whole series once they are on none of its upcoming meetings (`alsoFrom`: other meetings
@@ -452,7 +453,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
    */
   async function cancelFor(
     m: MeetingRecord,
-    opts: { only?: AttendeeRecord; scope?: SeriesScope; endSeries?: boolean; alsoFrom?: MeetingRecord[]; note?: 'moved' } = {},
+    opts: { only?: AttendeeRecord; scope?: SeriesScope; endSeries?: boolean; alsoFrom?: MeetingRecord[]; alsoTo?: MeetingRecord[]; note?: 'moved' } = {},
   ): Promise<DeliveryReport> {
     const { only } = opts;
     const all = await recipientsFor(m);
@@ -463,6 +464,20 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       if (!person?.email) return { sent: 0, failed: 0 };
       people = [person];
       icsAttendees = [{ name: person.name, email: person.email, role: only.role }];
+    } else if (opts.alsoTo?.length) {
+      // Others with the series in their calendar: people invited to its other meetings.
+      const have = new Set(people.map((p) => p.email.toLowerCase()));
+      for (const r of opts.alsoTo) {
+        const more = await recipientsFor(r);
+        for (const x of more.recipients) {
+          const key = x.email.toLowerCase();
+          if (have.has(key) || !x.alreadyInvited) continue;
+          have.add(key);
+          people = [...people, { name: x.name, email: x.email }];
+          const a = more.icsAttendees.find((i) => i.email.toLowerCase() === key);
+          if (a) icsAttendees = [...icsAttendees, a];
+        }
+      }
     }
     const params = await emailParams(m, all.organizer);
     const s = await seriesOf(m);
@@ -531,7 +546,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
 
     async sendCancellation(meetingId, opts) {
       const m = opts?.meeting ?? (await requireMeeting(meetingId));
-      return cancelFor(m, { scope: opts?.scope, endSeries: opts?.scope === 'series', note: opts?.note });
+      return cancelFor(m, { scope: opts?.scope, endSeries: opts?.scope === 'series', note: opts?.note, alsoTo: opts?.alsoTo });
     },
 
     async sendAttendeeRemoved(meetingId, attendee, opts) {

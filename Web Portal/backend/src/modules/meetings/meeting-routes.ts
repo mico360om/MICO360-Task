@@ -139,10 +139,24 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
   const canEdit = (req: FastifyRequest, id: string): Promise<boolean> => meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
   const notSeries = { error: { code: 'VALIDATION', message: 'This meeting is not part of a series.' } };
   const cannotEditSeries = { error: { code: 'FORBIDDEN', message: 'Only the organizer of the series, the project manager or an admin can change all its meetings.' } };
-  /** May this user change every meeting of the series? Judged on its first meeting, whoever runs this one. */
+  /**
+   * May this user change every meeting of the series? Whoever can change its first meeting, or every
+   * meeting still to come — once a series has started, changes reach only those, so a series handed
+   * to someone else (or moved to another project) is theirs. Running one meeting of it isn't enough.
+   */
   async function canEditSeries(req: FastifyRequest, m: MeetingRecord): Promise<boolean> {
-    const root = deps.series ? await deps.series.rootOf(m) : null;
-    return !!root && meetingService.canEditMeetingRecord(root, req.user!.id, req.user!.roles ?? []);
+    if (!deps.series) return false;
+    const { id: userId, roles } = actor(req);
+    const { root, upcoming } = await deps.series.seriesEditFacts(m);
+    if (await meetingService.canEditMeetingRecord(root, userId, roles)) return true;
+    if (upcoming.length === 0) return false;
+    // One answer per organizer / creator / project: a series' meetings mostly share them.
+    const answers = new Map<string, Promise<boolean>>();
+    for (const r of upcoming) {
+      const key = `${r.organizerId}|${r.createdById}|${r.projectId ?? ''}`;
+      if (!answers.has(key)) answers.set(key, meetingService.canEditMeetingRecord(r, userId, roles));
+    }
+    return (await Promise.all(answers.values())).every(Boolean);
   }
   const seriesIdOf = (m: MeetingRecord) => deps.series?.seriesIdOf(m) ?? null;
   /** A meeting with its series (first meeting's id, rule, zone) for the apps' repeat controls. */
@@ -276,14 +290,17 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       if (before.invitesSentAt && deps.notify) {
         const notify = deps.notify;
         // A series that had started was split: its calendar series ends, and the new one is sent.
+        // Everyone with the old series hears — people added to its later meetings included.
         if (change.endedMeeting) {
           const ended = change.endedMeeting;
-          background(notify.sendCancellation(ended.id, { meeting: ended, scope: 'series', note: 'moved' }), 'meeting series update notice failed', ended.id);
+          background(notify.sendCancellation(ended.id, { meeting: ended, scope: 'series', note: 'moved', alsoTo: change.changed }), 'meeting series update notice failed', ended.id);
         }
-        if (meeting.status === 'CANCELLED') background(notify.sendCancellation(meeting.id, { scope: 'series' }), 'meeting cancellation notice failed', meeting.id);
-        // Only what calendars show is worth an email: dates, times, repeat, title, place, notes.
+        if (patch.status === 'CANCELLED') background(notify.sendCancellation(meeting.id, { scope: 'series' }), 'meeting cancellation notice failed', meeting.id);
+        // Only what calendars show is worth an email: dates, times, repeat, title, place, notes —
+        // sent from a meeting still going ahead (a cancelled one carries no invitation).
         else if (change.scheduleChanged || calendarChanged(before, meeting)) {
-          background(notify.sendInvites(meeting.id, { scope: 'series' }), 'meeting series update notice failed', meeting.id);
+          const from = meeting.status !== 'CANCELLED' ? meeting : change.changed.find((r) => r.status !== 'CANCELLED' && !r.deletedAt);
+          if (from) background(notify.sendInvites(from.id, { scope: 'series' }), 'meeting series update notice failed', from.id);
         }
       }
       const [data] = await withEditFlags(req, [meeting]);

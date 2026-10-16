@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alignToRule, instantOf, seriesStarts, seriesRule, untilBefore, wallOf } from './meeting-series';
+import { alignToRule, instantOf, ruleProblem, seriesStarts, seriesRule, shiftRuleDays, untilBefore, wallOf } from './meeting-series';
 
 const iso = (ds: Date[]) => ds.map((d) => d.toISOString());
 
@@ -79,5 +79,27 @@ describe('meeting series dates', () => {
   it('gives the end date that stops a series before a meeting', () => {
     // A meeting at 01:00 on 5 Nov in Muscat: the series ends on 4 Nov, local time.
     expect(untilBefore(new Date('2026-11-04T21:00:00.000Z'), 'Asia/Muscat')).toBe('2026-11-04');
+  });
+
+  it('moves a rule’s days to the day a meeting moved to', () => {
+    // Weekly: the chosen weekdays move by as many days.
+    expect(shiftRuleDays({ freq: 'WEEKLY', interval: 1, weekdays: [2, 4] }, 1, new Date('2026-10-21T10:00:00.000Z')).weekdays).toEqual([3, 5]);
+    // Monthly on the 30th moved to 2 Nov: the 2nd, not the last day of the month.
+    expect(shiftRuleDays({ freq: 'MONTHLY', interval: 1, dayOfMonth: 30 }, 3, new Date('2026-11-02T10:00:00.000Z')).dayOfMonth).toBe(2);
+    // On the 2nd moved back to 30 Oct: the 30th.
+    expect(shiftRuleDays({ freq: 'MONTHLY', interval: 1, dayOfMonth: 2 }, -3, new Date('2026-10-30T10:00:00.000Z')).dayOfMonth).toBe(30);
+    // "The 2nd Tuesday" (14 Sep 2027) moved to Thursday 16 Sep: the 3rd Thursday.
+    expect(shiftRuleDays({ freq: 'MONTHLY', interval: 1, nthWeekday: { week: 2, day: 2 } }, 2, new Date('2027-09-16T10:00:00.000Z')).nthWeekday).toEqual({ week: 3, day: 4 });
+    // "The last Friday" (30 Oct) moved to Saturday 31 Oct: the last Saturday.
+    expect(shiftRuleDays({ freq: 'MONTHLY', interval: 1, nthWeekday: { week: -1, day: 5 } }, 1, new Date('2026-10-31T10:00:00.000Z')).nthWeekday).toEqual({ week: -1, day: 6 });
+    // A 5th weekday doesn't exist every month: it becomes "the last".
+    expect(shiftRuleDays({ freq: 'MONTHLY', interval: 1, nthWeekday: { week: 4, day: 4 } }, 1, new Date('2026-10-30T10:00:00.000Z')).nthWeekday).toEqual({ week: -1, day: 5 });
+  });
+
+  it('checks the end date against the first meeting’s day after it is put on the repeat’s days', () => {
+    const tue = new Date('2026-10-20T06:00:00.000Z');
+    // Mon and Wed from a Tuesday: the first meeting is Wednesday 21 Oct, after an end date of the 20th.
+    expect(ruleProblem({ freq: 'WEEKLY', interval: 1, weekdays: [1, 3], until: '2026-10-20' }, tue, 'Asia/Muscat')).toMatch(/can’t end before the first meeting/);
+    expect(ruleProblem({ freq: 'WEEKLY', interval: 1, weekdays: [1, 3], until: '2026-10-21' }, tue, 'Asia/Muscat')).toBeNull();
   });
 });

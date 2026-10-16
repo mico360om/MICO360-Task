@@ -216,3 +216,45 @@ describe('repeating meetings over the API', () => {
     ]);
   });
 });
+
+describe('repeating meetings over the API: second review fixes', () => {
+  it('lets the people running a series’ upcoming meetings change all of it after it started', async () => {
+    const t = await setup();
+    await t.weekly();
+    t.clock.now = new Date('2026-10-28T08:00:00.000Z'); // two meetings held
+    // The series was handed to u9: every upcoming meeting is theirs; the held ones stay u1's.
+    for (const m of t.alive()) if (m.startAt >= t.clock.now) await t.meetings.update(m.id, { organizerId: 'u9' });
+    const third = t.alive()[2]!;
+    expect((await t.callAs('u9', 'PUT', `/meetings/${third.id}?scope=series`, { title: 'Run by u9' })).statusCode).toBe(200);
+    expect(t.alive().filter((m) => m.title === 'Run by u9')).toHaveLength(t.alive().length - 2);
+    expect((await t.callAs('u7', 'PUT', `/meetings/${third.id}?scope=series`, { title: 'Not mine' })).statusCode).toBe(403);
+    expect((await t.callAs('u9', 'POST', `/meetings/${third.id}/cancel?scope=series`)).statusCode).toBe(200);
+  });
+
+  it('sends the series update, not a cancellation, when a cancelled meeting’s details change for the series', async () => {
+    const t = await setup();
+    await t.weekly();
+    for (const m of t.alive()) await t.meetings.markInvitesSent(m.id, NOW);
+    const third = t.alive()[2]!;
+    await t.call('POST', `/meetings/${third.id}/cancel`);
+    t.notify.sendCancellation.mockClear();
+    const res = await t.call('PUT', `/meetings/${third.id}?scope=series`, { title: 'Project sync' });
+    expect(res.statusCode).toBe(200);
+    expect(t.notify.sendCancellation).not.toHaveBeenCalled();
+    const live = t.alive().find((m) => m.status !== 'CANCELLED')!;
+    expect(t.notify.sendInvites).toHaveBeenCalledWith(live.id, { scope: 'series' });
+  });
+
+  it('tells everyone with the old series that it ended, people added later included', async () => {
+    const t = await setup();
+    await t.weekly();
+    for (const m of t.alive()) await t.meetings.markInvitesSent(m.id, NOW);
+    t.clock.now = new Date('2026-10-28T08:00:00.000Z');
+    const third = t.alive()[2]!;
+    await t.call('PUT', `/meetings/${third.id}?scope=series`, { startAt: '2026-11-04T06:00:00Z', endAt: '2026-11-04T07:00:00Z', recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [3] } });
+    expect(t.notify.sendCancellation).toHaveBeenCalledWith(
+      t.alive()[1]!.id,
+      expect.objectContaining({ scope: 'series', note: 'moved', alsoTo: expect.arrayContaining([expect.objectContaining({ id: third.id })]) }),
+    );
+  });
+});

@@ -371,3 +371,112 @@ describe('meeting series: review fixes', () => {
     expect((await t.series.updateSeries(root.id, { category: 'Weekly' })).scheduleChanged).toBe(false);
   });
 });
+
+describe('meeting series: second review fixes', () => {
+  const series = (t: ReturnType<typeof setup>, rootId: string) =>
+    [...t.meetings.rows.values()].filter((m) => !m.deletedAt && (m.id === rootId || m.recurrenceParentId === rootId)).sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+
+  it('keeps every meeting on its day when today’s meeting’s new time has already passed', async () => {
+    const t = setup();
+    const root = await t.begin();
+    const before = series(t, root.id);
+    t.clock.now = new Date('2026-10-20T05:30:00.000Z'); // Tue 09:30; today's meeting is at 10:00
+    const second = before[1]!;
+    // From next week's meeting: every upcoming meeting at 09:00.
+    await t.series.updateSeries(second.id, { startAt: new Date('2026-10-27T05:00:00.000Z'), endAt: new Date('2026-10-27T06:00:00.000Z') });
+    const after = series(t, root.id);
+    expect(after.map((m) => m.id)).toEqual(before.map((m) => m.id));
+    expect(after[0]!.startAt.toISOString()).toBe('2026-10-20T06:00:00.000Z'); // 09:00 has passed: it keeps 10:00
+    expect(starts(after.slice(1, 3))).toEqual(['2026-10-27T05:00:00.000Z', '2026-11-03T05:00:00.000Z']);
+    expect(after.at(-1)!.startAt.toISOString()).toBe('2027-01-12T05:00:00.000Z');
+    expect(t.meetings.rows.get(root.id)!.recurrenceStart?.toISOString()).toBe('2026-10-20T05:00:00.000Z');
+    t.clock.now = new Date('2026-10-27T08:00:00.000Z');
+    expect(starts(await t.series.extend(root.id))).toEqual(['2027-01-19T05:00:00.000Z']); // the new time
+  });
+
+  it('keeps a meeting postponed on its own on its new date when only the length changes', async () => {
+    const t = setup();
+    const root = await t.begin();
+    const before = series(t, root.id);
+    const second = before[1]!; // Tue 27 Oct, postponed on its own to Thu 29 Oct
+    await t.meetings.update(second.id, { startAt: new Date('2026-10-29T06:00:00.000Z'), endAt: new Date('2026-10-29T07:00:00.000Z') });
+    t.clock.now = new Date('2026-10-28T08:00:00.000Z');
+    const third = before[2]!; // Tue 3 Nov: 90 minutes from now on
+    await t.series.updateSeries(third.id, { endAt: new Date('2026-11-03T07:30:00.000Z') });
+    const row = (id: string) => t.meetings.rows.get(id)!;
+    expect(row(second.id).startAt.toISOString()).toBe('2026-10-29T06:00:00.000Z');
+    expect(row(second.id).endAt!.toISOString()).toBe('2026-10-29T07:30:00.000Z');
+    expect(row(third.id).startAt.toISOString()).toBe('2026-11-03T06:00:00.000Z');
+    expect(row(before[3]!.id).startAt.toISOString()).toBe('2026-11-10T06:00:00.000Z');
+  });
+
+  it('keeps the date typed for the edited meeting when only the time of a meeting moved on its own changes', async () => {
+    const t = setup({ freq: 'WEEKLY', interval: 1, weekdays: [2] });
+    const root = await t.begin();
+    const third = series(t, root.id)[2]!; // Tue 3 Nov, moved on its own to Wed 4 Nov
+    await t.meetings.update(third.id, { startAt: new Date('2026-11-04T06:00:00.000Z'), endAt: new Date('2026-11-04T07:00:00.000Z') });
+    await t.series.updateSeries(third.id, { startAt: new Date('2026-11-04T07:00:00.000Z'), endAt: new Date('2026-11-04T08:00:00.000Z') });
+    expect(t.meetings.rows.get(third.id)!.startAt.toISOString()).toBe('2026-11-04T07:00:00.000Z');
+    expect(t.meetings.rows.get(root.id)!.recurrenceRule).toMatchObject({ weekdays: [2] });
+    expect(series(t, root.id)[3]!.startAt.toISOString()).toBe('2026-11-10T07:00:00.000Z');
+  });
+
+  it('moves the series from a meeting’s place when that meeting had been moved on its own', async () => {
+    const t = setup({ freq: 'WEEKLY', interval: 1, weekdays: [2] });
+    const root = await t.begin();
+    const third = series(t, root.id)[2]!; // Tue 3 Nov, moved on its own to Wed 4 Nov
+    await t.meetings.update(third.id, { startAt: new Date('2026-11-04T06:00:00.000Z'), endAt: new Date('2026-11-04T07:00:00.000Z') });
+    // Now moved to Thursday 5 Nov for all upcoming meetings: the series repeats on Thursdays.
+    await t.series.updateSeries(third.id, { startAt: new Date('2026-11-05T06:00:00.000Z'), endAt: new Date('2026-11-05T07:00:00.000Z') });
+    expect(t.meetings.rows.get(root.id)!.recurrenceRule).toMatchObject({ weekdays: [4] });
+    expect(starts(series(t, root.id).slice(0, 3))).toEqual(['2026-10-22T06:00:00.000Z', '2026-10-29T06:00:00.000Z', '2026-11-05T06:00:00.000Z']);
+  });
+
+  it('never makes a meeting deleted on its own the first meeting of the new series', async () => {
+    const t = setup();
+    const root = await t.begin();
+    const [, second, third] = series(t, root.id);
+    await t.meetings.softDelete(second!.id); // 27 Oct deleted on its own
+    t.clock.now = new Date('2026-10-21T08:00:00.000Z'); // the first meeting was held
+    const change = await t.series.updateSeries(third!.id, { startAt: new Date('2026-11-03T07:00:00.000Z'), endAt: new Date('2026-11-03T08:00:00.000Z') });
+    expect(change.rootId).toBe(third!.id);
+    expect(t.meetings.rows.get(third!.id)!).toMatchObject({ recurrenceParentId: null, recurrenceRule: expect.objectContaining({ freq: 'WEEKLY' }) });
+    expect(t.meetings.rows.get(second!.id)!).toMatchObject({ recurrenceRule: null });
+    expect(t.meetings.rows.get(second!.id)!.deletedAt).toBeTruthy();
+    expect(starts(series(t, third!.id).slice(0, 2))).toEqual(['2026-11-03T07:00:00.000Z', '2026-11-10T07:00:00.000Z']);
+  });
+
+  it('goes on with a yearly series whose only meeting so far was cancelled on its own', async () => {
+    const t = setup({ freq: 'YEARLY', interval: 1 });
+    const root = await t.begin();
+    expect(series(t, root.id)).toHaveLength(1);
+    await t.meetings.update(root.id, { status: 'CANCELLED' });
+    t.clock.now = new Date('2027-08-01T08:00:00.000Z');
+    expect(starts(await t.series.extend(root.id))).toEqual(['2027-10-20T06:00:00.000Z']);
+  });
+
+  it('tells the apps when the first meeting moves onto the repeat’s days, and resets its reminder', async () => {
+    const t = setup();
+    const root = await t.meetings.create({
+      title: 'Wednesday sync', organizerId: 'u1', createdById: 'u1', status: 'SCHEDULED', startAt: TUE, endAt: new Date(TUE.getTime() + HOUR),
+      timeZone: TZ, recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [3] },
+    });
+    await t.meetings.markReminderSent(root.id, NOW);
+    await t.series.start(t.meetings.rows.get(root.id)!);
+    expect(t.meetings.rows.get(root.id)!.reminderSentAt).toBeNull();
+    expect(t.onChanged).toHaveBeenCalledWith(expect.objectContaining({ id: root.id, startAt: new Date('2026-10-21T06:00:00.000Z') }), 'updated');
+  });
+
+  it('names the meetings whose people may change the series: those still to come', async () => {
+    const t = setup();
+    const root = await t.begin();
+    const list = series(t, root.id);
+    await t.meetings.update(list[3]!.id, { status: 'CANCELLED' });
+    t.clock.now = new Date('2026-10-28T08:00:00.000Z');
+    const facts = await t.series.seriesEditFacts(list[5]!);
+    expect(facts.root.id).toBe(root.id);
+    expect(facts.upcoming[0]!.startAt.toISOString()).toBe('2026-11-03T06:00:00.000Z');
+    expect(facts.upcoming.map((m) => m.id)).not.toContain(list[3]!.id);
+    expect(facts.upcoming).toHaveLength(list.length - 3);
+  });
+});

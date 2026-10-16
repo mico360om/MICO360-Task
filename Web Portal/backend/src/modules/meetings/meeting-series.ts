@@ -75,15 +75,22 @@ export function alignToRule(start: Date, rule: RecurrenceRule, timeZone: string)
 }
 
 /**
- * The rule with its days moved by `days` (a series moved from Tuesday to Thursday repeats on
- * Thursdays): chosen weekdays, "the 2nd Tuesday" and a day of the month move; others need nothing.
+ * The rule with its days moved to where a meeting moved: by `days` to the local date `to` (a
+ * wall-clock date). Chosen weekdays move by as many days (a Tuesday series moved to Thursday repeats
+ * on Thursdays); a day of the month and "the 2nd Tuesday" become those of the new date (the 2nd, or
+ * "the 3rd Thursday", or "the last …" in a month's last seven days); others need nothing.
  */
-export function shiftRuleDays(rule: RecurrenceRule, days: number): RecurrenceRule {
+export function shiftRuleDays(rule: RecurrenceRule, days: number, to: Date): RecurrenceRule {
   const weekday = (d: number) => (((d + days) % 7) + 7) % 7;
   const out: RecurrenceRule = { ...rule };
   if (rule.freq === 'WEEKLY' && rule.weekdays?.length) out.weekdays = [...new Set(rule.weekdays.map(weekday))].sort((a, b) => a - b);
-  if (rule.nthWeekday) out.nthWeekday = { ...rule.nthWeekday, day: weekday(rule.nthWeekday.day) };
-  if (rule.dayOfMonth != null) out.dayOfMonth = Math.min(31, Math.max(1, rule.dayOfMonth + days));
+  if (rule.nthWeekday) {
+    const date = to.getUTCDate();
+    const nth = Math.ceil(date / 7);
+    const last = date + 7 > daysInMonth(to);
+    out.nthWeekday = { week: nth > 4 || (last && rule.nthWeekday.week === -1) ? -1 : (nth as 1 | 2 | 3 | 4), day: to.getUTCDay() };
+  }
+  if (rule.dayOfMonth != null) out.dayOfMonth = to.getUTCDate();
   return out;
 }
 
@@ -92,11 +99,15 @@ export function untilBefore(start: Date, timeZone: string): string {
   return zonedDayKey(new Date(instantOf(new Date(Date.parse(`${zonedDayKey(start, timeZone)}T00:00:00Z`)), timeZone).getTime() - 1), timeZone);
 }
 
-/** What's wrong with a series' rule for its first meeting, or null. */
+/**
+ * What's wrong with a series' rule for its first meeting, or null. The end date is checked against
+ * the day the first meeting will really be on — on the repeat's days (see `alignToRule`).
+ */
 export function ruleProblem(rule: RecurrenceRule | null | undefined, first: Date, timeZone: string): string | null {
   if (!rule) return null;
-  if (rule.until && rule.until.slice(0, 10) < zonedDayKey(first, timeZone)) return 'The repeat can’t end before the first meeting.';
   if (rule.nthWeekday && rule.freq !== 'MONTHLY' && rule.freq !== 'QUARTERLY') return 'Only monthly and quarterly repeats can fall on a weekday of the month.';
+  const firstDay = zonedDayKey(alignToRule(first, { ...rule, count: null, until: null }, timeZone), timeZone);
+  if (rule.until && rule.until.slice(0, 10) < firstDay) return 'The repeat can’t end before the first meeting.';
   return null;
 }
 

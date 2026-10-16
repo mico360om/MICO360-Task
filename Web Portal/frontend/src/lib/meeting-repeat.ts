@@ -38,11 +38,12 @@ function onRule(day: string, rule: RecurrenceRule): boolean {
 
 /**
  * The day a new series' first meeting will be on: the day chosen, or — when it isn't one of the
- * repeat's days — the repeat's next day (the server moves it there, as calendars expect).
+ * repeat's days — the repeat's next day (the server moves it there, as calendars expect, whatever
+ * the series' count or end date).
  */
 export function firstMeetingDay(startDay: string, rule: RecurrenceRule): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDay) || onRule(startDay, rule)) return startDay;
-  return upcomingDates(startDay, rule, 1)[0] ?? startDay;
+  return upcomingDates(startDay, { ...rule, count: null, until: null }, 1)[0] ?? startDay;
 }
 
 /** What's wrong with a meeting's repeat for its first day ('YYYY-MM-DD'), or null. */

@@ -42,17 +42,20 @@ Editing a meeting of a series asks **"Save changes to a repeating meeting?"**:
 - **All upcoming meetings in the series.** Applies what you changed to every meeting that hasn't
   happened yet. Details you didn't touch stay as they are on each meeting. Saving without a change
   sends nothing.
-  - A new time or length moves every upcoming meeting, and each one keeps its agenda and notes. A
-    meeting deleted or cancelled on its own stays that way, on its date.
+  - A new time or length moves every upcoming meeting, and each one keeps its day, its agenda and
+    its notes. A meeting deleted or cancelled on its own stays that way, on its date. A meeting
+    whose new time has already passed today keeps its own time and takes just the new length.
   - Moving the meeting to another day moves the series' days with it: a Tuesday series moved to
-    Thursday repeats on Thursdays.
+    Thursday repeats on Thursdays; a monthly series on the 30th moved to the 2nd repeats on the 2nd;
+    "the 2nd Tuesday" moved to that Thursday becomes "the 3rd Thursday".
   - A new repeat rebuilds the upcoming meetings on the new days.
   - **Does not repeat** ends the series after this meeting.
   - A series can also be moved further ahead than three months.
 
 Only someone who can change the series' first meeting (its organizer, the project's manager or an
-admin) can change, cancel or delete all its upcoming meetings. Someone running one meeting of it can
-change that meeting.
+admin), or every one of its upcoming meetings (for example after the series was handed to them or
+moved to their project), can change, cancel or delete all its upcoming meetings. Someone running one
+meeting of it can change that meeting.
 
 Meetings already held are never changed. If a series that has started gets a new schedule, it is
 split: the meetings held stay as one series, and the upcoming ones become a new series.
@@ -88,7 +91,7 @@ After that, calendars are kept in step:
 | One meeting changed | An update for that date only, to the people who have the series |
 | One meeting cancelled or deleted | A cancellation for that date only |
 | The series changed | The updated series |
-| A started series moved to a new schedule | The old series ends at its last meeting held, and the new series is sent |
+| A started series moved to a new schedule | The old series ends at its last meeting held (everyone who has it hears, people added to later meetings included), and the new series is sent |
 | The series cancelled before it started | The whole series is cancelled |
 | The series cancelled after it started | The series ends at its last meeting held (past meetings stay in calendars) |
 | A series whose first meeting was deleted moves to a new schedule | The old series is removed, and the new series is sent |
@@ -109,6 +112,8 @@ Reminders are sent before each meeting, as for any meeting.
   → Show meetings** hides them.
 - **Project dashboard:** the Meetings tab lists them, and **Repeating meetings** names each series
   with its next date.
+- **Android app:** the calendar shows meetings on their days (marked 🔁), and a project's screen lists
+  its next meetings and its repeating series. Meetings can't be changed in the app.
 
 ## API
 

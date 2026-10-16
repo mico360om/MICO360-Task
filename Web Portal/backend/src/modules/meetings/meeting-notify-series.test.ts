@@ -219,3 +219,21 @@ describe('people taken off a series', () => {
     expect(t.icsOf(t.email.sendMeetingCancelled.mock.calls[0])).toContain('RECURRENCE-ID;TZID=Asia/Muscat:20261027T100000');
   });
 });
+
+describe('series notices: second review fixes', () => {
+  it('sends the "series ended" notice to people added to its later meetings too, if they had the series', async () => {
+    const t = await setup();
+    await t.notify.sendInvites(t.root.id);
+    const third = t.list()[2]!;
+    const omar = await t.attendees.add({ meetingId: third.id, externalName: 'Omar', externalEmail: 'omar@example.com' });
+    await t.attendees.markInvited!([omar.id], NOW);
+    await t.attendees.add({ meetingId: third.id, externalName: 'Lina', externalEmail: 'lina@example.com' }); // never invited
+    t.clock.now = new Date('2026-10-28T08:00:00.000Z');
+    t.email.sendMeetingCancelled.mockClear();
+    await t.notify.sendCancellation(t.root.id, { scope: 'series', note: 'moved', alsoTo: [third] });
+    const to = t.email.sendMeetingCancelled.mock.calls.map((c) => c[0]);
+    expect(to).toEqual(expect.arrayContaining(['aisha@mico360.test', 'khurram@mico360.test', 'sara@example.com', 'omar@example.com']));
+    expect(to).not.toContain('lina@example.com');
+    expect(new Set(to).size).toBe(to.length);
+  });
+});

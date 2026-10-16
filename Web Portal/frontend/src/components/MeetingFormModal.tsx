@@ -111,10 +111,11 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
 
   const startDay = start.slice(0, 10);
   const startIso = fromLocalInputValue(start, timeZone);
-  // The end date is checked for a new repeat; a meeting of a series moved on its own keeps the series'.
-  const untilProblem = !seriesId || ruleChanged ? repeatProblem(rule, startDay) : null;
   // A new series starts on one of the repeat's days: say so when the chosen day isn't one.
   const firstDay = rule && !seriesId ? firstMeetingDay(startDay, rule) : startDay;
+  // The end date is checked for a new repeat — against the day the first meeting will really be
+  // on; a meeting of a series moved on its own keeps the series'.
+  const untilProblem = !seriesId || ruleChanged ? repeatProblem(rule, rule ? firstMeetingDay(startDay, rule) : startDay) : null;
   const summary = rule ? (startIso ? meetingRepeatText(rule, startIso, timeZone) : recurrenceSummary(rule)) : '';
 
   const saveMut = useMutation({

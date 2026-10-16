@@ -28,6 +28,11 @@ describe('meeting repeat wording', () => {
     expect(firstMeetingDay('2026-10-30', { freq: 'MONTHLY', interval: 1, nthWeekday: { week: -1, day: 5 } })).toBe('2026-10-30');
   });
 
+  it('finds the first meeting’s day whatever the count or end date (the server moves it all the same)', () => {
+    expect(firstMeetingDay('2026-10-20', { freq: 'WEEKLY', interval: 1, weekdays: [1, 3], count: 1 })).toBe('2026-10-21');
+    expect(firstMeetingDay('2026-10-20', { freq: 'WEEKLY', interval: 1, weekdays: [1, 3], until: '2026-10-20' })).toBe('2026-10-21');
+  });
+
   it('flags an end date before the first meeting', () => {
     expect(repeatProblem({ freq: 'DAILY', interval: 1, until: '2026-10-19' }, '2026-10-20')).toMatch(/can’t end before the first meeting/);
     expect(repeatProblem({ freq: 'DAILY', interval: 1, until: '2026-10-20' }, '2026-10-20')).toBeNull();
