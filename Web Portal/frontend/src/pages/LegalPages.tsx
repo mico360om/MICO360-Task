@@ -9,7 +9,7 @@ import { Logo } from '../components/ui/Logo';
  */
 
 const UPDATED = '29 September 2026';
-const CONTACT = 'support@mico360.com';
+const CONTACT = 'info@mico360.com';
 
 function LegalLayout({ title, children }: { title: string; children: ReactNode }) {
   return (

@@ -36,7 +36,7 @@ MAIL_FROM='MICO360 Tasks <no-reply@mico360.com>'
 # --- Company ----------------------------------------------------------------
 COMPANY_NAME=MICO360
 PRODUCT_NAME='MICO360 Tasks'
-SUPPORT_EMAIL=support@mico360.com
+SUPPORT_EMAIL=info@mico360.com
 COMPANY_WEBSITE_URL=https://mico360.com
 COMPANY_TIMEZONE=Asia/Muscat
 

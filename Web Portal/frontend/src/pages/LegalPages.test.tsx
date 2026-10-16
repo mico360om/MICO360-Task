@@ -8,7 +8,8 @@ describe('public privacy policy and terms', () => {
     render(<MemoryRouter><PrivacyPage /></MemoryRouter>);
     expect(screen.getByRole('heading', { level: 1, name: /privacy policy/i })).toBeInTheDocument();
     expect(screen.getByText(/download my data/i)).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /support@mico360\.com/i })[0]).toHaveAttribute('href', 'mailto:support@mico360.com');
+    expect(screen.getAllByRole('link', { name: /info@mico360\.com/i })[0]).toHaveAttribute('href', 'mailto:info@mico360.com');
+    expect(screen.queryByText(/support@mico360/i)).toBeNull();
     expect(screen.getByRole('link', { name: /back to sign in/i })).toHaveAttribute('href', '/login');
   });
 

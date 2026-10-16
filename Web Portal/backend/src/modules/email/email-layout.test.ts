@@ -45,7 +45,7 @@ describe('renderEmail — layout', () => {
 
   it('renders a branded footer with contact, address, legal + copyright', () => {
     const { html } = base();
-    expect(html).toContain('support@mico360.example'); // contact
+    expect(html).toContain('info@mico360.example'); // contact
     expect(html).toContain('Oman'); // company address
     expect(html).toMatch(/©\s*\d{4}\s*MICO360/); // copyright
     expect(html.toLowerCase()).toContain('confidential'); // disclaimer
@@ -83,7 +83,7 @@ describe('renderEmail — layout', () => {
     expect(text).toContain('Test heading');
     expect(text).toContain('A paragraph.');
     expect(text).toContain('Do it: https://app.test/go');
-    expect(text).toContain('support@mico360.example');
+    expect(text).toContain('info@mico360.example');
   });
 
   it('renders every block kind', () => {

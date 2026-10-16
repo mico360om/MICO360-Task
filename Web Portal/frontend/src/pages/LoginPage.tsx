@@ -215,7 +215,7 @@ export function LoginPage() {
 
             <p className="mt-6 border-t border-line pt-5 text-center text-[13px] text-ink-2">
               Staff accounts are created by your administrator — need access?{' '}
-              <a href="mailto:support@mico360.com" className="font-semibold text-brand hover:underline">Contact your admin.</a>
+              <a href="mailto:info@mico360.com" className="font-semibold text-brand hover:underline">Contact your admin.</a>
             </p>
           </div>
 

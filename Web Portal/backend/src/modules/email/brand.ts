@@ -55,7 +55,7 @@ export const DEFAULT_BRAND: Brand = {
   },
   appUrl: 'http://localhost:5173',
   websiteUrl: 'https://mico360.example',
-  supportEmail: 'support@mico360.example',
+  supportEmail: 'info@mico360.example',
   companyAddress: 'MICO360, Muscat, Sultanate of Oman',
   tagline: 'Project & task management for teams',
 };

@@ -62,6 +62,11 @@ async function signIn(keep: boolean) {
 }
 
 describe('LoginPage', () => {
+  it('sends people who need access to info@mico360.com', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: /contact your admin/i })).toHaveAttribute('href', 'mailto:info@mico360.com');
+  });
+
   it('with "Keep me signed in" unticked, keeps the session out of localStorage', async () => {
     loginResponse = () => json({ data: { user: { id: 'u1', email: 'a@x', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' } });
     renderPage();

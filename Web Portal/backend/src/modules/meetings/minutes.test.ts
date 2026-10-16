@@ -8,7 +8,7 @@ const data: MinutesData = {
     companyName: 'MICO360 Softwares',
     tagline: 'Project & task management for teams',
     websiteUrl: 'https://mico360.example',
-    supportEmail: 'support@mico360.example',
+    supportEmail: 'info@mico360.example',
     companyAddress: 'MICO360, Muscat, Oman',
     colors: { brand: '#8B1E1E', ink: '#211B1A', muted: '#6C625F', line: '#E6DFDC' },
   },
@@ -170,7 +170,7 @@ describe('buildMinutesPdf', () => {
     const { pages, contents } = inspectPdf(buildMinutesPdf(data));
     expect(pages[0]).toContain('MINUTES OF MEETING'); // eyebrow
     expect(pages[0]).toContain('MICO360 Tasks'); // product name in the masthead
-    expect(pages[0]).toContain('MICO360 Softwares  ·  https://mico360.example  ·  support@mico360.example'); // footer
+    expect(pages[0]).toContain('MICO360 Softwares  ·  https://mico360.example  ·  info@mico360.example'); // footer
     expect(pages[0]).toContain('MICO360, Muscat, Oman');
     // brand color #8B1E1E → red ≈ 0.545 drives the brand rule/eyebrow fill
     expect(contents[0]).toMatch(/0\.545\d* 0\.117\d* 0\.117\d* scn/);

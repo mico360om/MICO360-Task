@@ -44,7 +44,7 @@ const EnvSchema = z.object({
   // Email branding (used by all templates; safe defaults for local dev).
   COMPANY_NAME: z.string().default('MICO360'),
   PRODUCT_NAME: z.string().default('MICO360 Tasks'),
-  SUPPORT_EMAIL: z.string().default('support@mico360.example'),
+  SUPPORT_EMAIL: z.string().default('info@mico360.example'),
   COMPANY_WEBSITE_URL: z.string().default('https://mico360.example'),
   COMPANY_ADDRESS: z.string().default('MICO360, Muscat, Sultanate of Oman'),
   EMAIL_LOGO_URL: z.string().optional().default(''),
