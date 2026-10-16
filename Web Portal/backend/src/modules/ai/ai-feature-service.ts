@@ -187,7 +187,30 @@ export function createAiFeatureService({
     return { priority, reason };
   }
 
-  return { breakdownTask, parseTask, summarizeProject, suggestPriority };
+  /**
+   * Draft a meeting's final minutes from its facts (see meetings/final-minutes minutesFacts). The
+   * model is told to write only what the facts support. Returns its JSON; the caller checks it.
+   */
+  async function draftMinutes(facts: string, requester?: AiRequester): Promise<Record<string, unknown>> {
+    const text = await run(
+      [
+        'You write the final minutes of a business meeting. Use only the facts given: never invent names, dates, numbers or decisions.',
+        'Write concise, professional sentences, in the language the notes are written in.',
+        'Reply with ONLY JSON: {"summary": string (2-4 sentences: the purpose and the outcome),',
+        ' "discussion": [{"topic": string (an agenda item, or "Other points"), "text": string (what was discussed, 1-4 sentences)}],',
+        ' "decisions": string[], "risks": string[] (risks, issues and open questions), "nextSteps": string[] (each "action — owner, by date" when known)}.',
+        'Leave a list empty when the facts give nothing for it.',
+      ].join('\n'),
+      facts,
+      2500,
+      requester,
+    );
+    const obj = parseJsonObject(text);
+    if (Object.keys(obj).length === 0) throw new ValidationError('The AI’s draft couldn’t be read. Try again, or start from the notes.');
+    return obj;
+  }
+
+  return { breakdownTask, parseTask, summarizeProject, suggestPriority, draftMinutes };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;

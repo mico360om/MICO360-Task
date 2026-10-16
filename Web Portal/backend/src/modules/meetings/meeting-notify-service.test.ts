@@ -231,6 +231,13 @@ describe('MeetingNotifyService — checking before sending, and who got what', (
     await expect(svc.sendMinutes('m1', Buffer.from('%PDF'), { only: ['stranger@evil.example'] })).rejects.toMatchObject({ status: 400 });
   });
 
+  it('names the attachment as the final minutes once they are final', async () => {
+    const { svc, email } = makeService({ attendees: roster });
+    await svc.sendMinutes('m1', Buffer.from('%PDF'), { final: true });
+    expect((email.sendMeetingMinutes.mock.calls[0]![2] as { filename: string }).filename).toBe('minutes-final-sprint-review.pdf');
+    expect((await svc.previewMinutes('m1', { final: true })).attachmentName).toBe('minutes-final-sprint-review.pdf');
+  });
+
   it('previews the minutes email exactly as it will be sent', async () => {
     const { svc, email } = makeService({ attendees: roster });
     const p = await svc.previewMinutes('m1');

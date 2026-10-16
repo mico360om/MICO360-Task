@@ -153,6 +153,7 @@ import { createPrismaAuditRepository } from './modules/audit/prisma-audit-reposi
 import { createSettingsService } from './modules/settings/settings-service';
 import { createAiConfigService } from './modules/ai/ai-config-service';
 import { createAiFeatureService } from './modules/ai/ai-feature-service';
+import { createPrismaFinalMinutesRepository } from './modules/meetings/final-minutes-repository';
 import { createPrismaAiConfigRepository } from './modules/ai/prisma-ai-config-repository';
 import { createPrismaSettingsRepository } from './modules/settings/prisma-settings-repository';
 import { createOtpService } from './modules/auth/otp-service';
@@ -1079,6 +1080,9 @@ async function main(): Promise<void> {
     meetingListCounts,
     resolveUserNames,
     resolveProject,
+    // Final minutes (Final MOM): kept in the meeting_minutes table, drafted by the same AI as the other features.
+    finalMinutesRepository: createPrismaFinalMinutesRepository(prisma),
+    draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }) => aiFeatureService.draftMinutes(facts, requester),
     // The minutes PDF prints the project's picture: read it back from where uploads are stored.
     readProjectImage: async (url: string) =>
       url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null,

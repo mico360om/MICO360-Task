@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { inspectPdf } from '../../lib/pdf-inspect';
 import { buildApp } from '../../app';
+import { createMemoryFinalMinutesRepository } from './final-minutes-repository';
+import { ValidationError } from '../../lib/http-errors';
 import { createMeetingService } from './meeting-service';
 import { createMeetingAccess } from './meeting-access';
 import { createAttendeeService } from './attendee-service';
@@ -264,5 +266,123 @@ describe('Minutes PDF route: the project header', () => {
     const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
     expect(res.statusCode).toBe(200);
     expect(inspectPdf(res.rawPayload).pages[0]).toContain('FC');
+  });
+});
+
+describe('Final minutes (Final MOM)', () => {
+  async function setup(opts: { ai?: (facts: string) => Promise<unknown>; notify?: unknown } = {}) {
+    const attendeesOf: Record<string, string[]> = {};
+    const aiFacts: string[] = [];
+    const app = await makeApp(attendeesOf, undefined, opts.notify, {
+      finalMinutesRepository: createMemoryFinalMinutesRepository(() => new Date('2026-10-14T08:00:00Z')),
+      draftMinutesWithAi: async (facts: string) => {
+        aiFacts.push(facts);
+        if (!opts.ai) throw new ValidationError('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
+        return opts.ai(facts);
+      },
+    });
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const attendee = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: organizer, payload: { title: 'Weekly review', startAt: '2026-10-14T06:00:00Z' } })).json().data.id as string;
+    attendeesOf[id] = ['u2'];
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/notes`, headers: organizer, payload: { type: 'DECISION', body: 'Go-live moves to 1 November.' } });
+    const call = (method: 'GET' | 'POST' | 'PUT', path: string, who = organizer, payload?: unknown) =>
+      app.inject({ method, url: `/api/v1/meetings/${id}${path}`, headers: who, ...(payload ? { payload: payload as Record<string, unknown> } : {}) });
+    return { app, id, organizer, attendee, call, aiFacts };
+  }
+  const content = {
+    summary: 'Progress was reviewed and go-live moved.',
+    discussion: [{ topic: 'Go-live plan', text: 'The client needs time to test.' }],
+    decisions: ['Go-live moves to 1 November.'],
+    risks: ['Tablets may be late.'],
+    nextSteps: ['Send the form — Bilal, by Oct 18'],
+  };
+
+  it('drafts them from the notes, keeps edits as a draft, then marks them final and locks them', async () => {
+    const { call } = await setup();
+    expect((await call('GET', '/final-minutes')).json().data).toMatchObject({ status: 'NONE', content: null, canEdit: true });
+    const draft = await call('POST', '/final-minutes/draft', undefined, { source: 'notes' });
+    expect(draft.statusCode).toBe(200);
+    expect(draft.json().data.content.decisions).toEqual(['Go-live moves to 1 November.']);
+    expect((await call('GET', '/final-minutes')).json().data.status).toBe('NONE'); // a draft isn't kept until saved
+
+    const saved = await call('PUT', '/final-minutes', undefined, { content });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().data).toMatchObject({ status: 'DRAFT', content, approvedBy: null });
+
+    const final = await call('POST', '/final-minutes/approve');
+    expect(final.json().data).toMatchObject({ status: 'FINAL', content, approvedBy: { id: 'u1', name: 'User u1' } });
+    expect(final.json().data.approvedAt).toBeTruthy();
+
+    const locked = await call('PUT', '/final-minutes', undefined, { content: { ...content, summary: 'Changed' } });
+    expect(locked.statusCode).toBe(409);
+    expect(locked.json().error.code).toBe('FINAL_MINUTES_LOCKED');
+
+    const reopened = await call('POST', '/final-minutes/reopen');
+    expect(reopened.json().data).toMatchObject({ status: 'DRAFT', approvedBy: null, approvedAt: null });
+  });
+
+  it('can approve what is on screen in one step, but not empty minutes', async () => {
+    const { call } = await setup();
+    expect((await call('POST', '/final-minutes/approve')).statusCode).toBe(400); // nothing saved yet
+    const res = await call('POST', '/final-minutes/approve', undefined, { content });
+    expect(res.json().data).toMatchObject({ status: 'FINAL', content });
+  });
+
+  it('drafts them with the AI from the meeting facts', async () => {
+    const { call, aiFacts } = await setup({ ai: async () => ({ summary: ' A short meeting. ', decisions: ['Ship it'], extra: 1 }) });
+    const res = await call('POST', '/final-minutes/draft', undefined, { source: 'ai' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.content).toEqual({ summary: 'A short meeting.', discussion: [], decisions: ['Ship it'], risks: [], nextSteps: [] });
+    expect(aiFacts[0]).toContain('Meeting: Weekly review');
+    expect(aiFacts[0]).toContain('Go-live moves to 1 November.');
+  });
+
+  it('says why the AI could not draft them (so the notes can be used instead)', async () => {
+    const { call } = await setup();
+    const res = await call('POST', '/final-minutes/draft', undefined, { source: 'ai' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toMatch(/AI is not configured/);
+  });
+
+  it('lets only the organizer (or another editor) write them; attendees see them once final', async () => {
+    const { call, attendee } = await setup();
+    await call('PUT', '/final-minutes', undefined, { content });
+    expect((await call('GET', '/final-minutes', attendee)).json().data).toMatchObject({ status: 'NONE', content: null, canEdit: false });
+    const writes: Array<['POST' | 'PUT', string, unknown]> = [
+      ['POST', '/final-minutes/draft', { source: 'notes' }],
+      ['PUT', '/final-minutes', { content }],
+      ['POST', '/final-minutes/approve', undefined],
+      ['POST', '/final-minutes/reopen', undefined],
+    ];
+    for (const [method, path, body] of writes) {
+      expect((await call(method, path, attendee, body)).statusCode, path).toBe(403);
+    }
+    await call('POST', '/final-minutes/approve');
+    expect((await call('GET', '/final-minutes', attendee)).json().data).toMatchObject({ status: 'FINAL', content });
+  });
+
+  it('prints the final minutes as a PDF marked FINAL, with who approved them', async () => {
+    const { call } = await setup();
+    expect((await call('GET', '/minutes.pdf?version=final')).statusCode).toBe(409);
+    await call('POST', '/final-minutes/approve', undefined, { content });
+    const res = await call('GET', '/minutes.pdf?version=final');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-disposition']).toContain('minutes-final-weekly-review.pdf');
+    const text = inspectPdf(res.rawPayload).pages.flat();
+    expect(text).toEqual(expect.arrayContaining(['FINAL', 'Progress was reviewed and go-live moved.', 'Go-live plan', 'The client needs time to test.', 'Tablets may be late.', 'Send the form — Bilal, by Oct 18']));
+    expect(text.some((l) => l.includes('Approved by User u1'))).toBe(true);
+    // The working minutes are still there.
+    expect(inspectPdf((await call('GET', '/minutes.pdf')).rawPayload).pages.flat()).toContain('WORKING DRAFT');
+  });
+
+  it('emails the final minutes once they are approved', async () => {
+    const notify = { sendMinutes: vi.fn(async () => ({ sent: 1, failed: 0 })), previewMinutes: vi.fn() };
+    const { call, id } = await setup({ notify });
+    await call('POST', '/final-minutes/approve', undefined, { content });
+    await call('POST', '/minutes/send');
+    const args = notify.sendMinutes.mock.calls[0] as unknown as [string, Buffer];
+    expect(args[0]).toBe(id);
+    expect(inspectPdf(args[1]).pages.flat()).toContain('FINAL');
   });
 });

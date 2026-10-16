@@ -106,9 +106,10 @@ export interface MeetingNotifyService {
   /** Remove the event from one attendee's calendar after they were taken off an invited meeting. */
   sendAttendeeRemoved(meetingId: string, attendee: AttendeeRecord): Promise<DeliveryReport>;
   /** Email the minutes PDF; `only` limits it to some of the meeting's own recipients (by email). */
-  sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[] }): Promise<SendReport>;
+  /** `final`: the PDF is the approved final minutes (the attachment is named so). */
+  sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }): Promise<SendReport>;
   /** The minutes email exactly as it would be sent, and to whom — sends nothing. */
-  previewMinutes(meetingId: string): Promise<MinutesPreview>;
+  previewMinutes(meetingId: string, opts?: { final?: boolean }): Promise<MinutesPreview>;
   runReminderSweep(leadMs: number): Promise<{ meetings: number; sent: number; failed: number }>;
 }
 
@@ -365,16 +366,16 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const targets = chosen ? recipients.filter((r) => chosen.has(r.email.toLowerCase())) : recipients;
       if (chosen && targets.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
       const params = await emailParams(m, organizer);
-      const attachment: EmailAttachment = { filename: `minutes-${slugify(m.title)}.pdf`, contentType: 'application/pdf', content: pdf };
+      const attachment: EmailAttachment = { filename: minutesAttachmentName(m.title, opts?.final), contentType: 'application/pdf', content: pdf };
       const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => email.sendMeetingMinutes(p.email, params, attachment)));
       return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, chosen ? [] : missingEmail);
     },
 
-    async previewMinutes(meetingId) {
+    async previewMinutes(meetingId, opts) {
       const m = await requireMeeting(meetingId);
       const { recipients, missingEmail, organizer } = await recipientsFor(m);
       const content = meetingMinutesEmail(await emailParams(m, organizer));
-      return { subject: content.subject, html: content.html, text: content.text, attachmentName: `minutes-${slugify(m.title)}.pdf`, recipients, missingEmail };
+      return { subject: content.subject, html: content.html, text: content.text, attachmentName: minutesAttachmentName(m.title, opts?.final), recipients, missingEmail };
     },
 
     async runReminderSweep(leadMs) {
@@ -399,4 +400,9 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       return { meetings: due.length, sent, failed };
     },
   };
+}
+
+/** "minutes-weekly-review.pdf", or "minutes-final-weekly-review.pdf" for the approved final minutes. */
+function minutesAttachmentName(title: string, final?: boolean): string {
+  return `minutes-${final ? 'final-' : ''}${slugify(title)}.pdf`;
 }

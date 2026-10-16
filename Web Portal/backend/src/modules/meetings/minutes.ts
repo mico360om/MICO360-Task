@@ -2,6 +2,7 @@ import { PdfDocument, hexToRgb, type RGB } from '../../lib/pdf-document';
 import { printableImage } from '../../lib/pdf-image';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { isValidTimeZone } from './meeting-validation';
+import type { FinalMinutesContent } from './final-minutes';
 
 export interface MinutesMeeting {
   title: string;
@@ -41,6 +42,8 @@ export interface MinutesNote {
   highlighted: boolean;
   /** An action note already listed among the action items (so it isn't printed twice). */
   trackedAsActionItem?: boolean;
+  /** The agenda item the note was taken under, if any. */
+  agendaTitle?: string | null;
 }
 
 /** A tracked action item of the meeting (the Action Items card), as opposed to a note of type "Action Item". */
@@ -98,6 +101,8 @@ export interface MinutesData {
   generatedByName?: string | null;
   /** Working minutes (from the notes; marked as a draft) or the approved final minutes. Default 'working'. */
   version?: 'working' | 'final';
+  /** The approved final minutes, printed when `version` is 'final'. */
+  final?: { content: FinalMinutesContent; approvedByName: string | null; approvedAt: string | null } | null;
   /**
    * The company time zone (the server's COMPANY_TIMEZONE), used when the meeting has
    * no valid zone of its own. Falls back to the COMPANY_TIMEZONE env var, then Asia/Muscat.
@@ -124,7 +129,7 @@ export function resolveMinutesTimeZone(meetingTimeZone?: string | null, companyT
   return DEFAULT_COMPANY_TIMEZONE;
 }
 
-function fmtDay(iso: string | null | undefined, timeZone: string): string {
+export function fmtDay(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
@@ -254,10 +259,12 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     }
   }
 
-  // Summary / description
-  if (meeting.description && meeting.description.trim()) {
+  const final = data.version === 'final' ? (data.final ?? null) : null;
+  // Summary: the approved one in the final minutes, else the meeting's description.
+  const summaryText = final ? final.content.summary : (meeting.description?.trim() ?? '');
+  if (summaryText) {
     doc.heading('Summary');
-    doc.text(meeting.description.trim());
+    doc.text(summaryText);
   }
 
   // Attendees — role (required/optional), the answer to the invitation and attendance on the day
@@ -302,6 +309,39 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     }
   }
 
+  if (final) {
+    const c = final.content;
+    if (c.discussion.length > 0) {
+      doc.heading('Discussion', { keepWith: 30 });
+      for (const d of c.discussion) {
+        doc.text(d.topic, { bold: true, size: 10.5, color: INK, gap: 1 });
+        for (const line of d.text.split('\n').filter((l) => l.trim())) doc.text(line.trim(), { gap: 1 });
+        doc.spacer(4);
+      }
+    }
+    if (c.decisions.length > 0) {
+      doc.heading('Decisions', { keepWith: 30 });
+      c.decisions.forEach((d, i) => doc.numbered(`${i + 1}.`, d, { direction: textDirection(d) }));
+    }
+    if (items.length > 0) {
+      doc.heading('Action Items', { keepWith: 40 });
+      actionItemsTable(doc, items);
+    }
+    if (c.risks.length > 0) {
+      doc.heading('Risks & Open Issues', { keepWith: 30 });
+      for (const r of c.risks) doc.bullet(r, { direction: textDirection(r) });
+    }
+    if (c.nextSteps.length > 0) {
+      doc.heading('Next Steps', { keepWith: 30 });
+      for (const n of c.nextSteps) doc.bullet(n, { direction: textDirection(n) });
+    }
+    // Who wrote and who approved these minutes.
+    doc.heading('Approval', { keepWith: 40 });
+    const approved = final.approvedAt ? ` on ${isolate(fmtTimestamp(final.approvedAt, tz))}` : '';
+    doc.text(`Prepared by ${isolate(meeting.organizerName ?? '—')}  ·  Approved by ${isolate(final.approvedByName ?? '—')}${approved}`, { gap: 4 });
+    return doc.build();
+  }
+
   // Attribution line under a note, aligned with the note (right for an Arabic note).
   const byline = (n: MinutesNote): string =>
     `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}${n.highlighted ? ' · Key point' : ''}`;
@@ -317,20 +357,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
 
   if (items.length > 0 || actionNotes.length > 0) {
     doc.heading('Action Items', { keepWith: 40 });
-    if (items.length > 0) {
-      const withTask = items.some((i) => i.taskKey);
-      doc.table(
-        [{ header: 'Action' }, { header: 'Owner' }, { header: 'Due' }, { header: 'Priority' }, { header: 'Status' }, ...(withTask ? [{ header: 'Task' }] : [])],
-        items.map((i) => [
-          i.description,
-          i.ownerName || 'Unassigned',
-          i.dueDate ? fmtDay(i.dueDate, 'UTC') : '—',
-          i.priorityLabel,
-          i.statusLabel,
-          ...(withTask ? [i.taskKey ?? '—'] : []),
-        ]),
-      );
-    }
+    if (items.length > 0) actionItemsTable(doc, items);
     if (actionNotes.length > 0) {
       if (items.length > 0) doc.text('Also noted during the meeting', { bold: true, size: 9.5, color: INK, gap: 2 });
       for (const n of actionNotes) {
@@ -394,4 +421,20 @@ function initialsOf(name: string): string {
   if (words.length === 0) return '?';
   const letters = words.length > 1 ? [[...words[0]!][0], [...words[1]!][0]] : [...words[0]!].slice(0, 2);
   return letters.join('').toUpperCase();
+}
+
+/** The meeting's tracked action items: what, who, when it is due, how urgent, where it stands, its task. */
+function actionItemsTable(doc: PdfDocument, items: MinutesActionItem[]): void {
+  const withTask = items.some((i) => i.taskKey);
+  doc.table(
+    [{ header: 'Action' }, { header: 'Owner' }, { header: 'Due' }, { header: 'Priority' }, { header: 'Status' }, ...(withTask ? [{ header: 'Task' }] : [])],
+    items.map((i) => [
+      i.description,
+      i.ownerName || 'Unassigned',
+      i.dueDate ? fmtDay(i.dueDate, 'UTC') : '—',
+      i.priorityLabel,
+      i.statusLabel,
+      ...(withTask ? [i.taskKey ?? '—'] : []),
+    ]),
+  );
 }

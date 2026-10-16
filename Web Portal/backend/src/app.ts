@@ -56,6 +56,7 @@ import { registerNoteRoutes } from './modules/meetings/note-routes';
 import type { NoteService } from './modules/meetings/note-service';
 import type { NoteTaskService } from './modules/meetings/note-task-service';
 import { registerMinutesRoutes, type MinutesProjectSource } from './modules/meetings/minutes-routes';
+import type { FinalMinutesRepository } from './modules/meetings/final-minutes-repository';
 import type { MeetingNotifyService } from './modules/meetings/meeting-notify-service';
 import { registerActionItemRoutes } from './modules/meetings/action-item-routes';
 import type { ActionItemService } from './modules/meetings/action-item-service';
@@ -148,6 +149,10 @@ export interface AppDeps extends AuthRouteDeps {
   resolveProject?: (projectId: string) => Promise<MinutesProjectSource | null>;
   /** Reads a project's stored picture for the minutes PDF header. */
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
+  /** Where meetings' final minutes (Final MOM) are kept. */
+  finalMinutesRepository?: FinalMinutesRepository;
+  /** Drafts final minutes with the AI from a meeting's facts. */
+  draftMinutesWithAi?: (facts: string, requester: { userId: string; roles?: string[] }) => Promise<unknown>;
   activityService?: ActivityService;
   auditService?: AuditService;
   settingsService?: SettingsService;
@@ -553,6 +558,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           resolveUserNames: deps.resolveUserNames,
           resolveProject: deps.resolveProject,
           readProjectImage: deps.readProjectImage,
+          finalMinutes: deps.finalMinutesRepository,
+          draftMinutesWithAi: deps.draftMinutesWithAi,
           resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,
         });

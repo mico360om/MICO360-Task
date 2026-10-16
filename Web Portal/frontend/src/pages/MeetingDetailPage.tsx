@@ -14,6 +14,7 @@ import { ActionItemsSection } from '../components/meeting/ActionItemsSection';
 import { AttendeesPanel } from '../components/meeting/AttendeesPanel';
 import { InviteDialog } from '../components/meeting/InviteDialog';
 import { MinutesEmailDialog } from '../components/meeting/MinutesEmailDialog';
+import { FinalMinutesSection } from '../components/meeting/FinalMinutesSection';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
 import { Section, userName } from '../components/meeting/kit';
 import type { ActionMenuItem } from '../components/meeting/ActionMenu';
@@ -51,6 +52,8 @@ export function MeetingDetailPage() {
   const attendeesQ = useQuery({ queryKey: ['meeting', id, 'attendees'], queryFn: () => meetingsApi(apiClient).listAttendees(id), enabled: !!id, refetchInterval: pollMs });
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  // The final minutes (Final MOM), shared with their card: the menu offers their PDF once they are final.
+  const finalQ = useQuery({ queryKey: ['meeting', id, 'final-minutes'], queryFn: () => meetingsApi(apiClient).getFinalMinutes(id), enabled: !!id });
 
   // Live updates from other people in the meeting (notes, agenda, attendees, action items).
   useMeetingRealtime(id, meeting?.projectId ?? null, (kind: MeetingChangeKind) => {
@@ -81,6 +84,7 @@ export function MeetingDetailPage() {
     (text) => setNotice({ text, error: true }),
   );
   const exportPdf = () => void exportMinutes(meeting!).catch((err) => setNotice({ text: meetingFailure(err, 'Couldn’t export the minutes.'), error: true }));
+  const exportFinalPdf = () => void exportMinutes(meeting!, 'final').catch((err) => setNotice({ text: meetingFailure(err, 'Couldn’t export the final minutes.'), error: true }));
 
   if (meetingQ.isLoading) {
     return (
@@ -134,6 +138,7 @@ export function MeetingDetailPage() {
   if (canEdit && meeting.status === 'SCHEDULED' && primary !== 'start') menu.push({ label: 'Start meeting', onSelect: () => statusMut.mutate('IN_PROGRESS') });
   if (canEdit && meeting.status !== 'CANCELLED' && primary !== 'email-minutes') menu.push({ label: 'Email minutes…', onSelect: () => setDialog('minutes') });
   if (primary !== 'export-minutes') menu.push({ label: 'Export minutes (PDF)', onSelect: exportPdf });
+  if (finalQ.data?.status === 'FINAL') menu.push({ label: 'Export final minutes (PDF)', onSelect: exportFinalPdf });
   if (primary !== 'duplicate') menu.push({ label: 'Duplicate', onSelect: () => duplicate.mutate(meeting.id) });
   if (canEdit && !ended) menu.push({ label: 'Cancel meeting…', danger: true, onSelect: () => setDialog('cancel') });
   if (canEdit) menu.push({ label: 'Delete meeting…', danger: true, onSelect: () => setDialog('delete') });
@@ -171,6 +176,7 @@ export function MeetingDetailPage() {
           <AgendaSection meetingId={id} startAt={meeting.startAt} endAt={meeting.endAt} directory={directory} canEdit={canEdit} pollMs={pollMs} />
           <NotesSection meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
           <ActionItemsSection meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
+          <FinalMinutesSection meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} />
         </div>
         <aside className="flex min-w-0 flex-col gap-4 lg:gap-5" aria-label="Meeting information">
           <Section id="about" title="About">

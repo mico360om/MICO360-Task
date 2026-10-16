@@ -17,6 +17,28 @@ export interface RecurrenceRule {
   paused?: boolean;
 }
 
+/** The final minutes of a meeting (the "Final MOM"), as the organizer approves and sends them. */
+export interface FinalMinutesContent {
+  summary: string;
+  /** What was discussed, per agenda item (and "Other points"). */
+  discussion: Array<{ topic: string; text: string }>;
+  decisions: string[];
+  /** Risks, issues and open questions. */
+  risks: string[];
+  nextSteps: string[];
+}
+
+export interface FinalMinutes {
+  /** NONE: not written (or, for an attendee, not final yet); DRAFT: being written; FINAL: approved. */
+  status: 'NONE' | 'DRAFT' | 'FINAL';
+  content: FinalMinutesContent | null;
+  savedAt: string | null;
+  approvedBy: { id: string; name: string | null } | null;
+  approvedAt: string | null;
+  /** The signed-in person may write, approve and reopen them. */
+  canEdit: boolean;
+}
+
 export interface Meeting {
   id: string;
   title: string;
@@ -352,8 +374,21 @@ export function meetingsApi(client: ApiClient) {
       // `actionItem`: an action note is also tracked as an action item linked to the task.
       client.post<{ data: { task: NoteTask; note: MeetingNote; assigneeError?: string; actionItem?: ActionItem; actionItemError?: string } }>(`/meetings/${meetingId}/notes/${noteId}/task`, input).then((r) => r.data),
 
-    /** Download the Minutes of Meeting as a PDF blob. */
-    exportMinutesPdf: (meetingId: string) => client.getBlob(`/meetings/${meetingId}/minutes.pdf`),
+    /** Download the Minutes of Meeting as a PDF blob: the working minutes, or the approved final minutes. */
+    exportMinutesPdf: (meetingId: string, version: 'working' | 'final' = 'working') =>
+      client.getBlob(`/meetings/${meetingId}/minutes.pdf${version === 'final' ? '?version=final' : ''}`),
+
+    // Final minutes (Final MOM): drafted (AI or notes), edited, then marked final.
+    getFinalMinutes: (meetingId: string) => client.get<{ data: FinalMinutes }>(`/meetings/${meetingId}/final-minutes`).then((r) => r.data),
+    /** A first draft to edit (not kept until saved). */
+    draftFinalMinutes: (meetingId: string, source: 'ai' | 'notes') =>
+      client.post<{ data: { content: FinalMinutesContent; source: 'ai' | 'notes' } }>(`/meetings/${meetingId}/final-minutes/draft`, { source }).then((r) => r.data),
+    saveFinalMinutes: (meetingId: string, content: FinalMinutesContent) =>
+      client.put<{ data: FinalMinutes }>(`/meetings/${meetingId}/final-minutes`, { content }).then((r) => r.data),
+    /** Mark them final: with the content on screen, or what was saved. */
+    approveFinalMinutes: (meetingId: string, content?: FinalMinutesContent) =>
+      client.post<{ data: FinalMinutes }>(`/meetings/${meetingId}/final-minutes/approve`, content ? { content } : {}).then((r) => r.data),
+    reopenFinalMinutes: (meetingId: string) => client.post<{ data: FinalMinutes }>(`/meetings/${meetingId}/final-minutes/reopen`, {}).then((r) => r.data),
 
     // Action items (register + cross-meeting "My Action Items")
     listActionItems: (meetingId: string) => client.get<{ data: ActionItem[] }>(`/meetings/${meetingId}/action-items`).then((r) => r.data),

@@ -230,3 +230,27 @@ describe('AiFeatureService: describing a task in plain English', () => {
     expect(prompts[0]).not.toContain('Projects');
   });
 });
+
+describe('AiFeatureService: drafting final minutes', () => {
+  it('asks the model for the sections from the meeting’s facts only, and returns its JSON', async () => {
+    const sent: Array<{ system: string; user: string; max: number }> = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init!.body));
+      sent.push({ system: body.messages[0].content, user: body.messages[1].content, max: body.max_completion_tokens ?? body.max_tokens });
+      const answer = { summary: 'Progress was reviewed.', discussion: [{ topic: 'Go-live plan', text: 'Moved to November.' }], decisions: ['Go-live on 1 November.'], risks: [], nextSteps: [] };
+      return new Response(JSON.stringify({ choices: [{ message: { content: '```json\n' + JSON.stringify(answer) + '\n```' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl });
+    const draft = await svc.draftMinutes('Meeting: Weekly review\nNotes:\n[Decision] Go-live moves to 1 November.', { userId: 'u1' });
+    expect(draft).toEqual({ summary: 'Progress was reviewed.', discussion: [{ topic: 'Go-live plan', text: 'Moved to November.' }], decisions: ['Go-live on 1 November.'], risks: [], nextSteps: [] });
+    expect(sent[0]!.user).toContain('Go-live moves to 1 November.');
+    expect(sent[0]!.system).toMatch(/only the facts/i);
+    expect(sent[0]!.system).toContain('"nextSteps"');
+    expect(sent[0]!.max).toBeGreaterThanOrEqual(2000);
+  });
+
+  it('says so when the model’s answer can’t be read as minutes', async () => {
+    const svc = serviceWith('Sorry, I cannot help with that.');
+    await expect(svc.draftMinutes('Meeting: X', { userId: 'u1' })).rejects.toThrow(/couldn’t be read/i);
+  });
+});

@@ -9,6 +9,9 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { buildMinutesPdf, resolveMinutesTimeZone, type MinutesData } from './minutes';
 import { resolveBrand } from '../email/brand';
 import { dueDayKey } from '../../lib/due-date';
+import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { draftFromNotes, minutesFacts, normalizeFinalMinutes, type FinalMinutesContent } from './final-minutes';
+import type { FinalMinutesRecord, FinalMinutesRepository } from './final-minutes-repository';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
@@ -70,11 +73,15 @@ export interface MinutesRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Board keys of linked tasks (id → key), printed beside their action items. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
+  /** Where the final minutes (Final MOM) are kept; enables the /meetings/:id/final-minutes routes. */
+  finalMinutes?: FinalMinutesRepository;
+  /** Asks the AI for a draft of the final minutes from the meeting's facts (the person's AI limits apply). */
+  draftMinutesWithAi?: (facts: string, requester: { userId: string; roles?: string[] }) => Promise<unknown>;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
   notify?: {
-    sendMinutes: (meetingId: string, pdf: Buffer, opts?: { only?: string[] }) => Promise<{ sent: number; failed?: number }>;
+    sendMinutes: (meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }) => Promise<{ sent: number; failed?: number }>;
     /** The minutes email as it would be sent, and to whom (enables GET /meetings/:id/minutes/preview). */
-    previewMinutes?: (meetingId: string) => Promise<unknown>;
+    previewMinutes?: (meetingId: string, opts?: { final?: boolean }) => Promise<unknown>;
   };
 }
 
@@ -87,8 +94,12 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
   const canView = (req: FastifyRequest, id: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
 
-  /** Assemble the minutes data and render the branded PDF for a meeting the caller may view. */
-  async function buildPdf(req: FastifyRequest, id: string): Promise<{ pdf: Buffer; title: string }> {
+  /** Assemble the minutes data of a meeting the caller may view (`alsoName`: more people to name). */
+  async function gather(
+    req: FastifyRequest,
+    id: string,
+    alsoName: string[] = [],
+  ): Promise<{ data: MinutesData; title: string; nameOf: (uid: string | null) => string | null }> {
     const meeting = await meetingService.getMeeting(id);
     const [attendees, agenda, notes, projectSrc, actionItems] = await Promise.all([
       attendeeService.listAttendees(id),
@@ -101,6 +112,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     const ids = new Set<string>();
     ids.add(meeting.organizerId);
     ids.add(req.user!.id);
+    for (const u of alsoName) ids.add(u);
     if (projectSrc?.ownerId) ids.add(projectSrc.ownerId);
     for (const a of attendees) if (a.userId) ids.add(a.userId);
     for (const g of agenda) if (g.ownerId) ids.add(g.ownerId);
@@ -175,6 +187,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         createdAt: n.createdAt.toISOString(),
         highlighted: n.highlighted,
         trackedAsActionItem: n.type === 'ACTION' && (trackedNotes.has(n.id) || Boolean(n.actionItemId)),
+        agendaTitle: n.agendaItemId ? (agenda.find((g) => g.id === n.agendaItemId)?.title ?? null) : null,
       })),
       actionItems: actionItems.map((a) => ({
         description: a.description,
@@ -190,16 +203,35 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       generatedByName: nameOf(req.user!.id),
     };
 
-    return { pdf: buildMinutesPdf(data), title: meeting.title };
+    return { data, title: meeting.title, nameOf };
+  }
+
+  /** The final minutes as stored, when this server keeps them. */
+  const finalOf = async (id: string): Promise<FinalMinutesRecord | null> => (deps.finalMinutes ? deps.finalMinutes.get(id) : null);
+
+  /** The minutes PDF: the approved final minutes when asked for, else the working minutes from the notes. */
+  async function buildPdf(req: FastifyRequest, id: string, version: 'working' | 'final' = 'working'): Promise<{ pdf: Buffer; title: string }> {
+    if (version === 'working') {
+      const { data, title } = await gather(req, id);
+      return { pdf: buildMinutesPdf(data), title };
+    }
+    const final = await finalOf(id);
+    if (!final || final.status !== 'APPROVED') {
+      throw new ConflictError('There are no final minutes yet. Mark the minutes as final first.', 'NO_FINAL_MINUTES');
+    }
+    const { data, title, nameOf } = await gather(req, id, final.approvedById ? [final.approvedById] : []);
+    const approval = { approvedByName: nameOf(final.approvedById), approvedAt: final.approvedAt ? final.approvedAt.toISOString() : null };
+    return { pdf: buildMinutesPdf({ ...data, version: 'final', final: { content: final.content, ...approval } }), title };
   }
 
   app.get('/meetings/:id/minutes.pdf', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(404).send(notFound);
-    const { pdf, title } = await buildPdf(req, id);
+    const version = (req.query as { version?: string }).version === 'final' ? 'final' : 'working';
+    const { pdf, title } = await buildPdf(req, id, version);
     return reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `attachment; filename="minutes-${slugify(title)}.pdf"`)
+      .header('Content-Disposition', `attachment; filename="minutes-${version === 'final' ? 'final-' : ''}${slugify(title)}.pdf"`)
       .send(pdf);
   });
 
@@ -213,8 +245,11 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     }
     if (!deps.notify) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
     const body = sendBody.parse(req.body ?? {});
-    const { pdf } = await buildPdf(req, id);
-    const result = body.recipients ? await deps.notify.sendMinutes(id, pdf, { only: body.recipients }) : await deps.notify.sendMinutes(id, pdf);
+    // Once the minutes are final, the final version is what goes out.
+    const final = (await finalOf(id))?.status === 'APPROVED';
+    const { pdf } = await buildPdf(req, id, final ? 'final' : 'working');
+    const opts = { ...(body.recipients ? { only: body.recipients } : {}), ...(final ? { final: true } : {}) };
+    const result = Object.keys(opts).length ? await deps.notify.sendMinutes(id, pdf, opts) : await deps.notify.sendMinutes(id, pdf);
     return { data: result };
   });
 
@@ -226,6 +261,87 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Only the organizer, the project manager or an admin can send the minutes.' } });
     }
     if (!deps.notify?.previewMinutes) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
-    return { data: await deps.notify.previewMinutes(id) };
+    const final = (await finalOf(id))?.status === 'APPROVED';
+    return { data: await deps.notify.previewMinutes(id, final ? { final: true } : undefined) };
   });
+
+  // ── Final minutes (Final MOM): drafted (by the AI or from the notes), edited, then marked final ──
+  if (deps.finalMinutes) {
+    const store = deps.finalMinutes;
+    const canEdit = (req: FastifyRequest, id: string) => meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
+    const forbidden = { error: { code: 'FORBIDDEN', message: 'Only the organizer, the project manager or an admin can write the final minutes.' } };
+    const hasContent = (c: FinalMinutesContent) => Boolean(c.summary || c.discussion.length || c.decisions.length || c.risks.length || c.nextSteps.length);
+
+    /** What a person sees: editors see a draft too; everyone else sees the minutes only once they are final. */
+    const view = async (rec: FinalMinutesRecord | null, editor: boolean) => {
+      const shown = rec && (editor || rec.status === 'APPROVED') ? rec : null;
+      const approver = shown?.approvedById ?? null;
+      const approverName = approver ? ((await deps.resolveUserNames([approver])).get(approver) ?? null) : null;
+      return {
+        status: !shown ? 'NONE' : shown.status === 'APPROVED' ? 'FINAL' : 'DRAFT',
+        content: shown?.content ?? null,
+        savedAt: shown ? shown.savedAt.toISOString() : null,
+        approvedBy: approver ? { id: approver, name: approverName } : null,
+        approvedAt: shown?.approvedAt ? shown.approvedAt.toISOString() : null,
+        canEdit: editor,
+      };
+    };
+
+    app.get('/meetings/:id/final-minutes', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+      const { id } = req.params as { id: string };
+      if (!(await canView(req, id))) return reply.status(404).send(notFound);
+      return { data: await view(await store.get(id), await canEdit(req, id)) };
+    });
+
+    // A first draft for the organizer to edit: written by the AI from the meeting's facts, or from the notes.
+    // It isn't kept until it is saved.
+    const draftBody = z.object({ source: z.enum(['ai', 'notes']) });
+    app.post('/meetings/:id/final-minutes/draft', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+      const { id } = req.params as { id: string };
+      if (!(await canView(req, id))) return reply.status(404).send(notFound);
+      if (!(await canEdit(req, id))) return reply.status(403).send(forbidden);
+      const { source } = draftBody.parse(req.body ?? {});
+      const { data } = await gather(req, id);
+      if (source === 'notes') return { data: { content: draftFromNotes(data), source } };
+      if (!deps.draftMinutesWithAi) throw new ValidationError('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
+      const raw = await deps.draftMinutesWithAi(minutesFacts(data), { userId: req.user!.id, roles: req.user!.roles ?? [] });
+      return { data: { content: normalizeFinalMinutes(raw), source } };
+    });
+
+    const contentBody = z.object({ content: z.unknown() });
+    app.put('/meetings/:id/final-minutes', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+      const { id } = req.params as { id: string };
+      if (!(await canView(req, id))) return reply.status(404).send(notFound);
+      if (!(await canEdit(req, id))) return reply.status(403).send(forbidden);
+      const content = normalizeFinalMinutes(contentBody.parse(req.body ?? {}).content);
+      if ((await store.get(id))?.status === 'APPROVED') {
+        throw new ConflictError('These minutes are final. Reopen them to make changes.', 'FINAL_MINUTES_LOCKED');
+      }
+      const saved = await store.save(id, { content, status: 'DRAFT', approvedById: null, approvedAt: null });
+      return { data: await view(saved, true) };
+    });
+
+    // Mark the minutes final: the content sent along (what is on screen), else what was saved.
+    const approveBody = z.object({ content: z.unknown().optional() });
+    app.post('/meetings/:id/final-minutes/approve', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+      const { id } = req.params as { id: string };
+      if (!(await canView(req, id))) return reply.status(404).send(notFound);
+      if (!(await canEdit(req, id))) return reply.status(403).send(forbidden);
+      const body = approveBody.parse(req.body ?? {});
+      const content = body.content !== undefined ? normalizeFinalMinutes(body.content) : (await store.get(id))?.content;
+      if (!content || !hasContent(content)) throw new ValidationError('Write the final minutes before marking them final.');
+      const saved = await store.save(id, { content, status: 'APPROVED', approvedById: req.user!.id, approvedAt: new Date() });
+      return { data: await view(saved, true) };
+    });
+
+    app.post('/meetings/:id/final-minutes/reopen', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+      const { id } = req.params as { id: string };
+      if (!(await canView(req, id))) return reply.status(404).send(notFound);
+      if (!(await canEdit(req, id))) return reply.status(403).send(forbidden);
+      const current = await store.get(id);
+      if (!current) throw new NotFoundError('There are no final minutes to reopen.');
+      const saved = await store.save(id, { content: current.content, status: 'DRAFT', approvedById: null, approvedAt: null });
+      return { data: await view(saved, true) };
+    });
+  }
 }

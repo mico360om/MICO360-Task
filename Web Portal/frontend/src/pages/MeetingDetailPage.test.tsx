@@ -129,6 +129,18 @@ describe('MeetingDetailPage — header and actions', () => {
     expect(within(header).getByRole('link', { name: /join online/i })).toBeInTheDocument();
   });
 
+  it('has a Final minutes card, and offers the final minutes PDF once they are final', async () => {
+    const done = { summary: 'Done.', discussion: [], decisions: [], risks: [], nextSteps: [] };
+    override = (u, method) =>
+      u.endsWith('/meetings/m1/final-minutes') && method === 'GET'
+        ? json({ data: { status: 'FINAL', content: done, savedAt: '', approvedBy: { id: 'me', name: 'Me Myself' }, approvedAt: '2026-10-14T09:00:00Z', canEdit: true } })
+        : undefined;
+    renderPage();
+    expect(await screen.findByRole('region', { name: /final minutes/i })).toHaveTextContent('Approved by Me Myself');
+    const menu = await openMenu();
+    expect(within(menu).getByRole('menuitem', { name: 'Export final minutes (PDF)' })).toBeInTheDocument();
+  });
+
   it('shows management actions when the server allows editing (or doesn’t say)', async () => {
     renderPage();
     expect(await screen.findByRole('button', { name: /^send invitations$/i })).toBeInTheDocument();

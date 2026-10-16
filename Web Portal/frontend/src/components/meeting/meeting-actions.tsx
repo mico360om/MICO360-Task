@@ -18,16 +18,16 @@ export function meetingFailure(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** "minutes-weekly-sync.pdf" (Arabic or empty titles fall back to "meeting"). */
-export function minutesFileName(title: string): string {
+/** "minutes-weekly-sync.pdf", or "minutes-final-weekly-sync.pdf" (Arabic or empty titles fall back to "meeting"). */
+export function minutesFileName(title: string, version: 'working' | 'final' = 'working'): string {
   const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'meeting';
-  return `minutes-${slug}.pdf`;
+  return `minutes-${version === 'final' ? 'final-' : ''}${slug}.pdf`;
 }
 
-/** Download the minutes PDF of a meeting. */
-export async function exportMinutes(meeting: Pick<Meeting, 'id' | 'title'>): Promise<void> {
-  const blob = await meetingsApi(apiClient).exportMinutesPdf(meeting.id);
-  downloadBlob(minutesFileName(meeting.title), blob);
+/** Download the minutes PDF of a meeting: the working minutes, or the approved final minutes. */
+export async function exportMinutes(meeting: Pick<Meeting, 'id' | 'title'>, version: 'working' | 'final' = 'working'): Promise<void> {
+  const blob = await meetingsApi(apiClient).exportMinutesPdf(meeting.id, version);
+  downloadBlob(minutesFileName(meeting.title, version), blob);
 }
 
 function useInvalidateMeetings() {
