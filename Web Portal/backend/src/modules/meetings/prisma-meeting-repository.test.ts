@@ -14,8 +14,9 @@ function recorder(answers: Record<string, unknown> = {}) {
         return answers[`${name}.${op}`] ?? {};
       },
     });
-  const prisma = { meeting: model('meeting'), actionItem: model('actionItem'), meetingNote: model('meetingNote') } as unknown as PrismaClient;
-  return { prisma, calls };
+  const prisma = { meeting: model('meeting'), actionItem: model('actionItem'), meetingNote: model('meetingNote') } as Record<string, unknown>;
+  prisma.$transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma);
+  return { prisma: prisma as unknown as PrismaClient, calls };
 }
 
 const meetingRow = {
@@ -39,6 +40,43 @@ describe('Prisma meeting repository', () => {
     const { prisma, calls } = recorder({ 'meeting.findMany': [] });
     await createPrismaMeetingRepository(prisma).list({ organizerId: 'u5', scope: { userId: 'u5', projectIds: [] } });
     expect(calls[0]!.args.where).toMatchObject({ deletedAt: null, organizerId: 'u5' });
+  });
+
+  it('lists a calendar range in start order', async () => {
+    const { prisma, calls } = recorder({ 'meeting.findMany': [] });
+    const from = new Date('2026-10-01T00:00:00Z');
+    const to = new Date('2026-11-01T00:00:00Z');
+    await createPrismaMeetingRepository(prisma).list({ from, to });
+    expect(calls[0]!.args.where).toMatchObject({ deletedAt: null, startAt: { gte: from, lt: to } });
+    expect(calls[0]!.args.orderBy).toEqual({ startAt: 'asc' });
+  });
+
+  it('reads a series with its deleted meetings, the first meeting leading', async () => {
+    const later = { ...meetingRow, id: 'm2', recurrenceParentId: 'm1', deletedAt: new Date() };
+    const { prisma, calls } = recorder({ 'meeting.findMany': [later, meetingRow] });
+    const rows = await createPrismaMeetingRepository(prisma).listSeries('m1');
+    expect(calls[0]!.args.where).toEqual({ OR: [{ id: 'm1' }, { recurrenceParentId: 'm1' }] });
+    expect(rows.map((r) => r.id)).toEqual(['m1', 'm2']);
+    expect(rows[1]!.deletedAt).toBeInstanceOf(Date);
+  });
+
+  it('clears series places before re-timing, so meetings can swap places', async () => {
+    const { prisma, calls } = recorder({ 'meeting.update': meetingRow });
+    const at = new Date('2026-10-27T06:00:00Z');
+    await createPrismaMeetingRepository(prisma).applySeriesChanges([
+      { id: 'm2', patch: { startAt: at, recurrenceStart: at } },
+      { id: 'm3', patch: { title: 'Renamed' } },
+    ]);
+    expect(calls[0]).toEqual({ op: 'meeting.updateMany', args: { where: { id: { in: ['m2'] } }, data: { recurrenceStart: null } } });
+    expect(calls[1]!.args).toEqual({ where: { id: 'm2' }, data: { startAt: at, recurrenceStart: at } });
+    expect(calls[2]!.args).toEqual({ where: { id: 'm3' }, data: { title: 'Renamed' } });
+  });
+
+  it('takes removed meetings out of their series when asked', async () => {
+    const { prisma, calls } = recorder();
+    await createPrismaMeetingRepository(prisma).removeMany(['m4'], { detach: true });
+    expect(calls[0]!.args.data).toMatchObject({ recurrenceParentId: null, recurrenceStart: null });
+    expect((calls[0]!.args.data as Record<string, unknown>).deletedAt).toBeInstanceOf(Date);
   });
 
   it('can clear the reminder marker', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildIcs } from './ics';
+import { buildIcs, buildIcsCalendar } from './ics';
 
 const base = {
   uid: 'mtg-1@mico360',
@@ -100,6 +100,84 @@ describe('buildIcs', () => {
     expect(oneOff).not.toContain('VTIMEZONE');
     const bad = unfold(buildIcs({ ...base, method: 'REQUEST', timeZone: 'Muscat', recurrence: { freq: 'DAILY', interval: 1 } }));
     expect(bad).toContain('DTSTART:20261005T140000Z');
+  });
+
+  it('repeats monthly on "the 2nd Tuesday" and on the last day of short months', () => {
+    const nth = unfold(buildIcs({ ...base, method: 'REQUEST', recurrence: { freq: 'MONTHLY', interval: 1, nthWeekday: { week: 2, day: 2 } } }));
+    expect(nth).toContain('RRULE:FREQ=MONTHLY;INTERVAL=1;BYDAY=2TU');
+    const last = unfold(buildIcs({ ...base, method: 'REQUEST', recurrence: { freq: 'MONTHLY', interval: 1, nthWeekday: { week: -1, day: 5 } } }));
+    expect(last).toContain('BYDAY=-1FR');
+    // The 31st is each month's last day (as the app schedules it), not "skip short months".
+    const day31 = unfold(buildIcs({ ...base, method: 'REQUEST', recurrence: { freq: 'MONTHLY', interval: 1, dayOfMonth: 31 } }));
+    expect(day31).toContain('RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=28,29,30,31;BYSETPOS=-1');
+    const anchored = unfold(buildIcs({ ...base, method: 'REQUEST', recurrence: { freq: 'MONTHLY', interval: 1, anchorDay: 30 } }));
+    expect(anchored).toContain('BYMONTHDAY=28,29,30;BYSETPOS=-1');
+    const mid = unfold(buildIcs({ ...base, method: 'REQUEST', recurrence: { freq: 'MONTHLY', interval: 1, anchorDay: 15 } }));
+    expect(mid).toContain('RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=15');
+  });
+
+  it('counts weeks from Sunday for every-other-week rules (as the app does)', () => {
+    const ics = unfold(buildIcs({ ...base, method: 'REQUEST', recurrence: { freq: 'WEEKLY', interval: 2, weekdays: [0, 1] } }));
+    expect(ics).toContain('RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,MO;WKST=SU');
+  });
+
+  it('ends a series at the end of its last day, local time', () => {
+    const ics = unfold(buildIcs({
+      ...base,
+      method: 'REQUEST',
+      start: new Date('2026-10-20T06:00:00.000Z'),
+      end: new Date('2026-10-20T07:00:00.000Z'),
+      timeZone: 'Asia/Muscat',
+      recurrence: { freq: 'WEEKLY', interval: 1, until: '2026-11-03' },
+    }));
+    expect(ics).toContain('RRULE:FREQ=WEEKLY;INTERVAL=1;UNTIL=20261103T195959Z');
+  });
+
+  it('skips cancelled dates of a series with EXDATE', () => {
+    const ics = unfold(buildIcs({
+      ...base,
+      method: 'REQUEST',
+      start: new Date('2026-10-20T06:00:00.000Z'),
+      end: new Date('2026-10-20T07:00:00.000Z'),
+      timeZone: 'Asia/Muscat',
+      recurrence: { freq: 'WEEKLY', interval: 1 },
+      exdates: [new Date('2026-11-03T06:00:00.000Z'), new Date('2026-11-10T06:00:00.000Z')],
+    }));
+    expect(ics).toContain('EXDATE;TZID=Asia/Muscat:20261103T100000,20261110T100000');
+  });
+
+  it('changes or cancels one meeting of a series with RECURRENCE-ID', () => {
+    const one = unfold(buildIcs({
+      ...base,
+      method: 'CANCEL',
+      start: new Date('2026-10-27T06:00:00.000Z'),
+      end: new Date('2026-10-27T07:00:00.000Z'),
+      timeZone: 'Asia/Muscat',
+      recurrenceId: new Date('2026-10-27T06:00:00.000Z'),
+    }));
+    expect(one).toContain('RECURRENCE-ID;TZID=Asia/Muscat:20261027T100000');
+    expect(one).toContain('DTSTART;TZID=Asia/Muscat:20261027T100000');
+    expect(one).toContain('BEGIN:VTIMEZONE');
+    expect(one).not.toContain('RRULE');
+    expect(one).toContain('STATUS:CANCELLED');
+  });
+
+  it('sends a series and its changed meetings in one calendar', () => {
+    const master = {
+      ...base,
+      method: 'REQUEST' as const,
+      start: new Date('2026-10-20T06:00:00.000Z'),
+      end: new Date('2026-10-20T07:00:00.000Z'),
+      timeZone: 'Asia/Muscat',
+      recurrence: { freq: 'WEEKLY' as const, interval: 1 },
+    };
+    const moved = { ...master, recurrence: null, recurrenceId: new Date('2026-10-27T06:00:00.000Z'), start: new Date('2026-10-27T08:00:00.000Z'), end: new Date('2026-10-27T09:00:00.000Z') };
+    const ics = unfold(buildIcsCalendar('REQUEST', [master, moved]));
+    expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(2);
+    expect(ics.match(/BEGIN:VTIMEZONE/g)).toHaveLength(1);
+    expect(ics.match(/UID:mtg-1@mico360/g)).toHaveLength(2);
+    expect(ics).toContain('RECURRENCE-ID;TZID=Asia/Muscat:20261027T100000');
+    expect(ics).toContain('DTSTART;TZID=Asia/Muscat:20261027T120000');
   });
 
   it('leaves out a paused recurrence rule', () => {

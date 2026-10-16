@@ -7,6 +7,7 @@ import type {
   MeetingListFilter,
   RecurrenceRule,
   MeetingAccessCore,
+  MeetingSeriesStore,
 } from './meeting-repository';
 
 type Row = Meeting;
@@ -27,6 +28,7 @@ function toRecord(r: Row): MeetingRecord {
     timeZone: r.timeZone,
     recurrenceRule: (r.recurrenceRule as RecurrenceRule | null) ?? null,
     recurrenceParentId: r.recurrenceParentId,
+    recurrenceStart: r.recurrenceStart,
     templateId: r.templateId,
     transcript: r.transcript,
     invitesSentAt: r.invitesSentAt,
@@ -37,7 +39,34 @@ function toRecord(r: Row): MeetingRecord {
   };
 }
 
-export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepository {
+/** A record with its deletion time (series bookkeeping sees deleted meetings too). */
+const withDeleted = (r: Row): MeetingRecord => ({ ...toRecord(r), deletedAt: r.deletedAt });
+
+/** The columns an update may set (undefined leaves a column unchanged). */
+function updateData(patch: UpdateMeetingData): Prisma.MeetingUncheckedUpdateInput {
+  return {
+    ...(patch.title !== undefined ? { title: patch.title } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.category !== undefined ? { category: patch.category } : {}),
+    ...(patch.status !== undefined ? { status: patch.status } : {}),
+    ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
+    ...(patch.organizerId !== undefined ? { organizerId: patch.organizerId } : {}),
+    ...(patch.location !== undefined ? { location: patch.location } : {}),
+    ...(patch.onlineLink !== undefined ? { onlineLink: patch.onlineLink } : {}),
+    ...(patch.startAt !== undefined ? { startAt: patch.startAt } : {}),
+    ...(patch.endAt !== undefined ? { endAt: patch.endAt } : {}),
+    ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
+    // null clears the rule (a series made one-off again); undefined leaves it unchanged.
+    ...(patch.recurrenceRule !== undefined
+      ? { recurrenceRule: patch.recurrenceRule === null ? Prisma.DbNull : (patch.recurrenceRule as unknown as Prisma.InputJsonValue) }
+      : {}),
+    ...(patch.recurrenceParentId !== undefined ? { recurrenceParentId: patch.recurrenceParentId } : {}),
+    ...(patch.recurrenceStart !== undefined ? { recurrenceStart: patch.recurrenceStart } : {}),
+    ...(patch.invitesSentAt !== undefined ? { invitesSentAt: patch.invitesSentAt } : {}),
+  };
+}
+
+export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepository & MeetingSeriesStore {
   return {
     async create(data: CreateMeetingData) {
       const row = await prisma.meeting.create({
@@ -55,7 +84,9 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
           timeZone: data.timeZone ?? null,
           recurrenceRule: (data.recurrenceRule ?? undefined) as Prisma.InputJsonValue | undefined,
           recurrenceParentId: data.recurrenceParentId ?? null,
+          recurrenceStart: data.recurrenceStart ?? null,
           templateId: data.templateId ?? null,
+          invitesSentAt: data.invitesSentAt ?? null,
           createdById: data.createdById,
         },
       });
@@ -72,6 +103,7 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
       if (filter.projectId) where.projectId = filter.projectId;
       if (filter.status) where.status = filter.status;
       if (filter.organizerId) where.organizerId = filter.organizerId;
+      if (filter.from || filter.to) where.startAt = { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lt: filter.to } : {}) };
       // Object-level scope: non-admins see meetings they organize/attend or in their accessible projects.
       const scope = filter.scope;
       if (scope && scope.projectIds !== null) {
@@ -82,31 +114,14 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
         if (scope.projectIds.length > 0) or.push({ projectId: { in: scope.projectIds } });
         where.OR = or;
       }
-      const rows = await prisma.meeting.findMany({ where, orderBy: { startAt: 'desc' }, take: 500 });
+      // A calendar range lists every meeting in it; the plain list is the latest 500.
+      const ranged = !!(filter.from || filter.to);
+      const rows = await prisma.meeting.findMany({ where, orderBy: { startAt: ranged ? 'asc' : 'desc' }, take: ranged ? 2000 : 500 });
       return rows.map(toRecord);
     },
 
     async update(id, patch: UpdateMeetingData) {
-      const row = await prisma.meeting.update({
-        where: { id },
-        data: {
-          ...(patch.title !== undefined ? { title: patch.title } : {}),
-          ...(patch.description !== undefined ? { description: patch.description } : {}),
-          ...(patch.category !== undefined ? { category: patch.category } : {}),
-          ...(patch.status !== undefined ? { status: patch.status } : {}),
-          ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
-          ...(patch.organizerId !== undefined ? { organizerId: patch.organizerId } : {}),
-          ...(patch.location !== undefined ? { location: patch.location } : {}),
-          ...(patch.onlineLink !== undefined ? { onlineLink: patch.onlineLink } : {}),
-          ...(patch.startAt !== undefined ? { startAt: patch.startAt } : {}),
-          ...(patch.endAt !== undefined ? { endAt: patch.endAt } : {}),
-          ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
-          // null clears the rule (a series made one-off again); undefined leaves it unchanged.
-          ...(patch.recurrenceRule !== undefined
-            ? { recurrenceRule: patch.recurrenceRule === null ? Prisma.DbNull : (patch.recurrenceRule as unknown as Prisma.InputJsonValue) }
-            : {}),
-        },
-      });
+      const row = await prisma.meeting.update({ where: { id }, data: updateData(patch) });
       return toRecord(row);
     },
 
@@ -148,6 +163,46 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
         take: 200,
       });
       return rows.map(toRecord);
+    },
+
+    async findAnyById(id) {
+      const row = await prisma.meeting.findUnique({ where: { id } });
+      return row ? withDeleted(row) : null;
+    },
+
+    async listSeries(rootId) {
+      const rows = await prisma.meeting.findMany({
+        where: { OR: [{ id: rootId }, { recurrenceParentId: rootId }] },
+        orderBy: [{ recurrenceStart: 'asc' }, { startAt: 'asc' }],
+      });
+      // The first meeting leads even if it was moved after a later one.
+      return rows.map(withDeleted).sort((a, b) => (a.id === rootId ? -1 : b.id === rootId ? 1 : 0));
+    },
+
+    async listSeriesRoots() {
+      const rows = await prisma.meeting.findMany({
+        where: { recurrenceParentId: null, recurrenceRule: { not: Prisma.DbNull } },
+        take: 5000,
+      });
+      return rows.map(withDeleted).filter((r) => r.recurrenceRule && !r.recurrenceRule.paused);
+    },
+
+    async applySeriesChanges(changes) {
+      if (changes.length === 0) return;
+      await prisma.$transaction(async (tx) => {
+        // Clear the places being changed first: two meetings swapping places never share one.
+        const moving = changes.filter((c) => c.patch.recurrenceStart !== undefined).map((c) => c.id);
+        if (moving.length) await tx.meeting.updateMany({ where: { id: { in: moving } }, data: { recurrenceStart: null } });
+        for (const c of changes) await tx.meeting.update({ where: { id: c.id }, data: updateData(c.patch) });
+      });
+    },
+
+    async removeMany(ids, opts) {
+      if (ids.length === 0) return;
+      await prisma.meeting.updateMany({
+        where: { id: { in: ids } },
+        data: { deletedAt: new Date(), ...(opts?.detach ? { recurrenceParentId: null, recurrenceStart: null, recurrenceRule: Prisma.DbNull } : {}) },
+      });
     },
   };
 }

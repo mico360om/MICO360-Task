@@ -78,7 +78,7 @@ export function completedOnTime(due: DateInput, completedAt: DateInput, timeZone
 }
 
 /** Offset (ms) of a time zone from UTC at a given instant. */
-function zoneOffsetMs(instant: Date, timeZone: string): number {
+export function zoneOffsetMs(instant: Date, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     hourCycle: 'h23',

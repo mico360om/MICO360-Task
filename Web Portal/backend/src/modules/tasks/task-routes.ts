@@ -71,6 +71,8 @@ const createSchema = z.object({
   dueDate: dateInput.optional(),
   estimatedHours: hours.optional(),
   progress: z.number().int().min(0).max(100).optional(),
+  /** A key date or deliverable of the project (shown as a milestone on its dashboard). */
+  isMilestone: z.boolean().optional(),
   recurrenceRule: recurrenceSchema.nullable().optional(),
   /** Optional board day (YYYY-MM-DD) for per-date boards; defaults to today. */
   boardDate: calendarDay.optional(),
@@ -91,6 +93,7 @@ const updateSchema = z.object({
   estimatedHours: hours.nullable().optional(),
   actualHours: hours.nullable().optional(),
   progress: z.number().int().min(0).max(100).optional(),
+  isMilestone: z.boolean().optional(),
   recurrenceRule: recurrenceSchema.nullable().optional(),
   expectedVersion: z.number().int().optional(),
   /** 'series' applies the edit to every occurrence of a recurring task. */

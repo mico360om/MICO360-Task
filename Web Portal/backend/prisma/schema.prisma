@@ -252,6 +252,8 @@ model Task {
   estimatedHours Float?
   actualHours    Float?
   progress       Int       @default(0)
+  /// A milestone: a key date or deliverable of its project (shown on the project dashboard).
+  isMilestone    Boolean   @default(false)
   createdById    String
   completedAt    DateTime?
   boardDate       DateTime?  // per-date boards: the calendar day this task appears on (noon-UTC anchor)
@@ -734,6 +736,8 @@ model Meeting {
   timeZone           String?
   recurrenceRule     Json?
   recurrenceParentId String?
+  /// A series meeting's place in its series: the start the rule gave it (kept when it is moved on its own).
+  recurrenceStart    DateTime?
   templateId         String?
   transcript         String?       @db.Text
   invitesSentAt      DateTime?
@@ -754,6 +758,8 @@ model Meeting {
   @@index([organizerId])
   @@index([status])
   @@index([startAt])
+  // One meeting per place in a series, so a series is never filled in twice.
+  @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")
 }
 

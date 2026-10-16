@@ -19,6 +19,8 @@ export interface TaskRecord {
   estimatedHours: number | null;
   actualHours: number | null;
   progress: number;
+  /** A milestone: a key date or deliverable of its project (the project dashboard lists them). */
+  isMilestone?: boolean;
   createdById: string;
   completedAt: Date | null;
   recurrenceRule: RecurrenceRule | null;
@@ -54,6 +56,7 @@ export interface CreateTaskData {
   dueDate?: Date | null;
   estimatedHours?: number | null;
   progress?: number;
+  isMilestone?: boolean;
   createdById: string;
   recurrenceRule?: RecurrenceRule | null;
   recurrenceParentId?: string | null;
@@ -92,6 +95,7 @@ export interface UpdateTaskData {
   estimatedHours?: number | null;
   actualHours?: number | null;
   progress?: number;
+  isMilestone?: boolean;
   completedAt?: Date | null;
   recurrenceRule?: RecurrenceRule | null;
   recurrenceParentId?: string | null;

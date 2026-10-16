@@ -1,7 +1,8 @@
 /**
  * Dependency-free iCalendar (RFC 5545) builder for meeting invites, updates and
- * cancellations. Produces a single VEVENT suitable for attaching to an email so
- * calendar clients (Outlook, Google, Apple) can add/update/remove the event.
+ * cancellations, attached to emails so calendar clients (Outlook, Google, Apple) can
+ * add/update/remove the event. A repeating series is one event with an RRULE; one meeting of
+ * it is changed or cancelled with a RECURRENCE-ID event, and cancelled dates are EXDATEs.
  */
 
 export type IcsMethod = 'REQUEST' | 'CANCEL';
@@ -21,6 +22,10 @@ export interface IcsRecurrence {
   /** 0=Sunday … 6=Saturday. */
   weekdays?: number[];
   dayOfMonth?: number;
+  /** "The 2nd Tuesday" of the month (week -1 = the last). */
+  nthWeekday?: { week: number; day: number };
+  /** The first meeting's day of the month, when no day is named. */
+  anchorDay?: number;
   /** A paused series is sent as a single occurrence (no RRULE). */
   paused?: boolean;
 }
@@ -43,6 +48,10 @@ export interface IcsEvent {
   organizer: IcsPerson;
   attendees?: IcsPerson[];
   recurrence?: IcsRecurrence | null;
+  /** One meeting of a series: the start the series gave it (RECURRENCE-ID); no RRULE is written. */
+  recurrenceId?: Date | null;
+  /** Dates of a series that don't take place (cancelled or deleted meetings). */
+  exdates?: Date[];
   /** Overrides DTSTAMP (defaults to now) — injectable for deterministic tests. */
   stamp?: Date;
   prodId?: string;
@@ -80,20 +89,45 @@ function fold(line: string): string {
   return out.join('\r\n');
 }
 
-function recurrenceToRrule(r: IcsRecurrence): string {
+/** The last second of a 'YYYY-MM-DD' day in a zone (UTC without one), for UNTIL. */
+function endOfDay(day: string, timeZone: string | null): Date {
+  const wall = Date.parse(`${day}T00:00:00Z`) + DAY_MS;
+  if (!timeZone) return new Date(wall - 1000);
+  const guess = wall - offsetMinutes(new Date(wall), timeZone) * MINUTE_MS;
+  return new Date(wall - offsetMinutes(new Date(guess), timeZone) * MINUTE_MS - 1000);
+}
+
+/**
+ * The RRULE for a rule, matching how the app schedules it: weeks run from Sunday, and a day of
+ * the month past the 28th is clamped to short months (the 31st is each month's last day).
+ */
+function recurrenceToRrule(r: IcsRecurrence, timeZone: string | null): string {
   const parts: string[] = [];
   if (r.freq === 'QUARTERLY') {
     parts.push('FREQ=MONTHLY', `INTERVAL=${Math.max(1, r.interval) * 3}`);
   } else {
     parts.push(`FREQ=${r.freq}`, `INTERVAL=${Math.max(1, r.interval)}`);
   }
-  if (r.weekdays && r.weekdays.length) {
+  const monthly = r.freq === 'MONTHLY' || r.freq === 'QUARTERLY';
+  if (r.weekdays && r.weekdays.length && r.freq === 'WEEKLY') {
     parts.push(`BYDAY=${r.weekdays.map((d) => BYDAY[((d % 7) + 7) % 7]).join(',')}`);
   }
-  if (r.dayOfMonth) parts.push(`BYMONTHDAY=${r.dayOfMonth}`);
+  if (monthly && r.nthWeekday) {
+    parts.push(`BYDAY=${r.nthWeekday.week}${BYDAY[((r.nthWeekday.day % 7) + 7) % 7]}`);
+  } else if (monthly && (r.dayOfMonth || r.anchorDay)) {
+    const day = (r.dayOfMonth || r.anchorDay)!;
+    if (day > 28) {
+      const days = [];
+      for (let d = 28; d <= day; d++) days.push(d);
+      parts.push(`BYMONTHDAY=${days.join(',')}`, 'BYSETPOS=-1');
+    } else {
+      parts.push(`BYMONTHDAY=${day}`);
+    }
+  }
+  if (r.freq === 'WEEKLY' && r.interval > 1) parts.push('WKST=SU');
   if (r.count != null) parts.push(`COUNT=${r.count}`);
   else if (r.until) {
-    const u = new Date(r.until);
+    const u = /^\d{4}-\d{2}-\d{2}$/.test(r.until) ? endOfDay(r.until, timeZone) : new Date(r.until);
     if (!Number.isNaN(u.getTime())) parts.push(`UNTIL=${formatUtc(u)}`);
   }
   return parts.join(';');
@@ -181,10 +215,11 @@ function vtimezone(timeZone: string, around: Date): string[] {
   return lines;
 }
 
-/** The zone to anchor a recurring event in, or null to keep plain UTC times. */
+/** The zone to anchor a series' event in (a repeat, or one meeting of it), or null to keep plain UTC times. */
 function anchorZone(event: IcsEvent): string | null {
   const tz = event.timeZone;
-  if (!tz || !event.recurrence || event.recurrence.paused || /^(Etc\/)?(UTC|GMT)$/i.test(tz)) return null;
+  const series = (event.recurrence && !event.recurrence.paused) || event.recurrenceId || event.exdates?.length;
+  if (!tz || !series || /^(Etc\/)?(UTC|GMT)$/i.test(tz)) return null;
   try {
     offsetMinutes(event.start, tz);
     return tz;
@@ -203,25 +238,19 @@ function person(prop: 'ORGANIZER' | 'ATTENDEE', p: IcsPerson): string {
   return `${prop}${params.length ? `;${params.join(';')}` : ''}:mailto:${p.email}`;
 }
 
-/** Build a complete iCalendar document (VCALENDAR with one VEVENT). */
-export function buildIcs(event: IcsEvent): string {
-  const cancel = event.method === 'CANCEL';
+/** One VEVENT's lines. */
+function vevent(event: IcsEvent, method: IcsMethod): string[] {
   const tz = anchorZone(event);
-  const when = (prop: 'DTSTART' | 'DTEND', d: Date) =>
-    tz ? `${prop};TZID=${tz}:${formatLocal(d, offsetMinutes(d, tz))}` : `${prop}:${formatUtc(d)}`;
+  const local = (d: Date) => (tz ? formatLocal(d, offsetMinutes(d, tz)) : formatUtc(d));
+  const when = (prop: 'DTSTART' | 'DTEND' | 'RECURRENCE-ID', d: Date) => (tz ? `${prop};TZID=${tz}:${local(d)}` : `${prop}:${local(d)}`);
   const lines: string[] = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    `PRODID:${event.prodId ?? '-//MICO360//Meetings//EN'}`,
-    'CALSCALE:GREGORIAN',
-    `METHOD:${event.method}`,
-    ...(tz ? vtimezone(tz, event.start) : []),
     'BEGIN:VEVENT',
     `UID:${event.uid}`,
     `SEQUENCE:${event.sequence ?? 0}`,
     `DTSTAMP:${formatUtc(event.stamp ?? new Date())}`,
-    when('DTSTART', event.start),
   ];
+  if (event.recurrenceId) lines.push(when('RECURRENCE-ID', event.recurrenceId));
+  lines.push(when('DTSTART', event.start));
   if (event.end) lines.push(when('DTEND', event.end));
   lines.push(`SUMMARY:${escapeText(event.summary)}`);
   if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);
@@ -229,8 +258,38 @@ export function buildIcs(event: IcsEvent): string {
   if (event.url) lines.push(`URL:${event.url}`);
   lines.push(person('ORGANIZER', event.organizer));
   for (const a of event.attendees ?? []) lines.push(person('ATTENDEE', a));
-  if (event.recurrence && !event.recurrence.paused) lines.push(`RRULE:${recurrenceToRrule(event.recurrence)}`);
-  lines.push(`STATUS:${cancel ? 'CANCELLED' : 'CONFIRMED'}`);
-  lines.push('END:VEVENT', 'END:VCALENDAR');
+  if (event.recurrence && !event.recurrence.paused && !event.recurrenceId) lines.push(`RRULE:${recurrenceToRrule(event.recurrence, tz)}`);
+  if (event.exdates?.length && !event.recurrenceId) {
+    lines.push(tz ? `EXDATE;TZID=${tz}:${event.exdates.map(local).join(',')}` : `EXDATE:${event.exdates.map(local).join(',')}`);
+  }
+  lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`);
+  lines.push('END:VEVENT');
+  return lines;
+}
+
+/**
+ * Build a complete iCalendar document with several events of one UID: a series and the
+ * meetings of it that differ, or several meetings of a series being cancelled.
+ */
+export function buildIcsCalendar(method: IcsMethod, events: IcsEvent[]): string {
+  const first = events[0];
+  if (!first) throw new Error('A calendar needs at least one event.');
+  const zoned = events.find((e) => anchorZone(e));
+  const tz = zoned ? anchorZone(zoned) : null;
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    `PRODID:${first.prodId ?? '-//MICO360//Meetings//EN'}`,
+    'CALSCALE:GREGORIAN',
+    `METHOD:${method}`,
+    ...(tz && zoned ? vtimezone(tz, zoned.start) : []),
+    ...events.flatMap((e) => vevent(e, method)),
+    'END:VCALENDAR',
+  ];
   return lines.map(fold).join('\r\n') + '\r\n';
+}
+
+/** Build a complete iCalendar document (VCALENDAR with one VEVENT). */
+export function buildIcs(event: IcsEvent): string {
+  return buildIcsCalendar(event.method, [event]);
 }

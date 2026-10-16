@@ -25,8 +25,13 @@ export interface AttendeeServiceDeps {
   attendees: AttendeeRepository;
   /** Fired after the attendee roster changes, so the meeting aggregate can broadcast. */
   onChanged?: (meetingId: string) => void;
-  /** Fired after an attendee is removed (server.ts retracts their calendar invitation). */
-  onRemoved?: (meetingId: string, attendee: AttendeeRecord) => void;
+  /**
+   * Fired after an attendee is removed (server.ts retracts their calendar invitation), with the
+   * later meetings of the series they were taken off at the same time.
+   */
+  onRemoved?: (meetingId: string, attendee: AttendeeRecord, alsoFrom: string[]) => void;
+  /** The upcoming meetings after this one in its series: people added or removed carry on to them. */
+  laterMeetings?: (meetingId: string) => Promise<string[]>;
   /** Who may change the roster (organizer / creator / project manager / admin). Open when not wired. */
   canEditMeeting?: CanEditMeeting;
   now?: () => Date;
@@ -51,6 +56,15 @@ const trim = (v: string | null | undefined): string | null => {
   const t = (v ?? '').trim();
   return t.length ? t : null;
 };
+
+const same = (a?: string | null, b?: string | null) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Is `a` the same person as `who` (the same user; a guest by email, or by name without one)? */
+function samePerson(a: Pick<AttendeeRecord, 'userId' | 'externalEmail' | 'externalName'>, who: { userId: string | null; externalEmail: string | null; externalName: string | null }): boolean {
+  if (who.userId) return a.userId === who.userId;
+  if (a.userId) return false;
+  return who.externalEmail ? same(a.externalEmail, who.externalEmail) : !a.externalEmail && same(a.externalName, who.externalName);
+}
 
 export function createAttendeeService(deps: AttendeeServiceDeps): AttendeeService {
   const { attendees } = deps;
@@ -81,28 +95,21 @@ export function createAttendeeService(deps: AttendeeServiceDeps): AttendeeServic
       }
       if (input.role && !ROLES.includes(input.role)) throw new ValidationError('Invalid attendee role.');
       if (input.attendance && !STATUSES.includes(input.attendance)) throw new ValidationError('Invalid attendance status.');
+      // The same guest twice: same email, or — when no email was given — the same name.
+      const who = { userId, externalName, externalEmail: trim(input.externalEmail) };
       const existing = await attendees.listByMeeting(meetingId);
-      if (userId) {
-        if (existing.some((a) => a.userId === userId)) {
-          throw new ConflictError('This person is already an attendee.');
-        }
-      } else {
-        // The same guest twice: same email, or — when no email was given — the same name.
-        const same = (a?: string | null, b?: string | null) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
-        const email = trim(input.externalEmail);
-        const duplicate = existing.some((a) => !a.userId && (email ? same(a.externalEmail, email) : !a.externalEmail && same(a.externalName, externalName)));
-        if (duplicate) throw new ConflictError('This guest is already an attendee.');
+      if (existing.some((a) => samePerson(a, who))) {
+        throw new ConflictError(userId ? 'This person is already an attendee.' : 'This guest is already an attendee.');
       }
-      const rec = await attendees.add({
-        meetingId,
-        userId,
-        externalName,
-        externalEmail: trim(input.externalEmail),
-        role: input.role ?? 'REQUIRED',
-        attendance: input.attendance ?? 'INVITED',
-        department: trim(input.department),
-      });
+      const data = { ...who, role: input.role ?? 'REQUIRED', attendance: input.attendance ?? 'INVITED', department: trim(input.department) };
+      const rec = await attendees.add({ meetingId, ...data });
       deps.onChanged?.(meetingId);
+      // In a series they join the later meetings too (where they aren't already).
+      for (const later of (await deps.laterMeetings?.(meetingId)) ?? []) {
+        if ((await attendees.listByMeeting(later)).some((a) => samePerson(a, who))) continue;
+        await attendees.add({ meetingId: later, ...data, attendance: 'INVITED' });
+        deps.onChanged?.(later);
+      }
       return rec;
     },
 
@@ -135,9 +142,18 @@ export function createAttendeeService(deps: AttendeeServiceDeps): AttendeeServic
 
     async removeAttendee(meetingId, attendeeId) {
       const rec = await requireInMeeting(meetingId, attendeeId);
+      // In a series they leave the later meetings too.
+      const alsoFrom: string[] = [];
+      for (const later of (await deps.laterMeetings?.(meetingId)) ?? []) {
+        const match = (await attendees.listByMeeting(later)).find((a) => samePerson(a, rec));
+        if (!match) continue;
+        await attendees.remove(match.id);
+        alsoFrom.push(later);
+        deps.onChanged?.(later);
+      }
       await attendees.remove(attendeeId);
       deps.onChanged?.(meetingId);
-      deps.onRemoved?.(meetingId, rec);
+      deps.onRemoved?.(meetingId, rec, alsoFrom);
     },
 
     async suggestAttendees(meetingId, previousMeetingIds) {

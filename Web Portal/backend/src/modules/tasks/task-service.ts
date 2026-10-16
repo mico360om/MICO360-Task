@@ -24,6 +24,7 @@ export interface NewTask {
   dueDate?: Date | null;
   estimatedHours?: number | null;
   progress?: number;
+  isMilestone?: boolean;
   createdById: string;
   recurrenceRule?: RecurrenceRule | null;
   /** Links a generated instance back to its recurring series (the origin task's id). */

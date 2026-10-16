@@ -6,6 +6,10 @@ export interface RecurrenceRule {
   until?: string | null;
   weekdays?: number[];
   dayOfMonth?: number;
+  /** MONTHLY/QUARTERLY: "the 2nd Tuesday" (week 1–4 or -1 = last; day 0 = Sunday). */
+  nthWeekday?: { week: 1 | 2 | 3 | 4 | -1; day: number };
+  /** The first meeting's day of the month, kept so a 31st clamped to the 30th comes back. */
+  anchorDay?: number;
   paused?: boolean;
 }
 
@@ -24,8 +28,12 @@ export interface MeetingRecord {
   startAt: Date;
   endAt: Date | null;
   timeZone: string | null;
+  /** On the first meeting of a series: the series' rule (null on its other meetings and one-offs). */
   recurrenceRule: RecurrenceRule | null;
+  /** On the other meetings of a series: the first meeting's id. */
   recurrenceParentId: string | null;
+  /** A series meeting's place in the series — the start its rule gave it, kept if it's moved on its own. */
+  recurrenceStart?: Date | null;
   templateId: string | null;
   transcript: string | null;
   /** When calendar invitations were last sent to attendees (null = never). */
@@ -35,6 +43,8 @@ export interface MeetingRecord {
   createdById: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Set only on records read with their deleted series meetings (series bookkeeping). */
+  deletedAt?: Date | null;
 }
 
 export interface CreateMeetingData {
@@ -51,7 +61,10 @@ export interface CreateMeetingData {
   timeZone?: string | null;
   recurrenceRule?: RecurrenceRule | null;
   recurrenceParentId?: string | null;
+  recurrenceStart?: Date | null;
   templateId?: string | null;
+  /** A new meeting of an already-invited series is in attendees' calendars already. */
+  invitesSentAt?: Date | null;
   createdById: string;
 }
 
@@ -62,6 +75,9 @@ export interface MeetingListFilter {
   status?: MeetingStatus;
   /** Only meetings this user organizes ("Organized by me"). */
   organizerId?: string;
+  /** Only meetings starting in [from, to) (the calendar's range). */
+  from?: Date;
+  to?: Date;
   /** Restrict to meetings the user organizes or attends, or in these project ids (null = no scope). */
   scope?: { userId: string; projectIds: string[] | null };
 }
@@ -87,4 +103,18 @@ export interface MeetingRepository {
   markReminderSent(id: string, at: Date | null): Promise<void>;
   /** Active meetings starting within [now, now+leadMs] whose reminder hasn't been sent (for the sweep). */
   listUpcomingWithoutReminder(now: Date, leadMs: number): Promise<MeetingRecord[]>;
+}
+
+/** What a repeating series needs on top of the plain meeting store. Records carry `deletedAt`. */
+export interface MeetingSeriesStore {
+  /** A meeting even when it was deleted (a series' first meeting still holds the rule). */
+  findAnyById(id: string): Promise<MeetingRecord | null>;
+  /** The first meeting and every other meeting of a series, deleted ones included, in series order. */
+  listSeries(rootId: string): Promise<MeetingRecord[]>;
+  /** First meetings of series whose rule may still have meetings to create. */
+  listSeriesRoots(): Promise<MeetingRecord[]>;
+  /** Re-time / regroup several meetings at once (their series places are cleared first, so swaps can't collide). */
+  applySeriesChanges(changes: Array<{ id: string; patch: UpdateMeetingData }>): Promise<void>;
+  /** Delete meetings; `detach` also takes them out of their series (their places can be used again). */
+  removeMany(ids: string[], opts?: { detach?: boolean }): Promise<void>;
 }

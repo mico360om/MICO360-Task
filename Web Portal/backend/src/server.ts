@@ -134,6 +134,8 @@ import { createSearchService, createCachedSearchDataSource } from './modules/sea
 import { createPrismaSearchDataSource } from './modules/search/prisma-search-data-source';
 import { createPrismaMeetingRepository } from './modules/meetings/prisma-meeting-repository';
 import { createMeetingService } from './modules/meetings/meeting-service';
+import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
+import { createPrismaProjectMeetingsSource } from './modules/meetings/prisma-project-meetings';
 import { createMeetingAccess } from './modules/meetings/meeting-access';
 import { createPrismaAttendeeRepository } from './modules/meetings/prisma-attendee-repository';
 import { createAttendeeService } from './modules/meetings/attendee-service';
@@ -468,13 +470,22 @@ async function main(): Promise<void> {
     onChanged: (meeting, kind) => broadcastMeetingChange(meeting.id, `meeting:${kind}`),
   });
   // Late-bound: the notify service (email) is created further down.
-  let onAttendeeRemoved: (meetingId: string, attendee: AttendeeRecord) => void = () => {};
+  let onAttendeeRemoved: (meetingId: string, attendee: AttendeeRecord, alsoFrom: string[]) => void = () => {};
   const attendeeRepository = createPrismaAttendeeRepository(prisma);
+  // Repeating meetings: each meeting of a series is a real meeting, created ~3 months ahead.
+  const meetingSeriesService = createMeetingSeriesService({
+    meetings: meetingRepository,
+    attendees: attendeeRepository,
+    defaultTimeZone: companyTz,
+    onChanged: (meeting, kind) => broadcastMeetingChange(meeting.id, `meeting:${kind}`),
+  });
   const attendeeService = createAttendeeService({
     attendees: attendeeRepository,
     canEditMeeting,
     onChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:attendees'),
-    onRemoved: (meetingId, attendee) => onAttendeeRemoved(meetingId, attendee),
+    onRemoved: (meetingId, attendee, alsoFrom) => onAttendeeRemoved(meetingId, attendee, alsoFrom),
+    // People added to or taken off a series meeting are on (or off) its later meetings too.
+    laterMeetings: async (meetingId) => (await meetingSeriesService.laterMeetings(meetingId)).map((m) => m.id),
   });
   const agendaService = createAgendaService({
     agenda: createPrismaAgendaRepository(prisma),
@@ -882,11 +893,22 @@ async function main(): Promise<void> {
     logger,
   });
   // Taking someone off an invited meeting removes it from their calendar (best-effort).
-  onAttendeeRemoved = (meetingId, attendee) => {
-    meetingNotifyService
-      .sendAttendeeRemoved(meetingId, attendee)
+  onAttendeeRemoved = (meetingId, attendee, alsoFrom) => {
+    Promise.all(alsoFrom.map((id) => meetingRepository.findById(id)))
+      .then((later) => meetingNotifyService.sendAttendeeRemoved(meetingId, attendee, { alsoFrom: later.filter((m): m is NonNullable<typeof m> => !!m) }))
       .catch((err) => logger.error('meeting attendee removal notice failed', { err, meetingId }));
   };
+  // Keep repeating meetings created ~3 months ahead (one lease-locked instance, every 6 hours).
+  const runMeetingSeriesTopUp = () =>
+    runExclusive(jobLock, 'meeting-series-top-up', SWEEP_LEASE_MS, () => new Date(), async () => {
+      await meetingSeriesService.extendAll((err, rootId) => logger.error('meeting series top-up failed', { err, meetingId: rootId }));
+    }).catch((err) => {
+      logger.error('meeting series top-up failed', { err });
+      return false;
+    });
+  void runMeetingSeriesTopUp();
+  const meetingSeriesTimer = setInterval(() => void runMeetingSeriesTopUp(), 6 * 60 * 60 * 1000);
+  meetingSeriesTimer.unref?.();
   // Remind attendees of meetings starting within the next hour (one lease-locked instance, every 15 min).
   const MEETING_REMINDER_LEAD_MS = 60 * 60 * 1000;
   const runMeetingReminders = () =>
@@ -1068,6 +1090,8 @@ async function main(): Promise<void> {
     },
     searchService,
     meetingService,
+    meetingSeriesService,
+    projectMeetings: { load: createPrismaProjectMeetingsSource(prisma).load, timeZone: companyTz },
     meetingAccess,
     attendeeService,
     agendaService,

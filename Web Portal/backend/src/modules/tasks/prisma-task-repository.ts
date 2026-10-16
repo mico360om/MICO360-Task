@@ -42,6 +42,7 @@ function toRecord(t: EnrichedTask): TaskRecord {
     estimatedHours: t.estimatedHours,
     actualHours: t.actualHours,
     progress: t.progress,
+    isMilestone: t.isMilestone ?? false,
     createdById: t.createdById,
     completedAt: t.completedAt,
     boardDate: t.boardDate ?? null,
@@ -88,7 +89,7 @@ export function isRecurrenceCopyConflict(err: unknown): boolean {
 // Every scalar except the carry-forward history, which can grow long and is left out of lists.
 const listScalars = {
   id: true, key: true, title: true, description: true, projectId: true, columnId: true, position: true,
-  priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true,
+  priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true,
   createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
   version: true, createdAt: true, updatedAt: true, deletedAt: true,
 } as const;
@@ -117,6 +118,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
             dueDate: data.dueDate ?? undefined,
             estimatedHours: data.estimatedHours ?? undefined,
             progress: data.progress ?? undefined,
+            isMilestone: data.isMilestone ?? undefined,
             completedAt: data.completedAt ?? undefined,
             boardDate: data.boardDate ?? undefined,
             recurrenceRule: (data.recurrenceRule ?? undefined) as unknown as Prisma.InputJsonValue | undefined,

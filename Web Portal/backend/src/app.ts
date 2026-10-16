@@ -47,6 +47,7 @@ import { registerSearchRoutes } from './modules/search/search-routes';
 import type { SearchService } from './modules/search/search-service';
 import { registerMeetingRoutes } from './modules/meetings/meeting-routes';
 import type { MeetingService } from './modules/meetings/meeting-service';
+import type { MeetingSeriesService } from './modules/meetings/meeting-series-service';
 import type { MeetingAccess } from './modules/meetings/meeting-access';
 import { registerAttendeeRoutes } from './modules/meetings/attendee-routes';
 import type { AttendeeService } from './modules/meetings/attendee-service';
@@ -127,6 +128,10 @@ export interface AppDeps extends AuthRouteDeps {
   reportNames?: import('./modules/reports/report-routes').ReportNames;
   searchService?: SearchService;
   meetingService?: MeetingService;
+  /** Repeating meetings: creates a series' meetings and changes all its upcoming ones. */
+  meetingSeriesService?: MeetingSeriesService;
+  /** A project's meetings, decisions and action items for its dashboard. */
+  projectMeetings?: import('./modules/meetings/meeting-routes').ProjectMeetingsDeps;
   meetingAccess?: MeetingAccess;
   attendeeService?: AttendeeService;
   agendaService?: AgendaService;
@@ -520,7 +525,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds });
       }
       if (deps.meetingService) {
-        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts });
+        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings });
       }
       if (deps.attendeeService) {
         await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting });

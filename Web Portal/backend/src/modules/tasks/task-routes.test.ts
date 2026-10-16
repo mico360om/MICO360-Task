@@ -40,6 +40,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string> } = {}) {
         estimatedHours: data.estimatedHours ?? null,
         actualHours: null,
         progress: data.progress ?? 0,
+        isMilestone: data.isMilestone ?? false,
         createdById: data.createdById,
         completedAt: data.completedAt ?? null,
         boardDate: data.boardDate ?? null,
@@ -202,6 +203,19 @@ describe('Task routes', () => {
     const res = await createTask();
     expect(res.statusCode).toBe(201);
     expect(res.json().data.key).toBe('MICO-1');
+    expect(res.json().data.isMilestone).toBe(false);
+  });
+
+  it('marks a task as a milestone of its project, and back', async () => {
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const made = await app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'Go-live', projectId: 'p1', columnId: 'c1', isMilestone: true } });
+    expect(made.statusCode).toBe(201);
+    expect(made.json().data.isMilestone).toBe(true);
+    const id = made.json().data.id;
+    const off = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload: { isMilestone: false } });
+    expect(off.json().data.isMilestone).toBe(false);
+    const bad = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload: { isMilestone: 'yes' } });
+    expect(bad.statusCode).toBe(400);
   });
 
   it('creates and edits a recurring task with a custom schedule ("the last Friday", made on schedule)', async () => {

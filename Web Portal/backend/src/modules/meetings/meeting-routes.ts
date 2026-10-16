@@ -3,6 +3,17 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { MeetingService } from './meeting-service';
 import type { MeetingNotifyService } from './meeting-notify-service';
 import type { MeetingRecord } from './meeting-repository';
+import type { MeetingSeriesService } from './meeting-series-service';
+import { ruleProblem } from './meeting-series';
+import { buildProjectMeetingsOverview, type ProjectMeetingsData } from './project-meetings';
+
+/** Where the project dashboard's meetings come from, and the company zone for "overdue". */
+export interface ProjectMeetingsDeps {
+  load(projectId: string, from: Date, to: Date): Promise<ProjectMeetingsData>;
+  timeZone: string;
+}
+
+const DAY_MS = 86_400_000;
 import type { AuthGuard } from '../auth/auth-guard';
 import type { Logger } from '../../lib/logger';
 import { onlineLinkField, timeZoneField } from './meeting-validation';
@@ -15,8 +26,13 @@ const recurrenceSchema = z.object({
   until: z.string().nullable().optional(),
   weekdays: z.array(z.number().int().min(0).max(6)).optional(),
   dayOfMonth: z.number().int().min(1).max(31).optional(),
+  nthWeekday: z.object({ week: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(-1)]), day: z.number().int().min(0).max(6) }).optional(),
+  anchorDay: z.number().int().min(1).max(31).optional(),
   paused: z.boolean().optional(),
 });
+
+/** One meeting of a series (the default), or all its upcoming meetings. */
+const scopeQuery = z.object({ scope: z.enum(['one', 'series']).optional() });
 
 const createSchema = z.object({
   title: z.string().min(1),
@@ -61,6 +77,9 @@ const listQuery = z.object({
   status: statusEnum.optional(),
   // "Organized by me". Parsed explicitly: z.coerce.boolean() would read "false" as true.
   mine: z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' || v === '1').optional(),
+  // A calendar range: meetings starting in [from, to).
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
 });
 
 export interface MeetingRouteDeps {
@@ -81,6 +100,10 @@ export interface MeetingRouteDeps {
   logger?: Pick<Logger, 'error'>;
   /** Attendee and open action-item counts per meeting id (one lookup for the whole list). */
   listCounts?: (meetingIds: string[]) => Promise<Record<string, MeetingListCounts>>;
+  /** Repeating meetings (creates a series' meetings; ?scope=series changes all upcoming ones). */
+  series?: MeetingSeriesService;
+  /** Enables GET /projects/:id/meetings-overview (the project dashboard's meetings). */
+  projectMeetings?: ProjectMeetingsDeps;
 }
 
 export interface MeetingListCounts {
@@ -114,6 +137,13 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
   const canView = (req: FastifyRequest, id: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
   const canEdit = (req: FastifyRequest, id: string): Promise<boolean> => meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
+  const notSeries = { error: { code: 'VALIDATION', message: 'This meeting is not part of a series.' } };
+  const seriesIdOf = (m: MeetingRecord) => deps.series?.seriesIdOf(m) ?? null;
+  /** A meeting with its series (first meeting's id, rule, zone) for the apps' repeat controls. */
+  async function withSeries<T extends MeetingRecord>(m: T): Promise<T & { series: Awaited<ReturnType<MeetingSeriesService['describe']>> }> {
+    return { ...m, series: deps.series ? await deps.series.describe(m) : null };
+  }
+  const badRule = (message: string) => ({ error: { code: 'VALIDATION', message } });
 
   async function canUseProject(req: FastifyRequest, projectId: string): Promise<boolean> {
     if (!deps.accessibleProjectIds) return true;
@@ -151,6 +181,8 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const data = await meetingService.listMeetings({
       projectId: q.projectId,
       status: q.status,
+      from: q.from,
+      to: q.to,
       ...(q.mine ? { organizerId: req.user!.id } : {}),
       scope: q.mine ? { userId: req.user!.id, projectIds: [] } : { userId: req.user!.id, projectIds },
     });
@@ -160,6 +192,19 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     return { data: flagged.map((m) => ({ ...m, attendeeCount: counts[m.id]?.attendeeCount ?? 0, openActionItemCount: counts[m.id]?.openActionItemCount ?? 0 })) };
   });
 
+  // The project dashboard: its meetings (six months back, four ahead) with people, minutes,
+  // decisions and action items. Anyone who can see the project can see this.
+  if (deps.projectMeetings) {
+    const source = deps.projectMeetings;
+    app.get('/projects/:id/meetings-overview', { preHandler: guard.authenticate }, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      if (!(await canUseProject(req, id))) return reply.status(403).send(noProject);
+      const now = new Date();
+      const data = await source.load(id, new Date(now.getTime() - 183 * DAY_MS), new Date(now.getTime() + 122 * DAY_MS));
+      return { data: buildProjectMeetingsOverview(data, now, source.timeZone) };
+    });
+  }
+
   app.post('/meetings', { preHandler: guard.authenticate }, async (req, reply) => {
     const body = createSchema.parse(req.body);
     // Invitations go out in the organizer's name: only an admin may schedule on someone else's behalf.
@@ -168,27 +213,41 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     }
     // Creating a *project* meeting requires access to that project (standalone meetings are always allowed).
     if (body.projectId && !(await canUseProject(req, body.projectId))) return reply.status(403).send(noProject);
-    const meeting = await meetingService.createMeeting({
+    const problem = ruleProblem(body.recurrenceRule, body.startAt, body.timeZone || 'UTC');
+    if (problem) return reply.status(400).send(badRule(problem));
+    let meeting = await meetingService.createMeeting({
       ...body,
       organizerId: body.organizerId ?? req.user!.id,
       createdById: req.user!.id,
     });
-    return reply.status(201).send({ data: { ...meeting, canEdit: true } });
+    // A repeating meeting is the first of its series: the next meetings are created now.
+    if (deps.series && meeting.recurrenceRule && !meeting.recurrenceRule.paused) {
+      await deps.series.start(meeting);
+      meeting = await meetingService.getMeeting(meeting.id);
+    }
+    return reply.status(201).send({ data: await withSeries({ ...meeting, canEdit: true }) });
   });
 
   app.get('/meetings/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(404).send(notFound);
     const [meeting] = await withEditFlags(req, [await meetingService.getMeeting(id)]);
-    return { data: meeting };
+    return { data: await withSeries(meeting!) };
   });
 
   app.put('/meetings/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
+    const { scope } = scopeQuery.parse(req.query);
     const patch = updateSchema.parse(req.body);
     const before = await meetingService.getMeeting(id);
+    const seriesId = seriesIdOf(before);
+    if (scope === 'series' && !seriesId) return reply.status(400).send(notSeries);
+    if (patch.recurrenceRule) {
+      const problem = ruleProblem(patch.recurrenceRule, patch.startAt ?? before.startAt, patch.timeZone || before.timeZone || 'UTC');
+      if (problem) return reply.status(400).send(badRule(problem));
+    }
     // Moving the meeting into a project requires access to that project.
     if (patch.projectId && patch.projectId !== before.projectId && !(await canUseProject(req, patch.projectId))) {
       return reply.status(403).send(noProject);
@@ -203,17 +262,40 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     ) {
       return reply.status(400).send({ error: { code: 'VALIDATION', message: 'The new organizer must be an attendee or a member of the meeting’s project.' } });
     }
-    const meeting = await meetingService.updateMeeting(id, patch);
+    if (scope === 'series' && deps.series) {
+      const change = await deps.series.updateSeries(id, patch);
+      const meeting = change.meeting ?? (await meetingService.getMeeting(id));
+      if (before.invitesSentAt && deps.notify) {
+        const notify = deps.notify;
+        // A series that had started was split: its calendar series ends, and the new one is sent.
+        if (change.endedMeeting) {
+          const ended = change.endedMeeting;
+          background(notify.sendCancellation(ended.id, { meeting: ended, scope: 'series', note: 'moved' }), 'meeting series update notice failed', ended.id);
+        }
+        if (meeting.status === 'CANCELLED') background(notify.sendCancellation(id, { scope: 'series' }), 'meeting cancellation notice failed', id);
+        else background(notify.sendInvites(id, { scope: 'series' }), 'meeting series update notice failed', id);
+      }
+      const [data] = await withEditFlags(req, [meeting]);
+      return { data: await withSeries(data!) };
+    }
+    // One meeting of a series keeps the series' repeat (it changes with scope=series).
+    if (seriesId) delete patch.recurrenceRule;
+    let meeting = await meetingService.updateMeeting(id, patch);
+    // A one-off meeting given a repeat becomes the first meeting of a series.
+    if (!seriesId && deps.series && meeting.recurrenceRule && !meeting.recurrenceRule.paused) {
+      await deps.series.start(meeting);
+      meeting = await meetingService.getMeeting(id);
+    }
     // Keep invitees' calendars in step once invitations have gone out.
     if (before.invitesSentAt && deps.notify) {
       if (meeting.status === 'CANCELLED' && before.status !== 'CANCELLED') {
         background(deps.notify.sendCancellation(id), 'meeting cancellation notice failed', id);
       } else if (meeting.status !== 'CANCELLED' && calendarChanged(before, meeting)) {
-        background(deps.notify.sendInvites(id), 'meeting update notice failed', id);
+        background(seriesId ? deps.notify.sendInvites(id, { scope: 'one' }) : deps.notify.sendInvites(id), 'meeting update notice failed', id);
       }
     }
     const [data] = await withEditFlags(req, [meeting]);
-    return { data };
+    return { data: await withSeries(data!) };
   });
 
   app.post('/meetings/:id/duplicate', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -227,7 +309,14 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
+    const { scope } = scopeQuery.parse(req.query);
     const before = await meetingService.getMeeting(id);
+    if (scope === 'series') {
+      if (!deps.series || !seriesIdOf(before)) return reply.status(400).send(notSeries);
+      const change = await deps.series.cancelSeries(id);
+      if (before.invitesSentAt && deps.notify) background(deps.notify.sendCancellation(id, { scope: 'series' }), 'meeting cancellation notice failed', id);
+      return { data: await withSeries({ ...(change.meeting ?? before), canEdit: true }) };
+    }
     const meeting = await meetingService.cancelMeeting(id);
     // If invitations went out, notify attendees with a cancelling calendar update (best-effort).
     if (meeting.invitesSentAt && before.status !== 'CANCELLED' && deps.notify) {
@@ -268,6 +357,16 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
+    const { scope } = scopeQuery.parse(req.query);
+    if (scope === 'series') {
+      const before = await meetingService.getMeeting(id);
+      if (!deps.series || !seriesIdOf(before)) return reply.status(400).send(notSeries);
+      await deps.series.deleteSeries(id);
+      if (before.invitesSentAt && deps.notify) {
+        background(deps.notify.sendCancellation(id, { meeting: before, scope: 'series' }), 'meeting cancellation notice failed', id);
+      }
+      return reply.status(204).send();
+    }
     const deleted = await meetingService.deleteMeeting(id);
     // Deleting an invited meeting removes it from everyone's calendar.
     if (deleted.invitesSentAt && deleted.status !== 'CANCELLED' && deps.notify) {

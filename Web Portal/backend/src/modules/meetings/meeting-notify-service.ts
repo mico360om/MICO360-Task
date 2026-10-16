@@ -1,10 +1,14 @@
 import { ConflictError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
-import { buildIcs, type IcsMethod, type IcsPerson } from '../../lib/ics';
+import { buildIcs, buildIcsCalendar, type IcsEvent, type IcsMethod, type IcsPerson } from '../../lib/ics';
+import { zonedDayKey } from '../../lib/due-date';
+import { formatDay } from '../../lib/export-format';
+import { recurrenceSummary } from '../tasks/recurrence-summary';
+import { wallOf } from './meeting-series';
 import type { Logger } from '../../lib/logger';
 import { EmailNotConfiguredError } from '../email/delivery-error';
 import type { EmailAttachment } from '../email/mailer';
 import { meetingMinutesEmail, type MeetingEmailParams } from '../email/email-templates';
-import type { MeetingRecord, MeetingRepository, RecurrenceRule } from './meeting-repository';
+import type { MeetingRecord, MeetingRepository, MeetingSeriesStore, RecurrenceRule } from './meeting-repository';
 import type { AttendeeRecord } from './attendee-repository';
 import { isValidTimeZone } from './meeting-validation';
 
@@ -22,7 +26,9 @@ export interface MeetingMailer {
 }
 
 export interface MeetingNotifyDeps {
-  meetings: Pick<MeetingRepository, 'findById' | 'markInvitesSent' | 'markReminderSent' | 'listUpcomingWithoutReminder'>;
+  /** With the series store, a repeating series is sent as one calendar series (else meeting by meeting). */
+  meetings: Pick<MeetingRepository, 'findById' | 'markInvitesSent' | 'markReminderSent' | 'listUpcomingWithoutReminder'> &
+    Partial<Pick<MeetingSeriesStore, 'listSeries'>>;
   attendees: {
     listByMeeting(meetingId: string): Promise<AttendeeRecord[]>;
     /** Stamp attendees whose own invitation was delivered (enables "invite only new people"). */
@@ -97,14 +103,24 @@ export interface MinutesPreview {
 }
 
 export interface MeetingNotifyService {
-  /** Calendar invitations to everyone, or (onlyNew) just to people who haven't had one yet. */
-  sendInvites(meetingId: string, opts?: { onlyNew?: boolean }): Promise<SendReport>;
+  /**
+   * Calendar invitations to everyone, or (onlyNew) just to people who haven't had one yet. A
+   * meeting of a series sends the whole series, or with scope 'one' just this meeting (an update).
+   */
+  sendInvites(meetingId: string, opts?: { onlyNew?: boolean; scope?: SeriesScope }): Promise<SendReport>;
   /** Who an invitation would go to and anything to fix first — sends nothing. */
   previewInvites(meetingId: string): Promise<InvitePreview>;
-  /** Cancel the event in invitees' calendars. Pass the record when the meeting is already deleted. */
-  sendCancellation(meetingId: string, opts?: { meeting?: MeetingRecord }): Promise<DeliveryReport>;
-  /** Remove the event from one attendee's calendar after they were taken off an invited meeting. */
-  sendAttendeeRemoved(meetingId: string, attendee: AttendeeRecord): Promise<DeliveryReport>;
+  /**
+   * Cancel the event in invitees' calendars. Pass the record when the meeting is already deleted.
+   * A meeting of a series cancels just that meeting, or with scope 'series' its upcoming meetings.
+   */
+  sendCancellation(meetingId: string, opts?: { meeting?: MeetingRecord; scope?: SeriesScope; note?: 'moved' }): Promise<DeliveryReport>;
+  /**
+   * Remove the event from one attendee's calendar after they were taken off an invited meeting —
+   * the whole series once they are on none of its upcoming meetings (`alsoFrom`: other meetings
+   * of the series they were taken off at the same time).
+   */
+  sendAttendeeRemoved(meetingId: string, attendee: AttendeeRecord, opts?: { alsoFrom?: MeetingRecord[] }): Promise<DeliveryReport>;
   /** Email the minutes PDF; `only` limits it to some of the meeting's own recipients (by email). */
   /** `final`: the PDF is the approved final minutes (the attachment is named so). */
   sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }): Promise<SendReport>;
@@ -112,6 +128,9 @@ export interface MeetingNotifyService {
   previewMinutes(meetingId: string, opts?: { final?: boolean }): Promise<MinutesPreview>;
   runReminderSweep(leadMs: number): Promise<{ meetings: number; sent: number; failed: number }>;
 }
+
+/** One meeting of a repeating series, or all of it. */
+export type SeriesScope = 'one' | 'series';
 
 function slugify(title: string): string {
   return title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'meeting';
@@ -235,11 +254,33 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     };
   }
 
-  function icsFor(m: MeetingRecord, method: IcsMethod, organizer: NotifyPerson, icsAttendees: IcsPerson[]): EmailAttachment {
-    const rule = (m.recurrenceRule as RecurrenceRule | null) ?? null;
-    const ics = buildIcs({
+  const placeOf = (m: MeetingRecord) => m.recurrenceStart ?? m.startAt;
+  const durationOf = (m: MeetingRecord) => (m.endAt ? m.endAt.getTime() - m.startAt.getTime() : null);
+  const uidOf = (id: string) => `meeting-${id}@mico360`;
+
+  /** A meeting's series — its first meeting and every meeting of it, deleted ones flagged — or null. */
+  async function seriesOf(m: MeetingRecord): Promise<{ root: MeetingRecord; rows: MeetingRecord[] } | null> {
+    const rootId = m.recurrenceParentId ?? (m.recurrenceRule ? m.id : null);
+    if (!rootId || !meetings.listSeries) return null;
+    const rows = await meetings.listSeries(rootId);
+    const root = rows.find((r) => r.id === rootId);
+    return root?.recurrenceRule ? { root, rows } : null;
+  }
+
+  /** "Repeats every week on Tue, until 3 Nov 2026". */
+  function repeatText(root: MeetingRecord): string {
+    const rule = root.recurrenceRule!;
+    const weekday = rule.freq === 'WEEKLY' && !rule.weekdays?.length ? [wallOf(placeOf(root), zoneOf(root)).getUTCDay()] : rule.weekdays;
+    let text = recurrenceSummary({ ...rule, weekdays: weekday, count: null, until: null, paused: false });
+    if (rule.count != null) text += `, ${rule.count} times`;
+    if (rule.until) text += `, until ${formatDay(rule.until)}`;
+    return text;
+  }
+
+  function eventOf(m: MeetingRecord, method: IcsMethod, organizer: NotifyPerson, icsAttendees: IcsPerson[]): IcsEvent {
+    return {
       method,
-      uid: `meeting-${m.id}@mico360`,
+      uid: uidOf(m.id),
       sequence: method === 'CANCEL' ? sequenceOf(m) + 1 : sequenceOf(m),
       start: m.startAt,
       end: m.endAt,
@@ -250,15 +291,96 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       url: `${deps.appUrl.replace(/\/$/, '')}/meetings/${m.id}`,
       organizer,
       attendees: icsAttendees,
-      // A paused series is announced as a single occurrence.
-      recurrence: rule && !rule.paused ? rule : null,
       stamp: now(),
-    });
+    };
+  }
+
+  /**
+   * The calendar file for a meeting: on its own; one meeting of a series (RECURRENCE-ID, plus
+   * `alsoFrom`); or the whole series — its rule, the dates that don't take place, and the
+   * meetings that differ from it.
+   */
+  async function calendarFor(
+    m: MeetingRecord,
+    method: IcsMethod,
+    organizer: NotifyPerson,
+    icsAttendees: IcsPerson[],
+    scope: SeriesScope,
+    alsoFrom: MeetingRecord[] = [],
+  ): Promise<EmailAttachment> {
+    const s = await seriesOf(m);
+    let ics: string;
+    if (!s) {
+      const rule = (m.recurrenceRule as RecurrenceRule | null) ?? null;
+      // A paused series is announced as a single occurrence.
+      ics = buildIcs({ ...eventOf(m, method, organizer, icsAttendees), recurrence: rule && !rule.paused ? rule : null });
+    } else {
+      const uid = uidOf(s.root.id);
+      // Calendar clients take an update only with a sequence at least the last one's.
+      const sequence = Math.max(...s.rows.map(sequenceOf)) + (method === 'CANCEL' ? 1 : 0);
+      if (scope === 'one') {
+        const events = [m, ...alsoFrom].map((r) => ({ ...eventOf(r, method, organizer, icsAttendees), uid, sequence, recurrenceId: placeOf(r) }));
+        ics = buildIcsCalendar(method, events);
+      } else {
+        const rule = s.root.recurrenceRule!;
+        const tz = zoneOf(s.root);
+        const last = new Date(Math.max(...s.rows.map((r) => placeOf(r).getTime())));
+        const recurrence = rule.paused ? { ...rule, paused: false, count: null, until: zonedDayKey(last, tz) } : rule;
+        const start = placeOf(s.root);
+        const duration = durationOf(m);
+        const master: IcsEvent = {
+          ...eventOf(m, method, organizer, icsAttendees),
+          uid,
+          sequence,
+          start,
+          end: duration != null ? new Date(start.getTime() + duration) : null,
+          timeZone: tz,
+          recurrence,
+          exdates: s.rows.filter((r) => r.deletedAt || r.status === 'CANCELLED').map(placeOf),
+        };
+        const differs = (r: MeetingRecord) =>
+          r.startAt.getTime() !== placeOf(r).getTime() || durationOf(r) !== duration || r.title !== m.title || r.description !== m.description || r.location !== m.location;
+        const changed =
+          method === 'CANCEL'
+            ? []
+            : s.rows
+                .filter((r) => !r.deletedAt && r.status !== 'CANCELLED' && differs(r))
+                .map((r) => ({ ...eventOf(r, method, organizer, icsAttendees), uid, sequence, recurrenceId: placeOf(r) }));
+        ics = buildIcsCalendar(method, [master, ...changed]);
+      }
+    }
     return {
       filename: `${slugify(m.title)}.ics`,
       contentType: `text/calendar; method=${method}; charset=utf-8`,
       content: Buffer.from(ics, 'utf8'),
     };
+  }
+
+  /** Record a series invitation on each of its meetings, for the people it reached. */
+  async function markSeriesInvited(rows: MeetingRecord[], reached: Set<string>, at: Date): Promise<void> {
+    const people = new Map<string, NotifyPerson | null>();
+    for (const row of rows.filter((r) => !r.deletedAt)) {
+      await meetings.markInvitesSent(row.id, at);
+      const ids: string[] = [];
+      for (const a of await attendees.listByMeeting(row.id)) {
+        const key = a.userId ?? `guest:${a.externalEmail ?? ''}`;
+        if (!people.has(key)) people.set(key, await personFor(a));
+        const email = people.get(key)?.email?.toLowerCase();
+        if (email && reached.has(email)) ids.push(a.id);
+      }
+      if (ids.length) await attendees.markInvited?.(ids, at);
+    }
+  }
+
+  /** Is this person on any upcoming meeting of the series still? */
+  async function onUpcoming(rows: MeetingRecord[], who: AttendeeRecord, email: string | null): Promise<boolean> {
+    const at = now().getTime();
+    for (const row of rows.filter((r) => !r.deletedAt && r.status !== 'CANCELLED' && r.startAt.getTime() >= at)) {
+      for (const a of await attendees.listByMeeting(row.id)) {
+        if (who.userId ? a.userId === who.userId : !!email && a.externalEmail?.toLowerCase() === email) return true;
+      }
+    }
+    return false;
   }
 
   const organizerOf = (m: MeetingRecord, organizer: NotifyPerson | null): NotifyPerson =>
@@ -306,7 +428,16 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     return r;
   }
 
-  async function cancelFor(m: MeetingRecord, only?: AttendeeRecord): Promise<DeliveryReport> {
+  /**
+   * Cancel a meeting in its people's calendars (or one person's, with `only`). `endSeries`: the
+   * series' upcoming meetings are cancelled — a series that has started is shortened, keeping
+   * the meetings held; one that hasn't is cancelled whole.
+   */
+  async function cancelFor(
+    m: MeetingRecord,
+    opts: { only?: AttendeeRecord; scope?: SeriesScope; endSeries?: boolean; alsoFrom?: MeetingRecord[]; note?: 'moved' } = {},
+  ): Promise<DeliveryReport> {
+    const { only } = opts;
     const all = await recipientsFor(m);
     let people = all.people;
     let icsAttendees = all.icsAttendees;
@@ -317,7 +448,24 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       icsAttendees = [{ name: person.name, email: person.email, role: only.role }];
     }
     const params = await emailParams(m, all.organizer);
-    const ics = icsFor(m, 'CANCEL', organizerOf(m, all.organizer), icsAttendees);
+    const s = await seriesOf(m);
+    const scope: SeriesScope = s ? opts.scope ?? 'one' : 'one';
+    let method: IcsMethod = 'CANCEL';
+    if (s && scope === 'series') {
+      const held = s.rows.some((r) => !r.deletedAt && r.status !== 'CANCELLED' && r.startAt.getTime() < now().getTime());
+      if (opts.endSeries && held) {
+        method = 'REQUEST'; // the series now ends before its cancelled meetings
+        params.whenLabel =
+          opts.note === 'moved'
+            ? `${repeatText(s.root)} — the upcoming meetings moved to a new schedule (a new invitation follows)`
+            : `${repeatText(s.root)} — the upcoming meetings are cancelled`;
+      } else {
+        params.whenLabel = `${repeatText(s.root)} — every meeting of the series is cancelled`;
+      }
+    } else if (s) {
+      params.whenLabel = `${params.whenLabel} · This meeting of the series only`;
+    }
+    const ics = await calendarFor(m, method, organizerOf(m, all.organizer), icsAttendees, scope, opts.alsoFrom);
     const r = await deliver(m, 'cancellation', people, (p) => email.sendMeetingCancelled(p.email, params, ics));
     return { sent: r.sent, failed: r.failed };
   }
@@ -329,13 +477,21 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const { recipients, missingEmail, icsAttendees, organizer } = await recipientsFor(m);
       const targets = opts?.onlyNew ? recipients.filter((r) => !r.alreadyInvited) : recipients;
       const params = await emailParams(m, organizer);
-      const ics = icsFor(m, 'REQUEST', organizerOf(m, organizer), icsAttendees);
+      const s = await seriesOf(m);
+      const scope: SeriesScope = s ? opts?.scope ?? 'series' : 'one';
+      if (s) params.whenLabel = scope === 'series' ? `${params.whenLabel} · ${repeatText(s.root)}` : `${params.whenLabel} · This meeting of the series only`;
+      const ics = await calendarFor(m, 'REQUEST', organizerOf(m, organizer), icsAttendees, scope);
       const r = assertConfigured(await deliver(m, 'invitation', targets, (p) => email.sendMeetingInvite(p.email, params, ics)));
       // Only a delivered invitation counts as "invites sent" (it later drives cancellation notices).
       if (r.sent > 0) {
         const at = now();
-        await meetings.markInvitesSent(m.id, at);
-        await attendees.markInvited?.(r.results.filter((x) => x.ok).flatMap((x) => x.attendeeIds), at);
+        const reached = r.results.filter((x) => x.ok);
+        if (s && scope === 'series') {
+          await markSeriesInvited(s.rows, new Set(reached.map((x) => x.email.toLowerCase())), at);
+        } else {
+          await meetings.markInvitesSent(m.id, at);
+          await attendees.markInvited?.(reached.flatMap((x) => x.attendeeIds), at);
+        }
       }
       return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, opts?.onlyNew ? [] : missingEmail);
     },
@@ -348,14 +504,19 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
 
     async sendCancellation(meetingId, opts) {
       const m = opts?.meeting ?? (await requireMeeting(meetingId));
-      return cancelFor(m);
+      return cancelFor(m, { scope: opts?.scope, endSeries: opts?.scope === 'series', note: opts?.note });
     },
 
-    async sendAttendeeRemoved(meetingId, attendee) {
+    async sendAttendeeRemoved(meetingId, attendee, opts) {
       const m = await meetings.findById(meetingId);
       // Nothing to retract if the meeting never reached calendars (or its cancellation already did).
       if (!m || !m.invitesSentAt || m.status === 'CANCELLED') return { sent: 0, failed: 0 };
-      return cancelFor(m, attendee);
+      const s = await seriesOf(m);
+      if (!s) return cancelFor(m, { only: attendee });
+      // Off every upcoming meeting: the series leaves their calendar; else just the meetings they left.
+      const person = await personFor(attendee);
+      const still = await onUpcoming(s.rows, attendee, person?.email?.toLowerCase() ?? null);
+      return still ? cancelFor(m, { only: attendee, scope: 'one', alsoFrom: opts?.alsoFrom }) : cancelFor(m, { only: attendee, scope: 'series' });
     },
 
     async sendMinutes(meetingId, pdf, opts) {

@@ -68,6 +68,7 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 projectId: source.projectId,
                 columnId: firstColumn?.id ?? source.columnId,
                 priority: source.priority,
+                isMilestone: source.isMilestone,
                 estimatedHours: source.estimatedHours ?? undefined,
                 startDate: at,
                 dueDate: nextDueDate,
