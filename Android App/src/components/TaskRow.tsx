@@ -60,6 +60,7 @@ export function TaskRow({ task, onPress, onLongPress }: { task: ApiTask; onPress
           {task.progress > 0 && !done ? <Text style={styles.progress}>· {task.progress}%</Text> : null}
           {done ? <Text style={styles.doneTag}>· Done</Text> : null}
           {task.recurrenceRule ? <Text style={styles.key}>· 🔁</Text> : null}
+          {task.isMilestone ? <Text style={styles.milestone}>· 🏁 Milestone</Text> : null}
         </View>
       </View>
     </Pressable>
@@ -89,4 +90,5 @@ const makeStyles = (c: Palette) =>
     overdue: { color: c.danger, fontWeight: '700' },
     progress: { fontSize: fontSize.xs, color: c.category.IN_PROGRESS, marginLeft: 4, fontWeight: '600' },
     doneTag: { fontSize: fontSize.xs, color: c.category.DONE, marginLeft: 4, fontWeight: '600' },
+    milestone: { fontSize: fontSize.xs, color: c.brand, marginLeft: 4, fontWeight: '700' },
   });

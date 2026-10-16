@@ -118,6 +118,7 @@ export function HeaderCard({
       ) : task.recurrenceParentId ? (
         <Text style={s.recurrence}>🔁 Part of a repeating series</Text>
       ) : null}
+      {task.isMilestone ? <Text style={s.recurrence}>🏁 Milestone</Text> : null}
 
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
         <Pressable style={s.backdrop} onPress={() => setMenu(false)} accessibilityLabel="Close menu">

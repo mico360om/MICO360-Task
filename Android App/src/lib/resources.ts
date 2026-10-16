@@ -19,7 +19,9 @@ import type {
   ApiWatcher,
   ApiPrioritySuggestion,
   ApiNotification,
+  ApiMeeting,
   ApiProject,
+  ApiProjectMeetingsOverview,
   ApiProjectProgress,
   ApiTag,
   ApiTask,
@@ -171,6 +173,13 @@ export function resourcesApi(client: ApiClient) {
       watch: (id: string) => data(client.post<Envelope<{ watching: boolean }>>(`/tasks/${id}/watch`)),
       unwatch: (id: string) => client.del<void>(`/tasks/${id}/watch`),
       watchers: (id: string) => data(client.get<Envelope<ApiWatcher[]>>(`/tasks/${id}/watchers`)),
+    },
+    /** Meetings, read-only: the calendar's range and a project's dashboard. */
+    meetings: {
+      /** The meetings starting in [from, to) (ISO instants) that the user can see. */
+      range: (from: string, to: string) => data(client.get<Envelope<ApiMeeting[]>>(`/meetings${queryString({ from, to })}`)),
+      projectOverview: (projectId: string) =>
+        data(client.get<Envelope<ApiProjectMeetingsOverview>>(`/projects/${projectId}/meetings-overview`)),
     },
     /** AI help — suggestions the user reviews before anything changes. */
     ai: {

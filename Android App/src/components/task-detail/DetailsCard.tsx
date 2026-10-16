@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Switch } from 'react-native';
 import { useColors } from '../../core/theme';
 import { TextField, Button } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
@@ -14,7 +14,7 @@ import { Chip, IconButton, SaveNote, SectionCard, useSave } from './kit';
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 
-export type TaskPatch = Partial<Pick<ApiTask, 'title' | 'description' | 'priority' | 'dueDate' | 'estimatedHours' | 'progress' | 'recurrenceRule'>>;
+export type TaskPatch = Partial<Pick<ApiTask, 'title' | 'description' | 'priority' | 'dueDate' | 'estimatedHours' | 'progress' | 'recurrenceRule' | 'isMilestone'>>;
 
 /** One property: its label above (phones are narrow), the control, and its save state. */
 function Prop({ label, children }: { label: string; children: React.ReactNode }) {
@@ -30,7 +30,7 @@ function Prop({ label, children }: { label: string; children: React.ReactNode })
 /**
  * The task's properties, each saved on its own as it changes (and kept on the phone to sync when
  * offline, where the app's sync queue allows): status, priority (with an AI suggestion to review),
- * due date, estimate, repeat, assignees, tags and progress.
+ * due date, milestone, estimate, repeat, assignees, tags and progress.
  */
 export function DetailsCard({
   task,
@@ -73,6 +73,7 @@ export function DetailsCard({
   const prioritySave = useSave();
   const dueSave = useSave();
   const estSave = useSave();
+  const milestoneSave = useSave();
   const repeatSave = useSave();
   const peopleSave = useSave();
   const tagsSave = useSave();
@@ -233,6 +234,21 @@ export function DetailsCard({
         <SaveNote state={dueSave.state} />
       </Prop>
 
+      <Prop label="Milestone">
+        <View style={s.switchRow}>
+          <Text style={s.switchText}>🏁 A key point of the project, shown on its dashboard</Text>
+          <Switch
+            value={!!task.isMilestone}
+            disabled={milestoneSave.busy}
+            accessibilityLabel="Milestone"
+            onValueChange={(on) => void milestoneSave.run(() => onPatch({ isMilestone: on }), 'Couldn’t change the milestone.', true)}
+            trackColor={{ true: c.brand, false: c.line }}
+            thumbColor={c.surface}
+          />
+        </View>
+        <SaveNote state={milestoneSave.state} />
+      </Prop>
+
       <Prop label="Estimate (hours)">
         <TextField
           value={estText}
@@ -376,6 +392,8 @@ const makeStyles = (c: Palette) =>
     suggestText: { fontSize: fontSize.sm, color: c.ink },
     row: { flexDirection: 'row', gap: spacing.sm },
     rowCenter: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48 },
+    switchText: { flex: 1, fontSize: fontSize.sm, color: c.ink2 },
     flex: { flex: 1 },
     overdue: { alignSelf: 'flex-start', fontSize: fontSize.xs, fontWeight: '800', color: c.danger, backgroundColor: c.dangerSoft, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
     muted: { fontSize: fontSize.sm, color: c.ink3 },

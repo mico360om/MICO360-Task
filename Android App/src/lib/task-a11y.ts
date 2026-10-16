@@ -14,6 +14,7 @@ export function taskRowA11yLabel(task: ApiTask, due: string | null, done: boolea
     task.title,
     due ? `due ${due}` : null,
     task.recurrenceRule ? 'repeats' : null,
+    task.isMilestone ? 'milestone' : null,
     done ? 'done' : task.progress > 0 ? `${task.progress}% complete` : null,
   ]
     .filter(Boolean)

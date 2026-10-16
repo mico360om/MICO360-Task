@@ -197,16 +197,24 @@ automatically when the new version is deployed:
   - The calendar now uses the compact month below 1024 px.
   - Menus return focus to their button.
   - Task detail rows wrap at large text sizes.
+- **Android app:**
+  - A project's screen shows its project number, its milestones (done, late, or how many days
+    left), what's late or due in the next two weeks, and its meetings: the next ones, its repeating
+    series, open action items and recent decisions.
+  - The calendar shows meetings beside the tasks due, with their times, place and a 🔁 mark for
+    repeating ones; tap one for its notes and **Join online meeting**. It opens at today.
+  - Mark a task as a milestone in its details (**Milestone** switch); task lists show a 🏁 flag.
+  - Meetings stay read-only in the app; they're planned and run in the web portal.
 - **Windows installer:** each program now contains only the code it uses. The launcher no longer
   carries the uninstaller's clean-up code, which Kaspersky's heuristics flagged.
 
-Not in this release: the Android app's chat and calendar, and project pictures in the Android app
-and the Chrome extension, are unchanged.
+Not in this release: the Android app's chat, and project pictures in the Android app and the
+Chrome extension, are unchanged.
 
 ## How these builds were tested (October 2026)
 
 - **Unit and component tests (16 October, on 0.4.0):**
-  - backend 1,605 · web 1,141 · Android 440 · extension 207, all passing. The log-out test with
+  - backend 1,619 · web 1,142 · Android 456 · extension 207, all passing. The log-out test with
     unsynced offline changes had failed only while a local server was running on port 4000 (the
     test's live-update socket reached it); it now has a stand-in socket;
   - typecheck and lint clean in every app;
@@ -310,6 +318,21 @@ and the Chrome extension, are unchanged.
   - A second browser test of edge cases (a London clock change, deleting the first meeting, a past
     meeting, the 31st, "Does not repeat", people taken off, duplicating, access, and the fixes
     above): 36 of 36.
+- **Second review (16 October):** a fourth review of those fixes found more, now fixed with tests:
+  - a new time or length for a series could push every meeting a week late when the first one's
+    new time had already passed today, or one had been postponed on its own; each meeting now keeps
+    its day;
+  - a yearly or quarterly series whose only meeting so far was cancelled on its own stopped;
+  - moving a monthly series to another date picked the wrong day ("day 31", or the wrong week for
+    "the 2nd Tuesday"), and a meeting moved on its own moved the series by the wrong number of days;
+  - a series handed to someone else, or moved to another project, couldn't be changed by them;
+  - a meeting deleted on its own could become the first meeting of a split series, and the
+    "series ended" notice missed people added to later meetings;
+  - the form's first-day hint and end-date check ignored a count or end date; moving the first
+    meeting onto the repeat's days kept a sent reminder and didn't refresh other screens;
+  - editing a cancelled meeting's details for the whole series sent a cancellation.
+  - Checked again in the browser: repeating meetings 53, edge cases 36, meetings 78, calendar 64;
+    and on the real database (API) 15 of 15.
 - **Repeating meetings and the project dashboard (16 October), in a real browser:** 53 of 53
   checks, against MySQL, with invitation emails and calendar files in the test mailbox.
   - A weekly Tue/Thu series with an end date made in the New Meeting form: every meeting is

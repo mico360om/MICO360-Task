@@ -229,3 +229,23 @@ describe('resourcesApi.ai', () => {
     ]);
   });
 });
+
+describe('resourcesApi.meetings', () => {
+  it('GETs the meetings starting in a range (the calendar)', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).meetings.range('2026-10-09T12:00:00.000Z', '2026-12-15T12:00:00.000Z');
+    expect(calls[0]).toEqual({ method: 'GET', path: '/meetings?from=2026-10-09T12%3A00%3A00.000Z&to=2026-12-15T12%3A00%3A00.000Z' });
+  });
+
+  it('GETs a project dashboard’s meetings overview', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).meetings.projectOverview('p1');
+    expect(calls[0]).toEqual({ method: 'GET', path: '/projects/p1/meetings-overview' });
+  });
+
+  it('PUTs a milestone flag on a task', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).tasks.update('t1', { isMilestone: true });
+    expect(calls[0]).toEqual({ method: 'PUT', path: '/tasks/t1', body: { isMilestone: true } });
+  });
+});

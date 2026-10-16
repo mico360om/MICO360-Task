@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { isNetworkError } from '../lib/api-client';
+import { ApiError, isNetworkError } from '../lib/api-client';
+import { meetingWindow } from '../lib/meetings';
 import { newIdempotencyKey } from '../lib/idempotency';
 import type { SyncQueue } from '../lib/sync-queue';
 import type { ApiTask } from '../lib/types';
@@ -304,6 +305,33 @@ export function useProjectProgress(projectId: string) {
   return useQuery({
     queryKey: ['project', projectId, 'progress'],
     queryFn: () => resources.projects.progress(projectId),
+    enabled: !!projectId,
+  });
+}
+
+// ── Meetings (read-only) ─────────────────────────────────────────────────────
+/** The meetings the calendar shows (a week back, two months ahead), kept for an offline start. */
+export function useCalendarMeetings() {
+  const { resources, cache } = useServices();
+  return useQuery({
+    queryKey: ['meetings', 'calendar'],
+    queryFn: async () => {
+      const w = meetingWindow();
+      return (await cache.read('meetings.calendar', () => resources.meetings.range(w.from, w.to))).data;
+    },
+  });
+}
+
+/** A project's meetings, decisions and action items; null from a server without them (404). */
+export function useProjectMeetings(projectId: string) {
+  const { resources } = useServices();
+  return useQuery({
+    queryKey: ['project', projectId, 'meetings'],
+    queryFn: () =>
+      resources.meetings.projectOverview(projectId).catch((e: unknown) => {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }),
     enabled: !!projectId,
   });
 }

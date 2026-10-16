@@ -43,6 +43,10 @@ export interface ApiTask {
   recurrenceParentId?: string | null;
   /** The copy made from this task (task detail only). Set = an earlier copy of its series. */
   recurrenceNextId?: string | null;
+  /** A milestone of its project (older servers leave it out). */
+  isMilestone?: boolean;
+  /** The category of the task's column (e.g. DONE) — older servers leave it out. */
+  columnCategory?: string | null;
   /** Present only on the create response when tags were applied in the same call. */
   tags?: ApiTag[];
   /** Present only on the create response when assignees were applied in the same call. */
@@ -131,6 +135,8 @@ export interface ApiColumn {
 export interface ApiProject {
   id: string;
   code: string;
+  /** The project's own number (e.g. the client's job or contract number). */
+  number?: string | null;
   name: string;
   description: string | null;
   status: string;
@@ -138,6 +144,72 @@ export interface ApiProject {
   priority?: string | null;
   startDate?: string | null;
   targetDate?: string | null;
+}
+
+// ── Meetings (read-only in the app) ──────────────────────────────────────────
+export type MeetingStatus = 'DRAFT' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+
+/** A meeting as the meetings list gives it (the calendar). */
+export interface ApiMeeting {
+  id: string;
+  title: string;
+  description: string | null;
+  status: MeetingStatus;
+  projectId: string | null;
+  organizerId: string;
+  location: string | null;
+  onlineLink: string | null;
+  startAt: string;
+  endAt: string | null;
+  timeZone: string | null;
+  /** On the first meeting of a repeating series: the series' rule. */
+  recurrenceRule: RecurrenceRule | null;
+  /** On the other meetings of a series: the first meeting's id. */
+  recurrenceParentId: string | null;
+}
+
+export type MeetingPhase = 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
+/** How far a meeting's minutes are: none, notes taken, final minutes drafted, final minutes approved. */
+export type MinutesState = 'NONE' | 'NOTES' | 'DRAFT' | 'FINAL';
+
+/** One meeting on a project's dashboard. */
+export interface ApiProjectMeeting extends Omit<ApiMeeting, 'description' | 'projectId'> {
+  seriesId: string | null;
+  phase: MeetingPhase;
+  attendeeCount: number;
+  attendees: string[];
+  minutes: MinutesState;
+  decisionCount: number;
+  openActionItemCount: number;
+}
+
+/** A project's meetings, decisions and action items (GET /projects/:id/meetings-overview). */
+export interface ApiProjectMeetingsOverview {
+  meetings: ApiProjectMeeting[];
+  decisions: Array<{ id: string; text: string; meetingId: string; meetingTitle: string | null; at: string }>;
+  actionItems: Array<{
+    id: string;
+    description: string;
+    status: string;
+    priority: Priority;
+    dueDate: string | null;
+    overdue: boolean;
+    assignee: { id: string; name: string } | null;
+    meetingId: string | null;
+    meetingTitle: string | null;
+  }>;
+  /** Each repeating series once, with its next meeting. */
+  series: Array<{ id: string; title: string; rule: RecurrenceRule; firstStartAt?: string; nextMeetingId: string | null; nextStartAt: string | null; upcoming: number }>;
+  stats: {
+    upcoming: number;
+    ongoing: number;
+    completed: number;
+    cancelled: number;
+    nextMeetingId: string | null;
+    openActionItems: number;
+    overdueActionItems: number;
+    decisions: number;
+  };
 }
 
 export interface ApiNotification {

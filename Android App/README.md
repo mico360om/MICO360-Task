@@ -13,7 +13,8 @@ src/
   lib/         Pure TS logic core — NO react-native / expo imports. Fully unit-tested.
                theme, config, api-client, auth, session-store, biometric-gate,
                resources, read-cache (offline reads), realtime (event → list),
-               tasks-summary, board, calendar, push-registrar, sync-queue (offline
+               tasks-summary, board, meetings (calendar days), project-dashboard,
+               push-registrar, sync-queue (offline
                mutation queue), error-reporter.
   adapters/    Native implementations of the core's injected ports
                (SecureStore, AsyncStorage, expo-notifications, expo-local-authentication).
@@ -132,8 +133,16 @@ The logic core resolves against the repo-root `node_modules` for its test/typech
   one, however many devices complete it. The repeat logic is shared with the API
   (`src/lib/recurrence.ts` is a checked copy).
 - **Board:** one day at a time, with live updates. Long-press a card to move it to another column.
-- **Projects:** a **Details** screen shows progress, dates, the team (managers first) and shortcuts
-  to the board and the project chat.
+- **Milestones:** mark a task as a milestone in its details (**Milestone** switch); milestones show a
+  🏁 flag in task lists.
+- **Projects:** a **Details** screen shows the project number, progress, dates, its milestones (done,
+  late or how many days left), what's due in the next two weeks, its meetings (the next ones,
+  repeating series, open action items, recent decisions), the team (managers first) and shortcuts to
+  the board and the project chat.
+- **Calendar:** your tasks on their due days and the meetings you can see on theirs (a week back,
+  two months ahead), with times, place and a 🔁 mark for repeating ones. Tap a meeting for its notes
+  and **Join online meeting**. Meetings are read-only in the app — they're planned and run in the
+  web portal.
 - **Settings:** theme, biometric unlock, push permission, and which notifications you get (the same
   six types and "due soon" timing as the web app, stored on the server). Privacy policy and terms
   links are here and on the sign-in screen.

@@ -38,6 +38,11 @@ describe('taskRowA11yLabel', () => {
     expect(taskRowA11yLabel(base, null, false)).not.toContain('repeats');
   });
 
+  it('says when a task is a milestone', () => {
+    expect(taskRowA11yLabel({ ...base, isMilestone: true }, null, false)).toBe('ENG-12, High priority, Wire up the export, milestone');
+    expect(taskRowA11yLabel(base, null, false)).not.toContain('milestone');
+  });
+
   it('maps every priority to a human word', () => {
     expect(taskRowA11yLabel({ ...base, priority: 'LOW' }, null, false)).toContain('Low priority');
     expect(taskRowA11yLabel({ ...base, priority: 'NORMAL' }, null, false)).toContain('Normal priority');
