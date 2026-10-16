@@ -18,8 +18,12 @@ export interface ProjectMeetingsData {
     onlineLink: string | null;
     recurrenceRule: RecurrenceRule | null;
     recurrenceParentId: string | null;
+    /** A series meeting's place in its series (its first meeting's says the day the repeat follows). */
+    recurrenceStart?: Date | null;
     organizerId: string;
   }>;
+  /** First meetings of the series shown that aren't among `meetings` (older, or deleted on their own). */
+  seriesRoots: Array<{ id: string; title: string; recurrenceRule: RecurrenceRule | null; recurrenceStart: Date | null; startAt: Date }>;
   /** Attendees by meeting, with their display names (guests too). */
   attendees: Array<{ meetingId: string; userId: string | null; name: string }>;
   /** Notes recorded as decisions (not deleted). */
@@ -111,13 +115,23 @@ export function buildProjectMeetingsOverview(data: ProjectMeetingsData, now: Dat
       meetingTitle: x.meetingId ? titleOf.get(x.meetingId) ?? null : null,
     }));
 
-  // Each repeating series once: its title and rule, and its next meeting.
+  // Each repeating series once: its title and rule, when it started (the day its weekly repeat
+  // follows), and its next meeting.
   const series = [...new Set(meetings.map((m) => m.seriesId).filter((id): id is string => !!id))].flatMap((id) => {
     const own = meetings.filter((m) => m.seriesId === id);
-    const root = data.meetings.find((m) => m.id === id);
+    const loaded = data.meetings.find((m) => m.id === id);
+    const root = loaded ? { ...loaded, recurrenceStart: loaded.recurrenceStart ?? null } : data.seriesRoots.find((r) => r.id === id);
     const coming = own.filter((m) => m.phase === 'upcoming');
     if (!root?.recurrenceRule) return [];
-    return [{ id, title: (coming[0] ?? root).title, rule: root.recurrenceRule, nextMeetingId: coming[0]?.id ?? null, nextStartAt: coming[0]?.startAt ?? null, upcoming: coming.length }];
+    return [{
+      id,
+      title: (coming[0] ?? own.at(-1) ?? root).title,
+      rule: root.recurrenceRule,
+      firstStartAt: root.recurrenceStart ?? root.startAt,
+      nextMeetingId: coming[0]?.id ?? null,
+      nextStartAt: coming[0]?.startAt ?? null,
+      upcoming: coming.length,
+    }];
   });
 
   const count = (p: MeetingPhase) => meetings.filter((m) => m.phase === p).length;

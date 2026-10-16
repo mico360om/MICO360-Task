@@ -101,7 +101,7 @@ function endOfDay(day: string, timeZone: string | null): Date {
  * The RRULE for a rule, matching how the app schedules it: weeks run from Sunday, and a day of
  * the month past the 28th is clamped to short months (the 31st is each month's last day).
  */
-function recurrenceToRrule(r: IcsRecurrence, timeZone: string | null): string {
+function recurrenceToRrule(r: IcsRecurrence, timeZone: string | null, start: Date): string {
   const parts: string[] = [];
   if (r.freq === 'QUARTERLY') {
     parts.push('FREQ=MONTHLY', `INTERVAL=${Math.max(1, r.interval) * 3}`);
@@ -124,6 +124,9 @@ function recurrenceToRrule(r: IcsRecurrence, timeZone: string | null): string {
       parts.push(`BYMONTHDAY=${day}`);
     }
   }
+  // A yearly series on 29 February is on 28 February in other years (the app clamps it).
+  const local = timeZone ? new Date(start.getTime() + offsetMinutes(start, timeZone) * MINUTE_MS) : start;
+  if (r.freq === 'YEARLY' && local.getUTCMonth() === 1 && local.getUTCDate() === 29) parts.push('BYMONTH=2', 'BYMONTHDAY=28,29', 'BYSETPOS=-1');
   if (r.freq === 'WEEKLY' && r.interval > 1) parts.push('WKST=SU');
   if (r.count != null) parts.push(`COUNT=${r.count}`);
   else if (r.until) {
@@ -258,7 +261,7 @@ function vevent(event: IcsEvent, method: IcsMethod): string[] {
   if (event.url) lines.push(`URL:${event.url}`);
   lines.push(person('ORGANIZER', event.organizer));
   for (const a of event.attendees ?? []) lines.push(person('ATTENDEE', a));
-  if (event.recurrence && !event.recurrence.paused && !event.recurrenceId) lines.push(`RRULE:${recurrenceToRrule(event.recurrence, tz)}`);
+  if (event.recurrence && !event.recurrence.paused && !event.recurrenceId) lines.push(`RRULE:${recurrenceToRrule(event.recurrence, tz, event.start)}`);
   if (event.exdates?.length && !event.recurrenceId) {
     lines.push(tz ? `EXDATE;TZID=${tz}:${event.exdates.map(local).join(',')}` : `EXDATE:${event.exdates.map(local).join(',')}`);
   }
@@ -274,15 +277,19 @@ function vevent(event: IcsEvent, method: IcsMethod): string[] {
 export function buildIcsCalendar(method: IcsMethod, events: IcsEvent[]): string {
   const first = events[0];
   if (!first) throw new Error('A calendar needs at least one event.');
-  const zoned = events.find((e) => anchorZone(e));
-  const tz = zoned ? anchorZone(zoned) : null;
+  // Every zone an event is written in is described once (a meeting moved to another zone included).
+  const zones = new Map<string, Date>();
+  for (const e of events) {
+    const tz = anchorZone(e);
+    if (tz && !zones.has(tz)) zones.set(tz, e.start);
+  }
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     `PRODID:${first.prodId ?? '-//MICO360//Meetings//EN'}`,
     'CALSCALE:GREGORIAN',
     `METHOD:${method}`,
-    ...(tz && zoned ? vtimezone(tz, zoned.start) : []),
+    ...[...zones].flatMap(([tz, around]) => vtimezone(tz, around)),
     ...events.flatMap((e) => vevent(e, method)),
     'END:VCALENDAR',
   ];

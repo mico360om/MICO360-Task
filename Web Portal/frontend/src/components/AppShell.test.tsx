@@ -8,6 +8,10 @@ import { useAuthStore } from '../stores/auth-store';
 import { enqueueOffline } from '../lib/offline-replay';
 import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
 
+// The shell opens a live-update socket: keep it off the network, or a server running on this computer
+// answers it (an unknown token, a session refresh) and the test's session changes under it.
+vi.mock('socket.io-client', () => ({ io: () => ({ on: vi.fn(), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn() }) }));
+
 function renderShell() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(

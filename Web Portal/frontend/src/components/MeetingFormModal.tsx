@@ -5,7 +5,8 @@ import { meetingsApi, seriesIdOf, MEETING_STATUS_LABELS, type Meeting, type Meet
 import { projectsApi } from '../api/projects';
 import { ApiError } from '../lib/api-client';
 import { fromLocalInputValue, nextHourInputValue, normalizeMeetingLink, toLocalInputValue } from '../lib/meetingFormat';
-import { meetingRepeatText, repeatProblem } from '../lib/meeting-repeat';
+import { firstMeetingDay, meetingRepeatText, repeatProblem } from '../lib/meeting-repeat';
+import { dayLabel } from './calendar/calendar-ui';
 import { recurrenceSummary } from '../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { Button } from './ui/Button';
@@ -52,6 +53,9 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const timeZone = useCompanyTimeZone();
   const editing = !!meeting;
   const seriesId = meeting ? seriesIdOf(meeting) : null;
+  // The meeting as the form opened it: a series change sends only what was changed from this, even
+  // if someone else changes the meeting (and the page refreshes it) while the form is open.
+  const [opened] = useState(meeting);
   const [title, setTitle] = useState(meeting?.title ?? '');
   const [start, setStart] = useState(() => (meeting ? toLocalInputValue(meeting.startAt, timeZone) : nextHourInputValue(timeZone)));
   const [end, setEnd] = useState(() => (meeting ? toLocalInputValue(meeting.endAt, timeZone) : ''));
@@ -107,7 +111,10 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
 
   const startDay = start.slice(0, 10);
   const startIso = fromLocalInputValue(start, timeZone);
-  const untilProblem = repeatProblem(rule, startDay);
+  // The end date is checked for a new repeat; a meeting of a series moved on its own keeps the series'.
+  const untilProblem = !seriesId || ruleChanged ? repeatProblem(rule, startDay) : null;
+  // A new series starts on one of the repeat's days: say so when the chosen day isn't one.
+  const firstDay = rule && !seriesId ? firstMeetingDay(startDay, rule) : startDay;
   const summary = rule ? (startIso ? meetingRepeatText(rule, startIso, timeZone) : recurrenceSummary(rule)) : '';
 
   const saveMut = useMutation({
@@ -129,18 +136,21 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
       if (editing && seriesId && as === 'series') {
         // The series' upcoming meetings get only what was changed here, so a meeting changed on its
         // own (another room, say) keeps its other details.
-        const was = meeting!;
+        const was = opened!;
+        const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').trim() === (b ?? '').trim();
         const changes: MeetingPatch = {};
-        if (payload.title !== was.title.trim()) changes.title = payload.title;
+        if (!same(payload.title, was.title)) changes.title = payload.title;
         if (start !== toLocalInputValue(was.startAt, timeZone) || end !== toLocalInputValue(was.endAt, timeZone)) {
           Object.assign(changes, { startAt: payload.startAt, endAt: payload.endAt, timeZone });
         }
-        if (payload.location !== (was.location ?? null)) changes.location = payload.location;
-        if (payload.onlineLink !== (was.onlineLink ?? null)) changes.onlineLink = payload.onlineLink;
-        if (payload.projectId !== (was.projectId ?? null)) changes.projectId = payload.projectId;
+        if (!same(payload.location, was.location)) changes.location = payload.location;
+        if (!same(payload.onlineLink, was.onlineLink)) changes.onlineLink = payload.onlineLink;
+        if ((payload.projectId ?? null) !== (was.projectId ?? null)) changes.projectId = payload.projectId;
         if (status !== was.status) changes.status = status;
-        if (payload.description !== (was.description ?? null)) changes.description = payload.description;
+        if (!same(payload.description, was.description)) changes.description = payload.description;
         if (ruleChanged) changes.recurrenceRule = rule;
+        // Nothing changed: nothing to send (and nobody to email).
+        if (Object.keys(changes).length === 0) return Promise.resolve(was);
         return meetingsApi(apiClient).update(was.id, changes, 'series');
       }
       // A new meeting or a one-off given a repeat takes the rule; one meeting of a series keeps the series' repeat.
@@ -249,7 +259,15 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
               </div>
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Repeat</FieldLabel>
-                <SearchableSelect ariaLabel="Repeat" options={REPEAT_OPTIONS} value={rule?.freq ?? 'NONE'} onChange={(v) => changeRule(withFrequency(rule, v))} />
+                <SearchableSelect
+                  ariaLabel="Repeat"
+                  options={REPEAT_OPTIONS}
+                  value={rule?.freq ?? 'NONE'}
+                  // Picking the same repeat again keeps its days.
+                  onChange={(v) => {
+                    if (v !== (rule?.freq ?? 'NONE')) changeRule(withFrequency(rule, v));
+                  }}
+                />
                 {seriesId ? <p className="text-xs text-ink-2">This meeting is part of a repeating series.</p> : null}
               </div>
               {rule ? (
@@ -260,6 +278,11 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                   </p>
                   <RecurrenceEditor hideFrequency kind="meeting" value={rule} onChange={changeRule} dueDate={startDay || null} />
                   {untilProblem ? <p role="alert" className="mt-2 text-xs font-medium text-danger">{untilProblem}</p> : null}
+                  {firstDay !== startDay ? (
+                    <p className="mt-2 text-xs font-medium text-ink">
+                      The first meeting will be on {dayLabel(firstDay)}, the first day this repeat gives.
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-xs text-ink-2">
                     {seriesId ? 'A new repeat applies to all upcoming meetings of the series.' : 'Each meeting is created for the next three months, and more follow as time goes on.'}
                   </p>

@@ -9,16 +9,24 @@ const nameOf = (u: { firstName: string | null; lastName: string | null; username
 export function createPrismaProjectMeetingsSource(prisma: PrismaClient) {
   return {
     async load(projectId: string, from: Date, to: Date): Promise<ProjectMeetingsData> {
-      const meetings = await prisma.meeting.findMany({
-        where: { projectId, deletedAt: null, startAt: { gte: from, lt: to } },
-        orderBy: { startAt: 'asc' },
-        take: 400,
-        select: {
-          id: true, title: true, status: true, startAt: true, endAt: true, timeZone: true, location: true, onlineLink: true,
-          recurrenceRule: true, recurrenceParentId: true, organizerId: true,
-        },
-      });
+      const select = {
+        id: true, title: true, status: true, startAt: true, endAt: true, timeZone: true, location: true, onlineLink: true,
+        recurrenceRule: true, recurrenceParentId: true, organizerId: true, recurrenceStart: true,
+      } as const;
+      // The most recent past meetings and the soonest coming ones, each capped — so a busy project
+      // (daily series) never loses its upcoming meetings to its history.
+      const now = new Date();
+      const [past, coming] = await Promise.all([
+        prisma.meeting.findMany({ where: { projectId, deletedAt: null, startAt: { gte: from, lt: now } }, orderBy: { startAt: 'desc' }, take: 200, select }),
+        prisma.meeting.findMany({ where: { projectId, deletedAt: null, startAt: { gte: now, lt: to } }, orderBy: { startAt: 'asc' }, take: 300, select }),
+      ]);
+      const meetings = [...past.reverse(), ...coming];
       const ids = meetings.map((m) => m.id);
+      // First meetings of the series shown that aren't loaded: older than the range, or deleted on their own.
+      const missingRoots = [...new Set(meetings.map((m) => m.recurrenceParentId).filter((id): id is string => !!id && !ids.includes(id)))];
+      const seriesRoots = missingRoots.length
+        ? await prisma.meeting.findMany({ where: { id: { in: missingRoots } }, select: { id: true, title: true, recurrenceRule: true, recurrenceStart: true, startAt: true } })
+        : [];
       const [attendees, decisions, notes, minutes, items] = await Promise.all([
         prisma.meetingAttendee.findMany({
           where: { meetingId: { in: ids } },
@@ -53,6 +61,7 @@ export function createPrismaProjectMeetingsSource(prisma: PrismaClient) {
       const names = new Map(users.map((u) => [u.id, nameOf(u)]));
       return {
         meetings: meetings.map((m) => ({ ...m, recurrenceRule: (m.recurrenceRule as RecurrenceRule | null) ?? null })),
+        seriesRoots: seriesRoots.map((r) => ({ ...r, recurrenceRule: (r.recurrenceRule as RecurrenceRule | null) ?? null })),
         attendees: attendees.map((a) => ({
           meetingId: a.meetingId,
           userId: a.userId,

@@ -158,6 +158,60 @@ describe('MeetingFormModal: repeating meetings', () => {
     expect(within(ask).getByText(/a new repeat changes the whole series/i)).toBeInTheDocument();
   });
 
+  it('says when the first meeting will move onto the repeat’s first day', async () => {
+    renderModal();
+    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-20T10:00' } }); // a Tuesday
+    await pick('Repeat', 'Weekly');
+    const schedule = screen.getByRole('group', { name: 'Repeat schedule' });
+    await userEvent.click(within(schedule).getByRole('button', { name: 'Wed' }));
+    await userEvent.click(within(schedule).getByRole('button', { name: 'Tue' })); // off: Wednesday only
+    expect(within(schedule).getByText(/first meeting will be on Wed 21 Oct/i)).toBeInTheDocument();
+  });
+
+  it('saves a meeting dated after its series’ end on its own', async () => {
+    const lastOne: Meeting = { ...seriesMeeting, id: 'm1', series: { id: 'm1', rule: { freq: 'WEEKLY', interval: 1, until: '2026-10-01' }, timeZone: 'Asia/Muscat' }, recurrenceRule: { freq: 'WEEKLY', interval: 1, until: '2026-10-01' } };
+    renderModal(lastOne);
+    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-02T10:00' } });
+    fireEvent.change(screen.getByLabelText(/^ends/i), { target: { value: '2026-10-02T11:00' } });
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
+    await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+  });
+
+  it('keeps the chosen days when the same repeat is picked again', async () => {
+    renderModal({ ...seriesMeeting, recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [2, 4] }, series: { id: 'm1', rule: { freq: 'WEEKLY', interval: 1, weekdays: [2, 4] }, timeZone: 'Asia/Muscat' } });
+    await pick('Repeat', 'Weekly');
+    const schedule = screen.getByRole('group', { name: 'Repeat schedule' });
+    expect(within(schedule).getByRole('button', { name: 'Tue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(schedule).getByRole('button', { name: 'Thu' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('sends nothing for a series save with no changes', async () => {
+    const { onClose } = renderModal(seriesMeeting);
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
+    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming meetings/i }));
+    await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+  });
+
+  it('compares with what the form opened with, not with later data', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={qc}><MeetingFormModal meeting={seriesMeeting} onClose={() => {}} /></QueryClientProvider>);
+    // Someone else moves the series to Room 7 while the form is open; this person renames it.
+    view.rerender(<QueryClientProvider client={qc}><MeetingFormModal meeting={{ ...seriesMeeting, location: 'Room 7' }} onClose={() => {}} /></QueryClientProvider>);
+    await userEvent.clear(screen.getByLabelText(/title/i));
+    await userEvent.type(screen.getByLabelText(/title/i), 'Renamed sync');
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
+    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming meetings/i }));
+    await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ title: 'Renamed sync' });
+  });
+
   it('loads the series’ repeat for a later meeting of it', async () => {
     renderModal({ ...baseMeeting, id: 'm3', recurrenceParentId: 'm1' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Repeat' })).toHaveTextContent('Weekly'));

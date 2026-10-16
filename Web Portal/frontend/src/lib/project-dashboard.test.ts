@@ -33,6 +33,13 @@ describe('project dashboard: tasks', () => {
     expect(s.byPriority).toEqual({ URGENT: 1, HIGH: 1, NORMAL: 1, LOW: 0 }); // open tasks only
   });
 
+  it('reads a due date given as a time on its company-time day', () => {
+    // 20:00 UTC on the 16th is the 17th in Muscat: due today on the 17th, not overdue.
+    const t = task({ dueDate: '2026-10-16T20:00:00.000Z' });
+    expect(taskPhase(t, '2026-10-17', 'Asia/Muscat')).toBe('pending');
+    expect(deadlines([t], '2026-10-17', 14, 'Asia/Muscat')[0]).toMatchObject({ due: '2026-10-17', daysLeft: 0 });
+  });
+
   it('is zero, not NaN, for a project without tasks', () => {
     expect(taskStats([], TODAY)).toMatchObject({ total: 0, pct: 0, avgProgress: 0 });
   });

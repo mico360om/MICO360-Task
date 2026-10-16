@@ -41,12 +41,14 @@ async function setup() {
     timeZone: TZ,
     load: vi.fn(async () => ({
       meetings: [...meetings.rows.values()].filter((m) => !m.deletedAt),
-      attendees: [], decisions: [], noteCounts: {}, minutes: [], actionItems: [],
+      seriesRoots: [], attendees: [], decisions: [], noteCounts: {}, minutes: [], actionItems: [],
     })),
   };
   const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, meetingSeriesService, meetingNotifyService: notify as never, projectMeetings });
   const auth = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'u1', roles: ['EMPLOYEE'] })).accessToken}` };
   const call = (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, payload?: unknown) => app.inject({ method, url: `/api/v1${url}`, headers: auth, payload: payload as never });
+  const callAs = async (userId: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, payload?: unknown) =>
+    app.inject({ method, url: `/api/v1${url}`, headers: { authorization: `Bearer ${(await tokenService.issueTokens({ id: userId, roles: ['EMPLOYEE'] })).accessToken}` }, payload: payload as never });
   const alive = () => [...meetings.rows.values()].filter((m) => !m.deletedAt).sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
   async function weekly() {
     const res = await call('POST', '/meetings', {
@@ -56,7 +58,7 @@ async function setup() {
     expect(res.statusCode).toBe(201);
     return res.json().data as { id: string };
   }
-  return { meetings, clock, notify, call, alive, weekly };
+  return { meetings, clock, notify, call, callAs, alive, weekly };
 }
 
 describe('repeating meetings over the API', () => {
@@ -157,6 +159,52 @@ describe('repeating meetings over the API', () => {
     expect(body.series).toEqual([expect.objectContaining({ id: root.id, title: 'Weekly sync' })]);
     expect(body.stats.upcoming).toBeGreaterThan(0);
     expect((await t.call('GET', '/projects/p2/meetings-overview')).statusCode).toBe(403);
+  });
+
+  it('sends no invitations for a series change calendars don’t show', async () => {
+    const t = await setup();
+    await t.weekly();
+    for (const m of t.alive()) await t.meetings.markInvitesSent(m.id, NOW);
+    const second = t.alive()[1]!;
+    expect((await t.call('PUT', `/meetings/${second.id}?scope=series`, { category: 'Weekly' })).statusCode).toBe(200);
+    expect((await t.call('PUT', `/meetings/${second.id}?scope=series`, {})).statusCode).toBe(200);
+    expect(t.notify.sendInvites).not.toHaveBeenCalled();
+  });
+
+  it('lets only someone who can change the series’ first meeting change all of it', async () => {
+    const t = await setup();
+    await t.weekly();
+    const third = t.alive()[2]!;
+    await t.meetings.update(third.id, { organizerId: 'u9' }); // u9 runs just this meeting
+    const all = await t.callAs('u9', 'PUT', `/meetings/${third.id}?scope=series`, { title: 'Taken over' });
+    expect(all.statusCode).toBe(403);
+    expect(t.alive().filter((m) => m.title === 'Taken over')).toHaveLength(0);
+    expect((await t.callAs('u9', 'POST', `/meetings/${third.id}/cancel?scope=series`)).statusCode).toBe(403);
+    expect((await t.callAs('u9', 'DELETE', `/meetings/${third.id}?scope=series`)).statusCode).toBe(403);
+    expect((await t.callAs('u9', 'PUT', `/meetings/${third.id}`, { title: 'My own' })).statusCode).toBe(200);
+  });
+
+  it('answers with the series’ next meeting when the edited one has no place in the new schedule', async () => {
+    const t = await setup();
+    const root = await t.weekly();
+    for (const m of t.alive()) await t.meetings.markInvitesSent(m.id, NOW);
+    const ninth = t.alive()[8]!;
+    const res = await t.call('PUT', `/meetings/${ninth.id}?scope=series`, { recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [2], count: 4 } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.id).toBe(root.id);
+    expect(t.notify.sendInvites).toHaveBeenCalledWith(root.id, { scope: 'series' });
+  });
+
+  it('removes the old series from calendars when a series whose first meeting was deleted gets a new time', async () => {
+    const t = await setup();
+    const root = await t.weekly();
+    for (const m of t.alive()) await t.meetings.markInvitesSent(m.id, NOW);
+    const second = t.alive()[1]!;
+    await t.call('DELETE', `/meetings/${root.id}`);
+    t.notify.sendCancellation.mockClear();
+    await t.call('PUT', `/meetings/${second.id}?scope=series`, { startAt: '2026-10-27T07:00:00Z', endAt: '2026-10-27T08:00:00Z' });
+    expect(t.notify.sendCancellation).toHaveBeenCalledWith(root.id, expect.objectContaining({ scope: 'series', note: 'moved' }));
+    expect(t.notify.sendInvites).toHaveBeenCalledWith(second.id, { scope: 'series' });
   });
 
   it('lists the meetings in a calendar range', async () => {

@@ -89,14 +89,14 @@ export function TasksTab({
   const counts = useMemo(() => {
     const c: Record<TaskFilter, number> = { all: all.length, ongoing: 0, pending: 0, overdue: 0, completed: 0, milestones: 0 };
     for (const t of all) {
-      c[taskPhase(t, today)] += 1;
+      c[taskPhase(t, today, timeZone)] += 1;
       if (t.isMilestone) c.milestones += 1;
     }
     return c;
-  }, [all, today]);
+  }, [all, today, timeZone]);
   const words = q.trim().toLocaleLowerCase();
   const keep = (t: ApiTask) =>
-    (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today) === filter)) &&
+    (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
     (!words || t.title.toLocaleLowerCase().includes(words) || t.key.toLocaleLowerCase().includes(words));
   const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 
@@ -136,7 +136,7 @@ export function TasksTab({
             </div>
             <div className="card divide-y divide-line overflow-hidden">
               {g.tasks.map((t) => (
-                <TaskRow key={t.id} task={t} statusName={g.name} statusColor={g.color} phase={taskPhase(t, today)} dueText={formatDueDay(t.dueDate, timeZone)} onOpen={() => onOpen(t.id)} />
+                <TaskRow key={t.id} task={t} statusName={g.name} statusColor={g.color} phase={taskPhase(t, today, timeZone)} dueText={formatDueDay(t.dueDate, timeZone)} onOpen={() => onOpen(t.id)} />
               ))}
             </div>
           </section>

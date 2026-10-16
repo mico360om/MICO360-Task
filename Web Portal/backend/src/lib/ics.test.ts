@@ -180,6 +180,27 @@ describe('buildIcs', () => {
     expect(ics).toContain('DTSTART;TZID=Asia/Muscat:20261027T120000');
   });
 
+  it('keeps a yearly meeting on 29 February on 28 February in other years (as the app does)', () => {
+    const ics = unfold(buildIcs({
+      ...base,
+      method: 'REQUEST',
+      start: new Date('2028-02-29T06:00:00.000Z'),
+      end: new Date('2028-02-29T07:00:00.000Z'),
+      timeZone: 'Asia/Muscat',
+      recurrence: { freq: 'YEARLY', interval: 1, anchorDay: 29 },
+    }));
+    expect(ics).toContain('RRULE:FREQ=YEARLY;INTERVAL=1;BYMONTH=2;BYMONTHDAY=28,29;BYSETPOS=-1');
+  });
+
+  it('describes every time zone the calendar uses', () => {
+    const master = { ...base, method: 'REQUEST' as const, timeZone: 'Asia/Muscat', recurrence: { freq: 'WEEKLY' as const, interval: 1 } };
+    const moved = { ...base, method: 'REQUEST' as const, timeZone: 'Europe/London', recurrenceId: new Date('2026-10-12T14:00:00.000Z'), start: new Date('2026-10-12T15:00:00.000Z'), end: null };
+    const ics = unfold(buildIcsCalendar('REQUEST', [master, moved]));
+    expect(ics).toContain('TZID:Asia/Muscat');
+    expect(ics).toContain('TZID:Europe/London');
+    expect(ics.match(/BEGIN:VTIMEZONE/g)).toHaveLength(2);
+  });
+
   it('leaves out a paused recurrence rule', () => {
     const ics = unfold(buildIcs({ ...base, method: 'REQUEST', timeZone: 'Asia/Muscat', recurrence: { freq: 'WEEKLY', interval: 1, paused: true } }));
     expect(ics).not.toContain('RRULE');

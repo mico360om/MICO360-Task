@@ -95,6 +95,69 @@ describe('series invitations', () => {
   });
 });
 
+describe('series invitations: review fixes', () => {
+  it('describes the series with its own details, not those of a meeting changed on its own', async () => {
+    const t = await setup();
+    const third = t.list()[2]!;
+    await t.meetings.update(third.id, { title: 'Special review', location: 'Room 9' });
+    await t.notify.sendInvites(third.id);
+    const ics = t.icsOf(t.email.sendMeetingInvite.mock.calls[0]);
+    const [master, ...overrides] = ics.split('BEGIN:VEVENT').slice(1);
+    expect(master).toContain('SUMMARY:Weekly sync');
+    expect(master).toContain('LOCATION:Room 2');
+    expect(master).toContain('RRULE:');
+    expect(overrides).toHaveLength(1);
+    expect(overrides[0]).toContain('SUMMARY:Special review');
+    expect(overrides[0]).toContain('RECURRENCE-ID;TZID=Asia/Muscat:20261103T100000');
+  });
+
+  it('sends an update for one meeting only to people who already have the series', async () => {
+    const t = await setup();
+    await t.notify.sendInvites(t.root.id);
+    const second = t.list()[1]!;
+    const guest = await t.attendees.add({ meetingId: second.id, externalName: 'Late guest', externalEmail: 'late@example.com' });
+    t.email.sendMeetingInvite.mockClear();
+    await t.notify.sendInvites(second.id, { scope: 'one' });
+    const to = t.email.sendMeetingInvite.mock.calls.map((c) => c[0]);
+    expect(to).not.toContain('late@example.com');
+    expect(to).toContain('khurram@mico360.test');
+    expect((await t.attendees.findById(guest.id))!.invitedAt).toBeNull();
+  });
+
+  it('numbers each calendar update higher than the last, a cancellation included', async () => {
+    const t = await setup();
+    for (const m of t.list()) await t.meetings.markInvitesSent(m.id, NOW);
+    let removed = null;
+    for (const m of t.list()) {
+      const a = (await t.attendees.listByMeeting(m.id)).find((x) => x.userId === 'u2')!;
+      await t.attendees.remove(a.id);
+      removed ??= a;
+    }
+    await t.notify.sendAttendeeRemoved(t.root.id, removed!);
+    const cancelSeq = Number(/SEQUENCE:(\d+)/.exec(t.icsOf(t.email.sendMeetingCancelled.mock.calls[0]))![1]);
+    t.clock.now = new Date(NOW.getTime() + 60_000);
+    await t.attendees.add({ meetingId: t.root.id, userId: 'u2' });
+    await t.notify.sendInvites(t.root.id, { onlyNew: true });
+    const inviteSeq = Number(/SEQUENCE:(\d+)/.exec(t.icsOf(t.email.sendMeetingInvite.mock.calls.at(-1)))![1]);
+    expect(inviteSeq).toBeGreaterThan(cancelSeq);
+  });
+
+  it('tells someone taken off a series that they are off it — not that it is cancelled', async () => {
+    const t = await setup();
+    for (const m of t.list()) await t.meetings.markInvitesSent(m.id, NOW);
+    let removed = null;
+    for (const m of t.list()) {
+      const a = (await t.attendees.listByMeeting(m.id)).find((x) => x.userId === 'u2')!;
+      await t.attendees.remove(a.id);
+      removed ??= a;
+    }
+    await t.notify.sendAttendeeRemoved(t.root.id, removed!);
+    const label = (t.email.sendMeetingCancelled.mock.calls[0]![1] as { whenLabel: string }).whenLabel;
+    expect(label).toMatch(/no longer on/i);
+    expect(label).not.toMatch(/cancelled/i);
+  });
+});
+
 describe('series cancellations', () => {
   it('cancels one meeting of the series', async () => {
     const t = await setup();

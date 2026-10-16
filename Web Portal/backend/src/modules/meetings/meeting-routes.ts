@@ -138,6 +138,12 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
   const canEdit = (req: FastifyRequest, id: string): Promise<boolean> => meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
   const notSeries = { error: { code: 'VALIDATION', message: 'This meeting is not part of a series.' } };
+  const cannotEditSeries = { error: { code: 'FORBIDDEN', message: 'Only the organizer of the series, the project manager or an admin can change all its meetings.' } };
+  /** May this user change every meeting of the series? Judged on its first meeting, whoever runs this one. */
+  async function canEditSeries(req: FastifyRequest, m: MeetingRecord): Promise<boolean> {
+    const root = deps.series ? await deps.series.rootOf(m) : null;
+    return !!root && meetingService.canEditMeetingRecord(root, req.user!.id, req.user!.roles ?? []);
+  }
   const seriesIdOf = (m: MeetingRecord) => deps.series?.seriesIdOf(m) ?? null;
   /** A meeting with its series (first meeting's id, rule, zone) for the apps' repeat controls. */
   async function withSeries<T extends MeetingRecord>(m: T): Promise<T & { series: Awaited<ReturnType<MeetingSeriesService['describe']>> }> {
@@ -244,6 +250,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const before = await meetingService.getMeeting(id);
     const seriesId = seriesIdOf(before);
     if (scope === 'series' && !seriesId) return reply.status(400).send(notSeries);
+    if (scope === 'series' && !(await canEditSeries(req, before))) return reply.status(403).send(cannotEditSeries);
     if (patch.recurrenceRule) {
       const problem = ruleProblem(patch.recurrenceRule, patch.startAt ?? before.startAt, patch.timeZone || before.timeZone || 'UTC');
       if (problem) return reply.status(400).send(badRule(problem));
@@ -264,7 +271,8 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     }
     if (scope === 'series' && deps.series) {
       const change = await deps.series.updateSeries(id, patch);
-      const meeting = change.meeting ?? (await meetingService.getMeeting(id));
+      // The edited meeting — or the series' next one when the new schedule had no place for it.
+      const meeting = change.meeting ?? before;
       if (before.invitesSentAt && deps.notify) {
         const notify = deps.notify;
         // A series that had started was split: its calendar series ends, and the new one is sent.
@@ -272,8 +280,11 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
           const ended = change.endedMeeting;
           background(notify.sendCancellation(ended.id, { meeting: ended, scope: 'series', note: 'moved' }), 'meeting series update notice failed', ended.id);
         }
-        if (meeting.status === 'CANCELLED') background(notify.sendCancellation(id, { scope: 'series' }), 'meeting cancellation notice failed', id);
-        else background(notify.sendInvites(id, { scope: 'series' }), 'meeting series update notice failed', id);
+        if (meeting.status === 'CANCELLED') background(notify.sendCancellation(meeting.id, { scope: 'series' }), 'meeting cancellation notice failed', meeting.id);
+        // Only what calendars show is worth an email: dates, times, repeat, title, place, notes.
+        else if (change.scheduleChanged || calendarChanged(before, meeting)) {
+          background(notify.sendInvites(meeting.id, { scope: 'series' }), 'meeting series update notice failed', meeting.id);
+        }
       }
       const [data] = await withEditFlags(req, [meeting]);
       return { data: await withSeries(data!) };
@@ -313,6 +324,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const before = await meetingService.getMeeting(id);
     if (scope === 'series') {
       if (!deps.series || !seriesIdOf(before)) return reply.status(400).send(notSeries);
+      if (!(await canEditSeries(req, before))) return reply.status(403).send(cannotEditSeries);
       const change = await deps.series.cancelSeries(id);
       if (before.invitesSentAt && deps.notify) background(deps.notify.sendCancellation(id, { scope: 'series' }), 'meeting cancellation notice failed', id);
       return { data: await withSeries({ ...(change.meeting ?? before), canEdit: true }) };
@@ -361,6 +373,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     if (scope === 'series') {
       const before = await meetingService.getMeeting(id);
       if (!deps.series || !seriesIdOf(before)) return reply.status(400).send(notSeries);
+      if (!(await canEditSeries(req, before))) return reply.status(403).send(cannotEditSeries);
       await deps.series.deleteSeries(id);
       if (before.invitesSentAt && deps.notify) {
         background(deps.notify.sendCancellation(id, { meeting: before, scope: 'series' }), 'meeting cancellation notice failed', id);

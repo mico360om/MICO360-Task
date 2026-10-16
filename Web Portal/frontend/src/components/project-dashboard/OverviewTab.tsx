@@ -64,11 +64,11 @@ export interface OverviewProps {
  */
 export function OverviewTab(p: OverviewProps) {
   const { project, tasks, today, timeZone } = p;
-  const stats = taskStats(tasks, today);
-  const timeline = projectTimeline(project.startDate, project.targetDate, today);
-  const marks = milestones(tasks, today);
-  const soon = deadlines(tasks, today, 14);
-  const people = workload(tasks, today);
+  const stats = taskStats(tasks, today, timeZone);
+  const timeline = projectTimeline(project.startDate, project.targetDate, today, timeZone);
+  const marks = milestones(tasks, today, timeZone);
+  const soon = deadlines(tasks, today, 14, timeZone);
+  const people = workload(tasks, today, timeZone);
   const managers = p.members.filter((m) => m.role === 'MANAGER');
   const next = p.meetings?.stats.nextMeetingId ? p.meetings.meetings.find((m) => m.id === p.meetings!.stats.nextMeetingId) ?? null : null;
   const live = p.meetings?.meetings.find((m) => m.phase === 'ongoing') ?? null;

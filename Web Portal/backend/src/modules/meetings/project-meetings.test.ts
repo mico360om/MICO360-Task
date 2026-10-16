@@ -12,7 +12,7 @@ function meeting(id: string, over: Partial<ProjectMeetingsData['meetings'][numbe
 }
 
 function data(over: Partial<ProjectMeetingsData> = {}): ProjectMeetingsData {
-  return { meetings: [], attendees: [], decisions: [], noteCounts: {}, minutes: [], actionItems: [], ...over };
+  return { meetings: [], seriesRoots: [], attendees: [], decisions: [], noteCounts: {}, minutes: [], actionItems: [], ...over };
 }
 
 describe('project meetings overview', () => {
@@ -69,6 +69,15 @@ describe('project meetings overview', () => {
       ],
     }), NOW, TZ);
     expect(o.meetings.map((m) => m.seriesId)).toEqual(['r', 'r', 'r']);
-    expect(o.series).toEqual([{ id: 'r', title: 'Weekly sync', rule, nextMeetingId: 'r2', nextStartAt: new Date('2026-10-22T06:00:00Z'), upcoming: 2 }]);
+    expect(o.series).toEqual([{ id: 'r', title: 'Weekly sync', rule, firstStartAt: new Date('2026-10-13T06:00:00Z'), nextMeetingId: 'r2', nextStartAt: new Date('2026-10-22T06:00:00Z'), upcoming: 2 }]);
+  });
+
+  it('lists a series whose first meeting is older than the meetings shown, or was deleted', () => {
+    const rule = { freq: 'WEEKLY' as const, interval: 1, weekdays: [2] };
+    const o = buildProjectMeetingsOverview(data({
+      meetings: [meeting('c1', { title: 'Weekly sync', recurrenceParentId: 'old' })],
+      seriesRoots: [{ id: 'old', title: 'Weekly sync (first)', recurrenceRule: rule, recurrenceStart: new Date('2026-03-03T06:00:00Z'), startAt: new Date('2026-03-03T06:00:00Z') }],
+    }), NOW, TZ);
+    expect(o.series).toEqual([expect.objectContaining({ id: 'old', title: 'Weekly sync', rule, firstStartAt: new Date('2026-03-03T06:00:00Z'), nextMeetingId: 'c1', upcoming: 1 })]);
   });
 });

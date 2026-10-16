@@ -349,7 +349,8 @@ export interface ProjectMeetingsOverview {
     meetingId: string | null;
     meetingTitle: string | null;
   }>;
-  series: Array<{ id: string; title: string; rule: RecurrenceRule; nextMeetingId: string | null; nextStartAt: string | null; upcoming: number }>;
+  /** Each repeating series once; `firstStartAt` is when it started (the day a weekly repeat follows). */
+  series: Array<{ id: string; title: string; rule: RecurrenceRule; firstStartAt?: string; nextMeetingId: string | null; nextStartAt: string | null; upcoming: number }>;
   stats: {
     upcoming: number;
     ongoing: number;

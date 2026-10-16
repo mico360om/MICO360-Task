@@ -136,11 +136,6 @@ function slugify(title: string): string {
   return title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'meeting';
 }
 
-/** SEQUENCE that increases as a meeting is edited (calendar clients require monotonic sequences). */
-function sequenceOf(m: MeetingRecord): number {
-  return Math.max(0, Math.round((m.updatedAt.getTime() - m.createdAt.getTime()) / 1000));
-}
-
 function startsInLabel(m: MeetingRecord, now: Date): string {
   const mins = Math.round((m.startAt.getTime() - now.getTime()) / 60000);
   if (mins <= 0) return 'is starting now';
@@ -277,11 +272,26 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     return text;
   }
 
+  /**
+   * SEQUENCE for a calendar message about something created at `createdAt`: the seconds since then,
+   * so every message is numbered above the one before — an invitation sent after a cancellation
+   * included (clients ignore an update numbered below what they have). A cancellation counts one more.
+   */
+  const sequenceFor = (createdAt: Date, method: IcsMethod) =>
+    Math.max(0, Math.floor((now().getTime() - createdAt.getTime()) / 1000)) + (method === 'CANCEL' ? 1 : 0);
+
+  /** The meeting that shows the series' own details: the latest one going ahead on its own schedule. */
+  function patternOf(rows: MeetingRecord[], root: MeetingRecord): MeetingRecord {
+    const byPlace = rows.filter((r) => !r.deletedAt).sort((a, b) => placeOf(b).getTime() - placeOf(a).getTime());
+    const live = byPlace.filter((r) => r.status !== 'CANCELLED');
+    return live.find((r) => r.startAt.getTime() === placeOf(r).getTime()) ?? live[0] ?? byPlace[0] ?? root;
+  }
+
   function eventOf(m: MeetingRecord, method: IcsMethod, organizer: NotifyPerson, icsAttendees: IcsPerson[]): IcsEvent {
     return {
       method,
       uid: uidOf(m.id),
-      sequence: method === 'CANCEL' ? sequenceOf(m) + 1 : sequenceOf(m),
+      sequence: sequenceFor(m.createdAt, method),
       start: m.startAt,
       end: m.endAt,
       timeZone: zoneOf(m),
@@ -317,7 +327,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     } else {
       const uid = uidOf(s.root.id);
       // Calendar clients take an update only with a sequence at least the last one's.
-      const sequence = Math.max(...s.rows.map(sequenceOf)) + (method === 'CANCEL' ? 1 : 0);
+      const sequence = sequenceFor(s.root.createdAt, method);
       if (scope === 'one') {
         const events = [m, ...alsoFrom].map((r) => ({ ...eventOf(r, method, organizer, icsAttendees), uid, sequence, recurrenceId: placeOf(r) }));
         ics = buildIcsCalendar(method, events);
@@ -327,9 +337,12 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
         const last = new Date(Math.max(...s.rows.map((r) => placeOf(r).getTime())));
         const recurrence = rule.paused ? { ...rule, paused: false, count: null, until: zonedDayKey(last, tz) } : rule;
         const start = placeOf(s.root);
-        const duration = durationOf(m);
+        // The series' own title, place and length — not those of a meeting changed on its own.
+        const pattern = patternOf(s.rows, s.root);
+        const duration = durationOf(pattern);
         const master: IcsEvent = {
-          ...eventOf(m, method, organizer, icsAttendees),
+          ...eventOf(pattern, method, organizer, icsAttendees),
+          url: eventOf(m, method, organizer, icsAttendees).url,
           uid,
           sequence,
           start,
@@ -339,7 +352,11 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
           exdates: s.rows.filter((r) => r.deletedAt || r.status === 'CANCELLED').map(placeOf),
         };
         const differs = (r: MeetingRecord) =>
-          r.startAt.getTime() !== placeOf(r).getTime() || durationOf(r) !== duration || r.title !== m.title || r.description !== m.description || r.location !== m.location;
+          r.startAt.getTime() !== placeOf(r).getTime() ||
+          durationOf(r) !== duration ||
+          r.title !== pattern.title ||
+          r.description !== pattern.description ||
+          r.location !== pattern.location;
         const changed =
           method === 'CANCEL'
             ? []
@@ -460,10 +477,17 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
             ? `${repeatText(s.root)} — the upcoming meetings moved to a new schedule (a new invitation follows)`
             : `${repeatText(s.root)} — the upcoming meetings are cancelled`;
       } else {
-        params.whenLabel = `${repeatText(s.root)} — every meeting of the series is cancelled`;
+        params.whenLabel =
+          opts.note === 'moved'
+            ? `${repeatText(s.root)} — moved to a new schedule (a new invitation follows)`
+            : `${repeatText(s.root)} — every meeting of the series is cancelled`;
       }
     } else if (s) {
       params.whenLabel = `${params.whenLabel} · This meeting of the series only`;
+    }
+    // Someone taken off the meetings: the series goes on, they're just no longer on it.
+    if (only && s) {
+      params.whenLabel = scope === 'series' ? `${repeatText(s.root)} — you’re no longer on this meeting series` : `${params.whenLabel} · you’re no longer on this meeting`;
     }
     const ics = await calendarFor(m, method, organizerOf(m, all.organizer), icsAttendees, scope, opts.alsoFrom);
     const r = await deliver(m, 'cancellation', people, (p) => email.sendMeetingCancelled(p.email, params, ics));
@@ -475,10 +499,13 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const m = await requireMeeting(meetingId);
       if (m.status === 'CANCELLED') throw new ConflictError('This meeting is cancelled — invitations cannot be sent.');
       const { recipients, missingEmail, icsAttendees, organizer } = await recipientsFor(m);
-      const targets = opts?.onlyNew ? recipients.filter((r) => !r.alreadyInvited) : recipients;
       const params = await emailParams(m, organizer);
       const s = await seriesOf(m);
       const scope: SeriesScope = s ? opts?.scope ?? 'series' : 'one';
+      const asked = opts?.onlyNew ? recipients.filter((r) => !r.alreadyInvited) : recipients;
+      // A change to one meeting of a series goes only to people who have the series: for anyone
+      // else it would be a stray update of a meeting they were never invited to.
+      const targets = s && scope === 'one' ? asked.filter((r) => r.alreadyInvited || r.kind === 'organizer') : asked;
       if (s) params.whenLabel = scope === 'series' ? `${params.whenLabel} · ${repeatText(s.root)}` : `${params.whenLabel} · This meeting of the series only`;
       const ics = await calendarFor(m, 'REQUEST', organizerOf(m, organizer), icsAttendees, scope);
       const r = assertConfigured(await deliver(m, 'invitation', targets, (p) => email.sendMeetingInvite(p.email, params, ics)));

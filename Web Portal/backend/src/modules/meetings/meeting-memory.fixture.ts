@@ -99,8 +99,9 @@ export function memoryMeetings(): MemoryMeetings {
     async listSeriesRoots() {
       return [...rows.values()].filter((m) => !m.recurrenceParentId && m.recurrenceRule && !m.recurrenceRule.paused).map((m) => ({ ...m }));
     },
-    async applySeriesChanges(changes) {
+    async applySeriesChanges(changes, remove = []) {
       for (const c of changes) if (c.patch.recurrenceStart !== undefined) rows.set(c.id, { ...rows.get(c.id)!, recurrenceStart: null });
+      for (const id of remove) rows.set(id, { ...rows.get(id)!, deletedAt: new Date(), recurrenceParentId: null, recurrenceStart: null, recurrenceRule: null });
       for (const c of changes) {
         const parent = c.patch.recurrenceParentId !== undefined ? c.patch.recurrenceParentId : rows.get(c.id)?.recurrenceParentId;
         assertFreePlace(c.id, parent, c.patch.recurrenceStart);

@@ -11,7 +11,7 @@ import type { AttendeeRepository } from './attendee-repository';
 import type { MeetingRecord, MeetingRepository, MeetingSeriesStore, RecurrenceRule, UpdateMeetingData } from './meeting-repository';
 import type { MeetingChangeKind } from './meeting-service';
 import { isValidTimeZone } from './meeting-validation';
-import { alignToRule, horizonEnd, instantOf, seriesRule, seriesStarts, SERIES_MAX_UPCOMING, untilBefore, wallOf } from './meeting-series';
+import { alignToRule, horizonEnd, instantOf, seriesRule, seriesStarts, shiftRuleDays, SERIES_MAX_UPCOMING, untilBefore, wallOf } from './meeting-series';
 
 export interface MeetingSeriesDeps {
   meetings: MeetingRepository & MeetingSeriesStore;
@@ -29,9 +29,14 @@ export interface SeriesChange {
   meeting: MeetingRecord | null;
   /** The series' first meeting now (a new one when the change split the series). */
   rootId: string;
-  /** The series that ended because the change split it, and its last meeting that took place. */
+  /**
+   * The series that ended because the change split it, and the meeting its calendar notice goes
+   * from: its last meeting that took place, else its first meeting (even if deleted).
+   */
   endedRootId?: string;
   endedMeeting?: MeetingRecord;
+  /** Did the dates, times, length, zone or repeat change (calendars need the series again)? */
+  scheduleChanged: boolean;
   /** Meetings changed, cancelled or deleted. */
   changed: MeetingRecord[];
   /** Meetings created to fill the new schedule. */
@@ -101,13 +106,19 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
       .sort((a, b) => placeOf(a).getTime() - placeOf(b).getTime());
     const inUpcoming = new Set(upcoming.map((r) => r.id));
     const history = alive.filter((r) => !inUpcoming.has(r.id));
-    return { root, rows, alive, upcoming, history };
+    // Meetings deleted on their own that hadn't happened yet: gaps in the schedule.
+    const deletedUpcoming = rows.filter((r) => r.deletedAt && placeOf(r).getTime() >= at);
+    return { root, rows, alive, upcoming, history, deletedUpcoming };
   }
 
-  /** The meeting new ones are copied from: the latest one on its own schedule, else the latest. */
+  /**
+   * The meeting new ones are copied from: the latest one still going ahead on its own schedule,
+   * else the latest going ahead, else the latest of all.
+   */
   function templateOf(alive: MeetingRecord[], root: MeetingRecord): MeetingRecord {
     const byPlace = [...alive].sort((a, b) => placeOf(b).getTime() - placeOf(a).getTime());
-    return byPlace.find((r) => r.startAt.getTime() === placeOf(r).getTime()) ?? byPlace[0] ?? root;
+    const live = byPlace.filter((r) => r.status !== 'CANCELLED');
+    return live.find((r) => r.startAt.getTime() === placeOf(r).getTime()) ?? live[0] ?? byPlace[0] ?? root;
   }
 
   /** Create the series' meeting at `start`, copying the template's details and attendees. */
@@ -158,12 +169,16 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
     if (!root || !rule || rule.paused || root.recurrenceParentId) return [];
     const rows = await meetings.listSeries(rootId);
     const alive = rows.filter((r) => !r.deletedAt);
+    // Nothing of the series is going ahead (it was cancelled or deleted — e.g. before this version
+    // made meetings for a series): it makes no more.
+    if (!alive.some((r) => r.status !== 'CANCELLED')) return [];
     const at = now();
     const room = SERIES_MAX_UPCOMING - alive.filter((r) => r.startAt.getTime() >= at.getTime()).length;
     if (room <= 0) return [];
     const last = Math.max(...rows.map((r) => placeOf(r).getTime()));
     const tz = zoneOf(root);
-    const due = seriesStarts(placeOf(root), rule, tz, horizonEnd(at))
+    // About three months ahead — of the series' start, for a series that starts later than that.
+    const due = seriesStarts(placeOf(root), rule, tz, horizonEnd(new Date(Math.max(at.getTime(), placeOf(root).getTime()))))
       .filter((s) => s.getTime() > last && s.getTime() >= at.getTime())
       .slice(0, room);
     if (due.length === 0) return [];
@@ -191,11 +206,21 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
     return { series: roots.length, created };
   }
 
-  /** Make a meeting that now has a rule the first meeting of its series, and create the rest. */
+  /**
+   * Make a meeting that now has a rule the first meeting of its series, and create the rest. The
+   * first meeting is put on the repeat's first day when it falls outside the chosen days (a
+   * Tuesday meeting set to "Mon and Wed" moves to Wednesday), so calendars and the app agree.
+   */
   async function start(m: MeetingRecord): Promise<MeetingRecord[]> {
     if (!m.recurrenceRule || m.recurrenceParentId) return [];
-    const rule = seriesRule(m.recurrenceRule, m.startAt, zoneOf(m));
-    await meetings.update(m.id, { recurrenceRule: rule, recurrenceStart: m.startAt });
+    const tz = zoneOf(m);
+    const first = alignToRule(m.startAt, withoutAnchor(m.recurrenceRule), tz);
+    const patch: UpdateMeetingData = { recurrenceRule: seriesRule(withoutAnchor(m.recurrenceRule), first, tz), recurrenceStart: first };
+    if (first.getTime() !== m.startAt.getTime()) {
+      const duration = durationOf(m);
+      Object.assign(patch, { startAt: first, endAt: duration != null ? new Date(first.getTime() + duration) : null });
+    }
+    await meetings.update(m.id, patch);
     return extend(m.id);
   }
 
@@ -223,10 +248,9 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
     if (newEnd && newEnd < newStart) throw new ValidationError('The meeting cannot end before it starts.');
     const duration = newEnd ? newEnd.getTime() - newStart.getTime() : null;
     const oldRule = s.root.recurrenceRule!;
-    const ruleGiven = patch.recurrenceRule !== undefined;
-    const scheduleChanged =
-      newStart.getTime() !== m.startAt.getTime() || duration !== durationOf(m) || tz !== oldZone || (ruleGiven && ruleKey(patch.recurrenceRule) !== ruleKey(oldRule));
-    const result: SeriesChange = { meeting: null, rootId, changed: [], created: [], history: s.history.length > 0 };
+    const ruleChanged = patch.recurrenceRule !== undefined && ruleKey(patch.recurrenceRule) !== ruleKey(oldRule);
+    const scheduleChanged = newStart.getTime() !== m.startAt.getTime() || duration !== durationOf(m) || tz !== oldZone || ruleChanged;
+    const result: SeriesChange = { meeting: null, rootId, changed: [], created: [], history: s.history.length > 0, scheduleChanged };
 
     if (!scheduleChanged) {
       const targets = s.upcoming.filter((r) => r.status !== 'CANCELLED');
@@ -244,11 +268,12 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
     // "Does not repeat": the series ends with this meeting.
     if (patch.recurrenceRule === null) {
       const later = s.upcoming.filter((r) => placeOf(r) > placeOf(m));
-      await meetings.removeMany(later.map((r) => r.id), { detach: true });
       const own: UpdateMeetingData = { ...details, startAt: newStart, endAt: newEnd, timeZone: tz };
+      const changes: Array<{ id: string; patch: UpdateMeetingData }> = [];
       if (m.id === rootId && s.alive.length - later.length <= 1) Object.assign(own, { recurrenceRule: null, recurrenceStart: null });
-      else await meetings.update(rootId, { recurrenceRule: { ...oldRule, count: null, until: zonedDayKey(placeOf(m), oldZone) } });
-      await meetings.applySeriesChanges([{ id: m.id, patch: own }]);
+      else changes.push({ id: rootId, patch: { recurrenceRule: { ...oldRule, count: null, until: zonedDayKey(placeOf(m), oldZone) } } });
+      changes.push({ id: m.id, patch: own });
+      await meetings.applySeriesChanges(changes, later.map((r) => r.id));
       result.meeting = await load(m.id);
       result.changed = [result.meeting, ...later];
       await changed([result.meeting], 'updated');
@@ -256,14 +281,28 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
       return result;
     }
 
+    // The new schedule's days: as given, or — when only this meeting's day moved — the series'
+    // days moved by as many days (a Tuesday series moved to Thursday repeats on Thursdays).
+    const dayShift = Math.round((Date.parse(`${zonedDayKey(newStart, tz)}T00:00:00Z`) - Date.parse(`${zonedDayKey(m.startAt, oldZone)}T00:00:00Z`)) / 86_400_000);
+    const sameDays = !ruleChanged && dayShift === 0;
+    let baseRule = withoutAnchor(ruleChanged ? patch.recurrenceRule! : oldRule);
+    if (!ruleChanged && dayShift !== 0) baseRule = shiftRuleDays(baseRule, dayShift);
+
+    // The meetings that take the new dates, in order. On the same days every upcoming place keeps
+    // its turn, a meeting deleted or cancelled on its own included, so later meetings don't slide
+    // into its date. On new days those gaps are dropped and the meetings left are laid out afresh.
+    const byPlace = (a: MeetingRecord, b: MeetingRecord) => placeOf(a).getTime() - placeOf(b).getTime();
+    const deletedGaps = s.deletedUpcoming.filter((r) => r.id !== rootId);
+    const slots = sameDays ? [...s.upcoming, ...deletedGaps].sort(byPlace) : s.upcoming.filter((r) => r.status !== 'CANCELLED').sort(byPlace);
+    const dropped = sameDays ? [] : [...s.upcoming.filter((r) => r.status === 'CANCELLED'), ...deletedGaps].filter((r) => r.id !== rootId);
+    const first = slots[0];
+    if (!first) throw new ValidationError('The series has no upcoming meeting to move.');
+
     // The new schedule starts at the first upcoming meeting, moved like this one was: by the same
     // number of days, to this meeting's new time of day.
-    const first = s.upcoming[0]!;
-    const dayShift = Math.round((Date.parse(`${zonedDayKey(newStart, tz)}T00:00:00Z`) - Date.parse(`${zonedDayKey(m.startAt, oldZone)}T00:00:00Z`)) / 86_400_000);
     const firstDay = wallOf(placeOf(first), oldZone);
     const newWall = wallOf(newStart, tz);
     const anchorWall = new Date(Date.UTC(firstDay.getUTCFullYear(), firstDay.getUTCMonth(), firstDay.getUTCDate() + dayShift, newWall.getUTCHours(), newWall.getUTCMinutes()));
-    const baseRule = withoutAnchor(ruleGiven ? patch.recurrenceRule! : oldRule);
     const anchor = alignToRule(instantOf(anchorWall, tz), baseRule, tz);
     const split = first.id !== rootId;
     let rule = seriesRule(baseRule, anchor, tz);
@@ -272,24 +311,22 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
       rule = { ...rule, count: Math.max(1, rule.count - used) };
     }
     const at = now().getTime();
-    const starts = seriesStarts(anchor, rule, tz, horizonEnd(now()))
-      .filter((d) => d.getTime() >= at)
+    // A meeting already held keeps its place: kept out of the new dates of the same series.
+    const held = new Set(split ? [] : s.history.map((r) => placeOf(r).getTime()));
+    const starts = seriesStarts(anchor, rule, tz, horizonEnd(new Date(Math.max(at, anchor.getTime()))))
+      .filter((d) => d.getTime() >= at && !held.has(d.getTime()))
       .slice(0, SERIES_MAX_UPCOMING);
-    const newRootId = split ? first.id : rootId;
-    if (split) {
-      result.endedRootId = rootId;
-      result.endedMeeting = [...s.history].sort((a, b) => placeOf(b).getTime() - placeOf(a).getTime())[0];
-      result.rootId = newRootId;
-      await meetings.update(rootId, { recurrenceRule: { ...oldRule, count: null, until: untilBefore(placeOf(first), oldZone) } });
-    }
+    // Checked before anything is written: a refused change leaves the series as it was.
     if (starts.length === 0) throw new ValidationError('The new repeat has no upcoming meetings.');
 
-    const updates: Array<{ id: string; patch: UpdateMeetingData }> = [];
-    const paired = s.upcoming.slice(0, starts.length);
+    const newRootId = split ? first.id : rootId;
+    const changes: Array<{ id: string; patch: UpdateMeetingData }> = [];
+    if (split) changes.push({ id: rootId, patch: { recurrenceRule: { ...oldRule, count: null, until: untilBefore(placeOf(first), oldZone) } } });
+    const paired = slots.slice(0, starts.length);
     paired.forEach((r, i) => {
       const at = starts[i]!;
       const p: UpdateMeetingData = {
-        ...(r.status === 'CANCELLED' ? {} : details),
+        ...(r.status === 'CANCELLED' || r.deletedAt ? {} : details),
         startAt: at,
         endAt: duration != null ? new Date(at.getTime() + duration) : null,
         timeZone: tz,
@@ -297,27 +334,32 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
       };
       if (i === 0) p.recurrenceRule = rule;
       if (split) p.recurrenceParentId = i === 0 ? null : newRootId;
-      updates.push({ id: r.id, patch: p });
+      changes.push({ id: r.id, patch: p });
     });
-    await meetings.applySeriesChanges(updates);
-    for (const r of paired) {
-      const moved = updates.find((u) => u.id === r.id)!.patch.startAt!;
-      if (r.reminderSentAt && moved.getTime() !== r.startAt.getTime()) await meetings.markReminderSent(r.id, null);
+    const leftovers = [...slots.slice(starts.length), ...dropped];
+    await meetings.applySeriesChanges(changes, leftovers.map((r) => r.id));
+    for (const [i, r] of paired.entries()) {
+      if (!r.deletedAt && r.reminderSentAt && starts[i]!.getTime() !== r.startAt.getTime()) await meetings.markReminderSent(r.id, null);
     }
-    const leftovers = s.upcoming.slice(starts.length);
-    await meetings.removeMany(leftovers.map((r) => r.id), { detach: true });
 
-    result.changed = await Promise.all(paired.map((r) => load(r.id)));
-    const template = templateOf(result.changed, result.changed[0]!);
+    result.changed = await Promise.all(paired.filter((r) => !r.deletedAt).map((r) => load(r.id)));
+    const template = templateOf(result.changed, result.changed[0] ?? m);
     for (const at of starts.slice(paired.length)) {
       const created = await createAt(newRootId, template, at, duration, tz);
       if (created) result.created.push(created);
     }
-    result.meeting = result.changed.find((r) => r.id === m.id) ?? null;
+    // The edited meeting — or, when the new schedule has no place for it, the series' next one.
+    result.meeting = result.changed.find((r) => r.id === m.id) ?? result.changed.find((r) => r.status !== 'CANCELLED') ?? result.changed[0] ?? null;
+    if (split) {
+      result.endedRootId = rootId;
+      result.endedMeeting = [...s.history].sort(byPlace).at(-1) ?? s.root;
+      result.rootId = newRootId;
+    }
+    const removedAlive = leftovers.filter((r) => !r.deletedAt);
     await changed(result.changed, 'updated');
     await changed(result.created, 'created');
-    await changed(leftovers, 'deleted');
-    result.changed.push(...leftovers);
+    await changed(removedAlive, 'deleted');
+    result.changed.push(...removedAlive);
     return result;
   }
 
@@ -340,7 +382,7 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
     await endSeries(s);
     const done = await Promise.all(targets.map((r) => load(r.id)));
     await changed(done, 'cancelled');
-    return { meeting: await meetings.findById(m.id), rootId: s.root.id, changed: done, created: [], history: s.history.length > 0 };
+    return { meeting: await meetings.findById(m.id), rootId: s.root.id, changed: done, created: [], history: s.history.length > 0, scheduleChanged: true };
   }
 
   /** Delete every upcoming meeting of the series; no more are created. */
@@ -350,7 +392,14 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
     await meetings.removeMany(s.upcoming.map((r) => r.id));
     await endSeries(s);
     await changed(s.upcoming, 'deleted');
-    return { meeting: await meetings.findById(m.id), rootId: s.root.id, changed: s.upcoming, created: [], history: s.history.length > 0 };
+    return { meeting: await meetings.findById(m.id), rootId: s.root.id, changed: s.upcoming, created: [], history: s.history.length > 0, scheduleChanged: true };
+  }
+
+  /** The first meeting of a meeting's series (even if deleted), or null for a one-off meeting. */
+  async function rootOf(m: MeetingRecord): Promise<MeetingRecord | null> {
+    const rootId = seriesIdOf(m);
+    if (!rootId) return null;
+    return rootId === m.id ? m : meetings.findAnyById(rootId);
   }
 
   /** A meeting's series as the apps show it: its first meeting's id, rule and zone (null for a one-off). */
@@ -361,15 +410,19 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
     return root?.recurrenceRule ? { id: rootId, rule: root.recurrenceRule, timeZone: zoneOf(root) } : null;
   }
 
-  /** Upcoming meetings later in the series than this one (attendee changes carry on to them). */
+  /**
+   * Upcoming meetings later in the series than this one (attendee changes carry on to them) —
+   * none when this meeting has already started: correcting who came to it changes nothing ahead.
+   */
   async function laterMeetings(meetingId: string): Promise<MeetingRecord[]> {
     const m = await load(meetingId);
     if (!seriesIdOf(m)) return [];
     const s = await seriesOf(m);
+    if (!s.upcoming.some((r) => r.id === m.id)) return [];
     return s.upcoming.filter((r) => r.status !== 'CANCELLED' && placeOf(r) > placeOf(m));
   }
 
-  return { seriesIdOf, describe, start, extend, extendAll, updateSeries, cancelSeries, deleteSeries, laterMeetings };
+  return { seriesIdOf, rootOf, describe, start, extend, extendAll, updateSeries, cancelSeries, deleteSeries, laterMeetings };
 }
 
 export type MeetingSeriesService = ReturnType<typeof createMeetingSeriesService>;

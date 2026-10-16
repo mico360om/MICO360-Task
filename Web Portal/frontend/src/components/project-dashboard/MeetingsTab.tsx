@@ -189,7 +189,7 @@ export function MeetingsTab({
                     <span className="text-brand"><RepeatIcon /></span>
                     <bdi className="truncate">{s.title}</bdi>
                   </Link>
-                  <p className="text-xs text-ink-2">{meetingRepeatText(s.rule, s.nextStartAt ?? meetings.find((m) => m.id === s.id)?.startAt ?? new Date().toISOString(), timeZone)}</p>
+                  <p className="text-xs text-ink-2">{meetingRepeatText(s.rule, s.firstStartAt ?? s.nextStartAt ?? new Date().toISOString(), timeZone)}</p>
                   <p className="text-xs text-ink-3">
                     {s.nextStartAt ? `Next: ${dayText(zonedDayKey(new Date(s.nextStartAt), timeZone))}` : 'No upcoming meeting'}
                     {s.upcoming > 1 ? ` · ${s.upcoming} planned` : ''}

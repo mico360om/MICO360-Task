@@ -206,9 +206,9 @@ and the Chrome extension, are unchanged.
 ## How these builds were tested (October 2026)
 
 - **Unit and component tests (16 October, on 0.4.0):**
-  - backend 1,581 · web 1,133 · Android 440 · extension 207. All pass except one older web test
-    (logging out with unsynced offline changes). It started failing on 16 October without these
-    changes, and is being looked at separately;
+  - backend 1,605 · web 1,141 · Android 440 · extension 207, all passing. The log-out test with
+    unsynced offline changes had failed only while a local server was running on port 4000 (the
+    test's live-update socket reached it); it now has a stand-in socket;
   - typecheck and lint clean in every app;
   - the Android production bundle builds.
 - **MySQL 8.0 (14 October):**
@@ -287,6 +287,29 @@ and the Chrome extension, are unchanged.
     the meeting's facts in about 5 seconds.
   - The browser tests for the forms that changed still pass: task form 69, project form 97,
     meetings 78.
+- **Review and fixes (16 October, before release):** three independent code reviews of the repeating
+  meetings, invitations and dashboard found about 25 problems. All are fixed, each with a test:
+  - changing a series to new days (e.g. every other week) could clash with its own meetings and fail;
+  - a meeting deleted or cancelled on its own let later meetings slide into its date;
+  - moving a Tuesday series to Thursday stayed on Tuesdays;
+  - a refused change could leave the series ended;
+  - the first meeting could fall outside the repeat's days (Outlook then dropped it). It now moves
+    to the first chosen day, and the form says so;
+  - repeating meetings made before this version, cancelled or deleted, would have come back;
+  - someone running one meeting could change the whole series;
+  - invitations: the series now uses its own details, single-meeting updates go only to people who
+    have the series, update numbers always rise, every time zone used is described, a yearly
+    meeting on 29 February stays on the 28th in other years, and a person taken off a series is
+    told they're off it;
+  - calendars kept an old series when one whose first meeting was deleted got a new schedule;
+  - the dashboard missed series that started long ago, cut off upcoming meetings on busy projects,
+    and refreshed once per meeting when a whole series changed;
+  - the form: a meeting after its series' end date couldn't be saved on its own, picking the same
+    repeat again lost its days, a save without changes emailed everyone, and changes made by
+    someone else while the form was open could be overwritten.
+  - A second browser test of edge cases (a London clock change, deleting the first meeting, a past
+    meeting, the 31st, "Does not repeat", people taken off, duplicating, access, and the fixes
+    above): 36 of 36.
 - **Repeating meetings and the project dashboard (16 October), in a real browser:** 53 of 53
   checks, against MySQL, with invitation emails and calendar files in the test mailbox.
   - A weekly Tue/Thu series with an end date made in the New Meeting form: every meeting is

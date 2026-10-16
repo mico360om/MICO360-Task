@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
@@ -19,7 +19,7 @@ import { MeetingFormModal } from '../components/MeetingFormModal';
 import { todayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { taskStats } from '../lib/project-dashboard';
-import { useProjectRealtime } from '../lib/useProjectRealtime';
+import { useProjectRealtime, type ProjectChange } from '../lib/useProjectRealtime';
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
@@ -84,18 +84,33 @@ export function ProjectDetailPage() {
   // project's managers, the "Add a member" picker (the admin-only /users list would fail for managers).
   const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
 
-  // Live: another person's change to this project's tasks or meetings shows up here at once.
-  const { live } = useProjectRealtime(id || undefined, (change) => {
-    if (change === 'tasks' || change === 'all') {
+  // Live: another person's change to this project's tasks or meetings shows up here at once. A
+  // burst of events (a whole series changed: one per meeting) makes one refresh, a moment later.
+  const pendingChanges = useRef(new Set<ProjectChange>());
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshChanged = () => {
+    const changes = pendingChanges.current;
+    pendingChanges.current = new Set();
+    refreshTimer.current = null;
+    const any = (...kinds: ProjectChange[]) => kinds.some((k) => changes.has(k));
+    if (any('tasks', 'all')) {
       void qc.invalidateQueries({ queryKey: ['project-tasks', id] });
       void qc.invalidateQueries({ queryKey: ['columns', id] });
     }
-    if (change === 'meetings' || change === 'all') void qc.invalidateQueries({ queryKey: ['meetings', 'project', id] });
-    if (change === 'all' || change === 'removed') {
+    if (any('meetings', 'all')) void qc.invalidateQueries({ queryKey: ['meetings', 'project', id] });
+    if (any('all', 'removed')) {
       void qc.invalidateQueries({ queryKey: ['project', id] });
       void qc.invalidateQueries({ queryKey: ['members', id] });
     }
+  };
+  const { live } = useProjectRealtime(id || undefined, (change) => {
+    pendingChanges.current.add(change);
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(refreshChanged, 250);
   });
+  useEffect(() => () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+  }, []);
 
   const invalidateMembers = () => qc.invalidateQueries({ queryKey: ['members', id] });
   const addM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).add(id, userId), onSuccess: invalidateMembers });
@@ -152,7 +167,7 @@ export function ProjectDetailPage() {
     () => (Array.isArray(tasksQ.data) ? tasksQ.data : []).map((t) => ({ ...t, columnCategory: columnById.get(t.columnId)?.category ?? t.columnCategory ?? 'TODO' })),
     [tasksQ.data, columnById],
   );
-  const stats = useMemo(() => taskStats(tasks, today), [tasks, today]);
+  const stats = useMemo(() => taskStats(tasks, today, timeZone), [tasks, today, timeZone]);
 
   // Tasks grouped by their status column (in board order), plus any orphaned tasks.
   const groups = useMemo<TaskGroup[]>(() => {

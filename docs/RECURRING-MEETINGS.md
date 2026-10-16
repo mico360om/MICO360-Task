@@ -22,6 +22,9 @@ The time stays the same in the meeting's time zone: a 10:00 meeting is at 10:00 
 change. "Every Tuesday" means Tuesday where the meeting is held. Day 31 is the last day of every
 month.
 
+The first meeting is always on one of the repeat's days. A Tuesday meeting set to repeat on Monday
+and Wednesday starts on that Wednesday, and the form says so before you save.
+
 ## Each meeting is a real meeting
 
 The meetings of a series are created ahead: about the next three months, at most 26 at a time. A
@@ -37,10 +40,19 @@ Editing a meeting of a series asks **"Save changes to a repeating meeting?"**:
 - **This meeting only.** Changes just this meeting: another room, another time, another title.
   The rest of the series keeps its schedule.
 - **All upcoming meetings in the series.** Applies what you changed to every meeting that hasn't
-  happened yet. Details you didn't touch stay as they are on each meeting.
-  - A new time or length moves every upcoming meeting, and each one keeps its agenda and notes.
+  happened yet. Details you didn't touch stay as they are on each meeting. Saving without a change
+  sends nothing.
+  - A new time or length moves every upcoming meeting, and each one keeps its agenda and notes. A
+    meeting deleted or cancelled on its own stays that way, on its date.
+  - Moving the meeting to another day moves the series' days with it: a Tuesday series moved to
+    Thursday repeats on Thursdays.
   - A new repeat rebuilds the upcoming meetings on the new days.
   - **Does not repeat** ends the series after this meeting.
+  - A series can also be moved further ahead than three months.
+
+Only someone who can change the series' first meeting (its organizer, the project's manager or an
+admin) can change, cancel or delete all its upcoming meetings. Someone running one meeting of it can
+change that meeting.
 
 Meetings already held are never changed. If a series that has started gets a new schedule, it is
 split: the meetings held stay as one series, and the upcoming ones become a new series.
@@ -60,25 +72,31 @@ is greyed out.
 
 Someone added to a meeting of a series is added to its later meetings too, and new meetings of the
 series copy the latest meeting's people. Someone taken off a meeting comes off its later meetings.
+Changes to a meeting that has already started (recording who came) stay with that meeting.
 
 ## Calendar invitations
 
 **Send invitations** on any meeting of a series sends the whole series as one calendar entry. It
 repeats in the attendee's calendar with the same rule, so a series without an end shows without one.
-Cancelled dates are left out, and meetings changed on their own show as changed.
+Cancelled dates are left out, and meetings changed on their own show as changed. The series is
+described with its own title, place and length, whichever meeting it is sent from.
 
 After that, calendars are kept in step:
 
 | Change | What invitees receive |
 | --- | --- |
-| One meeting changed | An update for that date only |
+| One meeting changed | An update for that date only, to the people who have the series |
 | One meeting cancelled or deleted | A cancellation for that date only |
 | The series changed | The updated series |
 | A started series moved to a new schedule | The old series ends at its last meeting held, and the new series is sent |
 | The series cancelled before it started | The whole series is cancelled |
 | The series cancelled after it started | The series ends at its last meeting held (past meetings stay in calendars) |
+| A series whose first meeting was deleted moves to a new schedule | The old series is removed, and the new series is sent |
 | Someone taken off every upcoming meeting | The series leaves their calendar |
 | Someone taken off some meetings | Those dates leave their calendar |
+
+Only changes calendars show (dates, times, repeat, title, place, notes) send an update; a new
+category or status doesn't. Each update is numbered above the last, so calendars never skip one.
 
 Reminders are sent before each meeting, as for any meeting.
 

@@ -72,6 +72,16 @@ describe('Prisma meeting repository', () => {
     expect(calls[2]!.args).toEqual({ where: { id: 'm3' }, data: { title: 'Renamed' } });
   });
 
+  it('deletes and frees the places of meetings dropped from a series, in the same transaction', async () => {
+    const { prisma, calls } = recorder({ 'meeting.update': meetingRow });
+    const at = new Date('2026-10-27T06:00:00Z');
+    await createPrismaMeetingRepository(prisma).applySeriesChanges([{ id: 'm2', patch: { startAt: at, recurrenceStart: at } }], ['m5']);
+    expect(calls[0]!.args).toEqual({ where: { id: { in: ['m2', 'm5'] } }, data: { recurrenceStart: null } });
+    expect(calls[1]!.args.where).toEqual({ id: { in: ['m5'] } });
+    expect(calls[1]!.args.data).toMatchObject({ recurrenceParentId: null, recurrenceRule: Prisma.DbNull });
+    expect(calls[2]!.op).toBe('meeting.update');
+  });
+
   it('takes removed meetings out of their series when asked', async () => {
     const { prisma, calls } = recorder();
     await createPrismaMeetingRepository(prisma).removeMany(['m4'], { detach: true });

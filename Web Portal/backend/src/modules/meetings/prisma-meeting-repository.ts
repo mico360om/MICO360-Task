@@ -187,12 +187,18 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
       return rows.map(withDeleted).filter((r) => r.recurrenceRule && !r.recurrenceRule.paused);
     },
 
-    async applySeriesChanges(changes) {
-      if (changes.length === 0) return;
+    async applySeriesChanges(changes, remove = []) {
+      if (changes.length === 0 && remove.length === 0) return;
       await prisma.$transaction(async (tx) => {
-        // Clear the places being changed first: two meetings swapping places never share one.
-        const moving = changes.filter((c) => c.patch.recurrenceStart !== undefined).map((c) => c.id);
-        if (moving.length) await tx.meeting.updateMany({ where: { id: { in: moving } }, data: { recurrenceStart: null } });
+        // Clear the places being changed or freed first: two meetings swapping places never share one.
+        const clearing = [...changes.filter((c) => c.patch.recurrenceStart !== undefined).map((c) => c.id), ...remove];
+        if (clearing.length) await tx.meeting.updateMany({ where: { id: { in: clearing } }, data: { recurrenceStart: null } });
+        if (remove.length) {
+          await tx.meeting.updateMany({
+            where: { id: { in: remove } },
+            data: { deletedAt: new Date(), recurrenceParentId: null, recurrenceRule: Prisma.DbNull },
+          });
+        }
         for (const c of changes) await tx.meeting.update({ where: { id: c.id }, data: updateData(c.patch) });
       });
     },

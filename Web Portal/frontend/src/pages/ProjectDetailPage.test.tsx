@@ -159,6 +159,20 @@ describe('ProjectDetailPage: the dashboard', () => {
     await waitFor(() => expect(within(form).getByRole('button', { name: 'Project' })).toHaveTextContent('MICO Platform'));
   });
 
+  it('refreshes once for a burst of meeting changes (a whole series changed at once)', async () => {
+    renderPage();
+    await screen.findByRole('region', { name: 'Milestones' });
+    act(() => socketHandlers['connect']!());
+    await waitFor(() => expect(calls.filter((u) => u.endsWith('/meetings-overview')).length).toBeGreaterThan(0));
+    const before = calls.filter((u) => u.endsWith('/meetings-overview')).length;
+    act(() => {
+      for (let i = 0; i < 26; i++) socketHandlers['meeting:updated']!({ id: `m${i}` });
+    });
+    await waitFor(() => expect(calls.filter((u) => u.endsWith('/meetings-overview')).length).toBe(before + 1));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(calls.filter((u) => u.endsWith('/meetings-overview')).length).toBe(before + 1);
+  });
+
   it('updates live when someone changes a task or a meeting of the project', async () => {
     renderPage();
     await screen.findByRole('region', { name: 'Milestones' });

@@ -1,5 +1,5 @@
 import type { RecurrenceRule } from './recurrence';
-import { recurrenceSummary } from './recurrence-summary';
+import { recurrenceSummary, upcomingDates } from './recurrence-summary';
 import { zonedDayKey } from './due-date';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -17,6 +17,32 @@ export function meetingRepeatText(rule: RecurrenceRule, startAt: string, timeZon
   if (rule.count != null) text += `, ${rule.count} times`;
   if (rule.until) text += `, until ${dayText(rule.until.slice(0, 10))}`;
   return text;
+}
+
+const daysInMonth = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+
+/** Is a 'YYYY-MM-DD' day one of the rule's days (its weekdays, day of the month or "2nd Tuesday")? */
+function onRule(day: string, rule: RecurrenceRule): boolean {
+  const d = new Date(`${day}T12:00:00Z`);
+  if (rule.freq === 'WEEKLY' && rule.weekdays?.length) return rule.weekdays.includes(d.getUTCDay());
+  if (rule.freq !== 'MONTHLY' && rule.freq !== 'QUARTERLY') return true;
+  const date = d.getUTCDate();
+  if (rule.nthWeekday) {
+    const { week, day: weekday } = rule.nthWeekday;
+    if (d.getUTCDay() !== weekday) return false;
+    return week === -1 ? date + 7 > daysInMonth(d) : Math.ceil(date / 7) === week;
+  }
+  if (rule.dayOfMonth != null) return date === Math.min(rule.dayOfMonth, daysInMonth(d));
+  return true;
+}
+
+/**
+ * The day a new series' first meeting will be on: the day chosen, or — when it isn't one of the
+ * repeat's days — the repeat's next day (the server moves it there, as calendars expect).
+ */
+export function firstMeetingDay(startDay: string, rule: RecurrenceRule): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDay) || onRule(startDay, rule)) return startDay;
+  return upcomingDates(startDay, rule, 1)[0] ?? startDay;
 }
 
 /** What's wrong with a meeting's repeat for its first day ('YYYY-MM-DD'), or null. */

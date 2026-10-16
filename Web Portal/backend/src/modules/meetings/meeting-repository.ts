@@ -113,8 +113,12 @@ export interface MeetingSeriesStore {
   listSeries(rootId: string): Promise<MeetingRecord[]>;
   /** First meetings of series whose rule may still have meetings to create. */
   listSeriesRoots(): Promise<MeetingRecord[]>;
-  /** Re-time / regroup several meetings at once (their series places are cleared first, so swaps can't collide). */
-  applySeriesChanges(changes: Array<{ id: string; patch: UpdateMeetingData }>): Promise<void>;
+  /**
+   * Change several meetings of a series in one transaction: the places being changed or freed are
+   * cleared first (so swaps can't collide), `remove` is deleted and taken out of the series, then
+   * the changes are written.
+   */
+  applySeriesChanges(changes: Array<{ id: string; patch: UpdateMeetingData }>, remove?: string[]): Promise<void>;
   /** Delete meetings; `detach` also takes them out of their series (their places can be used again). */
   removeMany(ids: string[], opts?: { detach?: boolean }): Promise<void>;
 }

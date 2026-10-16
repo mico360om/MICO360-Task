@@ -74,6 +74,19 @@ export function alignToRule(start: Date, rule: RecurrenceRule, timeZone: string)
   return onRule(wall, rule) ? start : instantOf(nextOccurrence(wall, rule), timeZone);
 }
 
+/**
+ * The rule with its days moved by `days` (a series moved from Tuesday to Thursday repeats on
+ * Thursdays): chosen weekdays, "the 2nd Tuesday" and a day of the month move; others need nothing.
+ */
+export function shiftRuleDays(rule: RecurrenceRule, days: number): RecurrenceRule {
+  const weekday = (d: number) => (((d + days) % 7) + 7) % 7;
+  const out: RecurrenceRule = { ...rule };
+  if (rule.freq === 'WEEKLY' && rule.weekdays?.length) out.weekdays = [...new Set(rule.weekdays.map(weekday))].sort((a, b) => a - b);
+  if (rule.nthWeekday) out.nthWeekday = { ...rule.nthWeekday, day: weekday(rule.nthWeekday.day) };
+  if (rule.dayOfMonth != null) out.dayOfMonth = Math.min(31, Math.max(1, rule.dayOfMonth + days));
+  return out;
+}
+
 /** The end date ('YYYY-MM-DD', local) that ends a series just before the meeting at `start`. */
 export function untilBefore(start: Date, timeZone: string): string {
   return zonedDayKey(new Date(instantOf(new Date(Date.parse(`${zonedDayKey(start, timeZone)}T00:00:00Z`)), timeZone).getTime() - 1), timeZone);
