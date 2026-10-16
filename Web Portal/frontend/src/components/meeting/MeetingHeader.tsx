@@ -8,6 +8,7 @@ import { Icon } from './kit';
 import { ProjectAvatar, type ProjectLook } from '../ProjectAvatar';
 import { formatMeetingDay, formatMeetingTimes, meetingStatusTone, safeMeetingHref } from '../../lib/meetingFormat';
 import type { PrimaryAction } from '../../lib/meeting-flow';
+import { meetingRepeatText } from '../../lib/meeting-repeat';
 
 const PRIMARY_LABEL: Record<PrimaryAction, string> = {
   schedule: 'Schedule & invite',
@@ -79,6 +80,11 @@ export function MeetingHeader({
             <Fact icon={Icon.calendar}>{formatMeetingDay(meeting.startAt, zone)}</Fact>
             <Fact icon={Icon.clock} title={`Company time (${zone})`}>{formatMeetingTimes(meeting.startAt, meeting.endAt, zone)}</Fact>
             <Fact icon={Icon.globe}>{zone}</Fact>
+            {meeting.series ? (
+              <Fact icon={Icon.repeat} title="A repeating meeting">
+                {meetingRepeatText(meeting.series.rule, meeting.recurrenceStart ?? meeting.startAt, meeting.series.timeZone)}
+              </Fact>
+            ) : null}
             {meeting.location ? <Fact icon={Icon.pin}><bdi>{meeting.location}</bdi></Fact> : null}
             {joinHref ? (
               <li className="flex items-center gap-1.5">

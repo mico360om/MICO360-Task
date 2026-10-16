@@ -2,9 +2,10 @@ import { useState, type ReactNode } from 'react';
 import { ModalPortal } from '../ui/ModalPortal';
 import { useDialog } from '../../hooks/useDialog';
 import type { CalItem } from '../../lib/calendar-model';
+import type { CalMeeting } from '../../lib/calendar-meetings';
 import type { MoveScope } from '../../lib/calendar-reschedule';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
-import { PRIORITY_LABEL, STATUS_META, TaskChip, dayLabel, fullDayLabel } from './calendar-ui';
+import { MeetingChip, PRIORITY_LABEL, STATUS_META, TaskChip, dayLabel, fullDayLabel } from './calendar-ui';
 import { ProjectAvatar, type ProjectLook } from '../ProjectAvatar';
 
 function Shell({ label, onClose, children, wide = false }: { label: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -43,9 +44,11 @@ function Header({ title, onClose, sub }: { title: ReactNode; onClose: () => void
 }
 
 /** Every task due on one day (the filters still apply), and a way to add one there. */
-export function DayDialog({ day, items, colorOf, canDrag, canCreate, onOpen, onAdd, onClose }: {
+export function DayDialog({ day, items, meetings = [], colorOf, canDrag, canCreate, onOpen, onAdd, onClose }: {
   day: string;
   items: CalItem[];
+  /** The day's meetings (listed first). */
+  meetings?: CalMeeting[];
   colorOf: (projectId: string) => string | undefined;
   canDrag: (item: CalItem) => boolean;
   canCreate: boolean;
@@ -56,12 +59,21 @@ export function DayDialog({ day, items, colorOf, canDrag, canCreate, onOpen, onA
   const label = fullDayLabel(day);
   return (
     <Shell label={label} onClose={onClose}>
-      <Header title={label} sub={items.length === 0 ? 'Nothing due' : `${items.length} ${items.length === 1 ? 'task' : 'tasks'}`} onClose={onClose} />
+      <Header
+        title={label}
+        sub={items.length === 0 && meetings.length === 0 ? 'Nothing due' : [meetings.length ? `${meetings.length} ${meetings.length === 1 ? 'meeting' : 'meetings'}` : '', items.length ? `${items.length} ${items.length === 1 ? 'task' : 'tasks'}` : ''].filter(Boolean).join(' · ')}
+        onClose={onClose}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-        {items.length === 0 ? (
+        {items.length === 0 && meetings.length === 0 ? (
           <p className="py-4 text-center text-sm text-ink-2">Nothing is due on this day{canCreate ? '.' : ' with these filters.'}</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
+            {meetings.map((m) => (
+              <li key={m.key}>
+                <MeetingChip meeting={m} color={m.projectId ? colorOf(m.projectId) : undefined} meta={[m.time, m.location].filter(Boolean).join(' · ')} lines={2} />
+              </li>
+            ))}
             {items.map((item) => (
               <li key={item.key}>
                 <TaskChip item={item} color={colorOf(item.task.projectId)} draggable={canDrag(item)} onOpen={onOpen} meta={`${item.task.key}${item.task.assignees?.length ? ` · ${item.task.assignees.map((a) => a.name).join(', ')}` : ''}`} />

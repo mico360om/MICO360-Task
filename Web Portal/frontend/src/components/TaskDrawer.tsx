@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
+import { MilestoneIcon } from './TaskCard';
 import { recurrenceSummary } from '../lib/recurrence-summary';
 import { statusMeta } from '../lib/taskStatus';
 import { isOverdue } from '../lib/due-date';
@@ -176,6 +177,12 @@ export function TaskDrawer({
             <span className="font-mono text-xs font-semibold text-ink-2">{task.key}</span>
             <StatusPill category={task.columnCategory} />
             <PriorityBadge priority={task.priority} />
+            {task.isMilestone ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-1.5 py-0.5 text-xs font-semibold text-brand">
+                <MilestoneIcon size={12} />
+                Milestone
+              </span>
+            ) : null}
             {dueText ? (
               <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${overdue ? 'bg-danger-soft text-danger' : 'text-ink-2'}`}>
                 <CalendarIcon />

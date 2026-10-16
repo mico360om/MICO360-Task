@@ -135,6 +135,16 @@ describe('New task form', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('marks a new task as a milestone of its project', async () => {
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Go-live');
+    await userEvent.click(screen.getByRole('checkbox', { name: /milestone/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ title: 'Go-live', isMilestone: true });
+  });
+
   it('leaves people out when nobody is picked, and says the project owner gets it', async () => {
     renderDialog();
     await ready();
@@ -456,6 +466,17 @@ describe('Edit task form', () => {
     expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/tasks/t1/assignees'))!.body).toEqual({ userIds: ['u7'] });
     expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/tasks/t1/assignees/u9'))).toBe(true);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('turns a task into a milestone, and back', async () => {
+    const { onSaved } = renderDialog({ task: { ...TASK, isMilestone: true } });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    const box = screen.getByRole('checkbox', { name: /milestone/i });
+    expect(box).toBeChecked();
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ isMilestone: false, expectedVersion: 7 });
   });
 
   it('says when someone else changed the task meanwhile, and keeps the edits', async () => {

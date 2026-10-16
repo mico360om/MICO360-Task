@@ -37,6 +37,14 @@ let series: ApiTask[];
 let prefs: { timeZone: string | null; weekStart: number | null };
 let requests: { url: string; method: string; body?: unknown }[];
 let override: (u: string, method: string, body: unknown) => Response | undefined;
+let meetingRows: Array<Record<string, unknown>>;
+
+const meeting = (over: Record<string, unknown>) => ({
+  id: 'mt1', title: 'Weekly sync', description: null, category: null, status: 'SCHEDULED', projectId: 'p1', organizerId: 'me',
+  location: 'Room 2', onlineLink: null, startAt: '2026-10-13T06:00:00.000Z', endAt: '2026-10-13T07:00:00.000Z', timeZone: 'Asia/Muscat',
+  recurrenceRule: { freq: 'WEEKLY', interval: 1 }, recurrenceParentId: null, templateId: null, transcript: null, invitesSentAt: null,
+  reminderSentAt: null, createdById: 'me', createdAt: '', updatedAt: '', ...over,
+});
 
 const dueDay = (t: ApiTask) => (t.dueDate ?? '').slice(0, 10);
 
@@ -49,6 +57,7 @@ beforeEach(() => {
   prefs = { timeZone: null, weekStart: null };
   occurrences = [];
   series = [];
+  meetingRows = [];
   tasks = [
     task({}),
     task({ id: 't2', key: 'MICO-2', title: 'Late invoice', dueDate: '2026-10-05T00:00:00.000Z', priority: 'HIGH' }),
@@ -73,6 +82,12 @@ beforeEach(() => {
       const from = q.get('from')!;
       const to = q.get('to')!;
       return json({ data: { from, to, timeZone: 'Asia/Muscat', tasks: tasks.filter((t) => dueDay(t) >= from && dueDay(t) <= to), occurrences: occurrences.filter((o) => o.date >= from && o.date <= to), series } });
+    }
+    if (/\/meetings\?/.test(u)) {
+      const q = new URL(u, 'http://test.local').searchParams;
+      const from = q.get('from')!;
+      const to = q.get('to')!;
+      return json({ data: meetingRows.filter((m) => (m.startAt as string) >= from && (m.startAt as string) < to) });
     }
     if (u.includes('/tasks?overdue=true')) return json({ data: tasks.filter((t) => dueDay(t) < '2026-10-10' && t.columnCategory !== 'DONE') });
     const put = /\/tasks\/([^/?]+)$/.exec(u);
@@ -294,6 +309,47 @@ describe('CalendarPage — busy days', () => {
     await userEvent.click(screen.getByRole('button', { name: /^project/i }));
     await userEvent.click(await screen.findByRole('option', { name: /Rig Inspection/ }));
     expect(screen.queryByRole('button', { name: /more tasks on Thu 15 Oct/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('CalendarPage — meetings', () => {
+  beforeEach(() => {
+    meetingRows = [
+      meeting({}),
+      meeting({ id: 'mt2', recurrenceRule: null, recurrenceParentId: 'mt1', startAt: '2026-10-20T06:00:00.000Z', endAt: '2026-10-20T07:00:00.000Z' }),
+      meeting({ id: 'mt3', title: 'Vendor call', recurrenceRule: null, status: 'CANCELLED', projectId: 'p2', organizerId: 'u2', startAt: '2026-10-15T09:00:00.000Z', endAt: null }),
+    ];
+  });
+
+  it('shows meetings on their day, in company time, each opening its page', async () => {
+    renderPage();
+    await screen.findByRole('link', { name: /Vendor call/ });
+    expect(within(day('2026-10-13')).getByRole('link', { name: 'Weekly sync, meeting, 10:00 – 11:00, repeats' })).toHaveAttribute('href', '/meetings/mt1');
+    expect(within(day('2026-10-20')).getByRole('link', { name: /Weekly sync, meeting, 10:00 – 11:00, repeats/ })).toHaveAttribute('href', '/meetings/mt2');
+    expect(within(day('2026-10-15')).getByRole('link', { name: 'Vendor call, meeting, 13:00, cancelled' })).toBeInTheDocument();
+    expect(within(day('2026-10-13')).getByRole('button', { name: /Tue 13 Oct, 1 meeting/ })).toBeInTheDocument();
+    const asked = requests.find((r) => /\/meetings\?/.test(r.url))!.url;
+    expect(asked).toContain('from=2026-09-26T20%3A00%3A00.000Z'); // the first day on screen, Muscat midnight
+  });
+
+  it('lists meetings first in a day, and can hide them', async () => {
+    renderPage();
+    await screen.findByRole('link', { name: /Vendor call/ });
+    await userEvent.click(within(day('2026-10-14')).getByRole('button', { name: /Wed 14 Oct/ }));
+    const list = await screen.findByRole('dialog', { name: /Wed 14 Oct/ });
+    expect(within(list).queryAllByRole('link')).toHaveLength(0);
+    await userEvent.click(within(list).getByRole('button', { name: /close/i }));
+    await screen.findByRole('link', { name: /Vendor call/ });
+    await userEvent.click(screen.getByRole('button', { name: /more filters/i }));
+    await userEvent.click(screen.getByRole('checkbox', { name: /show meetings/i }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: /Weekly sync/ })).not.toBeInTheDocument());
+    expect(screen.getByTestId('where')).toHaveTextContent('meetings=0');
+  });
+
+  it('follows the project and word filters for meetings too', async () => {
+    renderPage('/calendar?q=vendor');
+    expect(await screen.findByRole('link', { name: /Vendor call/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Weekly sync/ })).not.toBeInTheDocument();
   });
 });
 

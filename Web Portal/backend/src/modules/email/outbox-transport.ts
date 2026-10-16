@@ -4,9 +4,10 @@ import { createMailjetTransport, type MailjetConfig, type SendEmailInput, type S
 
 /**
  * A local test mailbox: every email is saved as two files instead of being sent — the HTML as the
- * recipient would see it, and a plain-text file with the address, subject and text body. With it,
- * sign-in codes, password-reset links and invitations can be tried on a computer without a mail
- * provider. It is never used in production (see chooseTransport).
+ * recipient would see it, and a plain-text file with the address, subject and text body — plus any
+ * calendar file it carries (to open in a calendar app or check). With it, sign-in codes,
+ * password-reset links and invitations can be tried on a computer without a mail provider. It is
+ * never used in production (see chooseTransport).
  */
 export interface OutboxConfig {
   dir: string;
@@ -29,6 +30,9 @@ export function createOutboxTransport({ dir, now = () => new Date() }: OutboxCon
       const header = [`To: ${input.to}`, `Subject: ${input.subject}`, ...(attachments.length ? [`Attachments: ${attachments.join(', ')}`] : [])];
       writeFileSync(join(dir, `${base}.html`), `<!-- ${header.join(' · ').replace(/--/g, '- -')} -->\n${input.html}`, 'utf8');
       writeFileSync(join(dir, `${base}.txt`), `${header.join('\n')}\n\n${input.text ?? ''}\n`, 'utf8');
+      for (const a of input.attachments ?? []) {
+        if (a.contentType.startsWith('text/calendar')) writeFileSync(join(dir, `${base}.${slug(a.filename)}`), a.content);
+      }
       return { ok: true, status: 200, messageId: `outbox-${base}` };
     },
   };

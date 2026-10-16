@@ -35,11 +35,21 @@ describe('outbox transport (local test mailbox)', () => {
     expect(readdirSync(dir).filter((f) => f.endsWith('.html'))).toHaveLength(2);
   });
 
-  it('lists attachments by name (their content is not written)', async () => {
-    const outbox = createOutboxTransport({ dir });
-    await outbox.send({ to: 'a@b.co', subject: 'Invite', html: 'x', attachments: [{ filename: 'invite.ics', contentType: 'text/calendar', content: Buffer.from('BEGIN') }] });
+  it('lists attachments by name, and keeps calendar files to open (not PDFs)', async () => {
+    const outbox = createOutboxTransport({ dir, now: () => new Date('2026-10-10T08:30:05.123Z') });
+    await outbox.send({
+      to: 'a@b.co',
+      subject: 'Invite',
+      html: 'x',
+      attachments: [
+        { filename: 'invite.ics', contentType: 'text/calendar; method=REQUEST', content: Buffer.from('BEGIN:VCALENDAR') },
+        { filename: 'minutes.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF') },
+      ],
+    });
     const txt = readdirSync(dir).find((f) => f.endsWith('.txt'))!;
-    expect(readFileSync(join(dir, txt), 'utf8')).toContain('Attachments: invite.ics (text/calendar, 5 bytes)');
+    expect(readFileSync(join(dir, txt), 'utf8')).toContain('Attachments: invite.ics (text/calendar; method=REQUEST, 15 bytes), minutes.pdf (application/pdf, 4 bytes)');
+    expect(readFileSync(join(dir, '20261010-083005123-a-b.co.invite.ics'), 'utf8')).toBe('BEGIN:VCALENDAR');
+    expect(readdirSync(dir).some((f) => f.endsWith('.pdf'))).toBe(false);
   });
 });
 

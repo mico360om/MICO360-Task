@@ -90,7 +90,7 @@ export function CalendarFilterBar({ filters, onChange, projectOptions, assigneeO
   const set = (patch: Partial<CalendarFilters>) => onChange({ ...filters, ...patch });
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const count = activeFilterCount(filters);
-  const moreCount = (filters.statuses.length ? 1 : 0) + (filters.priorities.length ? 1 : 0) + (filters.showCompleted ? 0 : 1) + (filters.showArchived ? 1 : 0) + (filters.showProjected ? 0 : 1);
+  const moreCount = (filters.statuses.length ? 1 : 0) + (filters.priorities.length ? 1 : 0) + (filters.showCompleted ? 0 : 1) + (filters.showArchived ? 1 : 0) + (filters.showProjected ? 0 : 1) + (filters.showMeetings ? 0 : 1);
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -160,6 +160,7 @@ export function CalendarFilterBar({ filters, onChange, projectOptions, assigneeO
               <Check label="Show completed tasks" checked={filters.showCompleted} onChange={(v) => set({ showCompleted: v })} />
               <Check label="Show tasks of archived projects" checked={filters.showArchived} onChange={(v) => set({ showArchived: v })} />
               <Check label="Show repeats not created yet" checked={filters.showProjected} onChange={(v) => set({ showProjected: v })} />
+              <Check label="Show meetings" checked={filters.showMeetings} onChange={(v) => set({ showMeetings: v })} />
             </div>
           </fieldset>
         </div>

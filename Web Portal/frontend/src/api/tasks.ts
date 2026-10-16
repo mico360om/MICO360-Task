@@ -28,6 +28,8 @@ export interface ApiTask {
   updatedAt: string;
   /** Optimistic-concurrency version (bumped on every update/move). */
   version?: number;
+  /** A milestone: a key date or deliverable of its project (older servers leave it out). */
+  isMilestone?: boolean;
   /** The repeat rule — only the newest copy of a recurring series carries it. */
   recurrenceRule?: RecurrenceRule | null;
   /** Set on every copy of a recurring series: the first task's id. */
@@ -49,6 +51,8 @@ export interface NewTaskInput {
   dueDate?: string;
   /** Board day (YYYY-MM-DD) for per-date boards; defaults to today server-side. */
   boardDate?: string;
+  /** A key date or deliverable of the project. */
+  isMilestone?: boolean;
   /**
    * People to assign, applied in the same request as the create. Omit to let the server apply the
    * project's default (its owner); an explicit list — even [] — is used as-is.

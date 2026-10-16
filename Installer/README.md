@@ -165,6 +165,31 @@ automatically when the new version is deployed:
     final, **Email minutes** sends the final version.
 - **Contact address:** info@mico360.com replaces support@mico360.com everywhere: the sign-in page,
   the Privacy and Terms pages, and the footer of emails and PDFs (the server's `SUPPORT_EMAIL`).
+- **Repeating meetings:** the New Meeting form has a **Repeat** option.
+  - Daily, weekly on chosen days, monthly (a day of the month or "the 2nd Tuesday"), quarterly or
+    yearly, every N days/weeks/months. A series can end never, after a number of meetings or on a
+    date.
+  - Each meeting of a series is a real meeting, with its own agenda, notes, minutes and action items.
+    About the next three months (at most 26) are created, and a server job keeps them topped up.
+  - Editing, cancelling or deleting a meeting of a series asks: **This meeting only** or **All
+    upcoming meetings in the series**. Meetings already held are never changed, and people added
+    to a series meeting join its later meetings too.
+  - Invitations carry the whole series to people's calendars, and each change updates just what
+    changed (one date, or the series). See [docs/RECURRING-MEETINGS.md](../docs/RECURRING-MEETINGS.md).
+  - Meetings now show in the **Calendar**, beside the tasks due, with a "Show meetings" filter.
+- **Project dashboard:** the project page has four tabs, all for that project only.
+  - **Overview:** details and timeline (work done against time gone), milestones, deadlines in the
+    next two weeks, the project manager, team and who has what, the next meeting, and tasks by
+    status.
+  - **Tasks:** ongoing, pending, overdue, completed or milestone tasks, with priority, people,
+    progress and due date.
+  - **Meetings:** upcoming, under way, held and cancelled meetings, with attendees and minutes, and
+    the project's decisions, action items and repeating meetings.
+  - **Team.**
+
+  It updates live as people change the project's tasks and meetings, and it works on phones.
+- **Milestones:** tick **Milestone** in the task form to mark a key date or deliverable. Milestones
+  carry a flag on the board and in the task panel, and the project dashboard lists them.
 - **Fixes found in testing:**
   - Meeting agenda and action-item rows were squeezed on narrow screens.
   - The meetings filter row wrapped badly.
@@ -181,7 +206,9 @@ and the Chrome extension, are unchanged.
 ## How these builds were tested (October 2026)
 
 - **Unit and component tests (16 October, on 0.4.0):**
-  - backend 1,517 · web 1,091 · Android 440 · extension 207, all passing;
+  - backend 1,581 · web 1,133 · Android 440 · extension 207. All pass except one older web test
+    (logging out with unsynced offline changes). It started failing on 16 October without these
+    changes, and is being looked at separately;
   - typecheck and lint clean in every app;
   - the Android production bundle builds.
 - **MySQL 8.0 (14 October):**
@@ -260,6 +287,26 @@ and the Chrome extension, are unchanged.
     the meeting's facts in about 5 seconds.
   - The browser tests for the forms that changed still pass: task form 69, project form 97,
     meetings 78.
+- **Repeating meetings and the project dashboard (16 October), in a real browser:** 53 of 53
+  checks, against MySQL, with invitation emails and calendar files in the test mailbox.
+  - A weekly Tue/Thu series with an end date made in the New Meeting form: every meeting is
+    created at 10:00 company time, and the meeting page says how it repeats.
+  - People added to the first meeting join the later ones. The series invitation is one calendar
+    entry with its rule.
+  - One meeting changed (another room): only it changes, and invitees get an update for that date.
+  - The series renamed, then moved to 11:00: every upcoming meeting follows, keeping its id, and
+    the meeting changed on its own keeps its room.
+  - One meeting cancelled: only it, and calendars drop just that date.
+  - The series cancelled: every upcoming meeting, and calendars drop the series. It stops.
+  - The calendar shows the meetings (month and agenda), and each opens its page.
+  - The project dashboard's overview, milestones, tasks and meetings tabs.
+  - Live updates: a milestone and a meeting added by another person appear without reloading.
+  - A daily series without an end keeps 26 meetings ready. A monthly series ("2nd Tuesday",
+    3 times) makes 3.
+  - Phone width with no sideways scrolling, an accessibility (axe) scan, and no console errors.
+  - Re-run and passing: meetings 78, calendar 64, task form 69, project form 97. The calendar
+    test now centres each drop target before dragging: on today's dates the target fell at the
+    bottom edge and the drop missed.
 - **Chrome extension 0.4.0:** the zip holds manifest version 0.4.0 and 43 files, with no test
   helpers.
 - **Feature tests in a real browser (10 October, desktop and phone):**

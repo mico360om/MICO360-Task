@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProjectDetailPage } from './ProjectDetailPage';
 import { useAuthStore } from '../stores/auth-store';
+
+// Live updates: a stand-in socket the test can send events through.
+type Handler = (...a: unknown[]) => void;
+const socketHandlers: Record<string, Handler> = {};
+const fakeSocket = { on: vi.fn((ev: string, cb: Handler) => { socketHandlers[ev] = cb; }), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn() };
+vi.mock('socket.io-client', () => ({ io: () => fakeSocket }));
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -19,9 +25,33 @@ const task = (id: string, extra: Record<string, unknown>) => ({
   id, key: id.toUpperCase(), title: `Task ${id}`, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', ...extra,
 });
 
+const at = (iso: string) => iso;
+const pm = (id: string, extra: Record<string, unknown>) => ({
+  id, title: `Meeting ${id}`, status: 'SCHEDULED', startAt: at('2026-10-06T06:00:00.000Z'), endAt: at('2026-10-06T07:00:00.000Z'), timeZone: 'Asia/Muscat',
+  location: null, onlineLink: null, recurrenceRule: null, recurrenceParentId: null, organizerId: 'u1', seriesId: null, phase: 'upcoming',
+  attendeeCount: 0, attendees: [], minutes: 'NONE', decisionCount: 0, openActionItemCount: 0, ...extra,
+});
+let overview: Record<string, unknown>;
+let extraTasks: Record<string, unknown>[];
+
 let calls: string[] = [];
 beforeEach(() => {
   calls = [];
+  extraTasks = [];
+  for (const k of Object.keys(socketHandlers)) delete socketHandlers[k];
+  overview = {
+    meetings: [
+      pm('weekly', { title: 'Weekly sync', seriesId: 'weekly', recurrenceRule: { freq: 'WEEKLY', interval: 1 }, attendeeCount: 4, attendees: ['Mona M', 'Sara K', 'Omar A', 'Ali B'], openActionItemCount: 1 }),
+      pm('kick', { title: 'Kick-off', status: 'COMPLETED', phase: 'completed', startAt: '2026-09-20T06:00:00.000Z', endAt: '2026-09-20T07:00:00.000Z', minutes: 'FINAL', decisionCount: 2 }),
+      pm('off', { title: 'Vendor call', status: 'CANCELLED', phase: 'cancelled' }),
+    ],
+    decisions: [{ id: 'd1', text: 'Go live on 1 Nov', meetingId: 'kick', meetingTitle: 'Kick-off', at: '2026-09-20T06:30:00.000Z' }],
+    actionItems: [
+      { id: 'a1', description: 'Book the venue', status: 'OPEN', priority: 'HIGH', dueDate: '2026-09-28T00:00:00.000Z', overdue: true, assignee: { id: 'u7', name: 'Sara K' }, meetingId: 'kick', meetingTitle: 'Kick-off' },
+    ],
+    series: [{ id: 'weekly', title: 'Weekly sync', rule: { freq: 'WEEKLY', interval: 1 }, nextMeetingId: 'weekly', nextStartAt: '2026-10-06T06:00:00.000Z', upcoming: 1 }],
+    stats: { upcoming: 1, ongoing: 0, completed: 1, cancelled: 1, nextMeetingId: 'weekly', openActionItems: 1, overdueActionItems: 1, decisions: 1 },
+  };
   // A project MANAGER who is not an admin.
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'm@b.c', username: 'manager', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -37,10 +67,14 @@ beforeEach(() => {
     ] });
     if (u.endsWith('/users')) return json({ error: { code: 'FORBIDDEN', message: 'Admins only' } }, 403);
     if (u.includes('/columns')) return json({ data: COLUMNS });
+    if (u.endsWith('/meetings-overview')) return json({ data: overview });
+    if (u.endsWith('/projects')) return json({ data: [PROJECT] });
     if (u.includes('/tasks')) return json({ data: [
       task('t1', { dueDate: '2026-09-30T00:00:00.000Z' }), // due today → not overdue
       task('t2', { dueDate: '2026-09-29T00:00:00.000Z' }), // yesterday → overdue
       task('t3', { dueDate: '2026-09-01T00:00:00.000Z', columnId: 'c2', columnCategory: 'DONE' }), // done → never overdue
+      task('t4', { title: 'Go-live', isMilestone: true, dueDate: '2026-10-10T00:00:00.000Z', assignees: [{ id: 'u7', name: 'Sara K' }] }),
+      ...extraTasks,
     ] });
     return json({ data: PROJECT });
   }));
@@ -51,9 +85,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderPage() {
+function renderPage(path = '/projects/p1') {
   return render(
-    <MemoryRouter initialEntries={['/projects/p1']}>
+    <MemoryRouter initialEntries={[path]}>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
@@ -62,6 +96,83 @@ function renderPage() {
     </MemoryRouter>,
   );
 }
+
+describe('ProjectDetailPage: the dashboard', () => {
+  it('gives the overview: milestones, deadlines, the manager, and the next meeting', async () => {
+    renderPage();
+    const marks = await screen.findByRole('region', { name: 'Milestones' });
+    expect(await within(marks).findByRole('button', { name: 'Go-live' })).toBeInTheDocument();
+    expect(within(marks).getByText(/10 Oct 2026 · Due in 10 days/)).toBeInTheDocument();
+    const soon = screen.getByRole('region', { name: 'Upcoming deadlines' });
+    expect(within(soon).getByText('Task t2')).toBeInTheDocument(); // overdue, listed first
+    expect(within(soon).getByText(/^Late/)).toBeInTheDocument();
+    const team = screen.getByRole('region', { name: 'Team' });
+    expect(within(team).getByText('Mona M')).toBeInTheDocument();
+    const next = screen.getByRole('region', { name: 'Next meeting' });
+    expect(await within(next).findByRole('link', { name: 'Weekly sync' })).toHaveAttribute('href', '/meetings/weekly');
+    expect(within(next).getByText(/1 upcoming · 1 held · 1 open action item/)).toBeInTheDocument();
+  });
+
+  it('filters the tasks: ongoing, pending, overdue, completed, milestones', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole('tab', { name: /tasks/i }));
+    await screen.findByText('Task t1');
+    await userEvent.click(screen.getByRole('button', { name: /^overdue/i }));
+    expect(screen.getByText('Task t2')).toBeInTheDocument();
+    expect(screen.queryByText('Task t1')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^milestones/i }));
+    expect(screen.getByText('Go-live')).toBeInTheDocument();
+    expect(screen.queryByText('Task t2')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^completed/i }));
+    expect(screen.getByText('Task t3')).toBeInTheDocument();
+  });
+
+  it('shows the project’s meetings with their minutes, decisions and action items', async () => {
+    renderPage('/projects/p1?tab=meetings');
+    const list = await screen.findByRole('list', { name: 'Meetings' });
+    expect(within(list).getByRole('link', { name: 'Weekly sync' })).toBeInTheDocument();
+    expect(within(list).getByText(/4 people/)).toBeInTheDocument();
+    expect(within(list).getByText('1 open action item')).toBeInTheDocument();
+    expect(within(list).queryByText('Kick-off')).not.toBeInTheDocument(); // held, not upcoming
+    await userEvent.click(screen.getByRole('button', { name: /^held/i }));
+    expect(within(screen.getByRole('list', { name: 'Meetings' })).getByRole('link', { name: 'Kick-off' })).toBeInTheDocument();
+    expect(screen.getByText('Final minutes')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Decisions' })).getByText('Go live on 1 Nov')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Action items' })).getByText('Book the venue')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Repeating meetings' })).getByText(/Repeats every week/)).toBeInTheDocument();
+  });
+
+  it('lists the next dozen meetings of a busy project, the rest on request', async () => {
+    const many = Array.from({ length: 14 }, (_, i) => pm(`d${i}`, { title: `Daily ${i + 1}`, startAt: `2026-10-${String(i + 1).padStart(2, '0')}T05:00:00.000Z`, seriesId: 'd0' }));
+    overview = { ...overview, meetings: many, stats: { ...(overview.stats as object), upcoming: 14 } };
+    renderPage('/projects/p1?tab=meetings');
+    const list = await screen.findByRole('list', { name: 'Meetings' });
+    expect(list.querySelectorAll('[data-meeting]')).toHaveLength(12);
+    await userEvent.click(screen.getByRole('button', { name: 'Show all 14 meetings' }));
+    expect(screen.getByRole('list', { name: 'Meetings' }).querySelectorAll('[data-meeting]')).toHaveLength(14);
+  });
+
+  it('opens a new meeting in this project', async () => {
+    renderPage('/projects/p1?tab=meetings');
+    await userEvent.click(await screen.findByRole('button', { name: /new meeting/i }));
+    const form = await screen.findByRole('dialog', { name: 'New meeting' });
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Project' })).toHaveTextContent('MICO Platform'));
+  });
+
+  it('updates live when someone changes a task or a meeting of the project', async () => {
+    renderPage();
+    await screen.findByRole('region', { name: 'Milestones' });
+    act(() => socketHandlers['connect']!());
+    expect(fakeSocket.emit).toHaveBeenCalledWith('join', { projectId: 'p1' });
+    expect(await screen.findByText('Live')).toBeInTheDocument();
+    extraTasks = [task('t9', { title: 'Sign the contract', isMilestone: true, dueDate: '2026-10-05T00:00:00.000Z' })];
+    act(() => socketHandlers['task:created']!({ id: 't9' }));
+    expect(await within(screen.getByRole('region', { name: 'Milestones' })).findByRole('button', { name: 'Sign the contract' })).toBeInTheDocument();
+    overview = { ...overview, stats: { ...(overview.stats as object), upcoming: 3 } };
+    act(() => socketHandlers['meeting:created']!({ id: 'm9' }));
+    expect(await screen.findByText(/3 upcoming/)).toBeInTheDocument();
+  });
+});
 
 describe('ProjectDetailPage', () => {
   it('shows the project number under the name, beside the code', async () => {

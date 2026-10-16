@@ -104,6 +104,7 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           accentColor: col.color,
           blocked: col.category === 'BLOCKED',
           recurring: Boolean(t.recurrenceRule),
+          milestone: !!t.isMilestone,
           // A finished task (DONE column, or completed) is never shown as overdue.
           done: col.category === 'DONE' || !!t.completedAt,
         })),

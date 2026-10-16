@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import type { CalItem } from '../../lib/calendar-model';
+import type { CalMeeting } from '../../lib/calendar-meetings';
 import { monthOf, monthWeeks, weekDays, weekdayLabels, type WeekStart } from '../../lib/calendar';
-import { STATUS_META, TaskChip, dayLabel } from './calendar-ui';
+import { MeetingChip, STATUS_META, TaskChip, dayLabel } from './calendar-ui';
 
 /** Overdue tasks listed before "Show all" in the agenda. */
 const OVERDUE_PREVIEW = 8;
@@ -20,9 +21,15 @@ export interface ViewProps {
   onOpenDay: (day: string) => void;
   /** A task dropped on a day. */
   onDrop: (taskId: string, day: string) => void;
+  /** Meetings by day (shown before the day's tasks). */
+  meetingsByDay?: Map<string, CalMeeting[]>;
 }
 
-const countLabel = (n: number) => (n === 0 ? '' : `, ${n} ${n === 1 ? 'task' : 'tasks'}`);
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const countLabel = (n: number, meetings = 0) => [meetings ? plural(meetings, 'meeting', 'meetings') : '', n ? plural(n, 'task', 'tasks') : ''].filter(Boolean).map((s) => `, ${s}`).join('');
+const meetingsOf = (p: ViewProps, day: string) => p.meetingsByDay?.get(day) ?? [];
+/** A meeting's line under its title: its times and place. */
+const meetingMeta = (m: CalMeeting) => [m.time, m.location, m.cancelled ? 'Cancelled' : null].filter(Boolean).join(' · ');
 
 /** Drag-and-drop on a day: highlight while a task is over it, move the task when dropped. */
 function useDropTarget(day: string, onDrop: ViewProps['onDrop']) {
@@ -48,8 +55,12 @@ function useDropTarget(day: string, onDrop: ViewProps['onDrop']) {
 
 function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; dayNumber: number; outside: boolean; p: ViewProps; max: number }) {
   const items = p.byDay.get(cellKey) ?? [];
-  const shown = items.slice(0, max);
-  const more = items.length - shown.length;
+  const meetings = meetingsOf(p, cellKey);
+  const shownMeetings = meetings.slice(0, max);
+  const shown = items.slice(0, Math.max(0, max - shownMeetings.length));
+  const hiddenMeetings = meetings.length - shownMeetings.length;
+  const more = items.length - shown.length + hiddenMeetings;
+  const moreNoun = hiddenMeetings === 0 ? (more === 1 ? 'task' : 'tasks') : hiddenMeetings === more ? (more === 1 ? 'meeting' : 'meetings') : 'items';
   const isToday = cellKey === p.today;
   const drop = useDropTarget(cellKey, p.onDrop);
   return (
@@ -65,7 +76,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; d
         <button
           type="button"
           onClick={() => p.onOpenDay(cellKey)}
-          aria-label={`${dayLabel(cellKey)}${countLabel(items.length)}`}
+          aria-label={`${dayLabel(cellKey)}${countLabel(items.length, meetings.length)}`}
           aria-current={isToday ? 'date' : undefined}
           className={`grid h-7 min-w-7 place-items-center rounded-full px-1 text-sm font-semibold tabular-nums transition-colors hover:bg-ground ${
             isToday ? 'bg-brand text-white hover:bg-brand' : outside ? 'text-ink-3' : 'text-ink'
@@ -75,6 +86,11 @@ function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; d
         </button>
       </div>
       <ul className="flex min-w-0 flex-col gap-1">
+        {shownMeetings.map((m) => (
+          <li key={m.key} className="min-w-0">
+            <MeetingChip meeting={m} color={m.projectId ? p.colorOf(m.projectId) : undefined} />
+          </li>
+        ))}
         {shown.map((item) => (
           <li key={item.key} className="min-w-0">
             <TaskChip item={item} color={p.colorOf(item.task.projectId)} draggable={p.canDrag(item)} onOpen={p.onOpen} />
@@ -85,7 +101,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; d
         <button
           type="button"
           onClick={() => p.onOpenDay(cellKey)}
-          aria-label={`${more} more ${more === 1 ? 'task' : 'tasks'} on ${dayLabel(cellKey)}`}
+          aria-label={`${more} more ${moreNoun} on ${dayLabel(cellKey)}`}
           className="self-start rounded px-1 text-xs font-semibold text-brand hover:underline"
         >
           +{more} more
@@ -145,6 +161,7 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
           <div key={week[0]!.key} role="row" className="grid grid-cols-7">
             {week.map((cell) => {
               const items = p.byDay.get(cell.key) ?? [];
+              const meetings = meetingsOf(p, cell.key);
               const isToday = cell.key === p.today;
               const isChosen = cell.key === chosen;
               return (
@@ -152,7 +169,7 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
                   <button
                     type="button"
                     onClick={() => setSelected(cell.key)}
-                    aria-label={`${dayLabel(cell.key)}${countLabel(items.length)}`}
+                    aria-label={`${dayLabel(cell.key)}${countLabel(items.length, meetings.length)}`}
                     aria-current={isToday ? 'date' : undefined}
                     aria-pressed={isChosen}
                     className={`flex h-12 w-full flex-col items-center justify-center gap-1 rounded-lg text-sm font-semibold tabular-nums transition-colors ${
@@ -161,7 +178,10 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
                   >
                     {cell.day}
                     <span className="flex h-1.5 items-center gap-0.5" aria-hidden="true">
-                      {items.slice(0, 3).map((i) => (
+                      {meetings.slice(0, 3).map((m) => (
+                        <span key={m.key} className={`h-1.5 w-1.5 rotate-45 rounded-[1px] ${isChosen ? 'bg-white' : 'bg-brand'}`} />
+                      ))}
+                      {items.slice(0, Math.max(0, 3 - meetings.length)).map((i) => (
                         <span key={i.key} className={`h-1.5 w-1.5 rounded-full ${isChosen ? 'bg-white' : STATUS_META[i.status].dot}`} />
                       ))}
                     </span>
@@ -191,6 +211,7 @@ export function WeekView({ cursor, p, phone, meta }: { cursor: string; p: ViewPr
 
 function WeekDay({ day, p, phone, meta }: { day: string; p: ViewProps; phone: boolean; meta: (item: CalItem) => ReactNode }) {
   const items = p.byDay.get(day) ?? [];
+  const meetings = meetingsOf(p, day);
   const isToday = day === p.today;
   const drop = useDropTarget(day, p.onDrop);
   return (
@@ -203,17 +224,22 @@ function WeekDay({ day, p, phone, meta }: { day: string; p: ViewProps; phone: bo
       <button
         type="button"
         onClick={() => p.onOpenDay(day)}
-        aria-label={`${dayLabel(day)}${countLabel(items.length)}`}
+        aria-label={`${dayLabel(day)}${countLabel(items.length, meetings.length)}`}
         aria-current={isToday ? 'date' : undefined}
         className={`flex items-baseline justify-between rounded-md px-1.5 py-1 text-start transition-colors hover:bg-ground ${isToday ? 'text-brand' : 'text-ink'}`}
       >
         <span className="text-xs font-bold uppercase tracking-wide">{dayLabel(day, { weekday: 'short' })}{isToday ? ' · Today' : ''}</span>
         <span className="text-sm font-semibold tabular-nums">{dayLabel(day, { day: 'numeric', month: 'short' })}</span>
       </button>
-      {items.length === 0 ? (
+      {items.length === 0 && meetings.length === 0 ? (
         <p className="px-1.5 text-xs text-ink-3">Nothing due</p>
       ) : (
         <ul className="flex flex-col gap-1">
+          {meetings.map((m) => (
+            <li key={m.key}>
+              <MeetingChip meeting={m} color={m.projectId ? p.colorOf(m.projectId) : undefined} meta={meetingMeta(m)} />
+            </li>
+          ))}
           {items.map((item) => (
             <li key={item.key}>
               <TaskChip item={item} color={p.colorOf(item.task.projectId)} draggable={p.canDrag(item)} onOpen={p.onOpen} meta={meta(item)} />
@@ -244,7 +270,7 @@ export function AgendaView({
   const [showEarlier, setShowEarlier] = useState(false);
   const [allOverdue, setAllOverdue] = useState(false);
   const overdueShown = allOverdue ? overdue : overdue.slice(0, OVERDUE_PREVIEW);
-  const days = [...p.byDay.keys()].filter((d) => d >= from && d <= to).sort();
+  const days = [...new Set([...p.byDay.keys(), ...(p.meetingsByDay?.keys() ?? [])])].filter((d) => d >= from && d <= to).sort();
   const hasToday = p.today >= from && p.today <= to;
   const earlier = hasToday ? days.filter((d) => d < p.today) : [];
   const listed = hasToday && !showEarlier ? days.filter((d) => d >= p.today) : days;
@@ -274,6 +300,7 @@ export function AgendaView({
       {listed.length === 0 && overdue.length === 0 ? empty : null}
       {listed.map((d) => {
         const items = p.byDay.get(d) ?? [];
+        const meetings = meetingsOf(p, d);
         const isToday = d === p.today;
         return (
           <section key={d} data-day={d} aria-labelledby={`agenda-${d}`} className="grid gap-2 sm:grid-cols-[9rem_1fr]">
@@ -281,7 +308,14 @@ export function AgendaView({
               {dayLabel(d)}
               {isToday ? <span className="ms-2 rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold uppercase text-white">Today</span> : null}
             </h3>
-            <ul className="flex flex-col gap-1.5">{items.map(chip)}</ul>
+            <ul className="flex flex-col gap-1.5">
+              {meetings.map((m) => (
+                <li key={m.key}>
+                  <MeetingChip meeting={m} color={m.projectId ? p.colorOf(m.projectId) : undefined} meta={meetingMeta(m)} lines={2} />
+                </li>
+              ))}
+              {items.map(chip)}
+            </ul>
           </section>
         );
       })}

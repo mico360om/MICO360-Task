@@ -3,6 +3,8 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { calendarApi, type CalendarRange } from '../api/calendar';
+import { meetingsApi } from '../api/meetings';
+import { filterCalendarMeetings, groupMeetingsByDay, meetingItems, meetingRange } from '../lib/calendar-meetings';
 import { projectsApi } from '../api/projects';
 import { tasksApi, type ApiTask } from '../api/tasks';
 import { usersApi } from '../api/users';
@@ -28,7 +30,7 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { CalendarFilterBar, CalendarToolbar } from '../components/calendar/CalendarToolbar';
-import { Legend, TaskChip, dayLabel, useMediaQuery } from '../components/calendar/calendar-ui';
+import { Legend, MeetingChip, TaskChip, dayLabel, useMediaQuery } from '../components/calendar/calendar-ui';
 import { AgendaView, MobileMonth, MonthView, WeekView, type ViewProps } from '../components/calendar/views';
 import { DayDialog, MoveChoiceDialog, TaskPreview } from '../components/calendar/dialogs';
 import { projectOption } from '../components/project-option';
@@ -115,6 +117,13 @@ export function CalendarPage() {
   const rangeKey = useMemo(() => ['calendar', from, to] as const, [from, to]);
   const rangeQ = useQuery({ queryKey: rangeKey, queryFn: () => calendarApi(apiClient).range(from, to), placeholderData: keepPreviousData });
   const overdueQ = useQuery({ queryKey: ['calendar', 'overdue'], queryFn: () => calendarApi(apiClient).overdue(), enabled: view === 'agenda' });
+  // Meetings in the visible days (company time); under ['meetings'], so any meeting change refreshes them.
+  const span = meetingRange(from, to, timeZone);
+  const meetingsQ = useQuery({
+    queryKey: ['meetings', 'range', span.from, span.to],
+    queryFn: () => meetingsApi(apiClient).list({ from: span.from, to: span.to }),
+    placeholderData: keepPreviousData,
+  });
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
 
@@ -126,6 +135,11 @@ export function CalendarPage() {
   const items = useMemo(() => buildItems(rangeQ.data ?? EMPTY, { today, timeZone, projectStatus }), [rangeQ.data, today, timeZone, projectStatus]);
   const shown = useMemo(() => applyFilters(items, filters, { myId }), [items, filters, myId]);
   const byDay = useMemo(() => groupByDay(shown), [shown]);
+  const shownMeetings = useMemo(
+    () => filterCalendarMeetings(meetingItems(Array.isArray(meetingsQ.data) ? meetingsQ.data : [], timeZone), filters, { myId }),
+    [meetingsQ.data, timeZone, filters, myId],
+  );
+  const meetingsByDay = useMemo(() => groupMeetingsByDay(shownMeetings), [shownMeetings]);
   const overdueItems = useMemo(() => {
     if (view !== 'agenda' || !Array.isArray(overdueQ.data)) return [];
     const list = buildItems({ tasks: overdueQ.data, occurrences: [], series: [] }, { today, timeZone, projectStatus }).filter((i) => i.status === 'overdue');
@@ -204,6 +218,7 @@ export function CalendarPage() {
     onOpen: (item) => setPreviewKey(item.key),
     onOpenDay: setOpenDay,
     onDrop: requestMove,
+    meetingsByDay,
   };
   const meta = (item: CalItem) => {
     const p = projectById.get(item.task.projectId);
@@ -227,6 +242,7 @@ export function CalendarPage() {
   );
   const dayList = (day: string) => {
     const list = byDay.get(day) ?? [];
+    const dayMeetings = meetingsByDay.get(day) ?? [];
     return (
       <section aria-label={dayLabel(day)} className="rounded-xl border border-line bg-surface p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
@@ -237,10 +253,15 @@ export function CalendarPage() {
             </button>
           ) : null}
         </div>
-        {list.length === 0 ? (
+        {list.length === 0 && dayMeetings.length === 0 ? (
           <p className="py-2 text-sm text-ink-2">Nothing due{filtered ? ' with these filters' : ''}.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
+            {dayMeetings.map((m) => (
+              <li key={m.key}>
+                <MeetingChip meeting={m} color={m.projectId ? colorOf(m.projectId) : undefined} meta={[m.time, m.location].filter(Boolean).join(' · ')} lines={2} />
+              </li>
+            ))}
             {list.map((item) => (
               <li key={item.key}>
                 <TaskChip item={item} color={colorOf(item.task.projectId)} draggable={false} onOpen={viewProps.onOpen} meta={meta(item)} />
@@ -256,7 +277,7 @@ export function CalendarPage() {
 
   return (
     <div className="flex flex-col gap-3">
-      <PageHeader eyebrow="Workspace" title="Calendar" subtitle="Task due dates across your projects." />
+      <PageHeader eyebrow="Workspace" title="Calendar" subtitle="Task due dates and meetings across your projects." />
       <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-3 shadow-soft sm:p-4">
         <CalendarToolbar
           view={view}
@@ -285,7 +306,7 @@ export function CalendarPage() {
         </div>
       ) : (
         <div className={`flex flex-col gap-3 transition-opacity ${rangeQ.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={rangeQ.isFetching || undefined}>
-          {view !== 'agenda' && shown.length === 0 ? nothing : null}
+          {view !== 'agenda' && shown.length === 0 && shownMeetings.length === 0 ? nothing : null}
           {view === 'month' ? (
             phone || compactMonth ? <MobileMonth key={cursor.slice(0, 7)} cursor={cursor} p={viewProps} label={label} renderDayList={dayList} /> : <MonthView cursor={cursor} p={viewProps} label={label} />
           ) : view === 'week' ? (
@@ -300,6 +321,7 @@ export function CalendarPage() {
         <DayDialog
           day={openDay}
           items={byDay.get(openDay) ?? []}
+          meetings={meetingsByDay.get(openDay) ?? []}
           colorOf={colorOf}
           canDrag={() => false}
           canCreate={canCreate}

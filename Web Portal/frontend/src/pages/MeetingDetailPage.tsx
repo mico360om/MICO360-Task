@@ -205,7 +205,7 @@ export function MeetingDetailPage() {
       {dialog === 'edit' ? <MeetingFormModal meeting={meeting} onClose={() => setDialog(null)} /> : null}
       {dialog === 'invite' ? <InviteDialog meeting={meeting} onClose={() => setDialog(null)} /> : null}
       {dialog === 'minutes' ? <MinutesEmailDialog meeting={meeting} onClose={() => setDialog(null)} /> : null}
-      {dialog === 'cancel' ? <CancelMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={() => setNotice({ text: 'Meeting cancelled.' })} /> : null}
+      {dialog === 'cancel' ? <CancelMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are cancelled.' : 'Meeting cancelled.' })} /> : null}
       {dialog === 'delete' ? <DeleteMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={() => navigate('/meetings')} /> : null}
     </div>
   );

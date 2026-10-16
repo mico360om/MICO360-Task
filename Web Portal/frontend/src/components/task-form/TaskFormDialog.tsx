@@ -27,6 +27,7 @@ import { priorityOptions } from '../priority-option';
 import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } from '../RecurrenceEditor';
 import { AssigneeSelect, type PersonOption } from './AssigneeSelect';
 import { DescribeTask } from './DescribeTask';
+import { MilestoneIcon } from '../TaskCard';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -55,6 +56,7 @@ interface Draft {
   dueDate: string;
   rule: RecurrenceRule | null;
   assigneeIds: string[];
+  milestone: boolean;
 }
 
 export const TITLE_MAX = 191;
@@ -122,8 +124,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           dueDate: dueInputValue(task.dueDate, timeZone),
           rule: task.recurrenceRule ?? null,
           assigneeIds: [],
+          milestone: !!task.isMilestone,
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [] };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -275,6 +278,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
+      ...(draft.milestone ? { isMilestone: true } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
       ...(boardDate ? { boardDate } : {}),
@@ -315,12 +319,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (draft.description.trim() !== done.description.trim()) fields.description = draft.description.trim();
       if (draft.priority !== done.priority) fields.priority = draft.priority;
       if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
+      if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
       const ruleChanged = canRepeat && !sameRule(draft.rule, done.rule);
       if (ruleChanged && !series) fields.recurrenceRule = draft.rule;
       if (Object.keys(fields).length) {
         latest = await tasksApi(apiClient).update(t.id, { ...fields, ...(version.current != null ? { expectedVersion: version.current } : {}), ...(series ? { scope: 'series' } : {}) });
         version.current = latest.version ?? version.current;
-        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
+        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
       }
       // The repeat rule lives on the series' newest copy only: it is never sent "for the whole series".
       if (ruleChanged && series) {
@@ -508,6 +513,14 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   disabled={!draft.projectId}
                 />
               </div>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors hover:border-brand/40">
+                <input type="checkbox" checked={draft.milestone} onChange={(e) => set({ milestone: e.target.checked })} className="mt-0.5 h-4 w-4 accent-brand" />
+                <span>
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-brand"><MilestoneIcon /></span>Milestone</span>
+                  <span className="block text-xs text-ink-2">A key date or deliverable of the project — listed on its dashboard.</span>
+                </span>
+              </label>
 
               {editing && inSeries ? (
                 <fieldset className="rounded-xl border border-line px-3.5 py-3">

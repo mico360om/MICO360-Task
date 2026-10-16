@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { meetingsApi, MEETING_STATUS_LABELS, type Meeting, type MeetingStatus } from '../api/meetings';
+import { meetingsApi, seriesIdOf, MEETING_STATUS_LABELS, type Meeting, type MeetingStatus } from '../api/meetings';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import { apiClient } from '../api/client';
@@ -12,6 +12,7 @@ import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { fieldClass } from '../components/ui/Field';
 import { ActionMenu, type ActionMenuItem } from '../components/meeting/ActionMenu';
+import { Icon } from '../components/meeting/kit';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
 import { meetingStatusTone, formatMeetingDay, formatMeetingTimes } from '../lib/meetingFormat';
 import { filterMeetings, groupMeetings, hasActiveFilters, type DateRange, type GroupKey, type MeetingFilters, type MeetingSort } from '../lib/meeting-list';
@@ -330,8 +331,8 @@ export function MeetingsPage() {
 
       {showNew ? <MeetingFormModal onClose={() => setShowNew(false)} onSaved={(id) => navigate(`/meetings/${id}`)} /> : null}
       {editing ? <MeetingFormModal meeting={editing} onClose={() => setEditing(null)} /> : null}
-      {cancelling ? <CancelMeetingDialog meeting={cancelling} onClose={() => setCancelling(null)} onDone={() => setNotice({ text: 'Meeting cancelled.' })} /> : null}
-      {deleting ? <DeleteMeetingDialog meeting={deleting} onClose={() => setDeleting(null)} onDone={() => setNotice({ text: 'Meeting deleted.' })} /> : null}
+      {cancelling ? <CancelMeetingDialog meeting={cancelling} onClose={() => setCancelling(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are cancelled.' : 'Meeting cancelled.' })} /> : null}
+      {deleting ? <DeleteMeetingDialog meeting={deleting} onClose={() => setDeleting(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are deleted.' : 'Meeting deleted.' })} /> : null}
     </div>
   );
 }
@@ -374,6 +375,12 @@ function MeetingRow({
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           {project}
+          {seriesIdOf(m) ? (
+            <span className="inline-flex items-center gap-1 text-ink-3" title="Part of a repeating series">
+              {Icon.repeat}
+              <span>Repeats</span>
+            </span>
+          ) : null}
           {m.location ? (
             <span className="inline-flex min-w-0 max-w-full items-center gap-1 text-ink-3">
               <span aria-hidden="true">📍</span>

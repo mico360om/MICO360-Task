@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import type { Priority } from '../../api/tasks';
 import type { CalItem, CalStatus } from '../../lib/calendar-model';
+import type { CalMeeting } from '../../lib/calendar-meetings';
 
 /**
  * 'Sat 10 Oct' for a 'YYYY-MM-DD' day (formatted as that day, whatever the device's zone): the
@@ -82,6 +84,9 @@ export const STATUS_META: Record<CalStatus, { label: string; icon: ReactNode; ch
 
 export const PRIORITY_LABEL: Record<Priority, string> = { URGENT: 'Urgent', HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' };
 
+const MEETING_ICON = <Svg><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 12 0" /><path d="M16 4.5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6" /></Svg>;
+const MEETING_CHIP = 'border-brand/35 bg-brand/[0.07] text-ink [&_svg]:text-brand';
+
 /** The legend: what each status looks like. */
 export function Legend({ timeNote }: { timeNote: string }) {
   const order: CalStatus[] = ['overdue', 'todo', 'in-progress', 'blocked', 'done', 'projected'];
@@ -94,9 +99,41 @@ export function Legend({ timeNote }: { timeNote: string }) {
             <span>{STATUS_META[s].label}</span>
           </li>
         ))}
+        <li className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${MEETING_CHIP}`}>
+          {MEETING_ICON}
+          <span>Meeting</span>
+        </li>
       </ul>
       <p className="text-xs text-ink-2">{timeNote}</p>
     </div>
+  );
+}
+
+/** The words a screen reader hears for a meeting on the calendar. */
+export function meetingName(m: CalMeeting): string {
+  return [m.title, `meeting, ${m.time}`, m.cancelled ? 'cancelled' : null, m.recurring ? 'repeats' : null].filter(Boolean).join(', ');
+}
+
+/** A meeting on the calendar: its start time and title, the project's colour on its edge. Opens the meeting. */
+export function MeetingChip({ meeting: m, color, meta, lines = 1 }: { meeting: CalMeeting; color?: string; meta?: ReactNode; lines?: 1 | 2 }) {
+  return (
+    <Link
+      to={`/meetings/${m.id}`}
+      data-item={m.key}
+      aria-label={meetingName(m)}
+      title={`${m.time} · ${m.title}`}
+      style={color ? { borderInlineStartColor: color } : undefined}
+      className={`flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 py-1 text-start text-xs leading-snug transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${MEETING_CHIP} ${m.cancelled ? 'opacity-70' : ''}`}
+    >
+      <span className="mt-px">{MEETING_ICON}</span>
+      <span className="min-w-0 flex-1">
+        <span className={`font-medium ${lines === 1 ? 'block truncate' : 'line-clamp-2 [overflow-wrap:anywhere]'} ${m.cancelled ? 'line-through' : ''}`}>
+          <span className="tabular-nums text-ink-2">{m.time.split(' – ')[0]}</span> <bdi>{m.title}</bdi>
+        </span>
+        {meta ? <span className="mt-0.5 block truncate text-[11px] font-normal text-ink-2">{meta}</span> : null}
+      </span>
+      {m.recurring ? <span className="mt-px opacity-70" title="Repeats">{STATUS_META.projected.icon}</span> : null}
+    </Link>
   );
 }
 

@@ -91,6 +91,8 @@ export interface CalendarFilters {
   showCompleted: boolean;
   showArchived: boolean;
   showProjected: boolean;
+  /** Meetings (in the projects you can see, or that you organize or attend). */
+  showMeetings: boolean;
 }
 
 export const DEFAULT_FILTERS: CalendarFilters = {
@@ -103,6 +105,7 @@ export const DEFAULT_FILTERS: CalendarFilters = {
   showCompleted: true,
   showArchived: false,
   showProjected: true,
+  showMeetings: true,
 };
 
 export function applyFilters(items: CalItem[], f: CalendarFilters, ctx: { myId: string }): CalItem[] {
@@ -133,6 +136,7 @@ export function activeFilterCount(f: CalendarFilters): number {
   if (f.showCompleted !== DEFAULT_FILTERS.showCompleted) n++;
   if (f.showArchived !== DEFAULT_FILTERS.showArchived) n++;
   if (f.showProjected !== DEFAULT_FILTERS.showProjected) n++;
+  if (f.showMeetings !== DEFAULT_FILTERS.showMeetings) n++;
   return n;
 }
 
@@ -164,6 +168,7 @@ export function filtersToParams(f: CalendarFilters): URLSearchParams {
   if (!f.showCompleted) p.set('done', '0');
   if (f.showArchived) p.set('archived', '1');
   if (!f.showProjected) p.set('repeats', '0');
+  if (!f.showMeetings) p.set('meetings', '0');
   return p;
 }
 
@@ -179,5 +184,6 @@ export function filtersFromParams(p: URLSearchParams): CalendarFilters {
     showCompleted: p.get('done') !== '0',
     showArchived: p.get('archived') === '1',
     showProjected: p.get('repeats') !== '0',
+    showMeetings: p.get('meetings') !== '0',
   };
 }

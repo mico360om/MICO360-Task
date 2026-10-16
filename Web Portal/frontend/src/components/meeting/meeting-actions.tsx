@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { meetingsApi, type Meeting } from '../../api/meetings';
+import { meetingsApi, seriesIdOf, type Meeting, type SeriesScope } from '../../api/meetings';
 import { apiClient } from '../../api/client';
 import { ApiError } from '../../lib/api-client';
 import { downloadBlob } from '../../lib/download';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { SeriesScopeChoice } from './series-scope';
 
 /** Our sentence, plus the server's reason for a rejected request (and a plain word for 403). */
 export function meetingFailure(err: unknown, fallback: string): string {
@@ -30,56 +31,102 @@ export async function exportMinutes(meeting: Pick<Meeting, 'id' | 'title'>, vers
   downloadBlob(minutesFileName(meeting.title, version), blob);
 }
 
-function useInvalidateMeetings() {
+/** Refresh everything that shows meetings: lists, the calendar, project dashboards and this meeting. */
+export function useInvalidateMeetings() {
   const qc = useQueryClient();
   return (id: string) => {
     void qc.invalidateQueries({ queryKey: ['meetings'] });
+    void qc.invalidateQueries({ queryKey: ['meeting'] });
     void qc.invalidateQueries({ queryKey: ['meeting', id] });
   };
 }
 
-/** Cancel a meeting after asking. Invited people are told; the meeting stays listed as Cancelled. */
-export function CancelMeetingDialog({ meeting, onClose, onDone }: { meeting: Meeting; onClose: () => void; onDone?: () => void }) {
+/**
+ * Cancel a meeting after asking — in a series, just this one or all its upcoming meetings.
+ * Invited people are told; the meetings stay listed as Cancelled.
+ */
+export function CancelMeetingDialog({ meeting, onClose, onDone }: { meeting: Meeting; onClose: () => void; onDone?: (scope: SeriesScope) => void }) {
   const invalidate = useInvalidateMeetings();
+  const inSeries = !!seriesIdOf(meeting);
+  const [scope, setScope] = useState<SeriesScope>('one');
   const [error, setError] = useState<string | null>(null);
   const mut = useMutation({
-    mutationFn: () => meetingsApi(apiClient).cancel(meeting.id),
+    mutationFn: () => meetingsApi(apiClient).cancel(meeting.id, scope),
     onSuccess: () => {
       invalidate(meeting.id);
-      onDone?.();
+      onDone?.(scope);
       onClose();
     },
-    onError: (err) => setError(meetingFailure(err, 'Couldn’t cancel the meeting.')),
+    onError: (err) => setError(meetingFailure(err, scope === 'series' ? 'Couldn’t cancel the meetings.' : 'Couldn’t cancel the meeting.')),
   });
+  const notified = meeting.invitesSentAt ? 'Everyone who was invited gets a cancellation notice.' : 'No invitations went out, so nobody is notified.';
   return (
-    <ConfirmDialog title="Cancel this meeting?" confirmLabel="Cancel meeting" keepLabel="Keep meeting" busy={mut.isPending} error={error} onConfirm={() => mut.mutate()} onClose={onClose}>
-      <p>
-        <bdi className="font-medium text-ink">{meeting.title}</bdi> stays in the list, marked Cancelled.{' '}
-        {meeting.invitesSentAt ? 'Everyone who was invited gets a cancellation notice.' : 'No invitations went out, so nobody is notified.'}
-      </p>
+    <ConfirmDialog
+      title={inSeries ? 'Cancel a repeating meeting?' : 'Cancel this meeting?'}
+      confirmLabel={scope === 'series' ? 'Cancel meetings' : 'Cancel meeting'}
+      keepLabel="Keep meeting"
+      busy={mut.isPending}
+      error={error}
+      onConfirm={() => mut.mutate()}
+      onClose={onClose}
+    >
+      {inSeries ? (
+        <>
+          <p><bdi className="font-medium text-ink">{meeting.title}</bdi> repeats. {notified}</p>
+          <SeriesScopeChoice
+            value={scope}
+            onChange={setScope}
+            one={{ label: 'This meeting only', hint: 'It stays in the list, marked Cancelled; the others go ahead.' }}
+            series={{ label: 'All upcoming meetings in the series', hint: 'Each is marked Cancelled and no more are created. Meetings already held stay as they were.' }}
+          />
+        </>
+      ) : (
+        <p>
+          <bdi className="font-medium text-ink">{meeting.title}</bdi> stays in the list, marked Cancelled. {notified}
+        </p>
+      )}
     </ConfirmDialog>
   );
 }
 
-/** Delete a meeting for good, after asking. */
-export function DeleteMeetingDialog({ meeting, onClose, onDone }: { meeting: Meeting; onClose: () => void; onDone?: () => void }) {
+/** Delete a meeting for good, after asking — in a series, just this one or all its upcoming meetings. */
+export function DeleteMeetingDialog({ meeting, onClose, onDone }: { meeting: Meeting; onClose: () => void; onDone?: (scope: SeriesScope) => void }) {
   const invalidate = useInvalidateMeetings();
+  const inSeries = !!seriesIdOf(meeting);
+  const [scope, setScope] = useState<SeriesScope>('one');
   const [error, setError] = useState<string | null>(null);
   const mut = useMutation({
-    mutationFn: () => meetingsApi(apiClient).remove(meeting.id),
+    mutationFn: () => meetingsApi(apiClient).remove(meeting.id, scope),
     onSuccess: () => {
       invalidate(meeting.id);
-      onDone?.();
+      onDone?.(scope);
       onClose();
     },
-    onError: (err) => setError(meetingFailure(err, 'Couldn’t delete the meeting.')),
+    onError: (err) => setError(meetingFailure(err, scope === 'series' ? 'Couldn’t delete the meetings.' : 'Couldn’t delete the meeting.')),
   });
+  const notified = meeting.invitesSentAt && meeting.status !== 'CANCELLED' ? ' Invited people get a cancellation notice.' : '';
   return (
-    <ConfirmDialog title="Delete this meeting?" confirmLabel="Delete meeting" keepLabel="Keep meeting" busy={mut.isPending} error={error} onConfirm={() => mut.mutate()} onClose={onClose}>
+    <ConfirmDialog
+      title={inSeries ? 'Delete a repeating meeting?' : 'Delete this meeting?'}
+      confirmLabel={scope === 'series' ? 'Delete meetings' : 'Delete meeting'}
+      keepLabel="Keep meeting"
+      busy={mut.isPending}
+      error={error}
+      onConfirm={() => mut.mutate()}
+      onClose={onClose}
+    >
       <p>
-        <bdi className="font-medium text-ink">{meeting.title}</bdi> and its agenda, notes and action items are removed. This can’t be undone.
-        {meeting.invitesSentAt && meeting.status !== 'CANCELLED' ? ' Invited people get a cancellation notice.' : ''}
+        {scope === 'series' ? 'The upcoming meetings' : <bdi className="font-medium text-ink">{meeting.title}</bdi>} and {scope === 'series' ? 'their' : 'its'} agenda, notes and action items are removed. This can’t be undone.
+        {notified}
       </p>
+      {inSeries ? (
+        <SeriesScopeChoice
+          value={scope}
+          onChange={setScope}
+          one={{ label: 'This meeting only', hint: 'The rest of the series goes ahead.' }}
+          series={{ label: 'All upcoming meetings in the series', hint: 'No more are created. Meetings already held stay, with their minutes.' }}
+        />
+      ) : null}
       <p className="mt-2">To keep the record but call it off, cancel the meeting instead.</p>
     </ConfirmDialog>
   );

@@ -11,6 +11,8 @@ export interface RecurrenceEditorProps {
   compact?: boolean;
   /** The form around it picks the frequency (see withFrequency): show only the schedule options. */
   hideFrequency?: boolean;
+  /** A meeting series: every meeting is created ahead, so there's no "next copy" choice or pause. */
+  kind?: 'task' | 'meeting';
 }
 
 const FREQS: RecurrenceRule['freq'][] = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
@@ -69,7 +71,8 @@ function nthWeekdayOf(dueKey: string): NonNullable<RecurrenceRule['nthWeekday']>
   return { week: week >= 5 ? -1 : (week as 1 | 2 | 3 | 4), day: d.getUTCDay() };
 }
 
-export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hideFrequency = false }: RecurrenceEditorProps) {
+export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hideFrequency = false, kind = 'task' }: RecurrenceEditorProps) {
+  const meeting = kind === 'meeting';
   const rule = value;
   const dueKey = dueDate ? dueDate.slice(0, 10) : '';
 
@@ -202,7 +205,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
               min={1}
               max={31}
               aria-label="Day of month"
-              placeholder="due day"
+              placeholder={meeting ? 'its day' : 'due day'}
               title="31 means the last day of every month"
               value={rule.dayOfMonth ?? ''}
               onChange={(e) => setDayOfMonth(Number(e.target.value))}
@@ -229,7 +232,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
       {rule ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-ink-2">Ends</span>
-          <select aria-label="Ends" value={ends} onChange={(e) => setEnds(e.target.value as 'NEVER' | 'COUNT' | 'UNTIL')} className={control}>
+          <select aria-label={meeting ? 'Repeat ends' : 'Ends'} value={ends} onChange={(e) => setEnds(e.target.value as 'NEVER' | 'COUNT' | 'UNTIL')} className={control}>
             <option value="NEVER">Never</option>
             <option value="COUNT">After…</option>
             <option value="UNTIL">On date…</option>
@@ -244,7 +247,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
                 onChange={(e) => setCount(Number(e.target.value))}
                 className={`w-16 ${control}`}
               />
-              <span className="text-ink-2">occurrence(s)</span>
+              <span className="text-ink-2">{meeting ? 'meeting(s)' : 'occurrence(s)'}</span>
             </>
           ) : null}
           {ends === 'UNTIL' ? (
@@ -259,7 +262,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </div>
       ) : null}
 
-      {rule ? (
+      {rule && !meeting ? (
         <label className="flex flex-wrap items-center gap-2">
           <span className="text-ink-2">Create the next copy</span>
           <select aria-label="Create the next copy" value={rule.createNext ?? 'ON_COMPLETE'} onChange={(e) => setCreateNext(e.target.value)} className={control}>
@@ -275,7 +278,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </p>
       ) : null}
 
-      {rule ? (
+      {rule && !meeting ? (
         <div className="flex items-center gap-2">
           <button
             type="button"

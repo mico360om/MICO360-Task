@@ -1,50 +1,91 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { meetingsApi, MEETING_STATUS_LABELS, type Meeting, type MeetingStatus } from '../api/meetings';
+import { meetingsApi, seriesIdOf, MEETING_STATUS_LABELS, type Meeting, type MeetingPatch, type MeetingStatus, type NewMeetingInput, type RecurrenceRule, type SeriesScope } from '../api/meetings';
 import { projectsApi } from '../api/projects';
 import { ApiError } from '../lib/api-client';
 import { fromLocalInputValue, nextHourInputValue, normalizeMeetingLink, toLocalInputValue } from '../lib/meetingFormat';
+import { meetingRepeatText, repeatProblem } from '../lib/meeting-repeat';
+import { recurrenceSummary } from '../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useDialog } from '../hooks/useDialog';
 import { ModalPortal } from './ui/ModalPortal';
 import { projectOption } from './project-option';
+import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } from './RecurrenceEditor';
+import { SeriesScopeChoice } from './meeting/series-scope';
 
 export interface MeetingFormModalProps {
   /** When provided, the modal edits this meeting; otherwise it creates a new one. */
   meeting?: Meeting;
+  /** A new meeting's project (e.g. scheduled from the project's dashboard). */
+  defaultProjectId?: string;
   onClose: () => void;
   onSaved?: (id: string) => void;
 }
 
 const CREATE_STATUS: MeetingStatus[] = ['DRAFT', 'SCHEDULED', 'IN_PROGRESS'];
 const ALL_STATUS: MeetingStatus[] = ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+const REPEAT_OPTIONS = [{ value: 'NONE', label: 'Does not repeat' }, ...REPEAT_FREQUENCIES.map((f) => ({ value: f, label: REPEAT_LABEL[f] }))];
+const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+const RepeatIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-none text-brand">
+    <path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" />
+  </svg>
+);
 
 /**
  * Create or edit a meeting. Project is optional — blank means a standalone meeting.
  * Start/end are entered and shown in the company time zone (not the device's), and the zone is
  * sent with the meeting so invitations, reminders and minutes print the right local time.
+ * A meeting can repeat (daily, weekly on chosen days, monthly…, ending never, after a number of
+ * meetings or on a date); editing a meeting of a series asks whether the change is for this
+ * meeting only or for all its upcoming meetings.
  */
-export function MeetingFormModal({ meeting, onClose, onSaved }: MeetingFormModalProps) {
+export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }: MeetingFormModalProps) {
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const timeZone = useCompanyTimeZone();
   const editing = !!meeting;
+  const seriesId = meeting ? seriesIdOf(meeting) : null;
   const [title, setTitle] = useState(meeting?.title ?? '');
   const [start, setStart] = useState(() => (meeting ? toLocalInputValue(meeting.startAt, timeZone) : nextHourInputValue(timeZone)));
   const [end, setEnd] = useState(() => (meeting ? toLocalInputValue(meeting.endAt, timeZone) : ''));
   const [location, setLocation] = useState(meeting?.location ?? '');
   const [onlineLink, setOnlineLink] = useState(meeting?.onlineLink ?? '');
-  const [projectId, setProjectId] = useState(meeting?.projectId ?? '');
+  const [projectId, setProjectId] = useState(meeting?.projectId ?? defaultProjectId ?? '');
   const [status, setStatus] = useState<MeetingStatus>(meeting?.status ?? 'SCHEDULED');
   const [description, setDescription] = useState(meeting?.description ?? '');
   const [error, setError] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const linkRef = useRef<HTMLInputElement>(null);
+
+  // A later meeting of a series doesn't carry the rule — its own record names the series'.
+  const ownQ = useQuery({
+    queryKey: ['meeting', meeting?.id],
+    queryFn: () => meetingsApi(apiClient).get(meeting!.id),
+    enabled: !!seriesId && !meeting?.series && !meeting?.recurrenceRule,
+  });
+  const seriesRule: RecurrenceRule | null = meeting?.series?.rule ?? meeting?.recurrenceRule ?? ownQ.data?.series?.rule ?? null;
+  const [rule, setRule] = useState<RecurrenceRule | null>(seriesRule);
+  const ruleTouched = useRef(false);
+  const seriesKey = JSON.stringify(seriesRule);
+  useEffect(() => {
+    if (!ruleTouched.current) setRule(seriesRule);
+    // The series' rule arrived (or changed) while the repeat was untouched.
+  }, [seriesKey]);
+  const changeRule = (next: RecurrenceRule | null) => {
+    ruleTouched.current = true;
+    setRule(next);
+  };
+  const ruleChanged = !sameRule(rule, seriesRule);
+  const [askScope, setAskScope] = useState(false);
+  const [scope, setScope] = useState<SeriesScope>('one');
 
   // If the company zone arrives after the form opened (cold cache), re-show untouched times in it.
   const timesTouched = useRef(false);
@@ -64,12 +105,17 @@ export function MeetingFormModal({ meeting, onClose, onSaved }: MeetingFormModal
   ];
   const statusOptions = (editing ? ALL_STATUS : CREATE_STATUS).map((s) => ({ value: s, label: MEETING_STATUS_LABELS[s] }));
 
+  const startDay = start.slice(0, 10);
+  const startIso = fromLocalInputValue(start, timeZone);
+  const untilProblem = repeatProblem(rule, startDay);
+  const summary = rule ? (startIso ? meetingRepeatText(rule, startIso, timeZone) : recurrenceSummary(rule)) : '';
+
   const saveMut = useMutation({
-    mutationFn: () => {
+    mutationFn: (as: SeriesScope) => {
       const startAt = fromLocalInputValue(start, timeZone);
       if (!startAt) throw new Error('bad-start');
       const link = normalizeMeetingLink(onlineLink);
-      const payload = {
+      const payload: NewMeetingInput = {
         title: title.trim(),
         startAt,
         endAt: fromLocalInputValue(end, timeZone),
@@ -80,17 +126,42 @@ export function MeetingFormModal({ meeting, onClose, onSaved }: MeetingFormModal
         status,
         description: description.trim() || null,
       };
-      return editing ? meetingsApi(apiClient).update(meeting!.id, payload) : meetingsApi(apiClient).create(payload);
+      if (editing && seriesId && as === 'series') {
+        // The series' upcoming meetings get only what was changed here, so a meeting changed on its
+        // own (another room, say) keeps its other details.
+        const was = meeting!;
+        const changes: MeetingPatch = {};
+        if (payload.title !== was.title.trim()) changes.title = payload.title;
+        if (start !== toLocalInputValue(was.startAt, timeZone) || end !== toLocalInputValue(was.endAt, timeZone)) {
+          Object.assign(changes, { startAt: payload.startAt, endAt: payload.endAt, timeZone });
+        }
+        if (payload.location !== (was.location ?? null)) changes.location = payload.location;
+        if (payload.onlineLink !== (was.onlineLink ?? null)) changes.onlineLink = payload.onlineLink;
+        if (payload.projectId !== (was.projectId ?? null)) changes.projectId = payload.projectId;
+        if (status !== was.status) changes.status = status;
+        if (payload.description !== (was.description ?? null)) changes.description = payload.description;
+        if (ruleChanged) changes.recurrenceRule = rule;
+        return meetingsApi(apiClient).update(was.id, changes, 'series');
+      }
+      // A new meeting or a one-off given a repeat takes the rule; one meeting of a series keeps the series' repeat.
+      if (!seriesId && rule) payload.recurrenceRule = rule;
+      return editing ? meetingsApi(apiClient).update(meeting!.id, payload, 'one') : meetingsApi(apiClient).create(payload);
     },
     onSuccess: (saved) => {
-      qc.invalidateQueries({ queryKey: ['meetings'] });
-      if (editing) qc.invalidateQueries({ queryKey: ['meeting', saved.id] });
+      void qc.invalidateQueries({ queryKey: ['meetings'] });
+      void qc.invalidateQueries({ queryKey: ['meeting'] });
+      if (editing) void qc.invalidateQueries({ queryKey: ['meeting', saved.id] });
       onSaved?.(saved.id);
       onClose();
     },
     onError: (err) => {
+      setAskScope(false);
       if (err instanceof ApiError && err.status === 403) {
         setError(editing ? 'You don’t have permission to change this meeting.' : 'You don’t have access to that project.');
+        return;
+      }
+      if (err instanceof ApiError && err.status === 400 && err.message && !/^Request failed/.test(err.message)) {
+        setError(err.message);
         return;
       }
       setError(editing ? 'Couldn’t save changes. Check the title, times and link.' : 'Couldn’t create the meeting. Check the title, times and link.');
@@ -122,8 +193,17 @@ export function MeetingFormModal({ meeting, onClose, onSaved }: MeetingFormModal
       linkRef.current?.focus();
       return;
     }
+    if (untilProblem) {
+      setError('Check the repeat schedule below.');
+      return;
+    }
     if (link && link !== onlineLink.trim()) setOnlineLink(link); // show what will be saved
-    saveMut.mutate();
+    if (editing && seriesId) {
+      setScope(ruleChanged ? 'series' : 'one');
+      setAskScope(true);
+      return;
+    }
+    saveMut.mutate('one');
   }
 
   return (
@@ -167,6 +247,24 @@ export function MeetingFormModal({ meeting, onClose, onSaved }: MeetingFormModal
                 </div>
                 <p id="mf-tz" className="col-span-2 -mt-1 text-xs text-ink-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
               </div>
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel>Repeat</FieldLabel>
+                <SearchableSelect ariaLabel="Repeat" options={REPEAT_OPTIONS} value={rule?.freq ?? 'NONE'} onChange={(v) => changeRule(withFrequency(rule, v))} />
+                {seriesId ? <p className="text-xs text-ink-2">This meeting is part of a repeating series.</p> : null}
+              </div>
+              {rule ? (
+                <fieldset role="group" aria-label="Repeat schedule" className="rounded-2xl border border-line bg-ground/50 p-3.5">
+                  <p className="mb-3 flex items-start gap-2 text-sm font-semibold text-ink">
+                    <RepeatIcon />
+                    <span>{summary}</span>
+                  </p>
+                  <RecurrenceEditor hideFrequency kind="meeting" value={rule} onChange={changeRule} dueDate={startDay || null} />
+                  {untilProblem ? <p role="alert" className="mt-2 text-xs font-medium text-danger">{untilProblem}</p> : null}
+                  <p className="mt-2 text-xs text-ink-2">
+                    {seriesId ? 'A new repeat applies to all upcoming meetings of the series.' : 'Each meeting is created for the next three months, and more follow as time goes on.'}
+                  </p>
+                </fieldset>
+              ) : null}
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Project</FieldLabel>
                 <SearchableSelect ariaLabel="Project" placeholder="No project (standalone)" options={projectOptions} value={projectId} onChange={setProjectId} />
@@ -216,6 +314,25 @@ export function MeetingFormModal({ meeting, onClose, onSaved }: MeetingFormModal
           </form>
         </div>
       </div>
+      {askScope ? (
+        <ConfirmDialog
+          title="Save changes to a repeating meeting?"
+          confirmLabel="Save"
+          keepLabel="Go back"
+          tone="primary"
+          busy={saveMut.isPending}
+          onConfirm={() => saveMut.mutate(scope)}
+          onClose={() => setAskScope(false)}
+        >
+          <SeriesScopeChoice
+            value={scope}
+            onChange={setScope}
+            oneDisabled={ruleChanged ? 'A new repeat changes the whole series.' : null}
+            one={{ label: 'This meeting only', hint: 'The other meetings of the series stay as they are.' }}
+            series={{ label: 'All upcoming meetings in the series', hint: 'Meetings already held stay as they were.' }}
+          />
+        </ConfirmDialog>
+      ) : null}
     </ModalPortal>
   );
 }

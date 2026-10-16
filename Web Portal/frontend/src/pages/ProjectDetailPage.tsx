@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
@@ -7,25 +7,35 @@ import { membersApi } from '../api/members';
 import { usersApi } from '../api/users';
 import { tasksApi, type ApiTask } from '../api/tasks';
 import { columnsApi } from '../api/columns';
+import { meetingsApi } from '../api/meetings';
 import { aiApi } from '../api/ai';
 import { useAuthStore } from '../stores/auth-store';
 import { ProjectMembers } from '../components/ProjectMembers';
-import { AiSummaryCard } from '../components/AiSummaryCard';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
-import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Avatar } from '../components/ui/Avatar';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
-import { isOverdue as isPastDue } from '../lib/due-date';
-import { formatDueDay } from '../lib/due-display';
+import { MeetingFormModal } from '../components/MeetingFormModal';
+import { todayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
+import { taskStats } from '../lib/project-dashboard';
+import { useProjectRealtime } from '../lib/useProjectRealtime';
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
+import { OverviewTab } from '../components/project-dashboard/OverviewTab';
+import { TasksTab, type TaskFilter, type TaskGroup } from '../components/project-dashboard/TasksTab';
+import { MeetingsTab } from '../components/project-dashboard/MeetingsTab';
 import { usePageName } from '../lib/page-meta';
 import { ApiError } from '../lib/api-client';
 
-type Tab = 'overview' | 'tasks' | 'team';
+type Tab = 'overview' | 'tasks' | 'meetings' | 'team';
+const TABS: Array<{ v: Tab; label: string }> = [
+  { v: 'overview', label: 'Overview' },
+  { v: 'tasks', label: 'Tasks' },
+  { v: 'meetings', label: 'Meetings' },
+  { v: 'team', label: 'Team' },
+];
 
 const PROJECT_STATUS_TONE: Record<string, BadgeTone> = {
   PLANNING: 'info',
@@ -36,25 +46,56 @@ const PROJECT_STATUS_TONE: Record<string, BadgeTone> = {
 };
 const statusLabel = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace('_', ' ');
 
-const fmtDate = (iso: string | null | undefined): string =>
-  iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-
+/**
+ * A project's dashboard: its details, progress, milestones and deadlines (Overview); its tasks by
+ * where they stand (Tasks); its meetings with minutes, decisions and action items (Meetings); and
+ * its people (Team). Everything is this project's own, and it updates live as tasks and meetings
+ * change anywhere.
+ */
 export function ProjectDetailPage() {
   const { id = '' } = useParams();
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const myId = useAuthStore((s) => s.user?.id);
-  const [tab, setTab] = useState<Tab>('overview');
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get('tab') as Tab | null;
+  const tab: Tab = TABS.some((t) => t.v === tabParam) ? tabParam! : 'overview';
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>('all');
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [newMeeting, setNewMeeting] = useState(false);
   const timeZone = useCompanyTimeZone();
+  const today = todayKey(timeZone);
+
+  const show = (next: Tab, filter?: TaskFilter) => {
+    if (filter) setTaskFilter(filter);
+    const p = new URLSearchParams(params);
+    if (next === 'overview') p.delete('tab');
+    else p.set('tab', next);
+    setParams(p, { replace: true });
+  };
 
   const projectQ = useQuery({ queryKey: ['project', id], queryFn: () => projectsApi(apiClient).get(id), enabled: !!id });
   const columnsQ = useQuery({ queryKey: ['columns', id], queryFn: () => columnsApi(apiClient).list(id), enabled: !!id });
   const tasksQ = useQuery({ queryKey: ['project-tasks', id], queryFn: () => tasksApi(apiClient).list(id), enabled: !!id });
   const membersQ = useQuery({ queryKey: ['members', id], queryFn: () => membersApi(apiClient).list(id), enabled: !!id });
+  // Under ['meetings'], so any meeting saved anywhere in the app refreshes it too.
+  const meetingsQ = useQuery({ queryKey: ['meetings', 'project', id], queryFn: () => meetingsApi(apiClient).projectOverview(id), enabled: !!id });
   // The people directory (any signed-in user may read it) — powers owner names and, for admins and this
   // project's managers, the "Add a member" picker (the admin-only /users list would fail for managers).
   const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+
+  // Live: another person's change to this project's tasks or meetings shows up here at once.
+  const { live } = useProjectRealtime(id || undefined, (change) => {
+    if (change === 'tasks' || change === 'all') {
+      void qc.invalidateQueries({ queryKey: ['project-tasks', id] });
+      void qc.invalidateQueries({ queryKey: ['columns', id] });
+    }
+    if (change === 'meetings' || change === 'all') void qc.invalidateQueries({ queryKey: ['meetings', 'project', id] });
+    if (change === 'all' || change === 'removed') {
+      void qc.invalidateQueries({ queryKey: ['project', id] });
+      void qc.invalidateQueries({ queryKey: ['members', id] });
+    }
+  });
 
   const invalidateMembers = () => qc.invalidateQueries({ queryKey: ['members', id] });
   const addM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).add(id, userId), onSuccess: invalidateMembers });
@@ -100,55 +141,40 @@ export function ProjectDetailPage() {
     },
   });
 
-  // ---- Tasks + status ----------------------------------------------------
+  // ---- Tasks ---------------------------------------------------------------
   const columns = useMemo(
     () => (Array.isArray(columnsQ.data) ? [...columnsQ.data].sort((a, b) => a.position - b.position) : []),
     [columnsQ.data],
   );
   const columnById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
-  const tasks = useMemo(() => (Array.isArray(tasksQ.data) ? tasksQ.data : []), [tasksQ.data]);
-
-  /** Finished = in a DONE column or completed. */
-  const isDone = (t: ApiTask) => (columnById.get(t.columnId)?.category ?? t.columnCategory ?? 'TODO') === 'DONE' || !!t.completedAt;
-  /** Overdue = not finished and its due day is before today in the company time zone. */
-  const isOverdue = (t: ApiTask) => !isDone(t) && isPastDue(t.dueDate, timeZone);
-
-  const stats = useMemo(() => {
-    let completed = 0;
-    let inProgress = 0;
-    let overdue = 0;
-    for (const t of tasks) {
-      const cat = columnById.get(t.columnId)?.category ?? 'TODO';
-      if (isDone(t)) {
-        completed += 1;
-        continue;
-      }
-      if (cat === 'IN_PROGRESS') inProgress += 1;
-      if (isPastDue(t.dueDate, timeZone)) overdue += 1;
-    }
-    const total = tasks.length;
-    return { total, completed, inProgress, overdue, pct: total ? Math.round((completed / total) * 100) : 0 };
-  }, [tasks, columnById, timeZone]);
+  // Each task with its column's stage (the board's columns decide what "done" or "in progress" is).
+  const tasks = useMemo<ApiTask[]>(
+    () => (Array.isArray(tasksQ.data) ? tasksQ.data : []).map((t) => ({ ...t, columnCategory: columnById.get(t.columnId)?.category ?? t.columnCategory ?? 'TODO' })),
+    [tasksQ.data, columnById],
+  );
+  const stats = useMemo(() => taskStats(tasks, today), [tasks, today]);
 
   // Tasks grouped by their status column (in board order), plus any orphaned tasks.
-  const groups = useMemo(() => {
+  const groups = useMemo<TaskGroup[]>(() => {
     const known = new Set(columns.map((c) => c.id));
-    const base = columns.map((c) => ({ id: c.id, name: c.name, color: c.color, tasks: tasks.filter((t) => t.columnId === c.id) }));
+    const base: TaskGroup[] = columns.map((c) => ({ id: c.id, name: c.name, color: c.color, tasks: tasks.filter((t) => t.columnId === c.id) }));
     const orphans = tasks.filter((t) => !known.has(t.columnId));
     if (orphans.length) base.push({ id: '__orphan', name: 'Uncategorized', color: 'rgb(var(--c-ink-3))', tasks: orphans });
     return base;
   }, [columns, tasks]);
 
+  const overview = meetingsQ.data && Array.isArray(meetingsQ.data.meetings) ? meetingsQ.data : null;
+  const canSchedule = !!project && project.status !== 'ARCHIVED' && project.status !== 'COMPLETED';
 
   // AI: a plain-language status summary from the live task stats + a few open task titles.
   const summarizeProject = () => {
     const openTitles = tasks
-      .filter((t) => (columnById.get(t.columnId)?.category ?? 'TODO') !== 'DONE')
+      .filter((t) => t.columnCategory !== 'DONE')
       .slice(0, 8)
       .map((t) => t.title);
     return aiApi(apiClient).summary(
       project?.name ?? 'Project',
-      { total: stats.total, completed: stats.completed, inProgress: stats.inProgress, overdue: stats.overdue },
+      { total: stats.total, completed: stats.completed, inProgress: stats.ongoing, overdue: stats.overdue },
       openTitles,
     );
   };
@@ -169,13 +195,14 @@ export function ProjectDetailPage() {
   }
 
   const statsReady = !tasksQ.isLoading && !columnsQ.isLoading;
+  const tabCount = (t: Tab) => (t === 'tasks' ? stats.total : t === 'meetings' ? overview?.stats.upcoming ?? 0 : t === 'team' ? members.length : 0);
 
   return (
     <div>
       <Link to="/projects" className="tap text-sm text-ink-2 hover:text-brand">← Projects</Link>
 
       {/* Header */}
-      <div className="mt-1 flex items-start gap-4">
+      <div className="mt-1 flex items-start gap-3 sm:gap-4">
         {!project ? (
           <span className="skeleton h-16 w-16 flex-none rounded-2xl" aria-hidden="true" />
         ) : (
@@ -183,7 +210,7 @@ export function ProjectDetailPage() {
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 dir="auto" className="font-display text-2xl font-bold text-ink">
+            <h1 dir="auto" className="min-w-0 break-words font-display text-2xl font-bold text-ink">
               {project ? project.name : <><span className="sr-only">Loading project…</span><span className="skeleton inline-block h-7 w-56 max-w-full align-middle" aria-hidden="true" /></>}
             </h1>
             {project ? <Badge tone={PROJECT_STATUS_TONE[project.status] ?? 'neutral'} dot>{statusLabel(project.status)}</Badge> : null}
@@ -214,37 +241,46 @@ export function ProjectDetailPage() {
       </div>
       {editing && project ? <ProjectFormDialog project={project} onClose={() => setEditing(false)} /> : null}
 
-      {/* Stat tiles — a snapshot of every task by status */}
+      {/* Stat tiles — a snapshot of every task by where it stands */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {/* "—" until the tasks arrive: a zero would read as "this project has no tasks". */}
-        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} />
+        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady && stats.pending ? `${stats.pending} not started` : undefined} />
         <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="success" />
-        <StatTile label="In progress" value={statsReady ? stats.inProgress : '—'} tone="info" />
+        <StatTile label="Ongoing" value={statsReady ? stats.ongoing : '—'} tone="info" />
         <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" />
-        <StatTile label="Completion" value={statsReady ? `${stats.pct}%` : '—'} tone="brand" />
+        {/* Two to a row on a phone: the fifth fills its row. */}
+        <StatTile label="Completion" value={statsReady ? `${stats.pct}%` : '—'} tone="brand" className="max-sm:col-span-2" />
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-ground">
         <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${stats.pct}%` }} />
       </div>
 
       {/* Tabs */}
-      <div role="tablist" className="mt-5 flex gap-1 border-b border-line">
-        {(['overview', 'tasks', 'team'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium capitalize ${tab === t ? 'border-brand text-brand' : 'border-transparent text-ink-2 hover:text-ink'}`}
-          >
-            {t}
-            {t === 'tasks' && stats.total ? <span className="rounded-full bg-ground px-1.5 text-xs text-ink-2">{stats.total}</span> : null}
-          </button>
-        ))}
+      <div className="mt-5 flex items-end justify-between gap-3 border-b border-line">
+        <div role="tablist" aria-label="Project dashboard" className="-mb-px flex min-w-0 gap-1 overflow-x-auto">
+          {TABS.map((t) => (
+            <button
+              key={t.v}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.v}
+              onClick={() => show(t.v)}
+              className={`flex flex-none items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${tab === t.v ? 'border-brand text-brand' : 'border-transparent text-ink-2 hover:text-ink'}`}
+            >
+              {t.label}
+              {tabCount(t.v) ? <span className="rounded-full bg-ground px-1.5 text-xs text-ink-2">{tabCount(t.v)}</span> : null}
+            </button>
+          ))}
+        </div>
+        {live ? (
+          <span className="mb-2 hidden flex-none items-center gap-1.5 text-xs text-ink-2 sm:inline-flex" title="Changes by others appear here as they happen">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-success" aria-hidden="true" />
+            Live
+          </span>
+        ) : null}
       </div>
 
-      <div className="mt-4">
-        {/* ---- OVERVIEW ---- */}
+      <div className="mt-4" role="tabpanel" aria-label={TABS.find((t) => t.v === tab)!.label}>
         {tab === 'overview' ? (
           projectQ.isError ? (
             <p role="alert" className="text-danger">
@@ -253,105 +289,47 @@ export function ProjectDetailPage() {
           ) : !project ? (
             <div className="skeleton h-28 rounded-xl" aria-label="Loading project" />
           ) : (
-            <div className="grid gap-4 lg:grid-cols-3">
-              {/* Details */}
-              <div className="space-y-4 lg:col-span-2">
-                <section className="card p-5">
-                  <h2 className="eyebrow mb-2">About</h2>
-                  <p dir="auto" className="text-start text-sm text-ink-2">{project.description || 'No description yet.'}</p>
-                  <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Owner</span>
-                    {canEditProject ? (
-                      <div className="w-60 max-w-full">
-                        <SearchableSelect
-                          ariaLabel="Project owner"
-                          placeholder="No owner"
-                          value={project.ownerId ?? ''}
-                          options={ownerOptions}
-                          onChange={(v) => ownerMut.mutate(v || null)}
-                        />
-                      </div>
-                    ) : (
-                      <span className="text-sm font-medium text-ink">{ownerName(project.ownerId)}</span>
-                    )}
-                    <span className="text-xs text-ink-3">New tasks default-assign to the owner.</span>
+            <OverviewTab
+              project={project}
+              tasks={tasks}
+              groups={groups}
+              today={today}
+              timeZone={timeZone}
+              statsReady={statsReady}
+              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
+              ownerName={ownerName(project.ownerId)}
+              ownerControl={
+                canEditProject ? (
+                  <div className="w-60 max-w-full">
+                    <SearchableSelect ariaLabel="Project owner" placeholder="No owner" value={project.ownerId ?? ''} options={ownerOptions} onChange={(v) => ownerMut.mutate(v || null)} />
                   </div>
-                  <div className="mt-4 flex gap-2">
-                    <Link to={`/board?project=${encodeURIComponent(id)}`} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand">Open board</Link>
-                    <button onClick={() => setTab('tasks')} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-ground">View all tasks</button>
-                  </div>
-                </section>
-                <AiSummaryCard onSummarize={summarizeProject} title="AI status summary" />
-              </div>
-
-              {/* Status breakdown + facts */}
-              <div className="space-y-4">
-                <section className="card p-5">
-                  <h2 className="eyebrow mb-3">Tasks by status</h2>
-                  {columnsQ.isLoading || tasksQ.isLoading ? (
-                    <div className="skeleton h-24 rounded-lg" />
-                  ) : stats.total === 0 ? (
-                    <p className="text-sm text-ink-2">No tasks in this project yet.</p>
-                  ) : (
-                    <div className="flex flex-col gap-2.5">
-                      {groups.map((g) => {
-                        const pct = stats.total ? Math.round((g.tasks.length / stats.total) * 100) : 0;
-                        return (
-                          <div key={g.id} className="flex items-center gap-3">
-                            <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: g.color }} aria-hidden />
-                            <span className="w-28 flex-none truncate text-sm text-ink" title={g.name}>{g.name}</span>
-                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-ground">
-                              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: g.color }} />
-                            </div>
-                            <span className="w-6 flex-none text-right text-sm font-semibold tabular-nums text-ink-2">{g.tasks.length}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-                <section className="card p-5">
-                  <h2 className="eyebrow mb-3">Details</h2>
-                  <dl className="text-sm">
-                    <Fact label="Priority" value={statusLabel(project.priority)} />
-                    <Fact label="Client" value={project.clientName || '—'} />
-                    <Fact label="Start date" value={fmtDate(project.startDate)} />
-                    <Fact label="Target date" value={fmtDate(project.targetDate)} />
-                    <Fact label="Members" value={String(members.length)} />
-                  </dl>
-                </section>
-              </div>
-            </div>
+                ) : null
+              }
+              meetings={overview}
+              meetingsLoading={meetingsQ.isLoading}
+              onOpenTask={setOpenTaskId}
+              onShow={show}
+              onNewMeeting={canSchedule ? () => setNewMeeting(true) : undefined}
+              onSummarize={summarizeProject}
+            />
           )
         ) : null}
 
-        {/* ---- TASKS: every task with its status ---- */}
         {tab === 'tasks' ? (
-          tasksQ.isLoading || columnsQ.isLoading ? (
-            <div className="skeleton h-40 rounded-xl" aria-label="Loading tasks" />
-          ) : stats.total === 0 ? (
-            <div className="card p-8 text-center text-sm text-ink-2">No tasks in this project yet.</div>
-          ) : (
-            <div className="space-y-5">
-              {groups.filter((g) => g.tasks.length > 0).map((g) => (
-                <section key={g.id}>
-                  <div className="mb-2 flex items-center gap-2 px-1">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: g.color }} aria-hidden />
-                    <h2 className="text-sm font-bold text-ink">{g.name}</h2>
-                    <span className="rounded-full bg-ground px-2 text-xs font-semibold text-ink-2">{g.tasks.length}</span>
-                  </div>
-                  <div className="card divide-y divide-line overflow-hidden">
-                    {g.tasks.map((t) => (
-                      <TaskRow key={t.id} task={t} statusName={g.name} statusColor={g.color} overdue={isOverdue(t)} dueText={formatDueDay(t.dueDate, timeZone)} onOpen={() => setOpenTaskId(t.id)} />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )
+          <TasksTab groups={groups} today={today} timeZone={timeZone} loading={tasksQ.isLoading || columnsQ.isLoading} filter={taskFilter} onFilter={setTaskFilter} onOpen={setOpenTaskId} />
         ) : null}
 
-        {/* ---- TEAM ---- */}
+        {tab === 'meetings' ? (
+          <MeetingsTab
+            data={overview}
+            loading={meetingsQ.isLoading}
+            failed={meetingsQ.isError}
+            onRetry={() => void meetingsQ.refetch()}
+            timeZone={timeZone}
+            onNew={canSchedule ? () => setNewMeeting(true) : undefined}
+          />
+        ) : null}
+
         {tab === 'team' ? (
           <section className="card p-5">
             <h2 className="eyebrow mb-3">Team members</h2>
@@ -368,6 +346,7 @@ export function ProjectDetailPage() {
       </div>
 
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
+      {newMeeting ? <MeetingFormModal defaultProjectId={id} onClose={() => setNewMeeting(false)} /> : null}
     </div>
   );
 }
@@ -379,66 +358,12 @@ const TILE_TONE: Record<string, string> = {
   danger: 'text-danger',
   brand: 'text-brand',
 };
-function StatTile({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: keyof typeof TILE_TONE }) {
+function StatTile({ label, value, tone = 'default', hint, className = '' }: { label: string; value: string | number; tone?: keyof typeof TILE_TONE; hint?: string; className?: string }) {
   return (
-    <div className="card p-4">
+    <div className={`card p-4 ${className}`}>
       <p className={`font-display text-2xl font-bold ${TILE_TONE[tone]}`}>{value}</p>
       <p className="mt-0.5 text-xs font-medium text-ink-2">{label}</p>
+      {hint ? <p className="text-[11px] text-ink-3">{hint}</p> : null}
     </div>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-line py-2 last:border-0">
-      <dt className="text-ink-2">{label}</dt>
-      <dd className="truncate font-medium text-ink">{value}</dd>
-    </div>
-  );
-}
-
-interface TaskRowProps {
-  task: ApiTask;
-  statusName: string;
-  statusColor: string;
-  overdue: boolean;
-  /** The due date's calendar day, already formatted. */
-  dueText: string;
-  onOpen: () => void;
-}
-function TaskRow({ task, statusName, statusColor, overdue, dueText, onOpen }: TaskRowProps) {
-  const assignees = task.assignees ?? [];
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ground/60"
-    >
-      <span className="w-16 flex-none font-mono text-xs text-ink-3">{task.key}</span>
-      <span dir="auto" className="min-w-0 flex-1 truncate text-start text-sm font-medium text-ink">{task.title}</span>
-
-      {/* Status pill */}
-      <span className="hidden items-center gap-1.5 rounded-md bg-ground px-2 py-0.5 text-xs font-medium text-ink-2 sm:inline-flex">
-        <span className="h-2 w-2 rounded-full" style={{ background: statusColor }} aria-hidden />
-        {statusName}
-      </span>
-
-      <PriorityBadge priority={task.priority} />
-
-      {/* Assignees */}
-      {assignees.length ? (
-        <span className="hidden items-center -space-x-1.5 md:flex">
-          {assignees.slice(0, 3).map((a) => (
-            <Avatar key={a.id} name={a.name} size="sm" />
-          ))}
-          {assignees.length > 3 ? <span className="grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2">+{assignees.length - 3}</span> : null}
-        </span>
-      ) : null}
-
-      {/* Due date */}
-      <span className={`hidden w-24 flex-none text-right text-xs tabular-nums sm:block ${overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>
-        {dueText || '—'}
-      </span>
-    </button>
   );
 }
