@@ -119,6 +119,23 @@ automatically when the new version is deployed:
     then scroll as one piece and the top bar scrolls away, so the field itself always has room.
   - In the Android app's chat, the newest message stays in view when the keyboard opens.
   - When the keyboard closes, everything returns to its full size and the field stays in view.
+- **AI Management:** connecting an AI service needs only its key, and its models load by
+  themselves.
+  - Pick the service: OpenAI, Anthropic (Claude), Google Gemini, OpenRouter, Groq, Mistral,
+    DeepSeek, Ollama, or any other OpenAI-compatible one. Its name and address fill themselves in.
+    A key the service refuses is not saved.
+  - The model list loads on connecting and is checked again every day. New models appear switched
+    off; models the service retires are marked Unavailable. Image, speech and moderation models are
+    left out, and each model shows its proper name and what it can do (chat, vision, embeddings).
+  - When a service is first connected, its recommended chat model is switched on, so the AI
+    features work straight away.
+  - Each service's models can be searched and filtered. Switched-on and recommended models come
+    first; the rest fold away. **Test** sends a model a tiny question and shows how fast it
+    answered, or the service's own reason it didn't.
+  - Default models start on **Automatic**: the recommended switched-on model, fast ones first
+    (Claude Haiku, GPT mini, Gemini Flash). If that model goes away, Automatic moves to the next one
+    by itself. The AI features now use it, instead of whichever model happened to be listed first.
+  - GPT-5 and the o-series models now work: they need different request settings.
 - **Fixes found in testing:**
   - Meeting agenda and action-item rows were squeezed on narrow screens.
   - The meetings filter row wrapped badly.
@@ -134,8 +151,8 @@ and the Chrome extension, are unchanged.
 
 ## How these builds were tested (October 2026)
 
-- **Unit and component tests (14 October, on 0.4.0):**
-  - backend 1,385 · web 1,058 · Android 440 · extension 207, all passing;
+- **Unit and component tests (16 October, on 0.4.0):**
+  - backend 1,473 · web 1,072 · Android 440 · extension 207, all passing;
   - typecheck and lint clean in every app;
   - the Android production bundle builds.
 - **MySQL 8.0 (14 October):**
@@ -189,6 +206,17 @@ and the Chrome extension, are unchanged.
     The tablet run found one more bug, now fixed: the New task sheet adjusted for the keyboard
     twice, and the second time it was opened its buttons ended up under the keyboard.
   - Every screen returned to full height when the keyboard closed.
+- **AI Management (16 October), in a real browser:** 46 of 46 checks, with stand-in OpenAI and
+  Anthropic services and the real Ollama on the test computer.
+  - Connecting with only a key; a refused key isn't saved.
+  - Models loading by themselves: all 23 of Claude's, not just the first 20, and no image or speech
+    models. The recommended model is switched on.
+  - Search, filters and "Show more"; Test on a quick model, on GPT-5 and on a refusal; the real
+    Llama answering.
+  - Automatic and a chosen default; the AI features using the automatic model.
+  - Refresh finding new and retired models, and a service that is down.
+  - Desktop, phone and dark mode, with no accessibility (axe) violations and no console errors.
+  - The task panel's AI buttons still pass: 12 of 12 with a stand-in, 11 of 11 with the real Llama.
 - **Chrome extension 0.4.0:** the zip holds manifest version 0.4.0 and 43 files, with no test
   helpers.
 - **Feature tests in a real browser (10 October, desktop and phone):**

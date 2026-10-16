@@ -1,6 +1,45 @@
 import { ValidationError } from '../../lib/http-errors';
 import type { AiModelParameters, AiProvider } from './ai-config';
+import { isReasoningModel } from './ai-model-catalog';
 import { createSafeFetch, providerFetch, readProviderJson } from './ai-network';
+
+/** OpenAI reasoning models think before answering, out of the same token budget: leave them room. */
+const REASONING_MIN_TOKENS = 4096;
+
+/**
+ * A provider refused a request. `message` is what anyone may see; `detail` is the provider's own
+ * explanation (which can name models or accounts), shown to admins only (the model test).
+ * `providerStatus` is the provider's HTTP status; our own answer stays 400 (`status`), so a
+ * provider's 401 or 429 never reads as the user's session expiring or their own rate limit.
+ */
+export class ProviderRefusedError extends ValidationError {
+  constructor(
+    public readonly providerStatus: number,
+    public readonly detail: string | null,
+  ) {
+    super(`The AI provider rejected the request (HTTP ${providerStatus}).`);
+  }
+}
+
+/** The provider's explanation in an error body, if there is a readable one (bounded). */
+async function refusalDetail(res: Response): Promise<string | null> {
+  try {
+    const text = (await res.text()).slice(0, 4000);
+    let msg: unknown = text;
+    try {
+      const j = JSON.parse(text) as { error?: unknown; message?: unknown; detail?: unknown };
+      const e = j.error;
+      msg = (e && typeof e === 'object' ? (e as { message?: unknown }).message : e) ?? j.message ?? j.detail;
+    } catch {
+      // not JSON: the text itself, if it isn't a web page
+      if (/^\s*</.test(text)) msg = null;
+    }
+    // eslint-disable-next-line no-control-regex
+    return typeof msg === 'string' && msg.trim() ? msg.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 300) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** A resolved model ready to invoke: its provider connection + the provider's model key. */
 export interface ChatModel {
@@ -67,16 +106,21 @@ export async function complete(
       break;
     case 'openai':
     case 'custom':
-    default:
+    default: {
       url = `${base}/chat/completions`;
       if (model.provider.apiKey) headers['Authorization'] = `Bearer ${model.provider.apiKey}`;
-      body = {
-        model: model.modelKey,
-        max_tokens: maxTokens,
-        temperature,
-        messages: [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: input.prompt }],
-      };
+      const messages = [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: input.prompt }];
+      if (model.provider.kind !== 'openai') {
+        // Other OpenAI-compatible services still take max_tokens.
+        body = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };
+      } else if (isReasoningModel(model.modelKey)) {
+        // o-series and GPT-5 refuse max_tokens and any temperature but the default.
+        body = { model: model.modelKey, max_completion_tokens: Math.max(maxTokens, REASONING_MIN_TOKENS), reasoning_effort: 'low', messages };
+      } else {
+        body = { model: model.modelKey, max_completion_tokens: maxTokens, temperature, messages };
+      }
       break;
+    }
   }
 
   const res = await providerFetch(
@@ -88,9 +132,7 @@ export async function complete(
       allowPrivateHosts: opts.allowPrivateHosts,
     },
   );
-  if (!res.ok) {
-    throw new ValidationError(`The AI provider rejected the request (HTTP ${res.status}).`);
-  }
+  if (!res.ok) throw new ProviderRefusedError(res.status, await refusalDetail(res));
   const json = await readProviderJson(res);
   const text = extractText(model.provider.kind, json);
   if (!text) throw new ValidationError('The AI provider returned an empty response.');

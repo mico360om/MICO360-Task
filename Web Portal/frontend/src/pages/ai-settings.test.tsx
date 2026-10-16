@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AiSettingsPage } from './AiSettingsPage';
 import { useAuthStore } from '../stores/auth-store';
@@ -48,11 +48,18 @@ afterEach(() => {
   useAuthStore.getState().logout();
 });
 
+/** The provider card (its address also appears in the Connect form, for the OpenAI preset). */
+const card = async () => within((await screen.findByText('…9999')).closest('[data-provider]') as HTMLElement);
+/** Unfold the switched-off models. */
+const showAll = async (user: ReturnType<typeof userEvent.setup>) => user.click(await screen.findByRole('button', { name: /show 1 more model/i }));
+
 describe('AiSettingsPage', () => {
   it('lists providers and models, showing only the redacted key hint', async () => {
+    const user = userEvent.setup();
     withQuery(<AiSettingsPage />);
-    await screen.findByText('https://api.openai.com/v1');
+    expect((await card()).getByText('https://api.openai.com/v1')).toBeInTheDocument();
     expect(screen.getByText('gpt-4o')).toBeInTheDocument();
+    await showAll(user);
     expect(screen.getByText('gpt-3.5')).toBeInTheDocument();
     // the redacted key hint is shown, never a raw key
     expect(screen.getByText(/…9999/)).toBeInTheDocument();
@@ -61,26 +68,25 @@ describe('AiSettingsPage', () => {
   it('adds a provider through the API', async () => {
     const user = userEvent.setup();
     withQuery(<AiSettingsPage />);
-    await screen.findByText('https://api.openai.com/v1');
+    await card();
 
-    await user.type(screen.getByLabelText(/provider name/i), 'Ollama');
-    await user.type(screen.getByLabelText(/api base url/i), 'http://localhost:11434');
-    await user.click(screen.getByRole('button', { name: /add provider/i }));
+    await user.selectOptions(screen.getByLabelText('Service'), 'ollama'); // the name and address fill in
+    await user.click(screen.getByRole('button', { name: /connect & load models/i }));
 
     await waitFor(() => {
       const post = calls.find((c) => c.method === 'POST' && c.url.endsWith('/ai/providers'));
       expect(post).toBeTruthy();
-      expect((post!.body as { name: string }).name).toBe('Ollama');
+      expect(post!.body).toMatchObject({ name: 'Ollama', kind: 'ollama', apiBaseUrl: 'http://localhost:11434' });
     });
   });
 
   it('toggles a model enabled state via PATCH', async () => {
     const user = userEvent.setup();
     withQuery(<AiSettingsPage />);
-    await waitFor(() => expect(screen.getByText('gpt-3.5')).toBeInTheDocument());
+    await showAll(user);
 
     // gpt-3.5 (m2) is disabled — enable it
-    await user.click(screen.getByRole('button', { name: /enable gpt-3\.5/i }));
+    await user.click(screen.getByRole('switch', { name: /use gpt-3\.5/i }));
     await waitFor(() => {
       const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/ai/models/m2/enabled'));
       expect(patch).toBeTruthy();
@@ -91,7 +97,7 @@ describe('AiSettingsPage', () => {
   it('sets a default model for a capability via PUT', async () => {
     const user = userEvent.setup();
     withQuery(<AiSettingsPage />);
-    await screen.findByText('https://api.openai.com/v1');
+    await card();
     const chatDefault = screen.getByLabelText(/default chat model/i);
     await user.selectOptions(chatDefault, 'm1');
     await waitFor(() => {
@@ -101,7 +107,7 @@ describe('AiSettingsPage', () => {
     });
   });
 
-  it('syncs a provider and reports how many models were detected', async () => {
+  it('refreshes a provider and reports how many models it offers', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET';
       calls.push({ method, url: String(url), body: undefined });
@@ -111,10 +117,10 @@ describe('AiSettingsPage', () => {
     });
     const user = userEvent.setup();
     withQuery(<AiSettingsPage />);
-    await screen.findByText('https://api.openai.com/v1');
+    await card();
 
-    // one provider → one sync button
-    await user.click(screen.getByRole('button', { name: /sync models/i }));
-    await waitFor(() => expect(screen.getByText(/2 added/i)).toBeInTheDocument());
+    // one provider → one refresh button
+    await user.click(screen.getByRole('button', { name: /refresh models/i }));
+    await waitFor(() => expect(screen.getByText('5 models offered · 2 new')).toBeInTheDocument());
   });
 });

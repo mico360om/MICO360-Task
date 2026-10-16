@@ -7,6 +7,40 @@ export type AiCapability = (typeof AI_CAPABILITIES)[number];
 export const PROVIDER_KINDS = ['openai', 'anthropic', 'ollama', 'custom'] as const;
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
+/** A ready-made service: connecting one needs only its key. Mirrors the backend's PROVIDER_PRESETS. */
+export interface ProviderPreset {
+  id: 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'groq' | 'mistral' | 'deepseek' | 'ollama' | 'custom';
+  /** In the list. */
+  label: string;
+  /** The provider's suggested name. */
+  name: string;
+  kind: ProviderKind;
+  /** Empty: the admin types it. */
+  baseUrl: string;
+  needsKey: boolean;
+  /** Where to get a key. */
+  keyUrl?: string;
+}
+
+export const PROVIDER_PRESETS: ProviderPreset[] = [
+  { id: 'openai', label: 'OpenAI', name: 'OpenAI', kind: 'openai', baseUrl: 'https://api.openai.com/v1', needsKey: true, keyUrl: 'https://platform.openai.com/api-keys' },
+  { id: 'anthropic', label: 'Anthropic (Claude)', name: 'Anthropic', kind: 'anthropic', baseUrl: 'https://api.anthropic.com', needsKey: true, keyUrl: 'https://console.anthropic.com/settings/keys' },
+  { id: 'gemini', label: 'Google Gemini', name: 'Google Gemini', kind: 'custom', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', needsKey: true, keyUrl: 'https://aistudio.google.com/apikey' },
+  { id: 'openrouter', label: 'OpenRouter', name: 'OpenRouter', kind: 'custom', baseUrl: 'https://openrouter.ai/api/v1', needsKey: true, keyUrl: 'https://openrouter.ai/settings/keys' },
+  { id: 'groq', label: 'Groq', name: 'Groq', kind: 'custom', baseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyUrl: 'https://console.groq.com/keys' },
+  { id: 'mistral', label: 'Mistral', name: 'Mistral', kind: 'custom', baseUrl: 'https://api.mistral.ai/v1', needsKey: true, keyUrl: 'https://console.mistral.ai/api-keys' },
+  { id: 'deepseek', label: 'DeepSeek', name: 'DeepSeek', kind: 'custom', baseUrl: 'https://api.deepseek.com', needsKey: true, keyUrl: 'https://platform.deepseek.com/api_keys' },
+  { id: 'ollama', label: 'Ollama (your own server)', name: 'Ollama', kind: 'ollama', baseUrl: 'http://localhost:11434', needsKey: false },
+  { id: 'custom', label: 'Other (OpenAI-compatible)', name: '', kind: 'custom', baseUrl: '', needsKey: false },
+];
+
+/** The label shown for a provider: its preset's, else its kind. */
+export function providerLabel(p: { preset?: string | null; kind: ProviderKind }): string {
+  const preset = PROVIDER_PRESETS.find((x) => x.id === p.preset);
+  if (preset && preset.id !== 'custom') return preset.name;
+  return p.kind === 'custom' ? 'OpenAI-compatible' : (PROVIDER_PRESETS.find((x) => x.id === p.kind)?.name ?? p.kind);
+}
+
 /** Human labels for the capability keys (used in the UI). */
 export const CAPABILITY_LABELS: Record<AiCapability, string> = {
   chat: 'Chat',
@@ -27,6 +61,14 @@ export interface RedactedProvider {
   updatedAt: string;
   hasApiKey: boolean;
   apiKeyHint: string | null;
+  /** The ready-made service it was connected from (older providers have none). */
+  preset?: ProviderPreset['id'] | null;
+  /** When its model list last loaded, and why the last try failed. */
+  lastSyncedAt?: string | null;
+  lastSyncAttemptAt?: string | null;
+  lastSyncError?: string | null;
+  /** Its recommended chat model, among the models it offers. */
+  recommendedModelId?: string | null;
 }
 
 export interface AiModelParameters {
@@ -46,6 +88,8 @@ export interface AiModel {
   concurrencyLimit: number;
   enabled: boolean;
   available: boolean;
+  /** When the provider released it (seconds since 1970), if it says. */
+  created?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -54,11 +98,14 @@ export interface AiConfig {
   providers: RedactedProvider[];
   models: AiModel[];
   defaults: Partial<Record<AiCapability, string | null>>;
+  /** The model "Automatic" uses now for each capability (null: nothing usable). */
+  automatic?: Partial<Record<AiCapability, string | null>>;
 }
 
 export interface ProviderInput {
   name: string;
   kind: ProviderKind;
+  preset?: ProviderPreset['id'];
   apiBaseUrl: string;
   apiKey?: string;
   enabled?: boolean;
@@ -95,6 +142,9 @@ export interface SyncResult {
   config: AiConfig;
 }
 
+/** A model test: it answered (and how fast), or the provider's reason it didn't. */
+export type ModelTestResult = { ok: true; ms: number; reply: string } | { ok: false; message: string };
+
 /** Admin AI Management client — every mutation returns the fresh (redacted) config. */
 export function aiApi(client: ApiClient) {
   const cfg = <T extends { data: AiConfig }>(p: Promise<T>) => p.then((r) => r.data);
@@ -110,6 +160,7 @@ export function aiApi(client: ApiClient) {
     updateModel: (id: string, patch: ModelPatch) => cfg(client.put<{ data: AiConfig }>(`/ai/models/${id}`, patch)),
     setModelEnabled: (id: string, enabled: boolean) => cfg(client.patch<{ data: AiConfig }>(`/ai/models/${id}/enabled`, { enabled })),
     removeModel: (id: string) => cfg(client.del<{ data: AiConfig }>(`/ai/models/${id}`)),
+    testModel: (id: string) => client.post<{ data: ModelTestResult }>(`/ai/models/${id}/test`).then((r) => r.data),
 
     setDefault: (capability: AiCapability, modelId: string | null) =>
       cfg(client.put<{ data: AiConfig }>(`/ai/defaults/${capability}`, { modelId })),

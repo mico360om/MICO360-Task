@@ -32,6 +32,51 @@ describe('complete', () => {
     expect(body.system).toBe('be brief');
   });
 
+  const capture = () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init!.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { bodies, fetchImpl };
+  };
+  const openai = (modelKey: string, kind: 'openai' | 'custom' = 'openai'): ChatModel => ({
+    provider: { kind, apiBaseUrl: 'https://api.example.com/v1', apiKey: 'k' },
+    modelKey,
+  });
+
+  it('sends OpenAI the current length setting (max_completion_tokens) with the temperature', async () => {
+    const { bodies, fetchImpl } = capture();
+    await complete(openai('gpt-4o-mini'), { prompt: 'hi', maxTokens: 200 }, fetchImpl);
+    expect(bodies[0]).toMatchObject({ model: 'gpt-4o-mini', max_completion_tokens: 200, temperature: 0.3 });
+    expect(bodies[0]).not.toHaveProperty('max_tokens');
+  });
+
+  it('sends OpenAI reasoning models no temperature, a low effort and room to think', async () => {
+    const { bodies, fetchImpl } = capture();
+    await complete(openai('gpt-5-mini'), { prompt: 'hi', maxTokens: 120 }, fetchImpl);
+    await complete(openai('o3-mini'), { prompt: 'hi' }, fetchImpl);
+    for (const body of bodies) {
+      expect(body).not.toHaveProperty('temperature');
+      expect(body.reasoning_effort).toBe('low');
+      expect(body.max_completion_tokens).toBeGreaterThanOrEqual(4096);
+    }
+  });
+
+  it('keeps max_tokens for other OpenAI-compatible services', async () => {
+    const { bodies, fetchImpl } = capture();
+    await complete(openai('llama-3.3-70b-versatile', 'custom'), { prompt: 'hi', maxTokens: 200 }, fetchImpl);
+    expect(bodies[0]).toMatchObject({ max_tokens: 200, temperature: 0.3 });
+  });
+
+  it('keeps the provider’s own explanation of a refusal for admins', async () => {
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ error: { message: 'The model `gpt-9` does not exist.' } }), { status: 404 })) as unknown as typeof fetch;
+    const err = await complete(openai('gpt-9'), { prompt: 'hi' }, fetchImpl).catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/HTTP 404/); // what users see
+    expect((err as { detail?: string }).detail).toBe('The model `gpt-9` does not exist.');
+  });
+
   it('throws a readable error on a non-OK provider response', async () => {
     const fetchImpl = (async () => new Response('nope', { status: 401 })) as unknown as typeof fetch;
     const model: ChatModel = { provider: { kind: 'openai', apiBaseUrl: 'https://api.example.com', apiKey: '' }, modelKey: 'gpt' };
@@ -68,5 +113,15 @@ describe('extractText tolerates odd shapes', () => {
     expect(extractText('openai', null)).toBe('');
     expect(extractText('anthropic', { content: 'not-an-array' })).toBe('');
     expect(extractText('openai', { choices: [{ message: { content: [{ type: 'text' }] } }] })).toBe('');
+  });
+});
+
+describe('a provider refusal is not our own HTTP status', () => {
+  it('answers 400 to our caller, whatever the provider said (a provider 401 must not look like an expired session)', async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 })) as unknown as typeof fetch;
+    const model: ChatModel = { provider: { kind: 'openai', apiBaseUrl: 'https://api.example.com', apiKey: 'k' }, modelKey: 'gpt-4o' };
+    const err = await complete(model, { prompt: 'hi' }, fetchImpl).catch((e: unknown) => e);
+    expect((err as { status: number }).status).toBe(400);
+    expect((err as { providerStatus: number }).providerStatus).toBe(401);
   });
 });

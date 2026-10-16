@@ -1,7 +1,7 @@
 import { ValidationError } from '../../lib/http-errors';
 import { todayKey } from '../../lib/due-date';
 import type { AiConfigRepository } from './ai-config-repository';
-import { usableModels, type AiConfig, type AiModel } from './ai-config';
+import { effectiveModel, type AiConfig, type AiModel } from './ai-config';
 import { complete, type ChatModel } from './ai-completion';
 import { createSafeFetch } from './ai-network';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
@@ -56,11 +56,11 @@ export function createAiFeatureService({
   const gate = createConcurrencyGate(slotWaitMs);
 
   function resolveChatModel(config: AiConfig): { model: AiModel; chat: ChatModel } {
-    const usable = usableModels(config, 'chat');
-    if (usable.length === 0) {
+    // The admin's default chat model while it is usable, otherwise the recommended one ("Automatic").
+    const model = effectiveModel(config, 'chat');
+    if (!model) {
       throw new ValidationError('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
     }
-    const model = usable.find((m) => m.id === config.defaults.chat) ?? usable[0]!;
     const provider = config.providers.find((p) => p.id === model.providerId)!;
     return { model, chat: { provider, modelKey: model.modelKey, parameters: model.parameters } };
   }

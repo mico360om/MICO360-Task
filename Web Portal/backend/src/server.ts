@@ -770,6 +770,19 @@ async function main(): Promise<void> {
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).
   const aiConfigRepository = createPrismaAiConfigRepository(prisma, { logger });
   const aiConfigService = createAiConfigService({ repo: aiConfigRepository, audit: auditService, allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS });
+  // Reload each switched-on AI provider's model list once a day (checked hourly, and at start-up),
+  // so new models appear and retired ones are marked unavailable without anyone pressing Refresh.
+  const runAiModelRefresh = () =>
+    runExclusive(jobLock, 'ai-model-refresh', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const { refreshed, failed } = await aiConfigService.refreshDueProviders();
+      if (refreshed || failed) logger.info('AI model lists refreshed', { refreshed, failed });
+    }).catch((err) => {
+      logger.error('AI model refresh failed', { err });
+      return false;
+    });
+  void runAiModelRefresh();
+  const aiModelTimer = setInterval(() => void runAiModelRefresh(), 60 * 60 * 1000);
+  aiModelTimer.unref?.();
   // Product-facing AI features read the same config (default chat model) and call the provider,
   // within per-user limits and each model's concurrency limit.
   const aiFeatureService = createAiFeatureService({

@@ -1,5 +1,6 @@
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import { validateProviderUrl } from './ai-network';
+import { friendlyModelName, inferCapabilities, pickRecommended, type RemoteModel } from './ai-model-catalog';
 
 /** Capabilities a model can serve. "document" = Document Processing. */
 export const AI_CAPABILITIES = ['chat', 'ocr', 'vision', 'document', 'embedding'] as const;
@@ -8,13 +9,23 @@ export type AiCapability = (typeof AI_CAPABILITIES)[number];
 export const PROVIDER_KINDS = ['openai', 'anthropic', 'ollama', 'custom'] as const;
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
+/** The services AI Management offers ready-made (address filled in); "custom" is any OpenAI-compatible one. */
+export const PROVIDER_PRESETS = ['openai', 'anthropic', 'gemini', 'openrouter', 'groq', 'mistral', 'deepseek', 'ollama', 'custom'] as const;
+export type ProviderPreset = (typeof PROVIDER_PRESETS)[number];
+
 export interface AiProvider {
   id: string;
   name: string;
   kind: ProviderKind;
+  /** Which ready-made service this is, for display. Older providers have none. */
+  preset?: ProviderPreset | null;
   apiBaseUrl: string;
   apiKey: string; // secret — never sent to clients (see redactConfig)
   enabled: boolean;
+  /** When the model list last loaded, when it was last tried, and why the last try failed. */
+  lastSyncedAt?: string | null;
+  lastSyncAttemptAt?: string | null;
+  lastSyncError?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,6 +47,8 @@ export interface AiModel {
   concurrencyLimit: number;
   enabled: boolean; // admin toggle
   available: boolean; // detected from the provider on sync
+  /** When the provider released the model (seconds since 1970), if it says: newer is recommended first. */
+  created?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,25 +72,32 @@ export function emptyConfig(): AiConfig {
 export interface RedactedProvider extends Omit<AiProvider, 'apiKey'> {
   hasApiKey: boolean;
   apiKeyHint: string | null; // last 4 chars, e.g. "…a1b2"
+  /** The chat model recommended among this provider's available models (switched on or not). */
+  recommendedModelId: string | null;
 }
 export interface RedactedConfig {
   providers: RedactedProvider[];
   models: AiModel[];
   defaults: Partial<Record<AiCapability, string | null>>;
+  /** The model "Automatic" stands for now, per capability (see automaticModels). */
+  automatic: Record<AiCapability, string | null>;
 }
 
 export function redactConfig(config: AiConfig): RedactedConfig {
   return {
     providers: config.providers.map((p) => {
       const { apiKey, ...rest } = p;
+      const offered = config.models.filter((m) => m.providerId === p.id && m.available);
       return {
         ...rest,
         hasApiKey: Boolean(apiKey),
         apiKeyHint: apiKey ? `…${apiKey.slice(-4)}` : null,
+        recommendedModelId: pickRecommended(offered, 'chat'),
       };
     }),
     models: config.models,
     defaults: config.defaults,
+    automatic: automaticModels(config),
   };
 }
 
@@ -102,6 +122,7 @@ function validCapabilities(caps: unknown): AiCapability[] {
 export interface ProviderInput {
   name: string;
   kind: ProviderKind;
+  preset?: ProviderPreset;
   apiBaseUrl: string;
   apiKey?: string;
   enabled?: boolean;
@@ -115,10 +136,12 @@ export interface UrlPolicy {
 export function addProvider(config: AiConfig, input: ProviderInput, meta: Meta, policy: UrlPolicy = {}): { config: AiConfig; provider: AiProvider } {
   if (!input.name?.trim()) throw new ValidationError('Provider name is required.');
   if (!PROVIDER_KINDS.includes(input.kind)) throw new ValidationError('Invalid provider kind.');
+  if (input.preset !== undefined && !PROVIDER_PRESETS.includes(input.preset)) throw new ValidationError('Invalid provider preset.');
   const provider: AiProvider = {
     id: meta.id,
     name: input.name.trim(),
     kind: input.kind,
+    preset: input.preset ?? null,
     apiBaseUrl: validateProviderUrl(input.apiBaseUrl, policy.allowPrivateHosts),
     apiKey: input.apiKey ?? '',
     enabled: input.enabled ?? true,
@@ -244,36 +267,78 @@ export function setDefault(config: AiConfig, capability: string, modelId: string
 }
 
 // ── Provider sync (mark availability + auto-detect new models) ───────────────
-export function applySync(config: AiConfig, providerId: string, remoteModelKeys: string[], meta: Meta): AiConfig {
-  requireProvider(config, providerId);
-  const remote = new Set(remoteModelKeys.map((k) => k.trim()).filter(Boolean));
+/**
+ * Apply a provider's current model list: known models are marked available or not (and get the
+ * provider's name for them unless an admin renamed them), new ones are added switched off with
+ * what they can do. The first time a provider's list loads and none of its models is on, its
+ * recommended chat model is switched on, so AI works right after connecting; after that the
+ * admin's on/off choices are never changed.
+ */
+export function applySync(config: AiConfig, providerId: string, remoteModels: Array<string | RemoteModel>, meta: Meta): AiConfig {
+  const provider = requireProvider(config, providerId);
+  const remote = new Map<string, RemoteModel>();
+  for (const r of remoteModels) {
+    const m = typeof r === 'string' ? { key: r } : r;
+    const key = m.key.trim();
+    if (key && !remote.has(key)) remote.set(key, { ...m, key });
+  }
   const known = new Set(config.models.filter((m) => m.providerId === providerId).map((m) => m.modelKey));
 
   // Update availability of known models.
-  const models = config.models.map((m) =>
-    m.providerId === providerId ? { ...m, available: remote.has(m.modelKey), updatedAt: meta.now } : m,
-  );
+  let models = config.models.map((m) => {
+    if (m.providerId !== providerId) return m;
+    const r = remote.get(m.modelKey);
+    const renamed = m.displayName !== m.modelKey && m.displayName !== friendlyModelName(m.modelKey);
+    return {
+      ...m,
+      available: Boolean(r),
+      ...(r?.displayName && !renamed ? { displayName: r.displayName } : {}),
+      ...(r?.created !== undefined && m.created === undefined ? { created: r.created } : {}),
+      updatedAt: meta.now,
+    };
+  });
 
   // Auto-detect newly available models (added disabled, so they stay hidden until an admin enables them).
   let seq = 0;
-  const additions: AiModel[] = [];
-  for (const key of remote) {
+  for (const [key, r] of remote) {
     if (known.has(key)) continue;
-    additions.push({
+    models.push({
       id: `${meta.id}-${seq++}`,
       providerId,
       modelKey: key,
-      displayName: key,
-      capabilities: ['chat'],
+      displayName: r.displayName || friendlyModelName(key),
+      capabilities: r.capabilities?.length ? [...r.capabilities] : inferCapabilities(key),
       parameters: {},
       concurrencyLimit: 4,
       enabled: false,
       available: true,
+      ...(r.created !== undefined ? { created: r.created } : {}),
       createdAt: meta.now,
       updatedAt: meta.now,
     });
   }
-  return { ...config, models: [...models, ...additions] };
+
+  const own = models.filter((m) => m.providerId === providerId);
+  if (!provider.lastSyncedAt && !own.some((m) => m.enabled)) {
+    const pick = pickRecommended(own.filter((m) => m.available), 'chat');
+    if (pick) models = models.map((m) => (m.id === pick ? { ...m, enabled: true } : m));
+  }
+
+  const providers = config.providers.map((p) =>
+    p.id === providerId ? { ...p, lastSyncedAt: meta.now, lastSyncAttemptAt: meta.now, lastSyncError: null } : p,
+  );
+  return { ...config, providers, models };
+}
+
+/** A model list that could not be loaded: note why and when, and leave every model as it was. */
+export function recordSyncFailure(config: AiConfig, providerId: string, message: string, now: string): AiConfig {
+  requireProvider(config, providerId);
+  return {
+    ...config,
+    providers: config.providers.map((p) =>
+      p.id === providerId ? { ...p, lastSyncAttemptAt: now, lastSyncError: message.slice(0, 300) } : p,
+    ),
+  };
 }
 
 // ── Consumer view (hide disabled/unavailable models from users + APIs) ───────
@@ -293,6 +358,21 @@ export function resolveDefaultModel(config: AiConfig, capability: AiCapability):
   const id = config.defaults[capability];
   if (!id) return null;
   return usableModels(config, capability).find((m) => m.id === id) ?? null;
+}
+
+/** What "Automatic" picks for each capability: the recommended model among the usable ones. */
+export function automaticModels(config: AiConfig): Record<AiCapability, string | null> {
+  const out = {} as Record<AiCapability, string | null>;
+  for (const cap of AI_CAPABILITIES) out[cap] = pickRecommended(usableModels(config, cap), cap);
+  return out;
+}
+
+/** The model a capability really uses: the chosen default while it is usable, else the automatic choice. */
+export function effectiveModel(config: AiConfig, capability: AiCapability): AiModel | null {
+  const chosen = resolveDefaultModel(config, capability);
+  if (chosen) return chosen;
+  const id = pickRecommended(usableModels(config, capability), capability);
+  return id ? (config.models.find((m) => m.id === id) ?? null) : null;
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────

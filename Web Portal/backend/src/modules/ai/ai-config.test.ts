@@ -10,6 +10,9 @@ import {
   applySync,
   usableModels,
   resolveDefaultModel,
+  effectiveModel,
+  automaticModels,
+  recordSyncFailure,
   redactConfig,
 } from './ai-config.js';
 import { ValidationError, NotFoundError } from '../../lib/http-errors.js';
@@ -158,6 +161,94 @@ describe('ai-config: sync', () => {
     expect(byKey['o1-mini']).toBeDefined();
     expect(byKey['o1-mini']!.enabled).toBe(false); // newly detected = disabled until an admin enables it
     expect(byKey['o1-mini']!.available).toBe(true);
+  });
+
+  it('adds new models with what the provider says about them, or a readable name and the likely capabilities', () => {
+    let cfg = seed();
+    cfg = applySync(cfg, 'p1', [{ key: 'claude-x', displayName: 'Claude X', capabilities: ['chat'], created: 100 }, 'text-embedding-3-small'], meta('s'));
+    const byKey = Object.fromEntries(cfg.models.map((m) => [m.modelKey, m]));
+    expect(byKey['claude-x']).toMatchObject({ displayName: 'Claude X', capabilities: ['chat'], created: 100, enabled: false });
+    expect(byKey['text-embedding-3-small']).toMatchObject({ displayName: 'Text embedding 3 small', capabilities: ['embedding'] });
+  });
+
+  it('gives a known model the name the provider sends, unless an admin renamed it', () => {
+    let cfg = seed();
+    cfg = addModel(cfg, { providerId: 'p1', modelKey: 'gpt-4.1', displayName: 'Our house model', capabilities: ['chat'] }, meta('m2')).config;
+    cfg = applySync(cfg, 'p1', [{ key: 'gpt-4o', displayName: 'GPT-4o' }, { key: 'gpt-4.1', displayName: 'GPT-4.1' }], meta('s'));
+    const byKey = Object.fromEntries(cfg.models.map((m) => [m.modelKey, m]));
+    expect(byKey['gpt-4o']!.displayName).toBe('GPT-4o');
+    expect(byKey['gpt-4.1']!.displayName).toBe('Our house model');
+  });
+
+  it('notes when the list was loaded and clears an earlier problem', () => {
+    let cfg = seed();
+    cfg = recordSyncFailure(cfg, 'p1', 'Could not reach the AI provider.', '2026-09-08T01:00:00.000Z');
+    expect(cfg.providers[0]).toMatchObject({ lastSyncError: 'Could not reach the AI provider.', lastSyncAttemptAt: '2026-09-08T01:00:00.000Z' });
+    expect(cfg.models[0]!.available).toBe(true); // a failed check changes no model
+    cfg = applySync(cfg, 'p1', ['gpt-4o'], { id: 's', now: '2026-09-08T02:00:00.000Z' });
+    expect(cfg.providers[0]).toMatchObject({ lastSyncError: null, lastSyncedAt: '2026-09-08T02:00:00.000Z', lastSyncAttemptAt: '2026-09-08T02:00:00.000Z' });
+  });
+
+  it('switches on the recommended chat model the first time a provider list is loaded', () => {
+    let cfg = addProvider(emptyConfig(), { name: 'Anthropic', kind: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', apiKey: 'k' }, meta('p1')).config;
+    cfg = applySync(
+      cfg,
+      'p1',
+      [
+        { key: 'claude-opus-4-1-20250805', created: 3 },
+        { key: 'claude-haiku-4-5-20251001', created: 5 },
+        { key: 'claude-sonnet-4-5-20250929', created: 4 },
+      ],
+      meta('s'),
+    );
+    expect(cfg.models.filter((m) => m.enabled).map((m) => m.modelKey)).toEqual(['claude-haiku-4-5-20251001']);
+  });
+
+  it('never changes on/off choices after that', () => {
+    let cfg = addProvider(emptyConfig(), { name: 'Anthropic', kind: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', apiKey: 'k' }, meta('p1')).config;
+    cfg = applySync(cfg, 'p1', ['claude-haiku-4-5'], meta('s1'));
+    cfg = updateModel(cfg, cfg.models[0]!.id, { enabled: false }, 'now'); // the admin switches everything off
+    cfg = applySync(cfg, 'p1', ['claude-haiku-4-5', 'claude-sonnet-4-5'], meta('s2'));
+    expect(cfg.models.filter((m) => m.enabled)).toHaveLength(0);
+  });
+});
+
+describe('ai-config: automatic model choice', () => {
+  function threeModels() {
+    let cfg = addProvider(emptyConfig(), { name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'k' }, meta('p1')).config;
+    cfg = addModel(cfg, { providerId: 'p1', modelKey: 'gpt-4o', capabilities: ['chat', 'vision'] }, meta('big')).config;
+    cfg = addModel(cfg, { providerId: 'p1', modelKey: 'gpt-4o-mini', capabilities: ['chat', 'vision'] }, meta('mini')).config;
+    cfg = addModel(cfg, { providerId: 'p1', modelKey: 'text-embedding-3-small', capabilities: ['embedding'] }, meta('emb')).config;
+    return cfg;
+  }
+
+  it('picks the recommended usable model for each capability', () => {
+    expect(automaticModels(threeModels())).toEqual({ chat: 'mini', vision: 'mini', ocr: null, document: null, embedding: 'emb' });
+  });
+
+  it('uses the chosen default while it is usable, and the automatic choice otherwise', () => {
+    let cfg = threeModels();
+    expect(effectiveModel(cfg, 'chat')?.id).toBe('mini'); // nothing chosen: automatic
+    cfg = setDefault(cfg, 'chat', 'big', 'now');
+    expect(effectiveModel(cfg, 'chat')?.id).toBe('big');
+    cfg = applySync(cfg, 'p1', ['gpt-4o-mini', 'text-embedding-3-small'], meta('s')); // gpt-4o is gone
+    expect(effectiveModel(cfg, 'chat')?.id).toBe('mini');
+    cfg = updateModel(cfg, 'mini', { enabled: false }, 'now');
+    expect(effectiveModel(cfg, 'chat')).toBeNull();
+  });
+
+  it('shows admins the automatic choice and each provider recommended chat model', () => {
+    const r = redactConfig(threeModels());
+    expect(r.automatic.chat).toBe('mini');
+    expect(r.providers[0]!.recommendedModelId).toBe('mini');
+  });
+});
+
+describe('ai-config: provider presets', () => {
+  it('keeps which preset a provider came from, and refuses an unknown one', () => {
+    const { provider } = addProvider(emptyConfig(), { name: 'Groq', kind: 'custom', preset: 'groq', apiBaseUrl: 'https://api.groq.com/openai/v1' }, meta('p1'));
+    expect(provider.preset).toBe('groq');
+    expect(() => addProvider(emptyConfig(), { name: 'X', kind: 'custom', preset: 'nope' as never, apiBaseUrl: 'https://x.test' }, meta('p2'))).toThrow(ValidationError);
   });
 });
 

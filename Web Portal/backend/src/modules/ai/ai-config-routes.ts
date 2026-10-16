@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AiConfigService } from './ai-config-service';
-import { AI_CAPABILITIES, PROVIDER_KINDS } from './ai-config';
+import { AI_CAPABILITIES, PROVIDER_KINDS, PROVIDER_PRESETS } from './ai-config';
 
 export interface AiRouteDeps {
   aiConfigService: AiConfigService;
@@ -16,6 +16,7 @@ const apiKey = z.string().max(1000);
 const providerCreate = z.object({
   name: providerName,
   kind: z.enum(PROVIDER_KINDS),
+  preset: z.enum(PROVIDER_PRESETS).optional(),
   apiBaseUrl: baseUrl,
   apiKey: apiKey.optional(),
   enabled: z.boolean().optional(),
@@ -85,6 +86,11 @@ export async function registerAiRoutes(app: FastifyInstance, deps: AiRouteDeps):
   app.delete('/ai/models/:id', admin, async (req) => {
     const { id } = req.params as { id: string };
     return { data: await svc.removeModel(id, actorOf(req)) };
+  });
+  // Send the model a tiny prompt: { ok, ms, reply } or { ok: false, message } with the provider's reason.
+  app.post('/ai/models/:id/test', admin, async (req) => {
+    const { id } = req.params as { id: string };
+    return { data: await svc.testModel(id) };
   });
 
   // ── Admin: defaults per capability ──────────────────────────────────────────

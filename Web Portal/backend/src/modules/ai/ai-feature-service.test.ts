@@ -101,3 +101,33 @@ describe('AiFeatureService', () => {
     expect(parseJsonObject('no json here')).toEqual({});
   });
 });
+
+describe('AiFeatureService: which model answers', () => {
+  function capturing(cfg: AiConfig) {
+    const used: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      used.push(JSON.parse(String(init!.body)).model);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '["a","b","c"]' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    return { svc: createAiFeatureService({ repo: createMemoryAiConfigRepository(cfg), fetchImpl }), used };
+  }
+  const two: AiConfig = {
+    ...config,
+    models: [
+      { ...config.models[0]!, id: 'big', modelKey: 'gpt-4o' },
+      { ...config.models[0]!, id: 'mini', modelKey: 'gpt-4o-mini' },
+    ],
+  };
+
+  it('uses the recommended model when no default is chosen (not just the first one listed)', async () => {
+    const { svc, used } = capturing({ ...two, defaults: {} });
+    await svc.breakdownTask({ title: 'X' });
+    expect(used).toEqual(['gpt-4o-mini']);
+  });
+
+  it('uses the chosen default while it is usable', async () => {
+    const { svc, used } = capturing({ ...two, defaults: { chat: 'big' } });
+    await svc.breakdownTask({ title: 'X' });
+    expect(used).toEqual(['gpt-4o']);
+  });
+});
