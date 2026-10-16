@@ -177,7 +177,7 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
     if (image.kind === 'new') {
       setProgress(0);
       try {
-        const ext = image.blob.type === 'image/webp' ? 'webp' : 'png';
+        const ext = image.blob.type === 'image/jpeg' ? 'jpg' : image.blob.type === 'image/webp' ? 'webp' : 'png';
         return await projectsApi(apiClient).uploadImage(id, image.blob, { filename: `project.${ext}`, onProgress: setProgress });
       } finally {
         setProgress(null);

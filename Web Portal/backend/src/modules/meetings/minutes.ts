@@ -1,4 +1,5 @@
-import { PdfDocument, type RGB } from '../../lib/pdf-document';
+import { PdfDocument, hexToRgb, type RGB } from '../../lib/pdf-document';
+import { printableImage } from '../../lib/pdf-image';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { isValidTimeZone } from './meeting-validation';
 
@@ -70,6 +71,12 @@ export interface MinutesBrand {
 export interface MinutesProject {
   name: string;
   code?: string | null;
+  /** The project's own number (e.g. the client's job number). */
+  number?: string | null;
+  /** Hex colour of its initials tile, when it has no picture that can be printed. */
+  color?: string | null;
+  /** The project's picture (bytes as stored); printed in the header when it can be (JPEG/PNG). */
+  image?: Buffer | null;
   clientName?: string | null;
   statusLabel?: string | null;
   ownerName?: string | null;
@@ -89,6 +96,8 @@ export interface MinutesData {
   actionItems?: MinutesActionItem[];
   generatedAt: string; // ISO
   generatedByName?: string | null;
+  /** Working minutes (from the notes; marked as a draft) or the approved final minutes. Default 'working'. */
+  version?: 'working' | 'final';
   /**
    * The company time zone (the server's COMPANY_TIMEZONE), used when the meeting has
    * no valid zone of its own. Falls back to the COMPANY_TIMEZONE env var, then Asia/Muscat.
@@ -174,21 +183,45 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     footerLeft,
   });
 
-  // Branded masthead: logo mark + product name + tagline + eyebrow.
-  doc.brandHeader({ eyebrow: 'Minutes of Meeting', title: brand.productName, subtitle: brand.tagline });
+  // Header: the project's picture (or its initials on its colour), name, code and number for a
+  // project meeting; the product masthead for a standalone one. A badge says which version this is.
+  const badge = data.version === 'final' ? { text: 'Final', tone: 'success' as const } : { text: 'Working draft', tone: 'muted' as const };
+  if (project) {
+    const subtitle = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName]
+      .filter((b): b is string => Boolean(b))
+      .map(isolate)
+      .join('  ·  ');
+    doc.identityHeader({
+      image: project.image ? printableImage(project.image) : null,
+      initials: initialsOf(project.name),
+      color: project.color ? hexToRgb(project.color, hexToRgb(brand.colors?.brand ?? '#8B1E1E')) : undefined,
+      eyebrow: 'Minutes of Meeting',
+      title: project.name,
+      subtitle: subtitle || undefined,
+      badge,
+    });
+  } else {
+    doc.brandHeader({ eyebrow: 'Minutes of Meeting', title: brand.productName, subtitle: brand.tagline, badge });
+  }
 
   // Meeting title (an Arabic title is set right-to-left, flush right)
   doc.text(meeting.title, { bold: true, size: 20, color: INK, gap: 4 });
 
-  // Meeting metadata
-  doc.keyValue('Date', fmtDate(meeting.startAt, tz));
-  doc.keyValue('Time', fmtTimeRange(meeting.startAt, meeting.endAt, tz));
-  doc.keyValue('Time zone', tz);
-  doc.keyValue('Project', project ? project.name : 'Standalone meeting');
-  doc.keyValue('Organizer', meeting.organizerName ?? '—');
-  if (meeting.location) doc.keyValue('Location', meeting.location);
-  if (meeting.onlineLink) doc.keyValue('Online', meeting.onlineLink);
-  doc.keyValue('Status', meeting.statusLabel);
+  // Meeting details in two columns: when on the left; who, where and how it stands on the right.
+  doc.keyValueColumns(
+    [
+      ['Date', fmtDate(meeting.startAt, tz)],
+      ['Time', fmtTimeRange(meeting.startAt, meeting.endAt, tz)],
+      ['Time zone', tz],
+      ['Project', project ? project.name : 'Standalone meeting'],
+    ],
+    [
+      ['Organizer', meeting.organizerName ?? '—'],
+      ...(meeting.location ? [['Location', meeting.location] as const] : []),
+      ...(meeting.onlineLink ? [['Online', meeting.onlineLink] as const] : []),
+      ['Status', meeting.statusLabel],
+    ],
+  );
 
   const decisions = data.notes.filter((n) => n.type === 'DECISION');
   // Action notes already tracked as action items appear once, in the table.
@@ -212,6 +245,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   if (project) {
     doc.heading('Project details');
     if (project.code) doc.keyValue('Code', project.code);
+    if (project.number) doc.keyValue('Project no.', project.number);
     if (project.clientName) doc.keyValue('Client', project.clientName);
     if (project.ownerName) doc.keyValue('Owner', project.ownerName);
     if (project.statusLabel) doc.keyValue('Status', project.statusLabel);
@@ -306,26 +340,58 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     }
   }
 
-  // Discussion, grouped by kind (sub-headings only when there is more than one kind).
-  doc.heading('Discussion & Notes', { keepWith: 30 });
-  if (discussion.length === 0) {
-    doc.text('No discussion notes were recorded.', { color: MUTED });
-  } else {
-    const groups: Array<[string, MinutesNote[]]> = [
-      ['Discussion', discussion.filter((n) => !['ISSUE', 'QUESTION', 'INFORMATION'].includes(n.type))],
-      ['Issues', discussion.filter((n) => n.type === 'ISSUE')],
-      ['Questions', discussion.filter((n) => n.type === 'QUESTION')],
-      ['Information', discussion.filter((n) => n.type === 'INFORMATION')],
-    ].filter((g): g is [string, MinutesNote[]] => (g[1] as MinutesNote[]).length > 0) as Array<[string, MinutesNote[]]>;
-    for (const [label, notes] of groups) {
-      if (groups.length > 1) doc.text(label, { bold: true, size: 10.5, color: INK, gap: 2 });
+  // Notes grouped by kind, with a sub-heading per kind when a section has more than one.
+  const noteGroups = (groups: Array<[string, MinutesNote[]]>) => {
+    const shown = groups.filter(([, notes]) => notes.length > 0);
+    for (const [label, notes] of shown) {
+      if (shown.length > 1) doc.text(label, { bold: true, size: 10.5, color: INK, gap: 2 });
       for (const n of notes) {
         const direction = textDirection(n.body);
         doc.bullet(n.body, { direction });
         doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 2, direction });
       }
     }
+  };
+
+  // Risks & open issues: what could go wrong, and what is still unanswered.
+  const issues = discussion.filter((n) => n.type === 'ISSUE');
+  const questions = discussion.filter((n) => n.type === 'QUESTION');
+  if (issues.length + questions.length > 0) {
+    doc.heading('Risks & Open Issues', { keepWith: 30 });
+    noteGroups([['Issues', issues], ['Questions', questions]]);
+  }
+
+  // The rest of the discussion.
+  const talk = discussion.filter((n) => n.type !== 'ISSUE' && n.type !== 'QUESTION');
+  doc.heading('Discussion & Notes', { keepWith: 30 });
+  if (talk.length === 0) {
+    doc.text('No discussion notes were recorded.', { color: MUTED });
+  } else {
+    noteGroups([
+      ['Discussion', talk.filter((n) => n.type !== 'INFORMATION')],
+      ['Information', talk.filter((n) => n.type === 'INFORMATION')],
+    ]);
+  }
+
+  // Next steps: the open action items, soonest first, each with its owner and due day.
+  const next = items
+    .filter((i) => i.open ?? !/^(completed|cancelled)$/i.test(i.statusLabel))
+    .sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31'));
+  if (next.length > 0) {
+    doc.heading('Next Steps', { keepWith: 30 });
+    for (const i of next) {
+      const who = i.ownerName ? isolate(i.ownerName) : 'unassigned';
+      doc.bullet(`${i.description} — ${who}${i.dueDate ? `, by ${fmtDay(i.dueDate, 'UTC')}` : ''}`, { direction: textDirection(i.description) });
+    }
   }
 
   return doc.build();
+}
+
+/** Up to two initials for a project's tile: "Falcon CRM" → "FC", "Falcon" → "FA". */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const letters = words.length > 1 ? [[...words[0]!][0], [...words[1]!][0]] : [...words[0]!].slice(0, 2);
+  return letters.join('').toUpperCase();
 }

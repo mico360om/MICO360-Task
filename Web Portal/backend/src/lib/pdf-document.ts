@@ -101,6 +101,12 @@ export interface PdfDocumentOptions {
   runningTitle?: string;
 }
 
+/** A small pill on the right of a header ("WORKING DRAFT", "FINAL"). */
+export interface HeaderBadge {
+  text: string;
+  tone?: 'muted' | 'success';
+}
+
 export interface StatTile {
   label: string;
   value: string;
@@ -253,19 +259,106 @@ export class PdfDocument {
    * A branded document header: the logo mark, product name + tagline, an eyebrow label,
    * and a brand rule beneath. Positions itself from the current cursor and advances past it.
    */
-  brandHeader(opts: { title: string; subtitle?: string; eyebrow?: string; from?: RGB; to?: RGB }): this {
+  brandHeader(opts: { title: string; subtitle?: string; eyebrow?: string; from?: RGB; to?: RGB; badge?: HeaderBadge }): this {
     const s = 42;
     const top = this.y;
     this.logoMark(this.margin, this.pageHeight - top - s, s, opts.from, opts.to);
-    const tx = this.margin + s + 14;
-    const tw = this.contentWidth - s - 14;
-    const one = (text: string, size: number, bold: boolean): TextLine => layoutText(text, { size, bold, maxWidth: tw })[0]!;
-    if (opts.eyebrow) drawTextLine(this.doc, one(opts.eyebrow.toUpperCase(), 8, true), tx, top + 9, 8, toHex(this.pal.brand));
-    drawTextLine(this.doc, one(opts.title, 17, true), tx, top + 27, 17, toHex(this.pal.ink));
-    if (opts.subtitle) drawTextLine(this.doc, one(opts.subtitle, 9, false), tx, top + 39, 9, toHex(this.pal.muted));
+    this.headerText(top, s, opts);
     this.y = top + s + 10;
     this.fillRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
     this.y += 2 + 12;
+    return this;
+  }
+
+  /**
+   * A header for a document about one project: its picture (an image pdfkit can embed as it is —
+   * see printableImage), else its initials on its colour; then the eyebrow, the project name and a
+   * detail line, an optional badge on the right, and a brand rule beneath.
+   */
+  identityHeader(opts: { image?: Buffer | null; initials: string; color?: RGB; title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): this {
+    const s = 46;
+    const top = this.y;
+    const x = this.margin;
+    this.doc.save();
+    this.doc.roundedRect(x, top, s, s, s * 0.22).clip();
+    if (opts.image) {
+      this.doc.rect(x, top, s, s).fill(toHex(WHITE));
+      this.doc.image(opts.image, x, top, { fit: [s, s], align: 'center', valign: 'center' });
+    } else {
+      this.doc.rect(x, top, s, s).fill(toHex(opts.color ?? this.pal.brand));
+    }
+    this.doc.restore();
+    if (opts.image) {
+      this.doc.save().lineWidth(0.6).roundedRect(x, top, s, s, s * 0.22).stroke(toHex(this.pal.line)).restore();
+    } else {
+      const initials = layoutText(opts.initials.slice(0, 3).toUpperCase(), { size: 17, bold: true })[0]!;
+      drawTextLine(this.doc, initials, x + (s - initials.width) / 2, top + s / 2 + 6, 17, toHex(WHITE));
+    }
+    this.headerText(top, s, opts);
+    this.y = top + s + 10;
+    this.fillRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
+    this.y += 2 + 12;
+    return this;
+  }
+
+  /** The eyebrow, title and subtitle beside a header's mark (size `s`), and its badge on the right. */
+  private headerText(top: number, s: number, opts: { title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): void {
+    const badgeSize = 7.5;
+    const badgeLine = opts.badge ? layoutText(opts.badge.text.toUpperCase(), { size: badgeSize, bold: true })[0]! : null;
+    const badgeW = badgeLine ? badgeLine.width + 16 : 0;
+    const tx = this.margin + s + 14;
+    const tw = this.contentWidth - s - 14 - (badgeW ? badgeW + 12 : 0);
+    const one = (text: string, size: number, bold: boolean): TextLine => layoutText(text, { size, bold, maxWidth: tw })[0]!;
+    const mid = top + s / 2;
+    if (opts.eyebrow) drawTextLine(this.doc, one(opts.eyebrow.toUpperCase(), 8, true), tx, mid - 12, 8, toHex(this.pal.brand));
+    drawTextLine(this.doc, one(opts.title, 17, true), tx, mid + 6, 17, toHex(this.pal.ink));
+    if (opts.subtitle) drawTextLine(this.doc, one(opts.subtitle, 9, false), tx, mid + 18, 9, toHex(this.pal.muted));
+    if (badgeLine && opts.badge) {
+      const tone = opts.badge.tone === 'success' ? SUCCESS : this.pal.muted;
+      const bx = this.margin + this.contentWidth - badgeW;
+      const bh = 18;
+      const by = mid - bh / 2;
+      this.doc.save().roundedRect(bx, by, badgeW, bh, bh / 2).fill(toHex(mix(tone, WHITE, 0.86))).restore();
+      this.doc.save().lineWidth(0.8).roundedRect(bx, by, badgeW, bh, bh / 2).stroke(toHex(tone)).restore();
+      drawTextLine(this.doc, badgeLine, bx + 8, by + bh / 2 + badgeSize * 0.36, badgeSize, toHex(tone));
+    }
+  }
+
+  /**
+   * "Label: value" pairs in two columns, each with its own label width; values wrap within their
+   * column. Kept together on one page.
+   */
+  keyValueColumns(left: ReadonlyArray<readonly [string, string]>, right: ReadonlyArray<readonly [string, string]>, options: { size?: number } = {}): this {
+    const size = options.size ?? 10.5;
+    const gutter = 24;
+    const colW = (this.contentWidth - gutter) / 2;
+    const columns = [left, right];
+    const laid = columns.map((col) => {
+      const labels = col.map(([label]) => layoutText(label, { size, bold: true })[0]!);
+      const labelW = Math.max(0, ...labels.map((l) => l.width)) + size * 0.9;
+      const rows = col.map(([, value], i) => {
+        const values = layoutText(value || '—', { size, maxWidth: colW - labelW });
+        const boxes = values.map((ln, j) => lineBox(ln, size, ln.arabic || (j === 0 && labels[i]!.arabic)));
+        return { label: labels[i]!, values, boxes, height: boxes.reduce((h, b) => h + b.height, 0) };
+      });
+      return { labelW, rows, height: rows.reduce((h, r) => h + r.height, 0) };
+    });
+    this.ensure(Math.max(...laid.map((c) => c.height)));
+    const top = this.y;
+    laid.forEach((col, c) => {
+      const left = this.margin + c * (colW + gutter);
+      let y = top;
+      for (const row of col.rows) {
+        row.values.forEach((ln, j) => {
+          const box = row.boxes[j]!;
+          const baseline = y + box.ascent;
+          if (j === 0) this.placeLine(row.label, left, col.labelW, baseline, size, this.pal.muted, 'left');
+          this.placeLine(ln, left + col.labelW, colW - col.labelW, baseline, size, this.pal.ink, row.values.length === 1 ? 'left' : 'start');
+          y += box.height;
+        });
+      }
+    });
+    this.y = top + Math.max(...laid.map((c) => c.height));
     return this;
   }
 

@@ -384,6 +384,9 @@ async function main(): Promise<void> {
     return {
       name: p.name,
       code: p.code,
+      number: p.number,
+      color: p.color,
+      imageUrl: p.imageUrl,
       clientName: p.clientName,
       status: p.status,
       ownerId: p.ownerId,
@@ -1076,6 +1079,9 @@ async function main(): Promise<void> {
     meetingListCounts,
     resolveUserNames,
     resolveProject,
+    // The minutes PDF prints the project's picture: read it back from where uploads are stored.
+    readProjectImage: async (url: string) =>
+      url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null,
     activityService,
     auditService,
     settingsService,

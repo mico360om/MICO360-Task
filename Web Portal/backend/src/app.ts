@@ -146,6 +146,8 @@ export interface AppDeps extends AuthRouteDeps {
   resolveUserNames?: (ids: string[]) => Promise<Map<string, string>>;
   /** Resolve a project id → its details for server-rendered documents (meeting minutes header). */
   resolveProject?: (projectId: string) => Promise<MinutesProjectSource | null>;
+  /** Reads a project's stored picture for the minutes PDF header. */
+  readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   activityService?: ActivityService;
   auditService?: AuditService;
   settingsService?: SettingsService;
@@ -550,6 +552,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canViewMeeting,
           resolveUserNames: deps.resolveUserNames,
           resolveProject: deps.resolveProject,
+          readProjectImage: deps.readProjectImage,
           resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,
         });

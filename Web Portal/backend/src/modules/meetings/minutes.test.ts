@@ -1,4 +1,5 @@
 import { afterEach, describe, it, expect } from 'vitest';
+import { crc32, deflateSync } from 'node:zlib';
 import { buildMinutesPdf, resolveMinutesTimeZone, DEFAULT_COMPANY_TIMEZONE, type MinutesData } from './minutes';
 import { inspectPdf } from '../../lib/pdf-inspect';
 
@@ -272,5 +273,91 @@ describe('minutes time zone (MTG-01)', () => {
     expect(resolveMinutesTimeZone('bogus', 'also-bogus')).toBe('Asia/Muscat');
     process.env.COMPANY_TIMEZONE = 'Asia/Bahrain';
     expect(resolveMinutesTimeZone(null, null)).toBe('Asia/Bahrain');
+  });
+});
+
+describe('buildMinutesPdf: project header and layout', () => {
+  /** A small half-transparent PNG, the kind the app's picture cropper makes for a logo. */
+  function logoPng(): Buffer {
+
+    const chunk = (type: string, body: Buffer) => {
+      const len = Buffer.alloc(4);
+      len.writeUInt32BE(body.length);
+      const tb = Buffer.concat([Buffer.from(type, 'latin1'), body]);
+      const crc = Buffer.alloc(4);
+      crc.writeUInt32BE(crc32(tb) >>> 0);
+      return Buffer.concat([len, tb, crc]);
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(4, 0);
+    ihdr.writeUInt32BE(4, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 6;
+    const row = Buffer.from([0, ...Array.from({ length: 4 }, () => [30, 90, 139, 200]).flat()]);
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat([row, row, row, row]))), chunk('IEND', Buffer.alloc(0))]);
+  }
+  const project = { name: 'Falcon CRM', code: 'FAL', number: 'PDO-2026-014', clientName: 'Acme Corp', color: '#1E5A8B' };
+
+  it('puts the project’s picture, name, code and number at the top instead of the MICO360 masthead', () => {
+    const pdf = buildMinutesPdf({ ...data, project: { ...project, image: logoPng() } });
+    expect(pdf.toString('latin1').trimEnd().endsWith('%%EOF')).toBe(true);
+    const { pages, contents } = inspectPdf(pdf);
+    expect(pages[0]).toContain('MINUTES OF MEETING');
+    expect(pages[0]).toContain('Falcon CRM');
+    expect(pages[0]).toContain('FAL  ·  Project no. PDO-2026-014  ·  Acme Corp');
+    expect(contents[0]).toMatch(/\/I\d+ Do/); // the picture
+    expect(contents[0]).not.toContain('1 1 1 SCN'); // no MICO360 logo mark (its white check)
+  });
+
+  it('draws the project’s initials on its colour when its picture can’t be printed', () => {
+    const webp = Buffer.from('RIFF\u0000\u0000\u0000\u0000WEBPVP8 ', 'latin1');
+    const { pages, contents } = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image: webp } }));
+    expect(contents[0]).not.toMatch(/\/I\d+ Do/);
+    expect(pages[0]).toContain('FC');
+    expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // #1E5A8B tile
+  });
+
+  it('keeps the MICO360 masthead for a meeting without a project', () => {
+    const { pages } = inspectPdf(buildMinutesPdf({ ...data, project: null }));
+    expect(pages[0]).toContain('MICO360 Tasks');
+  });
+
+  it('marks working minutes as a working draft', () => {
+    expect(inspectPdf(buildMinutesPdf(data)).pages[0]).toContain('WORKING DRAFT');
+  });
+
+  it('lists the project number among the project details', () => {
+    const text = lines({ ...data, project });
+    expect(text).toEqual(expect.arrayContaining(['Project no.', 'PDO-2026-014']));
+  });
+
+  it('puts risks and open issues in a section of their own, before the discussion', () => {
+    const text = lines({
+      ...data,
+      notes: [
+        { typeLabel: 'Discussion', type: 'DISCUSSION', body: 'Aligned on focus.', authorName: 'Ada', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false },
+        { typeLabel: 'Issue', type: 'ISSUE', body: 'Vendor is late.', authorName: 'Ada', createdAt: '2026-10-01T09:06:00.000Z', highlighted: false },
+      ],
+    });
+    expect(text.indexOf('Risks & Open Issues')).toBeGreaterThan(-1);
+    expect(text.indexOf('Vendor is late.')).toBeGreaterThan(text.indexOf('Risks & Open Issues'));
+    expect(text.indexOf('Discussion & Notes')).toBeGreaterThan(text.indexOf('Vendor is late.'));
+    expect(text.indexOf('Aligned on focus.')).toBeGreaterThan(text.indexOf('Discussion & Notes'));
+  });
+
+  it('ends with the next steps: the open action items by due date, with their owners', () => {
+    const text = lines({
+      ...data,
+      actionItems: [
+        { description: 'Send the vendor shortlist', ownerName: null, dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal' },
+        { description: 'Book the room', ownerName: 'Grace Hopper', dueDate: '2026-10-05', statusLabel: 'Open', priorityLabel: 'High' },
+        { description: 'Old item', ownerName: 'Ada', dueDate: '2026-09-01', statusLabel: 'Completed', priorityLabel: 'Low' },
+      ],
+    });
+    const at = text.indexOf('Next Steps');
+    expect(at).toBeGreaterThan(text.indexOf('Discussion & Notes'));
+    expect(text.slice(at)).toEqual(expect.arrayContaining(['Book the room — Grace Hopper, by Oct 5, 2026', 'Send the vendor shortlist — unassigned']));
+    expect(text.indexOf('Book the room — Grace Hopper, by Oct 5, 2026')).toBeLessThan(text.indexOf('Send the vendor shortlist — unassigned'));
+    expect(text.slice(at).some((l) => l.includes('Old item'))).toBe(false);
   });
 });

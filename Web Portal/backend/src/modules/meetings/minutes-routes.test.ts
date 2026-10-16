@@ -88,19 +88,19 @@ const tokenService = createTokenService({
 });
 const tokenFor = async (id: string, roles: string[]) => (await tokenService.issueTokens({ id, roles })).accessToken;
 
-async function makeApp(attendeesOf: Record<string, string[]> = {}, actionItemService?: unknown, meetingNotifyService?: unknown) {
+async function makeApp(attendeesOf: Record<string, string[]> = {}, actionItemService?: unknown, meetingNotifyService?: unknown, extra: Record<string, unknown> = {}, projectVisible = false) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
   const meetings = meetingRepo(attendeesOf);
   const meetingService = createMeetingService({ meetings });
-  const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return false; }, async accessibleProjectIds() { return []; } } });
+  const meetingAccess = createMeetingAccess({ meetings, projectAccess: { async canViewProject() { return projectVisible; }, async accessibleProjectIds() { return projectVisible ? ['p1'] : []; } } });
   const attendeeService = createAttendeeService({ attendees: attendeeRepo() });
   const agendaService = createAgendaService({ agenda: agendaRepo() });
   const noteService = createNoteService({ notes: noteRepo() });
   const resolveUserNames = async (ids: string[]) => new Map(ids.map((i) => [i, `User ${i}`]));
-  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, attendeeService, agendaService, noteService, resolveUserNames, actionItemService: actionItemService as never, meetingNotifyService: meetingNotifyService as never, resolveTaskKeys: async (ids: string[]) => Object.fromEntries(ids.map((i) => [i, `KEY-${i}`])), appConfig: { timeZone: 'UTC', productName: 'MICO360', companyName: 'MICO360 Softwares' } });
+  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, attendeeService, agendaService, noteService, resolveUserNames, actionItemService: actionItemService as never, meetingNotifyService: meetingNotifyService as never, resolveTaskKeys: async (ids: string[]) => Object.fromEntries(ids.map((i) => [i, `KEY-${i}`])), appConfig: { timeZone: 'UTC', productName: 'MICO360', companyName: 'MICO360 Softwares' }, ...extra });
   return app;
 }
 
@@ -231,5 +231,38 @@ describe('Minutes email route', () => {
     expect(notify.sendMinutes).not.toHaveBeenCalled();
     const attendee = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/preview`, headers: { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` } });
     expect(attendee.statusCode).toBe(403);
+  });
+});
+
+describe('Minutes PDF route: the project header', () => {
+  const jpeg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64');
+
+  it('prints the project’s picture, code and number at the top of a project meeting’s minutes', async () => {
+    const read: string[] = [];
+    const app = await makeApp({}, undefined, undefined, {
+      resolveProject: async () => ({ name: 'Falcon CRM', code: 'FAL', number: 'PDO-2026-014', clientName: 'Acme Corp', status: 'ACTIVE', ownerId: null, startDate: null, targetDate: null, color: '#1E5A8B', imageUrl: '/uploads/projects/falcon.jpg' }),
+      readProjectImage: async (url: string) => { read.push(url); return jpeg; },
+    }, true);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt: '2026-10-01T09:00:00Z', projectId: 'p1' } });
+    expect(created.statusCode).toBe(201);
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    const { pages, contents } = inspectPdf(res.rawPayload);
+    expect(read).toEqual(['/uploads/projects/falcon.jpg']);
+    expect(pages[0]).toContain('FAL  ·  Project no. PDO-2026-014  ·  Acme Corp');
+    expect(contents[0]).toMatch(/\/I\d+ Do/);
+  });
+
+  it('still prints the minutes when the picture can’t be read', async () => {
+    const app = await makeApp({}, undefined, undefined, {
+      resolveProject: async () => ({ name: 'Falcon CRM', code: 'FAL', clientName: null, status: 'ACTIVE', ownerId: null, startDate: null, targetDate: null, imageUrl: '/uploads/gone.jpg' }),
+      readProjectImage: async () => { throw new Error('ENOENT'); },
+    }, true);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt: '2026-10-01T09:00:00Z', projectId: 'p1' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    expect(inspectPdf(res.rawPayload).pages[0]).toContain('FC');
   });
 });

@@ -34,6 +34,12 @@ const PROJECT_STATUS_LABELS: Record<string, string> = {
 export interface MinutesProjectSource {
   name: string;
   code: string | null;
+  /** The project's own number (e.g. the client's job number). */
+  number?: string | null;
+  /** Its colour (hex), for the initials tile when there is no printable picture. */
+  color?: string | null;
+  /** Where its picture is stored ('/uploads/…'), read with readProjectImage. */
+  imageUrl?: string | null;
   clientName: string | null;
   status: string;
   ownerId: string | null;
@@ -60,6 +66,8 @@ export interface MinutesRouteDeps {
   resolveUserNames: (ids: string[]) => Promise<Map<string, string>>;
   /** Resolve a project id to its details for the header (null when unknown/standalone). */
   resolveProject?: (projectId: string) => Promise<MinutesProjectSource | null>;
+  /** The bytes of a project's stored picture, for the minutes header (null or a failure: the initials are printed). */
+  readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Board keys of linked tasks (id → key), printed beside their action items. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
@@ -103,6 +111,8 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       deps.resolveUserNames([...ids]),
       taskIds.length && deps.resolveTaskKeys ? deps.resolveTaskKeys(taskIds) : Promise.resolve({} as Record<string, string>),
     ]);
+    const projectImage =
+      projectSrc?.imageUrl && deps.readProjectImage ? await deps.readProjectImage(projectSrc.imageUrl).catch(() => null) : null;
     const trackedNotes = new Set(actionItems.map((a) => a.sourceNoteId).filter(Boolean));
     const nameOf = (uid: string | null): string | null => (uid ? names.get(uid) ?? null : null);
 
@@ -122,6 +132,9 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         ? {
             name: projectSrc.name,
             code: projectSrc.code,
+            number: projectSrc.number ?? null,
+            color: projectSrc.color ?? null,
+            image: projectImage,
             clientName: projectSrc.clientName,
             statusLabel: PROJECT_STATUS_LABELS[projectSrc.status] ?? projectSrc.status,
             ownerName: nameOf(projectSrc.ownerId),

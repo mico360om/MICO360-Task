@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { pictureFormat } from '../../lib/picture-format';
 
 /** The crop frame on screen, and the size of the square picture that is saved. */
 const FRAME = 240;
@@ -10,20 +11,28 @@ export interface CroppedImage {
   previewUrl: string;
 }
 
-/** Encode the canvas as WebP when the browser can, else PNG (both keep transparency). */
+/** Encode the canvas as JPEG when it is fully opaque, else as PNG (see pictureFormat): both print in PDFs. */
 function encode(canvas: HTMLCanvasElement): Promise<Blob> {
+  let pixels: Uint8ClampedArray | null = null;
+  try {
+    pixels = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data ?? null;
+  } catch {
+    pixels = null; // can't be read: PNG is always right
+  }
+  const format = pictureFormat(pixels);
   return new Promise((resolve, reject) => {
-    canvas.toBlob((webp) => {
-      if (webp && webp.type === 'image/webp') return resolve(webp);
-      canvas.toBlob((png) => (png ? resolve(png) : reject(new Error('The picture couldn’t be prepared.'))), 'image/png');
-    }, 'image/webp', 0.9);
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('The picture couldn’t be prepared.'))),
+      format.type,
+      'quality' in format ? format.quality : undefined,
+    );
   });
 }
 
 /**
  * Square crop of a chosen picture: drag (or use the arrow keys) to position it, zoom with the
  * slider (or + and −), or fit the whole picture — a logo keeps its proportions and the rest of the
- * square stays transparent. The result is a 512 × 512 WebP (PNG where WebP can't be made).
+ * square stays transparent. The result is a 512 × 512 JPEG, or a PNG when it has transparency.
  */
 export function ImageCropper({ file, onCancel, onDone }: { file: File; onCancel: () => void; onDone: (image: CroppedImage) => void }) {
   const url = useMemo(() => URL.createObjectURL(file), [file]);
