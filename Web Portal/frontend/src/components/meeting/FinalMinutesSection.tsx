@@ -106,7 +106,8 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
   };
 
   const status = fm?.status ?? 'NONE';
-  const count = status === 'FINAL' ? 'Final' : status === 'DRAFT' || editing ? 'Draft' : undefined;
+  // A draft says so beside the title; final minutes carry their own Final badge.
+  const count = status !== 'FINAL' && (status === 'DRAFT' || editing) ? 'Draft' : undefined;
 
   return (
     <Section id="final-minutes" title="Final minutes" count={count}>

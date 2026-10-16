@@ -28,7 +28,7 @@ npm workspaces: `Web Portal/backend`, `Web Portal/frontend`, `Extension` (worksp
 
 ## Test status
 
-`npm test` in each app → **3,192 passing** (backend 1,473 · web 1,072 · Android 440 · extension 207),
+`npm test` in each app → **3,255 passing** (backend 1,517 · web 1,091 · Android 440 · extension 207),
 with typecheck and lint clean everywhere. Plus `npm run test:db` (Prisma integration on MySQL 8)
 and `npm run test:e2e` (live-API lifecycle), and the release acceptance test
 `tools/release/verify-server.mjs` (83 checks against a freshly installed server — web app, sign-in,

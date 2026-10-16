@@ -136,6 +136,35 @@ automatically when the new version is deployed:
     (Claude Haiku, GPT mini, Gemini Flash). If that model goes away, Automatic moves to the next one
     by itself. The AI features now use it, instead of whichever model happened to be listed first.
   - GPT-5 and the o-series models now work: they need different request settings.
+- **"Describe it in plain English" (New task)** now also suggests:
+  - a **description**: details the note gives beyond the title;
+  - a **repeat**, when the note says the task repeats (e.g. "every Monday");
+  - the **project**: one whose number or code is written in the note, else the one the AI
+    recognises, only ever among the projects you can add tasks to.
+
+  As before, each suggestion has a tick box, and one that would replace something you set yourself
+  starts unticked.
+- **Project number:** projects have an optional number beside their code (e.g. the client's job
+  or contract number, up to 40 characters). It is set in the New/Edit project form, shows on the
+  project page and its card, and appears in the minutes PDF.
+- **Minutes of meeting PDF:**
+  - A project meeting's minutes open with the project's picture (or its initials on its colour),
+    its name, code and number. A meeting without a project keeps the MICO360 logo.
+  - A badge says WORKING DRAFT or FINAL.
+  - The meeting details sit in two columns, and risks and open issues get their own section.
+  - The minutes end with the next steps: the open action items, soonest first, with their owners.
+  - New project pictures are saved as JPEG, or as PNG when they have transparency, so they print.
+    Older WebP pictures show the initials until they are replaced.
+- **Final minutes (Final MOM):** a new card on the meeting page.
+  - The organizer starts from a draft, written by the AI from the meeting's agenda, notes and
+    action items (or "Start from the notes" without AI). The draft has a summary, the discussion
+    under each agenda item, the decisions, risks and open issues, and next steps.
+  - They edit it, save it, and **Mark as final**, which records who approved it and when.
+  - Final minutes are read-only until reopened. Attendees see them once they are final.
+  - **Export final minutes (PDF)** prints them, badged FINAL with the approval. Once they are
+    final, **Email minutes** sends the final version.
+- **Contact address:** info@mico360.com replaces support@mico360.com everywhere: the sign-in page,
+  the Privacy and Terms pages, and the footer of emails and PDFs (the server's `SUPPORT_EMAIL`).
 - **Fixes found in testing:**
   - Meeting agenda and action-item rows were squeezed on narrow screens.
   - The meetings filter row wrapped badly.
@@ -152,7 +181,7 @@ and the Chrome extension, are unchanged.
 ## How these builds were tested (October 2026)
 
 - **Unit and component tests (16 October, on 0.4.0):**
-  - backend 1,473 · web 1,072 · Android 440 · extension 207, all passing;
+  - backend 1,517 · web 1,091 · Android 440 · extension 207, all passing;
   - typecheck and lint clean in every app;
   - the Android production bundle builds.
 - **MySQL 8.0 (14 October):**
@@ -217,6 +246,20 @@ and the Chrome extension, are unchanged.
   - Refresh finding new and retired models, and a service that is down.
   - Desktop, phone and dark mode, with no accessibility (axe) violations and no console errors.
   - The task panel's AI buttons still pass: 12 of 12 with a stand-in, 11 of 11 with the real Llama.
+- **Describe a task, project number, minutes PDF and Final MOM (16 October), in a real browser:**
+  40 of 40 checks, with a stand-in AI and the real Llama on the test computer.
+  - The contact links say info@mico360.com.
+  - A project created with a number shows it on its card and its page.
+  - A plain-English note fills in the description, a weekly repeat and the project named by its
+    code, and the task is created with all of them.
+  - The working minutes PDF opens with the project's picture, code and number.
+  - Final MOM: AI draft → edit → save (kept across a reload) → mark final → final PDF (named and
+    badged final, with the approval) → reopen → start again from the notes.
+  - An attendee sees the final minutes read-only, and the server refuses their edits.
+  - Phone width and an accessibility (axe) scan pass. The real Llama drafts final minutes from
+    the meeting's facts in about 5 seconds.
+  - The browser tests for the forms that changed still pass: task form 69, project form 97,
+    meetings 78.
 - **Chrome extension 0.4.0:** the zip holds manifest version 0.4.0 and 43 files, with no test
   helpers.
 - **Feature tests in a real browser (10 October, desktop and phone):**
