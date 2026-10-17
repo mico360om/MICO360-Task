@@ -2,26 +2,39 @@ import type { ReactNode } from 'react';
 
 export interface PageHeaderProps {
   title: ReactNode;
+  /** One line about the page, beside the title on a wide screen (hidden on smaller ones). */
   subtitle?: ReactNode;
+  /** The page's section ("Workspace", "Admin"), shown before the title like a breadcrumb. */
   eyebrow?: ReactNode;
   /** Right-aligned actions (buttons, filters). */
   actions?: ReactNode;
 }
 
+/** "Workspace / Meetings": the page's section and its title (the page's h1), on one line. */
+export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<PageHeaderProps, 'actions'> & { className?: string }) {
+  return (
+    <div className={`flex min-w-0 items-baseline gap-x-2 ${className}`}>
+      {eyebrow ? (
+        <>
+          <span className="flex-none text-xs font-semibold uppercase tracking-wide text-ink-3">{eyebrow}</span>
+          <span aria-hidden="true" className="flex-none text-ink-3">/</span>
+        </>
+      ) : null}
+      <h1 className="min-w-0 truncate font-display text-xl font-extrabold tracking-tightish text-ink sm:text-2xl">{title}</h1>
+      {subtitle ? <p className="ms-1 hidden min-w-0 truncate text-sm text-ink-3 xl:block">{subtitle}</p> : null}
+    </div>
+  );
+}
+
 /**
- * Consistent page title block used across every page for a unified hierarchy.
- * The actions sit beside the title only when there is room for both: the title block asks for at
- * least 24rem, so a long row of buttons drops to its own line instead of squeezing the title (or
- * being squeezed into a narrow column of two-line buttons) on a tablet.
+ * Every list page's title: one compact line, "Workspace / Meetings", the page's one-line
+ * description beside it where there is room, and its actions on the same row. The actions drop
+ * below the title only when there isn't room for both (the title asks for at least 16rem).
  */
 export function PageHeader({ title, subtitle, eyebrow, actions }: PageHeaderProps) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3 animate-fade-in-up">
-      <div className="min-w-0 flex-[1_1_24rem]">
-        {eyebrow ? <div className="eyebrow mb-1 text-brand">{eyebrow}</div> : null}
-        <h1 className="font-display text-2xl font-extrabold tracking-tightish text-ink sm:text-3xl">{title}</h1>
-        {subtitle ? <p className="mt-1 text-sm text-ink-2 sm:text-[15px]">{subtitle}</p> : null}
-      </div>
+    <div className="relative z-20 mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 animate-fade-in-up">
+      <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} className="flex-[1_1_16rem]" />
       {actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );

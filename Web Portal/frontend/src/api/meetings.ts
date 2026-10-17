@@ -79,6 +79,12 @@ export interface Meeting {
   attendeeCount?: number;
   /** List only: action items still to do. */
   openActionItemCount?: number;
+  /** List only: the first few attendees' names (older servers leave it out). */
+  attendees?: string[];
+  /** List only: how far the minutes are. */
+  minutes?: MinutesState;
+  /** List only: notes recorded as decisions. */
+  decisionCount?: number;
 }
 
 export interface Attendee {

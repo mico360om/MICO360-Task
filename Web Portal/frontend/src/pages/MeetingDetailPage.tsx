@@ -53,7 +53,7 @@ export function MeetingDetailPage() {
   const attendeesQ = useQuery({ queryKey: ['meeting', id, 'attendees'], queryFn: () => meetingsApi(apiClient).listAttendees(id), enabled: !!id, refetchInterval: pollMs });
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
-  // The final minutes (Final MOM), shared with their card: the menu offers their PDF once they are final.
+  // The final minutes (Final MOM), shared with their card: once final, the minutes PDF opens with them.
   const finalQ = useQuery({ queryKey: ['meeting', id, 'final-minutes'], queryFn: () => meetingsApi(apiClient).getFinalMinutes(id), enabled: !!id });
 
   // Live updates from other people in the meeting (notes, agenda, attendees, action items).
@@ -84,8 +84,9 @@ export function MeetingDetailPage() {
     (copy) => navigate(`/meetings/${copy.id}`),
     (text) => setNotice({ text, error: true }),
   );
-  const exportPdf = () => void exportMinutes(meeting!).catch((err) => setNotice({ text: meetingFailure(err, 'Couldn’t export the minutes.'), error: true }));
-  const exportFinalPdf = () => void exportMinutes(meeting!, 'final').catch((err) => setNotice({ text: meetingFailure(err, 'Couldn’t export the final minutes.'), error: true }));
+  // One minutes PDF: the Final MOM first once it is approved (the file is then named as final).
+  const exportPdf = () =>
+    void exportMinutes(meeting!, finalQ.data?.status === 'FINAL' ? 'final' : 'working').catch((err) => setNotice({ text: meetingFailure(err, 'Couldn’t export the minutes.'), error: true }));
 
   // E edits the meeting and Delete asks to delete it, for those who may.
   const mayEdit = !!meeting && meeting.canEdit !== false;
@@ -144,7 +145,6 @@ export function MeetingDetailPage() {
   if (canEdit && meeting.status === 'SCHEDULED' && primary !== 'start') menu.push({ label: 'Start meeting', onSelect: () => statusMut.mutate('IN_PROGRESS') });
   if (canEdit && meeting.status !== 'CANCELLED' && primary !== 'email-minutes') menu.push({ label: 'Email minutes…', onSelect: () => setDialog('minutes') });
   if (primary !== 'export-minutes') menu.push({ label: 'Export minutes (PDF)', onSelect: exportPdf });
-  if (finalQ.data?.status === 'FINAL') menu.push({ label: 'Export final minutes (PDF)', onSelect: exportFinalPdf });
   if (primary !== 'duplicate') menu.push({ label: 'Duplicate', onSelect: () => duplicate.mutate(meeting.id) });
   if (canEdit && !ended) menu.push({ label: 'Cancel meeting…', danger: true, onSelect: () => setDialog('cancel') });
   if (canEdit) menu.push({ label: 'Delete meeting…', danger: true, shortcut: 'delete', onSelect: () => setDialog('delete') });

@@ -16,6 +16,7 @@ import {
   passwordChangedEmail,
   accountLockedEmail,
   genericNotificationEmail,
+  meetingMinutesEmail,
 } from './email-templates';
 
 describe('email templates (existing signatures preserved)', () => {
@@ -159,5 +160,44 @@ describe('new notification templates', () => {
       expect(e.html.startsWith('<!DOCTYPE html>')).toBe(true);
       expect(e.text.length).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('minutes email — the project’s identity', () => {
+  const params = { title: 'Weekly review', whenLabel: 'Tue 14 Oct 2026, 10:00', organizerName: 'Aisha Khan', projectName: 'Falcon CRM', link: 'https://app.test/meetings/m1' };
+  const opts = { brand: { logoUrl: 'https://api.test/email-assets/email-logo.png' } };
+
+  it('is headed by the project’s picture and name instead of the product logo', () => {
+    const e = meetingMinutesEmail({ ...params, project: { name: 'Falcon CRM', imageUrl: 'https://api.test/uploads/projects/falcon.png', color: '#0F766E' } }, opts);
+    expect(e.html).toContain('<img src="https://api.test/uploads/projects/falcon.png"');
+    expect(e.html).toContain('alt="Falcon CRM"');
+    expect(e.html).toContain('Minutes of Meeting');
+    expect(e.html).not.toContain('email-logo.png');
+  });
+
+  it('shows the project’s initials on its colour when it has no picture', () => {
+    const e = meetingMinutesEmail({ ...params, project: { name: 'Falcon CRM', imageUrl: null, color: '#0F766E' } }, opts);
+    expect(e.html).toContain('>FC<');
+    expect(e.html).toContain('background:#0F766E');
+    expect(e.html).not.toContain('email-logo.png');
+  });
+
+  it('keeps an Arabic project name in its own direction (digits and Latin parts stay in place)', () => {
+    const e = meetingMinutesEmail({ ...params, projectName: 'مشروع الإطلاق 817ab4', project: { name: 'مشروع الإطلاق 817ab4', imageUrl: null, color: null } }, opts);
+    expect(e.html).toMatch(/<div dir="auto"[^>]*>مشروع الإطلاق 817ab4<\/div>/);
+    // The same in the details table.
+    expect(e.html).toMatch(/<td dir="auto"[^>]*>مشروع الإطلاق 817ab4<\/td>/);
+  });
+
+  it('keeps the product logo for a meeting without a project', () => {
+    expect(meetingMinutesEmail(params, opts).html).toContain('<img src="https://api.test/email-assets/email-logo.png"');
+  });
+
+  it('never lets a project name, picture address or colour break out of the header', () => {
+    const e = meetingMinutesEmail({ ...params, project: { name: '<b>X</b> "y"', imageUrl: 'javascript:alert(1)', color: 'red;background:url(x)' } }, opts);
+    expect(e.html).not.toContain('<b>X</b>');
+    expect(e.html).toContain('&lt;b&gt;X&lt;/b&gt;');
+    expect(e.html).not.toContain('javascript:');
+    expect(e.html).not.toContain('url(x)');
   });
 });

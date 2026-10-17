@@ -31,7 +31,7 @@ beforeEach(() => {
   calls = [];
   failList = false;
   meetings = [
-    meeting({ id: 'budget', title: 'Budget review', projectId: 'p1', attendeeCount: 6, openActionItemCount: 2 }),
+    meeting({ id: 'budget', title: 'Budget review', projectId: 'p1', attendeeCount: 6, openActionItemCount: 2, attendees: ['Aisha Khan', 'Omar Said', 'Sara Ali', 'Bilal Aziz'], minutes: 'FINAL', decisionCount: 3 }),
     meeting({ id: 'arabic', title: 'اجتماع الميزانية', startAt: at(2, '09:00'), endAt: at(2, '10:00'), organizerId: 'u2' }),
     meeting({ id: 'draft', title: 'Hiring plan', status: 'DRAFT', startAt: at(5, '09:00'), endAt: null }),
     meeting({ id: 'retro', title: 'Sprint retro', status: 'COMPLETED', startAt: at(-3, '09:00'), endAt: at(-3, '10:00') }),
@@ -68,28 +68,62 @@ function renderPage() {
   );
 }
 
-const rowOf = async (title: string) => (await screen.findByRole('link', { name: title })).closest('tr')!;
+const rowOf = async (title: string) => (await screen.findByRole('link', { name: title })).closest('[data-meeting-card]') as HTMLElement;
 
 describe('MeetingsPage', () => {
-  it('lists each meeting with its project, status, time, organizer, attendees and open action items', async () => {
+  it('shows each meeting as a card: day, time, project, organizer, people, minutes, decisions and open action items', async () => {
     renderPage();
-    const row = await rowOf('Budget review');
-    await waitFor(() => expect(row).toHaveTextContent('Falcon CRM'));
-    expect(row).toHaveTextContent('Scheduled');
+    const card = await rowOf('Budget review');
+    await waitFor(() => expect(card).toHaveTextContent('Falcon CRM'));
     const time = (iso: string) => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: TZ }).format(new Date(iso));
-    expect(row).toHaveTextContent(`${time(at(0, '10:00'))} – ${time(at(0, '11:00'))}`);
-    expect(row).toHaveTextContent('Aisha Khan');
-    expect(within(row).getAllByText('6')[0]).toBeInTheDocument();
-    expect(row).toHaveTextContent(/2 open/);
+    expect(card).toHaveTextContent(`${time(at(0, '10:00'))} – ${time(at(0, '11:00'))}`);
+    await waitFor(() => expect(card).toHaveTextContent('Aisha Khan'));
+    // The first faces, and how many more.
+    for (const name of ['Aisha Khan', 'Omar Said', 'Sara Ali']) expect(within(card).getByLabelText(name)).toBeInTheDocument();
+    expect(card).toHaveTextContent('+3');
+    expect(card).toHaveTextContent('6 people');
+    expect(card).toHaveTextContent('Final minutes');
+    expect(card).toHaveTextContent('3 decisions');
+    expect(card).toHaveTextContent(/2 open/);
+    expect(card.querySelector('[data-project-avatar="icon"]')).not.toBeNull(); // the project's own picture
     expect(await rowOf('Hiring plan')).toHaveTextContent('Standalone');
-    expect(row.querySelector('[data-project-avatar="icon"]')).not.toBeNull(); // the project's own picture
+    // A plain scheduled meeting needs no badge; any other status says so.
+    expect(card).not.toHaveTextContent('Scheduled');
+    expect(await rowOf('Sprint retro')).toHaveTextContent('Completed');
   });
 
-  it('groups meetings into Today, Upcoming, Drafts and Past', async () => {
+  it('groups meetings into Today, Next 7 days, Drafts and Past', async () => {
     renderPage();
     await rowOf('Budget review');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual([expect.stringMatching(/^Today/), expect.stringMatching(/^Upcoming/), expect.stringMatching(/^Drafts/), expect.stringMatching(/^Past/)]);
+    expect(headings).toEqual([expect.stringMatching(/^Today/), expect.stringMatching(/^Next 7 days/), expect.stringMatching(/^Drafts/), expect.stringMatching(/^Past/)]);
+  });
+
+  it('features the next meeting on top, with Join for an online one — and steps aside while you filter', async () => {
+    const start = Date.now() + 25.5 * 60_000;
+    meetings = [
+      meeting({ id: 'call', title: 'Client call', projectId: 'p1', startAt: new Date(start).toISOString(), endAt: new Date(start + 3_600_000).toISOString(), onlineLink: 'https://meet.example.com/abc' }),
+      meeting({ id: 'retro', title: 'Sprint retro', status: 'COMPLETED', startAt: at(-3, '09:00'), endAt: at(-3, '10:00') }),
+    ];
+    renderPage();
+    const next = await screen.findByRole('region', { name: /up next/i });
+    expect(next).toHaveTextContent('Client call');
+    expect(next).toHaveTextContent('in 25 min');
+    expect(within(next).getByRole('link', { name: /join/i })).toHaveAttribute('href', 'https://meet.example.com/abc');
+    expect(within(next).getByRole('link', { name: /open/i })).toHaveAttribute('href', '/meetings/call');
+    await userEvent.type(screen.getByRole('searchbox', { name: /search meetings/i }), 'retro');
+    expect(screen.queryByRole('region', { name: /up next/i })).not.toBeInTheDocument();
+  });
+
+  it('says until when a meeting under way runs', async () => {
+    const end = Date.now() + 50 * 60_000;
+    meetings = [meeting({ id: 'live', title: 'Site walk', startAt: new Date(Date.now() - 10 * 60_000).toISOString(), endAt: new Date(end).toISOString() })];
+    renderPage();
+    const next = await screen.findByRole('region', { name: /up next/i });
+    const clock = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: TZ }).format(new Date(end));
+    expect(next).toHaveTextContent('Under way');
+    expect(next).toHaveTextContent(`until ${clock}`);
+    expect(next).not.toHaveTextContent('Happening now');
   });
 
   it('keeps an Arabic title inline beside its details instead of pushing it to the other side', async () => {
@@ -117,6 +151,9 @@ describe('MeetingsPage', () => {
     const scope = screen.getByRole('group', { name: /whose meetings/i });
     await userEvent.click(within(scope).getByRole('button', { name: /organized by me/i }));
     await waitFor(() => expect(calls.some((c) => c.url.includes('/meetings?mine=true'))).toBe(true));
+    // The filters sit behind one button.
+    expect(screen.queryByLabelText(/^status$/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^filters/i }));
     await userEvent.selectOptions(screen.getByLabelText(/^status$/i), 'COMPLETED');
     expect(await screen.findByRole('link', { name: 'Sprint retro' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Budget review' })).not.toBeInTheDocument();
@@ -124,6 +161,25 @@ describe('MeetingsPage', () => {
     await userEvent.selectOptions(screen.getByLabelText(/^project$/i), 'p1');
     expect(screen.getByRole('link', { name: 'Budget review' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Sprint retro' })).not.toBeInTheDocument();
+  });
+
+  it('shows the filters in use as chips, each removable, with Clear all', async () => {
+    renderPage();
+    await rowOf('Budget review');
+    await userEvent.click(screen.getByRole('button', { name: /^filters/i }));
+    await userEvent.selectOptions(screen.getByLabelText(/^status$/i), 'COMPLETED');
+    await userEvent.selectOptions(screen.getByLabelText(/^date$/i), 'last7');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByLabelText(/^status$/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^filters/i })).toHaveTextContent('Filters (2)');
+    const chips = screen.getByRole('list', { name: /filters in use/i });
+    expect(within(chips).getAllByRole('listitem').map((li) => li.textContent)).toEqual([expect.stringMatching(/Date: Last 7 days/), expect.stringMatching(/Status: Completed/)]);
+    expect(screen.getByText('1 meeting matches')).toBeInTheDocument();
+    await userEvent.click(within(chips).getByRole('button', { name: /remove status: completed/i }));
+    expect(within(screen.getByRole('list', { name: /filters in use/i })).getAllByRole('listitem')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: /clear all/i }));
+    expect(screen.queryByRole('list', { name: /filters in use/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Budget review' })).toBeInTheDocument();
   });
 
   it('opens drafts in one click', async () => {
@@ -134,13 +190,14 @@ describe('MeetingsPage', () => {
     expect(screen.queryByRole('link', { name: 'Budget review' })).not.toBeInTheDocument();
   });
 
-  it('shows past meetings ten at a time with "Show more"', async () => {
-    meetings = Array.from({ length: 13 }, (_, i) => meeting({ id: `p${i}`, title: `Old meeting ${i + 1}`, status: 'COMPLETED', startAt: at(-1 - i, '09:00'), endAt: null }));
+  it('shows past meetings twelve at a time with "Show more"', async () => {
+    meetings = Array.from({ length: 15 }, (_, i) => meeting({ id: `p${i}`, title: `Old meeting ${i + 1}`, status: 'COMPLETED', startAt: at(-1 - i, '09:00'), endAt: null }));
     renderPage();
     await screen.findByRole('link', { name: 'Old meeting 1' });
-    expect(screen.queryByRole('link', { name: 'Old meeting 11' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Old meeting 12' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Old meeting 13' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /show 3 more/i }));
-    expect(screen.getByRole('link', { name: 'Old meeting 13' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Old meeting 15' })).toBeInTheDocument();
   });
 
   it('says so, with a retry, when the list can’t be loaded', async () => {

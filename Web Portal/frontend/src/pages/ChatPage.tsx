@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { chatApi, type ApiChatAttachment, type ApiMessage, type ConversationPrefs, type ConversationSummary } from '../api/chat';
@@ -10,6 +10,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useChatRealtime, type ChatEventPayload } from '../lib/useChatRealtime';
 import { usePresence } from '../lib/usePresence';
+import { useFrameOffset } from '../lib/useFrameOffset';
 import { lastActiveLabel } from '../lib/lastActive';
 import { isChatMuted, setChatMuted, primeAudio } from '../lib/notificationSound';
 import { setViewingConversation } from '../lib/chat-sound';
@@ -75,30 +76,6 @@ function reasonOf(err: unknown): string {
 }
 
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
-
-/**
- * How far down the page the chat starts, plus the page's bottom padding: the chat is the window's
- * height less that, so it fills the screen without the page itself scrolling. Measured, because the
- * top bar's height depends on what it holds.
- */
-function useFrameOffset(ref: React.RefObject<HTMLElement | null>): number | null {
-  const [offset, setOffset] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => {
-      const wrapper = el.parentElement;
-      const main = el.closest('main');
-      const below = (main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0) + (wrapper ? parseFloat(getComputedStyle(wrapper).marginBottom) || 0 : 0);
-      setOffset(Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY + below)));
-    };
-    measure();
-    void document.fonts?.ready.then(measure); // the top bar settles once its fonts are in
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [ref]);
-  return offset;
-}
 
 /** A name inside a sentence keeps its own direction (Arabic in English text, or the other way round). */
 const isolate = (name: string) => `⁨${name}⁩`;
@@ -772,7 +749,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
           steps aside, and a hidden stand-in keeps the main heading for screen readers. */}
       {showThread ? <h1 className="sr-only lg:hidden">Chat</h1> : null}
       <div
-        className="chat-frame grid overflow-hidden border-line bg-surface [--chat-top:57px] sm:rounded-2xl sm:border sm:shadow-soft sm:[--chat-top:105px] lg:grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)] lg:[--chat-top:121px]"
+        className="chat-frame grid overflow-hidden border-line bg-surface [--chat-top:57px] sm:rounded-2xl sm:border sm:shadow-soft sm:[--chat-top:89px] lg:grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)] lg:[--chat-top:97px]"
         ref={frameRef}
         style={frameOffset !== null ? ({ '--chat-top': `${frameOffset}px` } as React.CSSProperties) : undefined}
       >

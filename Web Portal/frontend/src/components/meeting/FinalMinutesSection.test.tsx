@@ -49,7 +49,7 @@ function renderSection(canEdit = true) {
     </QueryClientProvider>,
   );
 }
-const section = () => screen.getByRole('region', { name: /final minutes/i });
+const section = () => screen.getByRole('region', { name: /final mom/i });
 
 describe('Final minutes: writing them', () => {
   it('starts from an AI draft, which is edited and saved as a draft', async () => {
@@ -114,7 +114,8 @@ describe('Final minutes: writing them', () => {
     expect(within(section()).getByText('Progress was reviewed and go-live moved.')).toBeInTheDocument();
     expect(within(section()).getByText('Tablets may be late.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Summary')).not.toBeInTheDocument();
-    expect(within(section()).getByRole('button', { name: 'Download Final MOM (PDF)' })).toBeInTheDocument();
+    // One minutes PDF: it opens with the Final MOM once it is final.
+    expect(within(section()).getByRole('button', { name: 'Download minutes (PDF)' })).toBeInTheDocument();
     await userEvent.click(within(section()).getByRole('button', { name: 'Reopen' }));
     expect(await screen.findByLabelText('Summary')).toHaveValue(content.summary);
   });
@@ -124,15 +125,15 @@ describe('Final minutes: for attendees', () => {
   it('says they aren’t ready while they are being written', async () => {
     current = { ...none, canEdit: false };
     renderSection(false);
-    expect(await within(await screen.findByRole('region', { name: /final minutes/i })).findByText(/aren’t ready yet/i)).toBeInTheDocument();
+    expect(await within(await screen.findByRole('region', { name: /final mom/i })).findByText(/aren’t ready yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Draft with AI' })).not.toBeInTheDocument();
   });
 
   it('shows the final minutes read-only, with the PDF but no Reopen', async () => {
     current = { ...final, canEdit: false };
     renderSection(false);
-    expect(await within(await screen.findByRole('region', { name: /final minutes/i })).findByText('Go-live moves to 1 November.')).toBeInTheDocument();
-    expect(within(section()).getByRole('button', { name: 'Download Final MOM (PDF)' })).toBeInTheDocument();
+    expect(await within(await screen.findByRole('region', { name: /final mom/i })).findByText('Go-live moves to 1 November.')).toBeInTheDocument();
+    expect(within(section()).getByRole('button', { name: 'Download minutes (PDF)' })).toBeInTheDocument();
     expect(within(section()).queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
   });
 });

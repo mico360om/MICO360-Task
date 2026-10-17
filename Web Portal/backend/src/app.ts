@@ -45,7 +45,7 @@ import { registerReportRoutes } from './modules/reports/report-routes';
 import type { ReportService } from './modules/reports/report-service';
 import { registerSearchRoutes } from './modules/search/search-routes';
 import type { SearchService } from './modules/search/search-service';
-import { registerMeetingRoutes } from './modules/meetings/meeting-routes';
+import { registerMeetingRoutes, type MeetingListCounts } from './modules/meetings/meeting-routes';
 import type { MeetingService } from './modules/meetings/meeting-service';
 import type { MeetingSeriesService } from './modules/meetings/meeting-series-service';
 import type { MeetingAccess } from './modules/meetings/meeting-access';
@@ -145,8 +145,8 @@ export interface AppDeps extends AuthRouteDeps {
   actionItemService?: ActionItemService;
   /** Inherit a meeting's project id on action-item creation. */
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
-  /** Attendee / open action-item counts for the meetings list. */
-  meetingListCounts?: (meetingIds: string[]) => Promise<Record<string, { attendeeCount: number; openActionItemCount: number }>>;
+  /** Each listed meeting's people, minutes, decisions and open action items (the meetings list). */
+  meetingListCounts?: (meetingIds: string[]) => Promise<Record<string, MeetingListCounts>>;
   /** Board keys of tasks by id (meeting action items name their linked task). */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
   /** Resolve user ids → display names for server-rendered documents (e.g. meeting minutes). */

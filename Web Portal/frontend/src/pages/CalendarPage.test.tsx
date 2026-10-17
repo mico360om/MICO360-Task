@@ -196,9 +196,15 @@ describe('CalendarPage — how tasks look', () => {
     const done = await chip(/Shipped inspection/);
     expect(done).toHaveAccessibleName(/done/i);
     expect(done.className).not.toMatch(/danger|line-through/);
-    // A legend explains them.
+    // A legend explains them: one click away, so it doesn't take a row of the screen.
+    expect(screen.queryByRole('list', { name: 'Legend' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Legend' }));
     const legend = screen.getByRole('list', { name: 'Legend' });
-    for (const word of ['Overdue', 'To do', 'In progress', 'Blocked', 'Done', 'Repeats (not created yet)']) expect(within(legend).getByText(word)).toBeInTheDocument();
+    for (const word of ['Overdue', 'To do', 'In progress', 'Blocked', 'Done', 'Repeats (not created yet)', 'Meeting']) expect(within(legend).getByText(word)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Legend' })).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('list', { name: 'Legend' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Legend' })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('never shows a completed task as overdue', async () => {
@@ -244,7 +250,9 @@ describe('CalendarPage — how tasks look', () => {
     expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
     await waitFor(() => expect(calendarRequests()).toContain('?from=2026-09-28&to=2026-11-01'));
     expect(within(day('2026-10-31')).getByRole('button', { name: /Month end close/ })).toBeInTheDocument();
-    expect(screen.getByText(/America\/New_York/)).toBeInTheDocument();
+    // The legend says which time zone the dates are in.
+    await userEvent.click(screen.getByRole('button', { name: 'Legend' }));
+    expect(screen.getByText('Dates in America/New_York (your setting)')).toBeInTheDocument();
   });
 });
 
@@ -309,6 +317,25 @@ describe('CalendarPage — busy days', () => {
     await userEvent.click(screen.getByRole('button', { name: /^project/i }));
     await userEvent.click(await screen.findByRole('option', { name: /Rig Inspection/ }));
     expect(screen.queryByRole('button', { name: /more tasks on Thu 15 Oct/i })).not.toBeInTheDocument();
+  });
+
+  it('sized to the window, a day shows as many tasks as fit and “+N more” for the rest', async () => {
+    // The month's weeks share the height on screen: 600px for October's five weeks is 120px a
+    // day, room for two one-line tasks and the "+N more" line.
+    class FakeResizeObserver {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe(el: Element) { this.cb([{ target: el, contentRect: { height: 600, width: 900 } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    tasks = Array.from({ length: 6 }, (_, i) => task({ id: `b${i}`, key: `MICO-${10 + i}`, title: `Busy day job ${i + 1}`, dueDate: '2026-10-15T00:00:00.000Z' }));
+    renderPage();
+    const more = await screen.findByRole('button', { name: /4 more tasks on Thu 15 Oct/i });
+    expect(more).toHaveTextContent('+4 more');
+    expect(within(day('2026-10-15')).getAllByRole('button', { name: /Busy day job/ })).toHaveLength(2);
+    // A day with room for everything shows it all.
+    expect(screen.queryByRole('button', { name: /more tasks on Wed 14 Oct/i })).not.toBeInTheDocument();
   });
 });
 
@@ -495,6 +522,25 @@ describe('CalendarPage — agenda, states and phones', () => {
     await userEvent.click(within(day('2026-10-14')).getByRole('button', { name: /Wed 14 Oct, 1 task/ }));
     const chosen = await screen.findByRole('region', { name: /Wed 14 Oct/ });
     expect(within(chosen).getByRole('button', { name: /Prepare report/ })).toBeInTheDocument();
+    await act(async () => {});
+  });
+
+  it('on a phone, keeps the filters behind one button so the month stays in view', async () => {
+    const mm = vi.fn((q: string) => ({ matches: q.includes('max-width'), media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false }));
+    vi.stubGlobal('matchMedia', mm);
+    Object.defineProperty(window, 'matchMedia', { value: mm, configurable: true, writable: true });
+    renderPage();
+    await screen.findByRole('region', { name: /Sat 10 Oct/ });
+    expect(screen.getByRole('searchbox', { name: 'Search tasks' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^project/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'My tasks' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^filters/i }));
+    expect(screen.getByRole('button', { name: 'My tasks' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^project/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'High' })).toBeInTheDocument();
+    // A filter in use is counted on the button.
+    await userEvent.click(screen.getByRole('button', { name: 'My tasks' }));
+    expect(screen.getByRole('button', { name: /^filters/i })).toHaveTextContent('Filters (1)');
     await act(async () => {});
   });
 

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { MEETING_STATUS_LABELS, type Meeting } from '../../api/meetings';
 import { Badge } from '../ui/Badge';
+import { Breadcrumbs } from '../ui/Breadcrumbs';
 import { Button } from '../ui/Button';
 import { ActionMenu, type ActionMenuItem } from './ActionMenu';
 import { Icon } from './kit';
@@ -58,21 +58,23 @@ export function MeetingHeader({
   const joinHref = safeMeetingHref(meeting.onlineLink);
   const cancelled = meeting.status === 'CANCELLED';
   return (
-    <header className="mb-5">
-      <Link to="/meetings" className="tap inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink">← Meetings</Link>
-      <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <header className="mb-4">
+      {/* Where the meeting sits, with its status on the same line. */}
+      <Breadcrumbs items={[{ label: 'Meetings', to: '/meetings' }, { label: <bdi>{meeting.title}</bdi> }]}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={meetingStatusTone(meeting.status)}>{MEETING_STATUS_LABELS[meeting.status]}</Badge>
+          {live ? <Badge tone="brand" dot>Live — updates automatically</Badge> : null}
+          {meeting.invitesSentAt ? (
+            <span className="inline-flex items-center gap-1 text-xs text-ink-3">{Icon.mail} Invitations sent {formatMeetingDay(meeting.invitesSentAt, timeZone)}</span>
+          ) : meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED' ? (
+            <span className="text-xs text-ink-3">Invitations not sent yet</span>
+          ) : null}
+        </div>
+      </Breadcrumbs>
+      <div className="mt-1.5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
-          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <Badge tone={meetingStatusTone(meeting.status)}>{MEETING_STATUS_LABELS[meeting.status]}</Badge>
-            {live ? <Badge tone="brand" dot>Live — updates automatically</Badge> : null}
-            {meeting.invitesSentAt ? (
-              <span className="inline-flex items-center gap-1 text-xs text-ink-3">{Icon.mail} Invitations sent {formatMeetingDay(meeting.invitesSentAt, timeZone)}</span>
-            ) : meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED' ? (
-              <span className="text-xs text-ink-3">Invitations not sent yet</span>
-            ) : null}
-          </div>
           {/* Inline title (bdi): an Arabic title stays on the same side as everything else. */}
-          <h1 className={`break-words font-display text-2xl font-bold leading-tight text-ink sm:text-[1.7rem] ${cancelled ? 'line-through decoration-2' : ''}`}>
+          <h1 className={`break-words font-display text-xl font-bold leading-tight text-ink sm:text-2xl ${cancelled ? 'line-through decoration-2' : ''}`}>
             <bdi>{meeting.title}</bdi>
           </h1>
           <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-ink-2">

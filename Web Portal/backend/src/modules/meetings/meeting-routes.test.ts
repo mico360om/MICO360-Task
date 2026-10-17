@@ -162,6 +162,18 @@ describe('Meeting routes', () => {
     expect(meetingListCounts).toHaveBeenCalledTimes(1);
   });
 
+  it('gives each listed meeting its first attendees’ names, minutes state and decisions (for the cards)', async () => {
+    const meetingListCounts = vi.fn(async (ids: string[]) =>
+      Object.fromEntries(ids.map((id) => [id, { attendeeCount: 5, openActionItemCount: 1, attendees: ['Aisha Khan', 'Omar Said'], minutes: 'FINAL' as const, decisionCount: 3 }])),
+    );
+    const app = await makeApp({ meetingListCounts });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Card', startAt: '2026-10-01T09:00:00Z' } });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/meetings', headers: { authorization: auth } });
+    const [m] = res.json().data;
+    expect(m).toMatchObject({ title: 'Card', attendeeCount: 5, openActionItemCount: 1, attendees: ['Aisha Khan', 'Omar Said'], minutes: 'FINAL', decisionCount: 3 });
+  });
+
   it('cancels a meeting the organizer owns', async () => {
     const app = await makeApp();
     const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;

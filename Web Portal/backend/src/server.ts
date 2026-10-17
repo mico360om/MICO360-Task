@@ -136,7 +136,7 @@ import { createPrismaSearchDataSource } from './modules/search/prisma-search-dat
 import { createPrismaMeetingRepository } from './modules/meetings/prisma-meeting-repository';
 import { createMeetingService } from './modules/meetings/meeting-service';
 import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
-import { createPrismaProjectMeetingsSource } from './modules/meetings/prisma-project-meetings';
+import { createPrismaMeetingListCounts, createPrismaProjectMeetingsSource } from './modules/meetings/prisma-project-meetings';
 import { createMeetingAccess } from './modules/meetings/meeting-access';
 import { createPrismaAttendeeRepository } from './modules/meetings/prisma-attendee-repository';
 import { createAttendeeService } from './modules/meetings/attendee-service';
@@ -515,17 +515,7 @@ async function main(): Promise<void> {
     assignees: assigneeService,
     actionItems: actionItemService,
   });
-  const meetingListCounts = async (ids: string[]) => {
-    const [attendees, open] = await Promise.all([
-      prisma.meetingAttendee.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids } }, _count: { _all: true } }),
-      prisma.actionItem.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, status: { notIn: ['COMPLETED', 'CANCELLED'] } }, _count: { _all: true } }),
-    ]);
-    const out: Record<string, { attendeeCount: number; openActionItemCount: number }> = {};
-    for (const id of ids) out[id] = { attendeeCount: 0, openActionItemCount: 0 };
-    for (const a of attendees) out[a.meetingId]!.attendeeCount = a._count._all;
-    for (const o of open) if (o.meetingId) out[o.meetingId]!.openActionItemCount = o._count._all;
-    return out;
-  };
+  const meetingListCounts = createPrismaMeetingListCounts(prisma);
   const resolveTaskKeys = async (ids: string[]) =>
     Object.fromEntries((await prisma.task.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, key: true } })).map((t) => [t.id, t.key]));
 
@@ -889,6 +879,11 @@ async function main(): Promise<void> {
     email: emailService,
     resolveUser: resolveMeetingUser,
     resolveProjectName: async (projectId) => (await resolveProject(projectId))?.name ?? null,
+    resolveProjectLook: async (projectId) => {
+      const p = await resolveProject(projectId);
+      return p ? { name: p.name, imageUrl: p.imageUrl ?? null, color: p.color ?? null } : null;
+    },
+    assetBaseUrl: env.API_BASE_URL,
     appUrl: env.APP_URL,
     defaultTimeZone: companyTz, // times in emails are shown in the company zone, not UTC
     logger,

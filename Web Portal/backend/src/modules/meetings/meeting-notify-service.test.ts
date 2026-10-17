@@ -51,6 +51,8 @@ function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRec
     email,
     resolveUser: async (uid: string) => directory[uid] ?? null,
     resolveProjectName: async () => 'Falcon CRM',
+    resolveProjectLook: async () => ({ name: 'Falcon CRM', imageUrl: '/uploads/projects/falcon.png', color: '#0F766E' }),
+    assetBaseUrl: 'https://api.mico360.test/',
     appUrl: 'https://app.mico360.test',
     defaultTimeZone: 'Asia/Muscat',
     logger,
@@ -108,6 +110,15 @@ describe('MeetingNotifyService', () => {
     const att = email.sendMeetingMinutes.mock.calls[0]![2] as { contentType: string; content: Buffer };
     expect(att.contentType).toContain('application/pdf');
     expect(att.content).toBe(pdf);
+  });
+
+  it('heads the minutes email with the project’s picture, at an address email clients can load', async () => {
+    const { svc, email } = makeService({ attendees: [attendee({ userId: 'u2' })] });
+    await svc.sendMinutes('m1', Buffer.from('%PDF'));
+    const params = email.sendMeetingMinutes.mock.calls[0]![1] as { project?: unknown };
+    expect(params.project).toEqual({ name: 'Falcon CRM', imageUrl: 'https://api.mico360.test/uploads/projects/falcon.png', color: '#0F766E' });
+    const preview = await svc.previewMinutes('m1');
+    expect(preview.html).toContain('<img src="https://api.mico360.test/uploads/projects/falcon.png"');
   });
 
   it('reminder sweep sends to upcoming meetings and marks each reminded', async () => {

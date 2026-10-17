@@ -101,10 +101,10 @@ export interface PdfDocumentOptions {
   runningTitle?: string;
 }
 
-/** A small pill on the right of a header ("WORKING DRAFT", "FINAL"). */
+/** A small pill on the right of a header ("DRAFT", "FINAL"). */
 export interface HeaderBadge {
   text: string;
-  tone?: 'muted' | 'success';
+  tone?: 'muted' | 'success' | 'warning';
 }
 
 export interface StatTile {
@@ -314,7 +314,7 @@ export class PdfDocument {
     drawTextLine(this.doc, one(opts.title, 17, true), tx, mid + 6, 17, toHex(this.pal.ink));
     if (opts.subtitle) drawTextLine(this.doc, one(opts.subtitle, 9, false), tx, mid + 18, 9, toHex(this.pal.muted));
     if (badgeLine && opts.badge) {
-      const tone = opts.badge.tone === 'success' ? SUCCESS : this.pal.muted;
+      const tone = opts.badge.tone === 'success' ? SUCCESS : opts.badge.tone === 'warning' ? WARNING : this.pal.muted;
       const bx = this.margin + this.contentWidth - badgeW;
       const bh = 18;
       const by = mid - bh / 2;
@@ -322,6 +322,55 @@ export class PdfDocument {
       this.doc.save().lineWidth(0.8).roundedRect(bx, by, badgeW, bh, bh / 2).stroke(toHex(tone)).restore();
       drawTextLine(this.doc, badgeLine, bx + 8, by + bh / 2 + badgeSize * 0.36, badgeSize, toHex(tone));
     }
+  }
+
+  /**
+   * A band that opens a part of the document ("Final Minutes of Meeting", "Meeting record"): its
+   * title in the heading face on a tinted strip with a brand edge. Kept with what follows it.
+   */
+  partBand(title: string, options: { topGap?: number; keepWith?: number } = {}): this {
+    const size = 13.5;
+    const h = 30;
+    this.spacer(options.topGap ?? 18);
+    this.ensure(h + Math.max(40, options.keepWith ?? 0));
+    const top = this.y;
+    this.doc.save();
+    this.doc.roundedRect(this.margin, top, this.contentWidth, h, 5).clip();
+    this.fillRect(this.margin, top, this.contentWidth, h, mix(this.pal.brand, WHITE, 0.92));
+    this.fillRect(this.margin, top, 4, h, this.pal.brand);
+    this.doc.restore();
+    const line = layoutText(title, { size, bold: true, family: 'display', maxWidth: this.contentWidth - 28 })[0]!;
+    drawTextLine(this.doc, line, this.margin + 14, top + h / 2 + size * 0.36, size, toHex(this.pal.brand));
+    this.y = top + h + 8;
+    return this;
+  }
+
+  /**
+   * One line of status on a tinted strip — e.g. "FINAL · Approved by … on …" in green, or
+   * "DRAFT · Not yet approved" in amber. Wraps when long.
+   */
+  statusStrip(text: string, tone: 'success' | 'warning' | 'muted' = 'muted'): this {
+    const size = 9.5;
+    const color = tone === 'success' ? SUCCESS : tone === 'warning' ? WARNING : this.pal.muted;
+    const lines = layoutText(text, { size, bold: true, maxWidth: this.contentWidth - 24 });
+    const box = lineBox(null, size, true);
+    const h = lines.length * box.height + 12;
+    this.ensure(h + 6);
+    const top = this.y;
+    this.doc.save().roundedRect(this.margin, top, this.contentWidth, h, 5).fill(toHex(mix(color, WHITE, 0.88))).restore();
+    this.doc.save().lineWidth(0.7).roundedRect(this.margin, top, this.contentWidth, h, 5).stroke(toHex(mix(color, WHITE, 0.45))).restore();
+    lines.forEach((ln, i) => this.placeLine(ln, this.margin + 12, this.contentWidth - 24, top + 6 + i * box.height + box.ascent, size, color, 'start'));
+    this.y = top + h + 6;
+    return this;
+  }
+
+  /** A heading inside a part: bold ink, no rule, kept with the start of what follows. */
+  subheading(text: string, options: { topGap?: number; keepWith?: number } = {}): this {
+    const size = 11;
+    this.spacer(options.topGap ?? 10);
+    this.ensure(size * 1.6 + Math.max(28, options.keepWith ?? 0));
+    this.text(text, { bold: true, size, color: this.pal.ink, family: 'display', gap: 3 });
+    return this;
   }
 
   /**

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ACTION_STATUS_LABELS, MEETING_STATUS_LABELS, type MeetingPhase, type MinutesState, type ProjectMeeting, type ProjectMeetingsOverview } from '../../api/meetings';
-import { Badge, type BadgeTone } from '../ui/Badge';
+import { ACTION_STATUS_LABELS, MEETING_STATUS_LABELS, type MeetingPhase, type ProjectMeeting, type ProjectMeetingsOverview } from '../../api/meetings';
+import { Badge } from '../ui/Badge';
+import { DateLeaf, MINUTES } from '../meeting/meeting-card-parts';
 import { Button } from '../ui/Button';
 import { formatMeetingTimes, meetingStatusTone } from '../../lib/meetingFormat';
 import { meetingRepeatText } from '../../lib/meeting-repeat';
@@ -17,29 +18,9 @@ const FILTERS: Array<{ v: Filter; label: string }> = [
   { v: 'all', label: 'All' },
 ];
 
-const MINUTES: Record<MinutesState, { label: string; tone: BadgeTone } | null> = {
-  FINAL: { label: 'Final minutes', tone: 'success' },
-  DRAFT: { label: 'Minutes drafted', tone: 'info' },
-  NOTES: { label: 'Notes taken', tone: 'neutral' },
-  NONE: null,
-};
-
 const ITEMS_SHOWN = 8;
 /** Meetings listed before "Show all" (a daily series alone has 26 ahead). */
 const MEETINGS_SHOWN = 12;
-
-/** The meeting's day as a calendar leaf: weekday, day number, month. */
-function DateLeaf({ iso, timeZone, muted }: { iso: string; timeZone: string; muted: boolean }) {
-  const d = new Date(iso);
-  const part = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { ...o, timeZone }).format(d);
-  return (
-    <div aria-hidden="true" className={`flex w-14 flex-none flex-col items-center rounded-xl border py-1.5 ${muted ? 'border-line bg-ground text-ink-3' : 'border-brand/25 bg-brand/[0.06] text-brand'}`}>
-      <span className="text-[10px] font-bold uppercase tracking-wide">{part({ weekday: 'short' })}</span>
-      <span className="font-display text-xl font-bold leading-none text-ink">{part({ day: 'numeric' })}</span>
-      <span className="text-[10px] font-semibold uppercase">{part({ month: 'short' })}</span>
-    </div>
-  );
-}
 
 function MeetingCard({ m, timeZone }: { m: ProjectMeeting; timeZone: string }) {
   const zone = m.timeZone || timeZone;
@@ -48,7 +29,7 @@ function MeetingCard({ m, timeZone }: { m: ProjectMeeting; timeZone: string }) {
   const day = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: zone }).format(new Date(m.startAt));
   return (
     <li className="flex gap-3 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-brand/30 sm:p-4" data-meeting={m.id}>
-      <DateLeaf iso={m.startAt} timeZone={zone} muted={muted} />
+      <DateLeaf iso={m.startAt} timeZone={zone} tone={muted ? 'muted' : 'upcoming'} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <Link to={`/meetings/${m.id}`} className={`min-w-0 break-words font-semibold hover:text-brand ${m.phase === 'cancelled' ? 'text-ink-3 line-through' : 'text-ink'}`}>

@@ -13,6 +13,17 @@ export type Block =
   | { kind: 'list'; items: string[] }
   | { kind: 'divider' };
 
+/** Who the email is about, shown in its header instead of the product logo (a project's minutes). */
+export interface EmailIdentity {
+  name: string;
+  /** A picture email clients can load (http/https); else the initials are shown on `color`. */
+  imageUrl?: string | null;
+  /** "#RRGGBB" for the initials tile. */
+  color?: string | null;
+  /** A small line above the name ("Minutes of Meeting"). */
+  caption?: string;
+}
+
 export interface EmailModel {
   /** Hidden inbox-preview text (shown next to the subject in most clients). */
   preheader: string;
@@ -20,6 +31,33 @@ export interface EmailModel {
   blocks: Block[];
   brand?: Partial<Brand>;
   locale?: Locale;
+  identity?: EmailIdentity;
+}
+
+/** Up to two initials: "Falcon CRM" → "FC", "Falcon" → "FA". */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const letters = words.length > 1 ? [[...words[0]!][0], [...words[1]!][0]] : [...words[0]!].slice(0, 2);
+  return letters.join('').toUpperCase();
+}
+
+/** The header's mark and name for an identity: its picture (or initials on its colour) and name. */
+function identityHeader(id: EmailIdentity, brand: Brand, dir: 'ltr' | 'rtl'): string {
+  const c = brand.colors;
+  const picture = id.imageUrl && /^https?:\/\//i.test(id.imageUrl.trim()) ? id.imageUrl.trim() : null;
+  const tile = /^#[0-9a-f]{6}$/i.test(id.color ?? '') ? id.color! : c.brand2;
+  const mark = picture
+    ? `<img src="${escapeHtml(picture)}" alt="${escapeHtml(id.name)}" width="48" height="48" style="display:block;border:0;width:48px;height:48px;border-radius:12px;background:#FFFFFF;object-fit:cover;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${c.onBrand}"/>`
+    : `<div style="width:48px;height:48px;border-radius:12px;background:${tile};border:1px solid rgba(255,255,255,0.4);color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:800;line-height:48px;text-align:center">${escapeHtml(initialsOf(id.name))}</div>`;
+  const gap = dir === 'rtl' ? 'padding-left:14px' : 'padding-right:14px';
+  return `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td valign="middle" style="${gap}">${mark}</td>
+            <td valign="middle">
+              ${id.caption ? `<div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${c.onBrand};opacity:0.8">${escapeHtml(id.caption)}</div>` : ''}
+              <div dir="auto" style="font-size:20px;line-height:1.25;font-weight:800;color:${c.onBrand}">${escapeHtml(id.name)}</div>
+            </td>
+          </tr></table>`;
 }
 
 /** Escape text for safe insertion into HTML (prevents injection from task titles, names, etc.). */
@@ -66,7 +104,7 @@ function renderBlockHtml(block: Block, brand: Brand): string {
         ${block.rows
           .map(
             ([label, value], i) =>
-              `<tr style="background:${i % 2 ? c.ground : c.surface}"><td class="email-muted" style="padding:10px 14px;font-size:13px;color:${c.ink2};width:40%">${escapeHtml(label)}</td><td class="email-text" style="padding:10px 14px;font-size:14px;font-weight:600;color:${c.ink}">${escapeHtml(value)}</td></tr>`,
+              `<tr style="background:${i % 2 ? c.ground : c.surface}"><td class="email-muted" style="padding:10px 14px;font-size:13px;color:${c.ink2};width:40%">${escapeHtml(label)}</td><td dir="auto" class="email-text" style="padding:10px 14px;font-size:14px;font-weight:600;color:${c.ink}">${escapeHtml(value)}</td></tr>`,
           )
           .join('')}
       </table>`;
@@ -158,9 +196,9 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
       <!-- Header -->
       <tr><td style="background:${c.brand};background:linear-gradient(135deg,${c.brand2} 0%,${c.brand} 55%,#5E1414 100%);padding:22px 32px" class="email-pad">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td align="${dir === 'rtl' ? 'right' : 'left'}">${logo}</td>
+          <td align="${dir === 'rtl' ? 'right' : 'left'}">${model.identity ? identityHeader(model.identity, brand, dir) : logo}</td>
         </tr></table>
-        <div style="margin-top:4px;font-size:12px;color:${c.onBrand};opacity:0.8">${escapeHtml(brand.tagline)}</div>
+        ${model.identity ? '' : `<div style="margin-top:4px;font-size:12px;color:${c.onBrand};opacity:0.8">${escapeHtml(brand.tagline)}</div>`}
       </td></tr>
       <!-- Body -->
       <tr><td class="email-card email-pad" style="background:${c.surface};padding:32px">

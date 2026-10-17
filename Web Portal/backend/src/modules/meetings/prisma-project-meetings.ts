@@ -1,9 +1,44 @@
 import type { PrismaClient } from '@prisma/client';
 import type { RecurrenceRule } from './meeting-repository';
-import type { ProjectMeetingsData } from './project-meetings';
+import { buildMeetingListCounts, type ProjectMeetingsData } from './project-meetings';
 
 const nameOf = (u: { firstName: string | null; lastName: string | null; username: string }) =>
   [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username;
+
+/** Display names of these people (team members by name; unknown ids are left out). */
+async function namesOf(prisma: PrismaClient, ids: Array<string | null>): Promise<Map<string, string>> {
+  const userIds = [...new Set(ids.filter((u): u is string => !!u))];
+  const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, firstName: true, lastName: true, username: true } }) : [];
+  return new Map(users.map((u) => [u.id, nameOf(u)]));
+}
+
+/** An attendee's display name: a team member's name, or a guest's name or email. */
+const attendeeName = (a: { userId: string | null; externalName: string | null; externalEmail: string | null }, names: Map<string, string>) =>
+  a.userId ? names.get(a.userId) ?? 'A team member' : a.externalName ?? a.externalEmail ?? 'A guest';
+
+/**
+ * The meetings list's summary of each meeting — people (the first few by name), minutes,
+ * decisions and open action items — in a handful of queries for the whole list.
+ */
+export function createPrismaMeetingListCounts(prisma: PrismaClient) {
+  return async (ids: string[]) => {
+    const [attendees, open, notes, decisions, minutes] = await Promise.all([
+      prisma.meetingAttendee.findMany({ where: { meetingId: { in: ids } }, orderBy: { createdAt: 'asc' }, select: { meetingId: true, userId: true, externalName: true, externalEmail: true } }),
+      prisma.actionItem.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, status: { notIn: ['COMPLETED', 'CANCELLED'] } }, _count: { _all: true } }),
+      prisma.meetingNote.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, deletedAt: null }, _count: { _all: true } }),
+      prisma.meetingNote.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, deletedAt: null, type: 'DECISION' }, _count: { _all: true } }),
+      prisma.meetingMinutes.findMany({ where: { meetingId: { in: ids } }, select: { meetingId: true, status: true } }),
+    ]);
+    const names = await namesOf(prisma, attendees.map((a) => a.userId));
+    return buildMeetingListCounts(ids, {
+      attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, names) })),
+      noteCounts: Object.fromEntries(notes.map((n) => [n.meetingId, n._count._all])),
+      decisionCounts: Object.fromEntries(decisions.map((n) => [n.meetingId, n._count._all])),
+      minutes,
+      openActionItemCounts: Object.fromEntries(open.filter((o) => o.meetingId).map((o) => [o.meetingId!, o._count._all])),
+    });
+  };
+}
 
 /** Reads a project's meetings in a date range with their people, notes, minutes and action items. */
 export function createPrismaProjectMeetingsSource(prisma: PrismaClient) {
@@ -54,19 +89,11 @@ export function createPrismaProjectMeetingsSource(prisma: PrismaClient) {
           select: { id: true, meetingId: true, description: true, status: true, priority: true, dueDate: true, assigneeId: true, completedAt: true },
         }),
       ]);
-      const userIds = [...new Set([...attendees.map((a) => a.userId), ...items.map((x) => x.assigneeId)].filter((u): u is string => !!u))];
-      const users = userIds.length
-        ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, firstName: true, lastName: true, username: true } })
-        : [];
-      const names = new Map(users.map((u) => [u.id, nameOf(u)]));
+      const names = await namesOf(prisma, [...attendees.map((a) => a.userId), ...items.map((x) => x.assigneeId)]);
       return {
         meetings: meetings.map((m) => ({ ...m, recurrenceRule: (m.recurrenceRule as RecurrenceRule | null) ?? null })),
         seriesRoots: seriesRoots.map((r) => ({ ...r, recurrenceRule: (r.recurrenceRule as RecurrenceRule | null) ?? null })),
-        attendees: attendees.map((a) => ({
-          meetingId: a.meetingId,
-          userId: a.userId,
-          name: a.userId ? names.get(a.userId) ?? 'A team member' : a.externalName ?? a.externalEmail ?? 'A guest',
-        })),
+        attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, names) })),
         decisions,
         noteCounts: Object.fromEntries(notes.map((n) => [n.meetingId, n._count._all])),
         minutes,

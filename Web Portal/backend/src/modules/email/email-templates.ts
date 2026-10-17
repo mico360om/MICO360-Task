@@ -1,4 +1,4 @@
-import { renderEmail, type Block, type Tone } from './email-layout';
+import { renderEmail, type Block, type EmailIdentity, type Tone } from './email-layout';
 import { resolveBrand, type Brand } from './brand';
 import type { Locale } from './i18n';
 
@@ -21,8 +21,9 @@ function build(
   heading: string,
   blocks: Block[],
   opts: TemplateOptions = {},
+  identity?: EmailIdentity,
 ): EmailContent {
-  const { html, text } = renderEmail({ preheader, heading, blocks, brand: opts.brand, locale: opts.locale });
+  const { html, text } = renderEmail({ preheader, heading, blocks, brand: opts.brand, locale: opts.locale, identity });
   return { subject, html, text };
 }
 
@@ -295,6 +296,8 @@ export interface MeetingEmailParams {
   description?: string | null;
   /** Link to open the meeting in the app. */
   link?: string;
+  /** The meeting's project (the minutes email is headed by it): name, picture address, colour. */
+  project?: { name: string; imageUrl: string | null; color: string | null } | null;
 }
 
 function meetingRows(p: MeetingEmailParams): Array<[string, string]> {
@@ -346,5 +349,7 @@ export function meetingMinutesEmail(params: MeetingEmailParams, opts?: TemplateO
     { kind: 'details', rows: meetingRows(params) },
   ];
   if (params.link) blocks.push({ kind: 'button', label: `Open in ${productName(opts)}`, href: params.link });
-  return build(`Minutes: ${params.title}`, `Minutes of ${params.title}`, `Minutes of meeting: ${params.title}`, blocks, opts);
+  // A project's minutes carry the project's own picture and name at the top (not the product logo).
+  const identity = params.project ? { ...params.project, caption: 'Minutes of Meeting' } : undefined;
+  return build(`Minutes: ${params.title}`, `Minutes of ${params.title}`, `Minutes of meeting: ${params.title}`, blocks, opts, identity);
 }

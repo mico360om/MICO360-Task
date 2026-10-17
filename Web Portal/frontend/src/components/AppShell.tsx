@@ -137,7 +137,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <main id="main-content" className="flex-1 overflow-x-hidden bg-transparent py-4 sm:py-6 lg:py-8">
+        <main id="main-content" className="flex-1 overflow-x-hidden bg-transparent py-4 lg:py-5">
           {/* Content spans 95% of the main area (2.5% gutters each side) on every page.
               Opacity-only page transition — must NOT retain a transform, or it becomes a containing
               block that offsets every position:fixed overlay (task drawer, modals) on the page. */}

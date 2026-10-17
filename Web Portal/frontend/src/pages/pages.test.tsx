@@ -99,7 +99,7 @@ describe('ProjectDetailPage', () => {
         </QueryClientProvider>
       </MemoryRouter>,
     );
-    await waitFor(() => expect(screen.getByText('MICO Platform')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'MICO Platform' })).toBeInTheDocument());
     await userEvent.click(screen.getByRole('tab', { name: /team/i }));
     await waitFor(() => expect(screen.getByText('Omar A')).toBeInTheDocument());
     expect(screen.getByLabelText(/add a member/i)).toBeInTheDocument(); // admin can manage

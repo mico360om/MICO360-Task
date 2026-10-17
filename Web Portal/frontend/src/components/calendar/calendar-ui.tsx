@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { useDismiss } from '../../lib/useDismiss';
 import type { Priority } from '../../api/tasks';
 import type { CalItem, CalStatus } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
@@ -87,24 +88,48 @@ export const PRIORITY_LABEL: Record<Priority, string> = { URGENT: 'Urgent', HIGH
 const MEETING_ICON = <Svg><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 12 0" /><path d="M16 4.5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6" /></Svg>;
 const MEETING_CHIP = 'border-brand/35 bg-brand/[0.07] text-ink [&_svg]:text-brand';
 
-/** The legend: what each status looks like. */
-export function Legend({ timeNote }: { timeNote: string }) {
+/**
+ * The legend — what each status looks like, and which time zone the dates are in — behind a small
+ * button, so it doesn't take a row of the screen. Escape or a click elsewhere closes it.
+ */
+export function LegendButton({ timeNote }: { timeNote: string }) {
   const order: CalStatus[] = ['overdue', 'todo', 'in-progress', 'blocked', 'done', 'projected'];
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useDismiss(open, () => setOpen(false), rootRef, buttonRef);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-      <ul aria-label="Legend" className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        {order.map((s) => (
-          <li key={s} className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${STATUS_META[s].chip}`}>
-            {STATUS_META[s].icon}
-            <span>{STATUS_META[s].label}</span>
-          </li>
-        ))}
-        <li className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${MEETING_CHIP}`}>
-          {MEETING_ICON}
-          <span>Meeting</span>
-        </li>
-      </ul>
-      <p className="text-xs text-ink-2">{timeNote}</p>
+    <div ref={rootRef} className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="calendar-legend"
+        title={timeNote}
+        className={`inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border bg-surface px-2.5 text-sm font-semibold transition-colors hover:border-brand hover:text-brand ${open ? 'border-brand text-brand' : 'border-line text-ink-2'}`}
+      >
+        <Svg size={16}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5h.01" /></Svg>
+        <span className="max-xl:sr-only">Legend</span>
+      </button>
+      {open ? (
+        <div id="calendar-legend" className="absolute end-0 top-full z-30 mt-2 w-64 rounded-xl border border-line bg-surface p-3 shadow-lift animate-scale-in">
+          <ul aria-label="Legend" className="flex flex-col gap-1.5">
+            {order.map((s) => (
+              <li key={s} className={`flex items-center gap-1.5 rounded-md border border-s-[3px] px-2 py-1 text-xs font-medium ${STATUS_META[s].chip}`}>
+                {STATUS_META[s].icon}
+                <span>{STATUS_META[s].label}</span>
+              </li>
+            ))}
+            <li className={`flex items-center gap-1.5 rounded-md border border-s-[3px] px-2 py-1 text-xs font-medium ${MEETING_CHIP}`}>
+              {MEETING_ICON}
+              <span>Meeting</span>
+            </li>
+          </ul>
+          <p className="mt-2.5 text-[11px] leading-snug text-ink-2">The coloured edge is the project’s colour.</p>
+          <p className="mt-1 border-t border-line pt-2 text-xs text-ink-2">{timeNote}</p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -123,7 +148,7 @@ export function MeetingChip({ meeting: m, color, meta, lines = 1 }: { meeting: C
       aria-label={meetingName(m)}
       title={`${m.time} · ${m.title}`}
       style={color ? { borderInlineStartColor: color } : undefined}
-      className={`flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 py-1 text-start text-xs leading-snug transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${MEETING_CHIP} ${m.cancelled ? 'opacity-70' : ''}`}
+      className={`flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 text-start text-xs transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${lines === 1 && !meta ? 'py-0.5 leading-4' : 'py-1 leading-snug'} ${MEETING_CHIP} ${m.cancelled ? 'opacity-70' : ''}`}
     >
       <span className="mt-px">{MEETING_ICON}</span>
       <span className="min-w-0 flex-1">
@@ -150,7 +175,8 @@ export function itemName(item: CalItem): string {
 
 /**
  * A task on the calendar: status icon and colours, the project's colour on its edge, and up to two
- * lines of its title (one in a dense list). Click for details; drag to another day when allowed.
+ * lines of its title (one in the month grid, where the whole title is its tooltip). Click for
+ * details; drag to another day when allowed.
  */
 export function TaskChip({
   item,
@@ -188,7 +214,7 @@ export function TaskChip({
       aria-label={itemName(item)}
       title={`${item.task.key} · ${item.task.title}`}
       style={color ? { borderInlineStartColor: color } : undefined}
-      className={`group/chip flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 py-1 text-start text-xs leading-snug transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${s.chip} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      className={`group/chip flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 text-start text-xs transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${lines === 1 && !meta ? 'py-0.5 leading-4' : 'py-1 leading-snug'} ${s.chip} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       <span className="mt-px">{s.icon}</span>
       <span className="min-w-0 flex-1">

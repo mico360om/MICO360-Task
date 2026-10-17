@@ -127,19 +127,21 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Welcome hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-brand-gradient p-6 text-white shadow-brand animate-fade-in-up sm:p-8">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
-        <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full bg-black/10 blur-2xl" />
-        <div className="relative">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-white/70">{today}</div>
-          <h1 className="mt-1 font-display text-3xl font-extrabold tracking-tightish sm:text-4xl">
-            Welcome back, {user?.username ?? 'there'}.
-          </h1>
-          <p className="mt-2 max-w-xl text-sm text-white/80 sm:text-[15px]">
-            Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
+      {/* Welcome: one compact band — the greeting on the left, the two ways in on the right. */}
+      <div className="relative overflow-hidden rounded-2xl bg-brand-gradient px-5 py-4 text-white shadow-brand animate-fade-in-up sm:px-6">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-16 right-24 h-32 w-32 rounded-full bg-black/10 blur-2xl" />
+        <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-white/70">{today}</div>
+            <h1 className="font-display text-2xl font-extrabold tracking-tightish sm:text-[1.75rem]">
+              Welcome back, {user?.username ?? 'there'}.
+            </h1>
+            <p className="mt-0.5 hidden text-sm text-white/80 sm:block">
+              Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <Link to="/board" className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#8B1E1E] shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift">
               Open board
             </Link>

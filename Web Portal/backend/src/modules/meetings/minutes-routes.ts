@@ -209,29 +209,36 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
   /** The final minutes as stored, when this server keeps them. */
   const finalOf = async (id: string): Promise<FinalMinutesRecord | null> => (deps.finalMinutes ? deps.finalMinutes.get(id) : null);
 
-  /** The minutes PDF: the approved final minutes when asked for, else the working minutes from the notes. */
-  async function buildPdf(req: FastifyRequest, id: string, version: 'working' | 'final' = 'working'): Promise<{ pdf: Buffer; title: string }> {
-    if (version === 'working') {
-      const { data, title } = await gather(req, id);
-      return { pdf: buildMinutesPdf(data), title };
-    }
-    const final = await finalOf(id);
-    if (!final || final.status !== 'APPROVED') {
-      throw new ConflictError('There are no final minutes yet. Mark the minutes as final first.', 'NO_FINAL_MINUTES');
-    }
-    const { data, title, nameOf } = await gather(req, id, final.approvedById ? [final.approvedById] : []);
-    const approval = { approvedByName: nameOf(final.approvedById), approvedAt: final.approvedAt ? final.approvedAt.toISOString() : null };
-    return { pdf: buildMinutesPdf({ ...data, version: 'final', final: { content: final.content, ...approval } }), title };
+  /**
+   * The minutes PDF — one document. With approved final minutes (the Final MOM) it opens with them,
+   * marked final; a Final MOM still being written goes only into an editor's own copy, marked as a
+   * draft (`withDraft`), never to anyone else or into an email.
+   */
+  async function buildPdf(req: FastifyRequest, id: string, opts: { withDraft?: boolean } = {}): Promise<{ pdf: Buffer; title: string; final: boolean }> {
+    const rec = await finalOf(id);
+    const approved = rec?.status === 'APPROVED';
+    const shown = approved || (rec && opts.withDraft) ? rec : null;
+    const { data, title, nameOf } = await gather(req, id, shown?.approvedById ? [shown.approvedById] : []);
+    const final = shown
+      ? {
+          content: shown.content,
+          status: approved ? ('FINAL' as const) : ('DRAFT' as const),
+          approvedByName: approved ? nameOf(shown.approvedById) : null,
+          approvedAt: approved && shown.approvedAt ? shown.approvedAt.toISOString() : null,
+        }
+      : null;
+    return { pdf: buildMinutesPdf({ ...data, final }), title, final: approved };
   }
 
+  // ?version=final (older links) gets the same document: the final minutes are in it once approved.
   app.get('/meetings/:id/minutes.pdf', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(404).send(notFound);
-    const version = (req.query as { version?: string }).version === 'final' ? 'final' : 'working';
-    const { pdf, title } = await buildPdf(req, id, version);
+    const editor = await meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
+    const { pdf, title, final } = await buildPdf(req, id, { withDraft: editor });
     return reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `attachment; filename="minutes-${version === 'final' ? 'final-' : ''}${slugify(title)}.pdf"`)
+      .header('Content-Disposition', `attachment; filename="minutes-${final ? 'final-' : ''}${slugify(title)}.pdf"`)
       .send(pdf);
   });
 
@@ -245,9 +252,8 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     }
     if (!deps.notify) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
     const body = sendBody.parse(req.body ?? {});
-    // Once the minutes are final, the final version is what goes out.
-    const final = (await finalOf(id))?.status === 'APPROVED';
-    const { pdf } = await buildPdf(req, id, final ? 'final' : 'working');
+    // Once the minutes are final they open the PDF; a Final MOM still being written never goes out.
+    const { pdf, final } = await buildPdf(req, id);
     const opts = { ...(body.recipients ? { only: body.recipients } : {}), ...(final ? { final: true } : {}) };
     const result = Object.keys(opts).length ? await deps.notify.sendMinutes(id, pdf, opts) : await deps.notify.sendMinutes(id, pdf);
     return { data: result };

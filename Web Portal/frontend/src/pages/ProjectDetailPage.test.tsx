@@ -200,7 +200,7 @@ describe('ProjectDetailPage', () => {
 
   it('lets a project manager add members, picking from the people directory', async () => {
     renderPage();
-    await screen.findByText('MICO Platform');
+    await screen.findByRole('heading', { level: 1, name: 'MICO Platform' });
     await userEvent.click(screen.getByRole('tab', { name: /team/i }));
     const picker = await screen.findByLabelText(/add a member/i);
     expect(within(picker).getByRole('option', { name: 'Sara K' })).toBeInTheDocument();

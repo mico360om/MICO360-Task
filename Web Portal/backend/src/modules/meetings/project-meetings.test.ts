@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildProjectMeetingsOverview, type ProjectMeetingsData } from './project-meetings';
+import { buildMeetingListCounts, buildProjectMeetingsOverview, type ProjectMeetingsData } from './project-meetings';
 
 const NOW = new Date('2026-10-20T08:00:00.000Z'); // Tue 12:00 Muscat
 const TZ = 'Asia/Muscat';
@@ -14,6 +14,35 @@ function meeting(id: string, over: Partial<ProjectMeetingsData['meetings'][numbe
 function data(over: Partial<ProjectMeetingsData> = {}): ProjectMeetingsData {
   return { meetings: [], seriesRoots: [], attendees: [], decisions: [], noteCounts: {}, minutes: [], actionItems: [], ...over };
 }
+
+describe('meeting list summaries', () => {
+  const empty = { attendees: [], noteCounts: {}, decisionCounts: {}, minutes: [], openActionItemCounts: {} };
+
+  it('gives a meeting with nothing yet zeros, no names and no minutes', () => {
+    expect(buildMeetingListCounts(['a'], empty)).toEqual({ a: { attendeeCount: 0, openActionItemCount: 0, attendees: [], minutes: 'NONE', decisionCount: 0 } });
+  });
+
+  it('counts everyone but names only the first four, in the order they were added', () => {
+    const attendees = ['Aisha', 'Omar', 'Sara', 'Bilal', 'Zara'].map((name, i) => ({ meetingId: 'a', userId: `u${i}`, name }));
+    const out = buildMeetingListCounts(['a'], { ...empty, attendees });
+    expect(out.a).toMatchObject({ attendeeCount: 5, attendees: ['Aisha', 'Omar', 'Sara', 'Bilal'] });
+  });
+
+  it('says how far the minutes are: approved or sent is final, any other record a draft, notes alone are notes', () => {
+    const out = buildMeetingListCounts(['final', 'sent', 'draft', 'notes', 'none'], {
+      ...empty,
+      minutes: [{ meetingId: 'final', status: 'APPROVED' }, { meetingId: 'sent', status: 'SENT' }, { meetingId: 'draft', status: 'DRAFT' }],
+      noteCounts: { notes: 4, draft: 2 },
+    });
+    expect(Object.fromEntries(Object.entries(out).map(([id, c]) => [id, c.minutes]))).toEqual({ final: 'FINAL', sent: 'FINAL', draft: 'DRAFT', notes: 'NOTES', none: 'NONE' });
+  });
+
+  it('carries the decisions and open action items of each meeting', () => {
+    const out = buildMeetingListCounts(['a', 'b'], { ...empty, decisionCounts: { a: 3 }, openActionItemCounts: { b: 2 } });
+    expect(out.a).toMatchObject({ decisionCount: 3, openActionItemCount: 0 });
+    expect(out.b).toMatchObject({ decisionCount: 0, openActionItemCount: 2 });
+  });
+});
 
 describe('project meetings overview', () => {
   it('sorts meetings into upcoming, under way, held and cancelled', () => {

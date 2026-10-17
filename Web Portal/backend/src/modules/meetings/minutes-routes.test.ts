@@ -362,27 +362,49 @@ describe('Final minutes (Final MOM)', () => {
     expect((await call('GET', '/final-minutes', attendee)).json().data).toMatchObject({ status: 'FINAL', content });
   });
 
-  it('prints the final minutes as a PDF marked FINAL, with who approved them', async () => {
+  it('is one minutes PDF: a draft until final, then opening with the Final MOM — marked FINAL, with who approved it', async () => {
     const { call } = await setup();
-    expect((await call('GET', '/minutes.pdf?version=final')).statusCode).toBe(409);
+    const before = inspectPdf((await call('GET', '/minutes.pdf')).rawPayload).pages.flat();
+    expect(before).toContain('DRAFT');
+    expect(before).not.toContain('Final Minutes of Meeting');
     await call('POST', '/final-minutes/approve', undefined, { content });
-    const res = await call('GET', '/minutes.pdf?version=final');
+    const res = await call('GET', '/minutes.pdf');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-disposition']).toContain('minutes-final-weekly-review.pdf');
     const text = inspectPdf(res.rawPayload).pages.flat();
-    expect(text).toEqual(expect.arrayContaining(['FINAL', 'Progress was reviewed and go-live moved.', 'Go-live plan', 'The client needs time to test.', 'Tablets may be late.', 'Send the form — Bilal, by Oct 18']));
+    expect(text).toEqual(expect.arrayContaining(['FINAL', 'Final Minutes of Meeting', 'Progress was reviewed and go-live moved.', 'Go-live plan', 'The client needs time to test.', 'Tablets may be late.', 'Send the form — Bilal, by Oct 18']));
     expect(text.some((l) => l.includes('Approved by User u1'))).toBe(true);
-    // The working minutes are still there.
-    expect(inspectPdf((await call('GET', '/minutes.pdf')).rawPayload).pages.flat()).toContain('WORKING DRAFT');
+    expect(text.indexOf('Final Minutes of Meeting')).toBeLessThan(text.indexOf('Attendees'));
+    // Older links asking for the final version get the same document.
+    const old = await call('GET', '/minutes.pdf?version=final');
+    expect(old.statusCode).toBe(200);
+    expect(inspectPdf(old.rawPayload).pages.flat()).toContain('Final Minutes of Meeting');
   });
 
-  it('emails the final minutes once they are approved', async () => {
+  it('shows the organizer a drafted Final MOM in their PDF, marked not yet approved — and no one else', async () => {
+    const { call, attendee } = await setup();
+    await call('PUT', '/final-minutes', undefined, { content });
+    const mine = inspectPdf((await call('GET', '/minutes.pdf')).rawPayload).pages.flat();
+    expect(mine).toContain('Final Minutes of Meeting');
+    expect(mine.some((l) => l.includes('Not yet approved'))).toBe(true);
+    const theirs = inspectPdf((await call('GET', '/minutes.pdf', attendee)).rawPayload).pages.flat();
+    expect(theirs).not.toContain('Final Minutes of Meeting');
+    expect(theirs).not.toContain('Progress was reviewed and go-live moved.');
+  });
+
+  it('emails the final minutes once they are approved — never a Final MOM that is only drafted', async () => {
     const notify = { sendMinutes: vi.fn(async () => ({ sent: 1, failed: 0 })), previewMinutes: vi.fn() };
     const { call, id } = await setup({ notify });
+    await call('PUT', '/final-minutes', undefined, { content });
+    await call('POST', '/minutes/send');
+    const draftSent = notify.sendMinutes.mock.calls[0] as unknown as [string, Buffer];
+    expect(inspectPdf(draftSent[1]).pages.flat()).not.toContain('Final Minutes of Meeting');
     await call('POST', '/final-minutes/approve', undefined, { content });
     await call('POST', '/minutes/send');
-    const args = notify.sendMinutes.mock.calls[0] as unknown as [string, Buffer];
+    const args = notify.sendMinutes.mock.calls[1] as unknown as [string, Buffer];
     expect(args[0]).toBe(id);
-    expect(inspectPdf(args[1]).pages.flat()).toContain('FINAL');
+    const text = inspectPdf(args[1]).pages.flat();
+    expect(text).toContain('FINAL');
+    expect(text).toContain('Final Minutes of Meeting');
   });
 });

@@ -36,8 +36,8 @@ const isEmpty = (c: FinalMinutesContent) => !c.summary && !c.discussion.length &
 /**
  * The final minutes of a meeting (the "Final MOM"): the organizer starts from a draft (written by the
  * AI from the meeting's agenda, notes and action items, or put together from the notes), edits it,
- * saves it and marks it final. Final minutes are read-only until reopened, are what the PDF "Final
- * MOM" and the minutes email carry, and are what attendees see.
+ * saves it and marks it final. Final minutes are read-only until reopened, open the minutes PDF (and
+ * so the minutes email), marked final with who approved them, and are what attendees see.
  */
 export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone }: { meetingId: string; meetingTitle: string; canEdit: boolean; timeZone: string }) {
   const qc = useQueryClient();
@@ -86,7 +86,7 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
   });
   const approveMut = useMutation({
     mutationFn: (content: FinalMinutesContent) => api.approveFinalMinutes(meetingId, content),
-    onSuccess: (next) => { settle(next, 'The minutes are final. The PDF and the minutes email now carry this version.'); void qc.invalidateQueries({ queryKey: ['meeting', meetingId], exact: true }); },
+    onSuccess: (next) => { settle(next, 'The Final MOM is approved. The minutes PDF and the minutes email now open with it.'); void qc.invalidateQueries({ queryKey: ['meeting', meetingId], exact: true }); },
     onError: (err) => setProblem({ text: meetingFailure(err, 'Couldn’t mark the minutes as final.') }),
   });
   const reopenMut = useMutation({
@@ -96,7 +96,7 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
   });
   const pdfMut = useMutation({
     mutationFn: () => exportMinutes({ id: meetingId, title: meetingTitle }, 'final'),
-    onError: (err) => setProblem({ text: meetingFailure(err, 'Couldn’t download the final minutes.') }),
+    onError: (err) => setProblem({ text: meetingFailure(err, 'Couldn’t download the minutes.') }),
   });
   const busy = draftMut.isPending || saveMut.isPending || approveMut.isPending || reopenMut.isPending;
 
@@ -110,7 +110,7 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
   const count = status !== 'FINAL' && (status === 'DRAFT' || editing) ? 'Draft' : undefined;
 
   return (
-    <Section id="final-minutes" title="Final minutes" count={count}>
+    <Section id="final-minutes" title="Final MOM" count={count}>
       {q.isLoading ? <p className="text-sm text-ink-3">Loading…</p> : null}
       {q.isError ? <LoadError what="the final minutes" onRetry={() => void q.refetch()} /> : null}
 
@@ -327,7 +327,7 @@ function FinalView({
       {list('Risks & open issues', content.risks)}
       {list('Next steps', content.nextSteps)}
       <div className="flex flex-wrap gap-2 border-t border-line pt-3">
-        <Button type="button" size="sm" variant="secondary" loading={downloading} onClick={onDownload}>Download Final MOM (PDF)</Button>
+        <Button type="button" size="sm" variant="secondary" loading={downloading} onClick={onDownload}>Download minutes (PDF)</Button>
         {canEdit ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onReopen}>Reopen</Button> : null}
       </div>
     </div>

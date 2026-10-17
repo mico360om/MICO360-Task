@@ -357,6 +357,13 @@
     min-height: 22rem;
   }
 
+  /* A page sized to the window the same way (the calendar on a wide screen): under the top bar and
+     the page's padding (--page-top, measured), above the footer. A short window scrolls instead. */
+  .page-fill {
+    height: calc(var(--visible-height) - var(--page-top, 97px) - var(--app-footer-space, 0px));
+    min-height: 32rem;
+  }
+
   /* Clearer, always-present horizontal scrollbar for the Kanban board. */
   .kanban-scroll {
     scrollbar-width: auto;

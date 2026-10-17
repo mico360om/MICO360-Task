@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
@@ -23,6 +23,7 @@ import { useProjectRealtime, type ProjectChange } from '../lib/useProjectRealtim
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
+import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { ShortcutHint, useShortcut, useShortcutHint } from '../components/shortcuts/ShortcutProvider';
 import { OverviewTab } from '../components/project-dashboard/OverviewTab';
@@ -221,14 +222,14 @@ export function ProjectDetailPage() {
 
   return (
     <div>
-      <Link to="/projects" className="tap text-sm text-ink-2 hover:text-brand">← Projects</Link>
+      <Breadcrumbs items={[{ label: 'Projects', to: '/projects' }, { label: project ? <bdi>{project.name}</bdi> : '…' }]} />
 
       {/* Header */}
-      <div className="mt-1 flex items-start gap-3 sm:gap-4">
+      <div className="mt-2 flex items-start gap-3 sm:gap-4">
         {!project ? (
-          <span className="skeleton h-16 w-16 flex-none rounded-2xl" aria-hidden="true" />
+          <span className="skeleton h-11 w-11 flex-none rounded-xl" aria-hidden="true" />
         ) : (
-          <ProjectAvatar project={project} size="xl" label className="shadow-soft" />
+          <ProjectAvatar project={project} size="lg" label className="shadow-soft" />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">

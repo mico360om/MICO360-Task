@@ -25,7 +25,10 @@ export function minutesFileName(title: string, version: 'working' | 'final' = 'w
   return `minutes-${version === 'final' ? 'final-' : ''}${slug}.pdf`;
 }
 
-/** Download the minutes PDF of a meeting: the working minutes, or the approved final minutes. */
+/**
+ * Download the minutes PDF of a meeting — one document, opening with the Final MOM once it is
+ * approved. `version` only names the file ("minutes-final-…" for final minutes).
+ */
 export async function exportMinutes(meeting: Pick<Meeting, 'id' | 'title'>, version: 'working' | 'final' = 'working'): Promise<void> {
   const blob = await meetingsApi(apiClient).exportMinutesPdf(meeting.id, version);
   downloadBlob(minutesFileName(meeting.title, version), blob);

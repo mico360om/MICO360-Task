@@ -14,6 +14,36 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-17
+
+### Improvements
+- Page headers take one line: the section and the page's title with its actions beside them. A
+  project or a meeting shows a breadcrumb back ("Meetings › Weekly review"), the dashboard's
+  welcome is one slim band, and there is less space above every page.
+- The calendar fits on one screen: the title, period and views on one line, the filters on the
+  next with the colour legend behind a "Legend" button. The month's weeks share the window's height
+  and each day shows as many tasks as fit, with "+N more" for the rest; the week and the agenda
+  scroll inside the calendar. On a phone the filters sit behind one "Filters" button.
+- The Meetings page shows meetings as cards, one to four a row: the day, time, place, project,
+  organizer, who is coming, the minutes, decisions and open action items. The next meeting is on top
+  in an "Up next" card (with Join for an online one); search and a "Filters" button sit on the
+  title's line, the filters in use show as chips you can remove one by one, and the meetings are
+  grouped Today, Next 7 days, Later, Drafts and Past.
+- The minutes of a meeting are one PDF. Once the Final MOM is approved the PDF opens with it, marked
+  FINAL with who approved it and when, followed by the record of the meeting: attendance, agenda,
+  action items and every note taken. Until then the PDF is marked Draft; the organizer's own copy
+  shows a Final MOM still being written as "Not yet approved", and no one else sees or is emailed it.
+- The minutes email is headed by the project's picture and name (its initials on its colour when it
+  has no picture) instead of the portal's logo; a meeting without a project keeps the logo.
+- A cleaner minutes PDF: a green Final or amber Draft badge, a band opening each part, a status line
+  under the Final MOM's title, and who prepared and approved it closing the Final MOM.
+- The meeting page calls the final minutes "Final MOM"; its "Download minutes (PDF)" and the menu's
+  "Export minutes (PDF)" give the same single PDF.
+
+### Bug fixes
+- An Arabic name with digits or Latin letters in it (a project called "مشروع الإطلاق 817ab4") keeps
+  its order in emails.
+
 ## [1.0.1] - 2026-10-17
 
 ### Bug fixes

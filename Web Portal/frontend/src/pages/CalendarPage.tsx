@@ -26,12 +26,13 @@ import {
 import { canReschedule, needsSeriesChoice, planMove, planUndo, type MoveScope } from '../lib/calendar-reschedule';
 import { useDateSettings } from '../lib/useDatePrefs';
 import { invalidateTaskQueries } from '../lib/task-cache';
-import { PageHeader } from '../components/ui/PageHeader';
+import { PageTitle } from '../components/ui/PageHeader';
+import { useFrameOffset } from '../lib/useFrameOffset';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { CalendarFilterBar, CalendarToolbar } from '../components/calendar/CalendarToolbar';
-import { Legend, MeetingChip, TaskChip, dayLabel, useMediaQuery } from '../components/calendar/calendar-ui';
+import { LegendButton, MeetingChip, TaskChip, dayLabel, useMediaQuery } from '../components/calendar/calendar-ui';
 import { AgendaView, MobileMonth, MonthView, WeekView, type ViewProps } from '../components/calendar/views';
 import { DayDialog, MoveChoiceDialog, TaskPreview } from '../components/calendar/dialogs';
 import { projectOption } from '../components/project-option';
@@ -91,6 +92,11 @@ export function CalendarPage() {
   // Below 1024px the sidebar leaves the month about 70px a day — too narrow for readable chips — so
   // the month shows day marks and the chosen day's list instead (as on a phone).
   const compactMonth = useMediaQuery('(max-width: 1023px)');
+  // From 1024px the page fits the window: the toolbar on top, the calendar taking the rest (its
+  // weeks share the height; a long week or agenda scrolls inside it). Smaller screens scroll.
+  const fit = !compactMonth;
+  const pageRef = useRef<HTMLDivElement>(null);
+  const pageTop = useFrameOffset(pageRef, fit);
 
   // View, day and filters change at once here, and are copied to the address — so they survive
   // switching views and a reload, and a link can open the calendar just so. (The router applies
@@ -231,16 +237,26 @@ export function CalendarPage() {
 
   const label = periodLabel(view, cursor, weekStart);
   const filtered = activeFilterCount(filters) > 0;
+  const nothingText = filtered ? `No tasks match these filters in ${label}.` : `Nothing is due in ${label}.`;
+  const clearButton = (
+    <button type="button" onClick={() => navigate({ filters: DEFAULT_FILTERS })} className="rounded-lg border border-line px-3 py-1.5 text-sm font-semibold text-brand hover:border-brand">
+      Clear filters
+    </button>
+  );
   const nothing = (
     <div className="rounded-xl border border-dashed border-line bg-surface px-6 py-10 text-center">
-      <p className="font-semibold text-ink">{filtered ? `No tasks match these filters in ${label}.` : `Nothing is due in ${label}.`}</p>
-      {filtered ? (
-        <button type="button" onClick={() => navigate({ filters: DEFAULT_FILTERS })} className="mt-3 rounded-lg border border-line px-3 py-1.5 text-sm font-semibold text-brand hover:border-brand">
-          Clear filters
-        </button>
-      ) : canCreate ? (
-        <p className="mt-1 text-sm text-ink-2">Click a day to add a task on it.</p>
-      ) : null}
+      <p className="font-semibold text-ink">{nothingText}</p>
+      {filtered ? <div className="mt-3">{clearButton}</div> : canCreate ? <p className="mt-1 text-sm text-ink-2">Click a day to add a task on it.</p> : null}
+    </div>
+  );
+  // Over the month or week: one line, so the days keep their room.
+  const nothingBar = (
+    <div className="flex flex-none flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-dashed border-line bg-surface px-4 py-1.5 text-sm">
+      <p className="font-semibold text-ink">
+        {nothingText}
+        {!filtered && canCreate ? <span className="ms-1.5 font-normal text-ink-2">Click a day to add a task on it.</span> : null}
+      </p>
+      {filtered ? clearButton : null}
     </div>
   );
   const dayList = (day: string) => {
@@ -279,9 +295,14 @@ export function CalendarPage() {
   const step = (dir: 1 | -1) => navigate({ date: view === 'week' ? shiftDayKey(cursor, 7 * dir) : shiftMonth(cursor, dir) });
 
   return (
-    <div className="flex flex-col gap-3">
-      <PageHeader eyebrow="Workspace" title="Calendar" subtitle="Task due dates and meetings across your projects." />
-      <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-3 shadow-soft sm:p-4">
+    <div
+      ref={pageRef}
+      className={`flex flex-col gap-2.5 ${fit ? 'page-fill' : ''}`}
+      style={fit && pageTop !== null ? ({ '--page-top': `${pageTop}px` } as React.CSSProperties) : undefined}
+    >
+      {/* The title, the period and its controls on one line; the filters and the legend on the next. */}
+      <div className="relative z-20 flex flex-none flex-wrap items-center gap-x-4 gap-y-2 animate-fade-in-up">
+        <PageTitle eyebrow="Workspace" title="Calendar" className="flex-none" />
         <CalendarToolbar
           view={view}
           onView={(v) => navigate({ view: v })}
@@ -294,13 +315,21 @@ export function CalendarPage() {
           onGoTo={(d) => navigate({ date: d })}
           onNew={canCreate ? () => setCreateOn(cursor) : undefined}
         />
-        <CalendarFilterBar filters={filters} onChange={(f) => navigate({ filters: f })} projectOptions={projectOptions} assigneeOptions={assigneeOptions} />
-        <Legend timeNote={ownTimeZone ? `Dates in ${ownTimeZone} (your setting)` : `Dates in ${timeZone} (company time)`} />
+      </div>
+      <div className="relative z-20 flex-none">
+        <CalendarFilterBar
+          filters={filters}
+          onChange={(f) => navigate({ filters: f })}
+          projectOptions={projectOptions}
+          assigneeOptions={assigneeOptions}
+          compact={phone}
+          trailing={<LegendButton timeNote={ownTimeZone ? `Dates in ${ownTimeZone} (your setting)` : `Dates in ${timeZone} (company time)`} />}
+        />
       </div>
 
       {rangeQ.isLoading ? (
-        <div role="status" aria-label="Loading the calendar" className="grid grid-cols-7 gap-1.5">
-          {Array.from({ length: 35 }).map((_, i) => <div key={i} className="skeleton h-24 rounded-lg" />)}
+        <div role="status" aria-label="Loading the calendar" className={`grid grid-cols-7 gap-1.5 ${fit ? 'min-h-0 flex-1 grid-rows-5' : ''}`}>
+          {Array.from({ length: 35 }).map((_, i) => <div key={i} className={`skeleton rounded-lg ${fit ? 'min-h-0' : 'h-24'}`} />)}
         </div>
       ) : rangeQ.isError && !rangeQ.data ? (
         <div role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-4 py-6 text-center text-sm text-danger">
@@ -308,14 +337,24 @@ export function CalendarPage() {
           <button type="button" onClick={() => void rangeQ.refetch()} className="font-semibold underline">Retry</button>
         </div>
       ) : (
-        <div className={`flex flex-col gap-3 transition-opacity ${rangeQ.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={rangeQ.isFetching || undefined}>
-          {view !== 'agenda' && shown.length === 0 && shownMeetings.length === 0 ? nothing : null}
+        <div className={`flex flex-col gap-2.5 transition-opacity ${fit ? 'min-h-0 flex-1' : ''} ${rangeQ.isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={rangeQ.isFetching || undefined}>
+          {view !== 'agenda' && shown.length === 0 && shownMeetings.length === 0 ? nothingBar : null}
           {view === 'month' ? (
-            phone || compactMonth ? <MobileMonth key={cursor.slice(0, 7)} cursor={cursor} p={viewProps} label={label} renderDayList={dayList} /> : <MonthView cursor={cursor} p={viewProps} label={label} />
+            phone || compactMonth ? (
+              <MobileMonth key={cursor.slice(0, 7)} cursor={cursor} p={viewProps} label={label} renderDayList={dayList} />
+            ) : (
+              <div className="min-h-0 flex-1">
+                <MonthView cursor={cursor} p={viewProps} label={label} fit={fit} />
+              </div>
+            )
           ) : view === 'week' ? (
-            <WeekView cursor={cursor} p={viewProps} phone={phone} meta={meta} />
+            <div className={fit ? 'min-h-0 flex-1' : ''}>
+              <WeekView cursor={cursor} p={viewProps} phone={phone} meta={meta} fit={fit} />
+            </div>
           ) : (
-            <AgendaView from={from} to={to} p={viewProps} overdue={overdueItems} meta={meta} empty={nothing} />
+            <div className={fit ? '-me-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pe-2' : ''}>
+              <AgendaView from={from} to={to} p={viewProps} overdue={overdueItems} meta={meta} empty={nothing} />
+            </div>
           )}
         </div>
       )}

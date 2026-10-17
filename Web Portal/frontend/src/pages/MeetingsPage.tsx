@@ -1,43 +1,36 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { meetingsApi, seriesIdOf, MEETING_STATUS_LABELS, type Meeting, type MeetingStatus } from '../api/meetings';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { meetingsApi, type Meeting, type MeetingStatus } from '../api/meetings';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import { apiClient } from '../api/client';
 import { MeetingFormModal } from '../components/MeetingFormModal';
-import { PageHeader } from '../components/ui/PageHeader';
+import { PageTitle } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
-import { fieldClass } from '../components/ui/Field';
-import { ActionMenu, type ActionMenuItem } from '../components/meeting/ActionMenu';
-import { Icon } from '../components/meeting/kit';
+import { type ActionMenuItem } from '../components/meeting/ActionMenu';
+import { MeetingCard } from '../components/meeting/MeetingCard';
+import { UpNextCard } from '../components/meeting/UpNextCard';
+import { FilterChips, FiltersButton } from '../components/meeting/MeetingListFilters';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
-import { meetingStatusTone, formatMeetingDay, formatMeetingTimes } from '../lib/meetingFormat';
-import { filterMeetings, groupMeetings, hasActiveFilters, type DateRange, type GroupKey, type MeetingFilters, type MeetingSort } from '../lib/meeting-list';
+import { filterChips, filterMeetings, groupMeetings, hasActiveFilters, nextUpMeeting, type DateRange, type FilterChip, type GroupKey, type MeetingFilters, type MeetingSort } from '../lib/meeting-list';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
-import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
+import { useNow } from '../lib/useNow';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 
+/** The cards: one column on a phone, up to four on a wide screen. */
+const GRID = 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3 min-[1800px]:grid-cols-4';
 type Scope = 'all' | 'mine';
-const STATUSES: MeetingStatus[] = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'DRAFT', 'CANCELLED'];
-const RANGES: { value: DateRange; label: string }[] = [
-  { value: 'any', label: 'Any date' },
-  { value: 'today', label: 'Today' },
-  { value: 'next7', label: 'Next 7 days' },
-  { value: 'last7', label: 'Last 7 days' },
-  { value: 'month', label: 'This month' },
-  { value: 'last30', label: 'Last 30 days' },
-  { value: 'custom', label: 'Custom range…' },
-];
-const SORTS: { value: MeetingSort; label: string }[] = [
-  { value: 'date', label: 'Date' },
-  { value: 'title', label: 'Title (A–Z)' },
-  { value: 'updated', label: 'Recently updated' },
-];
-/** How many of each group show before "Show more" (Today always shows in full). */
-const PAGE: Record<GroupKey, number> = { today: Infinity, upcoming: 10, drafts: 10, past: 10 };
+/** How many of each group show before "Show more" (Today always shows in full); rows of 3 or 4 cards. */
+const PAGE: Record<GroupKey, number> = { today: Infinity, next7: 12, later: 12, drafts: 12, past: 12 };
+/** What removing a chip clears from the address. */
+const CHIP_CLEARS: Record<FilterChip['key'], Record<string, undefined>> = {
+  project: { project: undefined },
+  date: { date: undefined, from: undefined, to: undefined },
+  status: { status: undefined },
+  sort: { sort: undefined },
+};
 
 /** Filters live in the address, so a refresh, a shared link or Back keeps them. */
 function useListState() {
@@ -70,6 +63,7 @@ function useListState() {
 export function MeetingsPage() {
   const navigate = useNavigate();
   const timeZone = useCompanyTimeZone();
+  const now = useNow();
   const { filters, scope, sort, set } = useListState();
   const [showNew, setShowNew] = useState(false);
   useShortcut('new', () => setShowNew(true));
@@ -102,17 +96,21 @@ export function MeetingsPage() {
   }, [dirQ.data]);
 
   const all = useMemo(() => (Array.isArray(meetingsQ.data) ? meetingsQ.data : []), [meetingsQ.data]);
-  const now = new Date();
   const ctx = { timeZone, now, projectName, organizerName };
   const visible = filterMeetings(all, filters, ctx);
   const groups = groupMeetings(visible, ctx, sort);
   const draftCount = all.filter((m) => m.status === 'DRAFT').length;
   const filtered = hasActiveFilters(filters);
+  const chips = filterChips(filters, sort, ctx);
+  const filterCount = chips.filter((c) => c.key !== 'sort').length;
+  // The next meeting, on top — unless the list is being searched or filtered.
+  const upNext = filtered ? null : nextUpMeeting(all, now);
   const update = (changes: Record<string, string | undefined>) => {
     setShown({});
     set(changes);
   };
   const clearFilters = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined });
+  const clearAll = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, sort: undefined });
 
   function rowActions(m: Meeting): ActionMenuItem[] {
     const canEdit = m.canEdit !== false;
@@ -131,114 +129,72 @@ export function MeetingsPage() {
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Workspace"
-        title="Meetings"
-        subtitle="Plan meetings, capture decisions and follow up on action items."
-        actions={<Button onClick={() => setShowNew(true)} title="New meeting" shortcut="new">+ New meeting</Button>}
-      />
-
-      {/* Whose meetings: a choice of its own, apart from the filters below. */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="Whose meetings" className="inline-flex rounded-lg border border-line bg-surface p-0.5">
-          {(['all', 'mine'] as Scope[]).map((s) => (
-            <button
-              key={s}
-              type="button"
-              aria-pressed={scope === s}
-              onClick={() => update({ scope: s })}
-              className={`min-h-9 rounded-md px-3 text-sm font-medium transition-colors ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}
-            >
-              {s === 'all' ? 'All meetings' : 'Organized by me'}
-            </button>
-          ))}
-        </div>
-        {draftCount > 0 ? (
-          <button
-            type="button"
-            aria-pressed={filters.status === 'DRAFT'}
-            onClick={() => update({ status: filters.status === 'DRAFT' ? undefined : 'DRAFT' })}
-            className={`min-h-9 rounded-lg border px-3 text-sm font-medium transition-colors ${filters.status === 'DRAFT' ? 'border-brand/40 bg-brand/10 text-brand' : 'border-line text-ink-2 hover:border-brand/30 hover:text-ink'}`}
-          >
-            Drafts ({draftCount})
-          </button>
-        ) : null}
-      </div>
-
-      <section aria-label="Find meetings" className="mb-4 grid gap-2 rounded-xl border border-line bg-surface p-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_repeat(4,minmax(8.5rem,auto))]">
-        <div className="flex flex-col gap-1 sm:col-span-2 xl:col-span-1">
-          <label htmlFor="ml-search" className="text-xs font-medium text-ink-2">Search</label>
-          <input
-            id="ml-search"
-            type="search"
-            data-page-search
-            aria-label="Search meetings"
-            dir="auto"
-            value={filters.q}
-            onChange={(e) => update({ q: e.target.value })}
-            placeholder="Title, place, project or organizer"
-            className={fieldClass(false)}
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="ml-project" className="text-xs font-medium text-ink-2">Project</label>
-          <select id="ml-project" value={filters.projectId} onChange={(e) => update({ project: e.target.value })} className={fieldClass(false)}>
-            <option value="">All projects</option>
-            <option value="none">Standalone only</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+      {/* One line: the title, the search, the filters, whose meetings and New meeting. */}
+      <div className="relative z-20 mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 animate-fade-in-up">
+        <PageTitle eyebrow="Workspace" title="Meetings" className="flex-none" />
+        <div className="flex min-w-0 flex-[1_1_36rem] flex-wrap items-center gap-2">
+          <label className="relative min-w-[11rem] flex-1 sm:max-w-xs">
+            <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-ink-2">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            </span>
+            <input
+              id="ml-search"
+              type="search"
+              data-page-search
+              aria-label="Search meetings"
+              dir="auto"
+              value={filters.q}
+              onChange={(e) => update({ q: e.target.value })}
+              placeholder="Search title, place, project, organizer"
+              className="h-10 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20"
+            />
+          </label>
+          <FiltersButton filters={filters} sort={sort} count={filterCount} projects={projects} onChange={update} onClearAll={clearAll} />
+          {/* Whose meetings: a choice of its own, apart from the filters. */}
+          <div role="group" aria-label="Whose meetings" className="inline-flex rounded-xl border border-line bg-surface p-0.5">
+            {(['all', 'mine'] as Scope[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={scope === s}
+                onClick={() => update({ scope: s })}
+                className={`min-h-[2.25rem] rounded-lg px-3 text-sm font-medium transition-colors ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+              >
+                {/* Shorter words on a phone, so the row fits. */}
+                <span className="max-sm:hidden">{s === 'all' ? 'All meetings' : 'Organized by me'}</span>
+                <span className="sm:hidden">{s === 'all' ? 'All' : 'Mine'}</span>
+              </button>
             ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="ml-date" className="text-xs font-medium text-ink-2">Date</label>
-          <select id="ml-date" value={filters.range} onChange={(e) => update({ date: e.target.value })} className={fieldClass(false)}>
-            {RANGES.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="ml-status" className="text-xs font-medium text-ink-2">Status</label>
-          <select id="ml-status" value={filters.status} onChange={(e) => update({ status: e.target.value })} className={fieldClass(false)}>
-            <option value="ALL">All statuses</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>{MEETING_STATUS_LABELS[s]}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="ml-sort" className="text-xs font-medium text-ink-2">Sort by</label>
-          <select id="ml-sort" value={sort} onChange={(e) => update({ sort: e.target.value })} className={fieldClass(false)}>
-            {SORTS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-        </div>
-        {filters.range === 'custom' ? (
-          <div className="grid grid-cols-2 gap-2 sm:col-span-2 lg:col-span-5 lg:max-w-md">
-            <div className="flex flex-col gap-1">
-              <label htmlFor="ml-from" className="text-xs font-medium text-ink-2">From</label>
-              <input id="ml-from" type="date" value={filters.from ?? ''} onChange={(e) => update({ from: e.target.value })} className={fieldClass(false)} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="ml-to" className="text-xs font-medium text-ink-2">To</label>
-              <input id="ml-to" type="date" value={filters.to ?? ''} min={filters.from} onChange={(e) => update({ to: e.target.value })} className={fieldClass(false)} />
-            </div>
           </div>
-        ) : null}
-      </section>
-
-      <div className="mb-3 flex min-h-6 flex-wrap items-center justify-between gap-2 text-sm text-ink-2">
-        <p aria-live="polite">
-          {meetingsQ.isSuccess ? `${visible.length} ${visible.length === 1 ? 'meeting' : 'meetings'}${filtered ? ' match' : ''}` : ''}
-        </p>
-        {filtered ? (
-          <button type="button" onClick={clearFilters} className="min-h-9 rounded-md px-2 font-medium text-brand hover:underline">
-            Clear filters
-          </button>
-        ) : null}
+          {draftCount > 0 ? (
+            <button
+              type="button"
+              aria-pressed={filters.status === 'DRAFT'}
+              onClick={() => update({ status: filters.status === 'DRAFT' ? undefined : 'DRAFT' })}
+              className={`h-10 rounded-xl border px-3 text-sm font-medium transition-colors ${filters.status === 'DRAFT' ? 'border-brand/40 bg-brand/10 text-brand' : 'border-line bg-surface text-ink-2 hover:border-brand/30 hover:text-ink'}`}
+            >
+              Drafts ({draftCount})
+            </button>
+          ) : null}
+          <Button onClick={() => setShowNew(true)} title="New meeting" shortcut="new" className="ms-auto max-sm:px-3.5">
+            <span className="max-sm:hidden">+ New meeting</span>
+            {/* On a phone only "+" shows; the button is still called "+ New meeting". */}
+            <span className="sm:hidden">
+              <span className="text-lg leading-none">+</span>
+              <span className="sr-only"> New meeting</span>
+            </span>
+          </Button>
+        </div>
       </div>
+
+      {filtered || chips.length ? (
+        <FilterChips
+          chips={chips}
+          summary={meetingsQ.isSuccess ? `${visible.length} ${visible.length === 1 ? 'meeting matches' : 'meetings match'}` : ''}
+          onRemove={(key) => update(CHIP_CLEARS[key])}
+          onClearAll={clearAll}
+        />
+      ) : null}
 
       {notice ? (
         <div role={notice.error ? 'alert' : 'status'} className={`mb-4 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm ${notice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
@@ -247,16 +203,18 @@ export function MeetingsPage() {
         </div>
       ) : null}
 
+      {upNext ? <UpNextCard meeting={upNext} timeZone={timeZone} now={now} project={upNext.projectId ? projectOf(upNext.projectId) : null} /> : null}
+
       {meetingsQ.isLoading ? (
-        <div className="card divide-y divide-line" aria-busy="true" aria-label="Loading meetings">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 px-4 py-3">
+        <div className={GRID} aria-busy="true" aria-label="Loading meetings">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex gap-3 rounded-xl border border-line bg-surface p-3">
+              <div className="skeleton h-16 w-14 flex-none rounded-xl" />
               <div className="flex-1">
-                <div className="skeleton h-4 w-56 max-w-full" />
+                <div className="skeleton h-4 w-48 max-w-full" />
                 <div className="skeleton mt-2 h-3 w-32" />
+                <div className="skeleton mt-2 h-3 w-24" />
               </div>
-              <div className="skeleton hidden h-4 w-24 md:block" />
-              <div className="skeleton hidden h-4 w-20 md:block" />
             </div>
           ))}
         </div>
@@ -291,33 +249,19 @@ export function MeetingsPage() {
                   {g.label}
                   <span className="text-xs font-medium normal-case tracking-normal text-ink-3">{g.items.length}</span>
                 </h2>
-                <div className="card overflow-visible">
-                  <table className="w-full table-fixed border-collapse text-sm">
-                    <caption className="sr-only">{g.label} meetings</caption>
-                    <thead className="hidden text-left text-xs font-medium text-ink-3 md:table-header-group">
-                      <tr>
-                        <th scope="col" className="px-4 py-2 font-medium">Meeting</th>
-                        <th scope="col" className="w-28 px-2 py-2 font-medium">Status</th>
-                        <th scope="col" className="w-36 px-2 py-2 font-medium">When</th>
-                        <th scope="col" className="hidden w-40 px-2 py-2 font-medium lg:table-cell">Organizer</th>
-                        <th scope="col" className="w-16 px-2 py-2 text-right font-medium">People</th>
-                        <th scope="col" className="w-28 px-2 py-2 font-medium">Action items</th>
-                        <th scope="col" className="w-12 px-2 py-2"><span className="sr-only">Actions</span></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((m) => (
-                        <MeetingRow
-                          key={m.id}
-                          meeting={m}
-                          timeZone={timeZone}
-                          project={m.projectId ? projectOf(m.projectId) : null}
-                          organizer={organizerName(m.organizerId)}
-                          actions={rowActions(m)}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
+                <div className={GRID}>
+                  {items.map((m) => (
+                    <MeetingCard
+                      key={m.id}
+                      meeting={m}
+                      timeZone={timeZone}
+                      now={now}
+                      project={m.projectId ? projectOf(m.projectId) : null}
+                      organizer={organizerName(m.organizerId)}
+                      actions={rowActions(m)}
+                      statusShown={g.key !== 'drafts'}
+                    />
+                  ))}
                 </div>
                 {more > 0 ? (
                   <div className="mt-2 flex justify-center">
@@ -337,86 +281,5 @@ export function MeetingsPage() {
       {cancelling ? <CancelMeetingDialog meeting={cancelling} onClose={() => setCancelling(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are cancelled.' : 'Meeting cancelled.' })} /> : null}
       {deleting ? <DeleteMeetingDialog meeting={deleting} onClose={() => setDeleting(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are deleted.' : 'Meeting deleted.' })} /> : null}
     </div>
-  );
-}
-
-function MeetingRow({
-  meeting: m,
-  timeZone,
-  project: p,
-  organizer,
-  actions,
-}: {
-  meeting: Meeting;
-  timeZone: string;
-  project: ProjectLook | null;
-  organizer: string | null;
-  actions: ActionMenuItem[];
-}) {
-  const cancelled = m.status === 'CANCELLED';
-  const day = formatMeetingDay(m.startAt, timeZone);
-  const times = formatMeetingTimes(m.startAt, m.endAt, timeZone);
-  const people = m.attendeeCount;
-  const open = m.openActionItemCount;
-  const status = <Badge tone={meetingStatusTone(m.status)} className="shrink-0">{MEETING_STATUS_LABELS[m.status]}</Badge>;
-  const project = (
-    <span className={`inline-flex min-w-0 max-w-full items-center ${p ? 'gap-1.5 text-ink-2' : 'gap-1 text-ink-3'}`}>
-      {p ? <ProjectAvatar project={p} size="xs" /> : <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-line" />}
-      <span className="truncate">{p ? <bdi>{p.name}</bdi> : 'Standalone'}</span>
-    </span>
-  );
-  return (
-    <tr className={`border-t border-line align-top transition-colors hover:bg-ground/60 ${cancelled ? 'text-ink-3' : ''}`}>
-      <td className="max-w-0 px-4 py-3">
-        {/* The title is inline (bdi), so an Arabic title stays beside its details instead of jumping to the far side. */}
-        <Link
-          to={`/meetings/${m.id}`}
-          title={m.title}
-          className={`block truncate py-0.5 font-medium hover:text-brand focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${cancelled ? 'text-ink-3 line-through' : 'text-ink'}`}
-        >
-          <bdi>{m.title}</bdi>
-        </Link>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          {project}
-          {seriesIdOf(m) ? (
-            <span className="inline-flex items-center gap-1 text-ink-3" title="Part of a repeating series">
-              {Icon.repeat}
-              <span>Repeats</span>
-            </span>
-          ) : null}
-          {m.location ? (
-            <span className="inline-flex min-w-0 max-w-full items-center gap-1 text-ink-3">
-              <span aria-hidden="true">📍</span>
-              <span className="truncate"><bdi>{m.location}</bdi></span>
-            </span>
-          ) : m.onlineLink ? (
-            <span className="text-ink-3">Online</span>
-          ) : null}
-        </div>
-        {/* On a phone the other columns are hidden: their facts go here instead. */}
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2 md:hidden">
-          {status}
-          <span className="whitespace-nowrap">{day} · {times}</span>
-        </div>
-        <p className="mt-1 text-xs text-ink-3 md:hidden">
-          {organizer ? <bdi>{organizer}</bdi> : null}
-          {people !== undefined ? <>{organizer ? ' · ' : ''}{people} {people === 1 ? 'person' : 'people'}</> : null}
-          {open ? <span className="font-medium text-warning"> · {open} open action {open === 1 ? 'item' : 'items'}</span> : null}
-        </p>
-      </td>
-      <td className="hidden px-2 py-3 md:table-cell">{status}</td>
-      <td className="hidden whitespace-nowrap px-2 py-3 md:table-cell">
-        <div className="text-ink">{day}</div>
-        <div className="text-xs text-ink-3">{times}</div>
-      </td>
-      <td className="hidden truncate px-2 py-3 text-ink-2 lg:table-cell">{organizer ? <bdi>{organizer}</bdi> : '—'}</td>
-      <td className="hidden px-2 py-3 text-right tabular-nums text-ink-2 md:table-cell">{people ?? '—'}</td>
-      <td className="hidden px-2 py-3 md:table-cell">
-        {open ? <Badge tone="warning">{open} open</Badge> : <span className="text-ink-3">{open === 0 ? 'None open' : '—'}</span>}
-      </td>
-      <td className="w-12 px-1.5 py-2">
-        <ActionMenu label={`More actions for ${m.title}`} items={actions} className="flex justify-end" />
-      </td>
-    </tr>
   );
 }

@@ -52,6 +52,49 @@ export type MinutesState = 'NONE' | 'NOTES' | 'DRAFT' | 'FINAL';
 const DONE_ITEMS = new Set(['COMPLETED', 'CANCELLED']);
 const HOUR = 3_600_000;
 
+/** How far a meeting's minutes are, from its final-minutes record (if any) and how many notes it has. */
+export function minutesState(recordStatus: string | undefined, noteCount: number): MinutesState {
+  if (recordStatus === 'APPROVED' || recordStatus === 'SENT') return 'FINAL';
+  if (recordStatus) return 'DRAFT';
+  return noteCount > 0 ? 'NOTES' : 'NONE';
+}
+
+/** What the meetings list needs about each meeting, read in one go for the whole list. */
+export interface MeetingListData {
+  /** Attendees with their display names, in the order they were added. */
+  attendees: Array<{ meetingId: string; userId: string | null; name: string }>;
+  /** Notes taken per meeting (any kind, not deleted). */
+  noteCounts: Record<string, number>;
+  /** Notes recorded as decisions per meeting. */
+  decisionCounts: Record<string, number>;
+  /** Final-minutes records by meeting. */
+  minutes: Array<{ meetingId: string; status: string }>;
+  /** Action items still to do per meeting. */
+  openActionItemCounts: Record<string, number>;
+}
+
+/** Each listed meeting's people (the first four by name), minutes, decisions and open action items. */
+export function buildMeetingListCounts(ids: string[], data: MeetingListData) {
+  const minutesOf = new Map(data.minutes.map((x) => [x.meetingId, x.status]));
+  const people = new Map<string, string[]>();
+  for (const a of data.attendees) people.set(a.meetingId, [...(people.get(a.meetingId) ?? []), a.name]);
+  return Object.fromEntries(
+    ids.map((id) => {
+      const names = people.get(id) ?? [];
+      return [
+        id,
+        {
+          attendeeCount: names.length,
+          openActionItemCount: data.openActionItemCounts[id] ?? 0,
+          attendees: names.slice(0, 4),
+          minutes: minutesState(minutesOf.get(id), data.noteCounts[id] ?? 0),
+          decisionCount: data.decisionCounts[id] ?? 0,
+        },
+      ];
+    }),
+  );
+}
+
 /** Where a meeting stands now. A meeting without an end counts as an hour long. */
 export function meetingPhase(m: { status: MeetingStatus; startAt: Date; endAt: Date | null }, now: Date): MeetingPhase {
   if (m.status === 'CANCELLED') return 'cancelled';
@@ -80,9 +123,7 @@ export function buildProjectMeetingsOverview(data: ProjectMeetingsData, now: Dat
     .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
     .map((m) => {
       const people = attendeesOf.get(m.id) ?? [];
-      const minutesStatus = minutesOf.get(m.id);
-      const final = minutesStatus === 'APPROVED' || minutesStatus === 'SENT';
-      const minutes: MinutesState = final ? 'FINAL' : minutesStatus ? 'DRAFT' : (data.noteCounts[m.id] ?? 0) > 0 ? 'NOTES' : 'NONE';
+      const minutes = minutesState(minutesOf.get(m.id), data.noteCounts[m.id] ?? 0);
       return {
         ...m,
         seriesId: m.recurrenceParentId ?? (m.recurrenceRule ? m.id : null),

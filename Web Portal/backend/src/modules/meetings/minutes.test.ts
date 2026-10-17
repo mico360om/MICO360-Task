@@ -322,8 +322,47 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(pages[0]).toContain('MICO360 Tasks');
   });
 
-  it('marks working minutes as a working draft', () => {
-    expect(inspectPdf(buildMinutesPdf(data)).pages[0]).toContain('WORKING DRAFT');
+  it('marks the minutes as a draft until there is an approved Final MOM', () => {
+    expect(inspectPdf(buildMinutesPdf(data)).pages[0]).toContain('DRAFT');
+    expect(lines(data)).not.toContain('Final Minutes of Meeting');
+  });
+
+  const finalContent = {
+    summary: 'Q4 priorities were agreed.',
+    discussion: [{ topic: 'Sprint cadence', text: 'Two weeks suits both teams.' }],
+    decisions: ['Adopt a two-week sprint cadence.'],
+    risks: ['Hiring may slip.'],
+    nextSteps: ['Draft the Q4 OKRs — Grace, by Friday'],
+  };
+
+  it('is one document: an approved Final MOM comes first, marked FINAL with who approved it, then the meeting record', () => {
+    const pdf = buildMinutesPdf({ ...data, final: { content: finalContent, status: 'FINAL', approvedByName: 'Grace Hopper', approvedAt: '2026-10-02T08:00:00.000Z' } });
+    const { pages } = inspectPdf(pdf);
+    expect(pages[0]).toContain('FINAL');
+    const text = pages.flat();
+    expect(text).toEqual(expect.arrayContaining(['Final Minutes of Meeting', 'Q4 priorities were agreed.', 'Sprint cadence', 'Two weeks suits both teams.', 'Hiring may slip.', 'Draft the Q4 OKRs — Grace, by Friday']));
+    expect(text.some((l) => /FINAL · Approved by Grace Hopper on Oct 2/.test(l))).toBe(true);
+    // The Final MOM first, then attendance, agenda, action items and the notes taken.
+    const at = (s: string) => text.indexOf(s);
+    expect(at('Final Minutes of Meeting')).toBeGreaterThan(-1);
+    expect(at('Final Minutes of Meeting')).toBeLessThan(at('Attendees'));
+    expect(at('Attendees')).toBeLessThan(at('Agenda'));
+    expect(at('Agenda')).toBeLessThan(at('Notes taken during the meeting'));
+    // Who prepared and approved them closes the Final MOM (not a page of its own at the end).
+    const signed = text.findIndex((l) => /^Prepared by Ada Lovelace .*Approved by Grace Hopper on Oct 2/.test(l));
+    expect(signed).toBeGreaterThan(at('Draft the Q4 OKRs — Grace, by Friday'));
+    expect(signed).toBeLessThan(at('Attendees'));
+    // The notes stay as they were taken, with who wrote them.
+    expect(text.some((l) => l.includes('Team aligned on focus areas.'))).toBe(true);
+    expect(text.some((l) => l.startsWith('— Ada Lovelace'))).toBe(true);
+  });
+
+  it('prints a Final MOM that is still a draft, marked as not yet approved', () => {
+    const text = lines({ ...data, final: { content: finalContent, status: 'DRAFT', approvedByName: null, approvedAt: null } });
+    expect(text).toContain('Final Minutes of Meeting');
+    expect(text.some((l) => /DRAFT · Not yet approved/.test(l))).toBe(true);
+    expect(text).toContain('DRAFT');
+    expect(text).not.toContain('FINAL');
   });
 
   it('lists the project number among the project details', () => {

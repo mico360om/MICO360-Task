@@ -87,6 +87,15 @@ export interface MinutesProject {
   targetDate?: string | null; // ISO
 }
 
+/** The final minutes (Final MOM) as written, and whether they are approved. */
+export interface MinutesFinal {
+  content: FinalMinutesContent;
+  /** FINAL: approved. DRAFT: written but not approved yet. */
+  status: 'FINAL' | 'DRAFT';
+  approvedByName: string | null;
+  approvedAt: string | null; // ISO
+}
+
 export interface MinutesData {
   brand: MinutesBrand;
   meeting: MinutesMeeting;
@@ -99,10 +108,11 @@ export interface MinutesData {
   actionItems?: MinutesActionItem[];
   generatedAt: string; // ISO
   generatedByName?: string | null;
-  /** Working minutes (from the notes; marked as a draft) or the approved final minutes. Default 'working'. */
-  version?: 'working' | 'final';
-  /** The approved final minutes, printed when `version` is 'final'. */
-  final?: { content: FinalMinutesContent; approvedByName: string | null; approvedAt: string | null } | null;
+  /**
+   * The Final MOM, printed first when there is one: approved (the minutes are then final) or, in
+   * the organizer's own copy, still a draft. Without it the minutes are a draft from the notes.
+   */
+  final?: MinutesFinal | null;
   /**
    * The company time zone (the server's COMPANY_TIMEZONE), used when the meeting has
    * no valid zone of its own. Falls back to the COMPANY_TIMEZONE env var, then Asia/Muscat.
@@ -163,13 +173,18 @@ export function fmtTimestamp(iso: string, timeZone: string): string {
 }
 
 /**
- * Compose a polished, multi-page Minutes of Meeting PDF from assembled data. Arabic
- * titles, names and notes render with real joined glyphs in right-to-left order; all
- * times are shown in the meeting's zone (see `resolveMinutesTimeZone`).
+ * Compose the Minutes of Meeting PDF — one document: when there is a Final MOM it comes first
+ * (marked FINAL with who approved it, or DRAFT while it is not approved), followed by the
+ * record of the meeting (attendance, agenda, action items, the notes taken); without one, the
+ * minutes from the notes, marked as a draft. Arabic titles, names and notes render with real
+ * joined glyphs in right-to-left order; all times are shown in the meeting's zone (see
+ * `resolveMinutesTimeZone`).
  */
 export function buildMinutesPdf(data: MinutesData): Buffer {
   const { meeting, brand, project } = data;
   const tz = resolveMinutesTimeZone(meeting.timeZone, data.companyTimeZone);
+  const final = data.final ?? null;
+  const approved = final?.status === 'FINAL';
 
   // Branded footer: company · website · support on line 1, address on line 2, generated credit on line 3.
   // Each user-supplied fragment is bidi-isolated so an Arabic name can't reorder its neighbours.
@@ -189,8 +204,9 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   });
 
   // Header: the project's picture (or its initials on its colour), name, code and number for a
-  // project meeting; the product masthead for a standalone one. A badge says which version this is.
-  const badge = data.version === 'final' ? { text: 'Final', tone: 'success' as const } : { text: 'Working draft', tone: 'muted' as const };
+  // project meeting; the product masthead for a standalone one. The badge says Final once the
+  // Final MOM is approved, Draft until then.
+  const badge = approved ? { text: 'Final', tone: 'success' as const } : { text: 'Draft', tone: 'warning' as const };
   if (project) {
     const subtitle = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName]
       .filter((b): b is string => Boolean(b))
@@ -210,7 +226,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   }
 
   // Meeting title (an Arabic title is set right-to-left, flush right)
-  doc.text(meeting.title, { bold: true, size: 20, color: INK, gap: 4 });
+  doc.text(meeting.title, { bold: true, size: 20, color: INK, gap: 6, family: 'display' });
 
   // Meeting details in two columns: when on the left; who, where and how it stands on the right.
   doc.keyValueColumns(
@@ -232,22 +248,43 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   // Action notes already tracked as action items appear once, in the table.
   const actionNotes = data.notes.filter((n) => n.type === 'ACTION' && !n.trackedAsActionItem);
   const discussion = data.notes.filter((n) => n.type !== 'DECISION' && n.type !== 'ACTION');
+  const issues = discussion.filter((n) => n.type === 'ISSUE');
+  const questions = discussion.filter((n) => n.type === 'QUESTION');
+  const talk = discussion.filter((n) => n.type !== 'ISSUE' && n.type !== 'QUESTION');
   const items = data.actionItems ?? [];
   const present = data.attendees.filter((a) => /^(present|late)$/i.test(a.attendanceLabel)).length;
   const covered = data.agenda.filter((a) => a.completed).length;
-  const openItems = items.filter((i) => i.open ?? !/^(completed|cancelled)$/i.test(i.statusLabel)).length;
+  const isOpen = (i: MinutesActionItem) => i.open ?? !/^(completed|cancelled)$/i.test(i.statusLabel);
+  const openItems = items.filter(isOpen).length;
 
   // At a glance
-  doc.spacer(6);
+  doc.spacer(8);
   doc.statTiles([
     { label: 'Attendees present', value: `${present}/${data.attendees.length}`, tone: 'brand' },
     { label: 'Agenda items covered', value: `${covered}/${data.agenda.length}`, tone: 'success' },
-    { label: 'Decisions made', value: String(decisions.length), tone: 'muted' },
+    { label: 'Decisions made', value: String(final ? final.content.decisions.length || decisions.length : decisions.length), tone: 'muted' },
     { label: 'Open action items', value: String(openItems), tone: openItems > 0 ? 'warning' : 'success' },
   ]);
 
-  // Project details (only for a project-linked meeting)
-  if (project) {
+  // Attribution line under a note, aligned with the note (right for an Arabic note).
+  const byline = (n: MinutesNote): string =>
+    `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}${n.highlighted ? ' · Key point' : ''}`;
+
+  // Notes grouped by kind, with a sub-heading per kind when a section has more than one.
+  const noteGroups = (groups: Array<[string, MinutesNote[]]>) => {
+    const shown = groups.filter(([, notes]) => notes.length > 0);
+    for (const [label, notes] of shown) {
+      if (shown.length > 1) doc.text(label, { bold: true, size: 10.5, color: INK, gap: 2 });
+      for (const n of notes) {
+        const direction = textDirection(n.body);
+        doc.bullet(n.body, { direction });
+        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 2, direction });
+      }
+    }
+  };
+
+  const projectDetails = () => {
+    if (!project) return;
     doc.heading('Project details');
     if (project.code) doc.keyValue('Code', project.code);
     if (project.number) doc.keyValue('Project no.', project.number);
@@ -257,22 +294,16 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     if (project.startDate || project.targetDate) {
       doc.keyValue('Timeline', `${fmtDay(project.startDate, tz)}  –  ${fmtDay(project.targetDate, tz)}`);
     }
-  }
-
-  const final = data.version === 'final' ? (data.final ?? null) : null;
-  // Summary: the approved one in the final minutes, else the meeting's description.
-  const summaryText = final ? final.content.summary : (meeting.description?.trim() ?? '');
-  if (summaryText) {
-    doc.heading('Summary');
-    doc.text(summaryText);
-  }
+  };
 
   // Attendees — role (required/optional), the answer to the invitation and attendance on the day
   // are three different things, so each has its own column.
-  doc.heading('Attendees', { keepWith: 40 });
-  if (data.attendees.length === 0) {
-    doc.text('No attendees recorded.', { color: MUTED });
-  } else {
+  const attendees = () => {
+    doc.heading('Attendees', { keepWith: 40 });
+    if (data.attendees.length === 0) {
+      doc.text('No attendees recorded.', { color: MUTED });
+      return;
+    }
     doc.text(`${data.attendees.length} invited · ${present} present`, { color: MUTED, size: 9.5, gap: 4 });
     const withEmail = data.attendees.some((a) => a.email);
     doc.table(
@@ -285,13 +316,14 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
         a.attendanceLabel,
       ]),
     );
-  }
+  };
 
-  // Agenda
-  doc.heading('Agenda', { keepWith: 40 });
-  if (data.agenda.length === 0) {
-    doc.text('No agenda items were recorded.', { color: MUTED });
-  } else {
+  const agenda = () => {
+    doc.heading('Agenda', { keepWith: 40 });
+    if (data.agenda.length === 0) {
+      doc.text('No agenda items were recorded.', { color: MUTED });
+      return;
+    }
     doc.table(
       [{ header: '#' }, { header: 'Item' }, { header: 'Presenter' }, { header: 'Planned' }, { header: 'Covered' }],
       data.agenda.map((item, i) => [
@@ -307,44 +339,81 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     if (planned > 0) {
       doc.text(`Planned time: ${planned} min${length > 0 ? ` of a ${length} min meeting` : ''}`, { color: MUTED, size: 9, gap: 2 });
     }
-  }
+  };
 
   if (final) {
+    // ── The Final MOM first: what was agreed, as approved (or, in the organizer's copy, as drafted) ──
     const c = final.content;
+    doc.partBand('Final Minutes of Meeting', { keepWith: 70 });
+    const when = final.approvedAt ? ` on ${isolate(fmtTimestamp(final.approvedAt, tz))}` : '';
+    doc.statusStrip(
+      approved ? `FINAL · Approved by ${isolate(final.approvedByName ?? '—')}${when}` : 'DRAFT · Not yet approved — these minutes may still change',
+      approved ? 'success' : 'warning',
+    );
+    if (c.summary) {
+      doc.subheading('Summary');
+      doc.text(c.summary, { direction: textDirection(c.summary) });
+    }
     if (c.discussion.length > 0) {
-      doc.heading('Discussion', { keepWith: 30 });
+      doc.subheading('Discussion', { keepWith: 30 });
       for (const d of c.discussion) {
-        doc.text(d.topic, { bold: true, size: 10.5, color: INK, gap: 1 });
-        for (const line of d.text.split('\n').filter((l) => l.trim())) doc.text(line.trim(), { gap: 1 });
+        doc.text(d.topic, { bold: true, size: 10.5, color: INK, gap: 1, direction: textDirection(d.topic) });
+        for (const line of d.text.split('\n').filter((l) => l.trim())) doc.text(line.trim(), { gap: 1, direction: textDirection(line) });
         doc.spacer(4);
       }
     }
     if (c.decisions.length > 0) {
-      doc.heading('Decisions', { keepWith: 30 });
+      doc.subheading('Decisions', { keepWith: 30 });
       c.decisions.forEach((d, i) => doc.numbered(`${i + 1}.`, d, { direction: textDirection(d) }));
     }
+    if (c.risks.length > 0) {
+      doc.subheading('Risks & Open Issues', { keepWith: 30 });
+      for (const r of c.risks) doc.bullet(r, { direction: textDirection(r) });
+    }
+    if (c.nextSteps.length > 0) {
+      doc.subheading('Next Steps', { keepWith: 30 });
+      for (const n of c.nextSteps) doc.bullet(n, { direction: textDirection(n) });
+    }
+    if (approved) {
+      // Who wrote and who approved these minutes closes them.
+      doc.spacer(10);
+      doc.text(`Prepared by ${isolate(meeting.organizerName ?? '—')}  ·  Approved by ${isolate(final.approvedByName ?? '—')}${when}`, { color: MUTED, size: 9.5, gap: 2 });
+    }
+
+    // ── Then the record of the meeting: who came, the agenda, the action items and every note ──
+    doc.partBand('Meeting record', { keepWith: 70 });
+    attendees();
+    agenda();
     if (items.length > 0) {
       doc.heading('Action Items', { keepWith: 40 });
       actionItemsTable(doc, items);
     }
-    if (c.risks.length > 0) {
-      doc.heading('Risks & Open Issues', { keepWith: 30 });
-      for (const r of c.risks) doc.bullet(r, { direction: textDirection(r) });
+    doc.heading('Notes taken during the meeting', { keepWith: 30 });
+    if (data.notes.length === 0) {
+      doc.text('No notes were taken.', { color: MUTED });
+    } else {
+      noteGroups([
+        ['Decisions', decisions],
+        ['Action items noted', actionNotes],
+        ['Issues', issues],
+        ['Questions', questions],
+        ['Discussion', talk.filter((n) => n.type !== 'INFORMATION')],
+        ['Information', talk.filter((n) => n.type === 'INFORMATION')],
+      ]);
     }
-    if (c.nextSteps.length > 0) {
-      doc.heading('Next Steps', { keepWith: 30 });
-      for (const n of c.nextSteps) doc.bullet(n, { direction: textDirection(n) });
-    }
-    // Who wrote and who approved these minutes.
-    doc.heading('Approval', { keepWith: 40 });
-    const approved = final.approvedAt ? ` on ${isolate(fmtTimestamp(final.approvedAt, tz))}` : '';
-    doc.text(`Prepared by ${isolate(meeting.organizerName ?? '—')}  ·  Approved by ${isolate(final.approvedByName ?? '—')}${approved}`, { gap: 4 });
+    projectDetails();
     return doc.build();
   }
 
-  // Attribution line under a note, aligned with the note (right for an Arabic note).
-  const byline = (n: MinutesNote): string =>
-    `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}${n.highlighted ? ' · Key point' : ''}`;
+  // ── No Final MOM yet: the minutes from the notes, marked as a draft ──
+  projectDetails();
+  const summaryText = meeting.description?.trim() ?? '';
+  if (summaryText) {
+    doc.heading('Summary');
+    doc.text(summaryText);
+  }
+  attendees();
+  agenda();
 
   if (decisions.length > 0) {
     doc.heading('Decisions', { keepWith: 30 });
@@ -367,29 +436,13 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     }
   }
 
-  // Notes grouped by kind, with a sub-heading per kind when a section has more than one.
-  const noteGroups = (groups: Array<[string, MinutesNote[]]>) => {
-    const shown = groups.filter(([, notes]) => notes.length > 0);
-    for (const [label, notes] of shown) {
-      if (shown.length > 1) doc.text(label, { bold: true, size: 10.5, color: INK, gap: 2 });
-      for (const n of notes) {
-        const direction = textDirection(n.body);
-        doc.bullet(n.body, { direction });
-        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 2, direction });
-      }
-    }
-  };
-
   // Risks & open issues: what could go wrong, and what is still unanswered.
-  const issues = discussion.filter((n) => n.type === 'ISSUE');
-  const questions = discussion.filter((n) => n.type === 'QUESTION');
   if (issues.length + questions.length > 0) {
     doc.heading('Risks & Open Issues', { keepWith: 30 });
     noteGroups([['Issues', issues], ['Questions', questions]]);
   }
 
   // The rest of the discussion.
-  const talk = discussion.filter((n) => n.type !== 'ISSUE' && n.type !== 'QUESTION');
   doc.heading('Discussion & Notes', { keepWith: 30 });
   if (talk.length === 0) {
     doc.text('No discussion notes were recorded.', { color: MUTED });
@@ -401,9 +454,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   }
 
   // Next steps: the open action items, soonest first, each with its owner and due day.
-  const next = items
-    .filter((i) => i.open ?? !/^(completed|cancelled)$/i.test(i.statusLabel))
-    .sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31'));
+  const next = items.filter(isOpen).sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31'));
   if (next.length > 0) {
     doc.heading('Next Steps', { keepWith: 30 });
     for (const i of next) {

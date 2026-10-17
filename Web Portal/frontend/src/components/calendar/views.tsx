@@ -1,8 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { CalItem } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
 import { monthOf, monthWeeks, weekDays, weekdayLabels, type WeekStart } from '../../lib/calendar';
 import { MeetingChip, STATUS_META, TaskChip, dayLabel } from './calendar-ui';
+import { chipSlots } from '../../lib/calendar-fit';
 
 /** Overdue tasks listed before "Show all" in the agenda. */
 const OVERDUE_PREVIEW = 8;
@@ -53,9 +54,33 @@ function useDropTarget(day: string, onDrop: ViewProps['onDrop']) {
   };
 }
 
-function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; dayNumber: number; outside: boolean; p: ViewProps; max: number }) {
+/** An element's height as it changes (undefined where it can't be measured, or while `enabled` is false). */
+function useHeight(ref: RefObject<HTMLElement | null>, enabled: boolean): number | undefined {
+  const [height, setHeight] = useState<number>();
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!enabled || !el || typeof ResizeObserver === 'undefined') {
+      setHeight(undefined);
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h !== undefined) setHeight(Math.floor(h));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, enabled]);
+  return height;
+}
+
+/**
+ * A day of the month. Sized to the window (`rowHeight` known), it shows as many one-line entries
+ * as fit and "+N more" for the rest; otherwise three.
+ */
+function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: string; dayNumber: number; outside: boolean; p: ViewProps; rowHeight?: number }) {
   const items = p.byDay.get(cellKey) ?? [];
   const meetings = meetingsOf(p, cellKey);
+  const max = chipSlots(rowHeight, items.length + meetings.length);
   const shownMeetings = meetings.slice(0, max);
   const shown = items.slice(0, Math.max(0, max - shownMeetings.length));
   const hiddenMeetings = meetings.length - shownMeetings.length;
@@ -69,23 +94,24 @@ function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; d
       data-day={cellKey}
       data-outside={outside ? 'true' : undefined}
       {...drop.props}
-      className={`flex min-h-[7.25rem] min-w-0 flex-col gap-1 border-b border-e border-line p-1.5 transition-colors ${outside ? 'bg-ground/60' : 'bg-surface'} ${isToday ? 'bg-brand/[0.06]' : ''} ${drop.over ? 'bg-brand/10 ring-2 ring-inset ring-brand/50' : ''}`}
+      className={`flex min-w-0 flex-col gap-0.5 overflow-hidden border-b border-e border-line p-1 transition-colors ${rowHeight ? 'min-h-0' : 'min-h-[7.5rem]'} ${outside ? 'bg-ground/60' : 'bg-surface'} ${isToday ? 'bg-brand/[0.06]' : ''} ${drop.over ? 'bg-brand/10 ring-2 ring-inset ring-brand/50' : ''}`}
     >
-      <div className="flex items-center justify-between">
+      {/* 24px tall (see lib/calendar-fit.ts). */}
+      <div className="flex h-6 flex-none items-center justify-between ps-1">
         {isToday ? <span className="text-[11px] font-bold uppercase tracking-wide text-brand">Today</span> : <span />}
         <button
           type="button"
           onClick={() => p.onOpenDay(cellKey)}
           aria-label={`${dayLabel(cellKey)}${countLabel(items.length, meetings.length)}`}
           aria-current={isToday ? 'date' : undefined}
-          className={`grid h-7 min-w-7 place-items-center rounded-full px-1 text-sm font-semibold tabular-nums transition-colors hover:bg-ground ${
+          className={`grid h-6 min-w-6 place-items-center rounded-full px-1 text-[13px] font-semibold tabular-nums transition-colors hover:bg-ground ${
             isToday ? 'bg-brand text-white hover:bg-brand' : outside ? 'text-ink-3' : 'text-ink'
           }`}
         >
           {dayNumber}
         </button>
       </div>
-      <ul className="flex min-w-0 flex-col gap-1">
+      <ul className="flex min-w-0 flex-col gap-0.5">
         {shownMeetings.map((m) => (
           <li key={m.key} className="min-w-0">
             <MeetingChip meeting={m} color={m.projectId ? p.colorOf(m.projectId) : undefined} />
@@ -93,7 +119,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; d
         ))}
         {shown.map((item) => (
           <li key={item.key} className="min-w-0">
-            <TaskChip item={item} color={p.colorOf(item.task.projectId)} draggable={p.canDrag(item)} onOpen={p.onOpen} />
+            <TaskChip item={item} color={p.colorOf(item.task.projectId)} draggable={p.canDrag(item)} onOpen={p.onOpen} lines={1} />
           </li>
         ))}
       </ul>
@@ -102,7 +128,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; d
           type="button"
           onClick={() => p.onOpenDay(cellKey)}
           aria-label={`${more} more ${moreNoun} on ${dayLabel(cellKey)}`}
-          className="self-start rounded px-1 text-xs font-semibold text-brand hover:underline"
+          className="flex-none self-start rounded px-1 text-[11px] font-semibold leading-4 text-brand hover:underline"
         >
           +{more} more
         </button>
@@ -111,27 +137,38 @@ function MonthCell({ cellKey, dayNumber, outside, p, max }: { cellKey: string; d
   );
 }
 
-/** The month as a grid: a few tasks per day, the rest one click away. */
-export function MonthView({ cursor, p, label }: { cursor: string; p: ViewProps; label: string }) {
+/**
+ * The month as a grid: a few tasks per day, the rest one click away. With `fit`, it fills the
+ * height it is given, every week sharing it, and each day shows as many tasks as fit.
+ */
+export function MonthView({ cursor, p, label, fit = false }: { cursor: string; p: ViewProps; label: string; fit?: boolean }) {
   const { year, month0 } = monthOf(cursor);
   const weeks = monthWeeks(year, month0, p.weekStart);
   const labels = weekdayLabels(p.weekStart);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const bodyHeight = useHeight(bodyRef, fit);
+  const rowHeight = bodyHeight ? bodyHeight / weeks.length : undefined;
   return (
-    <div role="table" aria-label={label} className="overflow-hidden rounded-xl border border-line">
-      <div role="rowgroup">
+    <div role="table" aria-label={label} className={`overflow-hidden rounded-xl border border-line bg-surface ${fit ? 'flex h-full min-h-0 flex-col' : ''}`}>
+      <div role="rowgroup" className="flex-none">
         <div role="row" className="grid grid-cols-7 border-b border-line bg-ground">
           {labels.map((l, i) => (
-            <div key={l} role="columnheader" className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-ink-2">
+            <div key={l} role="columnheader" className="px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-2">
               <abbr title={FULL_DAY[(p.weekStart + i) % 7]} className="no-underline">{l}</abbr>
             </div>
           ))}
         </div>
       </div>
-      <div role="rowgroup" className="[&>div:last-child>div]:border-b-0">
+      <div
+        ref={bodyRef}
+        role="rowgroup"
+        className={`[&>div:last-child>div]:border-b-0 ${fit ? 'grid min-h-0 flex-1' : ''}`}
+        style={fit ? { gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` } : undefined}
+      >
         {weeks.map((week) => (
-          <div key={week[0]!.key} role="row" className="grid grid-cols-7 [&>div:last-child]:border-e-0">
+          <div key={week[0]!.key} role="row" className="grid min-h-0 grid-cols-7 [&>div:last-child]:border-e-0">
             {week.map((cell) => (
-              <MonthCell key={cell.key} cellKey={cell.key} dayNumber={cell.day} outside={!cell.inMonth} p={p} max={3} />
+              <MonthCell key={cell.key} cellKey={cell.key} dayNumber={cell.day} outside={!cell.inMonth} p={p} rowHeight={rowHeight} />
             ))}
           </div>
         ))}
@@ -197,19 +234,22 @@ export function MobileMonth({ cursor, p, label, renderDayList }: { cursor: strin
   );
 }
 
-/** One column per day (a list per day on a phone), every task shown. */
-export function WeekView({ cursor, p, phone, meta }: { cursor: string; p: ViewProps; phone: boolean; meta: (item: CalItem) => ReactNode }) {
+/**
+ * One column per day (a list per day on a phone), every task shown. With `fit`, the week fills the
+ * height it is given and a long day scrolls inside its column.
+ */
+export function WeekView({ cursor, p, phone, meta, fit = false }: { cursor: string; p: ViewProps; phone: boolean; meta: (item: CalItem) => ReactNode; fit?: boolean }) {
   const days = weekDays(cursor, p.weekStart);
   return (
-    <div className={phone ? 'flex flex-col gap-2' : 'grid grid-cols-7 overflow-hidden rounded-xl border border-line'}>
+    <div className={phone ? 'flex flex-col gap-2' : `grid grid-cols-7 overflow-hidden rounded-xl border border-line ${fit ? 'h-full min-h-0' : ''}`}>
       {days.map((key) => (
-        <WeekDay key={key} day={key} p={p} phone={phone} meta={meta} />
+        <WeekDay key={key} day={key} p={p} phone={phone} meta={meta} fit={fit && !phone} />
       ))}
     </div>
   );
 }
 
-function WeekDay({ day, p, phone, meta }: { day: string; p: ViewProps; phone: boolean; meta: (item: CalItem) => ReactNode }) {
+function WeekDay({ day, p, phone, meta, fit }: { day: string; p: ViewProps; phone: boolean; meta: (item: CalItem) => ReactNode; fit: boolean }) {
   const items = p.byDay.get(day) ?? [];
   const meetings = meetingsOf(p, day);
   const isToday = day === p.today;
@@ -219,7 +259,7 @@ function WeekDay({ day, p, phone, meta }: { day: string; p: ViewProps; phone: bo
       data-day={day}
       aria-label={dayLabel(day, { weekday: 'long', day: 'numeric', month: 'long' })}
       {...drop.props}
-      className={`flex min-w-0 flex-col gap-1.5 p-2 transition-colors ${phone ? 'rounded-xl border border-line bg-surface' : 'min-h-[20rem] border-e border-line bg-surface last:border-e-0'} ${isToday ? 'bg-brand/[0.06]' : ''} ${drop.over ? 'bg-brand/10 ring-2 ring-inset ring-brand/50' : ''}`}
+      className={`flex min-w-0 flex-col gap-1.5 p-2 transition-colors ${phone ? 'rounded-xl border border-line bg-surface' : `${fit ? 'min-h-0' : 'min-h-[20rem]'} border-e border-line bg-surface last:border-e-0`} ${isToday ? 'bg-brand/[0.06]' : ''} ${drop.over ? 'bg-brand/10 ring-2 ring-inset ring-brand/50' : ''}`}
     >
       <button
         type="button"
@@ -234,7 +274,7 @@ function WeekDay({ day, p, phone, meta }: { day: string; p: ViewProps; phone: bo
       {items.length === 0 && meetings.length === 0 ? (
         <p className="px-1.5 text-xs text-ink-3">Nothing due</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className={`flex flex-col gap-1 ${fit ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : ''}`}>
           {meetings.map((m) => (
             <li key={m.key}>
               <MeetingChip meeting={m} color={m.projectId ? p.colorOf(m.projectId) : undefined} meta={meetingMeta(m)} />

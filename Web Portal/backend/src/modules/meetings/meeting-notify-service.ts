@@ -39,6 +39,10 @@ export interface MeetingNotifyDeps {
   resolveUser: (userId: string) => Promise<NotifyPerson | null>;
   /** Resolve a project id to its name (for the "Project" row). */
   resolveProjectName?: (projectId: string) => Promise<string | null>;
+  /** A project's name, picture ('/uploads/…' or a full address) and colour: the minutes email is headed by them. */
+  resolveProjectLook?: (projectId: string) => Promise<{ name: string; imageUrl: string | null; color: string | null } | null>;
+  /** Where '/uploads/…' pictures are served from (the API's public address); defaults to appUrl. */
+  assetBaseUrl?: string;
   /** Web app base URL for the "Open in app" link. */
   appUrl: string;
   /** Company time zone — used to show times for meetings stored without one. */
@@ -248,6 +252,16 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       description: m.description,
       link: `${deps.appUrl.replace(/\/$/, '')}/meetings/${m.id}`,
     };
+  }
+
+  /** The meeting's project as the minutes email shows it, its picture at an address email clients can load. */
+  async function projectLook(m: MeetingRecord): Promise<MeetingEmailParams['project']> {
+    if (!m.projectId || !deps.resolveProjectLook) return null;
+    const look = await deps.resolveProjectLook(m.projectId).catch(() => null);
+    if (!look) return null;
+    const base = (deps.assetBaseUrl ?? deps.appUrl).replace(/\/+$/, '');
+    const imageUrl = !look.imageUrl ? null : look.imageUrl.startsWith('/') ? `${base}${look.imageUrl}` : /^https?:\/\//i.test(look.imageUrl) ? look.imageUrl : null;
+    return { name: look.name, imageUrl, color: look.color };
   }
 
   const placeOf = (m: MeetingRecord) => m.recurrenceStart ?? m.startAt;
@@ -568,7 +582,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const chosen = opts?.only ? new Set(opts.only.map((e) => e.trim().toLowerCase())) : null;
       const targets = chosen ? recipients.filter((r) => chosen.has(r.email.toLowerCase())) : recipients;
       if (chosen && targets.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
-      const params = await emailParams(m, organizer);
+      const params = { ...(await emailParams(m, organizer)), project: await projectLook(m) };
       const attachment: EmailAttachment = { filename: minutesAttachmentName(m.title, opts?.final), contentType: 'application/pdf', content: pdf };
       const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => email.sendMeetingMinutes(p.email, params, attachment)));
       return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, chosen ? [] : missingEmail);
@@ -577,7 +591,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     async previewMinutes(meetingId, opts) {
       const m = await requireMeeting(meetingId);
       const { recipients, missingEmail, organizer } = await recipientsFor(m);
-      const content = meetingMinutesEmail(await emailParams(m, organizer));
+      const content = meetingMinutesEmail({ ...(await emailParams(m, organizer)), project: await projectLook(m) });
       return { subject: content.subject, html: content.html, text: content.text, attachmentName: minutesAttachmentName(m.title, opts?.final), recipients, missingEmail };
     },
 

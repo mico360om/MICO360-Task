@@ -5,7 +5,7 @@ import type { MeetingNotifyService } from './meeting-notify-service';
 import type { MeetingRecord } from './meeting-repository';
 import type { MeetingSeriesService } from './meeting-series-service';
 import { ruleProblem } from './meeting-series';
-import { buildProjectMeetingsOverview, type ProjectMeetingsData } from './project-meetings';
+import { buildProjectMeetingsOverview, type MinutesState, type ProjectMeetingsData } from './project-meetings';
 
 /** Where the project dashboard's meetings come from, and the company zone for "overdue". */
 export interface ProjectMeetingsDeps {
@@ -110,6 +110,12 @@ export interface MeetingListCounts {
   attendeeCount: number;
   /** Action items still to do (not completed or cancelled). */
   openActionItemCount: number;
+  /** The first few attendees' names (for the cards' faces). */
+  attendees?: string[];
+  /** How far the minutes are. */
+  minutes?: MinutesState;
+  /** Notes recorded as decisions. */
+  decisionCount?: number;
 }
 
 /** Did a change alter what invitees see in their calendar (so an updated invitation is due)? */
@@ -209,7 +215,12 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const flagged = await withEditFlags(req, data);
     if (!deps.listCounts || flagged.length === 0) return { data: flagged };
     const counts = await deps.listCounts(flagged.map((m) => m.id));
-    return { data: flagged.map((m) => ({ ...m, attendeeCount: counts[m.id]?.attendeeCount ?? 0, openActionItemCount: counts[m.id]?.openActionItemCount ?? 0 })) };
+    return {
+      data: flagged.map((m) => {
+        const c = counts[m.id];
+        return { ...m, attendeeCount: c?.attendeeCount ?? 0, openActionItemCount: c?.openActionItemCount ?? 0, attendees: c?.attendees ?? [], minutes: c?.minutes ?? 'NONE', decisionCount: c?.decisionCount ?? 0 };
+      }),
+    };
   });
 
   // The project dashboard: its meetings (six months back, four ahead) with people, minutes,
