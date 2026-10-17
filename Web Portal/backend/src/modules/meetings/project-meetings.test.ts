@@ -88,6 +88,14 @@ describe('project meetings overview', () => {
     expect(o.stats).toMatchObject({ openActionItems: 1, overdueActionItems: 1, decisions: 1 });
   });
 
+  it('lists a formatted decision by its words', () => {
+    const o = buildProjectMeetingsOverview(data({
+      meetings: [meeting('a')],
+      decisions: [{ id: 'n1', meetingId: 'a', body: '<p><strong>Go live</strong> on 1 Nov</p>', bodyFormat: 'RICH', createdAt: new Date('2026-10-13T06:30:00Z') }],
+    }), NOW, TZ);
+    expect(o.decisions[0]!.text).toBe('Go live on 1 Nov');
+  });
+
   it('marks the meetings of a series and lists each series once', () => {
     const rule = { freq: 'WEEKLY' as const, interval: 1 };
     const o = buildProjectMeetingsOverview(data({

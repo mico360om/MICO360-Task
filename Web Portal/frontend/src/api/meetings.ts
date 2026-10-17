@@ -178,6 +178,8 @@ export interface MeetingNote {
   authorId: string;
   type: MeetingNoteType;
   body: string;
+  /** RICH: `body` is formatted text (a safe, fixed HTML form — shown with RichNoteView). PLAIN when absent. */
+  bodyFormat?: 'PLAIN' | 'RICH';
   highlighted: boolean;
   taskId: string | null;
   actionItemId: string | null;
@@ -188,6 +190,8 @@ export interface MeetingNote {
 
 export interface NewNoteInput {
   body: string;
+  /** RICH: `body` is the editor's HTML (the server cleans it). */
+  format?: 'PLAIN' | 'RICH';
   type?: MeetingNoteType;
   agendaItemId?: string | null;
   highlighted?: boolean;
@@ -195,6 +199,7 @@ export interface NewNoteInput {
 
 export interface NotePatch {
   body?: string;
+  format?: 'PLAIN' | 'RICH';
   type?: MeetingNoteType;
   agendaItemId?: string | null;
   highlighted?: boolean;

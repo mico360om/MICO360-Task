@@ -699,6 +699,12 @@ enum MeetingNoteType {
   INFORMATION
 }
 
+/// How a meeting note's body is written: plain text, or formatted (a safe, fixed HTML form).
+enum NoteBodyFormat {
+  PLAIN
+  RICH
+}
+
 enum ActionItemStatus {
   OPEN
   IN_PROGRESS
@@ -809,6 +815,8 @@ model MeetingNote {
   authorId     String
   type         MeetingNoteType            @default(DISCUSSION)
   body         String                     @db.Text
+  /// RICH: `body` is formatted text in the fixed HTML form of lib/rich-text.ts.
+  bodyFormat   NoteBodyFormat             @default(PLAIN)
   highlighted  Boolean                    @default(false)
   taskId       String?
   actionItemId String?

@@ -183,6 +183,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         type: n.type,
         typeLabel: NOTE_TYPE_LABELS[n.type] ?? n.type,
         body: n.body,
+        format: n.bodyFormat ?? 'PLAIN',
         authorName: nameOf(n.authorId) ?? 'Someone',
         createdAt: n.createdAt.toISOString(),
         highlighted: n.highlighted,

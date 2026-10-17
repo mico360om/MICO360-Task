@@ -97,7 +97,8 @@ export function createPrismaDataExporter(prisma: PrismaClient): DataExporter {
       }),
       prisma.meetingNote.findMany({
         where: { authorId: userId, deletedAt: null },
-        select: { type: true, body: true, createdAt: true, editedAt: true, meeting: { select: { title: true, startAt: true } } },
+        // bodyFormat says whether the body is plain text or formatted (HTML).
+        select: { type: true, body: true, bodyFormat: true, createdAt: true, editedAt: true, meeting: { select: { title: true, startAt: true } } },
         take: MAX_ROWS,
         orderBy: { createdAt: 'desc' },
       }),

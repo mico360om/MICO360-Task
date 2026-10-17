@@ -364,6 +364,67 @@
     min-height: 32rem;
   }
 
+  /* Formatted text (meeting notes): shown by RichNoteView, written in RichTextEditor. Each
+     paragraph takes its own direction, so Arabic and English lines sit side by side. */
+  .rich-text p,
+  .rich-text h3,
+  .rich-text li {
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+  .rich-text > * + * {
+    margin-top: 0.35rem;
+  }
+  .rich-text h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: rgb(var(--c-ink));
+  }
+  .rich-text ul,
+  .rich-text ol {
+    padding-inline-start: 1.35rem;
+  }
+  .rich-text ul {
+    list-style: disc;
+  }
+  .rich-text ul ul {
+    list-style: circle;
+  }
+  .rich-text ol {
+    list-style: decimal;
+  }
+  .rich-text li + li,
+  .rich-text li > ul,
+  .rich-text li > ol {
+    margin-top: 0.15rem;
+  }
+  .rich-text strong {
+    font-weight: 650;
+  }
+  .rich-text mark {
+    background: rgb(var(--c-warning) / 0.3);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+  .rich-text a {
+    color: rgb(var(--c-brand-text));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .rich-editor-input {
+    outline: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .rich-editor-input p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: inline-start;
+    height: 0;
+    pointer-events: none;
+    color: rgb(var(--c-ink-3));
+  }
+
   /* Clearer, always-present horizontal scrollbar for the Kanban board. */
   .kanban-scroll {
     scrollbar-width: auto;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
-import type { NoteRepository, NoteRecord, MeetingNoteType } from './note-repository';
+import { isRichEmpty, parseRichHtml, renderRichHtml } from '../../lib/rich-text';
+import type { NoteRepository, NoteRecord, MeetingNoteType, NoteBodyFormat } from './note-repository';
 import type { CanEditMeeting } from './meeting-access';
 
 const TYPES: MeetingNoteType[] = ['DISCUSSION', 'DECISION', 'ACTION', 'ISSUE', 'QUESTION', 'INFORMATION'];
@@ -10,6 +11,8 @@ export const TASK_CLAIM_PREFIX = 'pending:';
 
 export interface AddNoteInput {
   body: string;
+  /** RICH: `body` is formatted (HTML from the editor); it is cleaned before it is kept. */
+  format?: NoteBodyFormat;
   type?: MeetingNoteType;
   agendaItemId?: string | null;
   highlighted?: boolean;
@@ -17,6 +20,8 @@ export interface AddNoteInput {
 
 export interface UpdateNoteInput {
   body?: string;
+  /** The format of `body`; when left out, the note keeps the format it has. */
+  format?: NoteBodyFormat;
   type?: MeetingNoteType;
   highlighted?: boolean;
   agendaItemId?: string | null;
@@ -51,6 +56,27 @@ export interface NoteService {
   linkTask(meetingId: string, noteId: string, taskId: string, actionItemId?: string): Promise<NoteRecord>;
 }
 
+/** The most a note may hold (the column keeps 64 KB; formatting takes some of it). */
+const MAX_BODY_BYTES = 60_000;
+
+/**
+ * A note's body as it is kept: plain text trimmed; formatted text cleaned into its one safe form
+ * (see lib/rich-text.ts). Refuses a note with no words and one too long to keep.
+ */
+function prepareBody(raw: string, format: NoteBodyFormat): string {
+  let body: string;
+  if (format === 'RICH') {
+    const blocks = parseRichHtml(raw);
+    if (isRichEmpty(blocks)) throw new ValidationError('A note needs some content.');
+    body = renderRichHtml(blocks);
+  } else {
+    body = raw.trim();
+    if (!body) throw new ValidationError('A note needs some content.');
+  }
+  if (Buffer.byteLength(body, 'utf8') > MAX_BODY_BYTES) throw new ValidationError('This note is too long. Split it into two notes.');
+  return body;
+}
+
 const trim = (v: string | null | undefined): string | null => {
   const t = (v ?? '').trim();
   return t.length ? t : null;
@@ -77,14 +103,15 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
     },
 
     async addNote(meetingId, authorId, input) {
-      const body = (input.body ?? '').trim();
-      if (!body) throw new ValidationError('A note needs some content.');
+      const format = input.format ?? 'PLAIN';
+      const body = prepareBody(input.body ?? '', format);
       const type = input.type ?? 'DISCUSSION';
       if (!TYPES.includes(type)) throw new ValidationError('Invalid note type.');
       const rec = await notes.add({
         meetingId,
         authorId,
         body,
+        bodyFormat: format,
         type,
         agendaItemId: trim(input.agendaItemId),
         highlighted: input.highlighted ?? false,
@@ -97,15 +124,21 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
       if (patch.body !== undefined && !patch.body.trim()) throw new ValidationError('A note needs some content.');
       if (patch.type !== undefined && !TYPES.includes(patch.type)) throw new ValidationError('Invalid note type.');
       const current = await requireInMeeting(meetingId, noteId);
-      const body = patch.body !== undefined ? patch.body.trim() : undefined;
+      const currentFormat = current.bodyFormat ?? 'PLAIN';
+      // A new format comes with the text in that format.
+      if (patch.format !== undefined && patch.format !== currentFormat && patch.body === undefined) {
+        throw new ValidationError('Send the note’s text along with its new format.');
+      }
+      const format = patch.format ?? currentFormat;
+      const body = patch.body !== undefined ? prepareBody(patch.body, format) : undefined;
       const agendaItemId = patch.agendaItemId !== undefined ? trim(patch.agendaItemId) : undefined;
       // Only a change to what the note says marks it "edited" — highlighting it doesn't.
       const contentChanged =
-        (body !== undefined && body !== current.body) ||
+        (body !== undefined && (body !== current.body || format !== currentFormat)) ||
         (patch.type !== undefined && patch.type !== current.type) ||
         (agendaItemId !== undefined && agendaItemId !== current.agendaItemId);
       const rec = await notes.update(noteId, {
-        ...(body !== undefined ? { body } : {}),
+        ...(body !== undefined ? { body, bodyFormat: format } : {}),
         ...(patch.type !== undefined ? { type: patch.type } : {}),
         ...(patch.highlighted !== undefined ? { highlighted: patch.highlighted } : {}),
         ...(agendaItemId !== undefined ? { agendaItemId } : {}),

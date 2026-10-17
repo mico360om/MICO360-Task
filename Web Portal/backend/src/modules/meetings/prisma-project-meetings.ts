@@ -72,7 +72,7 @@ export function createPrismaProjectMeetingsSource(prisma: PrismaClient) {
           where: { meetingId: { in: ids }, deletedAt: null, type: 'DECISION' },
           orderBy: { createdAt: 'desc' },
           take: 100,
-          select: { id: true, meetingId: true, body: true, createdAt: true },
+          select: { id: true, meetingId: true, body: true, bodyFormat: true, createdAt: true },
         }),
         prisma.meetingNote.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, deletedAt: null }, _count: { _all: true } }),
         prisma.meetingMinutes.findMany({ where: { meetingId: { in: ids } }, select: { meetingId: true, status: true } }),

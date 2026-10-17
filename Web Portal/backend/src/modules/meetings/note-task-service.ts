@@ -3,6 +3,7 @@ import type { Priority } from '../tasks/task-repository';
 import type { TaskRecord } from '../tasks/task-repository';
 import type { NoteService } from './note-service';
 import type { NoteRecord } from './note-repository';
+import { noteText } from '../../lib/rich-text';
 import type { ActionItemRecord } from './action-item-repository';
 import type { AddActionItemInput } from './action-item-service';
 
@@ -104,12 +105,14 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
         columnId = target.id;
       }
 
-      const title = (overrides.title ?? '').trim() || deriveTitle(note.body);
+      // A formatted note gives its words (with its list structure), never its markup.
+      const text = noteText(note);
+      const title = (overrides.title ?? '').trim() || deriveTitle(text);
       const typeLabel = TYPE_LABELS[note.type] ?? 'note';
       const description =
         overrides.description !== undefined
           ? overrides.description
-          : `${note.body}\n\n— From the ${typeLabel} in meeting "${meeting.title}".`;
+          : `${text}\n\n— From the ${typeLabel} in meeting "${meeting.title}".`;
 
       const dueDate = overrides.dueDate ? new Date(overrides.dueDate) : undefined;
       if (dueDate && Number.isNaN(dueDate.getTime())) throw new ValidationError('Invalid due date.');

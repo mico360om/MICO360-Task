@@ -343,14 +343,16 @@ describe('MeetingDetailPage — notes', () => {
     renderPage();
     await screen.findByText('Ship on Thursday');
     await userEvent.click(screen.getByRole('radio', { name: /^issue$/i }));
-    await userEvent.type(screen.getByLabelText(/^new note$/i), 'Vendor is late');
+    const box = () => screen.getByRole('textbox', { name: /^new note$/i });
+    await userEvent.click(box());
+    await userEvent.type(box(), 'Vendor is late');
     await userEvent.click(screen.getByRole('button', { name: /^add note$/i }));
     expect(await screen.findByText(/couldn’t save the note/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^new note$/i)).toHaveValue('Vendor is late');
+    expect(box()).toHaveTextContent('Vendor is late');
     fail = false;
     await userEvent.click(screen.getByRole('button', { name: /^add note$/i }));
-    await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/meetings/m1/notes')).at(-1)?.body).toMatchObject({ body: 'Vendor is late', type: 'ISSUE' }));
-    await waitFor(() => expect(screen.getByLabelText(/^new note$/i)).toHaveValue(''));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/meetings/m1/notes')).at(-1)?.body).toMatchObject({ body: '<p>Vendor is late</p>', format: 'RICH', type: 'ISSUE' }));
+    await waitFor(() => expect(box()).toHaveTextContent(''));
   });
 
   it('asks before deleting a note, and only then sends the delete (MTG-07)', async () => {

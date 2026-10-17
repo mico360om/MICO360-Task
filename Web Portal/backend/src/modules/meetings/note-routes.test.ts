@@ -42,7 +42,7 @@ function noteRepo(): NoteRepository {
     async add(d: CreateNoteData) {
       const rec: NoteRecord = {
         id: `n${seq++}`, meetingId: d.meetingId, agendaItemId: d.agendaItemId ?? null, authorId: d.authorId,
-        type: d.type, body: d.body, highlighted: d.highlighted ?? false, taskId: null, actionItemId: null,
+        type: d.type, body: d.body, bodyFormat: d.bodyFormat ?? 'PLAIN', highlighted: d.highlighted ?? false, taskId: null, actionItemId: null,
         decisionId: null, createdAt: new Date(), editedAt: null,
       };
       rows.set(rec.id, rec);
@@ -97,6 +97,24 @@ describe('Note routes', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json().data).toMatchObject({ body: 'Ship the beta Friday', type: 'ACTION', highlighted: true, authorId: 'u1' });
+  });
+
+  it('captures a formatted note, cleaned of anything unsafe', async () => {
+    const app = await makeApp();
+    const id = await ownedMeeting(app, 'u1');
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/meetings/${id}/notes`,
+      headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` },
+      payload: { body: '<p onclick="x()"><b>Ship</b> <a href="javascript:alert(1)">beta</a></p><ul><li>Friday</li></ul>', format: 'RICH' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ body: '<p><strong>Ship</strong> beta</p><ul><li><p>Friday</p></li></ul>', bodyFormat: 'RICH' });
+    const bad = await app.inject({
+      method: 'POST', url: `/api/v1/meetings/${id}/notes`,
+      headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` },
+      payload: { body: 'x', format: 'WORD' },
+    });
+    expect(bad.statusCode).toBe(400);
   });
 
   it('hides notes from an outsider (404) and forbids capturing (403)', async () => {

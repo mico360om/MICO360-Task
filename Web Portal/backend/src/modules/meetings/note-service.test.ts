@@ -10,7 +10,7 @@ function inMemory(): NoteRepository {
     async add(d: CreateNoteData) {
       const rec: NoteRecord = {
         id: `n${seq++}`, meetingId: d.meetingId, agendaItemId: d.agendaItemId ?? null, authorId: d.authorId,
-        type: d.type, body: d.body, highlighted: d.highlighted ?? false, taskId: null, actionItemId: null,
+        type: d.type, body: d.body, bodyFormat: d.bodyFormat ?? 'PLAIN', highlighted: d.highlighted ?? false, taskId: null, actionItemId: null,
         decisionId: null, createdAt: new Date(), editedAt: null,
       };
       rows.set(rec.id, rec);
@@ -26,6 +26,44 @@ function inMemory(): NoteRepository {
     async releaseTaskClaim(id, marker) { const r = rows.get(id); if (r && r.taskId === marker) rows.set(id, { ...r, taskId: null }); },
   };
 }
+
+describe('NoteService — formatted notes', () => {
+  it('keeps a formatted note in the one safe form, and says it is formatted', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const n = await svc.addNote('m1', 'u1', { body: '<p><b>Pour</b> on Monday<script>alert(1)</script></p>', format: 'RICH' });
+    expect(n.bodyFormat).toBe('RICH');
+    expect(n.body).toBe('<p><strong>Pour</strong> on Monday</p>');
+  });
+
+  it('refuses a formatted note with no words in it', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    await expect(svc.addNote('m1', 'u1', { body: '<p> </p><ul><li><p></p></li></ul>', format: 'RICH' })).rejects.toThrow(/needs some content/);
+  });
+
+  it('refuses a note too long to keep', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const huge = `<p>${'word '.repeat(13_000)}</p>`;
+    await expect(svc.addNote('m1', 'u1', { body: huge, format: 'RICH' })).rejects.toThrow(/too long/);
+  });
+
+  it('edits a note into a formatted one (and back), marking it edited', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const n = await svc.addNote('m1', 'u1', { body: 'plain words' });
+    expect(n.bodyFormat).toBe('PLAIN');
+    const rich = await svc.updateNote('m1', n.id, { body: '<p>plain <em>words</em></p>', format: 'RICH' });
+    expect(rich).toMatchObject({ body: '<p>plain <em>words</em></p>', bodyFormat: 'RICH' });
+    expect(rich.editedAt).toBeTruthy();
+    const plain = await svc.updateNote('m1', n.id, { body: 'plain again', format: 'PLAIN' });
+    expect(plain).toMatchObject({ body: 'plain again', bodyFormat: 'PLAIN' });
+  });
+
+  it('cleans a formatted edit sent without the format again (the note is already formatted)', async () => {
+    const svc = createNoteService({ notes: inMemory() });
+    const n = await svc.addNote('m1', 'u1', { body: '<p>one</p>', format: 'RICH' });
+    const edited = await svc.updateNote('m1', n.id, { body: '<p>two<img src=x onerror=alert(1)></p>' });
+    expect(edited).toMatchObject({ body: '<p>two</p>', bodyFormat: 'RICH' });
+  });
+});
 
 describe('NoteService', () => {
   it('adds a note defaulting to DISCUSSION and trims the body', async () => {

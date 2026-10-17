@@ -42,6 +42,17 @@ function fakes(meeting: { id: string; title: string; projectId: string | null })
   return { note, noteService, meetingService, taskService, columnService };
 }
 
+describe('createTaskFromNote — formatted notes', () => {
+  it('names the task and describes it with the note’s words, not its markup', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    Object.assign(f.note, { body: '<p><strong>Book</strong> the scaffolding inspection</p><ul><li><p>East side first</p></li></ul>', bodyFormat: 'RICH' });
+    const svc = createNoteTaskService(f as never);
+    const { task } = await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+    expect((task as { title: string }).title).toBe('Book the scaffolding inspection');
+    expect((task as { description: string }).description).toMatch(/^Book the scaffolding inspection\n- East side first\n\n— From the/);
+  });
+});
+
 describe('createTaskFromNote', () => {
   it('creates a task in the meeting project’s first enabled column and back-links the note', async () => {
     const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });

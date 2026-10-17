@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fontkit from 'fontkit';
-import { fontData, isolate, layoutText, measureText, sanitizeText, shapingFeatures, textDirection } from './pdf-text';
+import { fontData, isolate, layoutStyledText, layoutText, measureText, sanitizeText, shapingFeatures, textDirection } from './pdf-text';
 
 const seg = (text: string, maxWidth?: number) => layoutText(text, { size: 10, maxWidth });
 
@@ -141,5 +141,59 @@ describe('pdf-text: wrapping and measuring', () => {
     expect(measureText('Meeting', 12, true)).toBeGreaterThan(measureText('Meeting', 12, false));
     expect(measureText('اجتماع', 12)).toBeGreaterThan(0);
     expect(measureText('اجتماع اجتماع', 12)).toBeGreaterThan(measureText('اجتماع', 12) * 2);
+  });
+});
+
+describe('pdf-text: formatted text (styled runs)', () => {
+  it('has italic faces of the brand font', () => {
+    expect(fontkit.create(fontData('latin-italic')).postscriptName).toBe('IBMPlexSans-Italic');
+    expect(fontkit.create(fontData('latin-bold-italic')).postscriptName).toBe('IBMPlexSans-SemiBoldItalic');
+  });
+
+  it('sets each run in its own face and keeps its underline, highlight and link', () => {
+    const [line] = layoutStyledText(
+      [
+        { text: 'Pour ' },
+        { text: 'slab', bold: true },
+        { text: ' on ' },
+        { text: 'Monday', italic: true, underline: true },
+        { text: ' and ' },
+        { text: 'both', bold: true, italic: true },
+        { text: ' see ' },
+        { text: 'plan', href: 'https://x.co', highlight: true },
+      ],
+      { size: 10 },
+    );
+    expect(line!.segments.map((s) => [s.logical, s.font, s.style ?? {}])).toEqual([
+      ['Pour ', 'latin', {}],
+      ['slab', 'latin-bold', {}],
+      [' on ', 'latin', {}],
+      ['Monday', 'latin-italic', { underline: true }],
+      [' and ', 'latin', {}],
+      ['both', 'latin-bold-italic', {}],
+      [' see ', 'latin', {}],
+      ['plan', 'latin', { highlight: true, href: 'https://x.co' }],
+    ]);
+    expect(line!.text).toBe('Pour slab on Monday and both see plan');
+  });
+
+  it('wraps across runs where the same words would wrap as plain text', () => {
+    const words = 'The concrete supplier confirmed two trucks for Monday morning at seven';
+    const plain = layoutText(words, { size: 10, maxWidth: 160 }).map((l) => l.text);
+    const styled = layoutStyledText([{ text: 'The concrete supplier ' }, { text: 'confirmed two trucks', underline: true }, { text: ' for Monday morning at seven' }], { size: 10, maxWidth: 160 }).map((l) => l.text);
+    expect(styled).toEqual(plain);
+    expect(styled.length).toBeGreaterThan(1);
+  });
+
+  it('starts a new line at a line break inside a run', () => {
+    expect(layoutStyledText([{ text: 'one\ntwo', bold: true }, { text: ' three' }], { size: 10 }).map((l) => l.text)).toEqual(['one', 'two three']);
+  });
+
+  it('keeps Arabic in Naskh (it has no italic) and in right-to-left order', () => {
+    const [line] = layoutStyledText([{ text: 'مراجعة ' }, { text: 'خطة', italic: true, bold: true }, { text: ' السلامة' }], { size: 10 });
+    expect(line!.rtl).toBe(true);
+    expect(line!.text).toBe('مراجعة خطة السلامة');
+    expect(line!.segments.every((s) => s.font.startsWith('arabic'))).toBe(true);
+    expect(line!.segments.some((s) => s.font === 'arabic-bold')).toBe(true);
   });
 });

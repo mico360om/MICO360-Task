@@ -1,5 +1,8 @@
 export type MeetingNoteType = 'DISCUSSION' | 'DECISION' | 'ACTION' | 'ISSUE' | 'QUESTION' | 'INFORMATION';
 
+/** PLAIN text, or RICH: formatted text in the fixed HTML form of lib/rich-text.ts. */
+export type NoteBodyFormat = 'PLAIN' | 'RICH';
+
 export interface NoteRecord {
   id: string;
   meetingId: string;
@@ -7,6 +10,8 @@ export interface NoteRecord {
   authorId: string;
   type: MeetingNoteType;
   body: string;
+  /** How `body` is written (PLAIN when not given). */
+  bodyFormat?: NoteBodyFormat;
   highlighted: boolean;
   /** Set when this note has been promoted to a board Task (Phase 4). */
   taskId: string | null;
@@ -22,12 +27,14 @@ export interface CreateNoteData {
   authorId: string;
   type: MeetingNoteType;
   body: string;
+  bodyFormat?: NoteBodyFormat;
   highlighted?: boolean;
 }
 
 export interface UpdateNoteData {
   type?: MeetingNoteType;
   body?: string;
+  bodyFormat?: NoteBodyFormat;
   highlighted?: boolean;
   agendaItemId?: string | null;
   taskId?: string | null;

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { meetingsApi, NOTE_TYPE_LABELS, type MeetingNote, type MeetingNoteType } from '../../api/meetings';
@@ -6,8 +6,10 @@ import type { DirectoryUser } from '../../api/users';
 import { apiClient } from '../../api/client';
 import { useAuthStore } from '../../stores/auth-store';
 import { Button } from '../ui/Button';
-import { fieldClass } from '../ui/Field';
 import { CreateTaskFromNoteModal } from '../CreateTaskFromNoteModal';
+import { RichTextEditor } from '../rich-text/RichTextEditor';
+import { RichNoteView } from '../rich-text/RichNoteView';
+import { plainToRichHtml } from '../../lib/rich-note';
 import { SaveIndicator, useSaveState } from '../task-drawer/save-state';
 import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
@@ -122,14 +124,14 @@ export function NotesSection({
 
   async function submitAdd(e?: FormEvent) {
     e?.preventDefault();
-    if (!body.trim()) {
+    if (!body) {
       compose.fail('Write the note first.');
       return;
     }
     // The text stays until the server has it, so a failed save loses nothing.
     const ok = await compose.run(() =>
       meetingsApi(apiClient)
-        .addNote(meetingId, { body: body.trim(), type, highlighted: highlight })
+        .addNote(meetingId, { body, format: 'RICH', type, highlighted: highlight })
         .catch((err) => {
           throw new Error(meetingFailure(err, 'Couldn’t save the note — it’s still here, so you can try again.'));
         }),
@@ -140,13 +142,6 @@ export function NotesSection({
       void refresh();
     }
   }
-  function onComposerKey(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      void submitAdd();
-    }
-  }
-
   const filters: { key: MeetingNoteType | 'ALL' | 'KEY'; label: string; n: number }[] = [
     { key: 'ALL', label: 'All', n: notes.length },
     ...(keyCount ? [{ key: 'KEY' as const, label: 'Key points', n: keyCount }] : []),
@@ -155,18 +150,16 @@ export function NotesSection({
 
   return (
     <Section id="notes" title="Live notes" count={notes.length || undefined}>
-      {/* Composer — pick a category, write, ⌘/Ctrl+Enter to add. */}
+      {/* Composer — pick a category, write (with formatting), ⌘/Ctrl+Enter to add. */}
       <form onSubmit={(e) => void submitAdd(e)} className="mb-4 flex flex-col gap-2 rounded-xl border border-line bg-ground/40 p-3">
         <TypePicker value={type} onChange={setType} name="note-type" label="Note category" />
-        <textarea
+        <RichTextEditor
           value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={onComposerKey}
-          rows={2}
-          dir="auto"
+          onChange={setBody}
+          onSubmit={() => void submitAdd()}
+          ariaLabel="New note"
           placeholder={`Write a ${NOTE_TYPE_LABELS[type].toLowerCase()}… (Ctrl+Enter to add)`}
-          aria-label="New note"
-          className={fieldClass(compose.state.status === 'error')}
+          invalid={compose.state.status === 'error'}
         />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label className="flex min-h-9 items-center gap-1.5 text-sm text-ink-2">
@@ -241,7 +234,11 @@ export function NotesSection({
                       </button>
                     ) : null}
                   </div>
-                  <p dir="auto" className="whitespace-pre-wrap text-start text-sm text-ink">{note.body}</p>
+                  {note.bodyFormat === 'RICH' ? (
+                    <RichNoteView html={note.body} className="text-sm text-ink" />
+                  ) : (
+                    <p dir="auto" className="whitespace-pre-wrap text-start text-sm text-ink">{note.body}</p>
+                  )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1">
                     {!note.taskId && note.type === 'ACTION' ? (
                       <button type="button" onClick={() => setTaskForNote(note)} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-brand/30 px-2 text-xs font-medium text-brand hover:bg-brand/10">
@@ -296,18 +293,19 @@ export function NotesSection({
 }
 
 function NoteEditor({ meetingId, note, onDone }: { meetingId: string; note: MeetingNote; onDone: (saved?: MeetingNote) => void }) {
-  const [body, setBody] = useState(note.body);
+  // A plain note opens in the same box (its words as paragraphs) and is saved formatted.
+  const [body, setBody] = useState(() => (note.bodyFormat === 'RICH' ? note.body : plainToRichHtml(note.body)));
   const [type, setType] = useState<MeetingNoteType>(note.type);
   const save = useSaveState();
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!body.trim()) {
+  async function submit(e?: FormEvent) {
+    e?.preventDefault();
+    if (!body) {
       save.fail('A note can’t be empty.');
       return;
     }
     let saved: MeetingNote | undefined;
     const ok = await save.run(async () => {
-      saved = await meetingsApi(apiClient).updateNote(meetingId, note.id, { body: body.trim(), type }).catch((err) => {
+      saved = await meetingsApi(apiClient).updateNote(meetingId, note.id, { body, format: 'RICH', type }).catch((err) => {
         throw new Error(meetingFailure(err, 'Couldn’t save your changes — they’re still here, so you can try again.'));
       });
     });
@@ -325,7 +323,7 @@ function NoteEditor({ meetingId, note, onDone }: { meetingId: string; note: Meet
       className="flex flex-col gap-2"
     >
       <TypePicker value={type} onChange={setType} name={`note-type-${note.id}`} label="Category" />
-      <textarea value={body} dir="auto" autoFocus onChange={(e) => setBody(e.target.value)} rows={3} aria-label="Edit note" className={fieldClass(save.state.status === 'error')} />
+      <RichTextEditor value={body} onChange={setBody} onSubmit={() => void submit()} ariaLabel="Edit note" autoFocus invalid={save.state.status === 'error'} />
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="sm" loading={save.busy}>Save</Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => onDone()} disabled={save.busy}>Cancel</Button>

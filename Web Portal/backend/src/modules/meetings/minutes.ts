@@ -1,4 +1,6 @@
-import { PdfDocument, hexToRgb, type RGB } from '../../lib/pdf-document';
+import { BULLET, PdfDocument, hexToRgb, type PdfRichBlock, type RGB } from '../../lib/pdf-document';
+import { linkNeedsAddress, listMarkers, noteText, parseRichHtml } from '../../lib/rich-text';
+import type { StyledRun } from '../../lib/pdf-text';
 import { printableImage } from '../../lib/pdf-image';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { isValidTimeZone } from './meeting-validation';
@@ -37,6 +39,8 @@ export interface MinutesNote {
   type: string; // raw enum, used for grouping
   typeLabel: string;
   body: string;
+  /** RICH: `body` is formatted (lib/rich-text.ts) and is printed with its formatting. */
+  format?: 'PLAIN' | 'RICH';
   authorName: string;
   createdAt: string; // ISO
   highlighted: boolean;
@@ -118,6 +122,30 @@ export interface MinutesData {
    * no valid zone of its own. Falls back to the COMPANY_TIMEZONE env var, then Asia/Muscat.
    */
   companyTimeZone?: string | null;
+}
+
+/**
+ * A formatted note as the PDF prints it: its blocks with their list markers, each run in its faces
+ * and decorations, and a link followed by its address (so a printed copy keeps it).
+ */
+export function printableNote(body: string): PdfRichBlock[] {
+  const blocks = parseRichHtml(body);
+  const markers = listMarkers(blocks);
+  return blocks.map((b, i) => ({
+    kind: b.kind,
+    ...(b.kind === 'item' ? { level: b.level, marker: markers[i] ?? BULLET } : {}),
+    runs: b.runs.flatMap((r): StyledRun[] => {
+      const run: StyledRun = {
+        text: r.text,
+        bold: r.marks.includes('bold'),
+        italic: r.marks.includes('italic'),
+        underline: r.marks.includes('underline'),
+        highlight: r.marks.includes('highlight'),
+        ...(r.href ? { href: r.href } : {}),
+      };
+      return linkNeedsAddress(r) ? [run, { text: ` (${r.href})` }] : [run];
+    }),
+  }));
 }
 
 const MUTED: RGB = [0.42, 0.4, 0.38];
@@ -270,14 +298,28 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const byline = (n: MinutesNote): string =>
     `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}${n.highlighted ? ' · Key point' : ''}`;
 
+  /**
+   * A note as an item of a list, after a bullet or its number: a formatted note keeps its
+   * formatting. Returns the direction its byline follows.
+   */
+  const noteItem = (n: MinutesNote, lead: string = BULLET): 'ltr' | 'rtl' => {
+    if (n.format === 'RICH') {
+      doc.richBlocks(printableNote(n.body), { lead });
+      return textDirection(noteText({ body: n.body, bodyFormat: n.format }));
+    }
+    const direction = textDirection(n.body);
+    if (lead === BULLET) doc.bullet(n.body, { direction });
+    else doc.numbered(lead, n.body, { direction });
+    return direction;
+  };
+
   // Notes grouped by kind, with a sub-heading per kind when a section has more than one.
   const noteGroups = (groups: Array<[string, MinutesNote[]]>) => {
     const shown = groups.filter(([, notes]) => notes.length > 0);
     for (const [label, notes] of shown) {
       if (shown.length > 1) doc.text(label, { bold: true, size: 10.5, color: INK, gap: 2 });
       for (const n of notes) {
-        const direction = textDirection(n.body);
-        doc.bullet(n.body, { direction });
+        const direction = noteItem(n);
         doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 2, direction });
       }
     }
@@ -418,8 +460,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   if (decisions.length > 0) {
     doc.heading('Decisions', { keepWith: 30 });
     decisions.forEach((n, i) => {
-      const direction = textDirection(n.body);
-      doc.numbered(`${i + 1}.`, n.body, { direction });
+      const direction = noteItem(n, `${i + 1}.`);
       doc.text(byline(n), { color: MUTED, size: 8.5, indent: 16, gap: 2, direction });
     });
   }
@@ -430,8 +471,8 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     if (actionNotes.length > 0) {
       if (items.length > 0) doc.text('Also noted during the meeting', { bold: true, size: 9.5, color: INK, gap: 2 });
       for (const n of actionNotes) {
-        doc.bullet(n.body, { direction: textDirection(n.body) });
-        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction: textDirection(n.body) });
+        const direction = noteItem(n);
+        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction });
       }
     }
   }

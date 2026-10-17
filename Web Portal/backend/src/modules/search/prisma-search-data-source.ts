@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { taskMatches, type SearchDataSource, type SearchableMeeting } from './search-service';
 import { normalizeForSearch, prefilterTerms } from './text-normalize';
+import { noteText } from '../../lib/rich-text';
 
 /** Rows fetched per task search before the exact (normalised) match narrows them down. */
 const TASK_CANDIDATES = 500;
@@ -31,7 +32,7 @@ export function createPrismaSearchDataSource(prisma: PrismaClient): SearchDataSo
         // Meeting Knowledge Base: meetings + their agenda / notes / decisions, indexed for search.
         prisma.meeting.findMany({ where: { deletedAt: null }, select: { id: true, title: true, projectId: true, organizerId: true, description: true }, take: 500 }),
         prisma.agendaItem.findMany({ select: { meetingId: true, title: true }, take: 4000 }),
-        prisma.meetingNote.findMany({ where: { deletedAt: null }, select: { meetingId: true, body: true }, take: 8000 }),
+        prisma.meetingNote.findMany({ where: { deletedAt: null }, select: { meetingId: true, body: true, bodyFormat: true }, take: 8000 }),
         prisma.decision.findMany({ select: { meetingId: true, title: true, description: true }, take: 4000 }),
         prisma.meetingAttendee.findMany({ select: { meetingId: true, userId: true }, take: 8000 }),
       ]);
@@ -45,7 +46,7 @@ export function createPrismaSearchDataSource(prisma: PrismaClient): SearchDataSo
         contentById.set(mid, arr);
       };
       for (const g of agenda) push(g.meetingId, g.title);
-      for (const n of notes) push(n.meetingId, n.body);
+      for (const n of notes) push(n.meetingId, noteText(n));
       for (const d of decisions) push(d.meetingId, d.title, d.description);
 
       const attendeesById = new Map<string, string[]>();

@@ -322,6 +322,26 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(pages[0]).toContain('MICO360 Tasks');
   });
 
+  it('prints a formatted note with its formatting: faces, highlight, lists and the link with its address', () => {
+    const note = {
+      type: 'DISCUSSION', typeLabel: 'Discussion', format: 'RICH' as const, authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false,
+      body: '<h3>Site</h3><p>Pour the <strong>slab</strong> on <em>Monday</em>, <mark>no rain</mark>. See <a href="https://example.com/plan">the plan</a>.</p>' +
+        '<ol><li><p>Book trucks</p></li><li><p>Call the pump</p><ul><li><p>Backup pump</p></li></ul></li></ol>',
+    };
+    const { pages, contents, objects } = inspectPdf(buildMinutesPdf({ ...data, notes: [note] }));
+    const text = pages.flat();
+    expect(text).toEqual(expect.arrayContaining(['Site', 'Pour the slab on Monday, no rain. See the plan (https://example.com/plan).', 'Book trucks', 'Call the pump', 'Backup pump', '1.', '2.']));
+    // In order, and attributed like any note.
+    expect(text.indexOf('Site')).toBeLessThan(text.indexOf('Book trucks'));
+    expect(text.indexOf('Backup pump')).toBeLessThan(text.findIndex((l) => l.startsWith('— Ada Lovelace')));
+    const dicts = [...objects.values()].join('\n');
+    expect(dicts).toMatch(/IBMPlexSans-Italic/); // italics in the italic face
+    expect(dicts).toMatch(/\/URI \(https:\/\/example\.com\/plan\)/); // the link can be clicked
+    expect(contents.join('\n')).toMatch(/0\.992\d* 0\.90196\d* 0\.5411\d* (rg|scn)/); // the highlight is drawn
+    // Not one tag in the document.
+    expect(text.join(' ')).not.toMatch(/<\/?(p|strong|em|mark|ol|ul|li|h3|a)\b/);
+  });
+
   it('marks the minutes as a draft until there is an approved Final MOM', () => {
     expect(inspectPdf(buildMinutesPdf(data)).pages[0]).toContain('DRAFT');
     expect(lines(data)).not.toContain('Final Minutes of Meeting');

@@ -6,6 +6,7 @@ import { projectsApi } from '../api/projects';
 import { membersApi } from '../api/members';
 import { ApiError } from '../lib/api-client';
 import { invalidateTaskQueries } from '../lib/task-cache';
+import { noteWords } from '../lib/rich-note';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
@@ -42,7 +43,8 @@ function deriveTitle(body: string): string {
 export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onClose, onCreated, onOpenTask }: CreateTaskFromNoteModalProps) {
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
-  const [title, setTitle] = useState(() => deriveTitle(note.body));
+  // A formatted note gives its words (and list structure), never its markup.
+  const [title, setTitle] = useState(() => deriveTitle(noteWords(note)));
   const [projectId, setProjectId] = useState(defaultProjectId ?? '');
   const [priority, setPriority] = useState<Priority>('NORMAL');
   const [dueDate, setDueDate] = useState('');
@@ -120,7 +122,7 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
       {/* Source note context */}
       <div className="rounded-lg border border-line bg-ground/50 p-3">
         <Badge tone="brand">{NOTE_TYPE_LABELS[note.type]}</Badge>
-        <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-sm text-ink-2">{note.body}</p>
+        <p dir="auto" className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-sm text-ink-2">{noteWords(note)}</p>
       </div>
     </>
   );

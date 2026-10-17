@@ -17,8 +17,11 @@ const createTaskFromNoteSchema = z.object({
   assigneeId: z.string().min(1).nullable().optional(),
 });
 
+const formatEnum = z.enum(['PLAIN', 'RICH']);
+
 const addSchema = z.object({
   body: z.string().min(1),
+  format: formatEnum.optional(),
   type: typeEnum.optional(),
   agendaItemId: z.string().min(1).nullable().optional(),
   highlighted: z.boolean().optional(),
@@ -26,6 +29,7 @@ const addSchema = z.object({
 
 const patchSchema = z.object({
   body: z.string().min(1).optional(),
+  format: formatEnum.optional(),
   type: typeEnum.optional(),
   agendaItemId: z.string().min(1).nullable().optional(),
   highlighted: z.boolean().optional(),

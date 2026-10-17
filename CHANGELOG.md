@@ -14,6 +14,22 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-17
+
+### New features
+- Meeting Live notes can be formatted: bold, italic, underline, highlight, a heading, bulleted and
+  numbered lists, and links. There is a toolbar above the box, the usual shortcuts work (Ctrl+B,
+  Ctrl+I, Ctrl+U, Ctrl+K for a link) and typing "- " or "1. " starts a list. Text pasted from Word,
+  Teams or an email keeps that formatting and leaves the rest. Every kind of note can be formatted,
+  and editing a note uses the same box; older notes stay as they were written.
+- The minutes PDF prints formatted notes as they look on screen, a link with its address beside it.
+  Tasks made from a note, the Final MOM drafted from the notes, the AI's draft, search and the
+  project dashboard's decisions use the note's words.
+
+### Security
+- Formatted notes are cleaned on the server: only that formatting is ever kept, so nothing unsafe can
+  be saved, shown or printed, and links can only lead to web or email addresses.
+
 ## [1.0.2] - 2026-10-17
 
 ### Improvements

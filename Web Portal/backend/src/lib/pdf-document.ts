@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
-import { drawTextLine, layoutText, lineBox, measureText, registerPdfFonts, type TextLine } from './pdf-text';
+import { drawTextLine, layoutStyledText, layoutText, lineBox, measureText, registerPdfFonts, type StyledRun, type TextLine } from './pdf-text';
 
 export type RGB = [number, number, number];
 
@@ -135,6 +135,19 @@ export interface TableColumn {
 }
 
 const NUMERIC = /^[-+]?[\d,]*\.?\d+%?$/;
+
+/** A block of formatted text for richBlocks: a paragraph, a heading or a list item. */
+export interface PdfRichBlock {
+  kind: 'paragraph' | 'heading' | 'item';
+  runs: StyledRun[];
+  /** A list item's marker: '•' (drawn as a small square) or a number such as "2.". */
+  marker?: string;
+  /** How deeply a list item is nested (0 = top). */
+  level?: number;
+}
+
+/** The bullet marker of lists (drawn as a small square in the brand colour). */
+export const BULLET = '•';
 
 export class PdfDocument {
   readonly pageWidth: number; // A4, the paper size used in Oman
@@ -514,6 +527,57 @@ export class PdfDocument {
       this.y += box.height;
     });
     return this;
+  }
+
+  /**
+   * Formatted text, block by block: paragraphs, a heading and (nested) bulleted or numbered lists,
+   * in bold / italic faces, with underline, highlight and clickable links. `lead` puts a bullet or a
+   * number before the first line and hangs everything after it (a note in a list of notes). Right-
+   * to-left blocks are set from the right edge, their markers too.
+   */
+  richBlocks(blocks: PdfRichBlock[], options: { lead?: string; size?: number } = {}): this {
+    const size = options.size ?? 10.5;
+    const leadW = options.lead ? this.markerWidth(options.lead, size) : 0;
+    blocks.forEach((b, bi) => {
+      const heading = b.kind === 'heading';
+      const s = heading ? size + 0.5 : size;
+      const runs = heading ? b.runs.map((r) => ({ ...r, bold: true })) : b.runs;
+      const itemIndent = b.kind === 'item' ? (b.level ?? 0) * 14 : 0;
+      const markerW = b.kind === 'item' ? this.markerWidth(b.marker ?? BULLET, s) : 0;
+      const textIndent = leadW + itemIndent + markerW;
+      const width = this.contentWidth - textIndent;
+      const lines = layoutStyledText(runs, { size: s, maxWidth: width });
+      const rtl = lines[0]?.rtl ?? false;
+      if (bi > 0) this.y += heading ? 4 : 2;
+      lines.forEach((ln, i) => {
+        const box = lineBox(ln, s);
+        this.ensure(box.height);
+        const baseline = this.y + box.ascent;
+        if (i === 0 && bi === 0 && options.lead) this.drawMarker(options.lead, 0, baseline, s, rtl);
+        if (i === 0 && b.kind === 'item') this.drawMarker(b.marker ?? BULLET, leadW + itemIndent, baseline, s, rtl);
+        this.placeLine(ln, rtl ? this.margin : this.margin + textIndent, width, baseline, s, this.pal.ink, 'start');
+        this.y += box.height;
+      });
+    });
+    return this;
+  }
+
+  /** Room a list marker takes before its text. */
+  private markerWidth(marker: string, size: number): number {
+    return marker === BULLET ? 12 : Math.max(16, measureText(marker, size, true) + size * 0.3 + 4);
+  }
+
+  /** A bullet (a small square) or a number, `offset` points in from the starting edge (the right one when right-to-left). */
+  private drawMarker(marker: string, offset: number, baseline: number, size: number, rtl: boolean): void {
+    if (marker === BULLET) {
+      const sq = 2.6;
+      const sx = rtl ? this.pageWidth - this.margin - offset - 1 - sq : this.margin + offset + 1;
+      this.fillRect(sx, baseline - size * 0.28 - sq, sq, sq, this.pal.brand);
+      return;
+    }
+    const line = layoutText(marker, { size, bold: true, direction: rtl ? 'rtl' : 'ltr' })[0]!;
+    const mx = rtl ? this.pageWidth - this.margin - offset - line.width : this.margin + offset;
+    drawTextLine(this.doc, line, mx, baseline, size, toHex(this.pal.brand));
   }
 
   /**

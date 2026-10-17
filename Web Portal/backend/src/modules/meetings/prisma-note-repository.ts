@@ -11,6 +11,7 @@ function toRecord(r: Row): NoteRecord {
     authorId: r.authorId,
     type: r.type,
     body: r.body,
+    bodyFormat: r.bodyFormat,
     highlighted: r.highlighted,
     taskId: r.taskId,
     actionItemId: r.actionItemId,
@@ -30,6 +31,7 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
           authorId: data.authorId,
           type: data.type,
           body: data.body,
+          bodyFormat: data.bodyFormat ?? 'PLAIN',
           highlighted: data.highlighted ?? false,
         },
       });
@@ -52,6 +54,7 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
         data: {
           ...(patch.type !== undefined ? { type: patch.type } : {}),
           ...(patch.body !== undefined ? { body: patch.body } : {}),
+          ...(patch.bodyFormat !== undefined ? { bodyFormat: patch.bodyFormat } : {}),
           ...(patch.highlighted !== undefined ? { highlighted: patch.highlighted } : {}),
           ...(patch.agendaItemId !== undefined ? { agendaItemId: patch.agendaItemId } : {}),
           ...(patch.taskId !== undefined ? { taskId: patch.taskId } : {}),

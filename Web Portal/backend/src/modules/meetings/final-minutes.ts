@@ -1,5 +1,9 @@
 import { ValidationError } from '../../lib/http-errors';
-import { fmtDate, fmtDay, fmtTimeRange, resolveMinutesTimeZone, type MinutesData } from './minutes';
+import { noteText } from '../../lib/rich-text';
+import { fmtDate, fmtDay, fmtTimeRange, resolveMinutesTimeZone, type MinutesData, type MinutesNote } from './minutes';
+
+/** A note's words (a formatted note's text and list structure, without its markup). */
+const words = (n: MinutesNote): string => noteText({ body: n.body, bodyFormat: n.format }).trim();
 
 /**
  * The final minutes of a meeting (the "Final MOM"): what an organizer approves and sends, as
@@ -34,7 +38,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export function draftFromNotes(data: MinutesData): FinalMinutesContent {
   const tz = resolveMinutesTimeZone(data.meeting.timeZone, data.companyTimeZone);
   const notes = data.notes;
-  const decisions = notes.filter((n) => n.type === 'DECISION').map((n) => n.body.trim());
+  const decisions = notes.filter((n) => n.type === 'DECISION').map(words);
   const presentCount = data.attendees.filter((a) => present(a.attendanceLabel)).length;
   const covered = data.agenda.filter((a) => a.completed).length;
   const summary =
@@ -48,19 +52,19 @@ export function draftFromNotes(data: MinutesData): FinalMinutesContent {
   const discussion: FinalMinutesContent['discussion'] = [];
   for (const topic of [...topics, OTHER]) {
     const under = talk.filter((n) => (topic === OTHER ? !n.agendaTitle || !topics.includes(n.agendaTitle) : n.agendaTitle === topic));
-    if (under.length) discussion.push({ topic, text: under.map((n) => n.body.trim()).join('\n') });
+    if (under.length) discussion.push({ topic, text: under.map(words).join('\n') });
   }
 
   const risks = [
-    ...notes.filter((n) => n.type === 'ISSUE').map((n) => n.body.trim()),
-    ...notes.filter((n) => n.type === 'QUESTION').map((n) => `Open question: ${n.body.trim()}`),
+    ...notes.filter((n) => n.type === 'ISSUE').map(words),
+    ...notes.filter((n) => n.type === 'QUESTION').map((n) => `Open question: ${words(n)}`),
   ];
   const nextSteps = [
     ...(data.actionItems ?? [])
       .filter(isOpen)
       .sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31'))
       .map((i) => `${i.description} — ${i.ownerName || 'unassigned'}${i.dueDate ? `, by ${fmtDay(i.dueDate, 'UTC')}` : ''}`),
-    ...notes.filter((n) => n.type === 'ACTION' && !n.trackedAsActionItem).map((n) => n.body.trim()),
+    ...notes.filter((n) => n.type === 'ACTION' && !n.trackedAsActionItem).map(words),
   ];
   return normalizeFinalMinutes({ summary, discussion, decisions, risks, nextSteps });
 }
@@ -94,7 +98,7 @@ export function minutesFacts(data: MinutesData): string {
     lines.push('Notes:');
     for (const n of data.notes) {
       const tags = [n.typeLabel, n.agendaTitle ? `agenda "${n.agendaTitle}"` : null, n.highlighted ? 'key point' : null].filter(Boolean).join(', ');
-      lines.push(`[${tags}] ${n.body.trim()}`);
+      lines.push(`[${tags}] ${words(n)}`);
     }
   }
   const open = (data.actionItems ?? []).filter(isOpen);

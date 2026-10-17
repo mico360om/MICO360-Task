@@ -23,7 +23,7 @@ import type { EmbeddingLevels } from 'bidi-js';
 
 const bidi = bidiFactory();
 
-export type FontKey = 'latin' | 'latin-bold' | 'display' | 'arabic' | 'arabic-bold' | 'fallback' | 'fallback-bold';
+export type FontKey = 'latin' | 'latin-bold' | 'latin-italic' | 'latin-bold-italic' | 'display' | 'arabic' | 'arabic-bold' | 'fallback' | 'fallback-bold';
 
 /**
  * Font files, resolved from the installed npm packages (see package.json). The brand type of the
@@ -33,6 +33,9 @@ export type FontKey = 'latin' | 'latin-bold' | 'display' | 'arabic' | 'arabic-bo
 const FONT_FILES: Record<FontKey, string> = {
   latin: '@expo-google-fonts/ibm-plex-sans/400Regular/IBMPlexSans_400Regular.ttf',
   'latin-bold': '@expo-google-fonts/ibm-plex-sans/600SemiBold/IBMPlexSans_600SemiBold.ttf',
+  // Italics of formatted text (Arabic has no italic: it stays upright in Naskh).
+  'latin-italic': '@expo-google-fonts/ibm-plex-sans/400Regular_Italic/IBMPlexSans_400Regular_Italic.ttf',
+  'latin-bold-italic': '@expo-google-fonts/ibm-plex-sans/600SemiBold_Italic/IBMPlexSans_600SemiBold_Italic.ttf',
   display: '@expo-google-fonts/archivo/700Bold/Archivo_700Bold.ttf',
   arabic: '@expo-google-fonts/noto-naskh-arabic/400Regular/NotoNaskhArabic_400Regular.ttf',
   'arabic-bold': '@expo-google-fonts/noto-naskh-arabic/700Bold/NotoNaskhArabic_700Bold.ttf',
@@ -186,9 +189,29 @@ function reverseUnits(s: string): string {
 // Paragraph layout
 // ---------------------------------------------------------------------------
 
-/** One homogeneous piece of a line: one font, one direction, already in visual order. */
+/** How a stretch of formatted text is decorated beyond its face (bold / italic pick the font). */
+export interface SegmentStyle {
+  underline?: true;
+  highlight?: true;
+  /** A link: drawn in the link colour, underlined, and clickable. */
+  href?: string;
+}
+
+/** A stretch of formatted text (see layoutStyledText). A "\n" in it starts a new line. */
+export interface StyledRun {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  highlight?: boolean;
+  href?: string;
+}
+
+/** One homogeneous piece of a line: one font, one direction, one decoration, already in visual order. */
 export interface LineSegment {
   font: FontKey;
+  /** Underline, highlight or link of formatted text (absent for plain text). */
+  style?: SegmentStyle;
   /** String to hand to pdfkit (pre-arranged so fontkit's own reversal yields visual order). */
   draw: string;
   /** The same characters in logical order (mirrored where right-to-left). */
@@ -229,16 +252,22 @@ interface Paragraph {
   fonts: FontKey[];
   rtl: boolean;
   size: number;
+  /** Formatted text: each character's decoration (an index into `decorations`, 0 = none). */
+  deco?: number[];
+  decorations?: SegmentStyle[];
 }
 
-function assignFonts(text: string, levels: Uint8Array, bold: boolean, family: 'text' | 'display' = 'text'): FontKey[] {
-  const body: FontKey = bold ? 'latin-bold' : 'latin';
-  const latin: FontKey = family === 'display' ? 'display' : body;
-  const arabic: FontKey = bold ? 'arabic-bold' : 'arabic';
-  // Who draws a character the chosen face lacks: the text face, Naskh, then Noto Sans.
-  const fallbacks: FontKey[] = [body, arabic, bold ? 'fallback-bold' : 'fallback'];
+type FaceAt = (i: number) => { bold: boolean; italic: boolean };
+
+function assignFonts(text: string, levels: Uint8Array, faceAt: FaceAt, family: 'text' | 'display' = 'text'): FontKey[] {
   const fonts: FontKey[] = new Array<FontKey>(text.length);
   for (let i = 0; i < text.length; i++) {
+    const { bold, italic } = faceAt(i);
+    const body: FontKey = bold ? (italic ? 'latin-bold-italic' : 'latin-bold') : italic ? 'latin-italic' : 'latin';
+    const latin: FontKey = family === 'display' ? 'display' : body;
+    const arabic: FontKey = bold ? 'arabic-bold' : 'arabic';
+    // Who draws a character the chosen face lacks: the text face, Naskh, then Noto Sans.
+    const fallbacks: FontKey[] = [body, arabic, bold ? 'fallback-bold' : 'fallback'];
     const cp = text.charCodeAt(i);
     let key: FontKey;
     if (isArabicScript(cp)) key = arabic;
@@ -259,7 +288,8 @@ function prepareParagraph(raw: string, opts: LayoutOptions): Paragraph {
   const text = sanitizeText(raw);
   const levels = bidi.getEmbeddingLevels(text, opts.direction);
   const rtl = ((levels.paragraphs[0]?.level ?? (opts.direction === 'rtl' ? 1 : 0)) & 1) === 1;
-  return { text, levels, fonts: assignFonts(text, levels.levels, opts.bold ?? false, opts.family), rtl, size: opts.size };
+  const bold = opts.bold ?? false;
+  return { text, levels, fonts: assignFonts(text, levels.levels, () => ({ bold, italic: false }), opts.family), rtl, size: opts.size };
 }
 
 /** Width in points of text[a, b) (logical order), shaped per font run. */
@@ -352,9 +382,10 @@ function buildLine(p: Paragraph, a: number, b: number): TextLine {
   const segments: LineSegment[] = [];
   if (b > a) {
     const order = bidi.getReorderedIndices(p.text, p.levels, a, b - 1).slice(a, b);
-    let cur: { font: FontKey; level: number; chars: string[] } | null = null;
+    let cur: { font: FontKey; level: number; deco: number; chars: string[] } | null = null;
     const flush = (): void => {
       if (!cur || cur.chars.length === 0) return;
+      const style = cur.deco ? p.decorations?.[cur.deco] : undefined;
       const rtl = (cur.level & 1) === 1;
       const visual = cur.chars.join('');
       const logical = rtl ? reverseUnits(visual) : visual;
@@ -364,16 +395,17 @@ function buildLine(p: Paragraph, a: number, b: number): TextLine {
       // (e.g. neutral punctuation at the edge of an Arabic run, or Arabic-Indic digits
       // inside a left-to-right number run). Such runs never contain joining letters.
       const draw = shape(cur.font, logical).rtl === rtl ? logical : reverseUnits(logical);
-      segments.push({ font: cur.font, draw, logical, rtl, width: shape(cur.font, draw).em * p.size });
+      segments.push({ font: cur.font, ...(style ? { style } : {}), draw, logical, rtl, width: shape(cur.font, draw).em * p.size });
     };
     for (const idx of order) {
       const ch = p.text[idx]!;
       if (isBidiControl(ch.charCodeAt(0))) continue;
       const level = p.levels.levels[idx]!;
       const font = p.fonts[idx]!;
-      if (!cur || cur.font !== font || cur.level !== level) {
+      const deco = p.deco?.[idx] ?? 0;
+      if (!cur || cur.font !== font || cur.level !== level || cur.deco !== deco) {
         flush();
-        cur = { font, level, chars: [] };
+        cur = { font, level, deco, chars: [] };
       }
       cur.chars.push(level & 1 ? (bidi.getMirroredCharacter(ch) ?? ch) : ch);
     }
@@ -416,6 +448,58 @@ export function layoutText(text: string, opts: LayoutOptions): TextLine[] {
   return lines;
 }
 
+/**
+ * Lay out formatted text: runs of text, each bold and/or italic (its face) and maybe underlined,
+ * highlighted or a link (its decoration, kept on the line's segments for drawTextLine). Wraps,
+ * reorders and shapes exactly as layoutText does for the same words; a "\n" starts a new line.
+ */
+export function layoutStyledText(runs: StyledRun[], opts: LayoutOptions): TextLine[] {
+  const decorations: SegmentStyle[] = [{}];
+  const decoKeys = new Map<string, number>([['', 0]]);
+  // Each run is cleaned on its own (cleaning can change a run's length), then the paragraph's
+  // characters each remember their face and decoration.
+  let text = '';
+  const faces: Array<{ bold: boolean; italic: boolean }> = [];
+  const deco: number[] = [];
+  for (const r of runs) {
+    const style: SegmentStyle = { ...(r.underline ? { underline: true as const } : {}), ...(r.highlight ? { highlight: true as const } : {}), ...(r.href ? { href: r.href } : {}) };
+    const key = JSON.stringify(style) === '{}' ? '' : JSON.stringify(style);
+    let d = decoKeys.get(key);
+    if (d === undefined) {
+      d = decorations.length;
+      decorations.push(style);
+      decoKeys.set(key, d);
+    }
+    const clean = r.text.replace(/\r\n?/g, '\n').split('\n').map(sanitizeText).join('\n');
+    const face = { bold: (r.bold ?? false) || (opts.bold ?? false), italic: r.italic ?? false };
+    for (let i = 0; i < clean.length; i++) {
+      faces.push(face);
+      deco.push(d);
+    }
+    text += clean;
+  }
+  const lines: TextLine[] = [];
+  let start = 0;
+  for (const para of text.split('\n')) {
+    const end = start + para.length;
+    const levels = bidi.getEmbeddingLevels(para, opts.direction);
+    const rtl = ((levels.paragraphs[0]?.level ?? (opts.direction === 'rtl' ? 1 : 0)) & 1) === 1;
+    const at = start;
+    const p: Paragraph = {
+      text: para,
+      levels,
+      fonts: assignFonts(para, levels.levels, (i) => faces[at + i]!, opts.family),
+      rtl,
+      size: opts.size,
+      deco: deco.slice(start, end),
+      decorations,
+    };
+    for (const [a, b] of wrapRanges(p, opts.maxWidth)) lines.push(buildLine(p, a, b));
+    start = end + 1;
+  }
+  return lines;
+}
+
 /** Width in points of a single line of text (no wrapping; embedded newlines → widest line). */
 export function measureText(text: string, size: number, bold = false, family: 'text' | 'display' = 'text'): number {
   return layoutText(text, { size, bold, family }).reduce((w, l) => Math.max(w, l.width), 0);
@@ -443,11 +527,15 @@ export function drawTextLine(doc: PDFKit.PDFDocument, line: TextLine, x: number,
   doc.markContent('Span', { actual: line.text });
   let cx = x;
   for (const seg of line.segments) {
+    const style = seg.style;
+    const ink = style?.href ? LINK_COLOR : color;
+    // Formatted text: the highlight behind the words.
+    if (style?.highlight && seg.width > 0) doc.save().rect(cx, baseline - size * 0.98, seg.width, size * 1.3).fill(HIGHLIGHT_COLOR).restore();
     if (seg.draw.trim()) {
       doc
         .font(seg.font)
         .fontSize(size)
-        .fillColor(color)
+        .fillColor(ink)
         .text(seg.draw, cx, baseline, {
           lineBreak: false,
           baseline: 'alphabetic',
@@ -456,7 +544,15 @@ export function drawTextLine(doc: PDFKit.PDFDocument, line: TextLine, x: number,
           features: shapingFeatures() as unknown as PDFKit.Mixins.OpenTypeFeatures[],
         });
     }
+    // …an underline (links too) under them, and a link anyone can click.
+    if ((style?.underline || style?.href) && seg.width > 0) doc.save().rect(cx, baseline + size * 0.14, seg.width, Math.max(0.5, size * 0.06)).fill(ink).restore();
+    if (style?.href && seg.width > 0) doc.link(cx, baseline - size, seg.width, size * 1.3, style.href);
     cx += seg.width;
   }
   doc.endMarkedContent();
 }
+
+/** Highlighted words sit on this (a soft marker yellow). */
+export const HIGHLIGHT_COLOR = '#FDE68A';
+/** Links are drawn in this blue (and underlined). */
+export const LINK_COLOR = '#1F5FAD';

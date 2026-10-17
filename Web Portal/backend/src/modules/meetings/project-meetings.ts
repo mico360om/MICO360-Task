@@ -4,6 +4,7 @@
  * decisions and action items across its meetings and its repeating series.
  */
 import { isOverdue } from '../../lib/due-date';
+import { noteText } from '../../lib/rich-text';
 import type { MeetingStatus, RecurrenceRule } from './meeting-repository';
 
 export interface ProjectMeetingsData {
@@ -26,8 +27,8 @@ export interface ProjectMeetingsData {
   seriesRoots: Array<{ id: string; title: string; recurrenceRule: RecurrenceRule | null; recurrenceStart: Date | null; startAt: Date }>;
   /** Attendees by meeting, with their display names (guests too). */
   attendees: Array<{ meetingId: string; userId: string | null; name: string }>;
-  /** Notes recorded as decisions (not deleted). */
-  decisions: Array<{ id: string; meetingId: string; body: string; createdAt: Date }>;
+  /** Notes recorded as decisions (not deleted); a RICH one is formatted (its words are listed). */
+  decisions: Array<{ id: string; meetingId: string; body: string; bodyFormat?: 'PLAIN' | 'RICH'; createdAt: Date }>;
   /** Notes taken per meeting (any kind, not deleted). */
   noteCounts: Record<string, number>;
   /** Final-minutes records by meeting (APPROVED = final). */
@@ -138,7 +139,7 @@ export function buildProjectMeetingsOverview(data: ProjectMeetingsData, now: Dat
 
   const decisions = [...data.decisions]
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .map((d) => ({ id: d.id, text: d.body, meetingId: d.meetingId, meetingTitle: titleOf.get(d.meetingId) ?? null, at: d.createdAt }));
+    .map((d) => ({ id: d.id, text: noteText(d), meetingId: d.meetingId, meetingTitle: titleOf.get(d.meetingId) ?? null, at: d.createdAt }));
 
   // Open items first (soonest due first, undated last), then the finished ones.
   const due = (x: ProjectMeetingsData['actionItems'][number]) => x.dueDate?.getTime() ?? Number.POSITIVE_INFINITY;

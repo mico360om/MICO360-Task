@@ -80,6 +80,25 @@ describe('minutesFacts: what the AI is given', () => {
   });
 });
 
+describe('Final MOM drafts from formatted notes', () => {
+  const rich = {
+    ...data,
+    notes: [
+      { type: 'DECISION', typeLabel: 'Decision', body: '<p><strong>Go-live</strong> moves to <mark>1 November</mark>.</p><ul><li><p>Client agreed</p></li></ul>', format: 'RICH' as const, authorName: 'Khurram', createdAt: '2026-10-14T06:40:00.000Z', highlighted: false, agendaTitle: 'Go-live plan' },
+      { type: 'DISCUSSION', typeLabel: 'Discussion', body: '<h3>Site</h3><p>See <a href="https://example.com/plan">the plan</a></p>', format: 'RICH' as const, authorName: 'Bilal', createdAt: '2026-10-14T06:10:00.000Z', highlighted: false },
+    ],
+  };
+
+  it('takes the words and the list structure, never the markup', () => {
+    const d = draftFromNotes(rich);
+    expect(d.decisions).toEqual(['Go-live moves to 1 November.\n- Client agreed']);
+    expect(d.discussion).toEqual([{ topic: 'Other points', text: 'Site\nSee the plan (https://example.com/plan)' }]);
+    const facts = minutesFacts(rich);
+    expect(facts).toContain('Go-live moves to 1 November.');
+    expect(facts).not.toMatch(/<\/?(p|strong|mark|ul|li|h3|a)\b/);
+  });
+});
+
 describe('normalizeFinalMinutes', () => {
   it('keeps the sections, trims them, drops blank lines and caps the sizes', () => {
     expect(
