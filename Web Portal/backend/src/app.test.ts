@@ -20,6 +20,14 @@ describe('health + metrics', () => {
     expect(d.status).toBe('ok');
     expect(typeof d.uptimeSeconds).toBe('number');
     expect(Number.isNaN(Date.parse(d.timestamp))).toBe(false);
+    expect(d.pictureShrinking).toBeNull(); // nothing has checked
+  });
+
+  it('says whether attached pictures are made smaller on this server', async () => {
+    for (const on of [true, false]) {
+      const app = await buildApp({ authService, tokenService, pictureShrinking: () => on });
+      expect((await app.inject({ method: 'GET', url: '/api/v1/health' })).json().data.pictureShrinking).toBe(on);
+    }
   });
 
   it('exposes process metrics to admins only', async () => {

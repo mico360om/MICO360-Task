@@ -41,6 +41,8 @@ export interface ChatRouteDeps {
   attachmentMaxSizeBytes?: number;
   /** Allowed mime types; empty/undefined means allow any. */
   attachmentAllowedMime?: string[];
+  /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
+  shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
 }
 
 export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): Promise<void> {
@@ -162,7 +164,9 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
     const captionField = file.fields?.body;
     const caption = captionField && !Array.isArray(captionField) && 'value' in captionField && typeof captionField.value === 'string' ? captionField.value : '';
     if (caption.trim().length > MAX_MESSAGE_LENGTH) throw new ValidationError(`A caption can be at most ${MAX_MESSAGE_LENGTH} characters.`);
-    const stored = await storage.save({ filename: file.filename, mimeType: file.mimetype, content });
+    // Pictures are stored smaller (only once every check above has passed).
+    const kept = deps.shrinkImage ? await deps.shrinkImage(content, file.mimetype) : content;
+    const stored = await storage.save({ filename: file.filename, mimeType: file.mimetype, content: kept });
     let result;
     try {
       result = await chat.postMessage(id, req.user!.id, {

@@ -19,6 +19,8 @@ export interface AttachmentServiceDeps {
   allowedMimeTypes: string[];
   /** Optional cap on the total bytes of all attachments on a single task. */
   maxTotalBytesPerTask?: number;
+  /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
+  shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
 }
 
 export function createAttachmentService({
@@ -28,6 +30,7 @@ export function createAttachmentService({
   maxSizeBytes,
   allowedMimeTypes,
   maxTotalBytesPerTask,
+  shrinkImage,
 }: AttachmentServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
@@ -49,15 +52,17 @@ export function createAttachmentService({
         throw new ValidationError(fileContentMismatchMessage(file.filename));
       }
     }
-    // Per-task storage quota.
+    // Pictures are stored smaller (checked above first, so only real pictures get this far).
+    const content = shrinkImage ? await shrinkImage(file.content, file.mimeType) : file.content;
+    // Per-task storage quota, on what is actually stored.
     if (maxTotalBytesPerTask !== undefined) {
       const existing = await repo.list(taskId);
       const used = existing.reduce((sum, a) => sum + a.sizeBytes, 0);
-      if (used + file.content.length > maxTotalBytesPerTask) {
+      if (used + content.length > maxTotalBytesPerTask) {
         throw new ValidationError('This task has reached its attachment storage limit.');
       }
     }
-    const { storageKey, url, sizeBytes } = await storage.save(file);
+    const { storageKey, url, sizeBytes } = await storage.save({ ...file, content });
     return repo.create({
       taskId,
       uploadedById,

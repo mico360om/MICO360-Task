@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createAttachmentService } from './attachment-service';
 import type {
   AttachmentRecord,
@@ -120,6 +120,44 @@ describe('AttachmentService.upload', () => {
     const file = (n: number): UploadedFile => ({ filename: `f${n}.txt`, mimeType: 'text/plain', content: Buffer.alloc(12) });
     await quotaSvc.upload('t1', 'u1', file(1)); // 12 bytes, ok
     await expect(quotaSvc.upload('t1', 'u1', file(2))).rejects.toBeInstanceOf(ValidationError); // 24 > 20
+  });
+});
+
+describe('AttachmentService.upload — pictures made smaller', () => {
+  const smaller = Buffer.concat([PNG_MAGIC, Buffer.from('s')]);
+
+  it('stores the smaller picture and records its size', async () => {
+    const shrinkImage = vi.fn(async () => smaller);
+    const m = inMemory(['t1']);
+    const s = createAttachmentService({ repo: m.repo, storage: m.storage, taskLookup: m.taskLookup, maxSizeBytes: 1024, allowedMimeTypes: [], shrinkImage });
+    const rec = await s.upload('t1', 'u1', png);
+    expect(shrinkImage).toHaveBeenCalledWith(png.content, 'image/png');
+    expect(m.saved[0]!.content).toBe(smaller);
+    expect(rec.sizeBytes).toBe(smaller.length);
+    expect(rec.filename).toBe('shot.png');
+    expect(rec.mimeType).toBe('image/png');
+  });
+
+  it('checks the file first: a file pretending to be a picture never reaches the shrinker', async () => {
+    const shrinkImage = vi.fn(async (c: Buffer) => c);
+    const m = inMemory(['t1']);
+    const s = createAttachmentService({ repo: m.repo, storage: m.storage, taskLookup: m.taskLookup, maxSizeBytes: 1024, allowedMimeTypes: [], shrinkImage });
+    const spoof: UploadedFile = { filename: 'evil.png', mimeType: 'image/png', content: Buffer.from('not a real png at all') };
+    await expect(s.upload('t1', 'u1', spoof)).rejects.toBeInstanceOf(ValidationError);
+    expect(shrinkImage).not.toHaveBeenCalled();
+  });
+
+  it('counts the smaller size against the task’s storage limit', async () => {
+    const m = inMemory(['t1']);
+    const s = createAttachmentService({
+      repo: m.repo, storage: m.storage, taskLookup: m.taskLookup,
+      maxSizeBytes: 1024, allowedMimeTypes: [], maxTotalBytesPerTask: 20,
+      shrinkImage: async () => smaller, // 9 bytes
+    });
+    const big: UploadedFile = { ...png, content: Buffer.concat([PNG_MAGIC, Buffer.alloc(22)]) }; // 30 bytes as sent
+    await s.upload('t1', 'u1', big);
+    await s.upload('t1', 'u1', big); // 9 + 9 stored, within 20
+    await expect(s.upload('t1', 'u1', big)).rejects.toBeInstanceOf(ValidationError); // 27 > 20
   });
 });
 

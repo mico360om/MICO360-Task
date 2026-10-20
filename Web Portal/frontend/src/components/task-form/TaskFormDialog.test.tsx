@@ -5,6 +5,20 @@ import userEvent from '@testing-library/user-event';
 import { TaskFormDialog } from './TaskFormDialog';
 import type { ApiTask } from '../../api/tasks';
 
+// Files go up after the task is created; the test decides how each upload goes.
+const uploads: Array<{ taskId: string; name: string; type: string }> = [];
+let uploadReply: (file: File) => Promise<unknown> = async () => ({});
+vi.mock('../../api/attachments', async (real) => ({
+  ...(await real<typeof import('../../api/attachments')>()),
+  attachmentsApi: () => ({
+    upload: (taskId: string, file: File, onProgress?: (f: number) => void) => {
+      uploads.push({ taskId, name: file.name, type: file.type });
+      onProgress?.(1);
+      return uploadReply(file);
+    },
+  }),
+}));
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
@@ -532,5 +546,108 @@ describe('Edit task form', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('New task form — files', () => {
+  beforeEach(() => {
+    uploads.length = 0;
+    uploadReply = async () => ({});
+  });
+  const png = (name = 'image.png') => new File(['png-bytes'], name, { type: 'image/png' });
+  const clipboard = (files: File[], text = '') => ({
+    files,
+    items: files.map((f) => ({ kind: 'file', type: f.type, getAsFile: () => f })),
+    types: [...(files.length ? ['Files'] : []), ...(text ? ['text/plain'] : [])],
+    getData: (type: string) => (type === 'text/plain' ? text : ''),
+  });
+
+  it('attaches the chosen files to the new task once it is created, then closes', async () => {
+    const { onCreated, onClose } = renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Inspect the pump');
+    await userEvent.upload(screen.getByLabelText('Attach files'), [new File(['%PDF'], 'spec.pdf', { type: 'application/pdf' }), png('site.png')]);
+    expect(screen.getByText('spec.pdf')).toBeInTheDocument();
+    expect(screen.getByText('site.png')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(uploads).toEqual([
+      { taskId: 't99', name: 'spec.pdf', type: 'application/pdf' },
+      { taskId: 't99', name: 'site.png', type: 'image/png' },
+    ]);
+    expect(onCreated).toHaveBeenCalled();
+  });
+
+  it('a picture pasted into the form (Ctrl+V) is added to its files, named by when it was pasted', async () => {
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Fix the leak');
+    fireEvent.paste(screen.getByLabelText(/^description/i), { clipboardData: clipboard([png()]) });
+    expect(screen.getByText(/^Pasted image \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2}\.png$/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(uploads).toHaveLength(1));
+    expect(uploads[0]!.name).toMatch(/^Pasted image /);
+  });
+
+  it('text pasted into a field stays text, even with a picture on the clipboard', async () => {
+    renderDialog();
+    await ready();
+    fireEvent.paste(screen.getByLabelText(/^description/i), { clipboardData: clipboard([png()], 'Qty\tPrice') });
+    expect(screen.queryByText(/^Pasted image/)).not.toBeInTheDocument();
+  });
+
+  it('a file can be taken off before creating; files count as something to keep', async () => {
+    const { onClose } = renderDialog();
+    await ready();
+    await userEvent.upload(screen.getByLabelText('Attach files'), png('wrong.png'));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /keep editing/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove wrong.png' }));
+    expect(screen.queryByText('wrong.png')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'No files');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(uploads).toEqual([]);
+  });
+
+  it('says which file couldn’t be attached and why; the task is already created, and Done closes', async () => {
+    uploadReply = async (file) => {
+      if (file.name === 'big.zip') throw new Error('That file is too large to upload.');
+      return {};
+    };
+    const { onCreated, onClose } = renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Send the logs');
+    await userEvent.upload(screen.getByLabelText('Attach files'), [png('ok.png'), new File(['x'], 'big.zip', { type: 'application/zip' })]);
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('The task was created, but big.zip wasn’t attached: That file is too large to upload.');
+    expect(posts()).toHaveLength(1);
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(posts()).toHaveLength(1); // never a second task
+    expect(onCreated).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('offline, a task with files is not put aside to send later: files need a connection', async () => {
+    override = (u, method) => (u.endsWith('/tasks') && method === 'POST' ? Promise.reject(new TypeError('Failed to fetch')) : undefined);
+    const onQueued = vi.fn();
+    const { onClose } = renderDialog({ onQueued });
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Offline with a photo');
+    await userEvent.upload(screen.getByLabelText('Attach files'), png('photo.png'));
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    expect(await screen.findByText(/files can’t be attached offline/i)).toBeInTheDocument();
+    expect(onQueued).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('editing a task has no files box (they are in the task panel)', async () => {
+    renderDialog({ task: TASK });
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    expect(screen.queryByLabelText('Attach files')).not.toBeInTheDocument();
   });
 });

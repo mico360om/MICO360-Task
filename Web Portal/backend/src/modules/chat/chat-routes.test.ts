@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildApp } from '../../app';
 import { createMessageService } from './message-service';
 import { createTokenService } from '../auth/token-service';
@@ -323,6 +323,38 @@ describe('Chat routes — attachments (SEC-14)', () => {
     expect(res.statusCode).toBe(500);
     expect(disk.saved).toHaveLength(1);
     expect(disk.removed).toEqual(disk.saved);
+  });
+
+  it('stores a picture made smaller, and the message gives the stored size', async () => {
+    const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const smaller = Buffer.concat([PNG, Buffer.from('s')]);
+    const stored: { content: Buffer; mimeType: string }[] = [];
+    const disk = {
+      async save(f: { content: Buffer; mimeType: string }) { stored.push(f); return { storageKey: 'pic-0', url: '/uploads/pic-0', sizeBytes: f.content.length }; },
+      async remove() {},
+    };
+    const shrinkImage = vi.fn(async () => smaller);
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const chatService = createMessageService(makeRepos());
+    const post = vi.spyOn(chatService, 'postMessage');
+    const pics = await buildApp({ authService, tokenService, chatService, chatAttachmentStorage: disk, shrinkImage });
+    const headers = await auth('u1');
+    const convId = (await pics.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    const boundary = '----mico360pic';
+    const original = Buffer.concat([PNG, Buffer.alloc(200, 1)]);
+    const payload = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="photo.png"\r\nContent-Type: image/png\r\n\r\n`),
+      original,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const res = await pics.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/attachments`, headers: { ...headers, 'content-type': `multipart/form-data; boundary=${boundary}` }, payload });
+    expect(res.statusCode).toBe(201);
+    expect(shrinkImage).toHaveBeenCalledWith(original, 'image/png');
+    expect(stored[0]!.content).toEqual(smaller);
+    expect(post.mock.calls[0]![2].attachment).toMatchObject({ fileName: 'photo.png', mimeType: 'image/png', sizeBytes: smaller.length });
   });
 
   it('applies the 4,000-character limit to captions before storing the file', async () => {

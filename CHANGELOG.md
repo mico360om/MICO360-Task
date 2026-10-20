@@ -14,6 +14,19 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-10-20
+
+### Improvements
+- Files can be attached while creating a task: the New task form has an Attachments box to drop files
+  on, choose them, or paste a picture (Ctrl+V). They are uploaded as soon as the task is created, each
+  with its progress; if one can't be attached, the task is still saved and the form says which file
+  and why. Files can't be attached offline: the form says so, and the task can be saved without them.
+- Attached pictures are stored smaller to save space, in tasks and in chat, from the website and the
+  Android app. JPEG, PNG and WebP pictures are turned upright, made at most 1920 pixels on their long
+  side and saved again without their hidden details (camera and GPS location). A picture is kept as it
+  was when that wouldn't make it smaller; animated pictures, PDFs and other files are kept exactly as
+  they are, and pictures already attached are unchanged.
+
 ## [1.3.3] - 2026-10-20
 
 ### Improvements

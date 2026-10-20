@@ -51,6 +51,7 @@ import {
   createPrismaChatMemberLookup,
 } from './modules/chat/prisma-chat-repository';
 import { createAttachmentService } from './modules/tasks/attachment-service';
+import { createImageShrinker } from './lib/image-shrink';
 import { createPrismaAttachmentRepository } from './modules/tasks/prisma-attachment-repository';
 import { createLocalDiskStorage } from './modules/tasks/local-disk-storage';
 import { createDependencyService } from './modules/tasks/dependency-service';
@@ -342,6 +343,13 @@ async function main(): Promise<void> {
 
   const attachmentAllowedMime = env.UPLOAD_ALLOWED_MIME.split(',').map((s) => s.trim()).filter(Boolean);
 
+  // Attached pictures (tasks and chat) are stored smaller; if the picture library won't load on
+  // this server they are kept at full size, which the log and /health say.
+  const imageShrinker = createImageShrinker({ warn: (msg, meta) => logger.warn(msg, meta) });
+  void imageShrinker.check().then((on) => {
+    if (on) logger.info('Attached pictures are made smaller to save space');
+  });
+
   const attachmentService = createAttachmentService({
     repo: createPrismaAttachmentRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
@@ -349,6 +357,7 @@ async function main(): Promise<void> {
     maxSizeBytes: env.UPLOAD_MAX_BYTES,
     allowedMimeTypes: attachmentAllowedMime,
     maxTotalBytesPerTask: env.UPLOAD_MAX_TOTAL_BYTES_PER_TASK,
+    shrinkImage: imageShrinker.shrink,
   });
 
   const dependencyService = createDependencyService({
@@ -1090,6 +1099,8 @@ async function main(): Promise<void> {
     chatAttachmentStorage: attachmentStorage,
     attachmentAllowedMime,
     attachmentMaxSizeBytes: env.UPLOAD_MAX_BYTES,
+    shrinkImage: imageShrinker.shrink,
+    pictureShrinking: imageShrinker.status,
     dependencyService,
     userService,
     notificationService,

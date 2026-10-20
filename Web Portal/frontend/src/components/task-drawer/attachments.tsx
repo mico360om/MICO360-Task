@@ -445,7 +445,7 @@ export function AttachmentsSection({
               )}
             </span>
             <span className="text-[11px] text-ink-3">
-              Or paste a picture ({pasteKey}) · up to {MAX_UPLOAD_MB} MB each
+              Or paste a picture ({pasteKey}) · up to {MAX_UPLOAD_MB} MB each · pictures are made smaller to save space
             </span>
             <input
               type="file"

@@ -480,6 +480,11 @@ describe('TaskDrawer attachments', () => {
     expect(screen.getByTestId('attachment-dropzone')).toHaveTextContent(/paste a picture \((Ctrl\+V|⌘V)\)/);
   });
 
+  it('says pictures are made smaller to save space', () => {
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} attachments={[]} onUploadFile={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByTestId('attachment-dropzone')).toHaveTextContent('pictures are made smaller to save space');
+  });
+
   it('previews pictures and lets you delete only what you may, after confirming', async () => {
     const onDeleteAttachment = vi.fn(async () => {});
     render(

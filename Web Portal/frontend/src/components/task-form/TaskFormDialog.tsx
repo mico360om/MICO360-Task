@@ -27,6 +27,10 @@ import { priorityOptions } from '../priority-option';
 import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } from '../RecurrenceEditor';
 import { AssigneeSelect, type PersonOption } from './AssigneeSelect';
 import { DescribeTask } from './DescribeTask';
+import { FilesField, type PendingFile } from './FilesField';
+import { attachmentsApi } from '../../api/attachments';
+import { pastedFiles } from '../../lib/clipboard-files';
+import { isTypingTarget } from '../../lib/shortcuts';
 import { MilestoneIcon } from '../TaskCard';
 
 export interface TaskFormDialogProps {
@@ -68,6 +72,14 @@ const LAST_PROJECT = 'mico360.newTask.project';
 const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const fullName = (u: { firstName?: string | null; lastName?: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 const listNames = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+/** Why a file couldn't be attached, in the task panel's words. */
+function fileFailure(err: unknown): string {
+  if (err instanceof ApiError && err.status === 413) return 'That file is too large to upload.';
+  if (err instanceof TypeError) return 'The server couldn’t be reached.';
+  if (err instanceof Error && err.message && !/^Request failed/.test(err.message)) return err.message;
+  return 'It couldn’t be uploaded.';
+}
 
 function reasonOf(err: unknown): string {
   if (err instanceof ApiError) {
@@ -145,17 +157,35 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  // Files for a new task (chosen, dropped or pasted); they go up once the task exists.
+  const [files, setFiles] = useState<PendingFile[]>([]);
+  const fileSeq = useRef(0);
+  // Set when the task was created but a file couldn't be attached: "Done" then closes.
+  const [created, setCreated] = useState<ApiTask | null>(null);
   const busy = useRef(false);
   const version = useRef(task?.version);
   const titleRef = useRef<HTMLInputElement>(null);
   const untilRef = useRef<HTMLDivElement>(null);
 
-  const dirty = placeChosen || JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) || draft.columnId !== saved.columnId;
+  const dirty =
+    placeChosen ||
+    files.length > 0 ||
+    JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) ||
+    draft.columnId !== saved.columnId;
+  const finish = (task: ApiTask) => {
+    onCreated?.(task);
+    onClose();
+  };
   const requestClose = () => {
     if (busy.current) return;
-    if (dirty) setConfirmClose(true);
+    if (created) finish(created);
+    else if (dirty) setConfirmClose(true);
     else onClose();
   };
+  const addFiles = (more: File[]) => {
+    if (more.length) setFiles((f) => [...f, ...more.map((file) => ({ key: `f${++fileSeq.current}`, file }))]);
+  };
+  const patchFile = (key: string, patch: Partial<PendingFile>) => setFiles((f) => f.map((p) => (p.key === key ? { ...p, ...patch } : p)));
   const dialogRef = useDialog(requestClose);
 
   // ── Where the task goes ──
@@ -248,6 +278,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (busy.current) return;
+    if (created) {
+      finish(created); // the task exists already: never a second one
+      return;
+    }
     if (!draft.title.trim()) {
       setTitleError('Give the task a title.');
       titleRef.current?.focus();
@@ -295,9 +329,27 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         try { localStorage.setItem(LAST_PROJECT, draft.projectId); } catch { /* storage unavailable */ }
       }
       void invalidateTaskQueries(qc);
-      onCreated?.(created);
-      onClose();
+      if (files.length) {
+        const failed = await attachFiles(created);
+        void invalidateTaskQueries(qc);
+        void qc.invalidateQueries({ queryKey: ['attachments', created.id] });
+        if (failed.length) {
+          setCreated(created);
+          setBanner(
+            failed.length === 1
+              ? `The task was created, but ${failed[0]!.name} wasn’t attached: ${failed[0]!.reason}`
+              : `The task was created, but these files weren’t attached: ${failed.map((f) => `${f.name} (${f.reason})`).join('; ')}. Add them from the task.`,
+          );
+          return;
+        }
+      }
+      finish(created);
     } catch (err) {
+      // Files can't wait offline with the task: say so rather than save it without them.
+      if (!(err instanceof ApiError) && files.length) {
+        setBanner('You’re offline, and files can’t be attached offline. Try again when you’re connected, or remove the files to save the task now.');
+        return;
+      }
       // Offline: keep the task and send it when the connection returns (server refusals stay on screen).
       if (!(err instanceof ApiError) && enqueueOffline('task.create', input, { idempotencyKey })) {
         onQueued?.();
@@ -306,6 +358,23 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       }
       setBanner(`Couldn’t create the task. ${reasonOf(err)}`);
     }
+  }
+
+  /** Upload the new task's files one by one, with progress; returns the ones that couldn't go up. */
+  async function attachFiles(task: ApiTask): Promise<Array<{ name: string; reason: string }>> {
+    const failed: Array<{ name: string; reason: string }> = [];
+    for (const p of files) {
+      patchFile(p.key, { fraction: 0, error: undefined });
+      try {
+        await attachmentsApi(apiClient).upload(task.id, p.file, (fraction) => patchFile(p.key, { fraction }));
+        patchFile(p.key, { fraction: 1 });
+      } catch (err) {
+        const reason = fileFailure(err);
+        patchFile(p.key, { fraction: undefined, error: reason });
+        failed.push({ name: p.file.name, reason });
+      }
+    }
+    return failed;
   }
 
   async function saveChanges() {
@@ -380,6 +449,15 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           role="dialog"
           aria-modal="true"
           aria-label={heading}
+          // A picture pasted anywhere in a new task's form (Ctrl+V) is added to its files; text pasted
+          // into a field stays text (see pastedFiles).
+          onPaste={(e) => {
+            if (editing || created || saving) return;
+            const got = pastedFiles(e.clipboardData, { typing: e.target instanceof Element && isTypingTarget(e.target) });
+            if (got.length === 0) return;
+            e.preventDefault();
+            addFiles(got);
+          }}
           className="keyboard-flow-cramped relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[calc(var(--visible-height)*0.9)] sm:w-[min(800px,calc(100vw-32px))] sm:rounded-2xl"
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-4 py-3.5 sm:px-6">
@@ -518,6 +596,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 />
               </div>
 
+              {!editing ? (
+                <div>
+                  <Label optional>Attachments</Label>
+                  <FilesField files={files} onAdd={addFiles} onRemove={(key) => setFiles((f) => f.filter((p) => p.key !== key))} busy={saving || !!created} />
+                </div>
+              ) : null}
+
               <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors hover:border-brand/40">
                 <input type="checkbox" checked={draft.milestone} onChange={(e) => set({ milestone: e.target.checked })} className="mt-0.5 h-4 w-4 accent-brand" />
                 <span>
@@ -543,11 +628,23 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
             </div>
 
             <div className="flex flex-none items-center gap-2 border-t border-line bg-surface px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
-              <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={requestClose} disabled={saving} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">
-                Cancel
-              </button>
+              {!created ? (
+                <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={requestClose} disabled={saving} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">
+                  Cancel
+                </button>
+              ) : null}
               <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saving} disabled={noProjects} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9.5rem]">
-                {saving ? (editing ? 'Saving…' : 'Creating…') : editing ? 'Save changes' : 'Create task'}
+                {created
+                  ? 'Done'
+                  : saving
+                    ? editing
+                      ? 'Saving…'
+                      : files.some((p) => p.fraction !== undefined)
+                        ? 'Attaching files…'
+                        : 'Creating…'
+                    : editing
+                      ? 'Save changes'
+                      : 'Create task'}
               </Button>
             </div>
           </form>

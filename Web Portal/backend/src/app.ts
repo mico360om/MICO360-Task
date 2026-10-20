@@ -128,6 +128,10 @@ export interface AppDeps extends AuthRouteDeps {
   attachmentMaxSizeBytes?: number;
   /** Allowed attachment mime types (shared by task + chat uploads); empty means any. */
   attachmentAllowedMime?: string[];
+  /** Makes an attached picture smaller before it is stored (chat; tasks get it in their service). */
+  shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
+  /** Whether pictures are made smaller on this server (null until checked), shown on /health. */
+  pictureShrinking?: () => boolean | null;
   dependencyService?: DependencyService;
   userService?: UserService;
   notificationService?: NotificationService;
@@ -332,7 +336,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   const startedAt = Date.now();
   app.get('/api/v1/health', async () => ({
-    data: { status: 'ok', uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), timestamp: new Date().toISOString() },
+    data: {
+      status: 'ok',
+      uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+      timestamp: new Date().toISOString(),
+      // Whether attached pictures are stored smaller here: false means the picture library
+      // couldn't load on this server, so they are kept at full size.
+      pictureShrinking: deps.pictureShrinking?.() ?? null,
+    },
   }));
 
   // Public client config — the single source of truth for the company time zone
@@ -504,6 +515,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           storage: deps.chatAttachmentStorage,
           attachmentMaxSizeBytes: deps.attachmentMaxSizeBytes,
           attachmentAllowedMime: deps.attachmentAllowedMime,
+          shrinkImage: deps.shrinkImage,
         });
       }
       if (deps.attachmentService) {
