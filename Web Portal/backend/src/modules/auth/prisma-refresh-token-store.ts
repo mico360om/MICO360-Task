@@ -28,14 +28,17 @@ export function createPrismaRefreshTokenStore(prisma: PrismaClient): RefreshToke
       });
       const row = await prisma.refreshToken.findUnique({
         where: { tokenHash },
-        select: { userId: true, familyId: true, revokedAt: true, expiresAt: true },
+        select: { userId: true, familyId: true, revokedAt: true, expiresAt: true, successorEnc: true },
       });
       if (!row) return { status: 'invalid' };
       if (count === 1) return { status: 'rotated', userId: row.userId, familyId: row.familyId };
       if (row.revokedAt && row.expiresAt > now) {
-        return { status: 'reused', userId: row.userId, familyId: row.familyId, revokedAt: row.revokedAt };
+        return { status: 'reused', userId: row.userId, familyId: row.familyId, revokedAt: row.revokedAt, successorEnc: row.successorEnc };
       }
       return { status: 'invalid' };
+    },
+    async setSuccessor(tokenHash, successorEnc) {
+      await prisma.refreshToken.updateMany({ where: { tokenHash }, data: { successorEnc } });
     },
     async revokeFamily(familyId) {
       await prisma.refreshToken.updateMany({ where: { familyId, revokedAt: null }, data: { revokedAt: new Date() } });

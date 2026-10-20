@@ -464,6 +464,9 @@ model RefreshToken {
   // Rotation family: every token rotated from the same login shares it, so presenting an
   // already-rotated token (reuse → likely theft) revokes the whole family.
   familyId  String?
+  /// The token this one was rotated to, sealed with the app's secret box — so a phone whose refresh
+  /// reply was lost can present this token again (for 2 minutes) and get that same successor back.
+  successorEnc String? @db.Text
   createdAt DateTime  @default(now())
   user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

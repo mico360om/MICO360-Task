@@ -5,7 +5,7 @@ import { signToken, verifyToken, type TokenClaims } from '../../lib/tokens';
 export type RotateResult =
   | { status: 'rotated'; userId: string; familyId: string | null }
   /** Already spent (rotated / logged out / revoked) and not yet expired. */
-  | { status: 'reused'; userId: string; familyId: string | null; revokedAt: Date }
+  | { status: 'reused'; userId: string; familyId: string | null; revokedAt: Date; successorEnc?: string | null }
   | { status: 'invalid' };
 
 /** Persistence port for refresh tokens (Prisma-backed in prod, in-memory in tests). */
@@ -25,6 +25,8 @@ export interface RefreshTokenStore {
   rotate?(tokenHash: string, now: Date): Promise<RotateResult>;
   /** Revoke every live token in a rotation family (refresh-token reuse → likely theft). */
   revokeFamily?(familyId: string): Promise<void>;
+  /** Remember (sealed) the token a spent one was rotated to, so a lost reply can be retried. */
+  setSuccessor?(tokenHash: string, successorEnc: string): Promise<void>;
 }
 
 export interface TokenUser {
@@ -45,11 +47,18 @@ export interface TokenServiceDeps {
    * as theft — two tabs refreshing with the same token at once must not end the session. Default 10s.
    */
   reuseGraceMs?: number;
+  /**
+   * Seals the token a refresh was rotated to (the app's secret box). With it, a phone whose refresh
+   * reply was lost can present the spent token again and get that same successor back.
+   */
+  box?: { encrypt(plain: string): string; decrypt(sealed: string): string };
+  /** How long a spent token may be presented again to get its unused successor back. Default 2 minutes. */
+  replayWindowMs?: number;
   now?: () => Date;
 }
 
 export type RefreshOutcome =
-  | { ok: true; userId: string; familyId: string | undefined }
+  | { ok: true; userId: string; familyId: string | undefined; replay?: { refreshToken: string } }
   | { ok: false; reason: 'invalid' | 'superseded' | 'reused' };
 
 /** Hash a refresh token for storage — we never persist the raw token. */
@@ -64,15 +73,43 @@ export function createTokenService({
   refreshTtl,
   refreshStore,
   reuseGraceMs = 10_000,
+  box,
+  replayWindowMs = 120_000,
   now = () => new Date(),
 }: TokenServiceDeps) {
   /** Issue an access + refresh pair. Pass the spent token's `familyId` when rotating. */
   async function issueTokens(user: TokenUser, opts: { familyId?: string } = {}): Promise<{ accessToken: string; refreshToken: string }> {
-    const accessToken = signToken({ sub: user.id, type: 'access', roles: user.roles, ver: user.tokenVersion ?? 0 }, accessSecret, accessTtl);
+    const accessToken = issueAccessToken(user);
     const refreshToken = signToken({ sub: user.id, type: 'refresh', jti: randomUUID() }, refreshSecret, refreshTtl);
     const expiresAt = new Date(now().getTime() + refreshTtl * 1000);
     await refreshStore.save(user.id, hashRefreshToken(refreshToken), expiresAt, opts.familyId ?? randomUUID());
     return { accessToken, refreshToken };
+  }
+
+  /** An access token alone (a replayed refresh hands back the stored refresh token with a fresh one). */
+  function issueAccessToken(user: TokenUser): string {
+    return signToken({ sub: user.id, type: 'access', roles: user.roles, ver: user.tokenVersion ?? 0 }, accessSecret, accessTtl);
+  }
+
+  /** Remember what a spent token was rotated to, sealed, so a lost reply can be retried. */
+  async function recordSuccessor(spentToken: string, successorRefreshToken: string): Promise<void> {
+    if (!box || !refreshStore.setSuccessor) return;
+    await refreshStore.setSuccessor(hashRefreshToken(spentToken), box.encrypt(successorRefreshToken));
+  }
+
+  /** The unused successor of a token spent moments ago, or null. */
+  async function replayableSuccessor(result: Extract<RotateResult, { status: 'reused' }>, at: Date): Promise<string | null> {
+    if (!box || !result.successorEnc || at.getTime() - result.revokedAt.getTime() >= replayWindowMs) return null;
+    let successor: string;
+    try {
+      successor = box.decrypt(result.successorEnc);
+    } catch {
+      return null;
+    }
+    // Only while the successor is still unused and unrevoked (not rotated on, logged out, or ended
+    // by a password change) — otherwise this is a replay of an old token.
+    const live = await refreshStore.findValid(hashRefreshToken(successor));
+    return live && live.userId === result.userId ? successor : null;
   }
 
   function verifyAccess(token: string): TokenClaims {
@@ -118,6 +155,8 @@ export function createTokenService({
     if (result.status === 'invalid' || result.userId !== claims.sub) return { ok: false, reason: 'invalid' };
     if (result.status === 'rotated') return { ok: true, userId: result.userId, familyId: result.familyId ?? undefined };
 
+    const successor = await replayableSuccessor(result, at);
+    if (successor) return { ok: true, userId: result.userId, familyId: result.familyId ?? undefined, replay: { refreshToken: successor } };
     if (at.getTime() - result.revokedAt.getTime() < reuseGraceMs) return { ok: false, reason: 'superseded' };
     if (result.familyId && refreshStore.revokeFamily) await refreshStore.revokeFamily(result.familyId);
     else await refreshStore.revokeAllForUser(result.userId); // tokens from before families existed
@@ -134,7 +173,7 @@ export function createTokenService({
     await refreshStore.revokeAllForUser(userId);
   }
 
-  return { issueTokens, verifyAccess, verifyRefresh, refreshTokenValid, rotateRefreshToken, revokeRefreshToken, revokeAllForUser };
+  return { issueTokens, issueAccessToken, recordSuccessor, verifyAccess, verifyRefresh, refreshTokenValid, rotateRefreshToken, revokeRefreshToken, revokeAllForUser };
 }
 
 export type TokenService = ReturnType<typeof createTokenService>;

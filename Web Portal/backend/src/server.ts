@@ -11,6 +11,7 @@ import { resolve as resolvePath } from 'node:path';
 import { createPrismaDataExporter } from './modules/users/data-export';
 import { createAuthService } from './modules/auth/auth-service';
 import { createTokenService } from './modules/auth/token-service';
+import { secretBoxFromEnv } from './modules/settings/secret-box';
 import { createPrismaUserRepository } from './modules/auth/prisma-user-repository';
 import { createPrismaRefreshTokenStore } from './modules/auth/prisma-refresh-token-store';
 import { createProjectService } from './modules/projects/project-service';
@@ -825,6 +826,8 @@ async function main(): Promise<void> {
     accessTtl: env.JWT_ACCESS_TTL_SECONDS,
     refreshTtl: env.JWT_REFRESH_TTL_SECONDS,
     refreshStore: createPrismaRefreshTokenStore(prisma),
+    // Seals each rotation's successor so a phone whose refresh reply was lost can retry for 2 minutes.
+    box: secretBoxFromEnv(env),
   });
   // Now that the token service exists, a password change revokes every other session for that user.
   revokeSessions = (userId) => tokenService.revokeAllForUser(userId);

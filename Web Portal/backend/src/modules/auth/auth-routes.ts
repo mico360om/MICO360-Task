@@ -42,7 +42,12 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       return reply.status(401).send({ error: { code: 'INVALID_REFRESH_TOKEN', message: 'Session expired. Please sign in again.' } });
     }
     const user = await deps.authService.getUserForSession(spent.userId);
+    // A retry after a lost reply: the same refresh token it was rotated to, with a fresh access token.
+    if (spent.replay) {
+      return reply.send({ data: { user: toPublicUser(user), accessToken: deps.tokenService.issueAccessToken(user), refreshToken: spent.replay.refreshToken } });
+    }
     const tokens = await deps.tokenService.issueTokens(user, { familyId: spent.familyId });
+    await deps.tokenService.recordSuccessor(refreshToken, tokens.refreshToken);
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
   });
 

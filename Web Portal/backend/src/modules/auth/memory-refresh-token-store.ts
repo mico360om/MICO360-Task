@@ -6,6 +6,7 @@ export interface MemoryRefreshRow {
   expiresAt: Date;
   familyId: string | null;
   revokedAt: Date | null;
+  successorEnc?: string | null;
 }
 
 /** In-memory refresh-token store with the same rotation semantics as the Prisma one (tests / dev). */
@@ -34,7 +35,11 @@ export function createMemoryRefreshTokenStore(): RefreshTokenStore & { rows: Mem
         r.revokedAt = now;
         return { status: 'rotated', userId: r.userId, familyId: r.familyId };
       }
-      return { status: 'reused', userId: r.userId, familyId: r.familyId, revokedAt: r.revokedAt };
+      return { status: 'reused', userId: r.userId, familyId: r.familyId, revokedAt: r.revokedAt, successorEnc: r.successorEnc ?? null };
+    },
+    async setSuccessor(hash, successorEnc) {
+      const r = rows.find((x) => x.hash === hash);
+      if (r) r.successorEnc = successorEnc;
     },
     async revokeFamily(familyId) {
       for (const r of rows) if (r.familyId === familyId && r.revokedAt === null) r.revokedAt = new Date();

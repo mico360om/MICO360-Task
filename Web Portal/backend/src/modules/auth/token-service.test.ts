@@ -163,3 +163,95 @@ describe('TokenService.rotateRefreshToken (atomic rotation + reuse detection)', 
     expect(await svc.rotateRefreshToken('not-a-jwt')).toEqual({ ok: false, reason: 'invalid' });
   });
 });
+
+/** A token service that records each rotation's successor (sealed), so a lost reply can be retried. */
+function makeReplaying(replayWindowMs = 120_000) {
+  const store = createMemoryRefreshTokenStore();
+  let clock = Date.now();
+  // A reversible stand-in for the app's secret box: what matters is that the stored value isn't the token.
+  const box = { encrypt: (s: string) => `sealed:${Buffer.from(s).toString('base64')}`, decrypt: (s: string) => Buffer.from(s.slice(7), 'base64').toString() };
+  const svc = createTokenService({
+    accessSecret: 'access-secret',
+    refreshSecret: 'refresh-secret',
+    accessTtl: 900,
+    refreshTtl: 1000,
+    refreshStore: store,
+    reuseGraceMs: 10_000,
+    replayWindowMs,
+    box,
+    now: () => new Date(clock),
+  });
+  /** One refresh the way the /auth/refresh route does it: spend, issue the next pair, record it. */
+  const refresh = async (token: string) => {
+    const spent = await svc.rotateRefreshToken(token);
+    if (!spent.ok || spent.replay) return spent;
+    const next = await svc.issueTokens({ id: spent.userId, roles: [] }, { familyId: spent.familyId });
+    await svc.recordSuccessor(token, next.refreshToken);
+    return { ...spent, next: next.refreshToken };
+  };
+  return { svc, store, refresh, advance: (ms: number) => (clock += ms) };
+}
+
+describe('TokenService — a lost refresh reply can be retried', () => {
+  it('a token spent by rotation, presented again within 2 minutes, returns the same successor and revokes nothing', async () => {
+    const { svc, store, refresh, advance } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const first = await refresh(t0);
+    const t1 = (first as { next: string }).next;
+    advance(30_000); // the reply was lost; the phone tries again with the token it still has
+    expect(await svc.rotateRefreshToken(t0)).toEqual({ ok: true, userId: 'u1', familyId: expect.any(String), replay: { refreshToken: t1 } });
+    expect(await svc.refreshTokenValid(t1)).toBe(true);
+    // The successor is stored sealed, never as the token itself.
+    expect(JSON.stringify(store.rows)).not.toContain(t1);
+  });
+
+  it('after the replay window it is reuse and the family is revoked', async () => {
+    const { svc, refresh, advance } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const t1 = ((await refresh(t0)) as { next: string }).next;
+    advance(3 * 60_000);
+    expect(await svc.rotateRefreshToken(t0)).toEqual({ ok: false, reason: 'reused' });
+    expect(await svc.refreshTokenValid(t1)).toBe(false);
+  });
+
+  it('a logged-out token never replays', async () => {
+    const { svc, advance } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    await svc.revokeRefreshToken(t0);
+    advance(30_000);
+    expect((await svc.rotateRefreshToken(t0)).ok).toBe(false);
+  });
+
+  it('a successor that was itself used, or revoked by a password change, is not replayed', async () => {
+    const { svc, refresh, advance } = makeReplaying();
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const t1 = ((await refresh(t0)) as { next: string }).next;
+    await refresh(t1); // the real phone already moved on to t2
+    advance(30_000);
+    expect((await svc.rotateRefreshToken(t0)).ok).toBe(false);
+
+    const { svc: svc2, refresh: refresh2, advance: advance2 } = makeReplaying();
+    const s0 = (await svc2.issueTokens({ id: 'u2', roles: [] })).refreshToken;
+    await refresh2(s0);
+    await svc2.revokeAllForUser('u2'); // password changed
+    advance2(30_000);
+    expect((await svc2.rotateRefreshToken(s0)).ok).toBe(false);
+  });
+
+  it('without a box nothing is recorded and behaviour is unchanged', async () => {
+    const { svc, store, advance } = makeRotating(10_000);
+    const t0 = (await svc.issueTokens({ id: 'u1', roles: [] })).refreshToken;
+    const spent = await svc.rotateRefreshToken(t0);
+    const t1 = (await svc.issueTokens({ id: 'u1', roles: [] }, { familyId: spent.ok ? spent.familyId : undefined })).refreshToken;
+    await svc.recordSuccessor(t0, t1);
+    expect(store.rows.every((r) => !('successorEnc' in r) || r.successorEnc === null)).toBe(true);
+    advance(3_000);
+    expect(await svc.rotateRefreshToken(t0)).toEqual({ ok: false, reason: 'superseded' });
+  });
+
+  it('issueAccessToken signs an access token alone', async () => {
+    const { svc } = makeReplaying();
+    const access = svc.issueAccessToken({ id: 'u1', roles: ['ADMIN'], tokenVersion: 3 });
+    expect(svc.verifyAccess(access)).toMatchObject({ sub: 'u1', type: 'access', roles: ['ADMIN'] });
+  });
+});

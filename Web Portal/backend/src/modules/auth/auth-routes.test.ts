@@ -34,7 +34,9 @@ function inMemoryUsers(users: AuthUser[]): AuthUserRepository {
 
 type Store = ReturnType<typeof createMemoryRefreshTokenStore>;
 
-async function makeApp(users: AuthUser[], store: Store = createMemoryRefreshTokenStore(), clock?: () => Date) {
+const testBox = { encrypt: (s: string) => `sealed:${Buffer.from(s).toString('base64')}`, decrypt: (s: string) => Buffer.from(s.slice(7), 'base64').toString() };
+
+async function makeApp(users: AuthUser[], store: Store = createMemoryRefreshTokenStore(), clock?: () => Date, opts: { box?: typeof testBox } = {}) {
   const authService = createAuthService({ users: inMemoryUsers(users), maxAttempts: 5 });
   const tokenService = createTokenService({
     accessSecret: 'access-secret-long-enough',
@@ -43,6 +45,7 @@ async function makeApp(users: AuthUser[], store: Store = createMemoryRefreshToke
     refreshTtl: 1000,
     refreshStore: store,
     ...(clock ? { now: clock } : {}),
+    ...(opts.box ? { box: opts.box } : {}),
   });
   return buildApp({ authService, tokenService });
 }
@@ -221,6 +224,32 @@ describe('POST /api/v1/auth/refresh', () => {
     clock += 60_000;
     expect((await refresh(app, first)).statusCode).toBe(401); // stolen copy replayed
     expect((await refresh(app, second)).statusCode).toBe(401); // the family is gone
+    await app.close();
+  });
+
+  it('a retried refresh (the reply was lost) returns the same refresh token and a fresh access token', async () => {
+    let clock = Date.now();
+    const app = await makeApp([user()], createMemoryRefreshTokenStore(), () => new Date(clock), { box: testBox });
+    const first = await login(app);
+    const lost = (await refresh(app, first)).json().data; // the phone never got this
+    clock += 30_000;
+    const retry = await refresh(app, first);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().data.refreshToken).toBe(lost.refreshToken);
+    expect(typeof retry.json().data.accessToken).toBe('string');
+    expect(retry.json().data.user.id).toBe('u1');
+    expect((await refresh(app, retry.json().data.refreshToken)).statusCode).toBe(200); // and the session goes on
+    await app.close();
+  });
+
+  it('a retry after the replay window is theft: 401 and the sign-in is ended', async () => {
+    let clock = Date.now();
+    const app = await makeApp([user()], createMemoryRefreshTokenStore(), () => new Date(clock), { box: testBox });
+    const first = await login(app);
+    const second = (await refresh(app, first)).json().data.refreshToken;
+    clock += 3 * 60_000;
+    expect((await refresh(app, first)).statusCode).toBe(401);
+    expect((await refresh(app, second)).statusCode).toBe(401);
     await app.close();
   });
 });
