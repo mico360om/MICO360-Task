@@ -5,6 +5,8 @@ import { useColors } from '../core/theme';
 import { Button } from './ui';
 import { useDrawerStore } from '../lib/drawer-store';
 import { createLockPolicy } from '../lib/lock-policy';
+import { lockView } from '../lib/lock-view';
+import { setScreenPrivacy } from '../adapters/screen-capture';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 
 /**
@@ -26,6 +28,8 @@ export function LockGate({ children }: { children: React.ReactNode }) {
   const [locked, setLockedState] = useState(false);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The lock setting (null until read from the keystore).
+  const [enabled, setEnabled] = useState<boolean | null>(null);
 
   const setLocked = useCallback(
     (value: boolean) => {
@@ -58,11 +62,34 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     void tryUnlock();
   }, [biometric, setLocked, tryUnlock]);
 
-  // Signed-in user changed (cold start with a saved session → lock; fresh sign-in → no lock).
+  // Signed-in user changed (cold start with a saved session → lock; fresh sign-in → no lock). The
+  // setting is read once and the lock decided in the same update, so the app never flashes first.
   useEffect(() => {
-    if (policy.onUserChange(userId)) void lockIfEnabled();
-    else if (!userId) setLocked(false);
-  }, [userId, policy, lockIfEnabled, setLocked]);
+    let active = true;
+    const shouldLock = policy.onUserChange(userId);
+    if (!userId) setLocked(false);
+    void biometric.isEnabled().then((on) => {
+      if (!active) return;
+      if (shouldLock && on) {
+        useDrawerStore.getState().closeDrawer();
+        setLocked(true);
+        setFailed(false);
+        void tryUnlock();
+      }
+      setEnabled(on);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId, policy, biometric, setLocked, tryUnlock]);
+
+  // Turned on or off in Settings (or for a different person): follow it.
+  useEffect(() => biometric.subscribe((on) => setEnabled(on)), [biometric]);
+
+  // No screenshots, screen recording or recent-apps preview while the lock is on.
+  useEffect(() => {
+    void setScreenPrivacy(enabled === true);
+  }, [enabled]);
 
   // Back from the background after the grace period → lock.
   useEffect(() => {
@@ -73,14 +100,17 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [policy, lockIfEnabled]);
 
-  const showLock = !!userId && locked;
+  const view = lockView({ signedIn: !!userId, enabled, locked });
+  const showLock = view === 'lock';
 
   return (
     <View style={styles.fill}>
       {/* Hidden from screen readers (and covered) while locked, but never unmounted. */}
-      <View style={styles.fill} importantForAccessibility={showLock ? 'no-hide-descendants' : 'auto'}>
+      <View style={styles.fill} importantForAccessibility={view !== 'content' ? 'no-hide-descendants' : 'auto'}>
         {children}
       </View>
+      {/* Until the lock setting is known: a plain cover, so nothing shows before the lock. */}
+      {view === 'cover' ? <View style={styles.cover} /> : null}
       {/* A Modal so it also covers any open sheet or drawer (they are Modals too). Back is ignored. */}
       <Modal visible={showLock} animationType="none" transparent={false} statusBarTranslucent onRequestClose={() => {}}>
         <View style={styles.overlay} accessibilityViewIsModal>
@@ -105,6 +135,7 @@ export function LockGate({ children }: { children: React.ReactNode }) {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     fill: { flex: 1 },
+    cover: { ...StyleSheet.absoluteFillObject, backgroundColor: c.ground },
     overlay: {
       flex: 1,
       alignItems: 'center',

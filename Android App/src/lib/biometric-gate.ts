@@ -27,6 +27,8 @@ export function createBiometricGate({ isAvailable, authenticate, store }: Biomet
     return (await store.getItem(BIOMETRIC_KEY)) === '1';
   }
 
+  const listeners = new Set<(on: boolean) => void>();
+
   async function setEnabled(on: boolean): Promise<void> {
     if (on) {
       if (!(await isAvailable())) throw new Error('Biometrics unavailable on this device.');
@@ -34,6 +36,15 @@ export function createBiometricGate({ isAvailable, authenticate, store }: Biomet
     } else {
       await store.deleteItem(BIOMETRIC_KEY);
     }
+    for (const listener of listeners) listener(on);
+  }
+
+  /** Hear when the lock is turned on or off (the lock screen blocks screenshots while it's on). */
+  function subscribe(listener: (on: boolean) => void): () => void {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   }
 
   async function unlock(): Promise<UnlockResult> {
@@ -43,7 +54,7 @@ export function createBiometricGate({ isAvailable, authenticate, store }: Biomet
     return ok ? { ok: true } : { ok: false, reason: 'failed' };
   }
 
-  return { isEnabled, setEnabled, unlock };
+  return { isEnabled, setEnabled, subscribe, unlock };
 }
 
 export type BiometricGate = ReturnType<typeof createBiometricGate>;

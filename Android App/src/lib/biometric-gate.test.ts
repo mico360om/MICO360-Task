@@ -62,3 +62,16 @@ describe('createBiometricGate (A1 biometric unlock)', () => {
     expect(o.authenticate).not.toHaveBeenCalled();
   });
 });
+
+describe('createBiometricGate — the lock screen hears when the lock is turned on or off', () => {
+  it('setEnabled tells subscribers the new value; unsubscribing stops it', async () => {
+    const gate = createBiometricGate(deps());
+    const heard: boolean[] = [];
+    const stop = gate.subscribe((on) => heard.push(on));
+    await gate.setEnabled(true);
+    await gate.setEnabled(false);
+    stop();
+    await gate.setEnabled(true);
+    expect(heard).toEqual([true, false]);
+  });
+});
