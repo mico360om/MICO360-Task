@@ -6,6 +6,15 @@ export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 /** The recurrence rule model is shared with the API (lib/recurrence.ts is a copy of the backend's). */
 export type { RecurrenceRule };
 
+/** The meeting a task was created from, as the viewer may see it. */
+export interface TaskMeetingLink {
+  id: string;
+  /** Null when the viewer may not see the meeting: they learn only that there is one. */
+  title: string | null;
+  startAt: string | null;
+  canView: boolean;
+}
+
 export interface ApiTask {
   id: string;
   key: string;
@@ -36,6 +45,10 @@ export interface ApiTask {
   recurrenceParentId?: string | null;
   /** The copy made from this task (single-task responses). Set = an earlier copy of its series. */
   recurrenceNextId?: string | null;
+  /** The meeting this task was created from (a Live note made into a task). */
+  meetingId?: string | null;
+  /** That meeting, for the task's details (single-task responses; null when none or deleted). */
+  meeting?: TaskMeetingLink | null;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
   /** Aggregate counts for card badges (present on list responses). */

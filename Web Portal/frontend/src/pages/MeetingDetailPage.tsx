@@ -24,6 +24,7 @@ import { recurrenceSummary } from '../lib/recurrence-summary';
 import type { RecurrenceRule } from '../lib/recurrence';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useMeetingRealtime, type MeetingChangeKind } from '../lib/useMeetingRealtime';
+import { useCurrentProject } from '../components/CurrentProject';
 import { usePageName } from '../lib/page-meta';
 
 /** While a meeting is running, poll its live parts so standalone meetings (no socket room) stay current too. */
@@ -47,6 +48,8 @@ export function MeetingDetailPage() {
     refetchInterval: (q) => (q.state.data?.status === 'IN_PROGRESS' ? LIVE_POLL_MS : false),
   });
   const meeting = meetingQ.data;
+  // A project meeting: New task starts in its project.
+  useCurrentProject(meeting?.projectId);
   usePageName(meeting?.title);
   const live = meeting?.status === 'IN_PROGRESS';
   const pollMs = live ? LIVE_POLL_MS : false;

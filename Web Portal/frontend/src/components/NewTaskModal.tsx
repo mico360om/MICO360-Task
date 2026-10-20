@@ -1,4 +1,5 @@
 import { TaskFormDialog } from './task-form/TaskFormDialog';
+import { useCurrentProjectId } from './CurrentProject';
 
 export interface NewTaskModalProps {
   onClose: () => void;
@@ -9,7 +10,11 @@ export interface NewTaskModalProps {
   defaultDueDate?: string;
 }
 
-/** The "New task" form usable from anywhere (header, My Tasks, the calendar…): the task form in create mode. */
+/**
+ * The "New task" form usable from anywhere (header, My Tasks, the calendar…): the task form in create
+ * mode. It starts in the project the open page shows (see CurrentProject), else the one used last time.
+ */
 export function NewTaskModal({ onClose, onCreated, projectId, defaultDueDate }: NewTaskModalProps) {
-  return <TaskFormDialog onClose={onClose} onCreated={() => onCreated?.()} projectId={projectId} defaultDueDate={defaultDueDate} />;
+  const pageProjectId = useCurrentProjectId();
+  return <TaskFormDialog onClose={onClose} onCreated={() => onCreated?.()} projectId={projectId} defaultProjectId={pageProjectId ?? undefined} defaultDueDate={defaultDueDate} />;
 }

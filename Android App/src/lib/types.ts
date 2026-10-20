@@ -21,6 +21,15 @@ import type { RecurrenceRule } from './recurrence';
 
 export type DevicePlatform = 'ANDROID' | 'IOS' | 'WEB';
 
+/** The meeting a task was created from, as the viewer may see it (task detail only). */
+export interface ApiTaskMeeting {
+  id: string;
+  /** Null when the viewer may not see the meeting: they learn only that there is one. */
+  title: string | null;
+  startAt: string | null;
+  canView: boolean;
+}
+
 export interface ApiTask {
   id: string;
   key: string;
@@ -45,6 +54,10 @@ export interface ApiTask {
   recurrenceNextId?: string | null;
   /** A milestone of its project (older servers leave it out). */
   isMilestone?: boolean;
+  /** The meeting this task was created from (a Live note made into a task); older servers leave it out. */
+  meetingId?: string | null;
+  /** That meeting, for the task details (null when none, or deleted). */
+  meeting?: ApiTaskMeeting | null;
   /** The category of the task's column (e.g. DONE) — older servers leave it out. */
   columnCategory?: string | null;
   /** Present only on the create response when tags were applied in the same call. */

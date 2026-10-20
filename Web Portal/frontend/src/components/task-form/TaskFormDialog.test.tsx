@@ -289,6 +289,26 @@ describe('New task form', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('To Do'));
   });
 
+  it('starts in the project of the page it was opened from, over the one used last time — and it can still be changed', async () => {
+    localStorage.setItem('mico360.newTask.project', 'p2');
+    renderDialog({ defaultProjectId: 'p1' });
+    const picker = () => screen.getByRole('button', { name: 'Project' });
+    await waitFor(() => expect(picker()).toHaveTextContent('MICO360 Platform'));
+    // Its own columns follow (MICO360 Platform starts with Backlog).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('Backlog'));
+    // Not locked like a board's own "New task": another project can be picked.
+    expect(picker()).toBeEnabled();
+    await userEvent.click(picker());
+    await userEvent.click(await screen.findByRole('option', { name: /Ops Board/ }));
+    await waitFor(() => expect(picker()).toHaveTextContent('Ops Board'));
+  });
+
+  it('ignores the page’s project when it is archived (or unknown), and uses the one used last time', async () => {
+    localStorage.setItem('mico360.newTask.project', 'p2');
+    renderDialog({ defaultProjectId: 'p3' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Project' })).toHaveTextContent('Ops Board'));
+  });
+
   it('says so when there are no projects to add a task to', async () => {
     override = (u) => (u.endsWith('/projects') ? json({ data: [] }) : undefined);
     renderDialog();

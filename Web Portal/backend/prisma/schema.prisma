@@ -261,6 +261,8 @@ model Task {
   recurrenceRule     Json?    // RecurrenceRule for a recurring task (null = one-off)
   recurrenceParentId String?  // links a generated instance back to its series template
   recurrenceSourceId String?  @unique // the task this copy was made from — unique, so a task never gets two next copies
+  /// The meeting this task was created from (a Live note made into a task); the task links back to it.
+  meetingId      String?
   version        Int       @default(0) // optimistic concurrency (T4.3)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -278,10 +280,12 @@ model Task {
   dependencies TaskDependency[] @relation("DependentTask")
   dependedOnBy TaskDependency[] @relation("BlockingTask")
   activities   Activity[]
+  meeting      Meeting?         @relation(fields: [meetingId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([columnId])
   @@index([dueDate])
+  @@index([meetingId])
   @@index([priority])
   @@index([boardDate])
   @@fulltext([title, description])
@@ -759,6 +763,7 @@ model Meeting {
   actionItems ActionItem[]
   decisions   Decision[]
   minutes     MeetingMinutes?
+  tasks       Task[]
 
   @@index([projectId])
   @@index([organizerId])

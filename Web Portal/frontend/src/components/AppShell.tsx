@@ -8,6 +8,7 @@ import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { SystemClock } from './SystemClock';
 import { NotificationsBell } from './NotificationsBell';
 import { NewTaskButton } from './NewTaskButton';
+import { CurrentProjectProvider } from './CurrentProject';
 import { SyncStatus } from './SyncStatus';
 import { ProfileMenu } from './ProfileMenu';
 import { flushOfflineQueue } from '../lib/offline-replay';
@@ -96,6 +97,8 @@ export function AppShell() {
 
   return (
     <ShortcutProvider>
+    {/* The project the open page shows: "New task" starts in it. */}
+    <CurrentProjectProvider>
     <div className="flex min-h-screen">
       <ChatSoundNotifier />
       <a
@@ -152,6 +155,7 @@ export function AppShell() {
       {/* Global task drawer — opened from search/command palette or any ?task= link */}
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={closeTask} /> : null}
     </div>
+    </CurrentProjectProvider>
     </ShortcutProvider>
   );
 }

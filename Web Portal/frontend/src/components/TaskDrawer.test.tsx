@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { TaskDrawer } from './TaskDrawer';
 import type { ApiTask } from '../api/tasks';
 
@@ -614,5 +615,38 @@ describe('TaskDrawer', () => {
       expect(screen.queryByTitle(/nobody|omar/i)).not.toBeInTheDocument();
       expect(screen.getByText(/Ask @nobody or mail omar@x\.com/)).toBeInTheDocument();
     });
+  });
+});
+
+describe('TaskDrawer — the meeting a task was created from', () => {
+  const fromMeeting = (meeting: ApiTask['meeting']): ApiTask => ({ ...task, meetingId: 'm1', meeting });
+  const show = (t: ApiTask) =>
+    render(
+      <MemoryRouter>
+        <TaskDrawer task={t} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+  it('links to the meeting, by its title and day', () => {
+    show(fromMeeting({ id: 'm1', title: 'Weekly review', startAt: '2026-10-12T05:00:00.000Z', canView: true }));
+    const link = within(screen.getByTestId('task-header')).getByRole('link', { name: /from meeting: weekly review/i });
+    expect(link).toHaveAttribute('href', '/meetings/m1');
+    expect(link).toHaveTextContent(/Mon/);
+    expect(link).toHaveTextContent(/\b12\b.*Oct|Oct.*\b12\b/); // "Mon 12 Oct" or "Mon, Oct 12", by locale
+  });
+
+  it('says only that there is a meeting when the viewer may not see it', () => {
+    show(fromMeeting({ id: 'm1', title: null, startAt: null, canView: false }));
+    const header = within(screen.getByTestId('task-header'));
+    expect(header.getByText(/from a meeting you’re not part of/i)).toBeInTheDocument();
+    expect(header.queryByRole('link', { name: /meeting/i })).toBeNull();
+  });
+
+  it('shows no meeting for a task made anywhere else, or whose meeting is gone', () => {
+    const { unmount } = show(task);
+    expect(screen.queryByText(/meeting/i)).toBeNull();
+    unmount();
+    show({ ...task, meetingId: 'm1', meeting: null });
+    expect(screen.queryByText(/meeting/i)).toBeNull();
   });
 });

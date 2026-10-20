@@ -30,6 +30,8 @@ export interface TaskRecord {
    * earlier copy: its repeat can't be changed — that would start a second, parallel series.
    */
   recurrenceNextId?: string | null;
+  /** The meeting this task was created from (a Live note made into a task), when there is one. */
+  meetingId?: string | null;
   /** The calendar day this task appears on (per-date boards). Stored as a noon-UTC anchor. */
   boardDate: Date | null;
   /** Append-only history of carry-forward moves (from→to date). Left out of list responses. */
@@ -63,6 +65,8 @@ export interface CreateTaskData {
   boardDate?: Date | null;
   /** Set when the task is created straight into a DONE column. */
   completedAt?: Date | null;
+  /** The meeting the task is created from (a Live note made into a task). */
+  meetingId?: string | null;
   /** Normalised tag names to attach (find-or-create) in the same write as the task. */
   tagNames?: string[];
   /** Users to assign in the same write as the task (already validated). */

@@ -103,6 +103,22 @@ const updateSchema = z.object({
 const moveSchema = z.object({ columnId: idString, position: z.number().int().min(0).optional() });
 const reorderSchema = z.object({ orderedIds: z.array(idString).min(1).max(1000) });
 
+/** The meeting a task was created from, as one task's details show it. */
+export interface TaskMeetingLink {
+  id: string;
+  /** Null when the person asking may not see the meeting: they learn only that there is one. */
+  title: string | null;
+  startAt: Date | null;
+  canView: boolean;
+}
+
+/** Looks up the meeting a task came from, and who may see it. */
+export interface TaskMeetingLookup {
+  /** The meeting's title and start, or null once it is deleted. */
+  summary: (meetingId: string) => Promise<{ id: string; title: string; startAt: Date } | null>;
+  canView: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
+}
+
 export interface TaskRouteDeps {
   taskService: TaskService;
   guard: AuthGuard;
@@ -123,6 +139,8 @@ export interface TaskRouteDeps {
   carryForwardService?: CarryForwardService;
   /** How many copies a recurring series already has (for series with a set number of occurrences). */
   countSeries?: (seriesId: string) => Promise<number>;
+  /** When provided, a task’s details name the meeting it was created from. */
+  taskMeeting?: TaskMeetingLookup;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -227,12 +245,24 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     return deps.canViewTask(req.user!.id, req.user!.roles ?? [], id);
   }
 
+  /** The meeting a task came from, as the person asking may see it (null when none, or deleted). */
+  async function meetingLinkOf(req: FastifyRequest, meetingId: string | null): Promise<TaskMeetingLink | null> {
+    if (!meetingId || !deps.taskMeeting) return null;
+    const meeting = await deps.taskMeeting.summary(meetingId);
+    if (!meeting) return null;
+    if (!(await deps.taskMeeting.canView(req.user!.id, req.user!.roles ?? [], meetingId))) {
+      return { id: meeting.id, title: null, startAt: null, canView: false };
+    }
+    return { id: meeting.id, title: meeting.title, startAt: meeting.startAt, canView: true };
+  }
+
   app.get('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await assertTaskView(req, id))) {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Task not found.' } });
     }
-    return { data: await taskService.getTask(id) };
+    const task = await taskService.getTask(id);
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null) } };
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {

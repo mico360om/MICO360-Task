@@ -69,6 +69,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 columnId: firstColumn?.id ?? source.columnId,
                 priority: source.priority,
                 isMilestone: source.isMilestone,
+                // The next copy still comes from the same meeting.
+                meetingId: source.meetingId ?? undefined,
                 estimatedHours: source.estimatedHours ?? undefined,
                 startDate: at,
                 dueDate: nextDueDate,

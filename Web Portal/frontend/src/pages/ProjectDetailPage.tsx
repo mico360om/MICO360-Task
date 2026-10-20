@@ -25,6 +25,7 @@ import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { NewTaskModal } from '../components/NewTaskModal';
+import { useCurrentProject } from '../components/CurrentProject';
 import { ShortcutHint, useShortcut, useShortcutHint } from '../components/shortcuts/ShortcutProvider';
 import { OverviewTab } from '../components/project-dashboard/OverviewTab';
 import { TasksTab, type TaskFilter, type TaskGroup } from '../components/project-dashboard/TasksTab';
@@ -57,6 +58,8 @@ const statusLabel = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replac
  */
 export function ProjectDetailPage() {
   const { id = '' } = useParams();
+  // New task (the header button too) starts in this project.
+  useCurrentProject(id);
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const myId = useAuthStore((s) => s.user?.id);

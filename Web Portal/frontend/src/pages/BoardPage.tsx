@@ -17,6 +17,7 @@ import type { KanbanColumnData } from '../components/KanbanColumn';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { ColumnManager } from '../components/ColumnManager';
 import { TaskFormDialog } from '../components/task-form/TaskFormDialog';
+import { useCurrentProject } from '../components/CurrentProject';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -59,6 +60,8 @@ export function BoardPage() {
   // Board shows one project at a time.
   const projectId = has(urlProjectId) ? urlProjectId : has(selectedProjectId) ? selectedProjectId : projects[0]?.id;
   const project = projects.find((p) => p.id === projectId);
+  // New task from the header starts in the board's project.
+  useCurrentProject(projectId);
   const urlProjectValid = has(urlProjectId);
   useEffect(() => {
     // Remember a project opened by link too, so returning to /board shows it again.

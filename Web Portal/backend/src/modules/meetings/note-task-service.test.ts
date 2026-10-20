@@ -67,6 +67,17 @@ describe('createTaskFromNote', () => {
     expect(f.noteService.linkTask).toHaveBeenCalledWith('m1', 'n1', (task as { id: string }).id);
   });
 
+  it('records the meeting on the task, so the task links back to it', async () => {
+    const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+    const svc = createNoteTaskService(f as never);
+    await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+    expect(f.taskService.createTask).toHaveBeenCalledWith(expect.objectContaining({ meetingId: 'm1' }));
+    // Also when the task goes to a project other than the meeting's.
+    const g = fakes({ id: 'm2', title: 'Standalone', projectId: null });
+    await createNoteTaskService(g as never).createTaskFromNote('m2', 'n1', 'u1', { projectId: 'p9' });
+    expect(g.taskService.createTask).toHaveBeenCalledWith(expect.objectContaining({ meetingId: 'm2', projectId: 'p9' }));
+  });
+
   it('honors explicit overrides (title, project, column, priority, dueDate)', async () => {
     const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
     const svc = createNoteTaskService(f as never);

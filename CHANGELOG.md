@@ -14,6 +14,26 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-20
+
+### New features
+- A task made from a meeting links back to it. Its details show "From meeting" with the meeting's
+  title and day, and one click opens the meeting. Tasks already made from a meeting's notes get the
+  link too, and a repeating task's next copies keep it. Someone who can see the task but isn't part of
+  the meeting is told only that it came from a meeting. The Android app shows the same line, and
+  tapping it opens the meeting on the website.
+
+### Improvements
+- New task starts in the project you are looking at: on a project's page, its board, a project's
+  meeting, and My Tasks or the Calendar filtered to one project. That covers the New Task button at
+  the top, the N key and a day on the calendar. You can still pick another project. Everywhere else it
+  starts in the project you used last, as before.
+
+### Security
+- source-map-js updated to 1.2.2 (CVE-2026-93749, high): a crafted source map could stall the tools
+  that build the web app and the Android app. It is used only while building, never by the running
+  server or app.
+
 ## [1.1.0] - 2026-10-17
 
 ### New features

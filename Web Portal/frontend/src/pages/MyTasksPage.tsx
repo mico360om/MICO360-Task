@@ -28,6 +28,7 @@ import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
 import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
 import { projectOption } from '../components/project-option';
+import { useCurrentProject } from '../components/CurrentProject';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -79,6 +80,8 @@ export function MyTasksPage() {
   const timeZone = useCompanyTimeZone();
   const userId = useAuthStore((s) => s.user?.id);
   const [project, setProject] = useState('');
+  // Filtered to one project: New task starts in it.
+  useCurrentProject(project);
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
   const [assignee, setAssignee] = useState('');

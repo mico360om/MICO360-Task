@@ -44,6 +44,18 @@ describe('createPrismaTaskRepository', () => {
     expect(data.assignees.create).toEqual([{ userId: 'u2' }, { userId: 'u3' }]);
   });
 
+  it('records the meeting a task was created from, and reads it back', async () => {
+    const create = vi.fn(async () => row({ meetingId: 'm1' }));
+    const repo = createPrismaTaskRepository({ task: { create } } as unknown as PrismaClient);
+    const t = await repo.create({ key: 'MICO-1', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1', meetingId: 'm1' });
+    expect((create.mock.calls[0] as unknown as [{ data: Record<string, any> }])[0].data.meetingId).toBe('m1');
+    expect(t.meetingId).toBe('m1');
+    // A task made anywhere else has none.
+    const plain = await createPrismaTaskRepository({ task: { create: vi.fn(async () => row()) } } as unknown as PrismaClient)
+      .create({ key: 'MICO-2', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1' });
+    expect(plain.meetingId).toBeNull();
+  });
+
   it('turns a duplicate key into TaskKeyConflictError (so the service can retry)', async () => {
     const repo = createPrismaTaskRepository({ task: { create: vi.fn(async () => { throw keyConflict(); }) } } as unknown as PrismaClient);
     await expect(repo.create({ key: 'MICO-1', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1' })).rejects.toBeInstanceOf(TaskKeyConflictError);
@@ -59,6 +71,8 @@ describe('createPrismaTaskRepository', () => {
     expect(args.where.AND).toEqual([{ projectId: { in: ['p1', 'p2'] } }, { priority: { in: ['HIGH'] } }]);
     expect(args.select.carryForwardLog).toBeUndefined();
     expect(t).not.toHaveProperty('carryForwardLog');
+    // List rows say which meeting a task came from too.
+    expect(args.select.meetingId).toBe(true);
   });
 
   it('hides a task of a deleted project from findById', async () => {
@@ -125,7 +139,7 @@ describe('createPrismaRecurrencePort', () => {
   function fakePrisma(opts: { failFirstCreate?: boolean; alreadyCopied?: boolean } = {}) {
     const source = {
       id: 's1', projectId: 'p1', title: 'Daily standup', description: 'notes', columnId: 'done', priority: 'HIGH', estimatedHours: 1,
-      createdById: 'creator', recurrenceParentId: null, project: { code: 'MICO' },
+      createdById: 'creator', recurrenceParentId: null, meetingId: 'm1', project: { code: 'MICO' },
       assignees: [{ userId: 'u1' }, { userId: 'gone' }], watchers: [{ userId: 'w1' }], tags: [{ tagId: 'tag1' }],
       checklist: [{ text: 'Prepare slides', position: 0 }],
     };
@@ -179,6 +193,8 @@ describe('createPrismaRecurrencePort', () => {
     expect(data.watchers.create).toEqual([{ userId: 'w1' }]);
     expect(data.tags.create).toEqual([{ tagId: 'tag1' }]);
     expect(data.checklist.create).toEqual([{ text: 'Prepare slides', position: 0 }]);
+    // A task made from a meeting: its next copy links to the same meeting.
+    expect(data.meetingId).toBe('m1');
     // The rule moves on; the first task stays marked as part of its series (it starts it).
     expect(fake.task.update).toHaveBeenCalledWith({ where: { id: 's1' }, data: { recurrenceRule: Prisma.DbNull, recurrenceParentId: 's1' } });
     expect(fake.activity.create).toHaveBeenCalledWith({ data: expect.objectContaining({ taskId: 'next', projectId: 'p1', action: 'CREATED' }) });

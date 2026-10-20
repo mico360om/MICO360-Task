@@ -5,7 +5,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
-import { HttpError } from './lib/http-errors';
+import { HttpError, NotFoundError } from './lib/http-errors';
 import type { Logger } from './lib/logger';
 import { registerIdempotency, type IdempotencyStore } from './lib/idempotency';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
@@ -14,7 +14,7 @@ import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-rout
 import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
 import { registerProjectRoutes } from './modules/projects/project-routes';
 import type { ProjectService } from './modules/projects/project-service';
-import { registerTaskRoutes } from './modules/tasks/task-routes';
+import { registerTaskRoutes, type TaskMeetingLookup } from './modules/tasks/task-routes';
 import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
 import type { TaskExportSource } from './modules/tasks/task-export';
 import type { TaskService } from './modules/tasks/task-service';
@@ -86,6 +86,8 @@ export interface AppDeps extends AuthRouteDeps {
   userPreferences?: PreferencesRepository;
   /** How many copies a recurring series has (the calendar's projected dates respect its count). */
   seriesInstanceCount?: (seriesId: string) => Promise<number>;
+  /** The meeting a task came from, for its details (defaults to the meeting service + meeting access). */
+  taskMeeting?: TaskMeetingLookup;
   /** Write a line to a task's activity timeline — checklist, comment, file and blocker changes. */
   recordTaskActivity?: RecordTaskActivity;
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
@@ -416,6 +418,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           assigneeService: deps.assigneeService,
           carryForwardService: deps.carryForwardService,
           countSeries: deps.seriesInstanceCount,
+          taskMeeting: deps.taskMeeting ?? taskMeetingFrom(deps),
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -596,4 +599,23 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   );
 
   return app;
+}
+
+/** The meeting lookup for task details, from the meeting service and meeting access when both are wired. */
+function taskMeetingFrom(deps: AppDeps): TaskMeetingLookup | undefined {
+  const { meetingService, meetingAccess } = deps;
+  if (!meetingService || !meetingAccess) return undefined;
+  return {
+    async summary(meetingId) {
+      try {
+        const meeting = await meetingService.getMeeting(meetingId);
+        return { id: meeting.id, title: meeting.title, startAt: meeting.startAt };
+      } catch (err) {
+        // A deleted (or missing) meeting leaves no link.
+        if (err instanceof NotFoundError) return null;
+        throw err;
+      }
+    },
+    canView: (userId, roles, meetingId) => meetingAccess.canViewMeeting(userId, roles, meetingId),
+  };
 }

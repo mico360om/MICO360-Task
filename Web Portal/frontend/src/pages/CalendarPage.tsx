@@ -30,6 +30,7 @@ import { PageTitle } from '../components/ui/PageHeader';
 import { useFrameOffset } from '../lib/useFrameOffset';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { NewTaskModal } from '../components/NewTaskModal';
+import { useCurrentProject } from '../components/CurrentProject';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { CalendarFilterBar, CalendarToolbar } from '../components/calendar/CalendarToolbar';
 import { LegendButton, MeetingChip, TaskChip, dayLabel, useMediaQuery } from '../components/calendar/calendar-ui';
@@ -117,6 +118,8 @@ export function CalendarPage() {
     setPlace(placeFromParams(params));
   }, [params]);
   const { view, filters } = place;
+  // Filtered to one project: a new task (header, N, a day) starts in it.
+  useCurrentProject(filters.projectId);
   const cursor = place.date ?? today;
   const navigate = useCallback((patch: Partial<PlaceState>) => setPlace((s) => ({ ...s, ...patch })), []);
 

@@ -15,7 +15,8 @@ const TITLE_MAX = 191;
 
 /**
  * The top of the task: reference, status, priority and due date at a glance, the title (edited in
- * place), and a "⋯" menu for the secondary actions (watching, exporting).
+ * place), and a "⋯" menu for the secondary actions (watching, exporting). A task made from a meeting
+ * names that meeting, with a link to it.
  */
 export function HeaderCard({
   task,
@@ -28,6 +29,8 @@ export function HeaderCard({
   onToggleWatch,
   onExport,
   exporting,
+  meeting,
+  onOpenMeeting,
 }: {
   task: ApiTask;
   statusName?: string;
@@ -39,6 +42,9 @@ export function HeaderCard({
   onToggleWatch: () => void;
   onExport: (format: 'xlsx' | 'pdf') => void;
   exporting: 'xlsx' | 'pdf' | null;
+  /** The meeting the task was created from (see meetingLine); href is null when the viewer isn't part of it. */
+  meeting?: { text: string; href: string | null } | null;
+  onOpenMeeting?: (href: string) => void;
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
@@ -119,6 +125,19 @@ export function HeaderCard({
         <Text style={s.recurrence}>🔁 Part of a repeating series</Text>
       ) : null}
       {task.isMilestone ? <Text style={s.recurrence}>🏁 Milestone</Text> : null}
+      {meeting?.href ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={meeting.text}
+          accessibilityHint="Opens the meeting on the website"
+          onPress={() => onOpenMeeting?.(meeting.href!)}
+          style={({ pressed }) => [s.meetingLink, pressed && { opacity: 0.6 }]}
+        >
+          <Text style={s.meetingText}>📅 {meeting.text} ↗</Text>
+        </Pressable>
+      ) : meeting ? (
+        <Text style={s.meetingMuted}>📅 {meeting.text}</Text>
+      ) : null}
 
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
         <Pressable style={s.backdrop} onPress={() => setMenu(false)} accessibilityLabel="Close menu">
@@ -146,6 +165,9 @@ const makeStyles = (c: Palette) =>
     editActions: { flexDirection: 'row', gap: spacing.sm },
     flex: { flex: 1 },
     recurrence: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600' },
+    meetingLink: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+    meetingText: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600', textDecorationLine: 'underline' },
+    meetingMuted: { fontSize: fontSize.sm, color: c.ink3, fontWeight: '600' },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
     sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingVertical: spacing.sm, paddingBottom: spacing.xl },
     sheetTitle: { fontSize: fontSize.xs, fontWeight: '800', color: c.ink3, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, letterSpacing: 1 },

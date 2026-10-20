@@ -37,6 +37,8 @@ export interface TaskFormDialogProps {
   onSaved?: (task: ApiTask) => void;
   /** Create in this project only (e.g. from its board): shown, not changeable. */
   projectId?: string;
+  /** Start in this project (the one the page shows) — still changeable. Ignored when archived or unknown. */
+  defaultProjectId?: string;
   /** Start in this column (e.g. the one chosen on the board). */
   defaultColumnId?: string;
   /** Start with this due date ('YYYY-MM-DD'), e.g. the day chosen on the calendar. */
@@ -107,7 +109,7 @@ function Label({ htmlFor, required, optional, children }: { htmlFor?: string; re
  * can be started from a plain-English description. Saving shows progress and is never sent twice;
  * what was entered stays after a failure, and closing with changes asks first.
  */
-export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultColumnId, defaultDueDate, boardDate, onQueued }: TaskFormDialogProps) {
+export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultProjectId, defaultColumnId, defaultDueDate, boardDate, onQueued }: TaskFormDialogProps) {
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
@@ -168,8 +170,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     if (projectFixed || draft.projectId || openProjects.length === 0) return;
     let last: string | null = null;
     try { last = localStorage.getItem(LAST_PROJECT); } catch { /* storage unavailable */ }
-    settle({ projectId: openProjects.some((p) => p.id === last) ? last! : openProjects[0]!.id });
-  }, [projectFixed, draft.projectId, openProjects]);
+    // The page's own project first, then the one used last time, then the first open project.
+    const start = [defaultProjectId, last].find((id) => id && openProjects.some((p) => p.id === id)) ?? openProjects[0]!.id;
+    settle({ projectId: start });
+  }, [projectFixed, draft.projectId, openProjects, defaultProjectId]);
 
   const columnsQ = useQuery({ queryKey: ['columns', draft.projectId], queryFn: () => columnsApi(apiClient).list(draft.projectId), enabled: !!draft.projectId });
   const columns = useMemo(

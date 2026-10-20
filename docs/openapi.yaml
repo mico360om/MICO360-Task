@@ -70,6 +70,22 @@ components:
           description: >
             GET /tasks/{id} only. The copy made from this task. Set means this is an earlier copy: setting
             a repeat on it is refused with 409 RECURRENCE_NOT_NEWEST (it would start a second series).
+        meetingId:
+          type: string
+          nullable: true
+          description: The meeting this task was created from (a Live note made into a task); its next repeat copies keep it.
+        meeting:
+          type: object
+          nullable: true
+          description: >
+            GET /tasks/{id} only. The meeting the task was created from, as the caller may see it; null when
+            there is none or it was deleted. For someone who may not see the meeting, title and startAt are
+            null and canView is false.
+          properties:
+            id: { type: string }
+            title: { type: string, nullable: true }
+            startAt: { type: string, format: date-time, nullable: true }
+            canView: { type: boolean }
     RecurrenceRule:
       type: object
       description: >

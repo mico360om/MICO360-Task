@@ -3,7 +3,7 @@ import { COMPANY_TIMEZONE, dueDayKey, formatDueDay, isOverdue, type DateInput } 
 import { moveItem } from './list-order';
 import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
-import type { ApiActivityEntry, ApiColumn, ApiTask } from './types';
+import type { ApiActivityEntry, ApiColumn, ApiTask, ApiTaskMeeting } from './types';
 
 /** Admins and the project's managers may delete a task (the server's rule). */
 export function canDeleteTask(user: { id: string; roles: string[] } | null, members: { id: string; role: 'MEMBER' | 'MANAGER' }[]): boolean {
@@ -24,6 +24,30 @@ export function dueState(
   const day = formatDueDay(task.dueDate, locale, timeZone);
   const overdue = isOverdue(task, now, timeZone);
   return { text: overdue ? `Overdue · ${day}` : `Due ${day}`, overdue, dayKey };
+}
+
+/**
+ * The line naming the meeting a task was created from: its title and day (company time) with a link to
+ * the meeting's page on the site, or — for someone not part of the meeting — just a mention.
+ */
+export function meetingLine(
+  meeting: ApiTaskMeeting | null | undefined,
+  apiBase: string,
+  locale?: string,
+  timeZone: string = COMPANY_TIMEZONE,
+): { text: string; href: string | null } | null {
+  if (!meeting) return null;
+  if (!meeting.canView || !meeting.title) return { text: 'From a meeting you’re not part of', href: null };
+  const start = meeting.startAt ? new Date(meeting.startAt) : null;
+  const day = start && !Number.isNaN(start.getTime())
+    ? new Intl.DateTimeFormat(locale, { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(start)
+    : '';
+  // The site is served from the API server's origin.
+  const origin = apiBase.replace(/\/api\/v\d+\/?$/, '').replace(/\/+$/, '');
+  return {
+    text: day ? `From meeting: ${meeting.title} · ${day}` : `From meeting: ${meeting.title}`,
+    href: `${origin}/meetings/${encodeURIComponent(meeting.id)}`,
+  };
 }
 
 /** The order with `id` moved one place up (-1) or down (+1); null when it can't move that way. */

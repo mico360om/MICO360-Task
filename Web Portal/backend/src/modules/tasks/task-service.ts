@@ -29,6 +29,8 @@ export interface NewTask {
   recurrenceRule?: RecurrenceRule | null;
   /** Links a generated instance back to its recurring series (the origin task's id). */
   recurrenceParentId?: string | null;
+  /** The meeting the task is created from (a Live note made into a task). */
+  meetingId?: string | null;
   /** The board day this task should appear on; defaults to today (per-date boards). */
   boardDate?: Date | null;
   /** Normalised tag names, attached in the same write as the task. */

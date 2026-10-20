@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
 import { MilestoneIcon } from './TaskCard';
@@ -7,6 +8,8 @@ import { statusMeta } from '../lib/taskStatus';
 import { isOverdue } from '../lib/due-date';
 import { formatDueDay, isTaskDone } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
+import { formatMeetingDay } from '../lib/meetingFormat';
+import { Icon } from './meeting/kit';
 import type { MentionPerson } from '../lib/mentions';
 import { InlineDescription, InlineTitle } from './task-drawer/inline-text';
 import { PropertiesPanel, type DrawerAssignee, type DrawerStatusColumn, type FieldPatch } from './task-drawer/properties';
@@ -111,6 +114,30 @@ const CalendarIcon = () => (
     <path d="M16 2v4M8 2v4M3 10h18" />
   </svg>
 );
+
+/** The meeting the task was created from: a link to it, or — for someone not part of it — just a mention. */
+function MeetingLink({ meeting, timeZone }: { meeting: NonNullable<ApiTask['meeting']>; timeZone: string }) {
+  if (!meeting.canView || !meeting.title) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2 [&_svg]:h-3.5 [&_svg]:w-3.5">
+        {Icon.calendar}
+        From a meeting you’re not part of
+      </span>
+    );
+  }
+  const day = meeting.startAt ? formatMeetingDay(meeting.startAt, timeZone) : '';
+  return (
+    <Link
+      to={`/meetings/${encodeURIComponent(meeting.id)}`}
+      title="Open the meeting this task was created from"
+      className="inline-flex min-h-7 max-w-full items-center gap-1 rounded-full bg-brand/10 px-2 text-xs font-medium text-brand transition-colors hover:bg-brand/15 hover:underline [&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:flex-none"
+    >
+      {Icon.calendar}
+      <span className="truncate">From meeting: {meeting.title}</span>
+      {day ? <span className="flex-none">· {day}</span> : null}
+    </Link>
+  );
+}
 
 export function TaskDrawer({
   task,
@@ -239,8 +266,9 @@ export function TaskDrawer({
         <div className="mt-2">
           <InlineTitle title={task.title} onSave={saveField ? (title) => saveField({ title }) : undefined} />
         </div>
-        {inSeries || carried ? (
+        {inSeries || carried || task.meeting ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
+            {task.meeting ? <MeetingLink meeting={task.meeting} timeZone={timeZone} /> : null}
             {task.recurrenceRule ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">🔁 {recurrenceSummary(task.recurrenceRule)}</span>
             ) : inSeries ? (

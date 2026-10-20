@@ -38,7 +38,7 @@ import type { MentionPerson } from '../lib/mentions';
 import { attachmentHref, canRemoveAttachment, uploadErrorMessage, uploadPart, type ApiAttachment } from '../lib/attachments';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
-import { activityFeed, blockerRefs, canDeleteTask, dueState, taskLoadProblem } from '../lib/task-detail';
+import { activityFeed, blockerRefs, canDeleteTask, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
 import type { AppScreenProps } from '../navigation/types';
 import { displayName } from '../lib/types';
 import { HeaderCard } from '../components/task-detail/HeaderCard';
@@ -161,6 +161,15 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           () => setUploads((u) => u.filter((x) => x.key !== key)),
           (e) => set({ error: isNetworkError(e) ? 'You’re offline — files can be attached when you’re connected.' : uploadErrorMessage(e) }),
         );
+    }
+  }
+
+  /** The meeting the task came from opens on the website (the app has no meetings screen). */
+  async function openMeeting(href: string) {
+    try {
+      await Linking.openURL(href);
+    } catch {
+      Alert.alert('Couldn’t open the meeting', 'Open it from Meetings on the website.');
     }
   }
 
@@ -302,6 +311,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           onToggleWatch={() => watch.toggle.mutateAsync().catch((e) => Alert.alert('Couldn’t change watching', failureText(e, 'Please try again.')))}
           onExport={(format) => void exportTask(format)}
           exporting={exporting}
+          meeting={meetingLine(task.meeting, baseUrl)}
+          onOpenMeeting={(href) => void openMeeting(href)}
         />
         {wide ? (
           <View style={styles.columns}>

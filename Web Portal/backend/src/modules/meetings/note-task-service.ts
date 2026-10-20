@@ -33,6 +33,8 @@ interface NewTaskInput {
   priority?: Priority;
   dueDate?: Date | null;
   createdById: string;
+  /** The meeting the task comes from, so the task links back to it. */
+  meetingId?: string | null;
 }
 
 export interface CreateTaskFromNoteOverrides {
@@ -126,6 +128,7 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
           projectId,
           columnId,
           createdById,
+          meetingId: meeting.id,
           ...(overrides.priority ? { priority: overrides.priority } : {}),
           ...(dueDate ? { dueDate } : {}),
         });

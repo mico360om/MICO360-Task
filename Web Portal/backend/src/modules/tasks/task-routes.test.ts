@@ -8,6 +8,7 @@ import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import type { ColumnInfo, CreateTaskData, TaskRecord, TaskRepository, ProjectLookup } from './task-repository';
 import type { AssigneeRepository, AssigneeUser } from './assignee-repository';
+import { NotFoundError } from '../../lib/http-errors';
 
 // c1/c2/done belong to p1, c3 to p2.
 const COLUMNS: Record<string, ColumnInfo> = {
@@ -46,6 +47,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string> } = {}) {
         boardDate: data.boardDate ?? null,
         recurrenceRule: data.recurrenceRule ?? null,
         recurrenceParentId: data.recurrenceParentId ?? null,
+        meetingId: data.meetingId ?? null,
         version: 0,
         createdAt: now,
         updatedAt: now,
@@ -627,5 +629,84 @@ describe('GET /calendar — the visible range only, with the coming copies of re
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.recurrenceRule.resumeFrom).toBe('2026-10-05');
+  });
+});
+
+describe('GET /tasks/:id — the meeting a task was created from', () => {
+  const START = new Date('2026-10-12T09:00:00.000Z');
+  async function build(opts: { canView?: boolean; meetingGone?: boolean } = {}) {
+    const mem = inMemory();
+    const taskService = createTaskService(mem);
+    const fromMeeting = await taskService.createTask({ title: 'Send the plan', projectId: 'p1', columnId: 'c1', createdById: 'u1', meetingId: 'm1' });
+    const plain = await taskService.createTask({ title: 'Book the room', projectId: 'p1', columnId: 'c1', createdById: 'u1' });
+    const looked: string[] = [];
+    const checked: string[] = [];
+    const a = await buildApp({
+      authService,
+      tokenService,
+      taskService,
+      taskMeeting: {
+        async summary(id) {
+          looked.push(id);
+          return id === 'm1' && !opts.meetingGone ? { id: 'm1', title: 'Weekly review', startAt: START } : null;
+        },
+        async canView(userId, _roles, id) {
+          checked.push(`${userId}:${id}`);
+          return opts.canView ?? true;
+        },
+      },
+    });
+    const get = async (id: string) =>
+      a.inject({ method: 'GET', url: `/api/v1/tasks/${id}`, headers: { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` } });
+    return { get, fromMeeting, plain, looked, checked };
+  }
+
+  it('links the meeting by its title and start', async () => {
+    const { get, fromMeeting, checked } = await build();
+    const res = await get(fromMeeting.id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.meetingId).toBe('m1');
+    expect(res.json().data.meeting).toEqual({ id: 'm1', title: 'Weekly review', startAt: START.toISOString(), canView: true });
+    expect(checked).toEqual(['u2:m1']); // checked for the person asking
+  });
+
+  it('keeps the title and time from someone who may not see the meeting', async () => {
+    const { get, fromMeeting } = await build({ canView: false });
+    expect((await get(fromMeeting.id)).json().data.meeting).toEqual({ id: 'm1', title: null, startAt: null, canView: false });
+  });
+
+  it('shows no meeting for a task made anywhere else, without looking one up', async () => {
+    const { get, plain, looked } = await build();
+    const data = (await get(plain.id)).json().data;
+    expect(data.meetingId).toBeNull();
+    expect(data.meeting).toBeNull();
+    expect(looked).toEqual([]);
+  });
+
+  it('shows no meeting once the meeting is deleted', async () => {
+    const { get, fromMeeting } = await build({ meetingGone: true });
+    expect((await get(fromMeeting.id)).json().data.meeting).toBeNull();
+  });
+});
+
+describe('GET /tasks/:id — the meeting lookup built from the meeting service', () => {
+  it('names the meeting for someone who may see it, and drops a deleted one', async () => {
+    const mem = inMemory();
+    const taskService = createTaskService(mem);
+    const live = await taskService.createTask({ title: 'Send the plan', projectId: 'p1', columnId: 'c1', createdById: 'u1', meetingId: 'm1' });
+    const gone = await taskService.createTask({ title: 'Old follow-up', projectId: 'p1', columnId: 'c1', createdById: 'u1', meetingId: 'm-deleted' });
+    const meetingService = {
+      async getMeeting(id: string) {
+        if (id !== 'm1') throw new NotFoundError('Meeting not found.');
+        return { id: 'm1', title: 'Weekly review', startAt: new Date('2026-10-12T09:00:00.000Z') };
+      },
+    };
+    const meetingAccess = { async canViewMeeting(userId: string) { return userId === 'u2'; } };
+    const a = await buildApp({ authService, tokenService, taskService, meetingService: meetingService as never, meetingAccess: meetingAccess as never });
+    const get = async (id: string, userId: string) =>
+      (await a.inject({ method: 'GET', url: `/api/v1/tasks/${id}`, headers: { authorization: `Bearer ${await tokenFor(userId, ['EMPLOYEE'])}` } })).json().data;
+    expect((await get(live.id, 'u2')).meeting).toMatchObject({ id: 'm1', title: 'Weekly review', canView: true });
+    expect((await get(live.id, 'u1')).meeting).toEqual({ id: 'm1', title: null, startAt: null, canView: false });
+    expect((await get(gone.id, 'u2')).meeting).toBeNull();
   });
 });
