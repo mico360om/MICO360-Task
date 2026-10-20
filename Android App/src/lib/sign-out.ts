@@ -25,6 +25,15 @@ export interface SignOutDeps {
   clearReadCache: () => Promise<unknown>;
   /** Delete this user's queued offline changes (the UI warned about them first). */
   clearQueuedChanges: (userId: string) => Promise<unknown>;
+  /**
+   * Turn push off on this phone and forget its push token, so it stops showing the user's
+   * notifications even when the server couldn't be told (an expired session, offline).
+   */
+  deactivatePush: () => Promise<unknown>;
+  /** Delete the exported files (reports, tasks) kept on the phone. */
+  clearExports: () => Promise<unknown>;
+  /** Turn the app lock off for whoever signs in next. */
+  resetAppLock: () => Promise<unknown>;
   /** Upper bound for each network step, so signing out offline is not blocked (default 5 s). */
   networkTimeoutMs?: number;
   /** Diagnostics hook for a step that failed (the sign-out still completes). */
@@ -90,6 +99,8 @@ export function createSignOut(deps: SignOutDeps) {
       await step('logout', () => withTimeout(deps.revokeRefreshToken(revoked!), timeoutMs));
     }
 
+    // Locally too: an expired session can't tell the server, but the phone can stop listening.
+    await step('push-off', () => deps.deactivatePush());
     await step('biometric', () => deps.disarmBiometricLogin());
     const latest = deps.getSession()?.refreshToken ?? null;
     await step('session', () => deps.clearSession());
@@ -100,6 +111,9 @@ export function createSignOut(deps: SignOutDeps) {
 
     await step('queries', () => deps.clearQueryCache());
     await step('read-cache', () => deps.clearReadCache());
+    await step('exports', () => deps.clearExports());
+    // The app lock is the signed-out person's choice; an expiry or the lock screen keep it for them.
+    if (reason === 'user') await step('app-lock', () => deps.resetAppLock());
     if (reason === 'user' && userId) await step('queue', () => deps.clearQueuedChanges(userId));
   }
 

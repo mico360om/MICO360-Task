@@ -40,6 +40,9 @@ export const exportFiles: ExportFiles = {
   async remove(uri) {
     await FileSystem.deleteAsync(uri, { idempotent: true });
   },
+  async clearAll() {
+    await FileSystem.deleteAsync(DIR, { idempotent: true }).catch(() => {});
+  },
   async share(uri, mimeType, title) {
     if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing is not available on this device.');
     await Sharing.shareAsync(uri, { mimeType, dialogTitle: title });

@@ -63,6 +63,18 @@ export async function getPushToken(): Promise<string | null> {
   }
 }
 
+/**
+ * Stop this phone receiving notifications for the app (invalidates its FCM token). Used on every
+ * sign-out, including an expired session that can't tell the server; signing in registers again.
+ */
+export async function deactivatePush(): Promise<void> {
+  try {
+    await Notifications.unregisterForNotificationsAsync();
+  } catch {
+    // No FCM in this build: there is nothing to stop.
+  }
+}
+
 /** Subscribe to FCM token rotation; the listener receives the new token. */
 export function addPushTokenListener(listener: (token: string) => void): { remove(): void } {
   try {

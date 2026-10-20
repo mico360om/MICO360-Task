@@ -50,7 +50,12 @@ export function createPushRegistrar(deps: PushRegistrarDeps) {
     }
   }
 
-  return { register, unregister, lastToken: () => store.getItem(PUSH_TOKEN_KEY) };
+  /** Forget the local token record only (no server call) — for a sign-out whose session is gone. */
+  async function forget(): Promise<void> {
+    await store.deleteItem(PUSH_TOKEN_KEY).catch(() => {});
+  }
+
+  return { register, unregister, forget, lastToken: () => store.getItem(PUSH_TOKEN_KEY) };
 }
 
 export type PushRegistrar = ReturnType<typeof createPushRegistrar>;

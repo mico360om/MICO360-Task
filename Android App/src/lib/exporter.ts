@@ -11,6 +11,8 @@ export interface ExportFiles {
   remove(uri: string): Promise<void>;
   /** Open the share sheet: open in Excel / a PDF viewer, save to Files or Drive, send by mail… */
   share(uri: string, mimeType: string, title: string): Promise<void>;
+  /** Delete every exported file kept on the phone (on sign-out). */
+  clearAll(): Promise<void>;
 }
 
 export interface ExporterOptions {

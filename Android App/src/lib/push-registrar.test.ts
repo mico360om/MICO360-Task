@@ -74,3 +74,14 @@ describe('createPushRegistrar (A6 push registration / NTF-01 / MOB-11)', () => {
     expect(o.unregisterToken).not.toHaveBeenCalled();
   });
 });
+
+describe('createPushRegistrar — forgetting the token on the phone', () => {
+  it('forget deletes the local token record without calling the server (the session may be gone)', async () => {
+    const o = deps();
+    const r = createPushRegistrar(o);
+    await r.register();
+    await r.forget();
+    expect(await o.store.getItem('mico360.pushToken')).toBeNull();
+    expect(o.unregisterToken).not.toHaveBeenCalled();
+  });
+});

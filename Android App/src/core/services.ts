@@ -18,7 +18,7 @@ import { createExporter } from '../lib/exporter';
 import { authApi } from '../lib/auth';
 import { secureStore, biometricSecureStore } from '../adapters/secure-store';
 import { asyncStore } from '../adapters/async-storage';
-import { getPushToken } from '../adapters/push';
+import { getPushToken, deactivatePush } from '../adapters/push';
 import { exportFiles } from '../adapters/files';
 import { isBiometricAvailable, authenticateBiometric } from '../adapters/biometric';
 import type { Session } from '../lib/types';
@@ -186,6 +186,12 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     clearQueryCache: () => queryClient.clear(),
     clearReadCache: () => cache.clear(),
     clearQueuedChanges: (userId) => queue.clearForUser(userId),
+    deactivatePush: async () => {
+      await deactivatePush();
+      await push.forget();
+    },
+    clearExports: () => exportFiles.clearAll(),
+    resetAppLock: () => biometric.setEnabled(false),
   });
 
   const exporter = createExporter({

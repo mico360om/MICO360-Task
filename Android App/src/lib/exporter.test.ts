@@ -14,6 +14,7 @@ function fakeFiles(responses: { status: number; headers?: Record<string, string>
     rename: vi.fn(async (uri: string, name: string) => uri.replace(/[^/]+$/, name)),
     remove: vi.fn(async () => {}),
     share: vi.fn(async () => {}),
+    clearAll: vi.fn(async () => {}),
   };
   return { files, calls };
 }
