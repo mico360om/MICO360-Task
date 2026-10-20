@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createApiClient, ApiError, NetworkError, isNetworkError, classifyRefreshStatus } from './api-client';
 import { resolveApiBaseUrl, DEFAULT_API_BASE } from './config';
+import { createReadCache } from './read-cache';
+import { createMemoryStore } from './storage';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -368,5 +370,26 @@ describe('api-client — plain http only on the office network', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [1] }));
     const api = createApiClient({ baseUrl: 'http://192.168.1.5:4000/api/v1', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch });
     await expect(api.get('/tasks')).resolves.toEqual({ data: [1] });
+  });
+});
+
+describe('api-client — a Wi-Fi sign-in page is treated as being offline', () => {
+  const htmlPage = () => new Response('<html><body>Please sign in to the hotel Wi-Fi</body></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+
+  it('an HTML 200 is a NetworkError (not a SyntaxError) and never signs anyone out', async () => {
+    const onUnauthorized = vi.fn();
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: vi.fn(async () => htmlPage()) as unknown as typeof fetch, onUnauthorized });
+    const err = (await api.get('/tasks').catch((e: unknown) => e)) as Error;
+    expect(isNetworkError(err)).toBe(true);
+    expect(String(err.message)).toMatch(/sign in to the Wi-Fi/);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('so a read falls back to the cache', async () => {
+    const store = createMemoryStore();
+    const cache = createReadCache({ store, getUserId: () => 'u1' });
+    await cache.read('projects', async () => [{ id: 'p1' }]);
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: vi.fn(async () => htmlPage()) as unknown as typeof fetch });
+    expect(await cache.read('projects', () => api.get('/projects'))).toEqual({ data: [{ id: 'p1' }], stale: true });
   });
 });

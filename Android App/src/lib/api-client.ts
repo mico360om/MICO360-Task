@@ -246,7 +246,14 @@ export function createApiClient({
     }
 
     if (!res.ok) throw errorFrom(res.status, res.text);
-    return (res.text ? JSON.parse(res.text) : {}) as T;
+    if (!res.text) return {} as T;
+    try {
+      return JSON.parse(res.text) as T;
+    } catch (e) {
+      // A 200 that isn't our JSON is a network in the way (a Wi-Fi sign-in page): treat it as being
+      // offline, so reads use the cache and writes are queued — never as a server answer.
+      throw new NetworkError('The network returned a web page instead of data — you may need to sign in to the Wi-Fi.', { cause: e });
+    }
   }
 
   return {
