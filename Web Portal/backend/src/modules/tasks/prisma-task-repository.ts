@@ -17,7 +17,7 @@ type AssigneeRelation = { user: { id: string; username: string; firstName: strin
 type EnrichedTask = Omit<Task, 'carryForwardLog'> & {
   /** Absent on list rows — the carry-forward history is only returned for a single task. */
   carryForwardLog?: Prisma.JsonValue;
-  column?: { category: string } | null;
+  column?: { category: string; enabled?: boolean } | null;
   tags?: TagRelation[];
   assignees?: AssigneeRelation[];
   checklist?: { done: boolean }[];
@@ -34,6 +34,8 @@ function toRecord(t: EnrichedTask): TaskRecord {
     projectId: t.projectId,
     columnId: t.columnId,
     columnCategory: t.column?.category ?? null,
+    // Switched off in Manage columns: the task isn't on its project's board (nor the combined one).
+    columnHidden: t.column ? t.column.enabled === false : undefined,
     tags: t.tags ? t.tags.map((tt) => ({ id: tt.tag.id, name: tt.tag.name, color: tt.tag.color })) : undefined,
     position: t.position,
     priority: t.priority,
@@ -98,7 +100,7 @@ const listScalars = {
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {
   // Always join the column's category (Kanban stage) and the task's tags so every
   // task payload carries them (used for status classification, tag filtering + display).
-  const withColumn = { column: { select: { category: true } }, tags: { include: { tag: true } } } as const;
+  const withColumn = { column: { select: { category: true, enabled: true } }, tags: { include: { tag: true } } } as const;
   return {
     async create(data: CreateTaskData) {
       const tagNames = data.tagNames ?? [];

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex } from './board';
+import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex, composeAllProjectsBoard, statusOfBoardColumn, targetColumnFor, boardProjects } from './board';
+import type { ApiProject } from '../api/projects';
 import type { ApiColumn } from '../api/columns';
 import type { ApiTask } from '../api/tasks';
 
@@ -122,5 +123,75 @@ describe('dropIndex', () => {
 
   it('lands at the end when dropped on the column’s empty space', () => {
     expect(dropIndex(dest, 'c2', 'X', false)).toBe(3);
+  });
+});
+
+describe('the All projects board', () => {
+  const project = (id: string, code: string, extra: Partial<ApiProject> = {}) =>
+    ({ id, code, name: `Project ${code}`, status: 'ACTIVE', color: '#1E5A8B', icon: null, imageUrl: null, ...extra }) as ApiProject;
+  const projects = [project('p1', 'MICO'), project('p2', 'RIG', { icon: 'rocket' }), project('p3', 'OLD', { status: 'ARCHIVED' }), project('p4', 'FIN', { status: 'COMPLETED' })];
+  const task = (key: string, projectId: string, columnCategory: string | null, extra: Partial<ApiTask> = {}) =>
+    ({ id: key.toLowerCase(), key, title: key, description: null, projectId, columnId: `${projectId}-${columnCategory}`, columnCategory, position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', ...extra }) as ApiTask;
+
+  it('has the six status columns in board order, named and coloured as everywhere else', () => {
+    const board = composeAllProjectsBoard([], projects);
+    expect(board.map((c) => c.name)).toEqual(['Backlog', 'To Do', 'In Progress', 'Blocked', 'Review', 'Done']);
+    expect(board.map((c) => statusOfBoardColumn(c.id))).toEqual(['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE']);
+    expect(board[2]!.color).toBe('rgb(var(--c-cat-progress))');
+  });
+
+  it('puts each task under its status, with its project on the card', () => {
+    const board = composeAllProjectsBoard([task('MICO-1', 'p1', 'IN_PROGRESS'), task('RIG-4', 'p2', 'BLOCKED'), task('RIG-5', 'p2', 'DONE')], projects);
+    const col = (name: string) => board.find((c) => c.name === name)!;
+    expect(col('In Progress').tasks.map((t) => t.key)).toEqual(['MICO-1']);
+    expect(col('Blocked').tasks[0]).toMatchObject({ key: 'RIG-4', blocked: true, project: { name: 'Project RIG', code: 'RIG', icon: 'rocket' } });
+    expect(col('Done').tasks[0]!.done).toBe(true);
+  });
+
+  it('sorts a column by due date (no date last), then priority, then key', () => {
+    const board = composeAllProjectsBoard(
+      [
+        task('MICO-3', 'p1', 'TODO'),
+        task('MICO-2', 'p1', 'TODO', { dueDate: '2026-10-25', priority: 'LOW' }),
+        task('RIG-9', 'p2', 'TODO', { dueDate: '2026-10-25', priority: 'URGENT' }),
+        task('MICO-1', 'p1', 'TODO', { dueDate: '2026-10-22' }),
+      ],
+      projects,
+    );
+    expect(board[1]!.tasks.map((t) => t.key)).toEqual(['MICO-1', 'RIG-9', 'MICO-2', 'MICO-3']);
+  });
+
+  it('leaves out finished and archived projects, projects filtered out, and columns switched off', () => {
+    const board = composeAllProjectsBoard(
+      [task('MICO-1', 'p1', 'TODO'), task('RIG-1', 'p2', 'TODO'), task('OLD-1', 'p3', 'TODO'), task('FIN-1', 'p4', 'TODO'), task('MICO-2', 'p1', 'BACKLOG', { columnHidden: true }), task('X-1', 'gone', 'TODO')],
+      projects,
+      { hidden: new Set(['p2']) },
+    );
+    expect(board.flatMap((c) => c.tasks.map((t) => t.key))).toEqual(['MICO-1']);
+  });
+
+  it('treats a task without a known status as To Do', () => {
+    expect(composeAllProjectsBoard([task('MICO-1', 'p1', null)], projects)[1]!.tasks.map((t) => t.key)).toEqual(['MICO-1']);
+  });
+
+  it('only lists the projects that can be shown', () => {
+    expect(boardProjects(projects).map((p) => p.code)).toEqual(['MICO', 'RIG']);
+  });
+});
+
+describe('targetColumnFor (where a card dropped on a status lands in its own project)', () => {
+  const cols: ApiColumn[] = [
+    { id: 'rev', projectId: 'p1', name: 'QA', category: 'REVIEW', position: 3, color: '#000', enabled: true },
+    { id: 'doing2', projectId: 'p1', name: 'Doing later', category: 'IN_PROGRESS', position: 2, color: '#000', enabled: true },
+    { id: 'doing1', projectId: 'p1', name: 'Doing', category: 'IN_PROGRESS', position: 1, color: '#000', enabled: true },
+    { id: 'off', projectId: 'p1', name: 'Blocked', category: 'BLOCKED', position: 4, color: '#000', enabled: false },
+  ];
+  it('is the first column of that status by position', () => {
+    expect(targetColumnFor(cols, 'IN_PROGRESS')).toBe('doing1');
+    expect(targetColumnFor(cols, 'REVIEW')).toBe('rev');
+  });
+  it('is nothing when the project has no such column on its board', () => {
+    expect(targetColumnFor(cols, 'BLOCKED')).toBeNull(); // switched off
+    expect(targetColumnFor(cols, 'DONE')).toBeNull();
   });
 });

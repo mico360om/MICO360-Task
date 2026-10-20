@@ -296,6 +296,17 @@ describe('New task form', () => {
     expect(posts()[0]!.body).toMatchObject({ projectId: 'p1', columnId: 'c2', boardDate: '2026-10-09' });
   });
 
+  it('from a status on the All projects board: starts in that kind of column, in whichever project is chosen', async () => {
+    localStorage.setItem('mico360.newTask.project', 'p2');
+    renderDialog({ defaultColumnCategory: 'IN_PROGRESS', boardDate: '2026-10-09' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('In progress'));
+    expect(screen.getByRole('button', { name: 'Project' })).toBeInTheDocument(); // the project can be changed
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Combined board task');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ projectId: 'p2', columnId: 'd2', boardDate: '2026-10-09' });
+  });
+
   it('starts in the project used last time', async () => {
     localStorage.setItem('mico360.newTask.project', 'p2');
     renderDialog();

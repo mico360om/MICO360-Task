@@ -1,5 +1,7 @@
 import type { ApiTask } from '../api/tasks';
 import type { ApiColumn } from '../api/columns';
+import type { ApiProject } from '../api/projects';
+import { STATUS_META, STATUS_ORDER, type TaskCategory } from './taskStatus';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 
 /**
@@ -109,4 +111,73 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           done: col.category === 'DONE' || !!t.completedAt,
         })),
     }));
+}
+
+// ── The All projects board: every project's tasks under the six shared statuses ──
+
+/** The board's project choice that shows every project at once (also `?project=all`). */
+export const ALL_PROJECTS = 'all';
+
+const STATUS_COLUMN = 'status:';
+/** The status a combined board column stands for (null for a project's own column). */
+export const statusOfBoardColumn = (columnId: string): TaskCategory | null =>
+  columnId.startsWith(STATUS_COLUMN) ? (columnId.slice(STATUS_COLUMN.length) as TaskCategory) : null;
+
+const PRIORITY_RANK: Record<string, number> = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
+
+/** The projects the combined board shows: not finished, not archived. */
+export function boardProjects<P extends Pick<ApiProject, 'status'>>(projects: P[]): P[] {
+  return projects.filter((p) => p.status !== 'COMPLETED' && p.status !== 'ARCHIVED');
+}
+
+/**
+ * Every shown project's tasks under the six statuses (Backlog … Done). Each card carries its project;
+ * a column is sorted by due date (no date last), then priority, then key. Tasks of finished or
+ * archived projects, of projects filtered out (`hidden`), and in columns switched off are left out.
+ */
+export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[], opts: { hidden?: ReadonlySet<string> } = {}): KanbanColumnData[] {
+  const shown = new Map(boardProjects(projects).filter((p) => !opts.hidden?.has(p.id)).map((p) => [p.id, p]));
+  return STATUS_ORDER.map((status) => {
+    const { label, color } = STATUS_META[status]!;
+    const inColumn = tasks
+      .filter((t) => shown.has(t.projectId) && !t.columnHidden && ((t.columnCategory as TaskCategory | null) ?? 'TODO') === status)
+      .sort(
+        (a, b) =>
+          (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') ||
+          (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9) ||
+          a.key.localeCompare(b.key, undefined, { numeric: true }),
+      );
+    return {
+      id: `${STATUS_COLUMN}${status}`,
+      name: label,
+      color,
+      tasks: inColumn.map((t) => {
+        const p = shown.get(t.projectId)!;
+        return {
+          key: t.key,
+          title: t.title,
+          priority: t.priority,
+          dueDate: t.dueDate,
+          progress: t.progress,
+          assignees: t.assignees ?? [],
+          counts: t.counts,
+          accentColor: color,
+          blocked: status === 'BLOCKED',
+          recurring: Boolean(t.recurrenceRule),
+          milestone: !!t.isMilestone,
+          done: status === 'DONE' || !!t.completedAt,
+          project: { name: p.name, code: p.code, color: p.color, icon: p.icon ?? null, imageUrl: p.imageUrl },
+        };
+      }),
+    };
+  });
+}
+
+/** Where a card dropped on a status lands in its own project: that project's first visible column of it. */
+export function targetColumnFor(columns: ApiColumn[], status: TaskCategory): string | null {
+  return (
+    [...columns]
+      .filter((c) => c.enabled !== false && c.category === status)
+      .sort((a, b) => a.position - b.position)[0]?.id ?? null
+  );
 }

@@ -1,5 +1,6 @@
 import type { HTMLAttributes } from 'react';
 import { Avatar } from './ui/Avatar';
+import { ProjectAvatar } from './ProjectAvatar';
 import { PriorityBadge, type Priority } from './ui/PriorityBadge';
 import { isOverdue } from '../lib/due-date';
 import { formatDueDay } from '../lib/due-display';
@@ -23,6 +24,8 @@ export interface TaskCardTask {
   milestone?: boolean;
   /** True when the task is finished (DONE column or completed) — a finished task is never overdue. */
   done?: boolean;
+  /** Its project, on a board showing several projects (the All projects board). */
+  project?: { name: string; code: string; color?: string | null; icon?: string | null; imageUrl?: string | null };
 }
 
 export interface TaskCardProps {
@@ -94,6 +97,13 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
     >
       {/* Status stripe in the column colour, so a card always reads as belonging to its stage. */}
       <span className="absolute inset-y-0 left-0 w-1" style={{ background: task.accentColor ?? 'transparent' }} aria-hidden="true" />
+
+      {task.project ? (
+        <span data-testid="card-project" className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-ink-2">
+          <ProjectAvatar project={task.project} size="xs" />
+          <span dir="auto" className="truncate">{task.project.name}</span>
+        </span>
+      ) : null}
 
       <div className="flex items-center justify-between gap-2">
         <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>

@@ -12,6 +12,8 @@ export interface TaskRecord {
   columnId: string;
   /** The category of the task's current column (its Kanban stage), e.g. 'IN_PROGRESS' | 'DONE'. */
   columnCategory?: string | null;
+  /** True when its column is switched off in Manage columns (list rows; absent when unknown). */
+  columnHidden?: boolean;
   position: number;
   priority: Priority;
   startDate: Date | null;

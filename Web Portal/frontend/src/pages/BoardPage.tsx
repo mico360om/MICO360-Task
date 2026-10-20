@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
 import { columnsApi } from '../api/columns';
-import { tasksApi } from '../api/tasks';
+import { tasksApi, type ApiTask } from '../api/tasks';
 import { shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
 import { todayKey as companyTodayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
@@ -12,7 +12,9 @@ import { ApiError } from '../lib/api-client';
 import { enqueueOffline } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
-import { composeBoard, moveTaskInBoard, reorderColumnInBoard } from '../lib/board';
+import { ALL_PROJECTS, boardProjects, composeAllProjectsBoard, composeBoard, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
+import { STATUS_META, type TaskCategory } from '../lib/taskStatus';
+import { ProjectFilter } from '../components/board/ProjectFilter';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { ColumnManager } from '../components/ColumnManager';
@@ -31,8 +33,29 @@ import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
 
-/** Per-user (see lib/user-storage) memory of the last project viewed on the board. */
+/** Per-user (see lib/user-storage) memory of the last project viewed on the board ('all': every project). */
 const PROJECT_PREF = 'board.projectId';
+/** Per-user memory of the projects left out of the All projects board (so a new project shows). */
+const HIDDEN_PREF = 'board.hiddenProjects';
+
+function readHidden(userId: string | undefined): Set<string> {
+  try {
+    const ids: unknown = JSON.parse(readUserValue(userId, HIDDEN_PREF) ?? '[]');
+    return new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+const ALL_OPTION = {
+  value: ALL_PROJECTS,
+  label: 'All projects',
+  icon: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  ),
+};
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ApiError && e.message ? e.message : fallback);
 // Admin-triggered carry-forward runs at most once per app session (the server sweep handles the rest).
@@ -46,6 +69,7 @@ export function BoardPage() {
   const [manageColumns, setManageColumns] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskColumn, setNewTaskColumn] = useState('');
+  const [newTaskStatus, setNewTaskStatus] = useState<TaskCategory | undefined>(undefined);
   const [moveError, setMoveError] = useState(false);
   const [columnError, setColumnError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -56,12 +80,19 @@ export function BoardPage() {
   const [selectedProjectId, setSelectedProjectId] = useState(() => readUserValue(useAuthStore.getState().user?.id, PROJECT_PREF) ?? '');
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const projects = projectsQ.data ?? [];
-  const has = (id: string) => !!id && projects.some((p) => p.id === id);
-  // Board shows one project at a time.
+  // One project at a time, or All projects (offered when there is more than one).
+  const has = (id: string) => !!id && (id === ALL_PROJECTS ? projects.length > 1 : projects.some((p) => p.id === id));
   const projectId = has(urlProjectId) ? urlProjectId : has(selectedProjectId) ? selectedProjectId : projects[0]?.id;
-  const project = projects.find((p) => p.id === projectId);
-  // New task from the header starts in the board's project.
-  useCurrentProject(projectId);
+  const isAll = projectId === ALL_PROJECTS;
+  const project = isAll ? undefined : projects.find((p) => p.id === projectId);
+  const shownProjects = useMemo(() => boardProjects(projects), [projects]);
+  const [hiddenProjects, setHiddenProjects] = useState(() => readHidden(useAuthStore.getState().user?.id));
+  const chooseHidden = (next: Set<string>) => {
+    setHiddenProjects(next);
+    writeUserValue(userId, HIDDEN_PREF, JSON.stringify([...next]));
+  };
+  // New task from the header starts in the board's project (on All projects, the one used last).
+  useCurrentProject(isAll ? undefined : projectId);
   const urlProjectValid = has(urlProjectId);
   useEffect(() => {
     // Remember a project opened by link too, so returning to /board shows it again.
@@ -101,7 +132,7 @@ export function BoardPage() {
 
   const columnsQ = useQuery({
     queryKey: ['columns', projectId],
-    enabled: Boolean(projectId) && manageColumns,
+    enabled: Boolean(projectId) && !isAll && manageColumns,
     queryFn: () => columnsApi(apiClient).list(projectId as string),
   });
 
@@ -145,7 +176,7 @@ export function BoardPage() {
 
   const boardQ = useQuery({
     queryKey: ['board', projectId, boardDate],
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId) && !isAll,
     queryFn: async () => {
       const [columns, tasks] = await Promise.all([
         columnsApi(apiClient).list(projectId as string),
@@ -207,11 +238,81 @@ export function BoardPage() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['board', projectId] }),
   });
 
-  const boardColumns = boardQ.data?.columns ?? [];
+  // ── All projects: every project's tasks for the day, under the six statuses ──
+  const allKey = ['board', ALL_PROJECTS, boardDate];
+  const allQ = useQuery({
+    queryKey: allKey,
+    enabled: isAll,
+    queryFn: () => tasksApi(apiClient).list(undefined, boardDate),
+  });
+  const allColumns = useMemo(
+    () => (isAll ? composeAllProjectsBoard(allQ.data ?? [], projects, { hidden: hiddenProjects }) : []),
+    [isAll, allQ.data, projects, hiddenProjects],
+  );
 
-  /** New task, in the column it was started from (a column's "+" or empty box), else the first. */
+  // A card dropped on a status moves into its own project's first column of that kind.
+  const statusMoveMut = useMutation({
+    mutationFn: ({ id, toColumnId }: { id: string; toColumnId: string; taskKey: string; status: TaskCategory }) => tasksApi(apiClient).move(id, toColumnId),
+    onMutate: async ({ taskKey, toColumnId, status }) => {
+      setMoveError(false);
+      const key = allKey;
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<ApiTask[]>(key);
+      if (prev) {
+        qc.setQueryData<ApiTask[]>(
+          key,
+          prev.map((t) => (t.key === taskKey ? { ...t, columnId: toColumnId, columnCategory: status, ...(status !== 'DONE' ? { completedAt: null } : {}) } : t)),
+        );
+      }
+      return { prev, key };
+    },
+    onError: (e, vars, ctx) => {
+      if (e instanceof ApiError) {
+        if (ctx?.prev && ctx.key) qc.setQueryData(ctx.key, ctx.prev);
+        setMoveError(true);
+      } else {
+        enqueueOffline('task.move', { id: vars.id, toColumnId: vars.toColumnId });
+        setNotice('You’re offline — the move was saved and will sync when you reconnect.');
+      }
+    },
+    onSettled: (_d, e) => {
+      if (e instanceof ApiError || e == null) void invalidateTaskQueries(qc);
+    },
+  });
+
+  async function onMoveToStatus(taskKey: string, toColumnId: string) {
+    const status = statusOfBoardColumn(toColumnId);
+    const t = allQ.data?.find((x) => x.key === taskKey);
+    if (!status || !t || (t.columnCategory ?? 'TODO') === status) return;
+    let columns;
+    try {
+      columns = await qc.fetchQuery({ queryKey: ['columns', t.projectId], queryFn: () => columnsApi(apiClient).list(t.projectId), staleTime: 60_000 });
+    } catch {
+      setMoveError(true);
+      return;
+    }
+    const target = targetColumnFor(columns, status);
+    if (!target) {
+      const name = projects.find((p) => p.id === t.projectId)?.name ?? 'Its project';
+      setNotice(`${name} has no “${STATUS_META[status]!.label}” column, so ${taskKey} stayed where it was.`);
+      return;
+    }
+    statusMoveMut.mutate({ id: t.id, toColumnId: target, taskKey, status });
+  }
+
+  const boardColumns = isAll ? allColumns : boardQ.data?.columns ?? [];
+  const idByKey = useMemo(
+    () => (isAll ? Object.fromEntries((allQ.data ?? []).map((t) => [t.key, t.id])) : boardQ.data?.idByKey ?? {}),
+    [isAll, allQ.data, boardQ.data],
+  );
+
+  /**
+   * New task, in the column it was started from (a column's "+" or empty box), else the first. On
+   * All projects, in that kind of column of whichever project is chosen in the form.
+   */
   function openAddTask(columnId?: string) {
-    setNewTaskColumn(columnId ?? boardColumns[0]?.id ?? '');
+    if (isAll) setNewTaskStatus(columnId ? statusOfBoardColumn(columnId) ?? undefined : undefined);
+    else setNewTaskColumn(columnId ?? boardColumns[0]?.id ?? '');
     setAddingTask(true);
   }
   useShortcut('new', () => openAddTask(), { enabled: boardColumns.length > 0 });
@@ -223,6 +324,7 @@ export function BoardPage() {
         // This user was taken off a project: drop it from the list and leave its board if it's open.
         const removedId = (payload as { projectId?: string } | undefined)?.projectId;
         void qc.invalidateQueries({ queryKey: ['projects'] });
+        if (projectId === ALL_PROJECTS) void qc.invalidateQueries({ queryKey: ['board', ALL_PROJECTS] });
         if (removedId && removedId === projectId) {
           setNotice(`You were removed from ${project?.name ?? 'this project'}, so its board was closed.`);
           setOpenTaskId(null);
@@ -252,9 +354,15 @@ export function BoardPage() {
     },
     [qc, projectId, project?.name, userId, urlProjectId, setSearchParams],
   );
-  useBoardRealtime(projectId, onLiveEvent);
+  // All projects: live updates from every project it shows, on one connection.
+  const liveRooms = useMemo(() => (isAll ? shownProjects.map((p) => p.id) : projectId), [isAll, shownProjects, projectId]);
+  useBoardRealtime(liveRooms, onLiveEvent);
 
   function onMove(taskKey: string, toColumnId: string, toIndex: number) {
+    if (isAll) {
+      void onMoveToStatus(taskKey, toColumnId);
+      return;
+    }
     const data = boardQ.data;
     const id = data?.idByKey[taskKey];
     if (!data || !id) return;
@@ -270,15 +378,19 @@ export function BoardPage() {
     if (orderedIds.length) reorderMut.mutate({ columnId, orderedIds, orderedKeys });
   }
 
-  const loading = projectsQ.isLoading || (Boolean(projectId) && boardQ.isLoading);
-  const error = projectsQ.isError || boardQ.isError;
+  const loading = projectsQ.isLoading || (Boolean(projectId) && (isAll ? allQ.isLoading : boardQ.isLoading));
+  const error = projectsQ.isError || (isAll ? allQ.isError : boardQ.isError);
 
   return (
     <div>
       <PageHeader
         eyebrow="Workspace"
         title="Kanban Board"
-        subtitle={project ? <span dir="auto">{project.name}</span> : 'Drag tasks across columns to update their status.'}
+        subtitle={
+          isAll ? 'All projects — drag a card to change its status in its own project.'
+          : project ? <span dir="auto">{project.name}</span>
+          : 'Drag tasks across columns to update their status.'
+        }
         actions={
           projectId ? (
             <>
@@ -288,11 +400,12 @@ export function BoardPage() {
                     ariaLabel="Select project"
                     value={projectId}
                     onChange={(v) => chooseProject(v)}
-                    options={projects.map(projectOption)}
+                    options={[ALL_OPTION, ...projects.map(projectOption)]}
                   />
                 </div>
               ) : null}
-              {isAdmin ? (
+              {isAll ? <ProjectFilter projects={shownProjects} hidden={hiddenProjects} onChange={chooseHidden} /> : null}
+              {isAdmin && !isAll ? (
                 <button
                   onClick={() => setManageColumns((v) => !v)}
                   aria-expanded={manageColumns}
@@ -349,7 +462,7 @@ export function BoardPage() {
         </div>
       ) : null}
 
-      {manageColumns && projectId ? (
+      {manageColumns && projectId && !isAll ? (
         <div className="card mb-4 p-5">
           <h2 className="eyebrow mb-3">Columns</h2>
           <ColumnManager
@@ -387,18 +500,19 @@ export function BoardPage() {
       {loading ? (
         <p className="text-ink-2">Loading…</p>
       ) : error ? (
-        <LoadError what="the board" onRetry={() => { void projectsQ.refetch(); void boardQ.refetch(); }} />
+        <LoadError what="the board" onRetry={() => { void projectsQ.refetch(); void (isAll ? allQ.refetch() : boardQ.refetch()); }} />
       ) : !projectId ? (
         <p className="text-ink-2">No projects yet — create one to get started.</p>
       ) : (
         <KanbanBoard
-          columns={boardQ.data?.columns ?? []}
+          columns={boardColumns}
           timeZone={timeZone}
           onMove={onMove}
-          onReorder={onReorder}
+          // On All projects a status mixes projects: cards keep their order (due date, then priority).
+          onReorder={isAll ? undefined : onReorder}
           onAddTask={(columnId) => openAddTask(columnId)}
           onTaskClick={(key) => {
-            const id = boardQ.data?.idByKey[key];
+            const id = idByKey[key];
             if (id) setOpenTaskId(id);
           }}
         />
@@ -408,9 +522,9 @@ export function BoardPage() {
 
       {addingTask && projectId ? (
         // One request creates the task with its people; the board day keeps it on the day being viewed.
+        // On All projects the project is chosen in the form.
         <TaskFormDialog
-          projectId={projectId}
-          defaultColumnId={newTaskColumn}
+          {...(isAll ? { defaultColumnCategory: newTaskStatus } : { projectId, defaultColumnId: newTaskColumn })}
           boardDate={boardDate}
           onClose={() => setAddingTask(false)}
           onQueued={() => setNotice('You’re offline — the task was saved and will sync when you reconnect.')}

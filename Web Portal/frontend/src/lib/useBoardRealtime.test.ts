@@ -41,6 +41,24 @@ describe('useBoardRealtime', () => {
     expect(onTaskEvent).toHaveBeenCalledTimes(2);
   });
 
+  it('joins every project’s room for the All projects board, on one connection', () => {
+    const onTaskEvent = vi.fn();
+    renderHook(() => useBoardRealtime(['p1', 'p2', 'p3'], onTaskEvent));
+    expect(ioMock).toHaveBeenCalledTimes(1);
+    handlers['connect']?.();
+    expect(socket.emit.mock.calls).toEqual([['join', { projectId: 'p1' }], ['join', { projectId: 'p2' }], ['join', { projectId: 'p3' }]]);
+    handlers['task:moved']?.({ id: 't1' });
+    expect(onTaskEvent).toHaveBeenCalledWith('task:moved', { id: 't1' });
+  });
+
+  it('does not reconnect when the same projects come again in a new list', () => {
+    const { rerender } = renderHook(({ ids }) => useBoardRealtime(ids, vi.fn()), { initialProps: { ids: ['p1', 'p2'] } });
+    rerender({ ids: ['p1', 'p2'] });
+    expect(ioMock).toHaveBeenCalledTimes(1);
+    rerender({ ids: ['p1', 'p2', 'p4'] });
+    expect(ioMock).toHaveBeenCalledTimes(2);
+  });
+
   it('also reacts to deletions and reassignments, passing the payload through', () => {
     const onTaskEvent = vi.fn();
     renderHook(() => useBoardRealtime('p1', onTaskEvent));

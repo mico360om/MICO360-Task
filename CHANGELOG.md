@@ -14,6 +14,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- The Kanban Board can show every project on one board: choose "All projects" in its project list.
+  Tasks sit under six shared statuses (Backlog, To Do, In Progress, Blocked, Review, Done) for the day
+  chosen, each card showing its project, sorted by due date and then priority. Dragging a card changes
+  its status in its own project, into that project's first column of that kind; a project without
+  such a column keeps the card where it was and says so. "Projects:" chooses which projects are shown
+  (remembered for you), and "+" on a status starts a new task in that kind of column, in the project
+  you choose. Finished and archived projects are left out, as are columns a project has switched off;
+  each project's own board is unchanged.
+
 ## [1.3.5] - 2026-10-21
 
 ### Bug fixes

@@ -24,6 +24,8 @@ export interface ApiTask {
   columnId: string;
   /** The task's Kanban stage (status), joined from its column. */
   columnCategory?: string | null;
+  /** True when its column is switched off in Manage columns (not on the board). */
+  columnHidden?: boolean;
   position: number;
   priority: Priority;
   startDate: string | null;

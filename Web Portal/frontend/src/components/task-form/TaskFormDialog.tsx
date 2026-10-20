@@ -45,6 +45,8 @@ export interface TaskFormDialogProps {
   defaultProjectId?: string;
   /** Start in this column (e.g. the one chosen on the board). */
   defaultColumnId?: string;
+  /** Start in the first column of this kind (e.g. IN_PROGRESS), whichever project is chosen — the All projects board. */
+  defaultColumnCategory?: string;
   /** Start with this due date ('YYYY-MM-DD'), e.g. the day chosen on the calendar. */
   defaultDueDate?: string;
   /** The board day the new task belongs to (per-date boards). */
@@ -121,7 +123,7 @@ function Label({ htmlFor, required, optional, children }: { htmlFor?: string; re
  * can be started from a plain-English description. Saving shows progress and is never sent twice;
  * what was entered stays after a failure, and closing with changes asks first.
  */
-export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultProjectId, defaultColumnId, defaultDueDate, boardDate, onQueued }: TaskFormDialogProps) {
+export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultProjectId, defaultColumnId, defaultColumnCategory, defaultDueDate, boardDate, onQueued }: TaskFormDialogProps) {
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
@@ -211,7 +213,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     [columnsQ.data, task?.columnId],
   );
   // After a project change, land in the same kind of column (e.g. "in progress") when the new project has one.
-  const preferKind = useRef<string | null>(null);
+  const preferKind = useRef<string | null>(defaultColumnCategory ?? null);
   useEffect(() => {
     if (!columnsQ.isSuccess || columns.length === 0 || columns.some((c) => c.id === draft.columnId)) return;
     const pick = columns.find((c) => preferKind.current && c.category === preferKind.current) ?? columns.find((c) => c.id === defaultColumnId) ?? columns[0]!;

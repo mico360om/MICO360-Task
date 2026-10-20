@@ -98,3 +98,17 @@ describe('TaskCard', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
+
+describe('TaskCard on a board of several projects', () => {
+  it('shows the task’s project, with its picture', () => {
+    render(<TaskCard task={{ ...task, project: { name: 'Rig Inspection', code: 'RIG', color: '#4D7C0F', icon: 'rocket', imageUrl: null } }} />);
+    const line = screen.getByTestId('card-project');
+    expect(line).toHaveTextContent('Rig Inspection');
+    expect(line.querySelector('[data-project-avatar="icon"]')).not.toBeNull();
+  });
+
+  it('shows no project line on a single project’s board', () => {
+    render(<TaskCard task={task} />);
+    expect(screen.queryByTestId('card-project')).not.toBeInTheDocument();
+  });
+});

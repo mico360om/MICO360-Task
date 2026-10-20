@@ -14,17 +14,21 @@ export type BoardEvent = (typeof TASK_EVENTS)[number];
  * refetch. Token refresh, reconnecting after the server closes the socket, and signing out a revoked
  * session are handled by openAuthedSocket. After any reconnect the room is re-joined and the board is
  * told to `resync` — events may have been missed while disconnected. Reconnects only when the project
- * changes.
+ * changes (or, on the All projects board, the set of projects).
  */
-export function useBoardRealtime(projectId: string | undefined, onTaskEvent: (event: BoardEvent, payload?: unknown) => void): void {
+export function useBoardRealtime(projects: string | string[] | undefined, onTaskEvent: (event: BoardEvent, payload?: unknown) => void): void {
   const cb = useRef(onTaskEvent);
   cb.current = onTaskEvent;
+  // One project's board, or several (the All projects board) on one connection. Keyed by the ids
+  // themselves, so a new list naming the same projects doesn't reconnect.
+  const roomKey = (Array.isArray(projects) ? projects : projects ? [projects] : []).join(',');
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!roomKey) return;
+    const ids = roomKey.split(',');
     const { socket, close } = openAuthedSocket({
       onConnect: (s, isReconnect) => {
-        s.emit('join', { projectId });
+        for (const projectId of ids) s.emit('join', { projectId });
         if (isReconnect) cb.current('resync');
       },
     });
@@ -33,5 +37,5 @@ export function useBoardRealtime(projectId: string | undefined, onTaskEvent: (ev
       socket.on(ev, (payload?: unknown) => cb.current(ev, payload));
     }
     return close;
-  }, [projectId]);
+  }, [roomKey]);
 }
