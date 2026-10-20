@@ -16,16 +16,19 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Improvements
 - The Android app shows its version (and the server's) in Settings, and says when a newer version is
-  out, with a Download button. Dates in the app now follow the company's time zone and your own, as
-  on the website.
+  out, with a Download button (or "Not now" until the next one). Dates in the app follow the
+  company's time zone, and its Calendar your own, as on the website; a change shows at once.
 - Fingerprint sign-in on the Android app works: turn it on in Settings, and after signing out you can
-  sign back in with your fingerprint. A password change or an admin reset turns it off, and another
-  person signing in on the phone turns off the previous person's fingerprint sign-in and app lock.
+  sign back in with your fingerprint. It stops after a password change, an admin reset or 30 days
+  without using the app, and Settings offers to turn it back on. Another person signing in on the
+  phone turns off the previous person's fingerprint sign-in and app lock.
 
 ### Security
 - A phone stops receiving notifications as soon as it is signed out, even when its session simply
-  expired, and a password change by an admin, a reset by email, a role change, disabling or deleting
-  an account forget all that person's phones.
+  expired or the phone is offline, and a password change (your own or by an admin), a reset by email,
+  a role change, disabling or deleting an account forget all that person's phones.
+- A fingerprint sign-in key can only be made by the phone's own sign-in, turning it off cancels it on
+  the server too, and a stolen sign-in caught being reused cancels the person's fingerprint keys.
 - The Android app sends to a plain http:// address only on the office network (a private address);
   anything else must use https. A build pointed at a public http address fails.
 - While the app lock is on, screenshots, screen recording and the recent-apps preview are blocked, and

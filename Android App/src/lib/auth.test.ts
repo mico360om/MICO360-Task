@@ -38,6 +38,20 @@ describe('authApi', () => {
     expect(calls[1]!.body).toEqual({ identifier: 'ada@x', code: '123456' });
   });
 
+  it('a fingerprint key is asked for with the session’s refresh token, and comes with its id', async () => {
+    const { client } = stubClient();
+    const post = client.post as ReturnType<typeof vi.fn>;
+    post.mockResolvedValueOnce({ data: { refreshToken: 'bio-key', keyId: 'k1' } });
+    await expect(authApi(client).biometricCredential('rt-9')).resolves.toEqual({ key: 'bio-key', keyId: 'k1' });
+    expect(post).toHaveBeenCalledWith('/auth/biometric-credential', { refreshToken: 'rt-9' });
+  });
+
+  it('a fingerprint key is cancelled on the server by its id, with the session’s refresh token', async () => {
+    const { client, calls } = stubClient();
+    await authApi(client).revokeBiometricCredential('rt-9', 'k1');
+    expect(calls[0]).toEqual({ method: 'POST', path: '/auth/biometric-credential/revoke', body: { refreshToken: 'rt-9', keyId: 'k1' } });
+  });
+
   it('logout posts the refresh token to /auth/logout so the server revokes it', async () => {
     const { client, calls } = stubClient();
     await authApi(client).logout('rt-9');

@@ -467,6 +467,9 @@ model RefreshToken {
   /// The token this one was rotated to, sealed with the app's secret box — so a phone whose refresh
   /// reply was lost can present this token again (for 2 minutes) and get that same successor back.
   successorEnc String? @db.Text
+  /// 'biometric' for a phone's fingerprint sign-in key (never refreshes a session; its end moves on
+  /// with each use of the app); null for a session's refresh token.
+  purpose   String?   @db.VarChar(16)
   createdAt DateTime  @default(now())
   user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

@@ -139,11 +139,10 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
     try {
       return await update.mutateAsync({
         ...p,
-        // The server refuses an edit made over someone else's (VERSION_CONFLICT) instead of losing theirs.
-        ...(typeof task.version === 'number' ? { expectedVersion: task.version } : {}),
         ...(withScope && series && scope === 'series' ? { scope: 'series' as const } : {}),
       });
     } catch (e) {
+      // The server refuses an edit made over someone else's (useUpdateTask sends the version).
       if (e instanceof ApiError && e.code === 'VERSION_CONFLICT') {
         void taskQ.refetch();
         throw new Error(conflictText(e));

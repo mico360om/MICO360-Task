@@ -12,23 +12,44 @@
 /** The default company time zone, until the server and your settings say otherwise. */
 export const COMPANY_TIMEZONE = 'Asia/Muscat';
 
-let currentTimeZone = COMPANY_TIMEZONE;
+/** The company's time zone (the server's /config) and your own (the website's settings, or none). */
+export interface DateZones {
+  company: string;
+  own: string | null;
+}
+
+let zones: DateZones = { company: COMPANY_TIMEZONE, own: null };
 const timeZoneListeners = new Set<() => void>();
 
 /**
- * The time zone the app shows dates in: your own (from the website's settings), else the company's
- * (the server's /config), else Asia/Muscat — set once signed in (see date-settings). Every function
- * here defaults to it: "today" for boards, calendars and overdue checks.
+ * The time zone the app shows dates in, as the website does: the company's (Asia/Muscat until the
+ * server says otherwise; see date-settings). Every function here defaults to it: "today" for
+ * boards and overdue checks, due days, meeting times.
  */
 export function appTimeZone(): string {
-  return currentTimeZone;
+  return zones.company;
 }
 
-/** Switch the app's time zone; subscribers (the screens) re-render. */
-export function setAppTimeZone(timeZone: string): void {
-  if (timeZone === currentTimeZone) return;
-  currentTimeZone = timeZone;
+/** The calendar's time zone, as on the website: your own, else the company's. */
+export function calendarTimeZone(): string {
+  return zones.own ?? zones.company;
+}
+
+/** Both zones; the same object until one changes (a useSyncExternalStore snapshot). */
+export function dateZones(): DateZones {
+  return zones;
+}
+
+/** Set both zones; subscribers (the navigator) re-render when either changed. */
+export function setDateZones(next: DateZones): void {
+  if (next.company === zones.company && next.own === zones.own) return;
+  zones = { company: next.company, own: next.own };
   for (const listener of timeZoneListeners) listener();
+}
+
+/** Switch the company's time zone only. */
+export function setAppTimeZone(timeZone: string): void {
+  setDateZones({ ...zones, company: timeZone });
 }
 
 /** Be told when the app's time zone changes; returns the unsubscribe. */

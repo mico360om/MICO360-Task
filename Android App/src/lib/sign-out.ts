@@ -96,7 +96,8 @@ export function createSignOut(deps: SignOutDeps) {
     }
 
     // Locally too: an expired session can't tell the server, but the phone can stop listening.
-    await step('push-off', () => deps.deactivatePush());
+    // Bounded like the network steps: turning push off asks Firebase, which can't answer offline.
+    await step('push-off', () => withTimeout(deps.deactivatePush(), timeoutMs));
     // Fingerprint sign-in is left in place: its key is separate from the session (see
     // biometric-login), so the same person can sign back in with a fingerprint.
     const latest = deps.getSession()?.refreshToken ?? null;

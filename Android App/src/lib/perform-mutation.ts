@@ -7,9 +7,10 @@ import type { QueuedMutation } from './sync-queue';
  * to a case here; an unknown kind is a permanent failure so a stale entry is marked failed rather
  * than wedging the queue. Creating writes (POSTs) re-send the item's idempotency key so the server
  * de-duplicates a replay of a write it already saved (XP-06). Pure (no native imports) so the
- * kind → resource mapping is unit-testable.
+ * kind → resource mapping is unit-testable. A task edit or move resolves with the server's task, so
+ * the queue can move this phone's later edits of it on to the version it made (rebaseQueuedVersion).
  */
-export async function performMutation(resources: ResourcesApi, m: QueuedMutation): Promise<void> {
+export async function performMutation(resources: ResourcesApi, m: QueuedMutation): Promise<unknown> {
   const write = { idempotencyKey: m.idempotencyKey };
   switch (m.kind) {
     case 'task.create': {
@@ -19,13 +20,11 @@ export async function performMutation(resources: ResourcesApi, m: QueuedMutation
     }
     case 'task.move': {
       const p = m.payload as { id: string; columnId: string; position?: number };
-      await resources.tasks.move(p.id, p.columnId, p.position);
-      return;
+      return resources.tasks.move(p.id, p.columnId, p.position);
     }
     case 'task.update': {
       const p = m.payload as { id: string; patch: Record<string, unknown> };
-      await resources.tasks.update(p.id, p.patch);
-      return;
+      return resources.tasks.update(p.id, p.patch);
     }
     case 'task.assign': {
       const p = m.payload as { id: string; userIds: string[] };

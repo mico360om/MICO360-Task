@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareVersions, updateAvailable, releaseName, versionHeaders } from './app-version';
+import { compareVersions, updateAvailable, showUpdateBanner, releaseName, versionHeaders } from './app-version';
 
 describe('app version', () => {
   it('compares versions number by number', () => {
@@ -16,6 +16,13 @@ describe('app version', () => {
     expect(updateAvailable('1.2.1', '1.2.0')).toBe(false);
     expect(updateAvailable('1.2.0', '1.2.1')).toBe(true);
     expect(updateAvailable('1.2.0', 'development')).toBe(false); // a dev server has no version
+  });
+
+  it('the banner can be put away for that version (a server-only release has no new app), and comes back for a newer one', () => {
+    expect(showUpdateBanner('1.2.0', '1.2.1', null)).toBe(true);
+    expect(showUpdateBanner('1.2.0', '1.2.1', '1.2.1')).toBe(false);
+    expect(showUpdateBanner('1.2.0', '1.2.2', '1.2.1')).toBe(true);
+    expect(showUpdateBanner('1.2.1', '1.2.1', null)).toBe(false);
   });
 
   it('names the release for crash reports and the request headers', () => {

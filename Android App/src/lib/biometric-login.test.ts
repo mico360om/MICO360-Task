@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createBiometricLogin } from './biometric-login';
+import { createBiometricLogin, fingerprintSetting } from './biometric-login';
 import { createMemoryStore } from './storage';
 
 function setup() {
@@ -95,5 +95,23 @@ describe('createBiometricLogin — whose fingerprint key it is', () => {
     await bl.arm('bio-key', 'ada', 'u1');
     await bl.disarm();
     expect(await bl.getUserId()).toBeUndefined();
+  });
+
+  it('remembers the key’s id (to cancel it on the server), readable without a prompt; disarm forgets it', async () => {
+    const { bl, secretStore } = setup();
+    await bl.arm('bio-key', 'ada', 'u1', 'a'.repeat(64));
+    expect(await bl.getKeyId()).toBe('a'.repeat(64));
+    expect(await secretStore.getItem('mico360.biometricLogin')).not.toContain('aaaa');
+    await bl.disarm();
+    expect(await bl.getKeyId()).toBeUndefined();
+  });
+});
+
+describe('fingerprintSetting — what Settings shows', () => {
+  it('off, on, or the lock on with fingerprint sign-in stopped (its key ended) — then it offers to turn sign-in back on', () => {
+    expect(fingerprintSetting({ lockOn: false, keyArmed: false })).toBe('off');
+    expect(fingerprintSetting({ lockOn: true, keyArmed: true })).toBe('on');
+    expect(fingerprintSetting({ lockOn: true, keyArmed: false })).toBe('sign-in-off');
+    expect(fingerprintSetting({ lockOn: false, keyArmed: true })).toBe('off');
   });
 });

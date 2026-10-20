@@ -25,6 +25,17 @@ export function updateAvailable(app: string, server: string | null | undefined):
   return compareVersions(app, server) < 0;
 }
 
+/** The server version whose "new version" banner was put away (kept on the phone). */
+export const UPDATE_DISMISSED_KEY = 'mico360.updateDismissed';
+
+/**
+ * Show the "new version" banner? Only while the server is newer and that version's banner hasn't
+ * been put away: a release that changed only the website has no new app to download.
+ */
+export function showUpdateBanner(app: string, server: string | null | undefined, dismissed: string | null): boolean {
+  return updateAvailable(app, server) && dismissed !== server;
+}
+
 /** The release name crash reports carry. */
 export function releaseName({ version, build }: AppInfo): string {
   return `mico360-tasks@${version}+${build}`;

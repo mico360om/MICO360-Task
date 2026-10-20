@@ -9,6 +9,7 @@ import { getPushPermission, openAppSettings, type PushPermission } from '../adap
 import { useNotificationPreferences, useSaveNotificationPreferences, useServerVersion } from '../core/queries';
 import { NOTIFICATION_TYPES, REMINDER_OPTIONS, isTypeOn, toggleType, withReminderLead } from '../lib/notification-prefs';
 import { sitePageUrl } from '../lib/server-address';
+import { fingerprintSetting } from '../lib/biometric-login';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 
@@ -26,6 +27,7 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
   const user = useSession()?.user;
   const queued = useMyQueuedChanges();
   const [bioOn, setBioOn] = useState(false);
+  const [keyArmed, setKeyArmed] = useState(false);
   const [bioBusy, setBioBusy] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [pushPerm, setPushPerm] = useState<{ status: PushPermission; canAskAgain: boolean } | null>(null);
@@ -42,7 +44,8 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
 
   useEffect(() => {
     void biometric.isEnabled().then(setBioOn);
-  }, [biometric]);
+    void biometricLogin.isArmed().then(setKeyArmed);
+  }, [biometric, biometricLogin]);
 
   // Notification permission — re-read when coming back from the system settings (NTF-01).
   const refreshPushPerm = useCallback(() => {
@@ -56,19 +59,40 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
     return () => sub.remove();
   }, [refreshPushPerm]);
 
+  /** Cancel one of this phone's fingerprint keys on the server too (best effort). */
+  async function cancelKey(keyId: string | undefined) {
+    const s = session.getSession();
+    if (!keyId || !s) return;
+    await auth.revokeBiometricCredential(s.refreshToken, keyId).catch(() => {});
+  }
+
+  /**
+   * A fingerprint sign-in key of its own (silent refreshes never spend it), stored behind a
+   * biometric-bound keystore key: this shows the fingerprint prompt once. The key it replaces is
+   * cancelled on the server; if the prompt is cancelled, so is the new one.
+   */
+  async function armFingerprintSignIn() {
+    const s = session.getSession();
+    if (!s) return;
+    const replaced = await biometricLogin.getKeyId();
+    const { key, keyId } = await auth.biometricCredential(s.refreshToken);
+    try {
+      await biometricLogin.arm(key, s.user.username || s.user.email, s.user.id, keyId);
+    } catch (e) {
+      await cancelKey(keyId);
+      throw e;
+    }
+    setKeyArmed(true);
+    await cancelKey(replaced);
+  }
+
   async function toggleBiometric(next: boolean) {
     setBioBusy(true);
     try {
       if (next) {
         await biometric.setEnabled(true); // requires strong biometrics (fingerprint) to be enrolled
-        const s = session.getSession();
         try {
-          if (s) {
-            // A fingerprint sign-in key of its own (silent refreshes never spend it), stored behind a
-            // biometric-bound keystore key: this shows the fingerprint prompt once.
-            const key = await auth.biometricCredential();
-            await biometricLogin.arm(key, s.user.username || s.user.email, s.user.id);
-          }
+          await armFingerprintSignIn();
         } catch {
           await biometric.setEnabled(false);
           Alert.alert('Biometrics not turned on', 'Your fingerprint was not confirmed. Please try again.');
@@ -76,13 +100,27 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
           return;
         }
       } else {
+        await cancelKey(await biometricLogin.getKeyId());
         await biometric.setEnabled(false);
         await biometricLogin.disarm();
+        setKeyArmed(false);
       }
       setBioOn(next);
     } catch {
       Alert.alert('Biometrics unavailable', 'Set up a fingerprint on your device first. Face unlock that uses only the camera is not secure enough.');
       setBioOn(false);
+    } finally {
+      setBioBusy(false);
+    }
+  }
+
+  /** The lock is on but its fingerprint sign-in key ended: make a new one (one prompt). */
+  async function resumeFingerprintSignIn() {
+    setBioBusy(true);
+    try {
+      await armFingerprintSignIn();
+    } catch {
+      Alert.alert('Fingerprint sign-in not turned on', 'Your fingerprint was not confirmed. Please try again.');
     } finally {
       setBioBusy(false);
     }
@@ -250,6 +288,12 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
                 thumbColor={c.surface}
               />
             </View>
+            {fingerprintSetting({ lockOn: bioOn, keyArmed }) === 'sign-in-off' ? (
+              <View style={styles.divided}>
+                <Muted>Fingerprint sign-in has stopped on this phone (your password was changed, or the app wasn’t used for 30 days). The app lock is still on.</Muted>
+                <Button title="Turn fingerprint sign-in back on" variant="secondary" onPress={() => void resumeFingerprintSignIn()} loading={bioBusy} style={styles.rowBtn} />
+              </View>
+            ) : null}
           </Card>
         </View>
 

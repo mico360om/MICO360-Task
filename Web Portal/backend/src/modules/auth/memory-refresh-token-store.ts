@@ -7,6 +7,7 @@ export interface MemoryRefreshRow {
   familyId: string | null;
   revokedAt: Date | null;
   successorEnc?: string | null;
+  purpose?: 'biometric' | null;
 }
 
 /** In-memory refresh-token store with the same rotation semantics as the Prisma one (tests / dev). */
@@ -14,8 +15,8 @@ export function createMemoryRefreshTokenStore(): RefreshTokenStore & { rows: Mem
   const rows: MemoryRefreshRow[] = [];
   return {
     rows,
-    async save(userId, hash, expiresAt, familyId) {
-      rows.push({ userId, hash, expiresAt, familyId: familyId ?? null, revokedAt: null });
+    async save(userId, hash, expiresAt, familyId, purpose) {
+      rows.push({ userId, hash, expiresAt, familyId: familyId ?? null, revokedAt: null, purpose: purpose ?? null });
     },
     async findValid(hash) {
       const r = rows.find((x) => x.hash === hash && x.revokedAt === null && x.expiresAt.getTime() > Date.now());
@@ -43,6 +44,15 @@ export function createMemoryRefreshTokenStore(): RefreshTokenStore & { rows: Mem
     },
     async revokeFamily(familyId) {
       for (const r of rows) if (r.familyId === familyId && r.revokedAt === null) r.revokedAt = new Date();
+    },
+    async revokeBiometricKeys(userId) {
+      for (const r of rows) if (r.userId === userId && r.purpose === 'biometric' && r.revokedAt === null) r.revokedAt = new Date();
+    },
+    async extendBiometricKeys(userId, expiresAt, now) {
+      for (const r of rows) {
+        const live = r.userId === userId && r.purpose === 'biometric' && r.revokedAt === null && r.expiresAt.getTime() > now.getTime();
+        if (live && r.expiresAt.getTime() < expiresAt.getTime()) r.expiresAt = expiresAt;
+      }
     },
   };
 }

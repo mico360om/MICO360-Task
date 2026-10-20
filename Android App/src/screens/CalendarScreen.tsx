@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCalendarMeetings, useMyTasks } from '../core/queries';
 import { useColors } from '../core/theme';
 import { buildAgenda } from '../lib/meetings';
-import { companyTodayKey } from '../lib/due-date';
+import { calendarTimeZone, companyTodayKey } from '../lib/due-date';
 import { TaskRow } from '../components/TaskRow';
 import { MeetingRow } from '../components/MeetingRow';
 import { Loader, EmptyState, ErrorNote } from '../components/ui';
@@ -22,9 +22,11 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   const styles = useMemo(() => makeStyles(c), [c]);
   const { data: tasks, isLoading, isError, refetch, isRefetching } = useMyTasks();
   const meetingsQ = useCalendarMeetings();
-  const days = useMemo(() => buildAgenda(tasks ?? [], meetingsQ.data ?? []), [tasks, meetingsQ.data]);
-  // "Today" is the company-time-zone date (XP-03) — UTC would still say "yesterday" until 04:00 in Muscat.
-  const today = companyTodayKey();
+  // As on the website, the calendar is in your own time zone (else the company's).
+  const timeZone = calendarTimeZone();
+  const days = useMemo(() => buildAgenda(tasks ?? [], meetingsQ.data ?? [], timeZone), [tasks, meetingsQ.data, timeZone]);
+  // "Today" is that zone's date (XP-03) — UTC would still say "yesterday" until 04:00 in Muscat.
+  const today = companyTodayKey(new Date(), timeZone);
   // The list opens at today (or the next day with something on it); earlier days are above.
   const scrollRef = useRef<ScrollView>(null);
   const opened = useRef(false);
@@ -77,7 +79,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
               </Text>
               <View style={{ gap: spacing.sm }}>
                 {day.meetings.map((m) => (
-                  <MeetingRow key={`m:${m.id}`} meeting={m} />
+                  <MeetingRow key={`m:${m.id}`} meeting={m} timeZone={timeZone} />
                 ))}
                 {day.tasks.map((t) => (
                   <TaskRow

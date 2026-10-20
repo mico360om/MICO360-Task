@@ -91,6 +91,14 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
     expect(deps.clearSession).toHaveBeenCalled();
   });
 
+  it('does not hang offline when turning push off on the phone never answers (it asks Firebase)', async () => {
+    for (const reason of ['user', 'expired'] as const) {
+      const { deps, signOut } = setup({ deactivatePush: vi.fn(() => new Promise<never>(() => {})) });
+      await signOut.signOut(reason);
+      expect(deps.clearSession).toHaveBeenCalled();
+    }
+  });
+
   it('shares one run between concurrent callers', async () => {
     const { deps, signOut } = setup();
     await Promise.all([signOut.signOut('user'), signOut.signOut('expired'), signOut.signOut('user')]);

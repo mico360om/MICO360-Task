@@ -5,6 +5,8 @@ import { createServices, type Services } from './services';
 import { useColors } from './theme';
 import { asyncStore } from '../adapters/async-storage';
 import { loadServerOverride, saveServerOverride } from '../lib/server-address';
+import { DATE_ZONES_KEY, parseDateZones } from '../lib/date-settings';
+import { setDateZones } from '../lib/due-date';
 import type { Session } from '../lib/types';
 import type { QueuedMutation } from '../lib/sync-queue';
 
@@ -84,6 +86,9 @@ function ServicesRoot({
     (async () => {
       await services.session.load();
       await services.queue.load();
+      // The time zones loaded last time, so the first screen already shows the right dates.
+      const zones = parseDateZones(await asyncStore.getItem(DATE_ZONES_KEY).catch(() => null));
+      if (zones) setDateZones(zones);
       void services.biometricLogin.purgeLegacy();
       if (active) setReady(true);
       void services.sync.trigger(); // replay the signed-in user's queued offline changes on launch

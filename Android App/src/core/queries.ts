@@ -3,6 +3,7 @@ import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { meetingWindow } from '../lib/meetings';
 import { refetchAfterMove } from '../lib/task-status';
+import { taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { newIdempotencyKey } from '../lib/idempotency';
 import type { SyncQueue } from '../lib/sync-queue';
 import type { ApiTask } from '../lib/types';
@@ -389,8 +390,14 @@ export function useMoveTask(projectId: string) {
   const qc = useQueryClient();
   const boardPrefix = ['tasks', 'project', projectId];
   return useMutation({
+    // One task's writes go one after another, and the version its move made is remembered so the
+    // next edit isn't refused as someone else's (task-writes).
     mutationFn: ({ id, columnId, position }: { id: string; columnId: string; position?: number }) =>
-      resources.tasks.move(id, columnId, position),
+      taskWrites.run(id, async () => {
+        const moved = await resources.tasks.move(id, columnId, position);
+        taskWrites.note(id, moved?.version);
+        return moved;
+      }),
     // Optimistic move: the card jumps columns immediately, then we reconcile with the server.
     onMutate: async ({ id, columnId }) => {
       await qc.cancelQueries({ queryKey: boardPrefix });
@@ -423,17 +430,33 @@ export function useMoveTask(projectId: string) {
   });
 }
 
+/** What each edit was sent as (with its expectedVersion), so an edit made offline is queued the same. */
+const sentEdits = new WeakMap<object, object>();
+
+/**
+ * Save an edit to a task. It is made against the newest version this phone knows (the loaded task's,
+ * or the one its own last write made), so the server refuses it only when someone else changed the
+ * task (VERSION_CONFLICT); the task's writes go one after another (task-writes).
+ */
 export function useUpdateTask(taskId: string) {
   const { resources, queue, currentUserId } = useServices();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: Partial<ApiTask> & { scope?: 'one' | 'series' }) => resources.tasks.update(taskId, patch),
+    mutationFn: (patch: Partial<ApiTask> & { scope?: 'one' | 'series' }) =>
+      taskWrites.run(taskId, async () => {
+        const loaded = qc.getQueryData<ApiTask>(['task', taskId])?.version;
+        const body = withExpectedVersion(patch, taskWrites.expectedVersion(taskId, loaded));
+        sentEdits.set(patch, body);
+        const updated = await resources.tasks.update(taskId, body);
+        taskWrites.note(taskId, updated?.version);
+        return updated;
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['task', taskId] });
       void qc.invalidateQueries({ queryKey: ['tasks'] });
       void qc.invalidateQueries({ queryKey: ['project'] });
     },
-    onError: (err, patch) => queueOnOffline(queue, currentUserId(), err, 'task.update', { id: taskId, patch }),
+    onError: (err, patch) => queueOnOffline(queue, currentUserId(), err, 'task.update', { id: taskId, patch: sentEdits.get(patch) ?? patch }),
   });
 }
 

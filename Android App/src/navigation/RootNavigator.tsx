@@ -7,6 +7,7 @@ import {
   DarkTheme,
   type Theme as NavTheme,
   type LinkingOptions,
+  type InitialState,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -18,8 +19,8 @@ import { useTheme } from '../core/theme';
 import { spacing } from '../lib/theme';
 import { notificationToTarget } from '../lib/deep-link';
 import { useDrawerStore } from '../lib/drawer-store';
-import { appTimeZone, setAppTimeZone, subscribeTimeZone } from '../lib/due-date';
-import { resolveTimeZone } from '../lib/date-settings';
+import { dateZones, setDateZones, subscribeTimeZone } from '../lib/due-date';
+import { DATE_ZONES_KEY, nextDateZones } from '../lib/date-settings';
 import { asyncStore } from '../adapters/async-storage';
 import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
@@ -141,8 +142,9 @@ function PushRegistrationMount() {
 }
 
 /**
- * Dates follow the website: your own time zone (Settings → Date and time there), else the company's.
- * Loaded once signed in and whenever the app comes back to the front.
+ * Dates follow the website: the company's time zone everywhere, your own (Settings → Date and time
+ * there) on the calendar. Loaded once signed in and whenever the app comes back to the front; a
+ * load that fails keeps the zones the phone had, and the last ones are kept for the next start.
  */
 function TimeZoneMount() {
   const { resources } = useServices();
@@ -153,7 +155,10 @@ function TimeZoneMount() {
         resources.settings.config().catch(() => null),
         resources.settings.datePreferences().catch(() => null),
       ]);
-      if (active) setAppTimeZone(resolveTimeZone({ company: config?.timeZone, own: prefs?.timeZone }));
+      if (!active || (!config && !prefs)) return;
+      const next = nextDateZones(dateZones(), { config, prefs });
+      setDateZones(next);
+      await asyncStore.setItem(DATE_ZONES_KEY, JSON.stringify(next)).catch(() => {});
     };
     void load();
     const sub = AppState.addEventListener('change', (s) => {
@@ -208,8 +213,15 @@ function MainTabs() {
 }
 
 export function RootNavigator() {
-  // A new time zone re-renders every screen, so its dates follow at once.
-  useSyncExternalStore(subscribeTimeZone, appTimeZone);
+  // A new time zone opens the screens again where they were, so every date follows at once (React
+  // Navigation doesn't re-render a mounted screen when its parent does). It happens only when an
+  // admin or you change a zone; the last zones are restored before the first screen shows.
+  const zones = useSyncExternalStore(subscribeTimeZone, dateZones);
+  const zoneKey = `${zones.company}|${zones.own ?? ''}`;
+  const reopen = useRef<{ key: string; state: InitialState | undefined }>({ key: zoneKey, state: undefined });
+  if (reopen.current.key !== zoneKey) {
+    reopen.current = { key: zoneKey, state: navigationRef.isReady() ? navigationRef.getRootState() : undefined };
+  }
   const userId = useUserId();
   const signedIn = !!userId;
   const signedInRef = useRef(signedIn);
@@ -288,7 +300,14 @@ export function RootNavigator() {
   }, [dispatch]);
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} onReady={flushPending}>
+    <NavigationContainer
+      key={zoneKey}
+      ref={navigationRef}
+      theme={navTheme}
+      linking={linking}
+      initialState={reopen.current.state}
+      onReady={flushPending}
+    >
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       {signedIn ? (
         <>

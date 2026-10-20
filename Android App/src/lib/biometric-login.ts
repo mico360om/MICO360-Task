@@ -28,7 +28,8 @@ export interface BiometricLoginDeps {
  * The key comes from POST /auth/biometric-credential: a refresh token marked for fingerprint
  * sign-in, in a rotation family of its own. Silent session refreshes never spend it and signing in
  * with it (/auth/biometric-sign-in) doesn't either, so it survives sign-outs and keeps working until
- * the user turns it off, signs in as someone else, changes their password or an admin resets it.
+ * the user turns it off (which cancels it on the server too, by its id), signs in as someone else,
+ * changes their password, an admin resets it, or nobody uses the app for 30 days.
  *
  * Security rules (MOB-01):
  * - the key is only ever readable behind the strong-biometric prompt;
@@ -37,22 +38,28 @@ export interface BiometricLoginDeps {
  * - a sign-in as a different user disarms it.
  */
 export function createBiometricLogin({ secretStore, markerStore }: BiometricLoginDeps) {
-  async function arm(refreshToken: string, label?: string, userId?: string): Promise<void> {
+  async function arm(refreshToken: string, label?: string, userId?: string, keyId?: string): Promise<void> {
     if (!refreshToken) return;
     await secretStore.setItem(SECRET_KEY, JSON.stringify({ refreshToken, label } satisfies BiometricCredential));
-    await markerStore.setItem(MARKER_KEY, JSON.stringify({ label: label ?? null, userId: userId ?? null }));
+    await markerStore.setItem(MARKER_KEY, JSON.stringify({ label: label ?? null, userId: userId ?? null, keyId: keyId ?? null }));
   }
 
-  /** Whose key it is (a sign-in as anyone else disarms it). Never prompts. */
-  async function getUserId(): Promise<string | undefined> {
+  /** One field of the marker (never secret), or undefined. Never prompts. */
+  async function markerField(name: 'label' | 'userId' | 'keyId'): Promise<string | undefined> {
     try {
       const raw = await markerStore.getItem(MARKER_KEY);
-      const id = raw ? (JSON.parse(raw) as { userId?: unknown }).userId : undefined;
-      return typeof id === 'string' && id ? id : undefined;
+      const v = raw ? (JSON.parse(raw) as Record<string, unknown>)[name] : undefined;
+      return typeof v === 'string' && v ? v : undefined;
     } catch {
       return undefined;
     }
   }
+
+  /** Whose key it is (a sign-in as anyone else disarms it). Never prompts. */
+  const getUserId = () => markerField('userId');
+
+  /** The key's id, to cancel it on the server without reading it (no prompt). */
+  const getKeyId = () => markerField('keyId');
 
   /** Is a credential remembered? Never prompts. */
   async function isArmed(): Promise<boolean> {
@@ -64,15 +71,7 @@ export function createBiometricLogin({ secretStore, markerStore }: BiometricLogi
   }
 
   /** The label for the "Sign in with biometrics (…)" button. Never prompts. */
-  async function getLabel(): Promise<string | undefined> {
-    try {
-      const raw = await markerStore.getItem(MARKER_KEY);
-      const label = raw ? (JSON.parse(raw) as { label?: unknown }).label : undefined;
-      return typeof label === 'string' && label ? label : undefined;
-    } catch {
-      return undefined;
-    }
-  }
+  const getLabel = () => markerField('label');
 
   /**
    * Read the credential. With the biometric-bound store this shows the strong-biometric prompt;
@@ -114,7 +113,17 @@ export function createBiometricLogin({ secretStore, markerStore }: BiometricLogi
     await markerStore.deleteItem(SECRET_KEY).catch(() => {});
   }
 
-  return { arm, isArmed, getLabel, getUserId, getCredential, disarm, purgeLegacy };
+  return { arm, isArmed, getLabel, getUserId, getKeyId, getCredential, disarm, purgeLegacy };
 }
 
 export type BiometricLogin = ReturnType<typeof createBiometricLogin>;
+
+/**
+ * What Settings shows for biometric unlock: off; on (the lock and fingerprint sign-in); or the lock
+ * on while fingerprint sign-in stopped (its key ended: a password change, 30 days unused) — then
+ * Settings offers to turn fingerprint sign-in back on.
+ */
+export function fingerprintSetting({ lockOn, keyArmed }: { lockOn: boolean; keyArmed: boolean }): 'off' | 'on' | 'sign-in-off' {
+  if (!lockOn) return 'off';
+  return keyArmed ? 'on' : 'sign-in-off';
+}

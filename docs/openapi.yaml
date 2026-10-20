@@ -217,12 +217,28 @@ paths:
       responses: { '200': { description: Session issued }, '401': { description: Invalid, expired, or already used } }
   /auth/biometric-credential:
     post:
-      summary: A fingerprint sign-in key for this phone (signed in)
+      security: []
+      summary: A fingerprint sign-in key for this phone, made with its session's refresh token
       description: >
         A refresh token marked for fingerprint sign-in, in a rotation family of its own. It never
         refreshes a session; it only signs in through /auth/biometric-sign-in, which doesn't spend it.
-        A password change or an admin reset revokes it.
-      responses: { '201': { description: '{ refreshToken }' }, '401': { description: Not signed in } }
+        The session's refresh token is checked, not spent (an access token alone can't make a key).
+        It lasts 30 days from the person's last sign-in or refresh. A password change, an admin
+        reset, or a stolen session caught being reused revokes it. `keyId` cancels it (below).
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string } } } } }
+      responses: { '201': { description: '{ refreshToken (the key), keyId }' }, '401': { description: 'INVALID_REFRESH_TOKEN: the session ended' } }
+  /auth/biometric-credential/revoke:
+    post:
+      security: []
+      summary: Cancel one of the person's fingerprint keys (turned off on the phone, or replaced)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [refreshToken, keyId], properties: { refreshToken: { type: string }, keyId: { type: string, pattern: '^[0-9a-f]{64}$' } } }
+      responses: { '200': { description: '{ ok: true } (also when the key had already ended)' }, '401': { description: 'INVALID_REFRESH_TOKEN: the session ended' } }
   /auth/biometric-sign-in:
     post:
       security: []

@@ -267,11 +267,11 @@ describe('UserService — a user’s phones are forgotten when their access is r
     expect(forgotten).toEqual([ada.id, ada.id, ada.id, ada.id]);
   });
 
-  it('changing your own password keeps your phones (the others sign out and turn push off themselves)', async () => {
+  it('changing your own password forgets your phones too (a lost phone shows notifications without the app running)', async () => {
     const { svc, forgotten, revoked, ada } = await setup();
     await svc.changeOwnPassword(ada.id, 'Password1!', 'Password2!');
     expect(revoked).toContain(ada.id);
-    expect(forgotten).toEqual([]);
+    expect(forgotten).toEqual([ada.id]);
   });
 
   it('a role list that doesn’t change keeps the phones', async () => {

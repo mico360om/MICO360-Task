@@ -281,31 +281,35 @@ describe('Fingerprint sign-in: POST /auth/biometric-credential and /auth/biometr
     const res = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { identifier: 'ada', password: 'CorrectHorse1' } });
     return res.json().data as { accessToken: string; refreshToken: string };
   }
-  const keyFor = async (app: Awaited<ReturnType<typeof makeApp>>, accessToken: string) =>
-    app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', headers: { authorization: `Bearer ${accessToken}` } });
+  // The phone asks with its session's refresh token (an access token alone can't make a key).
+  const keyFor = async (app: Awaited<ReturnType<typeof makeApp>>, refreshToken: string) =>
+    app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', payload: { refreshToken } });
   const fingerprint = (app: Awaited<ReturnType<typeof makeApp>>, credential: string) =>
     app.inject({ method: 'POST', url: '/api/v1/auth/biometric-sign-in', payload: { credential } });
 
-  it('a signed-in user gets a key that signs in again and again without being spent, each time a new session', async () => {
+  it('a signed-in user gets a key (and its id) that signs in again and again without being spent, each time a new session', async () => {
     const store = createMemoryRefreshTokenStore();
     const app = await makeApp([user()], store);
     const session = await signIn(app);
-    const res = await keyFor(app, session.accessToken);
+    const res = await keyFor(app, session.refreshToken);
     expect(res.statusCode).toBe(201);
     const key = res.json().data.refreshToken as string;
+    expect(res.json().data.keyId).toMatch(/^[0-9a-f]{64}$/);
     const first = await fingerprint(app, key);
     expect(first.statusCode).toBe(200);
     expect(first.json().data.user.id).toBe('u1');
     expect(first.json().data.refreshToken).not.toBe(key);
     expect((await fingerprint(app, key)).statusCode).toBe(200); // not spent
     expect((await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: first.json().data.refreshToken } })).statusCode).toBe(200);
+    // Asking for a key spends nothing: the session's refresh token still refreshes.
+    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: session.refreshToken } })).statusCode).toBe(200);
     await app.close();
   });
 
   it('the key can’t refresh a session, and a session’s refresh token can’t sign in by fingerprint', async () => {
     const app = await makeApp([user()]);
     const session = await signIn(app);
-    const key = (await keyFor(app, session.accessToken)).json().data.refreshToken;
+    const key = (await keyFor(app, session.refreshToken)).json().data.refreshToken;
     expect((await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: key } })).statusCode).toBe(401);
     const refused = await fingerprint(app, session.refreshToken);
     expect(refused.statusCode).toBe(401);
@@ -313,19 +317,51 @@ describe('Fingerprint sign-in: POST /auth/biometric-credential and /auth/biometr
     await app.close();
   });
 
-  it('refuses a key request that isn’t signed in', async () => {
+  it('an access token alone, a spent refresh token or a key can’t make a key', async () => {
     const app = await makeApp([user()]);
-    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential' })).statusCode).toBe(401);
+    const session = await signIn(app);
+    const byAccess = await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', headers: { authorization: `Bearer ${session.accessToken}` } });
+    expect(byAccess.statusCode).toBe(400);
+    const key = (await keyFor(app, session.refreshToken)).json().data.refreshToken;
+    expect((await keyFor(app, key)).statusCode).toBe(401);
+    await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: session.refreshToken } });
+    expect((await keyFor(app, session.refreshToken)).statusCode).toBe(401);
     await app.close();
   });
 
-  it('the key stops working once every sign-in is ended (password change, admin reset)', async () => {
+  it('turning it off on the phone cancels its key on the server (and only that key)', async () => {
+    const app = await makeApp([user()]);
+    const session = await signIn(app);
+    const one = (await keyFor(app, session.refreshToken)).json().data as { refreshToken: string; keyId: string };
+    const two = (await keyFor(app, session.refreshToken)).json().data as { refreshToken: string; keyId: string };
+    const off = await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential/revoke', payload: { refreshToken: session.refreshToken, keyId: one.keyId } });
+    expect(off.statusCode).toBe(200);
+    expect((await fingerprint(app, one.refreshToken)).statusCode).toBe(401);
+    expect((await fingerprint(app, two.refreshToken)).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('cancelling needs the person’s live session: a junk session does nothing', async () => {
+    const app = await makeApp([user()]);
+    const session = await signIn(app);
+    const one = (await keyFor(app, session.refreshToken)).json().data as { refreshToken: string; keyId: string };
+    const off = await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential/revoke', payload: { refreshToken: 'junk', keyId: one.keyId } });
+    expect(off.statusCode).toBe(401);
+    expect((await fingerprint(app, one.refreshToken)).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('the key stops working once every sign-in is ended (password change, admin reset), and says why', async () => {
     const store = createMemoryRefreshTokenStore();
     const app = await makeApp([user()], store);
     const session = await signIn(app);
-    const key = (await keyFor(app, session.accessToken)).json().data.refreshToken;
+    const key = (await keyFor(app, session.refreshToken)).json().data.refreshToken;
     await store.revokeAllForUser('u1');
-    expect((await fingerprint(app, key)).statusCode).toBe(401);
+    const refused = await fingerprint(app, key);
+    expect(refused.statusCode).toBe(401);
+    expect(refused.json().error.message).toBe(
+      'Fingerprint sign-in has stopped: your password was changed, or the app wasn’t used for 30 days. Sign in with your password, then turn it on again in Settings.',
+    );
     await app.close();
   });
 });

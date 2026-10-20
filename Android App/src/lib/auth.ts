@@ -11,9 +11,18 @@ export function authApi(client: ApiClient) {
     refresh: (refreshToken: string) =>
       client.post<Envelope<Session>>('/auth/refresh', { refreshToken }).then((r) => r.data),
 
-    /** A fingerprint sign-in key for this phone (signed in); kept behind the biometric-bound keystore. */
-    biometricCredential: () =>
-      client.post<Envelope<{ refreshToken: string }>>('/auth/biometric-credential').then((r) => r.data.refreshToken),
+    /**
+     * A fingerprint sign-in key for this phone, asked for with the session's refresh token (checked,
+     * not spent); kept behind the biometric-bound keystore. Its keyId cancels it later.
+     */
+    biometricCredential: (refreshToken: string) =>
+      client
+        .post<Envelope<{ refreshToken: string; keyId: string }>>('/auth/biometric-credential', { refreshToken })
+        .then((r) => ({ key: r.data.refreshToken, keyId: r.data.keyId })),
+
+    /** Cancel this phone's fingerprint key on the server (turned off, replaced, or its prompt cancelled). */
+    revokeBiometricCredential: (refreshToken: string, keyId: string) =>
+      client.post<Envelope<{ ok: true }>>('/auth/biometric-credential/revoke', { refreshToken, keyId }).then((r) => r.data),
 
     /** Sign in with the phone's fingerprint key: a new session; the key itself isn't spent. */
     biometricSignIn: (credential: string) =>

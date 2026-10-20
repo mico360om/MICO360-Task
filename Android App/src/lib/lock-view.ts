@@ -7,3 +7,15 @@ export function lockView(state: { signedIn: boolean; enabled: boolean | null; lo
   if (state.enabled === null) return 'cover';
   return state.locked ? 'lock' : 'content';
 }
+
+/**
+ * Read the lock setting for the lock gate. A setting that can't be read (a keystore error) counts as
+ * on: the lock screen shows, and it has a sign-out, rather than the cover staying up for good.
+ */
+export async function readLockSetting(isEnabled: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await isEnabled();
+  } catch {
+    return true;
+  }
+}

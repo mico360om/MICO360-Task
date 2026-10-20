@@ -1,5 +1,10 @@
+import type { DateZones } from './due-date';
+
 /** The company's time zone when the server doesn't say (and the app's default). */
 const FALLBACK_TIME_ZONE = 'Asia/Muscat';
+
+/** Where the phone keeps the last zones it loaded, for the next start (and when offline). */
+export const DATE_ZONES_KEY = 'mico360.dateZones';
 
 /** A real IANA time zone name this device can use. */
 export function isValidTimeZone(tz: unknown): tz is string {
@@ -13,13 +18,29 @@ export function isValidTimeZone(tz: unknown): tz is string {
 }
 
 /**
- * The time zone the app shows dates in, as the web portal does: your own (Settings → Date and
- * time on the website), else the company's (the server's /config), else Asia/Muscat.
+ * The zones after loading the server's settings and yours (null = that load failed: offline, a
+ * Wi-Fi sign-in page). A failed load keeps what the phone had; a missing or unknown company zone
+ * is Asia/Muscat, and an unknown own zone counts as none (the company's is used).
  */
-export function resolveTimeZone({ company, own }: { company?: string | null; own?: string | null }): string {
-  if (isValidTimeZone(own)) return own;
-  if (isValidTimeZone(company)) return company;
-  return FALLBACK_TIME_ZONE;
+export function nextDateZones(prev: DateZones, loaded: { config: ServerConfig | null; prefs: DatePreferences | null }): DateZones {
+  const company = loaded.config ? (isValidTimeZone(loaded.config.timeZone) ? loaded.config.timeZone : FALLBACK_TIME_ZONE) : prev.company;
+  const own = loaded.prefs ? (isValidTimeZone(loaded.prefs.timeZone) ? loaded.prefs.timeZone : null) : prev.own;
+  return { company, own };
+}
+
+/** The zones saved by an earlier start, or null when there are none (or they are unusable). */
+export function parseDateZones(raw: string | null): DateZones | null {
+  if (!raw) return null;
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const { company, own } = v as { company?: unknown; own?: unknown };
+  if (!isValidTimeZone(company)) return null;
+  return { company, own: isValidTimeZone(own) ? own : null };
 }
 
 /** The server's public settings (GET /config) the app uses. */

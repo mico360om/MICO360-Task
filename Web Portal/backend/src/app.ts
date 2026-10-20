@@ -196,8 +196,11 @@ function isRateLimitExempt(url: string): boolean {
   return !url.startsWith('/api/') || url === '/api/v1/health';
 }
 
-/** Sign-in and recovery endpoints get a stricter per-IP limit (brute force / email flooding). */
-const SENSITIVE_AUTH_ROUTES = ['/api/v1/auth/login', '/api/v1/auth/otp/', '/api/v1/auth/password/'];
+/**
+ * Sign-in and recovery endpoints get a stricter per-IP limit (brute force / email flooding), the
+ * fingerprint routes too (they take a key or a refresh token instead of a session).
+ */
+const SENSITIVE_AUTH_ROUTES = ['/api/v1/auth/login', '/api/v1/auth/otp/', '/api/v1/auth/password/', '/api/v1/auth/biometric-'];
 
 /** Map Prisma errors that come from bad input or races to clear 4xx responses. */
 function prismaErrorResponse(err: unknown): { status: number; code: string; message: string } | null {
@@ -360,7 +363,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   await app.register(
     async (api) => {
-      await registerAuthRoutes(api, { ...deps, guard });
+      await registerAuthRoutes(api, deps);
       if (deps.about) await registerAboutRoutes(api, { release: deps.about.release, guard });
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
       if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage) {

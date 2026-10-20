@@ -12,6 +12,7 @@ import { resourcesApi } from '../lib/resources';
 import { createReadCache } from '../lib/read-cache';
 import { createSyncQueue, type QueuedMutation } from '../lib/sync-queue';
 import { performMutation } from '../lib/perform-mutation';
+import { rebaseQueuedVersion } from '../lib/task-writes';
 import { createSyncController } from '../lib/sync-controller';
 import { createPushRegistrar } from '../lib/push-registrar';
 import { createBiometricGate } from '../lib/biometric-gate';
@@ -154,6 +155,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   const queue = createSyncQueue({
     store: asyncStore,
     perform: (m: QueuedMutation) => performMutation(resources, m),
+    // A task edit queued after an earlier one of this phone's moves on to the version that one made.
+    rebase: rebaseQueuedVersion,
   });
 
   const sync = createSyncController({

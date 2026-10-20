@@ -257,17 +257,19 @@ describe('TokenService — a lost refresh reply can be retried', () => {
 });
 
 describe('TokenService — fingerprint sign-in keys', () => {
-  it('a key is a refresh token marked for fingerprint sign-in, in a family of its own', async () => {
+  it('a key is a refresh token marked for fingerprint sign-in, in a family of its own, with an id the phone keeps', async () => {
     const { svc, store } = makeRotating();
-    const key = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const { key, keyId } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
     expect(svc.verifyRefresh(key)).toMatchObject({ sub: 'u1', type: 'refresh', purpose: 'biometric' });
     expect(store.rows).toHaveLength(1);
+    expect(store.rows[0]).toMatchObject({ purpose: 'biometric', hash: keyId });
+    expect(keyId).toBe(hashRefreshToken(key));
     expect(await svc.verifyBiometricKey(key)).toEqual({ userId: 'u1' });
   });
 
   it('a key never refreshes a session (so it is never spent by one), and verifying it doesn’t spend it', async () => {
     const { svc } = makeRotating();
-    const key = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const { key } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
     expect(await svc.rotateRefreshToken(key)).toEqual({ ok: false, reason: 'invalid' });
     expect(await svc.verifyBiometricKey(key)).toEqual({ userId: 'u1' });
     expect(await svc.verifyBiometricKey(key)).toEqual({ userId: 'u1' });
@@ -277,9 +279,68 @@ describe('TokenService — fingerprint sign-in keys', () => {
     const { svc } = makeRotating();
     const session = await svc.issueTokens({ id: 'u1', roles: [] });
     expect(await svc.verifyBiometricKey(session.refreshToken)).toBeNull();
-    const key = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const { key } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
     await svc.revokeAllForUser('u1'); // password changed
     expect(await svc.verifyBiometricKey(key)).toBeNull();
     expect(await svc.verifyBiometricKey('junk')).toBeNull();
+  });
+
+  it('sessionOwner: a live session refresh token names its person; a key, a spent token or junk do not', async () => {
+    const { svc } = makeRotating();
+    const session = await svc.issueTokens({ id: 'u1', roles: [] });
+    expect(await svc.sessionOwner(session.refreshToken)).toBe('u1');
+    const { key } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    expect(await svc.sessionOwner(key)).toBeNull();
+    await svc.rotateRefreshToken(session.refreshToken);
+    expect(await svc.sessionOwner(session.refreshToken)).toBeNull();
+    expect(await svc.sessionOwner('junk')).toBeNull();
+  });
+
+  it('a stolen session token caught being reused also cancels the person’s fingerprint keys', async () => {
+    const { svc, advance } = makeRotating();
+    const session = await svc.issueTokens({ id: 'u1', roles: [] });
+    const { key } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    expect((await svc.rotateRefreshToken(session.refreshToken)).ok).toBe(true);
+    advance(60_000); // past the grace window: theft
+    expect(await svc.rotateRefreshToken(session.refreshToken)).toEqual({ ok: false, reason: 'reused' });
+    expect(await svc.verifyBiometricKey(key)).toBeNull();
+  });
+
+  it('revokeBiometricKey cancels that one key, and only for its owner', async () => {
+    const { svc } = makeRotating();
+    const one = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const two = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    await svc.revokeBiometricKey('u2', one.keyId); // someone else's id: nothing happens
+    expect(await svc.verifyBiometricKey(one.key)).toEqual({ userId: 'u1' });
+    await svc.revokeBiometricKey('u1', one.keyId);
+    expect(await svc.verifyBiometricKey(one.key)).toBeNull();
+    expect(await svc.verifyBiometricKey(two.key)).toEqual({ userId: 'u1' });
+  });
+
+  it('lasts 30 days (refreshTtl) from the person’s last use: each sign-in or refresh moves its end on', async () => {
+    const { svc, store, advance } = makeRotating();
+    const { keyId } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const row = store.rows.find((r) => r.hash === keyId)!;
+    const firstEnd = row.expiresAt.getTime();
+    advance(500_000); // half of refreshTtl (1000 s)
+    await svc.issueTokens({ id: 'u1', roles: [] });
+    expect(row.expiresAt.getTime()).toBe(firstEnd + 500_000);
+  });
+
+  it('an ended key is not brought back by a later sign-in', async () => {
+    const { svc, store } = makeRotating();
+    const { key, keyId } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const row = store.rows.find((r) => r.hash === keyId)!;
+    row.expiresAt = new Date(Date.now() - 1000);
+    await svc.issueTokens({ id: 'u1', roles: [] });
+    expect(row.expiresAt.getTime()).toBeLessThan(Date.now());
+    expect(await svc.verifyBiometricKey(key)).toBeNull();
+  });
+
+  it('the key itself outlives refreshTtl; the stored end is what counts', async () => {
+    const { svc } = makeRotating();
+    const { key } = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    const claims = svc.verifyRefresh(key) as { exp?: number; iat?: number };
+    expect((claims.exp ?? 0) - (claims.iat ?? 0)).toBeGreaterThanOrEqual(365 * 24 * 3600);
   });
 });

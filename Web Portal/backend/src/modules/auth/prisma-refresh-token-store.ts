@@ -4,8 +4,8 @@ import type { RefreshTokenStore } from './token-service';
 /** Prisma-backed refresh-token store — persists only the token hash; revocation is a soft `revokedAt`. */
 export function createPrismaRefreshTokenStore(prisma: PrismaClient): RefreshTokenStore {
   return {
-    async save(userId, tokenHash, expiresAt, familyId) {
-      await prisma.refreshToken.create({ data: { userId, tokenHash, expiresAt, familyId: familyId ?? null } });
+    async save(userId, tokenHash, expiresAt, familyId, purpose) {
+      await prisma.refreshToken.create({ data: { userId, tokenHash, expiresAt, familyId: familyId ?? null, purpose: purpose ?? null } });
     },
     async findValid(tokenHash) {
       const row = await prisma.refreshToken.findFirst({
@@ -42,6 +42,16 @@ export function createPrismaRefreshTokenStore(prisma: PrismaClient): RefreshToke
     },
     async revokeFamily(familyId) {
       await prisma.refreshToken.updateMany({ where: { familyId, revokedAt: null }, data: { revokedAt: new Date() } });
+    },
+    async revokeBiometricKeys(userId) {
+      await prisma.refreshToken.updateMany({ where: { userId, purpose: 'biometric', revokedAt: null }, data: { revokedAt: new Date() } });
+    },
+    async extendBiometricKeys(userId, expiresAt, now) {
+      // Only live keys that end sooner: never moved back, never brought back once ended.
+      await prisma.refreshToken.updateMany({
+        where: { userId, purpose: 'biometric', revokedAt: null, expiresAt: { gt: now, lt: expiresAt } },
+        data: { expiresAt },
+      });
     },
   };
 }

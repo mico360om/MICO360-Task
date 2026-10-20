@@ -216,6 +216,35 @@ describe('createSyncQueue (offline mutation queue, A8 / XP-02 / XP-06)', () => {
     expect(q.snapshot()).not.toBe(before);
   });
 
+  it('after a change replays, rebase() updates the owner’s waiting changes with its result (and persists them)', async () => {
+    const store = createMemoryStore();
+    const perform = vi.fn(async (_m: QueuedMutation): Promise<unknown> => undefined);
+    const seen: unknown[] = [];
+    const rebase = vi.fn((done: QueuedMutation, result: unknown, waiting: QueuedMutation) => {
+      seen.push(waiting.payload);
+      return done.kind === 'a' ? { ...waiting, payload: { follows: (result as { made: number }).made } } : waiting;
+    });
+    const q = createSyncQueue(opts({ store, perform, rebase }));
+    await q.enqueue('a', 1, A);
+    await q.enqueue('b', 2, A);
+    await q.enqueue('c', 3, B); // another person's change is never touched
+    let persisted: unknown;
+    perform.mockImplementationOnce(async (m: QueuedMutation) => {
+      expect(m.kind).toBe('a');
+      return { made: 7 };
+    });
+    perform.mockImplementationOnce(async (m: QueuedMutation) => {
+      persisted = JSON.parse((await store.getItem('mico360.mutations'))!);
+      expect(m.payload).toEqual({ follows: 7 });
+      return undefined;
+    });
+    const res = await q.flush('userA');
+    expect(res.synced).toBe(2);
+    expect(seen).toEqual([2]);
+    expect((persisted as QueuedMutation[]).map((m) => m.payload)).toEqual([{ follows: 7 }, 3]);
+    expect(q.pending().map((m) => m.payload)).toEqual([3]);
+  });
+
   it('flush on an empty queue is a no-op', async () => {
     const o = opts();
     const q = createSyncQueue(o);

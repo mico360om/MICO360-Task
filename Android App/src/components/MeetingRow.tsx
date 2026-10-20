@@ -13,14 +13,15 @@ type RowMeeting = Pick<ApiMeeting, 'id' | 'title' | 'status' | 'startAt' | 'endA
 
 /**
  * A meeting in a list (read-only — meetings are run in the web portal): its time, title, place and
- * whether it repeats. Tapping it shows its notes and a button to join an online meeting.
+ * whether it repeats. Tapping it shows its notes and a button to join an online meeting. Its time
+ * is in the company's zone unless `timeZone` says otherwise (the calendar shows your own).
  */
-export function MeetingRow({ meeting, showDate }: { meeting: RowMeeting; showDate?: string }) {
+export function MeetingRow({ meeting, showDate, timeZone }: { meeting: RowMeeting; showDate?: string; timeZone?: string }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const [open, setOpen] = useState(false);
   const cancelled = meeting.status === 'CANCELLED';
-  const time = meetingTime(meeting);
+  const time = meetingTime(meeting, timeZone);
   const place = meetingPlace(meeting);
   const repeats = isRepeating(meeting);
   const link = joinLink(meeting);

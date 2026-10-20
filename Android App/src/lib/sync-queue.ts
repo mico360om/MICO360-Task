@@ -47,8 +47,13 @@ export interface EnqueueOptions {
 
 export interface SyncQueueOptions {
   store: KeyValueStore;
-  /** Send one mutation to the server. Resolves on success, rejects on failure. */
-  perform: (mutation: QueuedMutation) => Promise<void>;
+  /** Send one mutation to the server. Resolves (with the server's answer) on success, rejects on failure. */
+  perform: (mutation: QueuedMutation) => Promise<unknown>;
+  /**
+   * After a mutation replays, update each of the owner's waiting ones with its result (e.g. a task
+   * edit made after an earlier one moves on to the version that one made). Default: unchanged.
+   */
+  rebase?: (done: QueuedMutation, result: unknown, waiting: QueuedMutation) => QueuedMutation;
   /** Classify a replay failure (default: {@link classifyReplayError}). */
   classifyError?: (error: unknown) => FailureKind;
   /** Server-side failures tolerated before an item is marked failed (default 5). */
@@ -173,8 +178,10 @@ export function createSyncQueue(options: SyncQueueOptions) {
       const m = queue.find((x) => x.userId === userId && x.status === 'pending');
       if (!m) break;
       try {
-        await perform(m);
-        await commit(queue.filter((x) => x.id !== m.id));
+        const result = await perform(m);
+        const rest = queue.filter((x) => x.id !== m.id);
+        const rebase = options.rebase;
+        await commit(rebase ? rest.map((x) => (x.userId === m.userId && x.status === 'pending' ? rebase(m, result, x) : x)) : rest);
         synced += 1;
       } catch (error) {
         const kind = classify(error);

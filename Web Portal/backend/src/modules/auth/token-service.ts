@@ -10,8 +10,8 @@ export type RotateResult =
 
 /** Persistence port for refresh tokens (Prisma-backed in prod, in-memory in tests). */
 export interface RefreshTokenStore {
-  /** `familyId` groups every token rotated from one sign-in. */
-  save(userId: string, tokenHash: string, expiresAt: Date, familyId?: string): Promise<void>;
+  /** `familyId` groups every token rotated from one sign-in; `purpose` marks a fingerprint key. */
+  save(userId: string, tokenHash: string, expiresAt: Date, familyId?: string, purpose?: 'biometric'): Promise<void>;
   /** Resolve a token hash to its owner iff it is still live (not expired, not revoked). */
   findValid(tokenHash: string): Promise<{ userId: string } | null>;
   /** Revoke a single token (logout). Idempotent. */
@@ -27,6 +27,10 @@ export interface RefreshTokenStore {
   revokeFamily?(familyId: string): Promise<void>;
   /** Remember (sealed) the token a spent one was rotated to, so a lost reply can be retried. */
   setSuccessor?(tokenHash: string, successorEnc: string): Promise<void>;
+  /** Revoke every live fingerprint key of a user (their session was stolen). */
+  revokeBiometricKeys?(userId: string): Promise<void>;
+  /** Move the end of a user's live fingerprint keys on to `expiresAt` (never back, never reviving one). */
+  extendBiometricKeys?(userId: string, expiresAt: Date, now: Date): Promise<void>;
 }
 
 export interface TokenUser {
@@ -61,6 +65,9 @@ export type RefreshOutcome =
   | { ok: true; userId: string; familyId: string | undefined; replay?: { refreshToken: string } }
   | { ok: false; reason: 'invalid' | 'superseded' | 'reused' };
 
+/** The longest a fingerprint key's JWT is signed for (a year); its stored end slides (issueBiometricKey). */
+const BIOMETRIC_KEY_MAX_TTL = 365 * 24 * 3600;
+
 /** Hash a refresh token for storage — we never persist the raw token. */
 export function hashRefreshToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -81,8 +88,15 @@ export function createTokenService({
   async function issueTokens(user: TokenUser, opts: { familyId?: string } = {}): Promise<{ accessToken: string; refreshToken: string }> {
     const accessToken = issueAccessToken(user);
     const refreshToken = signToken({ sub: user.id, type: 'refresh', jti: randomUUID() }, refreshSecret, refreshTtl);
-    const expiresAt = new Date(now().getTime() + refreshTtl * 1000);
+    const at = now();
+    const expiresAt = new Date(at.getTime() + refreshTtl * 1000);
     await refreshStore.save(user.id, hashRefreshToken(refreshToken), expiresAt, opts.familyId ?? randomUUID());
+    // The person is using the app: their fingerprint keys last another refreshTtl from now.
+    try {
+      await refreshStore.extendBiometricKeys?.(user.id, expiresAt, at);
+    } catch {
+      // Best effort: a key that isn't moved on still works until its current end.
+    }
     return { accessToken, refreshToken };
   }
 
@@ -132,12 +146,36 @@ export function createTokenService({
    * A fingerprint sign-in key for a phone: a refresh token marked `purpose: 'biometric'`, in a
    * rotation family of its own. It never refreshes a session (so nothing spends it); it only signs
    * in through verifyBiometricKey. A password change or an admin reset revokes it like any token.
+   * `keyId` (the stored hash, not a secret) lets the phone cancel it without reading it.
+   *
+   * It lasts `refreshTtl` (30 days) from the person's last use of the app: every sign-in and refresh
+   * moves its stored end on (issueTokens), so the JWT itself is signed for a year at most.
    */
-  async function issueBiometricKey(user: TokenUser): Promise<string> {
-    const key = signToken({ sub: user.id, type: 'refresh', jti: randomUUID(), purpose: 'biometric' }, refreshSecret, refreshTtl);
+  async function issueBiometricKey(user: TokenUser): Promise<{ key: string; keyId: string }> {
+    const key = signToken({ sub: user.id, type: 'refresh', jti: randomUUID(), purpose: 'biometric' }, refreshSecret, Math.max(refreshTtl, BIOMETRIC_KEY_MAX_TTL));
+    const keyId = hashRefreshToken(key);
     const expiresAt = new Date(now().getTime() + refreshTtl * 1000);
-    await refreshStore.save(user.id, hashRefreshToken(key), expiresAt, randomUUID());
-    return key;
+    await refreshStore.save(user.id, keyId, expiresAt, randomUUID(), 'biometric');
+    return { key, keyId };
+  }
+
+  /** Cancel one of this person's fingerprint keys by its id (turned off, or replaced on the phone). */
+  async function revokeBiometricKey(userId: string, keyId: string): Promise<void> {
+    const live = await refreshStore.findValid(keyId);
+    if (live && live.userId === userId) await refreshStore.revoke(keyId);
+  }
+
+  /** The person a live session refresh token belongs to (not a fingerprint key), or null. Spends nothing. */
+  async function sessionOwner(refreshToken: string): Promise<string | null> {
+    let claims: TokenClaims;
+    try {
+      claims = verifyRefresh(refreshToken);
+    } catch {
+      return null;
+    }
+    if (claims.purpose === 'biometric' || !claims.sub) return null;
+    const live = await refreshStore.findValid(hashRefreshToken(refreshToken));
+    return live && live.userId === claims.sub ? live.userId : null;
   }
 
   /** The owner of a live fingerprint sign-in key, or null (not a key, revoked, expired, junk). */
@@ -185,8 +223,11 @@ export function createTokenService({
     const successor = await replayableSuccessor(result, at);
     if (successor) return { ok: true, userId: result.userId, familyId: result.familyId ?? undefined, replay: { refreshToken: successor } };
     if (at.getTime() - result.revokedAt.getTime() < reuseGraceMs) return { ok: false, reason: 'superseded' };
-    if (result.familyId && refreshStore.revokeFamily) await refreshStore.revokeFamily(result.familyId);
-    else await refreshStore.revokeAllForUser(result.userId); // tokens from before families existed
+    if (result.familyId && refreshStore.revokeFamily) {
+      await refreshStore.revokeFamily(result.familyId);
+      // A thief with the session could have made a fingerprint key with it: cancel those too.
+      await refreshStore.revokeBiometricKeys?.(result.userId);
+    } else await refreshStore.revokeAllForUser(result.userId); // tokens from before families existed
     return { ok: false, reason: 'reused' };
   }
 
@@ -200,7 +241,21 @@ export function createTokenService({
     await refreshStore.revokeAllForUser(userId);
   }
 
-  return { issueTokens, issueAccessToken, recordSuccessor, issueBiometricKey, verifyBiometricKey, verifyAccess, verifyRefresh, refreshTokenValid, rotateRefreshToken, revokeRefreshToken, revokeAllForUser };
+  return {
+    issueTokens,
+    issueAccessToken,
+    recordSuccessor,
+    issueBiometricKey,
+    verifyBiometricKey,
+    revokeBiometricKey,
+    sessionOwner,
+    verifyAccess,
+    verifyRefresh,
+    refreshTokenValid,
+    rotateRefreshToken,
+    revokeRefreshToken,
+    revokeAllForUser,
+  };
 }
 
 export type TokenService = ReturnType<typeof createTokenService>;

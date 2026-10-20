@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { COMPANY_TIMEZONE, companyTodayKey, dueDayKey, daysUntilDue, isOverdue, formatDueDay, appTimeZone, setAppTimeZone, subscribeTimeZone } from './due-date';
+import { COMPANY_TIMEZONE, companyTodayKey, dueDayKey, daysUntilDue, isOverdue, formatDueDay, appTimeZone, setAppTimeZone, subscribeTimeZone, calendarTimeZone, dateZones, setDateZones } from './due-date';
 
 describe('mobile due-date rules (XP-03)', () => {
   it('uses Asia/Muscat as the company zone', () => {
@@ -61,5 +61,34 @@ describe('the app’s time zone can follow the server and your settings', () => 
     stop();
     setAppTimeZone('Asia/Muscat');
     expect(heard).toEqual(['America/New_York']);
+  });
+});
+
+describe('two zones, as on the website: the company’s everywhere, your own on the calendar', () => {
+  afterEach(() => setDateZones({ company: 'Asia/Muscat', own: null }));
+
+  it('boards, due dates and meetings follow the company’s zone even when you chose your own', () => {
+    setDateZones({ company: 'Asia/Dubai', own: 'America/New_York' });
+    expect(appTimeZone()).toBe('Asia/Dubai');
+    expect(companyTodayKey(new Date('2026-10-12T02:00:00.000Z'))).toBe('2026-10-12');
+  });
+
+  it('the calendar follows your own zone, else the company’s', () => {
+    setDateZones({ company: 'Asia/Dubai', own: 'America/New_York' });
+    expect(calendarTimeZone()).toBe('America/New_York');
+    setDateZones({ company: 'Asia/Dubai', own: null });
+    expect(calendarTimeZone()).toBe('Asia/Dubai');
+  });
+
+  it('subscribers hear each real change once, and the zones object stays the same between changes', () => {
+    const heard: string[] = [];
+    const stop = subscribeTimeZone(() => heard.push(`${dateZones().company}|${dateZones().own}`));
+    const before = dateZones();
+    setDateZones({ company: 'Asia/Muscat', own: null }); // unchanged
+    expect(dateZones()).toBe(before);
+    setDateZones({ company: 'Asia/Muscat', own: 'Europe/London' });
+    expect(dateZones()).not.toBe(before);
+    stop();
+    expect(heard).toEqual(['Asia/Muscat|Europe/London']);
   });
 });

@@ -5,7 +5,7 @@ import { useColors } from '../core/theme';
 import { Button } from './ui';
 import { useDrawerStore } from '../lib/drawer-store';
 import { createLockPolicy } from '../lib/lock-policy';
-import { lockView } from '../lib/lock-view';
+import { lockView, readLockSetting } from '../lib/lock-view';
 import { setScreenPrivacy } from '../adapters/screen-capture';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 
@@ -55,7 +55,7 @@ export function LockGate({ children }: { children: React.ReactNode }) {
   }, [biometric, setLocked]);
 
   const lockIfEnabled = useCallback(async () => {
-    if (!(await biometric.isEnabled())) return;
+    if (!(await readLockSetting(() => biometric.isEnabled()))) return;
     useDrawerStore.getState().closeDrawer();
     setLocked(true);
     setFailed(false);
@@ -68,7 +68,7 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     let active = true;
     const shouldLock = policy.onUserChange(userId);
     if (!userId) setLocked(false);
-    void biometric.isEnabled().then((on) => {
+    void readLockSetting(() => biometric.isEnabled()).then((on) => {
       if (!active) return;
       if (shouldLock && on) {
         useDrawerStore.getState().closeDrawer();

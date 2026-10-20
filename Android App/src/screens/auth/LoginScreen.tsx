@@ -11,6 +11,7 @@ import { parseServerAddress, probeServer, serverLabel, sitePageUrl } from '../..
 import { fetchEmailEnabled, isCodeComplete, normaliseCode, resendLabel, resendWaitSeconds } from '../../lib/email-sign-in';
 import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
 import { forgetPreviousUser } from '../../lib/user-switch';
+import { asyncStore } from '../../adapters/async-storage';
 import type { AuthScreenProps } from '../../navigation/types';
 import logo from '../../../assets/logo.png';
 
@@ -22,6 +23,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const { auth, session, biometric, biometricLogin } = useServices();
   const userSwitch = useMemo(
     () => ({
+      lastUserStore: asyncStore,
       getKeyOwner: () => biometricLogin.getUserId(),
       isKeyArmed: () => biometricLogin.isArmed(),
       disarmKey: () => biometricLogin.disarm(),
@@ -97,6 +99,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
       }
       // The key signs in without being spent, so it stays for next time (no second prompt).
       const s = await auth.biometricSignIn(cred.refreshToken);
+      await forgetPreviousUser(s.user.id, userSwitch); // the key is theirs: this records who signed in
       await session.setSession(s);
     } catch (e) {
       if (isNetworkError(e)) {
@@ -105,10 +108,10 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
         // 429 / 5xx: the credential may still be good — keep it.
         setError('The server is busy. Please try again in a minute.');
       } else {
-        // The key was revoked (password changed, admin reset) or expired → forget it.
+        // The key was revoked (password changed, admin reset) or ended (30 days unused) → forget it.
         await biometricLogin.disarm();
         setCanBio(false);
-        setError('Fingerprint sign-in was turned off for this account. Sign in with your password.');
+        setError('Fingerprint sign-in has stopped: your password was changed, or the app wasn’t used for 30 days. Sign in with your password, then turn it on again in Settings.');
       }
     } finally {
       setBusy(false);
