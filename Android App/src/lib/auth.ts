@@ -7,9 +7,17 @@ export function authApi(client: ApiClient) {
     login: (identifier: string, password: string) =>
       client.post<Envelope<Session>>('/auth/login', { identifier, password }).then((r) => r.data),
 
-    /** Exchange a stored refresh token for a fresh session (used by biometric login). */
+    /** Exchange a refresh token for a fresh session. */
     refresh: (refreshToken: string) =>
       client.post<Envelope<Session>>('/auth/refresh', { refreshToken }).then((r) => r.data),
+
+    /** A fingerprint sign-in key for this phone (signed in); kept behind the biometric-bound keystore. */
+    biometricCredential: () =>
+      client.post<Envelope<{ refreshToken: string }>>('/auth/biometric-credential').then((r) => r.data.refreshToken),
+
+    /** Sign in with the phone's fingerprint key: a new session; the key itself isn't spent. */
+    biometricSignIn: (credential: string) =>
+      client.post<Envelope<Session>>('/auth/biometric-sign-in', { credential }).then((r) => r.data),
 
     /** Server-side sign-out: revoke the refresh token so it can never mint a session again (MOB-01). */
     logout: (refreshToken: string) =>

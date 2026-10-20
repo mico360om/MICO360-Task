@@ -276,32 +276,44 @@ describe('POST /api/v1/auth/logout', () => {
   });
 });
 
-describe('POST /api/v1/auth/biometric-credential — a sign-in key for fingerprint sign-in', () => {
+describe('Fingerprint sign-in: POST /auth/biometric-credential and /auth/biometric-sign-in', () => {
   async function signIn(app: Awaited<ReturnType<typeof makeApp>>) {
     const res = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { identifier: 'ada', password: 'CorrectHorse1' } });
     return res.json().data as { accessToken: string; refreshToken: string };
   }
-  const refresh = (app: Awaited<ReturnType<typeof makeApp>>, refreshToken: string) =>
-    app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken } });
+  const keyFor = async (app: Awaited<ReturnType<typeof makeApp>>, accessToken: string) =>
+    app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', headers: { authorization: `Bearer ${accessToken}` } });
+  const fingerprint = (app: Awaited<ReturnType<typeof makeApp>>, credential: string) =>
+    app.inject({ method: 'POST', url: '/api/v1/auth/biometric-sign-in', payload: { credential } });
 
-  it('gives a signed-in user a key of its own, which signs in once and rotates, apart from the session', async () => {
+  it('a signed-in user gets a key that signs in again and again without being spent, each time a new session', async () => {
     const store = createMemoryRefreshTokenStore();
     const app = await makeApp([user()], store);
     const session = await signIn(app);
-    const res = await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', headers: { authorization: `Bearer ${session.accessToken}` } });
+    const res = await keyFor(app, session.accessToken);
     expect(res.statusCode).toBe(201);
     const key = res.json().data.refreshToken as string;
-    expect(typeof key).toBe('string');
-    expect(key).not.toBe(session.refreshToken);
-    // Its own rotation family: using it leaves the session alone, and vice versa.
-    const families = new Set(store.rows.map((r) => r.familyId));
-    expect(families.size).toBe(2);
-    expect((await refresh(app, key)).statusCode).toBe(200);
-    expect((await refresh(app, session.refreshToken)).statusCode).toBe(200);
+    const first = await fingerprint(app, key);
+    expect(first.statusCode).toBe(200);
+    expect(first.json().data.user.id).toBe('u1');
+    expect(first.json().data.refreshToken).not.toBe(key);
+    expect((await fingerprint(app, key)).statusCode).toBe(200); // not spent
+    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: first.json().data.refreshToken } })).statusCode).toBe(200);
     await app.close();
   });
 
-  it('refuses a request that isn’t signed in', async () => {
+  it('the key can’t refresh a session, and a session’s refresh token can’t sign in by fingerprint', async () => {
+    const app = await makeApp([user()]);
+    const session = await signIn(app);
+    const key = (await keyFor(app, session.accessToken)).json().data.refreshToken;
+    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: key } })).statusCode).toBe(401);
+    const refused = await fingerprint(app, session.refreshToken);
+    expect(refused.statusCode).toBe(401);
+    expect(refused.json().error.code).toBe('INVALID_BIOMETRIC_KEY');
+    await app.close();
+  });
+
+  it('refuses a key request that isn’t signed in', async () => {
     const app = await makeApp([user()]);
     expect((await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential' })).statusCode).toBe(401);
     await app.close();
@@ -311,9 +323,9 @@ describe('POST /api/v1/auth/biometric-credential — a sign-in key for fingerpri
     const store = createMemoryRefreshTokenStore();
     const app = await makeApp([user()], store);
     const session = await signIn(app);
-    const key = (await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', headers: { authorization: `Bearer ${session.accessToken}` } })).json().data.refreshToken;
+    const key = (await keyFor(app, session.accessToken)).json().data.refreshToken;
     await store.revokeAllForUser('u1');
-    expect((await refresh(app, key)).statusCode).toBe(401);
+    expect((await fingerprint(app, key)).statusCode).toBe(401);
     await app.close();
   });
 });

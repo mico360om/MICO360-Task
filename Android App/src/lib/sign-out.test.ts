@@ -15,7 +15,6 @@ function setup(over: Partial<SignOutDeps> = {}) {
     getSession: () => current,
     revokeRefreshToken: vi.fn(async (t: string) => void log.push(`logout:${t}`)),
     unregisterPush: vi.fn(async () => void log.push(`push(token=${current?.accessToken ?? 'none'})`)),
-    disarmBiometricLogin: vi.fn(async () => void log.push('biometric')),
     clearSession: vi.fn(async () => {
       log.push('session');
       current = null;
@@ -25,7 +24,6 @@ function setup(over: Partial<SignOutDeps> = {}) {
     clearQueuedChanges: vi.fn(async (u: string) => void log.push(`queue:${u}`)),
     deactivatePush: vi.fn(async () => void log.push('push-off')),
     clearExports: vi.fn(async () => void log.push('exports')),
-    resetAppLock: vi.fn(async () => void log.push('app-lock')),
     networkTimeoutMs: 50,
     ...over,
   };
@@ -47,12 +45,10 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
       'push(token=at)', // before the session is cleared — the DELETE still carries a token
       'logout:rt-1',
       'push-off', // and the phone itself stops taking notifications
-      'biometric',
       'session',
       'queries',
       'read-cache',
       'exports',
-      'app-lock',
       'queue:u1',
     ]);
   });
@@ -62,14 +58,14 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
     await signOut.signOut('expired');
     expect(deps.revokeRefreshToken).not.toHaveBeenCalled();
     expect(deps.unregisterPush).not.toHaveBeenCalled();
-    expect(log).toEqual(['push-off', 'biometric', 'session', 'queries', 'read-cache', 'exports']);
+    expect(log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports']);
     expect(deps.clearQueuedChanges).not.toHaveBeenCalled();
   });
 
   it('lock-screen sign-out revokes the session but keeps the owner’s queued changes', async () => {
     const { deps, log, signOut } = setup();
     await signOut.signOut('lock');
-    expect(log).toEqual(['push(token=at)', 'logout:rt-1', 'push-off', 'biometric', 'session', 'queries', 'read-cache', 'exports']);
+    expect(log).toEqual(['push(token=at)', 'logout:rt-1', 'push-off', 'session', 'queries', 'read-cache', 'exports']);
     expect(deps.clearQueuedChanges).not.toHaveBeenCalled();
   });
 
@@ -85,7 +81,7 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
     const onStepError = vi.fn();
     deps.onStepError = onStepError;
     await signOut.signOut('user');
-    expect(log).toEqual(['push-off', 'biometric', 'session', 'queries', 'read-cache', 'exports', 'app-lock', 'queue:u1']);
+    expect(log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports', 'queue:u1']);
     expect(onStepError).toHaveBeenCalledWith('push', expect.any(Error));
   });
 
@@ -117,7 +113,7 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
     h.setSession(null);
     await h.signOut.signOut('user');
     expect(h.deps.revokeRefreshToken).not.toHaveBeenCalled();
-    expect(h.log).toEqual(['push-off', 'biometric', 'session', 'queries', 'read-cache', 'exports', 'app-lock']);
+    expect(h.log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports']);
   });
 });
 
@@ -139,11 +135,13 @@ describe('createSignOut — nothing of the previous user is left on the phone', 
     }
   });
 
-  it('signing out from Settings resets the app lock; an expired session or the lock screen keep it for the same person', async () => {
-    for (const [reason, resets] of [['user', 1], ['lock', 0], ['expired', 0]] as const) {
-      const { deps, signOut } = setup();
+  it('no sign-out turns the app lock off (it belongs to the person; a different person’s sign-in turns it off — see user-switch)', async () => {
+    for (const reason of ['user', 'lock', 'expired'] as const) {
+      const onStepError = vi.fn();
+      const { log, signOut } = setup({ onStepError });
       await signOut.signOut(reason);
-      expect(deps.resetAppLock, reason).toHaveBeenCalledTimes(resets);
+      expect(log, reason).not.toContain('app-lock');
+      expect(onStepError, reason).not.toHaveBeenCalled();
     }
   });
 
@@ -154,5 +152,17 @@ describe('createSignOut — nothing of the previous user is left on the phone', 
     expect(onStepError).toHaveBeenCalledWith('push-off', expect.any(Error));
     expect(log).toContain('session');
     expect(deps.clearExports).toHaveBeenCalled();
+  });
+});
+
+describe('createSignOut — fingerprint sign-in survives a sign-out', () => {
+  it('no sign-out step touches fingerprint sign-in (its key is separate from the session)', async () => {
+    for (const reason of ['user', 'lock', 'expired'] as const) {
+      const onStepError = vi.fn();
+      const { log, signOut } = setup({ onStepError });
+      await signOut.signOut(reason);
+      expect(log.some((l) => l.includes('biometric')), reason).toBe(false);
+      expect(onStepError, reason).not.toHaveBeenCalled(); // and no step tried to
+    }
   });
 });

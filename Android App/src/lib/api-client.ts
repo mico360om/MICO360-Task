@@ -227,7 +227,8 @@ export function createApiClient({
 
   async function request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions, form?: FormData): Promise<T> {
     // A failed login/OTP/reset/refresh is not a token-expiry — never trigger a refresh for /auth/*.
-    const canRefresh = !path.startsWith('/auth/');
+    // (Asking for a fingerprint sign-in key needs a session, like any signed-in call.)
+    const canRefresh = !path.startsWith('/auth/') || path === '/auth/biometric-credential';
 
     let res = await send(method, path, body, opts?.headers, form, opts?.onProgress);
 

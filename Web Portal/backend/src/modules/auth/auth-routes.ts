@@ -25,6 +25,7 @@ const otpVerifySchema = z.object({ identifier, code: z.string().trim().min(1).ma
 const forgotSchema = z.object({ identifier });
 const resetSchema = z.object({ token: z.string().min(1).max(200), password: z.string().min(1).max(200) });
 const refreshSchema = z.object({ refreshToken: z.string().min(1).max(2000) });
+const biometricSignInSchema = z.object({ credential: z.string().min(1).max(2000) });
 
 export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): Promise<void> {
   app.post('/auth/login', async (req, reply) => {
@@ -60,10 +61,23 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
   if (deps.guard) {
     app.post('/auth/biometric-credential', { preHandler: deps.guard.authenticate }, async (req, reply) => {
       const user = await deps.authService.getUserForSession(req.user!.id);
-      const { refreshToken } = await deps.tokenService.issueTokens(user);
+      const refreshToken = await deps.tokenService.issueBiometricKey(user);
       return reply.status(201).send({ data: { refreshToken } });
     });
   }
+
+  // Sign in with a fingerprint key: a new session, and the key is NOT spent (the phone keeps it
+  // behind its biometric-bound keystore). Only keys made by /auth/biometric-credential work here.
+  app.post('/auth/biometric-sign-in', async (req, reply) => {
+    const { credential } = biometricSignInSchema.parse(req.body);
+    const owner = await deps.tokenService.verifyBiometricKey(credential);
+    if (!owner) {
+      return reply.status(401).send({ error: { code: 'INVALID_BIOMETRIC_KEY', message: 'Fingerprint sign-in was turned off for this account. Sign in with your password.' } });
+    }
+    const user = await deps.authService.getUserForSession(owner.userId);
+    const tokens = await deps.tokenService.issueTokens(user);
+    return reply.send({ data: { user: toPublicUser(user), ...tokens } });
+  });
 
   // Server-side logout: revoke the presented refresh token so it can no longer mint sessions.
   // Idempotent and non-enumerating — always 200, even for an unknown token.

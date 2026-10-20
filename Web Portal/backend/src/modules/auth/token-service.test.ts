@@ -255,3 +255,31 @@ describe('TokenService — a lost refresh reply can be retried', () => {
     expect(svc.verifyAccess(access)).toMatchObject({ sub: 'u1', type: 'access', roles: ['ADMIN'] });
   });
 });
+
+describe('TokenService — fingerprint sign-in keys', () => {
+  it('a key is a refresh token marked for fingerprint sign-in, in a family of its own', async () => {
+    const { svc, store } = makeRotating();
+    const key = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    expect(svc.verifyRefresh(key)).toMatchObject({ sub: 'u1', type: 'refresh', purpose: 'biometric' });
+    expect(store.rows).toHaveLength(1);
+    expect(await svc.verifyBiometricKey(key)).toEqual({ userId: 'u1' });
+  });
+
+  it('a key never refreshes a session (so it is never spent by one), and verifying it doesn’t spend it', async () => {
+    const { svc } = makeRotating();
+    const key = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    expect(await svc.rotateRefreshToken(key)).toEqual({ ok: false, reason: 'invalid' });
+    expect(await svc.verifyBiometricKey(key)).toEqual({ userId: 'u1' });
+    expect(await svc.verifyBiometricKey(key)).toEqual({ userId: 'u1' });
+  });
+
+  it('only a live key passes: a session refresh token, a revoked key or junk do not', async () => {
+    const { svc } = makeRotating();
+    const session = await svc.issueTokens({ id: 'u1', roles: [] });
+    expect(await svc.verifyBiometricKey(session.refreshToken)).toBeNull();
+    const key = await svc.issueBiometricKey({ id: 'u1', roles: [] });
+    await svc.revokeAllForUser('u1'); // password changed
+    expect(await svc.verifyBiometricKey(key)).toBeNull();
+    expect(await svc.verifyBiometricKey('junk')).toBeNull();
+  });
+});

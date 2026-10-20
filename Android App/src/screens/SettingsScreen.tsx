@@ -21,7 +21,7 @@ const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
 export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
   const { colors: c, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { biometric, biometricLogin, session, push, baseUrl, signOut } = useServices();
+  const { auth, biometric, biometricLogin, session, push, baseUrl, signOut } = useServices();
   const user = useSession()?.user;
   const queued = useMyQueuedChanges();
   const [bioOn, setBioOn] = useState(false);
@@ -62,8 +62,12 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
         await biometric.setEnabled(true); // requires strong biometrics (fingerprint) to be enrolled
         const s = session.getSession();
         try {
-          // Stored behind a biometric-bound keystore key: this shows the fingerprint prompt once.
-          if (s) await biometricLogin.arm(s.refreshToken, s.user.username || s.user.email);
+          if (s) {
+            // A fingerprint sign-in key of its own (silent refreshes never spend it), stored behind a
+            // biometric-bound keystore key: this shows the fingerprint prompt once.
+            const key = await auth.biometricCredential();
+            await biometricLogin.arm(key, s.user.username || s.user.email, s.user.id);
+          }
         } catch {
           await biometric.setEnabled(false);
           Alert.alert('Biometrics not turned on', 'Your fingerprint was not confirmed. Please try again.');

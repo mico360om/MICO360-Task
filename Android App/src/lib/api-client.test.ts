@@ -393,3 +393,18 @@ describe('api-client — a Wi-Fi sign-in page is treated as being offline', () =
     expect(await cache.read('projects', () => api.get('/projects'))).toEqual({ data: [{ id: 'p1' }], stale: true });
   });
 });
+
+describe('api-client — the fingerprint key request renews an expired session', () => {
+  it('a 401 on /auth/biometric-credential renews the session and retries (other /auth/* calls never do)', async () => {
+    let token = 'old';
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) =>
+      !url.includes('/auth/login') && (init?.headers as Record<string, string>)?.Authorization === 'Bearer new' ? jsonResponse({ data: { refreshToken: 'bio-key' } }, 201) : jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'x' } }, 401),
+    );
+    const refreshTokens = vi.fn(async () => { token = 'new'; return 'ok' as const; });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => token, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
+    await expect(api.post('/auth/biometric-credential')).resolves.toEqual({ data: { refreshToken: 'bio-key' } });
+    expect(refreshTokens).toHaveBeenCalledTimes(1);
+    await expect(api.post('/auth/login', { identifier: 'x', password: 'y' })).rejects.toBeInstanceOf(ApiError);
+    expect(refreshTokens).toHaveBeenCalledTimes(1);
+  });
+});

@@ -183,7 +183,6 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     getSession: () => session.getSession(),
     revokeRefreshToken: (refreshToken) => auth.logout(refreshToken),
     unregisterPush: () => push.unregister(),
-    disarmBiometricLogin: () => biometricLogin.disarm(),
     clearSession: () => session.logout(),
     clearQueryCache: () => queryClient.clear(),
     clearReadCache: () => cache.clear(),
@@ -193,7 +192,6 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
       await push.forget();
     },
     clearExports: () => exportFiles.clearAll(),
-    resetAppLock: () => biometric.setEnabled(false),
   });
 
   const exporter = createExporter({

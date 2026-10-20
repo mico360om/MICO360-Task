@@ -10,6 +10,7 @@ import { authErrorMessage, isAccountLocked } from '../../lib/auth-errors';
 import { parseServerAddress, probeServer, serverLabel, sitePageUrl } from '../../lib/server-address';
 import { fetchEmailEnabled, isCodeComplete, normaliseCode, resendLabel, resendWaitSeconds } from '../../lib/email-sign-in';
 import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
+import { forgetPreviousUser } from '../../lib/user-switch';
 import type { AuthScreenProps } from '../../navigation/types';
 import logo from '../../../assets/logo.png';
 
@@ -19,6 +20,16 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const { auth, session, biometric, biometricLogin } = useServices();
+  const userSwitch = useMemo(
+    () => ({
+      getKeyOwner: () => biometricLogin.getUserId(),
+      isKeyArmed: () => biometricLogin.isArmed(),
+      disarmKey: () => biometricLogin.disarm(),
+      isLockOn: () => biometric.isEnabled(),
+      turnLockOff: () => biometric.setEnabled(false),
+    }),
+    [biometric, biometricLogin],
+  );
   const [mode, setMode] = useState<Mode>('password');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -60,6 +71,8 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
     setLocked(false);
     try {
       const s = await promise;
+      // Someone else's fingerprint sign-in and app lock don't carry over to this person.
+      await forgetPreviousUser(s.user.id, userSwitch);
       // Push registration happens once the signed-in app mounts (every launch + token rotation).
       await session.setSession(s);
     } catch (e) {
@@ -82,10 +95,8 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
         setError(stillArmed ? 'Fingerprint not confirmed.' : 'No saved biometric sign-in. Please sign in with your password.');
         return;
       }
-      const s = await auth.refresh(cred.refreshToken);
-      // The remembered token was just spent (single use) and re-saving it would need another
-      // prompt, so this sign-in is one-shot; turn it back on in Settings.
-      await biometricLogin.disarm();
+      // The key signs in without being spent, so it stays for next time (no second prompt).
+      const s = await auth.biometricSignIn(cred.refreshToken);
       await session.setSession(s);
     } catch (e) {
       if (isNetworkError(e)) {
@@ -94,10 +105,10 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
         // 429 / 5xx: the credential may still be good — keep it.
         setError('The server is busy. Please try again in a minute.');
       } else {
-        // The remembered token is expired/revoked → forget it and fall back to password.
+        // The key was revoked (password changed, admin reset) or expired → forget it.
         await biometricLogin.disarm();
         setCanBio(false);
-        setError('Your biometric sign-in has expired. Please sign in with your password.');
+        setError('Fingerprint sign-in was turned off for this account. Sign in with your password.');
       }
     } finally {
       setBusy(false);

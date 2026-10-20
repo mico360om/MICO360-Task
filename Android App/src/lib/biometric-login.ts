@@ -22,19 +22,36 @@ export interface BiometricLoginDeps {
 }
 
 /**
- * Biometric login (A1): the refresh token behind a biometric-bound keystore key, so a signed-out
- * user can restore their session with a fingerprint instead of re-typing their password.
+ * Biometric login (A1): a fingerprint sign-in key behind a biometric-bound keystore key, so a
+ * signed-out user can sign in again with a fingerprint instead of re-typing their password.
+ *
+ * The key comes from POST /auth/biometric-credential: a refresh token marked for fingerprint
+ * sign-in, in a rotation family of its own. Silent session refreshes never spend it and signing in
+ * with it (/auth/biometric-sign-in) doesn't either, so it survives sign-outs and keeps working until
+ * the user turns it off, signs in as someone else, changes their password or an admin resets it.
  *
  * Security rules (MOB-01):
- * - every sign-out disarms it (the sign-out routine also revokes the token server-side);
+ * - the key is only ever readable behind the strong-biometric prompt;
  * - it is never re-written silently in the background (a write would need a biometric prompt), so
- *   it is armed only while the user is present — when they switch the feature on in Settings.
+ *   it is armed only while the user is present — when they switch the feature on in Settings;
+ * - a sign-in as a different user disarms it.
  */
 export function createBiometricLogin({ secretStore, markerStore }: BiometricLoginDeps) {
-  async function arm(refreshToken: string, label?: string): Promise<void> {
+  async function arm(refreshToken: string, label?: string, userId?: string): Promise<void> {
     if (!refreshToken) return;
     await secretStore.setItem(SECRET_KEY, JSON.stringify({ refreshToken, label } satisfies BiometricCredential));
-    await markerStore.setItem(MARKER_KEY, JSON.stringify({ label: label ?? null }));
+    await markerStore.setItem(MARKER_KEY, JSON.stringify({ label: label ?? null, userId: userId ?? null }));
+  }
+
+  /** Whose key it is (a sign-in as anyone else disarms it). Never prompts. */
+  async function getUserId(): Promise<string | undefined> {
+    try {
+      const raw = await markerStore.getItem(MARKER_KEY);
+      const id = raw ? (JSON.parse(raw) as { userId?: unknown }).userId : undefined;
+      return typeof id === 'string' && id ? id : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Is a credential remembered? Never prompts. */
@@ -97,7 +114,7 @@ export function createBiometricLogin({ secretStore, markerStore }: BiometricLogi
     await markerStore.deleteItem(SECRET_KEY).catch(() => {});
   }
 
-  return { arm, isArmed, getLabel, getCredential, disarm, purgeLegacy };
+  return { arm, isArmed, getLabel, getUserId, getCredential, disarm, purgeLegacy };
 }
 
 export type BiometricLogin = ReturnType<typeof createBiometricLogin>;

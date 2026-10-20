@@ -129,6 +129,31 @@ export function createTokenService({
   }
 
   /**
+   * A fingerprint sign-in key for a phone: a refresh token marked `purpose: 'biometric'`, in a
+   * rotation family of its own. It never refreshes a session (so nothing spends it); it only signs
+   * in through verifyBiometricKey. A password change or an admin reset revokes it like any token.
+   */
+  async function issueBiometricKey(user: TokenUser): Promise<string> {
+    const key = signToken({ sub: user.id, type: 'refresh', jti: randomUUID(), purpose: 'biometric' }, refreshSecret, refreshTtl);
+    const expiresAt = new Date(now().getTime() + refreshTtl * 1000);
+    await refreshStore.save(user.id, hashRefreshToken(key), expiresAt, randomUUID());
+    return key;
+  }
+
+  /** The owner of a live fingerprint sign-in key, or null (not a key, revoked, expired, junk). */
+  async function verifyBiometricKey(key: string): Promise<{ userId: string } | null> {
+    let claims: TokenClaims;
+    try {
+      claims = verifyRefresh(key);
+    } catch {
+      return null;
+    }
+    if (claims.purpose !== 'biometric' || !claims.sub) return null;
+    const live = await refreshStore.findValid(hashRefreshToken(key));
+    return live && live.userId === claims.sub ? { userId: live.userId } : null;
+  }
+
+  /**
    * Spend a refresh token for rotation (XP-04). Exactly one caller can spend a given token.
    * Presenting a token that was already spent more than `reuseGraceMs` ago means a copy is in
    * someone else's hands, so the whole rotation family is revoked; inside the grace window it is
@@ -141,6 +166,8 @@ export function createTokenService({
     } catch {
       return { ok: false, reason: 'invalid' };
     }
+    // A fingerprint sign-in key never refreshes a session (see issueBiometricKey).
+    if (claims.purpose === 'biometric') return { ok: false, reason: 'invalid' };
     const hash = hashRefreshToken(token);
 
     if (!refreshStore.rotate) {
@@ -173,7 +200,7 @@ export function createTokenService({
     await refreshStore.revokeAllForUser(userId);
   }
 
-  return { issueTokens, issueAccessToken, recordSuccessor, verifyAccess, verifyRefresh, refreshTokenValid, rotateRefreshToken, revokeRefreshToken, revokeAllForUser };
+  return { issueTokens, issueAccessToken, recordSuccessor, issueBiometricKey, verifyBiometricKey, verifyAccess, verifyRefresh, refreshTokenValid, rotateRefreshToken, revokeRefreshToken, revokeAllForUser };
 }
 
 export type TokenService = ReturnType<typeof createTokenService>;

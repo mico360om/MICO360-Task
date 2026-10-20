@@ -75,3 +75,25 @@ describe('createBiometricLogin', () => {
     expect(await bl.isArmed()).toBe(true);
   });
 });
+
+describe('createBiometricLogin — whose fingerprint key it is', () => {
+  it('remembers which user the key belongs to, readable without a prompt', async () => {
+    const { bl, secretStore } = setup();
+    await bl.arm('bio-key', 'ada@x.co', 'u1');
+    expect(await bl.getUserId()).toBe('u1');
+    expect(await secretStore.getItem('mico360.biometricLogin')).not.toContain('"u1"'); // the id lives in the marker
+  });
+
+  it('a key armed by an older build (no user id) has none, so another user’s sign-in disarms it', async () => {
+    const { bl, markerStore } = setup();
+    await markerStore.setItem('mico360.biometricLogin.armed', JSON.stringify({ label: 'ada' }));
+    expect(await bl.getUserId()).toBeUndefined();
+  });
+
+  it('disarm forgets the user id too', async () => {
+    const { bl } = setup();
+    await bl.arm('bio-key', 'ada', 'u1');
+    await bl.disarm();
+    expect(await bl.getUserId()).toBeUndefined();
+  });
+});

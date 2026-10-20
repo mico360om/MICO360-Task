@@ -3,6 +3,8 @@ import jwt, { type JwtPayload } from 'jsonwebtoken';
 export type TokenClaims = JwtPayload & {
   sub?: string;
   type?: 'access' | 'refresh';
+  /** Refresh tokens: 'biometric' marks a fingerprint sign-in key (it never refreshes a session). */
+  purpose?: 'biometric';
   /** Access tokens: the user's tokenVersion when issued; a bump revokes every older token. */
   ver?: number;
 };

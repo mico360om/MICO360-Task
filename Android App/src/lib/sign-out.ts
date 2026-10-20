@@ -15,8 +15,6 @@ export interface SignOutDeps {
   revokeRefreshToken: (refreshToken: string) => Promise<unknown>;
   /** Remove this phone's push token from the account (needs the access token, so runs first). */
   unregisterPush: () => Promise<unknown>;
-  /** Forget the biometric sign-in credential. */
-  disarmBiometricLogin: () => Promise<unknown>;
   /** Clear the stored session — the app switches to the sign-in screen. */
   clearSession: () => Promise<unknown>;
   /** Drop every in-memory query (TanStack `queryClient.clear()`). */
@@ -32,8 +30,6 @@ export interface SignOutDeps {
   deactivatePush: () => Promise<unknown>;
   /** Delete the exported files (reports, tasks) kept on the phone. */
   clearExports: () => Promise<unknown>;
-  /** Turn the app lock off for whoever signs in next. */
-  resetAppLock: () => Promise<unknown>;
   /** Upper bound for each network step, so signing out offline is not blocked (default 5 s). */
   networkTimeoutMs?: number;
   /** Diagnostics hook for a step that failed (the sign-out still completes). */
@@ -62,7 +58,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
  *
  * 1. while the access token still works (`user` / `lock`): unregister the push token and revoke
  *    the refresh token with `POST /auth/logout`;
- * 2. disarm biometric sign-in;
+ * 2. turn push off on the phone itself (fingerprint sign-in stays: its key is separate);
  * 3. clear the session (UI returns to sign-in);
  * 4. clear the query cache and every `mico360.cache.*` entry, so the next person to sign in on
  *    this phone never sees the previous user's tasks, chats or notifications;
@@ -101,7 +97,8 @@ export function createSignOut(deps: SignOutDeps) {
 
     // Locally too: an expired session can't tell the server, but the phone can stop listening.
     await step('push-off', () => deps.deactivatePush());
-    await step('biometric', () => deps.disarmBiometricLogin());
+    // Fingerprint sign-in is left in place: its key is separate from the session (see
+    // biometric-login), so the same person can sign back in with a fingerprint.
     const latest = deps.getSession()?.refreshToken ?? null;
     await step('session', () => deps.clearSession());
     // A refresh that landed after the revoke minted a new token — revoke that one too.
@@ -112,8 +109,6 @@ export function createSignOut(deps: SignOutDeps) {
     await step('queries', () => deps.clearQueryCache());
     await step('read-cache', () => deps.clearReadCache());
     await step('exports', () => deps.clearExports());
-    // The app lock is the signed-out person's choice; an expiry or the lock screen keep it for them.
-    if (reason === 'user') await step('app-lock', () => deps.resetAppLock());
     if (reason === 'user' && userId) await step('queue', () => deps.clearQueuedChanges(userId));
   }
 
