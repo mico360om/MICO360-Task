@@ -2,6 +2,7 @@ import type { ApiClient } from './api-client';
 import { idempotencyHeaders } from './idempotency';
 import type { ApiAttachment } from './attachments';
 import type { NotificationPreferences } from './notification-prefs';
+import type { DatePreferences, ServerConfig } from './date-settings';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -199,6 +200,11 @@ export function resourcesApi(client: ApiClient) {
       preferences: () => data(client.get<Envelope<NotificationPreferences>>('/notifications/preferences')),
       setPreferences: (prefs: NotificationPreferences) =>
         data(client.put<Envelope<NotificationPreferences>>('/notifications/preferences', prefs)),
+    },
+    /** The server's public settings and your own date settings (shared with the website). */
+    settings: {
+      config: () => data(client.get<Envelope<ServerConfig>>('/config')),
+      datePreferences: () => data(client.get<Envelope<DatePreferences>>('/users/me/preferences')),
     },
     deviceTokens: {
       register: (token: string, platform: DevicePlatform = 'ANDROID') =>

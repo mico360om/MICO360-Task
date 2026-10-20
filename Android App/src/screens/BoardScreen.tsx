@@ -7,7 +7,7 @@ import { useBoardRealtime } from '../core/useBoardRealtime';
 import { useColors } from '../core/theme';
 import { composeBoard } from '../lib/board';
 import { dateKey, shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
-import { COMPANY_TIMEZONE } from '../lib/due-date';
+import { appTimeZone } from '../lib/due-date';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { TaskRow } from '../components/TaskRow';
 import { Loader, EmptyState, ErrorNote } from '../components/ui';
@@ -23,7 +23,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const styles = useMemo(() => makeStyles(c), [c]);
   // Per-date boards: view one day at a time. "Today" is the company-time-zone date (XP-03), the
   // same day the web board and the API use — not the phone's zone or UTC.
-  const todayKey = dateKey(new Date(), COMPANY_TIMEZONE);
+  const todayKey = dateKey(new Date(), appTimeZone());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const boardDate = selectedDate ?? todayKey;
 

@@ -1,5 +1,5 @@
 /** Pure helpers behind the task details screen (kept here so they can be tested without a device). */
-import { COMPANY_TIMEZONE, dueDayKey, formatDueDay, isOverdue, type DateInput } from './due-date';
+import { appTimeZone, dueDayKey, formatDueDay, isOverdue, type DateInput } from './due-date';
 import { moveItem } from './list-order';
 import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
@@ -17,7 +17,7 @@ export function dueState(
   task: { dueDate: DateInput; completedAt?: DateInput },
   now: Date = new Date(),
   locale?: string,
-  timeZone: string = COMPANY_TIMEZONE,
+  timeZone: string = appTimeZone(),
 ): { text: string | null; overdue: boolean; dayKey: string | null } {
   const dayKey = dueDayKey(task.dueDate, timeZone);
   if (!dayKey) return { text: null, overdue: false, dayKey: null };
@@ -34,7 +34,7 @@ export function meetingLine(
   meeting: ApiTaskMeeting | null | undefined,
   apiBase: string,
   locale?: string,
-  timeZone: string = COMPANY_TIMEZONE,
+  timeZone: string = appTimeZone(),
 ): { text: string; href: string | null } | null {
   if (!meeting) return null;
   if (!meeting.canView || !meeting.title) return { text: 'From a meeting you’re not part of', href: null };

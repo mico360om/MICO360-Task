@@ -3,14 +3,14 @@
  * whether it repeats, and the calendar's days with their tasks and meetings together.
  */
 import type { ApiMeeting, ApiTask } from './types';
-import { COMPANY_TIMEZONE, dueDayKey, zonedDayKey } from './due-date';
+import { appTimeZone, dueDayKey, zonedDayKey } from './due-date';
 
 const DAY_MS = 86_400_000;
 
 type Timed = Pick<ApiMeeting, 'startAt' | 'endAt'>;
 
 /** The meeting's day ('YYYY-MM-DD') in company time. */
-export function meetingDayKey(m: Pick<ApiMeeting, 'startAt'>, timeZone: string = COMPANY_TIMEZONE): string {
+export function meetingDayKey(m: Pick<ApiMeeting, 'startAt'>, timeZone: string = appTimeZone()): string {
   return zonedDayKey(new Date(m.startAt), timeZone);
 }
 
@@ -19,7 +19,7 @@ function clock(iso: string, timeZone: string): string {
 }
 
 /** '10:00 – 11:00' (or just '10:00' without an end), in company time. */
-export function meetingTime(m: Timed, timeZone: string = COMPANY_TIMEZONE): string {
+export function meetingTime(m: Timed, timeZone: string = appTimeZone()): string {
   return m.endAt ? `${clock(m.startAt, timeZone)} – ${clock(m.endAt, timeZone)}` : clock(m.startAt, timeZone);
 }
 
@@ -54,7 +54,7 @@ export interface AgendaDay {
 }
 
 /** The calendar's days: tasks on their due day and meetings on their company-time day, earliest first. */
-export function buildAgenda(tasks: ApiTask[], meetings: ApiMeeting[], timeZone: string = COMPANY_TIMEZONE): AgendaDay[] {
+export function buildAgenda(tasks: ApiTask[], meetings: ApiMeeting[], timeZone: string = appTimeZone()): AgendaDay[] {
   const days = new Map<string, AgendaDay>();
   const dayOf = (date: string) => {
     let day = days.get(date);

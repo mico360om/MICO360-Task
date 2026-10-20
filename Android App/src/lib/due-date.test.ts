@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { COMPANY_TIMEZONE, companyTodayKey, dueDayKey, daysUntilDue, isOverdue, formatDueDay } from './due-date';
+import { describe, it, expect, afterEach } from 'vitest';
+import { COMPANY_TIMEZONE, companyTodayKey, dueDayKey, daysUntilDue, isOverdue, formatDueDay, appTimeZone, setAppTimeZone, subscribeTimeZone } from './due-date';
 
 describe('mobile due-date rules (XP-03)', () => {
   it('uses Asia/Muscat as the company zone', () => {
@@ -41,5 +41,25 @@ describe('mobile due-date rules (XP-03)', () => {
   it('formats the due day without shifting it', () => {
     expect(formatDueDay('2026-09-30T00:00:00.000Z', 'en-US')).toBe('Sep 30');
     expect(formatDueDay(null)).toBeNull();
+  });
+});
+
+describe('the app’s time zone can follow the server and your settings', () => {
+  afterEach(() => setAppTimeZone('Asia/Muscat'));
+
+  it('setAppTimeZone changes the default zone of dueDayKey and companyTodayKey, and tells subscribers', () => {
+    const at = new Date('2026-10-12T02:00:00.000Z'); // 06:00 in Muscat, 22:00 the day before in New York
+    expect(appTimeZone()).toBe('Asia/Muscat');
+    expect(dueDayKey(at)).toBe('2026-10-12');
+    const heard: string[] = [];
+    const stop = subscribeTimeZone(() => heard.push(appTimeZone()));
+    setAppTimeZone('America/New_York');
+    expect(dueDayKey(at)).toBe('2026-10-11');
+    expect(companyTodayKey(at)).toBe('2026-10-11');
+    expect(heard).toEqual(['America/New_York']);
+    setAppTimeZone('America/New_York'); // unchanged: nobody is told again
+    stop();
+    setAppTimeZone('Asia/Muscat');
+    expect(heard).toEqual(['America/New_York']);
   });
 });

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { Pressable, Text } from 'react-native';
+import React, { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { AppState, Pressable, Text } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
   NavigationContainer,
@@ -18,6 +18,8 @@ import { useTheme } from '../core/theme';
 import { spacing } from '../lib/theme';
 import { notificationToTarget } from '../lib/deep-link';
 import { useDrawerStore } from '../lib/drawer-store';
+import { appTimeZone, setAppTimeZone, subscribeTimeZone } from '../lib/due-date';
+import { resolveTimeZone } from '../lib/date-settings';
 import { asyncStore } from '../adapters/async-storage';
 import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
@@ -137,6 +139,33 @@ function PushRegistrationMount() {
   return null;
 }
 
+/**
+ * Dates follow the website: your own time zone (Settings → Date and time there), else the company's.
+ * Loaded once signed in and whenever the app comes back to the front.
+ */
+function TimeZoneMount() {
+  const { resources } = useServices();
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const [config, prefs] = await Promise.all([
+        resources.settings.config().catch(() => null),
+        resources.settings.datePreferences().catch(() => null),
+      ]);
+      if (active) setAppTimeZone(resolveTimeZone({ company: config?.timeZone, own: prefs?.timeZone }));
+    };
+    void load();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') void load();
+    });
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, [resources]);
+  return null;
+}
+
 function HamburgerButton() {
   const { colors } = useTheme();
   return (
@@ -178,6 +207,8 @@ function MainTabs() {
 }
 
 export function RootNavigator() {
+  // A new time zone re-renders every screen, so its dates follow at once.
+  useSyncExternalStore(subscribeTimeZone, appTimeZone);
   const userId = useUserId();
   const signedIn = !!userId;
   const signedInRef = useRef(signedIn);
@@ -285,6 +316,7 @@ export function RootNavigator() {
           <AppDrawer onNavigate={applyAction} />
           <ChatRealtimeMount />
           <PushRegistrationMount />
+          <TimeZoneMount />
         </>
       ) : (
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>
