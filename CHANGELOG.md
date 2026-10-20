@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-20
+
 ### Improvements
 - A task can be added straight into any column of the Kanban board: each column has a "+" beside its
   name (on a collapsed column too), and an empty column's box says "Add a task or drop a card here"
