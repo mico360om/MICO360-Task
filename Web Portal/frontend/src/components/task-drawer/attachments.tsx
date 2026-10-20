@@ -4,6 +4,8 @@ import { fileKind, type FileKind } from '../../lib/file-kind';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { failureMessage } from './save-state';
+import { pastedFiles } from '../../lib/clipboard-files';
+import { detectPlatform, isTypingTarget } from '../../lib/shortcuts';
 import type { OfficePreview } from '../../api/attachments';
 
 /** Loads the text of a Word / Excel / PowerPoint attachment (the server unpacks it). */
@@ -316,6 +318,29 @@ export function AttachmentsSection({
   const [dragging, setDragging] = useState(false);
   const depth = useRef(0);
   const seq = useRef(0);
+  const sectionRef = useRef<HTMLElement>(null);
+  const pasteKey = detectPlatform() === 'mac' ? '⌘V' : 'Ctrl+V';
+
+  // A picture pasted anywhere in the open task (Ctrl+V) — a screenshot, an image copied from a page
+  // or a document — is attached, and the list comes into view so its upload shows. Text pasted into
+  // a box stays text (see pastedFiles).
+  const uploadAllRef = useRef<(files: File[]) => void>(() => {});
+  useEffect(() => {
+    if (!onUpload) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const section = sectionRef.current;
+      const scope = section?.closest('[role="dialog"]') ?? section?.parentElement;
+      const target = e.target instanceof Node ? e.target : null;
+      if (!section || !scope || !target || !scope.contains(target)) return;
+      const files = pastedFiles(e.clipboardData, { typing: target instanceof Element && isTypingTarget(target) });
+      if (files.length === 0) return;
+      e.preventDefault();
+      uploadAllRef.current(files);
+      section.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [onUpload]);
 
   function uploadAll(files: File[]) {
     if (!onUpload) return;
@@ -335,10 +360,11 @@ export function AttachmentsSection({
         );
     }
   }
+  uploadAllRef.current = uploadAll;
   const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
 
   return (
-    <section aria-labelledby="task-files-heading">
+    <section ref={sectionRef} aria-labelledby="task-files-heading">
       <h3 id="task-files-heading" className="eyebrow mb-2">
         Attachments{attachments.length > 0 ? <span className="ms-1.5 font-normal normal-case tracking-normal text-ink-3">{attachments.length}</span> : null}
       </h3>
@@ -418,7 +444,9 @@ export function AttachmentsSection({
                 </>
               )}
             </span>
-            <span className="text-[11px] text-ink-3">Up to {MAX_UPLOAD_MB} MB each</span>
+            <span className="text-[11px] text-ink-3">
+              Or paste a picture ({pasteKey}) · up to {MAX_UPLOAD_MB} MB each
+            </span>
             <input
               type="file"
               multiple

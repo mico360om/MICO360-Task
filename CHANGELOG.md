@@ -14,6 +14,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- A picture can be pasted into a task (Ctrl+V, ⌘V on a Mac) anywhere in its details panel: a
+  screenshot, or an image copied from a web page or a document, is attached like a chosen file, with
+  its upload shown, and named "Pasted image" with the date and time instead of "image.png". Text
+  pasted into a comment or a field stays text, even copied spreadsheet cells that also carry a picture.
+
 ## [1.3.0] - 2026-10-20
 
 ### New features

@@ -428,6 +428,58 @@ describe('TaskDrawer attachments', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('big.zip: That file is too large to upload.');
   });
 
+  /** What a paste event carries: the files, and the text if any. */
+  const clipboard = (files: File[], text = '') => ({
+    files,
+    items: files.map((f) => ({ kind: 'file', type: f.type, getAsFile: () => f })),
+    types: [...(files.length ? ['Files'] : []), ...(text ? ['text/plain'] : [])],
+    getData: (type: string) => (type === 'text/plain' ? text : ''),
+  });
+  const screenshot = () => new File(['png-bytes'], 'image.png', { type: 'image/png' });
+
+  it('a screenshot pasted anywhere in the task (Ctrl+V) is attached, named by when it was pasted', async () => {
+    const onUploadFile = vi.fn(() => new Promise<void>(() => {}));
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} attachments={[]} onUploadFile={onUploadFile} onClose={vi.fn()} />);
+    fireEvent.paste(screen.getByRole('dialog', { name: 'Task MICO-1' }), { clipboardData: clipboard([screenshot()]) });
+    expect(onUploadFile).toHaveBeenCalledTimes(1);
+    const sent = (onUploadFile.mock.calls[0] as unknown as [File])[0];
+    expect(sent.name).toMatch(/^Pasted image \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2}\.png$/);
+    expect(sent.type).toBe('image/png');
+    expect(await screen.findByRole('progressbar', { name: `Uploading ${sent.name}` })).toBeInTheDocument();
+  });
+
+  it('a screenshot pasted while writing a comment is attached to the task', async () => {
+    const onUploadFile = vi.fn(async () => {});
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} attachments={[]} onUploadFile={onUploadFile} onAddComment={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.paste(screen.getByRole('textbox', { name: 'Add a comment' }), { clipboardData: clipboard([screenshot()]) });
+    expect(onUploadFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('text pasted into the comment box stays text, even when the clipboard also holds a picture of it', async () => {
+    const onUploadFile = vi.fn(async () => {});
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} attachments={[]} onUploadFile={onUploadFile} onAddComment={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.paste(screen.getByRole('textbox', { name: 'Add a comment' }), { clipboardData: clipboard([screenshot()], 'Qty\tPrice') });
+    expect(onUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('a paste outside the task, or of text alone, attaches nothing', async () => {
+    const onUploadFile = vi.fn(async () => {});
+    render(
+      <>
+        <input aria-label="Elsewhere" />
+        <TaskDrawer task={task} checklist={[]} comments={[]} attachments={[]} onUploadFile={onUploadFile} onClose={vi.fn()} />
+      </>,
+    );
+    fireEvent.paste(screen.getByLabelText('Elsewhere'), { clipboardData: clipboard([screenshot()]) });
+    fireEvent.paste(screen.getByRole('dialog', { name: 'Task MICO-1' }), { clipboardData: clipboard([], 'just text') });
+    expect(onUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('says a picture can be pasted', () => {
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} attachments={[]} onUploadFile={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByTestId('attachment-dropzone')).toHaveTextContent(/paste a picture \((Ctrl\+V|⌘V)\)/);
+  });
+
   it('previews pictures and lets you delete only what you may, after confirming', async () => {
     const onDeleteAttachment = vi.fn(async () => {});
     render(
