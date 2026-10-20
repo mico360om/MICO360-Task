@@ -6,7 +6,7 @@ import { useTheme, type ThemeMode } from '../core/theme';
 import { Card, SectionTitle, Button, Muted } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { getPushPermission, openAppSettings, type PushPermission } from '../adapters/push';
-import { useNotificationPreferences, useSaveNotificationPreferences } from '../core/queries';
+import { useNotificationPreferences, useSaveNotificationPreferences, useServerVersion } from '../core/queries';
 import { NOTIFICATION_TYPES, REMINDER_OPTIONS, isTypeOn, toggleType, withReminderLead } from '../lib/notification-prefs';
 import { sitePageUrl } from '../lib/server-address';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -21,7 +21,8 @@ const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
 export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
   const { colors: c, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { auth, biometric, biometricLogin, session, push, baseUrl, signOut } = useServices();
+  const { auth, biometric, biometricLogin, session, push, baseUrl, signOut, app } = useServices();
+  const serverVersion = useServerVersion().data?.version ?? null;
   const user = useSession()?.user;
   const queued = useMyQueuedChanges();
   const [bioOn, setBioOn] = useState(false);
@@ -264,6 +265,10 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
         <View style={styles.section}>
           <SectionTitle>About</SectionTitle>
           <Card>
+            <Muted>App version</Muted>
+            <Text style={styles.rowTitle} accessibilityLabel={`App version ${app.version}, build ${app.build}`}>
+              v{app.version} (build {app.build}){serverVersion ? ` · Server v${serverVersion}` : ''}
+            </Text>
             <Muted>Connected to</Muted>
             <Text style={styles.mono}>{baseUrl}</Text>
             <View style={[styles.links, styles.divided]}>

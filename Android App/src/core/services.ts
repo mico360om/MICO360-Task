@@ -4,6 +4,8 @@ import { createApiClient, classifyRefreshStatus, ApiError, DEFAULT_TIMEOUT_MS, t
 import { createSessionStore } from '../lib/session-store';
 import { assertAllowedUrl } from '../lib/server-address';
 import { refreshWithRetry } from '../lib/refresh-retry';
+import { versionHeaders, type AppInfo } from '../lib/app-version';
+import { appInfo } from '../adapters/app-info';
 import { resolveRuntimeConfig } from '../lib/config';
 import type { AppEnv } from '../lib/app-env';
 import { resourcesApi } from '../lib/resources';
@@ -30,6 +32,8 @@ export interface Services {
   defaultBaseUrl: string;
   /** The active build flavor (development | preview | production). */
   appEnv: AppEnv;
+  /** This build's version and build number (shown in Settings, sent with every request). */
+  app: AppInfo;
   queryClient: QueryClient;
   session: ReturnType<typeof createSessionStore>;
   api: ReturnType<typeof createApiClient>;
@@ -129,8 +133,10 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
 
   let triggerSync: () => void = () => {};
 
+  const app = appInfo();
   const api = createApiClient({
     baseUrl,
+    appHeaders: versionHeaders(app),
     getToken: () => session.getToken(),
     // A refresh whose reply was lost is tried once more: the server hands back the same new token.
     refreshTokens: () => refreshWithRetry(refreshTokens),
@@ -208,6 +214,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     baseUrl,
     defaultBaseUrl,
     appEnv,
+    app,
     queryClient,
     session,
     api,

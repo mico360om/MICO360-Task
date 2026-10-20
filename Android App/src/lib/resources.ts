@@ -205,6 +205,8 @@ export function resourcesApi(client: ApiClient) {
     settings: {
       config: () => data(client.get<Envelope<ServerConfig>>('/config')),
       datePreferences: () => data(client.get<Envelope<DatePreferences>>('/users/me/preferences')),
+      /** The server's release (signed in): the website and the app share one version number. */
+      version: () => data(client.get<Envelope<{ version: string }>>('/version')),
     },
     deviceTokens: {
       register: (token: string, platform: DevicePlatform = 'ANDROID') =>

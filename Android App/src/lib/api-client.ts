@@ -63,6 +63,8 @@ export interface ApiClientOptions {
   timeoutMs?: number;
   /** XMLHttpRequest for uploads that report progress (injectable for tests; fetch can't report it). */
   xhrImpl?: typeof XMLHttpRequest;
+  /** Sent with every request: which app version is talking (see app-version versionHeaders). */
+  appHeaders?: Record<string, string>;
 }
 
 export interface RequestOptions {
@@ -100,6 +102,7 @@ export function createApiClient({
   onReachable,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   xhrImpl,
+  appHeaders,
 }: ApiClientOptions): ApiClient {
   const doFetch = fetchImpl ?? fetch;
   const Xhr = xhrImpl ?? (typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : undefined);
@@ -171,7 +174,7 @@ export function createApiClient({
   ): Promise<{ status: number; ok: boolean; text: string }> {
     // Never send the session over plain http to the internet (only to an office-network server).
     assertAllowedUrl(`${baseUrl}${path}`);
-    const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
+    const headers: Record<string, string> = { ...(appHeaders ?? {}), ...(extraHeaders ?? {}) };
     // Only declare a JSON content-type when there is a JSON body — Fastify rejects an empty body
     // under application/json ("Body cannot be empty…"), which broke every bodyless call
     // (mark-read, mark-all-read, watch). Mirrors the web client's fix. A multipart form gets its

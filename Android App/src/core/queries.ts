@@ -355,6 +355,18 @@ export function useNotifications() {
   });
 }
 
+/** The server's release (the version row in Settings and the "new version" notice). */
+export function useServerVersion() {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['server', 'version'], queryFn: () => resources.settings.version(), staleTime: 10 * 60_000 });
+}
+
+/** The server's public settings (the Android download address). */
+export function useServerConfig() {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['server', 'config'], queryFn: () => resources.settings.config(), staleTime: 60 * 60_000 });
+}
+
 export function useUnreadCount() {
   const { resources } = useServices();
   return useQuery({

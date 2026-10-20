@@ -408,3 +408,15 @@ describe('api-client — the fingerprint key request renews an expired session',
     expect(refreshTokens).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('api-client — the app says which version it is', () => {
+  it('sends the app headers on every request', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }));
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch, appHeaders: { 'X-App-Version': '1.2.1', 'X-App-Build': '10' } });
+    await api.get('/tasks');
+    const headers = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(headers['X-App-Version']).toBe('1.2.1');
+    expect(headers['X-App-Build']).toBe('10');
+    expect(headers.Authorization).toBe('Bearer t');
+  });
+});

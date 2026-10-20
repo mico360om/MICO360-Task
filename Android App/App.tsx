@@ -9,6 +9,8 @@ import { LockGate } from './src/components/LockGate';
 import { createConsoleReporter, pickCrashReporter } from './src/lib/error-reporter';
 import { resolveRuntimeConfig } from './src/lib/config';
 import { initSentry } from './src/adapters/sentry';
+import { appInfo } from './src/adapters/app-info';
+import { releaseName } from './src/lib/app-version';
 import { asyncStore } from './src/adapters/async-storage';
 
 // Crash/analytics sink (A9.3): a production build with EXPO_PUBLIC_SENTRY_DSN reports to Sentry;
@@ -18,7 +20,8 @@ function buildReporter() {
   const extra = Constants.expoConfig?.extra as { sentryDsn?: unknown; appEnv?: unknown; apiBaseUrl?: unknown } | undefined;
   const dsn = typeof extra?.sentryDsn === 'string' ? extra.sentryDsn : undefined;
   const { appEnv } = resolveRuntimeConfig(extra);
-  const sentry = !isDev && dsn ? initSentry(dsn, { environment: appEnv }) : null;
+  // Crash reports name the release (version + build), so a report says which APK it came from.
+  const sentry = !isDev && dsn ? initSentry(dsn, { environment: appEnv, release: releaseName(appInfo()) }) : null;
   return pickCrashReporter({ isDev, dsn, sentry, console: createConsoleReporter() });
 }
 

@@ -28,6 +28,7 @@ import { createPendingAction } from './pending-action';
 import { LINKING_PREFIXES, linkingConfig } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
 import { AppDrawer } from '../components/AppDrawer';
+import { UpdateBanner } from '../components/UpdateBanner';
 
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
@@ -317,6 +318,7 @@ export function RootNavigator() {
           <ChatRealtimeMount />
           <PushRegistrationMount />
           <TimeZoneMount />
+          <UpdateBanner />
         </>
       ) : (
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>
