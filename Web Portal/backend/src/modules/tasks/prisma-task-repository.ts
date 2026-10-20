@@ -1,6 +1,7 @@
 import { Prisma, type ColumnCategory, type PrismaClient, type Task } from '@prisma/client';
 import {
   TaskKeyConflictError,
+  TaskVersionConflictError,
   type CreateTaskData,
   type ProjectLookup,
   type TaskRecord,
@@ -183,7 +184,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       });
       return ts.map(toRecord);
     },
-    async update(id, patch: UpdateTaskData) {
+    async update(id, patch: UpdateTaskData, opts) {
       const { recurrenceRule, carryForwardLog, ...rest } = patch;
       const data: Prisma.TaskUpdateInput = { ...rest, version: { increment: 1 } };
       if (recurrenceRule !== undefined) {
@@ -192,6 +193,12 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       }
       if (carryForwardLog !== undefined) {
         data.carryForwardLog = carryForwardLog === null ? Prisma.DbNull : (carryForwardLog as unknown as Prisma.InputJsonValue);
+      }
+      if (opts?.expectedVersion !== undefined) {
+        // One conditional statement: only the edit made from the current version is saved.
+        const { count } = await prisma.task.updateMany({ where: { id, version: opts.expectedVersion }, data: data as Prisma.TaskUncheckedUpdateManyInput });
+        if (count === 0) throw new TaskVersionConflictError(id);
+        return toRecord(await prisma.task.findUniqueOrThrow({ where: { id }, include: withColumn }));
       }
       const t = await prisma.task.update({ where: { id }, data, include: withColumn });
       return toRecord(t);

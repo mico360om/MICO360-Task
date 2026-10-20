@@ -5,6 +5,7 @@ import { boardDateFromKey, boardDateKey } from './board-date';
 import { defaultCompanyTimeZone } from './task-status';
 import {
   TaskKeyConflictError,
+  TaskVersionConflictError,
   type ColumnInfo,
   type Priority,
   type ProjectLookup,
@@ -198,8 +199,19 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     const moving = columnId !== undefined && columnId !== current.columnId;
     if (moving) Object.assign(next, await columnChange(current, columnId));
 
-    // Apply-to-entire-series: the other open occurrences take only the shared fields — their own
-    // dates, column and position stay, and completed occurrences are history and never change.
+    // Saved only if nobody changed the task since `expectedVersion`, in the same statement — the check
+    // above answers early, this one also holds when two edits arrive together.
+    let updated: TaskRecord;
+    try {
+      updated = await tasks.update(id, next, expectedVersion !== undefined ? { expectedVersion } : undefined);
+    } catch (err) {
+      if (err instanceof TaskVersionConflictError) throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
+      throw err;
+    }
+
+    // Apply-to-entire-series (once this copy is saved, so a refused edit changes nothing): the other
+    // open occurrences take only the shared fields — their own dates, column and position stay, and
+    // completed occurrences are history and never change.
     if (scope === 'series' && (current.recurrenceRule || current.recurrenceParentId)) {
       const shared: UpdateTaskData = {};
       for (const field of SERIES_FIELDS) {
@@ -210,7 +222,6 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       }
     }
 
-    const updated = await tasks.update(id, next);
     if (moving) await onMoved?.(updated, current.columnId, actorId);
     await onUpdated?.(current, updated, actorId);
     return updated;

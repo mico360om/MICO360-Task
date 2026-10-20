@@ -76,6 +76,14 @@ export interface CreateTaskData {
 }
 
 /** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */
+/** The task changed since the copy the edit was made from (its version moved on): nothing was saved. */
+export class TaskVersionConflictError extends Error {
+  constructor(id: string) {
+    super(`Task ${id} was changed by someone else.`);
+    this.name = 'TaskVersionConflictError';
+  }
+}
+
 export class TaskKeyConflictError extends Error {
   constructor(key: string) {
     super(`Task key ${key} is already in use.`);
@@ -140,7 +148,11 @@ export interface TaskRepository {
   create(data: CreateTaskData): Promise<TaskRecord>;
   findById(id: string): Promise<TaskRecord | null>;
   list(filter: TaskListFilter): Promise<TaskRecord[]>;
-  update(id: string, patch: UpdateTaskData): Promise<TaskRecord>;
+  /**
+   * Save a change. With `expectedVersion` it is saved only if the task is still at that version, in
+   * the same statement (two edits from one copy can't both win): TaskVersionConflictError otherwise.
+   */
+  update(id: string, patch: UpdateTaskData, opts?: { expectedVersion?: number }): Promise<TaskRecord>;
   softDelete(id: string): Promise<void>;
   countByProject(projectId: string): Promise<number>;
   /**

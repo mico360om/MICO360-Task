@@ -14,6 +14,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Two edits to the same task made from the same copy at the same moment (say from the website and the
+  phone) can no longer both be saved, the second silently replacing the first: the later one is
+  refused with "This task was changed by someone else", as it already was when they came a moment
+  apart. For a repeating task, the rest of the series is changed only once the edit itself is saved.
+
 ## [1.5.0] - 2026-10-21
 
 ### New features

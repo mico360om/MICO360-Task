@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTaskService } from './task-service';
-import { TaskKeyConflictError, type ColumnInfo, type CreateTaskData, type TaskRecord, type TaskRepository, type ProjectLookup } from './task-repository';
+import { TaskKeyConflictError, TaskVersionConflictError, type ColumnInfo, type CreateTaskData, type TaskRecord, type TaskRepository, type ProjectLookup } from './task-repository';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 
 // Columns c1/c2/done belong to p1; x1 belongs to p2.
@@ -412,6 +412,33 @@ describe('TaskService', () => {
   it('rejects a stale update via optimistic concurrency (version mismatch)', async () => {
     const t = await svc.createTask(base); // version 0
     await expect(svc.updateTask(t.id, { title: 'x' }, 5)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+  });
+
+  it('passes the expected version to the save, and answers an edit that lost the race as a conflict', async () => {
+    const t = await svc.createTask(base); // version 0
+    const seen: Array<number | undefined> = [];
+    // Another edit lands between the check and the save: the save refuses (as the database does).
+    const racing = createTaskService({
+      tasks: { ...mem.tasks, update: async (id, _patch, opts) => { seen.push(opts?.expectedVersion); throw new TaskVersionConflictError(id); } },
+      projects: mem.projects,
+    });
+    await expect(racing.updateTask(t.id, { title: 'Mine' }, 0)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(seen).toEqual([0]);
+  });
+
+  it('changes the rest of a repeating series only once the edit itself is saved', async () => {
+    const origin = await svc.createTask({ ...base, title: 'Weekly check', recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
+    let seriesTouched = false;
+    const racing = createTaskService({
+      tasks: {
+        ...mem.tasks,
+        update: async (id) => { throw new TaskVersionConflictError(id); },
+        updateSeries: async () => { seriesTouched = true; },
+      },
+      projects: mem.projects,
+    });
+    await expect(racing.updateTask(origin.id, { title: 'Weekly safety check' }, origin.version, 'series')).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(seriesTouched).toBe(false);
   });
 
   it('allows an update when the expected version matches (or is omitted)', async () => {
