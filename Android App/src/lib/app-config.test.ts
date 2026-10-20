@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ConfigContext, ExpoConfig } from 'expo/config';
-import appConfig, { resolveBuildAppEnv, isReleaseBuild, resolveGoogleServicesFile } from '../../app.config';
+import appConfig, { resolveBuildAppEnv, isReleaseBuild, resolveGoogleServicesFile, isSecureBuildUrl } from '../../app.config';
+import { isAllowedUrl } from './server-address';
 import { flavorConfig, type AppEnv } from './app-env';
 
 /**
@@ -110,5 +111,28 @@ describe('app.config dynamic Expo config', () => {
     expect(run().android?.googleServicesFile).toBe('/secrets/gs.json');
     delete process.env.GOOGLE_SERVICES_JSON;
     expect(run().android?.googleServicesFile).toBeUndefined();
+  });
+});
+
+describe('app.config — the build address must be secure', () => {
+  const saved = { ...process.env };
+  afterEach(() => { process.env = { ...saved }; });
+
+  it('refuses EXPO_PUBLIC_API_URL on plain http to a public host', () => {
+    process.env.APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_API_URL = 'http://api.acme.co/api/v1';
+    expect(() => run()).toThrow(/https/);
+  });
+
+  it('accepts an office-network http address for a development build', () => {
+    process.env.APP_ENV = 'development';
+    process.env.EXPO_PUBLIC_API_URL = 'http://192.168.1.5:4000/api/v1';
+    expect(run().extra?.apiBaseUrl).toBe('http://192.168.1.5:4000/api/v1');
+  });
+
+  it('decides like the app’s own isAllowedUrl (the copy in app.config.ts can’t import it)', () => {
+    for (const url of ['https://x.co', 'http://x.co', 'http://10.0.2.2:4000', 'http://172.31.0.1', 'http://172.32.0.1', 'http://[fd00::1]:4000', 'http://[2001:db8::1]', 'http://169.254.1.1', 'http://host.local']) {
+      expect(isSecureBuildUrl(url), url).toBe(isAllowedUrl(url));
+    }
   });
 });

@@ -1,4 +1,5 @@
 import flavors from './flavors.json';
+import { isAllowedUrl } from './server-address';
 
 /**
  * Build flavors for the Android app. Three environments — development, preview and
@@ -38,11 +39,16 @@ export interface FlavorConfig {
 export function flavorConfig(env: AppEnv, overrides?: { apiUrl?: string | null }): FlavorConfig {
   const f = flavors.flavors[env];
   const override = (overrides?.apiUrl ?? '').trim();
+  const apiBaseUrl = (override || f.apiBaseUrl).replace(/\/+$/, '');
+  // A build must never point at the internet over plain http (passwords and tokens in clear text).
+  if (!isAllowedUrl(apiBaseUrl)) {
+    throw new Error(`The build's API address must use https:// (plain http only for an office-network server): ${apiBaseUrl}`);
+  }
   return {
     appEnv: env,
     name: `${flavors.baseName}${f.nameSuffix}`,
     androidPackage: `${flavors.basePackage}${f.pkgSuffix}`,
-    apiBaseUrl: (override || f.apiBaseUrl).replace(/\/+$/, ''),
+    apiBaseUrl,
     isProduction: env === 'production',
   };
 }

@@ -9,6 +9,9 @@ import {
   saveServerOverride,
   probeServer,
   sitePageUrl,
+  isAllowedUrl,
+  assertAllowedUrl,
+  InsecureAddressError,
 } from './server-address';
 
 describe('isPrivateHost', () => {
@@ -112,5 +115,31 @@ describe('sitePageUrl', () => {
   it('points at a web-app page on the same server', () => {
     expect(sitePageUrl('https://task.mico360.com/api/v1', '/privacy')).toBe('https://task.mico360.com/privacy');
     expect(sitePageUrl('http://192.168.1.20:4000/api/v1/', 'terms')).toBe('http://192.168.1.20:4000/terms');
+  });
+});
+
+describe('isAllowedUrl — plain http only on the office network', () => {
+  it('allows https anywhere and http to a private address', () => {
+    for (const url of [
+      'https://task.mico360.com/api/v1',
+      'http://192.168.1.5:4000/api/v1',
+      'http://10.0.2.2:4000',
+      'http://172.20.0.4/api/v1/tasks',
+      'http://169.254.10.20:4000',
+      'http://[fd00::5]:4000/api/v1',
+      'http://[::1]:4000',
+      'http://office-server.local:4000',
+    ]) expect(isAllowedUrl(url), url).toBe(true);
+  });
+
+  it('refuses http to a public address, other schemes and nonsense', () => {
+    for (const url of ['http://task.mico360.com/api/v1', 'http://8.8.8.8', 'http://172.32.0.1', 'http://[2001:db8::1]', 'ftp://x', 'not a url', ''])
+      expect(isAllowedUrl(url), url).toBe(false);
+  });
+
+  it('assertAllowedUrl throws InsecureAddressError with a plain message', () => {
+    expect(() => assertAllowedUrl('https://task.mico360.com')).not.toThrow();
+    expect(() => assertAllowedUrl('http://task.mico360.com')).toThrow(InsecureAddressError);
+    expect(() => assertAllowedUrl('http://task.mico360.com')).toThrow(/https:\/\/ address, or an office server/);
   });
 });

@@ -53,3 +53,13 @@ describe('flavorConfig', () => {
     expect(flavorConfig('development', { apiUrl: '   ' }).apiBaseUrl).toBe('http://10.0.2.2:4000/api/v1');
   });
 });
+
+describe('flavorConfig — the build address must be secure', () => {
+  it('refuses a build address on plain http to a public host', () => {
+    expect(() => flavorConfig('production', { apiUrl: 'http://api.acme.co/api/v1' })).toThrow(/https/);
+  });
+  it('accepts https and an office (private) http address', () => {
+    expect(flavorConfig('production', { apiUrl: 'https://api.acme.co/api/v1' }).apiBaseUrl).toBe('https://api.acme.co/api/v1');
+    expect(flavorConfig('development', { apiUrl: 'http://192.168.1.5:4000/api/v1' }).apiBaseUrl).toBe('http://192.168.1.5:4000/api/v1');
+  });
+});

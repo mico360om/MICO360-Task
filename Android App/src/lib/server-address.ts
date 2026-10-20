@@ -12,15 +12,44 @@ import type { KeyValueStore } from './storage';
 
 export const SERVER_ADDRESS_KEY = 'mico360.serverAddress';
 
-/** This device, the emulator's host (10.0.2.2), a private IPv4 range, or an mDNS `.local` name. */
+/**
+ * This device, the emulator's host (10.0.2.2), a private or link-local IPv4 range, a loopback /
+ * private / link-local IPv6 address, or an mDNS `.local` name.
+ */
 export function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (h === 'localhost' || /^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/.test(h)) return true;
+  if (h.includes(':')) return h === '::1' || /^f[cd][0-9a-f]{0,2}:/.test(h) || /^fe[89ab][0-9a-f]?:/.test(h);
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
   if (!m) return false;
   const a = Number(m[1]);
   const b = Number(m[2]);
-  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
+/** Thrown before a request to an address that would carry passwords and tokens in clear text. */
+export class InsecureAddressError extends Error {
+  override name = 'InsecureAddressError';
+  constructor() {
+    super('This server address isn’t secure. Use an https:// address, or an office server on your local network.');
+  }
+}
+
+/** https anywhere; plain http only to a private (office-network) address. */
+export function isAllowedUrl(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol === 'https:') return true;
+  return u.protocol === 'http:' && isPrivateHost(u.hostname);
+}
+
+/** Refuse a request to an address that isn't allowed (see isAllowedUrl). */
+export function assertAllowedUrl(url: string): void {
+  if (!isAllowedUrl(url)) throw new InsecureAddressError();
 }
 
 export type ServerAddressCheck = { ok: true; apiBase: string } | { ok: false; error: string };

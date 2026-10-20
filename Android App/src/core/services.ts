@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import { QueryClient } from '@tanstack/react-query';
 import { createApiClient, classifyRefreshStatus, ApiError, DEFAULT_TIMEOUT_MS, type RefreshOutcome } from '../lib/api-client';
 import { createSessionStore } from '../lib/session-store';
+import { assertAllowedUrl } from '../lib/server-address';
 import { resolveRuntimeConfig } from '../lib/config';
 import type { AppEnv } from '../lib/app-env';
 import { resourcesApi } from '../lib/resources';
@@ -87,6 +88,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
     let res: Response;
     try {
+      // The refresh token never travels over plain http to the internet (the request fails instead).
+      assertAllowedUrl(`${baseUrl}/auth/refresh`);
       res = await fetch(`${baseUrl}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,6 +114,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     // The user signed out (or the session changed) while we waited: never resurrect it, and
     // revoke the token we were just given since nobody will ever use it.
     if (signOutApi.isSigningOut() || session.getSession()?.refreshToken !== current.refreshToken) {
+      // (The refresh above already passed the address check, so this logout may use the same base.)
       void fetch(`${baseUrl}/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

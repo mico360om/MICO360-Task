@@ -26,7 +26,7 @@ describe('api-client', () => {
       token = 'new';
       return 'ok' as const;
     });
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => token, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => token, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
     const form = new FormData();
     // React Native's multipart file part ({ uri, name, type }).
     form.append('file', { uri: 'file:///cache/hi.txt', name: 'hi.txt', type: 'text/plain' } as unknown as Blob);
@@ -34,7 +34,7 @@ describe('api-client', () => {
     expect(res.data.id).toBe('a1');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const [url, init] = fetchImpl.mock.calls[1]!;
-    expect(url).toBe('http://api.test/tasks/t1/attachments');
+    expect(url).toBe('https://api.test/tasks/t1/attachments');
     expect(init!.method).toBe('POST');
     expect(init!.body).toBe(form);
     const headers = init!.headers as Record<string, string>;
@@ -44,7 +44,7 @@ describe('api-client', () => {
 
   it('returns the parsed body and attaches the bearer token (async getToken)', async () => {
     const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: { ok: true } })));
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: async () => 'tok123', fetchImpl: fetchImpl as unknown as typeof fetch });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: async () => 'tok123', fetchImpl: fetchImpl as unknown as typeof fetch });
     const res = await api.get<{ data: { ok: boolean } }>('/health');
     expect(res.data.ok).toBe(true);
     const init = fetchImpl.mock.calls[0]![1]!;
@@ -53,7 +53,7 @@ describe('api-client', () => {
 
   it('POSTs a JSON body without a token when none', async () => {
     const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: {} })));
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
     await api.post('/auth/login', { identifier: 'ada', password: 'x' });
     const init = fetchImpl.mock.calls[0]![1]!;
     expect(init.method).toBe('POST');
@@ -63,7 +63,7 @@ describe('api-client', () => {
 
   it('does not set a JSON content-type on a bodyless request (Fastify rejects empty JSON bodies)', async () => {
     const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: {} })));
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok', fetchImpl: fetchImpl as unknown as typeof fetch });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 'tok', fetchImpl: fetchImpl as unknown as typeof fetch });
     await api.post('/notifications/read-all'); // no body
     const init = fetchImpl.mock.calls[0]![1]!;
     expect(init.body).toBeUndefined();
@@ -73,7 +73,7 @@ describe('api-client', () => {
 
   it('turns a non-JSON error body (e.g. a proxy 502 page) into an ApiError, not a SyntaxError', async () => {
     const fetchImpl = vi.fn(async () => new Response('<html>Bad gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } }));
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
     const err = await api.get('/tasks').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(502);
@@ -82,7 +82,7 @@ describe('api-client', () => {
   it('does not attempt a refresh for any /auth/* endpoint (a failed login is not an expiry)', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'INVALID_CREDENTIALS' } }, 401));
     const refreshTokens = vi.fn(async () => true);
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
     await expect(api.post('/auth/login', { identifier: 'ada', password: 'x' })).rejects.toBeInstanceOf(ApiError);
     expect(refreshTokens).not.toHaveBeenCalled();
   });
@@ -98,14 +98,14 @@ describe('api-client', () => {
       token = 'fresh';
       return true;
     });
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => token, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => token, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
     await Promise.all([api.get('/a'), api.get('/b'), api.get('/c')]);
     expect(refreshTokens).toHaveBeenCalledTimes(1);
   });
 
   it('throws an ApiError carrying the code on a non-2xx response', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'ACCOUNT_LOCKED', message: 'locked' } }, 423));
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
     await expect(api.post('/auth/login', {})).rejects.toBeInstanceOf(ApiError);
     await api.post('/auth/login', {}).catch((e: ApiError) => {
       expect(e.code).toBe('ACCOUNT_LOCKED');
@@ -124,7 +124,7 @@ describe('api-client', () => {
       return true;
     });
     const api = createApiClient({
-      baseUrl: 'http://api.test',
+      baseUrl: 'https://api.test',
       getToken: () => token,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       refreshTokens,
@@ -140,7 +140,7 @@ describe('api-client', () => {
     const onUnauthorized = vi.fn();
     const refreshTokens = vi.fn(async () => false);
     const api = createApiClient({
-      baseUrl: 'http://api.test',
+      baseUrl: 'https://api.test',
       getToken: () => 'stale',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       refreshTokens,
@@ -155,7 +155,7 @@ describe('api-client', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401));
     const onUnauthorized = vi.fn();
     const api = createApiClient({
-      baseUrl: 'http://api.test',
+      baseUrl: 'https://api.test',
       getToken: () => 'stale',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       onUnauthorized,
@@ -168,7 +168,7 @@ describe('api-client', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401));
     const onUnauthorized = vi.fn();
     const api = createApiClient({
-      baseUrl: 'http://api.test',
+      baseUrl: 'https://api.test',
       getToken: () => 'stale',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       refreshTokens: async () => 'transient',
@@ -184,7 +184,7 @@ describe('api-client', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401));
     const onUnauthorized = vi.fn();
     const api = createApiClient({
-      baseUrl: 'http://api.test',
+      baseUrl: 'https://api.test',
       getToken: () => 'stale',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       refreshTokens: async () => {
@@ -200,7 +200,7 @@ describe('api-client', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'RATE_LIMITED', message: 'slow down' } }, 429));
     const onUnauthorized = vi.fn();
     const refreshTokens = vi.fn(async () => 'ok' as const);
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens, onUnauthorized });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens, onUnauthorized });
     const err = await api.post('/tasks', {}).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).code).toBe('RATE_LIMITED');
@@ -212,7 +212,7 @@ describe('api-client', () => {
     const fetchImpl = vi.fn(async () => {
       throw new TypeError('Network request failed');
     });
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch });
     const err = await api.get('/tasks').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(NetworkError);
     expect((err as NetworkError).timedOut).toBe(false);
@@ -225,7 +225,7 @@ describe('api-client', () => {
           init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
         }),
     );
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 20 });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 20 });
     const err = await api.get('/slow').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(NetworkError);
     expect((err as NetworkError).timedOut).toBe(true);
@@ -234,7 +234,7 @@ describe('api-client', () => {
   it('sends per-request headers (Idempotency-Key) and reports reachability', async () => {
     const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: {} })));
     const onReachable = vi.fn();
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch, onReachable });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch, onReachable });
     await api.post('/tasks', { title: 'x' }, { headers: { 'Idempotency-Key': 'k-1' } });
     const headers = fetchImpl.mock.calls[0]![1]!.headers as Record<string, string>;
     expect(headers['Idempotency-Key']).toBe('k-1');
@@ -244,7 +244,7 @@ describe('api-client', () => {
 
   it('exposes the single-flight refresh for sockets', async () => {
     const refreshTokens = vi.fn(async () => 'ok' as const);
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', refreshTokens });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', refreshTokens });
     const [a, b] = await Promise.all([api.refreshSession(), api.refreshSession()]);
     expect([a, b]).toEqual(['ok', 'ok']);
     expect(refreshTokens).toHaveBeenCalledOnce();
@@ -263,7 +263,7 @@ describe('api-client', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401));
     const refreshTokens = vi.fn(async () => true);
     const api = createApiClient({
-      baseUrl: 'http://api.test',
+      baseUrl: 'https://api.test',
       getToken: () => 't',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       refreshTokens,
@@ -308,13 +308,13 @@ describe('api-client upload with progress', () => {
 
   it('reports how far the upload is, with the token and no JSON content type', async () => {
     FakeXhr.sent = [];
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok', xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 'tok', xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest });
     const form = new FormData();
     const progress: number[] = [];
     const done = api.upload<{ data: { id: string } }>('/tasks/t1/attachments', form, { onProgress: (f) => progress.push(f) });
     await tick();
     const xhr = FakeXhr.sent[0]!;
-    expect(xhr).toMatchObject({ method: 'POST', url: 'http://api.test/tasks/t1/attachments', body: form });
+    expect(xhr).toMatchObject({ method: 'POST', url: 'https://api.test/tasks/t1/attachments', body: form });
     expect(xhr.headers['Authorization']).toBe('Bearer tok');
     expect(xhr.headers['Content-Type']).toBeUndefined();
     xhr.upload.onprogress?.({ loaded: 1, total: 4, lengthComputable: true });
@@ -330,7 +330,7 @@ describe('api-client upload with progress', () => {
       token = 'new';
       return 'ok' as const;
     });
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => token, refreshTokens, xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => token, refreshTokens, xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest });
     const done = api.upload<{ data: { id: string } }>('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
     await tick();
     FakeXhr.sent[0]!.respond(401, { error: { code: 'UNAUTHORIZED', message: 'Expired' } });
@@ -343,7 +343,7 @@ describe('api-client upload with progress', () => {
 
   it('is a network error when the connection drops, a server error with its reason otherwise', async () => {
     FakeXhr.sent = [];
-    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok', xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 'tok', xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest });
     const dropped = api.upload('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
     await tick();
     FakeXhr.sent[0]!.onerror?.();
@@ -353,5 +353,20 @@ describe('api-client upload with progress', () => {
     await tick();
     FakeXhr.sent[1]!.respond(413, { error: { code: 'TOO_LARGE', message: 'File too large.' } });
     await expect(refused).rejects.toMatchObject({ status: 413, message: 'File too large.' });
+  });
+});
+
+describe('api-client — plain http only on the office network', () => {
+  it('refuses an http request to a public host without calling fetch', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }));
+    const api = createApiClient({ baseUrl: 'http://task.mico360.com/api/v1', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(api.get('/tasks')).rejects.toMatchObject({ name: 'InsecureAddressError' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('still talks to an office server on plain http', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: [1] }));
+    const api = createApiClient({ baseUrl: 'http://192.168.1.5:4000/api/v1', getToken: () => 't', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(api.get('/tasks')).resolves.toEqual({ data: [1] });
   });
 });

@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { createSocketAuthHandler, currentTokenAuth } from '../lib/socket-auth';
+import { isAllowedUrl } from '../lib/server-address';
 import type { Services } from './services';
 
 /**
@@ -19,12 +20,14 @@ export function connectAuthedSocket(
   const socket = io(origin, {
     auth: currentTokenAuth(() => services.session.getToken()),
     transports: ['websocket'],
+    // The handshake carries the access token: never connect over plain http to the internet.
+    autoConnect: isAllowedUrl(origin),
   });
 
   const auth = createSocketAuthHandler({
     refresh: () => services.api.refreshSession(),
     reconnect: () => {
-      if (!socket.connected) socket.connect();
+      if (!socket.connected && isAllowedUrl(origin)) socket.connect();
     },
     onSessionEnded: () => {
       void services.signOut('expired');

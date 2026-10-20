@@ -84,3 +84,11 @@ describe('createExporter', () => {
     await expect(exporter(files).exportFile('/reports/export.pdf', 'r.pdf', 'Report')).rejects.toBeInstanceOf(NetworkError);
   });
 });
+
+describe('exporter — plain http only on the office network', () => {
+  it('refuses to download from a public http address (the session token would travel in clear)', async () => {
+    const { files } = fakeFiles([{ status: 200 }]);
+    await expect(exporter(files, { baseUrl: 'http://tasks.example.com/api/v1' }).exportFile('/reports/full.xlsx', 'r.xlsx', 'Report')).rejects.toMatchObject({ name: 'InsecureAddressError' });
+    expect(files.download).not.toHaveBeenCalled();
+  });
+});

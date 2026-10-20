@@ -1,5 +1,6 @@
 import { ApiError, NetworkError, type RefreshOutcome } from './api-client';
 import { fileNameFromDisposition, mimeTypeFor } from './reports';
+import { assertAllowedUrl } from './server-address';
 
 /** The phone's file side of an export (expo-file-system + expo-sharing; see src/adapters/files.ts). */
 export interface ExportFiles {
@@ -29,6 +30,8 @@ export interface ExporterOptions {
  */
 export function createExporter({ baseUrl, getToken, refreshSession, onUnauthorized, files }: ExporterOptions) {
   async function fetchFile(path: string, name: string) {
+    // The download carries the session token: never over plain http to the internet.
+    assertAllowedUrl(`${baseUrl}${path}`);
     const token = await getToken();
     try {
       return await files.download(`${baseUrl}${path}`, name, token ? { Authorization: `Bearer ${token}` } : {});

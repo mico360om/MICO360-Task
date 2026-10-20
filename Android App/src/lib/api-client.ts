@@ -1,3 +1,5 @@
+import { assertAllowedUrl } from './server-address';
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -167,6 +169,8 @@ export function createApiClient({
     form?: FormData,
     onProgress?: (fraction: number) => void,
   ): Promise<{ status: number; ok: boolean; text: string }> {
+    // Never send the session over plain http to the internet (only to an office-network server).
+    assertAllowedUrl(`${baseUrl}${path}`);
     const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
     // Only declare a JSON content-type when there is a JSON body — Fastify rejects an empty body
     // under application/json ("Body cannot be empty…"), which broke every bodyless call
