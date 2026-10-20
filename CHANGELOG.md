@@ -14,6 +14,31 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- The Android app shows its version (and the server's) in Settings, and says when a newer version is
+  out, with a Download button. Dates in the app now follow the company's time zone and your own, as
+  on the website.
+- Fingerprint sign-in on the Android app works: turn it on in Settings, and after signing out you can
+  sign back in with your fingerprint. A password change or an admin reset turns it off, and another
+  person signing in on the phone turns off the previous person's fingerprint sign-in and app lock.
+
+### Security
+- A phone stops receiving notifications as soon as it is signed out, even when its session simply
+  expired, and a password change by an admin, a reset by email, a role change, disabling or deleting
+  an account forget all that person's phones.
+- The Android app sends to a plain http:// address only on the office network (a private address);
+  anything else must use https. A build pointed at a public http address fails.
+- While the app lock is on, screenshots, screen recording and the recent-apps preview are blocked, and
+  nothing shows before the lock on start-up. Exported files are deleted when someone signs out.
+
+### Bug fixes
+- A lost reply while the app renewed its sign-in no longer signs you out later (the renewal is retried
+  and the server hands back the same new key for 2 minutes).
+- A Wi-Fi sign-in page no longer breaks offline mode in the app.
+- In the app: an edit made over someone else's is refused with a plain message instead of overwriting
+  theirs; a task in a hidden column shows its status; the due date field shows the same day as
+  everywhere else; a card moved offline stays where it was put; Arabic digits work in sign-in codes.
+
 ## [1.2.0] - 2026-10-20
 
 ### New features

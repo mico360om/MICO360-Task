@@ -202,6 +202,35 @@ paths:
         required: true
         content: { application/json: { schema: { type: object, required: [token, password], properties: { token: { type: string }, password: { type: string } } } } }
       responses: { '200': { description: '{ reset: true }' }, '400': { description: Invalid token / weak password } }
+  /auth/refresh:
+    post:
+      security: []
+      summary: Exchange a refresh token for a new session (the token is rotated)
+      description: >
+        Each refresh token works once. If the reply was lost, presenting the same token again within
+        2 minutes returns the same new refresh token (with a fresh access token) while that one is
+        unused; later, or once it was used, it is treated as theft and the whole sign-in is ended.
+        A fingerprint sign-in key is refused here.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string } } } } }
+      responses: { '200': { description: Session issued }, '401': { description: Invalid, expired, or already used } }
+  /auth/biometric-credential:
+    post:
+      summary: A fingerprint sign-in key for this phone (signed in)
+      description: >
+        A refresh token marked for fingerprint sign-in, in a rotation family of its own. It never
+        refreshes a session; it only signs in through /auth/biometric-sign-in, which doesn't spend it.
+        A password change or an admin reset revokes it.
+      responses: { '201': { description: '{ refreshToken }' }, '401': { description: Not signed in } }
+  /auth/biometric-sign-in:
+    post:
+      security: []
+      summary: Sign in with a phone's fingerprint sign-in key (the key is not spent)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [credential], properties: { credential: { type: string } } } } }
+      responses: { '200': { description: Session issued }, '401': { description: 'INVALID_BIOMETRIC_KEY: revoked, expired or not a fingerprint key' } }
 
   /projects:
     get:
