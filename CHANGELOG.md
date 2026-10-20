@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-21
+
 ### Bug fixes
 - Two edits to the same task made from the same copy at the same moment (say from the website and the
   phone) can no longer both be saved, the second silently replacing the first: the later one is
