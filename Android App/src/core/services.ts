@@ -3,6 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { createApiClient, classifyRefreshStatus, ApiError, DEFAULT_TIMEOUT_MS, type RefreshOutcome } from '../lib/api-client';
 import { createSessionStore } from '../lib/session-store';
 import { assertAllowedUrl } from '../lib/server-address';
+import { refreshWithRetry } from '../lib/refresh-retry';
 import { resolveRuntimeConfig } from '../lib/config';
 import type { AppEnv } from '../lib/app-env';
 import { resourcesApi } from '../lib/resources';
@@ -131,7 +132,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   const api = createApiClient({
     baseUrl,
     getToken: () => session.getToken(),
-    refreshTokens,
+    // A refresh whose reply was lost is tried once more: the server hands back the same new token.
+    refreshTokens: () => refreshWithRetry(refreshTokens),
     // Not awaited: sign-out itself makes API calls and must not wait on the request that triggered it.
     onUnauthorized: () => {
       void signOutApi.signOut('expired');
