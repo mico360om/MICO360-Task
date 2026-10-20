@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-10-21
+
 ### Bug fixes
 - The Minutes of Meeting PDF prints the project's logo whatever format its picture is in (WebP and
   every kind of PNG are converted for the PDF), instead of its initials. A project that uses an icon
