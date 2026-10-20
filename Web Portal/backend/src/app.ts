@@ -360,7 +360,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   await app.register(
     async (api) => {
-      await registerAuthRoutes(api, deps);
+      await registerAuthRoutes(api, { ...deps, guard });
       if (deps.about) await registerAboutRoutes(api, { release: deps.about.release, guard });
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
       if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage) {

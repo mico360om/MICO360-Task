@@ -4,12 +4,15 @@ import { toPublicUser, type AuthService } from './auth-service';
 import type { TokenService } from './token-service';
 import type { OtpService } from './otp-service';
 import type { PasswordResetService } from './password-reset-service';
+import type { AuthGuard } from './auth-guard';
 
 export interface AuthRouteDeps {
   authService: AuthService;
   tokenService: TokenService;
   otpService?: OtpService;
   passwordResetService?: PasswordResetService;
+  /** Checks the caller is signed in (the routes that need a session). */
+  guard?: AuthGuard;
 }
 
 const identifier = z.string().trim().min(1).max(191);
@@ -50,6 +53,17 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     await deps.tokenService.recordSuccessor(refreshToken, tokens.refreshToken);
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
   });
+
+  // Fingerprint sign-in on a phone: a refresh token in a rotation family of its own, kept by the
+  // phone apart from its session. Silent refreshes never spend it, so it still works after the session
+  // ends; a password change or an admin reset revokes it with every other sign-in.
+  if (deps.guard) {
+    app.post('/auth/biometric-credential', { preHandler: deps.guard.authenticate }, async (req, reply) => {
+      const user = await deps.authService.getUserForSession(req.user!.id);
+      const { refreshToken } = await deps.tokenService.issueTokens(user);
+      return reply.status(201).send({ data: { refreshToken } });
+    });
+  }
 
   // Server-side logout: revoke the presented refresh token so it can no longer mint sessions.
   // Idempotent and non-enumerating — always 200, even for an unknown token.

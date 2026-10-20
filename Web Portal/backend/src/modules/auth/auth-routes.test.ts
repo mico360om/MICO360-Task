@@ -275,3 +275,45 @@ describe('POST /api/v1/auth/logout', () => {
     await app.close();
   });
 });
+
+describe('POST /api/v1/auth/biometric-credential — a sign-in key for fingerprint sign-in', () => {
+  async function signIn(app: Awaited<ReturnType<typeof makeApp>>) {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { identifier: 'ada', password: 'CorrectHorse1' } });
+    return res.json().data as { accessToken: string; refreshToken: string };
+  }
+  const refresh = (app: Awaited<ReturnType<typeof makeApp>>, refreshToken: string) =>
+    app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken } });
+
+  it('gives a signed-in user a key of its own, which signs in once and rotates, apart from the session', async () => {
+    const store = createMemoryRefreshTokenStore();
+    const app = await makeApp([user()], store);
+    const session = await signIn(app);
+    const res = await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', headers: { authorization: `Bearer ${session.accessToken}` } });
+    expect(res.statusCode).toBe(201);
+    const key = res.json().data.refreshToken as string;
+    expect(typeof key).toBe('string');
+    expect(key).not.toBe(session.refreshToken);
+    // Its own rotation family: using it leaves the session alone, and vice versa.
+    const families = new Set(store.rows.map((r) => r.familyId));
+    expect(families.size).toBe(2);
+    expect((await refresh(app, key)).statusCode).toBe(200);
+    expect((await refresh(app, session.refreshToken)).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('refuses a request that isn’t signed in', async () => {
+    const app = await makeApp([user()]);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential' })).statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('the key stops working once every sign-in is ended (password change, admin reset)', async () => {
+    const store = createMemoryRefreshTokenStore();
+    const app = await makeApp([user()], store);
+    const session = await signIn(app);
+    const key = (await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', headers: { authorization: `Bearer ${session.accessToken}` } })).json().data.refreshToken;
+    await store.revokeAllForUser('u1');
+    expect((await refresh(app, key)).statusCode).toBe(401);
+    await app.close();
+  });
+});
