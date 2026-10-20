@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-20
+
 ### New features
 - AI Management connects MICO360 AI, the company's own AI platform, in one step: choose "MICO360 AI
   (our AI platform)", paste its key, and its models load. How to set it up: docs/AI-MICO360.md.
