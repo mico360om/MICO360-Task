@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { brotliCompressSync, brotliDecompressSync, gzipSync, gunzipSync } from 'node:zlib';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor, androidAppLink, robotsTagFor, HOSTED_APK_PATH } from './web-app';
+import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor, androidAppLink, robotsTagFor, HOSTED_APK_PATH, downloadsDirFor } from './web-app';
 
 describe('isClientRoute', () => {
   it('accepts page routes and rejects server paths, files and non-GET requests', () => {
@@ -221,5 +221,116 @@ describe('registerWebApp', () => {
   it('does not serve files outside the web root', async () => {
     const res = await app.inject({ method: 'GET', url: '/..%2f..%2fpackage.json' });
     expect(res.statusCode).not.toBe(200);
+  });
+});
+
+describe('the Android app in a downloads folder kept across deploys', () => {
+  // A Git deploy rebuilds the web root, so the APK is kept in its own folder (beside the uploads)
+  // and served at the same address, before any copy the web root carries.
+  const site = () => {
+    const base = mkdtempSync(join(tmpdir(), 'webapp-dl-'));
+    const root = join(base, 'dist');
+    const downloads = join(base, 'downloads');
+    mkdirSync(root);
+    mkdirSync(downloads);
+    writeFileSync(join(root, 'index.html'), '<!doctype html><div id="root"></div>');
+    return { base, root, downloads };
+  };
+  const serve = async (root: string, downloadsDir: string) => {
+    const app = Fastify();
+    await registerWebApp(app, { root, downloadsDir });
+    await app.ready();
+    return app;
+  };
+
+  it('serves the APK from the downloads folder, as a download, before the web root’s copy', async () => {
+    const { base, root, downloads } = site();
+    mkdirSync(join(root, 'downloads'));
+    writeFileSync(join(root, 'downloads', 'MICO360-Tasks.apk'), Buffer.from('PK-in-the-build'));
+    writeFileSync(join(downloads, 'MICO360-Tasks.apk'), Buffer.from('PK-kept-across-deploys'));
+    const app = await serve(root, downloads);
+    try {
+      const res = await app.inject({ method: 'GET', url: HOSTED_APK_PATH });
+      expect(res.statusCode).toBe(200);
+      expect(res.rawPayload.toString()).toBe('PK-kept-across-deploys');
+      expect(res.headers['content-type']).toBe('application/vnd.android.package-archive');
+      expect(res.headers['content-disposition']).toBe('attachment; filename="MICO360-Tasks.apk"');
+      expect(res.headers['cache-control']).toBe('no-cache');
+      expect((await app.inject({ method: 'HEAD', url: HOSTED_APK_PATH })).statusCode).toBe(200);
+      // A part of it (a resumed download on a phone).
+      const part = await app.inject({ method: 'GET', url: HOSTED_APK_PATH, headers: { range: 'bytes=0-1' } });
+      expect(part.statusCode).toBe(206);
+      expect(part.rawPayload.toString()).toBe('PK');
+    } finally {
+      await app.close();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('without one there, the web root’s copy is served; with neither, a JSON 404', async () => {
+    const { base, root, downloads } = site();
+    const app = await serve(root, downloads);
+    try {
+      const none = await app.inject({ method: 'HEAD', url: HOSTED_APK_PATH });
+      expect(none.statusCode).toBe(404);
+      mkdirSync(join(root, 'downloads'));
+      writeFileSync(join(root, 'downloads', 'MICO360-Tasks.apk'), Buffer.from('PK-in-the-build'));
+      const res = await app.inject({ method: 'GET', url: HOSTED_APK_PATH });
+      expect(res.statusCode).toBe(200);
+      expect(res.rawPayload.toString()).toBe('PK-in-the-build');
+    } finally {
+      await app.close();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('a file uploaded while the server runs is served at once (no restart)', async () => {
+    const { base, root, downloads } = site();
+    const app = await serve(root, downloads);
+    try {
+      writeFileSync(join(downloads, 'MICO360-Tasks.apk'), Buffer.from('PK-uploaded-later'));
+      const res = await app.inject({ method: 'GET', url: HOSTED_APK_PATH });
+      expect(res.rawPayload.toString()).toBe('PK-uploaded-later');
+    } finally {
+      await app.close();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('serves nothing else from the downloads folder, and nothing outside it', async () => {
+    const { base, root, downloads } = site();
+    writeFileSync(join(downloads, 'notes.txt'), 'private');
+    writeFileSync(join(base, 'secret.txt'), 'private');
+    const app = await serve(root, downloads);
+    try {
+      for (const url of ['/downloads/notes.txt', '/downloads/..%2fsecret.txt']) {
+        expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(404);
+      }
+    } finally {
+      await app.close();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('androidAppLink finds the APK in the downloads folder too', () => {
+    const { base, root, downloads } = site();
+    try {
+      expect(androidAppLink('', root, downloads)).toBeNull();
+      writeFileSync(join(downloads, 'MICO360-Tasks.apk'), 'PK');
+      expect(androidAppLink('', root, downloads)).toBe(HOSTED_APK_PATH);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('downloadsDirFor — where the kept APK lives', () => {
+  it('beside the uploads folder (which deploys keep), so no new setting is needed on a live site', () => {
+    expect(downloadsDirFor({ UPLOAD_DIR: '/home/u1/mico360-data/uploads', DOWNLOADS_DIR: '' }, '/app')).toBe(resolve('/home/u1/mico360-data/downloads'));
+    expect(downloadsDirFor({ UPLOAD_DIR: 'uploads', DOWNLOADS_DIR: '' }, '/app/backend')).toBe(resolve('/app/backend/downloads'));
+  });
+  it('DOWNLOADS_DIR, when set, wins', () => {
+    expect(downloadsDirFor({ UPLOAD_DIR: '/data/uploads', DOWNLOADS_DIR: '/srv/apk' }, '/app')).toBe(resolve('/srv/apk'));
+    expect(downloadsDirFor({ UPLOAD_DIR: '/data/uploads', DOWNLOADS_DIR: 'files' }, '/app')).toBe(resolve('/app/files'));
   });
 });

@@ -125,9 +125,12 @@ ADMIN_EMAIL='khurram@prolens-team.com' ADMIN_USERNAME='khurram' ADMIN_PASSWORD='
 Coming from 0.3.0? Back up the database first. The first start applies the four new migrations, and
 your data is kept.
 
-The phone app is not in GitHub. To make **Download for Android** work, copy
-`../3-Android-App/MICO360-Tasks-1.0.1.apk` to `Web Portal/frontend/dist/downloads/MICO360-Tasks.apk`
-in the app's folder after each deployment. Each build replaces that folder.
+The phone app is not in GitHub. To make **Download for Android** work, upload the signed APK from
+`../3-Android-App/` to `/home/<your hPanel user>/mico360-data/downloads/` under the name
+`MICO360-Tasks.apk` (hPanel → File Manager). That folder sits beside `uploads/`, outside the app,
+so every deployment keeps it; the server makes it at start-up and serves the file there at once,
+before any copy in the web build. For a new release, replace that one file. (`DOWNLOADS_DIR` in the
+environment variables names another folder, if ever needed.)
 
 ## Updating the live site
 

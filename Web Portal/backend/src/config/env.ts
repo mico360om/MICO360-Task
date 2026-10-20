@@ -55,6 +55,9 @@ const EnvSchema = z.object({
   // Optional link for the web app's "Download for Android" button (e.g. a Play Store or file URL).
   ANDROID_APP_URL: z.string().optional().default(''),
   UPLOAD_DIR: z.string().default('uploads'),
+  // Folder for the hosted Android app (MICO360-Tasks.apk) that deploys keep; blank = `downloads`
+  // beside UPLOAD_DIR. Served at /downloads/MICO360-Tasks.apk before any copy in WEB_ROOT.
+  DOWNLOADS_DIR: z.string().optional().default(''),
   // Built web app (Web Portal/frontend/dist) to serve from this server. Blank when a reverse proxy
   // (nginx / LiteSpeed) serves it, as on Hostinger; the self-contained Windows server sets it.
   WEB_ROOT: z.string().optional().default(''),

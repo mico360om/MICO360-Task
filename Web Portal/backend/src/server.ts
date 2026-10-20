@@ -1,11 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { getEnv, parseTrustProxy } from './config/env';
 import { prisma } from './lib/prisma';
 import { buildApp } from './app';
 import { createPrismaIdempotencyStore } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
-import { registerWebApp, androidAppLink } from './lib/web-app';
+import { registerWebApp, androidAppLink, downloadsDirFor } from './lib/web-app';
 import { loadReleaseFile } from './modules/about/build-info';
 import { resolve as resolvePath } from 'node:path';
 import { createPrismaDataExporter } from './modules/users/data-export';
@@ -1050,6 +1050,14 @@ async function main(): Promise<void> {
   const release = loadReleaseFile(resolvePath(__dirname, 'release.json'), { version: packageVersion, startedAt: new Date() });
   logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
 
+  // The hosted Android app lives in a folder deploys keep (made here, so it is there to upload into).
+  const downloadsDir = downloadsDirFor(env, process.cwd());
+  try {
+    mkdirSync(downloadsDir, { recursive: true });
+  } catch (err) {
+    logger.warn('Could not create the downloads folder', { downloadsDir, error: err instanceof Error ? err.message : String(err) });
+  }
+
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
@@ -1133,8 +1141,8 @@ async function main(): Promise<void> {
       productName: env.PRODUCT_NAME,
       companyName: env.COMPANY_NAME,
       emailEnabled: emailService.isConfigured(),
-      // A self-contained install hosts the APK in its web root; otherwise ANDROID_APP_URL (if set).
-      androidAppUrl: androidAppLink(env.ANDROID_APP_URL, env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null),
+      // The APK this server hosts (the downloads folder, or the web root); otherwise ANDROID_APP_URL (if set).
+      androidAppUrl: androidAppLink(env.ANDROID_APP_URL, env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null, downloadsDir),
     },
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     rateLimitMax: env.RATE_LIMIT_MAX,
@@ -1148,7 +1156,6 @@ async function main(): Promise<void> {
   // so an uploaded document can never run script on this origin.
   const { default: fastifyStatic } = await import('@fastify/static');
   const { resolve } = await import('node:path');
-  const { mkdirSync } = await import('node:fs');
   const uploadsRoot = resolve(process.cwd(), env.UPLOAD_DIR);
   mkdirSync(uploadsRoot, { recursive: true });
   await app.register(fastifyStatic, {
@@ -1168,7 +1175,7 @@ async function main(): Promise<void> {
 
   // Self-contained installs serve the web app from this server (no nginx in front).
   if (env.WEB_ROOT) {
-    await registerWebApp(app, { root: resolve(process.cwd(), env.WEB_ROOT) });
+    await registerWebApp(app, { root: resolve(process.cwd(), env.WEB_ROOT), downloadsDir });
     logger.info('Serving the web app', { root: env.WEB_ROOT });
   }
 

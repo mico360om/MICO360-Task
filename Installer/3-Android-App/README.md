@@ -23,9 +23,10 @@ and 0.3.0, so it installs as an update over them.
 ## Giving it to staff
 
 - **From the live site:** the sign-in page's **Download for Android** button always downloads
-  `https://task.mico360.com/downloads/MICO360-Tasks.apk`. The site package puts this APK there
-  (`public_html/downloads/`); to publish a new build, replace that one file under the same name —
-  the address never changes (see `../1-Hostinger-Web-Server/README.md`).
+  `https://task.mico360.com/downloads/MICO360-Tasks.apk`. On the site that deploys from GitHub, the
+  file is `~/mico360-data/downloads/MICO360-Tasks.apk` (a folder every deployment keeps); a site
+  uploaded as a package carries it in `public_html/downloads/`. To publish a new build, replace that
+  one file under the same name — the address never changes (see `../1-Hostinger-Web-Server/README.md`).
 - **From an office server:** nothing to do. The Windows installer already includes this APK, and
   the office server's sign-in page offers it.
 

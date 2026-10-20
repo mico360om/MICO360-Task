@@ -1,6 +1,15 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+
+/**
+ * The folder for the hosted APK that deploys keep: DOWNLOADS_DIR, else `downloads` beside the
+ * uploads folder (on the live site ~/mico360-data/downloads, next to ~/mico360-data/uploads).
+ */
+export function downloadsDirFor(env: { UPLOAD_DIR: string; DOWNLOADS_DIR: string }, cwd: string): string {
+  if (env.DOWNLOADS_DIR.trim()) return resolve(cwd, env.DOWNLOADS_DIR.trim());
+  return join(dirname(resolve(cwd, env.UPLOAD_DIR)), 'downloads');
+}
 
 /**
  * Optional hosting of the built web app (WEB_ROOT) by the API server itself — used by the
@@ -16,12 +25,17 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
  */
 export const HOSTED_APK_PATH = '/downloads/MICO360-Tasks.apk';
 
+/** The APK's file name, in the downloads folder and in the web root's downloads/. */
+const APK_FILE = HOSTED_APK_PATH.slice(HOSTED_APK_PATH.lastIndexOf('/') + 1);
+
 /**
- * The "Download for Android" link: the configured one, else the APK this web root hosts, else null
- * (the web app then offers the hosted address anyway, and asks the site whether the file is there).
+ * The "Download for Android" link: the configured one, else the APK this server hosts (in the
+ * downloads folder kept across deploys, or in the web root), else null (the web app then offers the
+ * hosted address anyway, and asks the site whether the file is there).
  */
-export function androidAppLink(configured: string, webRoot: string | null): string | null {
+export function androidAppLink(configured: string, webRoot: string | null, downloadsDir?: string | null): string | null {
   if (configured.trim()) return configured.trim();
+  if (downloadsDir && existsSync(join(downloadsDir, APK_FILE))) return HOSTED_APK_PATH;
   if (webRoot && existsSync(join(webRoot, ...HOSTED_APK_PATH.split('/').filter(Boolean)))) return HOSTED_APK_PATH;
   return null;
 }
@@ -88,8 +102,33 @@ function applyPageHeaders(req: FastifyRequest, reply: FastifyReply): void {
   reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
 }
 
-export async function registerWebApp(app: FastifyInstance, opts: { root: string }): Promise<void> {
+/** Headers for the hosted APK: a download under its own name, always checked for a newer build. */
+function apkHeaders(reply: FastifyReply): void {
+  reply.header('Cache-Control', 'no-cache');
+  reply.header('Content-Disposition', `attachment; filename="${APK_FILE}"`);
+}
+
+/**
+ * `downloadsDir`: a folder outside the web root that deploys don't replace (on Hostinger the web
+ * root is rebuilt by every Git deploy). The APK there is served at HOSTED_APK_PATH before any copy
+ * in the web root; nothing else in that folder is served.
+ */
+export async function registerWebApp(app: FastifyInstance, opts: { root: string; downloadsDir?: string }): Promise<void> {
   const { default: fastifyStatic } = await import('@fastify/static');
+  if (opts.downloadsDir) {
+    const roots = [opts.downloadsDir, join(opts.root, 'downloads')];
+    await app.register(async (scope) => {
+      await scope.register(fastifyStatic, {
+        root: roots,
+        prefix: '/downloads/',
+        decorateReply: false,
+        index: false,
+        cacheControl: false,
+        allowedPath: (pathName) => pathName === `/${APK_FILE}`,
+        setHeaders: (reply) => apkHeaders(reply),
+      });
+    });
+  }
   // The start page names the build's asset files, so it is re-read whenever a new build replaces it:
   // a web app rebuilt in place is served at once, never an old page pointing at removed files.
   const indexFile = join(opts.root, 'index.html');
@@ -122,7 +161,7 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string 
       reply.header('Cache-Control', cacheControlFor(reply.request.url));
       // The Android app downloads under its own name from any link (a shared one too), as nginx and
       // the Hostinger rules send it.
-      if (reply.request.url.split('?')[0] === HOSTED_APK_PATH) reply.header('Content-Disposition', 'attachment; filename="MICO360-Tasks.apk"');
+      if (reply.request.url.split('?')[0] === HOSTED_APK_PATH) apkHeaders(reply);
     },
   });
 

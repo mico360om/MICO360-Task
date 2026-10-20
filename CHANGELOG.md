@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- The website's "Download for Android" button can offer the app on the live site: the app file is
+  kept in a folder that updates of the site don't replace (beside the uploaded files), so it stays
+  available after every update instead of having to be put back each time.
+
 ## [1.2.1] - 2026-10-20
 
 ### Improvements

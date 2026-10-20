@@ -115,6 +115,12 @@ Environment variables**, and add each `KEY = VALUE` from that file. At minimum:
 | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` | the **rotated** Mailjet keys — without them sign-in codes, password-reset links and meeting invitations are disabled (the API answers 503 `EMAIL_NOT_CONFIGURED`) |
 | `MAILJET_WEBHOOK_TOKEN` | a random secret; also put it in Mailjet's event-webhook URL (see `docs/EMAIL.md`). In production the webhook refuses every event until it is set. |
 
+On the Node.js site that deploys from GitHub, the web build is rebuilt by every deployment, so the
+phone app goes in `~/mico360-data/downloads/MICO360-Tasks.apk`, beside `~/mico360-data/uploads`:
+deployments keep that folder, the server makes it at start-up, and the file there is served at
+`/downloads/MICO360-Tasks.apk` before any copy in the web build (set `DOWNLOADS_DIR` to use another
+folder). For a new release, replace that one file.
+
 To check the phone-app download after an upload, from any machine (no sign-in, no GitHub):
 `curl -sI https://task.mico360.com/downloads/MICO360-Tasks.apk` should answer `200`, with
 `content-type: application/vnd.android.package-archive` and the file's size; on a phone, the
