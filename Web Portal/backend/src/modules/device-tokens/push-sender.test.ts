@@ -15,6 +15,7 @@ function repoWith(tokens: string[]): DeviceTokenRepository {
     async findByToken() { return null; },
     async upsert() { throw new Error('unused'); },
     async deleteByToken() {},
+    async deleteForUser() { return 0; },
     async listForUser() { return rows; },
   };
 }

@@ -29,6 +29,10 @@ export function createPrismaDeviceTokenRepository(prisma: PrismaClient): DeviceT
     async deleteByToken(token) {
       await prisma.deviceToken.deleteMany({ where: { token } });
     },
+    async deleteForUser(userId) {
+      const { count } = await prisma.deviceToken.deleteMany({ where: { userId } });
+      return count;
+    },
     async listForUser(userId) {
       const ds = await prisma.deviceToken.findMany({ where: { userId }, orderBy: { lastSeenAt: 'desc' } });
       return ds.map(toRecord);

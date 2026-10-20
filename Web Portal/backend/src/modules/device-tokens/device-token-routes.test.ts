@@ -19,6 +19,7 @@ function inMemory(): DeviceTokenRepository {
       return rec;
     },
     async deleteByToken(token) { rows.delete(token); },
+    async deleteForUser(userId) { let n = 0; for (const [t, r] of rows) if (r.userId === userId) { rows.delete(t); n++; } return n; },
     async listForUser(userId) { return [...rows.values()].filter((r) => r.userId === userId); },
   };
 }

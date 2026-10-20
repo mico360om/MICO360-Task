@@ -370,6 +370,8 @@ async function main(): Promise<void> {
     revokeSessions: (userId) => revokeSessions(userId),
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
     issueSession: (u) => issueSession(u),
+    // The device-token repository is created below; this runs only when access is revoked.
+    forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
   });
   // Resolve user/project ids → display names for server-rendered documents (meeting minutes).
   const resolveUserNames = async (ids: string[]): Promise<Map<string, string>> => {
@@ -1025,6 +1027,7 @@ async function main(): Promise<void> {
     hashPassword,
     revokeSessions: (userId) => tokenService.revokeAllForUser(userId),
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
+    forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     logger,
   });
 

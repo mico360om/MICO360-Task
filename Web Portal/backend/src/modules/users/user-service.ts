@@ -20,6 +20,8 @@ export interface UserServiceDeps {
   onSessionsRevoked?: (userId: string) => void | Promise<void>;
   /** Issue a fresh session (access + refresh token) — used to keep the caller signed in after a self password change. */
   issueSession?: (user: { id: string; roles: string[]; tokenVersion: number }) => Promise<SessionTokens>;
+  /** Forget the user's phones (push device tokens), so a revoked account stops getting notifications. */
+  forgetDevices?: (userId: string) => Promise<void>;
 }
 
 const ADMIN = 'ADMIN';
@@ -31,7 +33,7 @@ const sameRoles = (a: string[], b: string[]) => a.length === b.length && a.every
 /** How long after a self-service password change the old live sockets are closed (see revokeAccess). */
 const OWN_CHANGE_SOCKET_GRACE_MS = 5000;
 
-export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession }: UserServiceDeps) {
+export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices }: UserServiceDeps) {
   /** Never leave the system without an administrator who can sign in. */
   async function ensureAnotherActiveAdmin(id: string): Promise<void> {
     if ((await users.countActiveAdmins(id)) === 0) {
@@ -53,9 +55,18 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
    * before that answer arrives reconnects with the old, refused session and signs them out. The old
    * tokens are refused at once either way; a socket only receives live updates.
    */
-  async function revokeAccess(id: string, socketsAfterMs = 0): Promise<number> {
+  async function revokeAccess(id: string, socketsAfterMs = 0, opts: { keepDevices?: boolean } = {}): Promise<number> {
     const version = await users.bumpTokenVersion(id);
     await revokeSessions?.(id);
+    // Their phones stop getting notifications — except after changing your own password: the
+    // other phones sign out on their next refresh and turn push off themselves.
+    if (!opts.keepDevices) {
+      try {
+        await forgetDevices?.(id);
+      } catch {
+        // Best effort: the sessions are already revoked.
+      }
+    }
     const closeSockets = async () => {
       try {
         await onSessionsRevoked?.(id);
@@ -143,7 +154,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     }
     if (!isStrongPassword(newPassword)) throw new WeakPasswordError();
     await users.setPassword(id, await hashPassword(newPassword));
-    const tokenVersion = await revokeAccess(id, OWN_CHANGE_SOCKET_GRACE_MS);
+    const tokenVersion = await revokeAccess(id, OWN_CHANGE_SOCKET_GRACE_MS, { keepDevices: true });
     if (!issueSession) return null;
     const user = await getUser(id);
     return issueSession({ id, roles: user.roles, tokenVersion });

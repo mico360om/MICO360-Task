@@ -49,6 +49,7 @@ function harness(user: { id: string; email: string } | null, opts: { configured?
   };
   const revoked: string[] = [];
   const disconnected: string[] = [];
+  const forgotten: string[] = [];
   const warnings: string[] = [];
   const pending: Promise<void>[] = [];
   const svc = createPasswordResetService({
@@ -60,6 +61,7 @@ function harness(user: { id: string; email: string } | null, opts: { configured?
     hashPassword: async (p) => `hashed:${p}`,
     revokeSessions: async (userId) => { revoked.push(userId); },
     onSessionsRevoked: (userId) => { disconnected.push(userId); },
+    forgetDevices: async (userId) => { forgotten.push(userId); },
     runInBackground: (task) => { pending.push(task().catch((err) => void warnings.push(String(err)))); },
     logger: { warn: (msg) => void warnings.push(msg) },
     now,
@@ -71,7 +73,7 @@ function harness(user: { id: string; email: string } | null, opts: { configured?
     await flush();
     return new URL(emails.at(-1)!.link).searchParams.get('token')!;
   };
-  return { svc, rows, updates, emails, revoked, disconnected, warnings, flush, requestToken, advance: (ms: number) => (clock += ms) };
+  return { svc, rows, updates, emails, revoked, disconnected, forgotten, warnings, flush, requestToken, advance: (ms: number) => (clock += ms) };
 }
 
 describe('PasswordResetService.resetPassword — session revocation', () => {
@@ -82,6 +84,19 @@ describe('PasswordResetService.resetPassword — session revocation', () => {
     expect(h.updates).toHaveLength(1);
     expect(h.revoked).toEqual(['u1']);
     expect(h.disconnected).toEqual(['u1']);
+  });
+
+  it('resetting a password by email link forgets the user’s phones', async () => {
+    const h = harness({ id: 'u1', email: 'ada@x.co' });
+    const token = await h.requestToken('ada@x.co');
+    await h.svc.resetPassword(token, 'Str0ngpass');
+    expect(h.forgotten).toEqual(['u1']);
+  });
+
+  it('a rejected reset forgets no phones', async () => {
+    const h = harness({ id: 'u1', email: 'ada@x.co' });
+    await expect(h.svc.resetPassword('bogus-token', 'Str0ngpass')).rejects.toThrow();
+    expect(h.forgotten).toEqual([]);
   });
 
   it('does not revoke sessions when the reset is rejected', async () => {

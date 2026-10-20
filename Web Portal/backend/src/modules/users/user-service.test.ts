@@ -247,3 +247,36 @@ describe('UserService — never lose the last active administrator', () => {
     await expect(svc.deleteUser(admins[0]!.id)).rejects.toMatchObject({ code: 'LAST_ADMIN' });
   });
 });
+
+describe('UserService — a user’s phones are forgotten when their access is revoked', () => {
+  const setup = async () => {
+    const forgotten: string[] = [];
+    const h = make({ forgetDevices: async (id) => { forgotten.push(id); } });
+    // A second active admin, so ada may lose the role or be disabled.
+    await h.svc.createUser(person({ email: 'boss@x', username: 'boss', roleNames: ['ADMIN'] }));
+    const ada = await h.svc.createUser(person());
+    return { ...h, forgotten, ada };
+  };
+
+  it('an admin password reset, a role change, disabling and deleting forget the user’s phones', async () => {
+    const { svc, forgotten, ada } = await setup();
+    await svc.adminResetPassword(ada.id, 'Password2!');
+    await svc.updateUser(ada.id, { roleNames: ['ADMIN'] });
+    await svc.setUserStatus(ada.id, 'INACTIVE');
+    await svc.deleteUser(ada.id);
+    expect(forgotten).toEqual([ada.id, ada.id, ada.id, ada.id]);
+  });
+
+  it('changing your own password keeps your phones (the others sign out and turn push off themselves)', async () => {
+    const { svc, forgotten, revoked, ada } = await setup();
+    await svc.changeOwnPassword(ada.id, 'Password1!', 'Password2!');
+    expect(revoked).toContain(ada.id);
+    expect(forgotten).toEqual([]);
+  });
+
+  it('a role list that doesn’t change keeps the phones', async () => {
+    const { svc, forgotten, ada } = await setup();
+    await svc.updateUser(ada.id, { roleNames: ['EMPLOYEE'] });
+    expect(forgotten).toEqual([]);
+  });
+});

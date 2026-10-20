@@ -54,6 +54,8 @@ export interface PasswordResetServiceDeps {
   revokeSessions?: (userId: string) => Promise<void>;
   /** Called after sessions are revoked so live connections can be closed too. */
   onSessionsRevoked?: (userId: string) => void | Promise<void>;
+  /** Forget the user's phones (push device tokens) after a reset, so old devices stop getting notifications. */
+  forgetDevices?: (userId: string) => Promise<void>;
   /** Reset links that may be requested per account. Default 1 a minute, 5 an hour. */
   requestLimits?: { perMinute: number; perHour: number };
   /** Runs the token issue + email off the request path, so known and unknown accounts answer alike. */
@@ -128,6 +130,11 @@ export function createPasswordResetService(deps: PasswordResetServiceDeps) {
     await deps.store.consumeAllForUser(record.userId);
     // Invalidate every existing refresh token so a compromised session does not survive the reset.
     await deps.revokeSessions?.(record.userId);
+    try {
+      await deps.forgetDevices?.(record.userId);
+    } catch (err) {
+      deps.logger?.warn('could not forget the phones after a password reset', { err });
+    }
     try {
       await deps.onSessionsRevoked?.(record.userId);
     } catch (err) {

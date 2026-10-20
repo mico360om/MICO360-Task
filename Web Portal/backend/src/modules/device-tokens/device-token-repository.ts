@@ -20,5 +20,7 @@ export interface DeviceTokenRepository {
   /** Create the token, or (if it already exists) reassign it to this user and bump lastSeenAt. */
   upsert(data: RegisterDeviceTokenData): Promise<DeviceTokenRecord>;
   deleteByToken(token: string): Promise<void>;
+  /** Forget every phone of a user (their access was revoked); returns how many were removed. */
+  deleteForUser(userId: string): Promise<number>;
   listForUser(userId: string): Promise<DeviceTokenRecord[]>;
 }
