@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-20
+
 ### Improvements
 - The Android app shows its version (and the server's) in Settings, and says when a newer version is
   out, with a Download button (or "Not now" until the next one). Dates in the app follow the
@@ -31,8 +33,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   the server too, and a stolen sign-in caught being reused cancels the person's fingerprint keys.
 - The Android app sends to a plain http:// address only on the office network (a private address);
   anything else must use https. A build pointed at a public http address fails.
-- While the app lock is on, screenshots, screen recording and the recent-apps preview are blocked, and
-  nothing shows before the lock on start-up. Exported files are deleted when someone signs out.
+- While you are signed in with the app lock on, screenshots, screen recording and the recent-apps
+  preview are blocked, and nothing shows before the lock on start-up. Exported files are deleted when
+  someone signs out.
 
 ### Bug fixes
 - A lost reply while the app renewed its sign-in no longer signs you out later (the renewal is retried
