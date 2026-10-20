@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-21
+
 ### New features
 - The Kanban Board can show every project on one board: choose "All projects" in its project list.
   Tasks sit under six shared statuses (Backlog, To Do, In Progress, Blocked, Review, Done) for the day
