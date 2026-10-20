@@ -244,6 +244,23 @@ describe('AiConfigService: testing a model', () => {
     expect(await svc.testModel(cfg.models[0]!.id)).toEqual({ ok: false, message: 'HTTP 429: You exceeded your current quota.' });
   });
 
+  it('waits up to 2 minutes, as the features do (a model may be loading cold)', async () => {
+    const { svc } = make(provider(['gpt-4o-mini']) as unknown as typeof fetch);
+    const cfg = await svc.addProvider(openai, actor);
+    const waits: number[] = [];
+    const real = AbortSignal.timeout.bind(AbortSignal);
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      waits.push(ms);
+      return real(ms);
+    });
+    try {
+      await svc.testModel(cfg.models[0]!.id);
+      expect(waits).toEqual([120_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('only tests chat models', async () => {
     const { svc } = make(provider(['text-embedding-3-small']) as unknown as typeof fetch);
     const cfg = await svc.addProvider(openai, actor);

@@ -53,6 +53,14 @@ describe('inferCapabilities', () => {
       expect(inferCapabilities(key), key).toEqual(['chat']);
     }
   });
+
+  it('gives document readers (GLM-OCR and the like) OCR, never chat — they can’t answer a question', () => {
+    for (const key of ['glm-ocr:latest', 'glm-ocr', 'deepseek-ocr:3b', 'got-ocr2']) {
+      expect(inferCapabilities(key), key).toEqual(['vision', 'ocr', 'document']);
+    }
+    // "ocr" inside another word is not a reader.
+    expect(inferCapabilities('democracy-7b')).toEqual(['chat']);
+  });
 });
 
 describe('friendlyModelName', () => {

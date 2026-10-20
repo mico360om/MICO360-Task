@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createAiFeatureService, parseStringArray, parseJsonObject } from './ai-feature-service';
 import { createMemoryAiConfigRepository } from './ai-config-repository';
 import { emptyConfig, type AiConfig } from './ai-config';
@@ -252,5 +252,56 @@ describe('AiFeatureService: drafting final minutes', () => {
   it('says so when the model’s answer can’t be read as minutes', async () => {
     const svc = serviceWith('Sorry, I cannot help with that.');
     await expect(svc.draftMinutes('Meeting: X', { userId: 'u1' })).rejects.toThrow(/couldn’t be read/i);
+  });
+});
+
+describe('AiFeatureService on MICO360 AI (its API guide)', () => {
+  const micoConfig: AiConfig = {
+    providers: [{ id: 'pr1', name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1', apiKey: 'mico_x', enabled: true, createdAt: '', updatedAt: '' }],
+    models: [{ id: 'm1', providerId: 'pr1', modelKey: 'llama3.1:latest', displayName: 'Llama 3.1', capabilities: ['chat'], parameters: {}, concurrencyLimit: 4, enabled: true, available: true, createdAt: '', updatedAt: '' }],
+    defaults: { chat: 'm1' },
+  };
+  const recorder = (content: string) => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init!.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    return { bodies, svc: createAiFeatureService({ repo: createMemoryAiConfigRepository(micoConfig), fetchImpl }) };
+  };
+
+  it('the features that read JSON ask for a JSON answer; the summary (plain text) does not', async () => {
+    const { bodies, svc } = recorder('{"steps":["A","B","C"],"title":"T","priority":"HIGH","reason":"r","summary":"s"}');
+    await svc.breakdownTask({ title: 'X' });
+    await svc.parseTask({ text: 'call the bank', today: '2026-10-20' });
+    await svc.suggestPriority({ title: 'X' });
+    await svc.draftMinutes('Meeting: X', { userId: 'u1' });
+    for (const body of bodies) expect(body.response_format).toEqual({ type: 'json_object' });
+    const plain = recorder('All good.');
+    await plain.svc.summarizeProject({ name: 'P', stats: { total: 1, completed: 0, inProgress: 0, overdue: 0 } });
+    expect(plain.bodies[0]).not.toHaveProperty('response_format');
+  });
+
+  it('a checklist is asked for as {"steps": [...]} (a JSON answer is an object) and read from it', async () => {
+    const { bodies, svc } = recorder('{"steps":["Gather figures","Draft the report","Send it"]}');
+    expect(await svc.breakdownTask({ title: 'Monthly report' })).toEqual(['Gather figures', 'Draft the report', 'Send it']);
+    expect((bodies[0]!.messages as Array<{ content: string }>)[0]!.content).toContain('{"steps"');
+  });
+
+  it('waits up to 2 minutes for an answer (a model may be loading), and 3 for the minutes draft (a long answer)', async () => {
+    const waits: number[] = [];
+    const real = AbortSignal.timeout.bind(AbortSignal);
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      waits.push(ms);
+      return real(ms);
+    });
+    try {
+      const { svc } = recorder('{"steps":["A"],"summary":"s"}');
+      await svc.breakdownTask({ title: 'X' });
+      await svc.draftMinutes('Meeting: X', { userId: 'u1' });
+      expect(waits).toEqual([120_000, 180_000]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

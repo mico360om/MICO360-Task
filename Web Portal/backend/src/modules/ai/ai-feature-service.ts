@@ -2,7 +2,7 @@ import { ValidationError } from '../../lib/http-errors';
 import { todayKey } from '../../lib/due-date';
 import type { AiConfigRepository } from './ai-config-repository';
 import { effectiveModel, type AiConfig, type AiModel } from './ai-config';
-import { complete, type ChatModel } from './ai-completion';
+import { complete, COMPLETION_TIMEOUT_MS, type ChatModel } from './ai-completion';
 import { createSafeFetch } from './ai-network';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
 import { isValidRule, type RecurrenceRule } from '../tasks/recurrence';
@@ -30,7 +30,7 @@ export interface AiFeatureServiceDeps {
   timeZone?: string;
   /** Allow provider URLs on private / internal hosts (e.g. a local Ollama). Default false. */
   allowPrivateHosts?: boolean;
-  /** Abort a provider call after this long. Default 60 seconds. */
+  /** Abort a provider call after this long. Default 120 seconds (a model may be loading); the minutes draft gets 180. */
   timeoutMs?: number;
   /** How long a request may wait for a free slot under the model's concurrency limit. Default 20 seconds. */
   slotWaitMs?: number;
@@ -64,7 +64,7 @@ export function createAiFeatureService({
   limits,
   timeZone = 'Asia/Muscat',
   allowPrivateHosts = false,
-  timeoutMs = 60_000,
+  timeoutMs = COMPLETION_TIMEOUT_MS,
   slotWaitMs = 20_000,
   now = () => new Date(),
 }: AiFeatureServiceDeps) {
@@ -82,12 +82,22 @@ export function createAiFeatureService({
     return { model, chat: { provider, modelKey: model.modelKey, parameters: model.parameters } };
   }
 
-  async function run(system: string, prompt: string, maxTokens: number | undefined, requester?: AiRequester): Promise<string> {
+  /**
+   * One completion with the default chat model. `json`: the answer is parsed as JSON, so a provider
+   * that can hold the model to JSON is asked to (MICO360 AI); `wait` overrides the time allowed.
+   */
+  async function run(
+    system: string,
+    prompt: string,
+    maxTokens: number | undefined,
+    requester?: AiRequester,
+    opts: { json?: boolean; wait?: number } = {},
+  ): Promise<string> {
     const { model, chat } = resolveChatModel(await repo.load());
     if (requester) usage.take(requester.userId);
     const release = await gate.acquire(model.id, model.concurrencyLimit);
     try {
-      return await complete(chat, { system, prompt, maxTokens }, doFetch, { timeoutMs, allowPrivateHosts });
+      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: opts.wait ?? timeoutMs, allowPrivateHosts });
     } finally {
       release();
     }
@@ -96,10 +106,11 @@ export function createAiFeatureService({
   /** Break a task into 3–7 short checklist steps. */
   async function breakdownTask(input: { title: string; description?: string }, requester?: AiRequester): Promise<string[]> {
     const text = await run(
-      'You break a work task into a short, actionable checklist. Reply with ONLY a JSON array of 3 to 7 short imperative steps (each under ~10 words). No numbering, no commentary.',
+      'You break a work task into a short, actionable checklist. Reply with ONLY JSON: {"steps": [3 to 7 short imperative steps, each under ~10 words]}. No numbering, no commentary.',
       `Title: ${input.title}\nDescription: ${input.description?.trim() || '(none)'}`,
       512,
       requester,
+      { json: true },
     );
     const items = parseStringArray(text)
       .map((s) => s.trim())
@@ -140,6 +151,7 @@ export function createAiFeatureService({
       input.text,
       600,
       requester,
+      { json: true },
     );
     const obj = parseJsonObject(text);
     const title = typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : input.text.trim();
@@ -180,6 +192,7 @@ export function createAiFeatureService({
       `Title: ${input.title}\nDescription: ${input.description?.trim() || '(none)'}\nDue: ${input.dueDate || '(none)'}`,
       120,
       requester,
+      { json: true },
     );
     const obj = parseJsonObject(text);
     const priority = PRIORITIES.includes(obj.priority as Priority) ? (obj.priority as Priority) : 'NORMAL';
@@ -204,6 +217,8 @@ export function createAiFeatureService({
       facts,
       2500,
       requester,
+      // A long answer: ~2,500 tokens at ~35 a second, after a cold load, is well over 2 minutes.
+      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS) },
     );
     const obj = parseJsonObject(text);
     if (Object.keys(obj).length === 0) throw new ValidationError('The AI’s draft couldn’t be read. Try again, or start from the notes.');
@@ -224,6 +239,9 @@ export interface DescribedTask {
   recurrence: RecurrenceRule | null;
   project: { id: string; code: string; number: string | null; name: string } | null;
 }
+
+/** The minutes draft is the one long answer: it gets 3 minutes, as MICO360 AI's guide advises for long text. */
+const MINUTES_TIMEOUT_MS = 180_000;
 
 /** At most this many projects are listed in the prompt (each one is a line). */
 const MAX_PROMPT_PROJECTS = 100;

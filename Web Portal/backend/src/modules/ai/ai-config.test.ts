@@ -250,6 +250,11 @@ describe('ai-config: provider presets', () => {
     expect(provider.preset).toBe('groq');
     expect(() => addProvider(emptyConfig(), { name: 'X', kind: 'custom', preset: 'nope' as never, apiBaseUrl: 'https://x.test' }, meta('p2'))).toThrow(ValidationError);
   });
+
+  it('knows MICO360 AI (the company’s own OpenAI-compatible platform)', () => {
+    const { provider } = addProvider(emptyConfig(), { name: 'MICO360 AI', kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1' }, meta('p1'));
+    expect(provider.preset).toBe('mico360');
+  });
 });
 
 describe('ai-config: redaction', () => {

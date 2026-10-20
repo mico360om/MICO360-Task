@@ -3,8 +3,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/Button';
 import { FieldLabel, FieldError, fieldClass } from '../ui/Field';
 import { relativeTime } from '../../lib/relative-time';
-import { PROVIDER_PRESETS, type AiConfig, type ProviderPreset, type RedactedProvider } from '../../api/ai';
+import { PROVIDER_PRESETS, sendsUnencrypted, type AiConfig, type ProviderPreset, type RedactedProvider } from '../../api/ai';
 import { AI_CONFIG_KEY, ProviderBadge, errMsg, failed, plural, type SectionProps } from './shared';
+
+/** Said under an address that sends the key and prompts across a network in clear text. */
+function UnencryptedNote({ url }: { url: string }) {
+  if (!sendsUnencrypted(url)) return null;
+  return <p className="text-xs text-warning">Plain http: the API key and what is sent to the AI cross the network unencrypted.</p>;
+}
 
 /** The services that supply models: one card each, then the form that connects another. */
 export function ProvidersSection({ config, apply, api }: SectionProps) {
@@ -89,6 +95,7 @@ function ProviderCard({ provider: p, apply, api }: { provider: RedactedProvider 
             ) : null}
           </div>
           <p className="mt-0.5 truncate font-mono text-xs text-ink-2">{p.apiBaseUrl}</p>
+          <UnencryptedNote url={p.apiBaseUrl} />
         </div>
         <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-ink-2">
           <input
@@ -297,6 +304,7 @@ function ConnectProviderForm({ config, apply, api }: SectionProps) {
               </p>
             </>
           )}
+          <UnencryptedNote url={url} />
         </div>
       </div>
       {mAdd.isError ? <FieldError>{errMsg(mAdd.error)}</FieldError> : null}

@@ -10,7 +10,7 @@ export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 /** A ready-made service: connecting one needs only its key. Mirrors the backend's PROVIDER_PRESETS. */
 export interface ProviderPreset {
-  id: 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'groq' | 'mistral' | 'deepseek' | 'ollama' | 'custom';
+  id: 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'groq' | 'mistral' | 'deepseek' | 'mico360' | 'ollama' | 'custom';
   /** In the list. */
   label: string;
   /** The provider's suggested name. */
@@ -31,9 +31,33 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'groq', label: 'Groq', name: 'Groq', kind: 'custom', baseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyUrl: 'https://console.groq.com/keys' },
   { id: 'mistral', label: 'Mistral', name: 'Mistral', kind: 'custom', baseUrl: 'https://api.mistral.ai/v1', needsKey: true, keyUrl: 'https://console.mistral.ai/api-keys' },
   { id: 'deepseek', label: 'DeepSeek', name: 'DeepSeek', kind: 'custom', baseUrl: 'https://api.deepseek.com', needsKey: true, keyUrl: 'https://platform.deepseek.com/api_keys' },
+  // MICO360 Connect's AI platform: its OpenAI-compatible API on port 5310 under /v1 (see its API guide);
+  // keys are issued in its console under AI Platform → Applications & keys.
+  { id: 'mico360', label: 'MICO360 AI (our AI platform)', name: 'MICO360 AI', kind: 'custom', baseUrl: 'http://ai.mico360.com:5310/v1', needsKey: true },
   { id: 'ollama', label: 'Ollama (your own server)', name: 'Ollama', kind: 'ollama', baseUrl: 'http://localhost:11434', needsKey: false },
   { id: 'custom', label: 'Other (OpenAI-compatible)', name: '', kind: 'custom', baseUrl: '', needsKey: false },
 ];
+
+/**
+ * Does this address send the API key and the prompts across a network unencrypted? Plain http to
+ * anything but this computer or a private (office) address does.
+ */
+export function sendsUnencrypted(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url.trim());
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'http:') return false;
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h === '::1') return false;
+  const m = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(h);
+  if (!m) return true;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  return !(a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254));
+}
 
 /** The label shown for a provider: its preset's, else its kind. */
 export function providerLabel(p: { preset?: string | null; kind: ProviderKind }): string {

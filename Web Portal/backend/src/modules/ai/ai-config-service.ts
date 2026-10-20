@@ -3,7 +3,7 @@ import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { AuditService } from '../audit/audit-service';
 import type { AiConfigRepository } from './ai-config-repository';
 import { fetchProviderModels, ProviderHttpError } from './ai-provider-sync';
-import { complete, ProviderRefusedError } from './ai-completion';
+import { complete, COMPLETION_TIMEOUT_MS, ProviderRefusedError } from './ai-completion';
 import { createSafeFetch } from './ai-network';
 import type { RemoteModel } from './ai-model-catalog';
 import * as ops from './ai-config';
@@ -192,7 +192,7 @@ export function createAiConfigService({
         { provider, modelKey: model.modelKey, parameters: model.parameters },
         { system: 'Reply with the single word OK.', prompt: 'Are you there?', maxTokens: 16 },
         providerFetch,
-        { timeoutMs: 60_000, allowPrivateHosts },
+        { timeoutMs: COMPLETION_TIMEOUT_MS, allowPrivateHosts },
       );
       return { ok: true, ms: Date.now() - started, reply: reply.slice(0, 80) };
     } catch (err) {

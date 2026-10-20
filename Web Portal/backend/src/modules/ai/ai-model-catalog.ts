@@ -33,8 +33,12 @@ const EMBEDDING = /embed/i;
 const VISION =
   /(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|gpt-5|chatgpt-4o|(^|\/)o1$|(^|\/)o[134](-(?!mini)|$)|o4-mini|claude-(3|sonnet|opus|haiku)|gemini|llava|vision|-vl\b|vl[:-]|\dvl|minicpm-v|gemma-?3|llama-?4|pixtral|moondream)/i;
 
+/** Document readers (GLM-OCR, DeepSeek-OCR…): they transcribe images and can't answer a chat question. */
+const OCR_ONLY = /(^|[-_/:.])ocr\d*([-_:.]|$)/i;
+
 export function inferCapabilities(key: string): AiCapability[] {
   if (EMBEDDING.test(key)) return ['embedding'];
+  if (OCR_ONLY.test(key)) return ['vision', 'ocr', 'document'];
   return VISION.test(key) ? ['chat', 'vision', 'ocr', 'document'] : ['chat'];
 }
 

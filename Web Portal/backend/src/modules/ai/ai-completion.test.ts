@@ -116,6 +116,74 @@ describe('extractText tolerates odd shapes', () => {
   });
 });
 
+describe('MICO360 AI (the company’s platform, per its API guide)', () => {
+  const mico = (): ChatModel => ({
+    provider: { kind: 'custom', preset: 'mico360', apiBaseUrl: 'http://ai.mico360.com:5310/v1', apiKey: 'mico_x' },
+    modelKey: 'llama3.1:latest',
+  });
+  const reply = (content: string, status = 200, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify(status === 200 ? { choices: [{ message: { content } }] } : { error: { message: content, type: 'x', code: null } }), { status, headers });
+
+  it('asks for a JSON answer when the feature parses one (the platform holds the model to it)', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      bodies.push({ url, ...JSON.parse(String(init!.body)) });
+      return reply('{"a":1}');
+    }) as unknown as typeof fetch;
+    await complete(mico(), { system: 'Reply with ONLY JSON', prompt: 'hi', json: true }, fetchImpl, { allowPrivateHosts: true });
+    await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true });
+    expect(bodies[0]).toMatchObject({ url: 'http://ai.mico360.com:5310/v1/chat/completions', response_format: { type: 'json_object' } });
+    expect(bodies[1]).not.toHaveProperty('response_format');
+  });
+
+  it('other OpenAI-compatible services are sent nothing new', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init!.body)));
+      return reply('{}');
+    }) as unknown as typeof fetch;
+    const groq: ChatModel = { provider: { kind: 'custom', preset: 'groq', apiBaseUrl: 'https://api.groq.com/openai/v1', apiKey: 'k' }, modelKey: 'llama-3.3-70b-versatile' };
+    await complete(groq, { prompt: 'hi', json: true }, fetchImpl);
+    expect(bodies[0]).not.toHaveProperty('response_format');
+  });
+
+  it('"busy, try again in a second" (429 with a short Retry-After) is retried once', async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const fetchImpl = (async () => (++calls === 1 ? reply('Concurrency limit', 429, { 'retry-after': '1' }) : reply('done'))) as unknown as typeof fetch;
+    const out = await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true, sleep: async (ms) => void waits.push(ms) });
+    expect(out).toBe('done');
+    expect(calls).toBe(2);
+    expect(waits).toEqual([1000]);
+  });
+
+  it('a longer wait (a quota, the minute’s rate limit) is not waited out: the person is told the service is busy', async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return reply('Quota exceeded', 429, { 'retry-after': '40' });
+    }) as unknown as typeof fetch;
+    const err = await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true, sleep: async () => {} }).catch((e: unknown) => e);
+    expect(calls).toBe(1);
+    expect((err as Error).message).toBe('The AI service is busy right now (HTTP 429). Try again in a moment.');
+    expect((err as { detail?: string }).detail).toBe('Quota exceeded');
+  });
+
+  it('plain messages for no model available, too slow and too long; the platform’s reason stays for admins', async () => {
+    const cases: Array<[number, string]> = [
+      [503, 'The AI service has no model available right now (HTTP 503). Try again in a minute, or ask an admin to check AI Management.'],
+      [504, 'The AI service took too long to answer (HTTP 504). Try again.'],
+      [413, 'That is too long for the AI service to read (HTTP 413).'],
+    ];
+    for (const [status, message] of cases) {
+      const fetchImpl = (async () => reply("No connected node provides the 'Chat' capability.", status)) as unknown as typeof fetch;
+      const err = await complete(mico(), { prompt: 'hi' }, fetchImpl, { allowPrivateHosts: true }).catch((e: unknown) => e);
+      expect((err as Error).message, String(status)).toBe(message);
+      expect((err as { detail?: string }).detail).toBe("No connected node provides the 'Chat' capability.");
+    }
+  });
+});
+
 describe('a provider refusal is not our own HTTP status', () => {
   it('answers 400 to our caller, whatever the provider said (a provider 401 must not look like an expired session)', async () => {
     const fetchImpl = (async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 })) as unknown as typeof fetch;

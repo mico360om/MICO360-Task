@@ -200,3 +200,23 @@ export async function readProviderJson(res: Response): Promise<unknown> {
     throw new ValidationError('The AI provider returned an unreadable response.');
   }
 }
+
+/** The provider's explanation in an error body, if there is a readable one (bounded). */
+export async function providerErrorDetail(res: Response): Promise<string | null> {
+  try {
+    const text = (await res.text()).slice(0, 4000);
+    let msg: unknown = text;
+    try {
+      const j = JSON.parse(text) as { error?: unknown; message?: unknown; detail?: unknown };
+      const e = j.error;
+      msg = (e && typeof e === 'object' ? (e as { message?: unknown }).message : e) ?? j.message ?? j.detail;
+    } catch {
+      // not JSON: the text itself, if it isn't a web page
+      if (/^\s*</.test(text)) msg = null;
+    }
+    // eslint-disable-next-line no-control-regex
+    return typeof msg === 'string' && msg.trim() ? msg.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 300) : null;
+  } catch {
+    return null;
+  }
+}

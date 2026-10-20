@@ -1,6 +1,6 @@
 import { ValidationError } from '../../lib/http-errors';
 import type { AiCapability, AiProvider } from './ai-config';
-import { createSafeFetch, providerFetch, readProviderJson } from './ai-network';
+import { createSafeFetch, providerErrorDetail, providerFetch, readProviderJson } from './ai-network';
 import { friendlyModelName, inferCapabilities, isUsableModelKey, type RemoteModel } from './ai-model-catalog';
 
 export interface SyncOptions {
@@ -21,11 +21,17 @@ const MAX_DISPLAY_NAME_LENGTH = 200;
  * provider's 401 never looks like an expired session to the web app.
  */
 export class ProviderHttpError extends ValidationError {
-  constructor(public readonly providerStatus: number) {
+  /** `detail`: the provider's own explanation (MICO360 AI names the right address when /v1 is missing). */
+  constructor(
+    public readonly providerStatus: number,
+    detail: string | null = null,
+  ) {
     super(
       providerStatus === 401 || providerStatus === 403
         ? 'The provider did not accept the API key. Check it and try again.'
-        : `The provider could not list its models (HTTP ${providerStatus}). Check the address.`,
+        : detail
+          ? `The provider could not list its models (HTTP ${providerStatus}). It says: ${detail}`
+          : `The provider could not list its models (HTTP ${providerStatus}). Check the address.`,
     );
   }
 }
@@ -70,7 +76,7 @@ export async function fetchProviderModels(
       allowPrivateHosts: opts.allowPrivateHosts,
     },
   );
-  if (!res.ok) throw new ProviderHttpError(res.status);
+  if (!res.ok) throw new ProviderHttpError(res.status, await providerErrorDetail(res));
   return extractModels(provider.kind, await readProviderJson(res));
 }
 

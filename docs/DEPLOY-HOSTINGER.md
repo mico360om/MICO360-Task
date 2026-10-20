@@ -135,7 +135,8 @@ until the file is there the button says "Not available yet"), `FCM_SERVICE_ACCOU
 turns on phone push), `ACCOUNT_LOCK_MINUTES` (first lockout length, default 15), `RATE_LIMIT_MAX` /
 `AUTH_RATE_LIMIT_MAX` (per-minute limits, default 600 / 20), `AI_ALLOW_PRIVATE_HOSTS=true` (only for
 an AI provider on the internal network, e.g. a local Ollama), `AI_USER_REQUESTS_PER_MINUTE` /
-`AI_USER_REQUESTS_PER_DAY` (per-user AI budget, default 10 / 200).
+`AI_USER_REQUESTS_PER_DAY` (per-user AI budget, default 10 / 200). To use MICO360 AI, the site must
+be able to reach `ai.mico360.com` on port 5310 — see [AI-MICO360.md](AI-MICO360.md).
 
 **B. Upload a `.env` file**
 Copy `Web Portal/backend/.env.production` into the Node.js app root (the

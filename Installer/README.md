@@ -131,7 +131,8 @@ They only add columns and tables, and they are applied automatically when the ne
 - **AI Management:** connecting an AI service needs only its key, and its models load by
   themselves.
   - Pick the service: OpenAI, Anthropic (Claude), Google Gemini, OpenRouter, Groq, Mistral,
-    DeepSeek, Ollama, or any other OpenAI-compatible one. Its name and address fill themselves in.
+    DeepSeek, MICO360 AI (our own platform — see `docs/AI-MICO360.md`), Ollama, or any other
+    OpenAI-compatible one. Its name and address fill themselves in.
     A key the service refuses is not saved.
   - The model list loads on connecting and is checked again every day. New models appear switched
     off; models the service retires are marked Unavailable. Image, speech and moderation models are

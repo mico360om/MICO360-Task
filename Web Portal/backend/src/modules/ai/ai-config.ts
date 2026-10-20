@@ -10,7 +10,7 @@ export const PROVIDER_KINDS = ['openai', 'anthropic', 'ollama', 'custom'] as con
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 /** The services AI Management offers ready-made (address filled in); "custom" is any OpenAI-compatible one. */
-export const PROVIDER_PRESETS = ['openai', 'anthropic', 'gemini', 'openrouter', 'groq', 'mistral', 'deepseek', 'ollama', 'custom'] as const;
+export const PROVIDER_PRESETS = ['openai', 'anthropic', 'gemini', 'openrouter', 'groq', 'mistral', 'deepseek', 'mico360', 'ollama', 'custom'] as const;
 export type ProviderPreset = (typeof PROVIDER_PRESETS)[number];
 
 export interface AiProvider {

@@ -140,6 +140,14 @@ describe('fetchProviderModels', () => {
     ).rejects.toThrow(/HTTP 404/);
   });
 
+  it('passes on the provider’s own explanation — MICO360 AI says which address to use when /v1 is missing', async () => {
+    const hint =
+      "No endpoint at '/models'. This platform serves the OpenAI-compatible API under /v1 — use '/v1/models', i.e. set the base URL to 'http://ai.mico360.com:5310/v1'. The Ollama dialect is not served; use the OpenAI one.";
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { message: hint, type: 'invalid_request_error', code: 'wrong_base_url' } }, 404));
+    const err = await fetchProviderModels({ kind: 'custom', apiBaseUrl: 'http://ai.mico360.com:5310', apiKey: 'k' }, fetchImpl as unknown as typeof fetch).catch((e: unknown) => e);
+    expect((err as Error).message).toBe(`The provider could not list its models (HTTP 404). It says: ${hint.slice(0, 300)}`);
+  });
+
   it('throws a ValidationError when the provider is unreachable', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('ECONNREFUSED');

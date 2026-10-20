@@ -14,6 +14,23 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- AI Management connects MICO360 AI, the company's own AI platform, in one step: choose "MICO360 AI
+  (our AI platform)", paste its key, and its models load. How to set it up: docs/AI-MICO360.md.
+
+### Improvements
+- The AI waits up to 2 minutes for an answer (3 for drafting the Final MOM), so a model that is still
+  loading — the first request of the day on MICO360 AI — answers instead of timing out. An admin's
+  model Test waits as long.
+- On MICO360 AI, describing a task, the checklist, priority suggestions and the Final MOM ask the
+  platform to hold the model to a JSON answer, so even a small model's answer can be read.
+- An AI service that is busy for a second is asked again once; "busy", "no model available", "took
+  too long" and "too long to read" each get a plain message instead of an HTTP number.
+- When a provider's models can't be loaded, its own explanation is shown (MICO360 AI says which
+  address to use when /v1 is missing), and document readers such as GLM-OCR are no longer offered
+  as chat models.
+- AI Management says when an address sends the API key and prompts unencrypted (plain http).
+
 ## [1.2.2] - 2026-10-20
 
 ### Bug fixes
