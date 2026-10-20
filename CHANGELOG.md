@@ -14,6 +14,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- The Minutes of Meeting PDF prints the project's logo whatever format its picture is in (WebP and
+  every kind of PNG are converted for the PDF), instead of its initials. A project that uses an icon
+  rather than a picture prints that icon on its colour, as the app shows it.
+- A meeting is marked Completed once its end time has passed (a meeting without an end counts as an
+  hour long), unless it was cancelled: in the app and in the minutes. Meetings already over were
+  updated. A finished meeting moved to a time still to come is scheduled again.
+- Meeting action items follow the task they are tracked as: Completed when the task is done, open
+  again when it is reopened. Items whose task was already done were completed.
+- The minutes call the project's status "Project status", so it isn't taken for the meeting's.
+
 ## [1.3.4] - 2026-10-20
 
 ### Improvements

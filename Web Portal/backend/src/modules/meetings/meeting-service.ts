@@ -1,3 +1,4 @@
+import { meetingHasEnded } from './meeting-end';
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import { createMeetingAccess, type MeetingEditFacts } from './meeting-access';
 import type {
@@ -27,11 +28,12 @@ export interface MeetingServiceDeps {
   defaultTimeZone?: string;
   /** Is this an existing, active user? Guards the organizer field (no organizer can be invented). */
   isActiveUser?: (userId: string) => Promise<boolean>;
+  now?: () => Date;
 }
 
 const VALID_STATUS: MeetingStatus[] = ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
 
-export function createMeetingService({ meetings, onChanged, access, defaultTimeZone, isActiveUser }: MeetingServiceDeps) {
+export function createMeetingService({ meetings, onChanged, access, defaultTimeZone, isActiveUser, now = () => new Date() }: MeetingServiceDeps) {
   const permissions = access ?? createMeetingAccess({ meetings });
   const withZone = (m: MeetingRecord): MeetingRecord => (m.timeZone || !defaultTimeZone ? m : { ...m, timeZone: defaultTimeZone });
 
@@ -72,9 +74,14 @@ export function createMeetingService({ meetings, onChanged, access, defaultTimeZ
     const end = patch.endAt !== undefined ? patch.endAt : current.endAt;
     if (end && end < start) throw new ValidationError('The meeting cannot end before it starts.');
     if (patch.organizerId !== undefined && patch.organizerId !== current.organizerId) await assertOrganizer(patch.organizerId);
+    // A meeting closed because its time had passed (it may never have happened), moved to a time
+    // still to come, is scheduled again.
+    const timeMoved = patch.startAt !== undefined || patch.endAt !== undefined;
+    const reopen = current.status === 'COMPLETED' && patch.status === undefined && timeMoved && !meetingHasEnded({ startAt: start, endAt: end }, now());
     let updated = await meetings.update(id, {
       ...patch,
       ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+      ...(reopen ? { status: 'SCHEDULED' as const } : {}),
     });
     // A rescheduled meeting needs a fresh reminder for its new time.
     const rescheduled = patch.startAt !== undefined && patch.startAt.getTime() !== current.startAt.getTime();

@@ -236,6 +236,31 @@ describe('Minutes email route', () => {
   });
 });
 
+describe('Minutes PDF route: the meeting’s status', () => {
+  const statusLine = (pdf: Buffer) => {
+    const text = inspectPdf(pdf).pages.flat();
+    return text[text.indexOf('Status') + 1];
+  };
+  async function pdfFor(startAt: string, endAt?: string, status?: string) {
+    const app = await makeApp();
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt, ...(endAt ? { endAt } : {}), status: status ?? 'SCHEDULED' } });
+    expect(created.statusCode).toBe(201);
+    return (await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } })).rawPayload;
+  }
+
+  it('says Completed for a scheduled meeting that is already over, even before the sweep closes it', async () => {
+    expect(statusLine(await pdfFor('2026-10-01T09:00:00Z', '2026-10-01T10:00:00Z'))).toBe('Completed');
+    expect(statusLine(await pdfFor('2026-10-01T09:00:00Z'))).toBe('Completed'); // no end: an hour
+  });
+
+  it('keeps Scheduled for a meeting still to come, and Cancelled for a cancelled one', async () => {
+    const soon = new Date(Date.now() + 864e5).toISOString();
+    expect(statusLine(await pdfFor(soon))).toBe('Scheduled');
+    expect(statusLine(await pdfFor('2026-10-01T09:00:00Z', undefined, 'CANCELLED'))).toBe('Cancelled');
+  });
+});
+
 describe('Minutes PDF route: the project header', () => {
   const jpeg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64');
 
@@ -254,6 +279,36 @@ describe('Minutes PDF route: the project header', () => {
     expect(read).toEqual(['/uploads/projects/falcon.jpg']);
     expect(pages[0]).toContain('FAL  ·  Project no. PDO-2026-014  ·  Acme Corp');
     expect(contents[0]).toMatch(/\/I\d+ Do/);
+  });
+
+  it('prints a picture the PDF can’t take as stored (WebP) once it is converted', async () => {
+    const webp = Buffer.from('RIFF\u0000\u0000\u0000\u0000WEBPVP8 ', 'latin1');
+    const converted: Buffer[] = [];
+    const app = await makeApp({}, undefined, undefined, {
+      resolveProject: async () => ({ name: 'Falcon CRM', code: 'FAL', clientName: null, status: 'ACTIVE', ownerId: null, startDate: null, targetDate: null, color: '#1E5A8B', imageUrl: '/uploads/projects/falcon.webp' }),
+      readProjectImage: async () => webp,
+      printableProjectImage: async (raw: Buffer) => { converted.push(raw); return jpeg; },
+    }, true);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt: '2026-10-01T09:00:00Z', projectId: 'p1' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    const { pages, contents } = inspectPdf(res.rawPayload);
+    expect(converted).toEqual([webp]);
+    expect(contents[0]).toMatch(/\/I\d+ Do/);
+    expect(pages[0]).not.toContain('FC');
+  });
+
+  it('prints the project’s icon when it has no picture', async () => {
+    const app = await makeApp({}, undefined, undefined, {
+      resolveProject: async () => ({ name: 'Falcon CRM', code: 'FAL', clientName: null, status: 'ACTIVE', ownerId: null, startDate: null, targetDate: null, color: '#1E5A8B', icon: 'rocket', imageUrl: null }),
+      readProjectImage: async () => { throw new Error('not read without a picture'); },
+    }, true);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt: '2026-10-01T09:00:00Z', projectId: 'p1' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    const { pages, contents } = inspectPdf(res.rawPayload);
+    expect(pages[0]).not.toContain('FC');
+    expect(contents[0]).toMatch(/1 1 1 SCN\nS\n/);
   });
 
   it('still prints the minutes when the picture can’t be read', async () => {

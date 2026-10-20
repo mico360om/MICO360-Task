@@ -55,6 +55,11 @@ export interface ActionItemService {
   updateItem(id: string, patch: UpdateActionItemInput): Promise<ActionItemRecord>;
   setStatus(id: string, status: ActionItemStatus): Promise<ActionItemRecord>;
   removeItem(id: string): Promise<void>;
+  /**
+   * The items tracked as a board task follow it: completed when it is done, open again when it is
+   * reopened. Cancelled items are left as they are.
+   */
+  followTask(taskId: string, done: boolean): Promise<void>;
 }
 
 const trim = (v: string | null | undefined): string | null => {
@@ -78,7 +83,7 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
     return a;
   }
 
-  return {
+  const service: ActionItemService = {
     canEditMeeting: (userId, roles, meetingId) => (deps.canEditMeeting ? deps.canEditMeeting(userId, roles, meetingId) : Promise.resolve(true)),
 
     async getItem(id) {
@@ -147,5 +152,13 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
       await actionItems.remove(id);
       deps.onChanged?.(current.meetingId);
     },
+
+    async followTask(taskId, done) {
+      for (const item of await actionItems.listByTask(taskId)) {
+        if (item.status === 'CANCELLED' || (item.status === 'COMPLETED') === done) continue;
+        await service.setStatus(item.id, done ? 'COMPLETED' : 'OPEN');
+      }
+    },
   };
+  return service;
 }

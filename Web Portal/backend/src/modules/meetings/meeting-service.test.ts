@@ -134,3 +134,31 @@ describe('MeetingService', () => {
     await expect(svc.deleteMeeting('nope')).rejects.toThrow(/not found/i);
   });
 });
+
+describe('MeetingService: a finished meeting moved to a later time is scheduled again', () => {
+  const NOW = new Date('2026-10-21T10:00:00Z');
+  async function completedYesterday() {
+    const svc = createMeetingService({ meetings: inMemory(), now: () => NOW });
+    const m = await svc.createMeeting({ title: 'Site walk', organizerId: 'u1', createdById: 'u1', startAt: new Date('2026-10-20T09:00:00Z'), endAt: new Date('2026-10-20T10:00:00Z'), status: 'SCHEDULED' });
+    await svc.updateMeeting(m.id, { status: 'COMPLETED' }); // closed by the sweep (or by hand)
+    return { svc, id: m.id };
+  }
+
+  it('goes back to Scheduled when it is moved to a time still to come', async () => {
+    const { svc, id } = await completedYesterday();
+    const moved = await svc.updateMeeting(id, { startAt: new Date('2026-10-22T09:00:00Z'), endAt: new Date('2026-10-22T10:00:00Z') });
+    expect(moved.status).toBe('SCHEDULED');
+  });
+
+  it('stays Completed when it is edited without moving it into the future', async () => {
+    const { svc, id } = await completedYesterday();
+    expect((await svc.updateMeeting(id, { title: 'Site walk (east)' })).status).toBe('COMPLETED');
+    expect((await svc.updateMeeting(id, { startAt: new Date('2026-10-20T08:00:00Z') })).status).toBe('COMPLETED');
+  });
+
+  it('keeps a status set in the same change', async () => {
+    const { svc, id } = await completedYesterday();
+    const moved = await svc.updateMeeting(id, { startAt: new Date('2026-10-22T09:00:00Z'), endAt: new Date('2026-10-22T10:00:00Z'), status: 'COMPLETED' });
+    expect(moved.status).toBe('COMPLETED');
+  });
+});

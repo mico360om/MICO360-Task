@@ -19,6 +19,7 @@ function actionRepo(): ActionItemRepository {
     },
     async findById(id) { return rows.get(id) ?? null; },
     async listByMeeting(meetingId) { return [...rows.values()].filter((a) => a.meetingId === meetingId); },
+    async listByTask(taskId) { return [...rows.values()].filter((a) => a.taskId === taskId); },
     async listForAssignee(userId, filter: AssigneeListFilter = {}) {
       let all = [...rows.values()].filter((a) => a.assigneeId === userId);
       if (filter.status) all = all.filter((a) => a.status === filter.status);

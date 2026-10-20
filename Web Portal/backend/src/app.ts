@@ -169,6 +169,8 @@ export interface AppDeps extends AuthRouteDeps {
   resolveProject?: (projectId: string) => Promise<MinutesProjectSource | null>;
   /** Reads a project's stored picture for the minutes PDF header. */
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
+  /** Converts a picture the PDF can't take as stored (WebP, GIF, some PNGs) into one it can. */
+  printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Where meetings' final minutes (Final MOM) are kept. */
   finalMinutesRepository?: FinalMinutesRepository;
   /** Drafts final minutes with the AI from a meeting's facts. */
@@ -596,6 +598,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           resolveUserNames: deps.resolveUserNames,
           resolveProject: deps.resolveProject,
           readProjectImage: deps.readProjectImage,
+          printableProjectImage: deps.printableProjectImage,
           finalMinutes: deps.finalMinutesRepository,
           draftMinutesWithAi: deps.draftMinutesWithAi,
           resolveTaskKeys: deps.resolveTaskKeys,

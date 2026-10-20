@@ -2,6 +2,7 @@ import { BULLET, PdfDocument, hexToRgb, type PdfRichBlock, type RGB } from '../.
 import { linkNeedsAddress, listMarkers, noteText, parseRichHtml } from '../../lib/rich-text';
 import type { StyledRun } from '../../lib/pdf-text';
 import { printableImage } from '../../lib/pdf-image';
+import { PROJECT_ICON_PATHS, type ProjectIcon } from '../projects/project-icons';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { isValidTimeZone } from './meeting-validation';
 import type { FinalMinutesContent } from './final-minutes';
@@ -80,10 +81,12 @@ export interface MinutesProject {
   code?: string | null;
   /** The project's own number (e.g. the client's job number). */
   number?: string | null;
-  /** Hex colour of its initials tile, when it has no picture that can be printed. */
+  /** Hex colour of its icon or initials tile, when it has no picture that can be printed. */
   color?: string | null;
   /** The project's picture (bytes as stored); printed in the header when it can be (JPEG/PNG). */
   image?: Buffer | null;
+  /** The project's icon (one of PROJECT_ICONS), drawn on its colour when there is no picture. */
+  icon?: string | null;
   clientName?: string | null;
   statusLabel?: string | null;
   ownerName?: string | null;
@@ -231,17 +234,19 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     footerLeft,
   });
 
-  // Header: the project's picture (or its initials on its colour), name, code and number for a
-  // project meeting; the product masthead for a standalone one. The badge says Final once the
-  // Final MOM is approved, Draft until then.
+  // Header: the project's picture (or its icon, or its initials, on its colour), name, code and
+  // number for a project meeting; the product masthead for a standalone one. The badge says Final
+  // once the Final MOM is approved, Draft until then.
   const badge = approved ? { text: 'Final', tone: 'success' as const } : { text: 'Draft', tone: 'warning' as const };
   if (project) {
     const subtitle = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName]
       .filter((b): b is string => Boolean(b))
       .map(isolate)
       .join('  ·  ');
+    const image = project.image ? printableImage(project.image) : null;
     doc.identityHeader({
-      image: project.image ? printableImage(project.image) : null,
+      image,
+      icon: !image && project.icon && project.icon in PROJECT_ICON_PATHS ? PROJECT_ICON_PATHS[project.icon as ProjectIcon] : null,
       initials: initialsOf(project.name),
       color: project.color ? hexToRgb(project.color, hexToRgb(brand.colors?.brand ?? '#8B1E1E')) : undefined,
       eyebrow: 'Minutes of Meeting',
@@ -332,7 +337,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     if (project.number) doc.keyValue('Project no.', project.number);
     if (project.clientName) doc.keyValue('Client', project.clientName);
     if (project.ownerName) doc.keyValue('Owner', project.ownerName);
-    if (project.statusLabel) doc.keyValue('Status', project.statusLabel);
+    if (project.statusLabel) doc.keyValue('Project status', project.statusLabel);
     if (project.startDate || project.targetDate) {
       doc.keyValue('Timeline', `${fmtDay(project.startDate, tz)}  –  ${fmtDay(project.targetDate, tz)}`);
     }

@@ -9,6 +9,8 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { buildMinutesPdf, resolveMinutesTimeZone, type MinutesData } from './minutes';
 import { resolveBrand } from '../email/brand';
 import { dueDayKey } from '../../lib/due-date';
+import { printableImage } from '../../lib/pdf-image';
+import { shownMeetingStatus } from './meeting-end';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { draftFromNotes, minutesFacts, normalizeFinalMinutes, type FinalMinutesContent } from './final-minutes';
 import type { FinalMinutesRecord, FinalMinutesRepository } from './final-minutes-repository';
@@ -39,8 +41,10 @@ export interface MinutesProjectSource {
   code: string | null;
   /** The project's own number (e.g. the client's job number). */
   number?: string | null;
-  /** Its colour (hex), for the initials tile when there is no printable picture. */
+  /** Its colour (hex), for the icon or initials tile when there is no printable picture. */
   color?: string | null;
+  /** Its icon (one of PROJECT_ICONS), drawn when it has no picture. */
+  icon?: string | null;
   /** Where its picture is stored ('/uploads/…'), read with readProjectImage. */
   imageUrl?: string | null;
   clientName: string | null;
@@ -69,8 +73,10 @@ export interface MinutesRouteDeps {
   resolveUserNames: (ids: string[]) => Promise<Map<string, string>>;
   /** Resolve a project id to its details for the header (null when unknown/standalone). */
   resolveProject?: (projectId: string) => Promise<MinutesProjectSource | null>;
-  /** The bytes of a project's stored picture, for the minutes header (null or a failure: the initials are printed). */
+  /** The bytes of a project's stored picture, for the minutes header (null or a failure: the icon or initials are printed). */
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
+  /** Converts a stored picture the PDF can't take as it is (WebP, GIF, some PNGs) into one it can. */
+  printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Board keys of linked tasks (id → key), printed beside their action items. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
   /** Where the final minutes (Final MOM) are kept; enables the /meetings/:id/final-minutes routes. */
@@ -123,8 +129,13 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       deps.resolveUserNames([...ids]),
       taskIds.length && deps.resolveTaskKeys ? deps.resolveTaskKeys(taskIds) : Promise.resolve({} as Record<string, string>),
     ]);
-    const projectImage =
+    const storedImage =
       projectSrc?.imageUrl && deps.readProjectImage ? await deps.readProjectImage(projectSrc.imageUrl).catch(() => null) : null;
+    // A picture in a format the PDF can't embed as stored is converted, so the logo still prints.
+    const projectImage =
+      storedImage && !printableImage(storedImage) && deps.printableProjectImage
+        ? await deps.printableProjectImage(storedImage).catch(() => null)
+        : storedImage;
     const trackedNotes = new Set(actionItems.map((a) => a.sourceNoteId).filter(Boolean));
     const nameOf = (uid: string | null): string | null => (uid ? names.get(uid) ?? null : null);
 
@@ -147,6 +158,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
             number: projectSrc.number ?? null,
             color: projectSrc.color ?? null,
             image: projectImage,
+            icon: projectSrc.icon ?? null,
             clientName: projectSrc.clientName,
             statusLabel: PROJECT_STATUS_LABELS[projectSrc.status] ?? projectSrc.status,
             ownerName: nameOf(projectSrc.ownerId),
@@ -156,7 +168,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         : null,
       meeting: {
         title: meeting.title,
-        statusLabel: STATUS_LABELS[meeting.status] ?? meeting.status,
+        statusLabel: STATUS_LABELS[shownMeetingStatus(meeting, new Date())] ?? meeting.status,
         organizerName: nameOf(meeting.organizerId),
         location: meeting.location,
         onlineLink: meeting.onlineLink,

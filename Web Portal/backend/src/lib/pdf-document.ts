@@ -285,10 +285,10 @@ export class PdfDocument {
 
   /**
    * A header for a document about one project: its picture (an image pdfkit can embed as it is —
-   * see printableImage), else its initials on its colour; then the eyebrow, the project name and a
-   * detail line, an optional badge on the right, and a brand rule beneath.
+   * see printableImage), else its icon (24×24 outline paths) or its initials on its colour; then the
+   * eyebrow, the project name and a detail line, an optional badge on the right, and a brand rule beneath.
    */
-  identityHeader(opts: { image?: Buffer | null; initials: string; color?: RGB; title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): this {
+  identityHeader(opts: { image?: Buffer | null; icon?: readonly string[] | null; initials: string; color?: RGB; title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): this {
     const s = 46;
     const top = this.y;
     const x = this.margin;
@@ -303,6 +303,12 @@ export class PdfDocument {
     this.doc.restore();
     if (opts.image) {
       this.doc.save().lineWidth(0.6).roundedRect(x, top, s, s, s * 0.22).stroke(toHex(this.pal.line)).restore();
+    } else if (opts.icon?.length) {
+      // The icon at half the tile, as the app draws it: round-capped outlines in white.
+      const k = s / 2 / 24;
+      this.doc.save().translate(x + s / 4, top + s / 4).scale(k);
+      for (const d of opts.icon) this.doc.path(d).lineWidth(1.9).lineCap('round').lineJoin('round').stroke(toHex(WHITE));
+      this.doc.restore();
     } else {
       const initials = layoutText(opts.initials.slice(0, 3).toUpperCase(), { size: 17, bold: true })[0]!;
       drawTextLine(this.doc, initials, x + (s - initials.width) / 2, top + s / 2 + 6, 17, toHex(WHITE));

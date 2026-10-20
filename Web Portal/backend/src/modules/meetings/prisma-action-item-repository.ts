@@ -59,6 +59,10 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
       return rows.map(toRecord);
     },
 
+    async listByTask(taskId) {
+      return (await prisma.actionItem.findMany({ where: { taskId } })).map(toRecord);
+    },
+
     async listForAssignee(userId, filter: AssigneeListFilter = {}) {
       // Items from deleted meetings drop out of "My Action Items" (standalone items stay).
       const where: Prisma.ActionItemWhereInput = {

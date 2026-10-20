@@ -191,6 +191,9 @@ describe('buildMinutesPdf', () => {
     expect(text).toContain('Grace Hopper'); // owner
     expect(text).toContain('FAL'); // code
     expect(text).toContain('Jan 1, 2026  –  Dec 31, 2026'); // timeline
+    // Named as the project's, so it isn't read as the meeting's status.
+    expect(text).toContain('Project status');
+    expect(text.indexOf('Project status')).toBeGreaterThan(text.indexOf('Project details'));
   });
 
   it('keeps parentheses and backslashes in note text intact', () => {
@@ -315,6 +318,20 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(contents[0]).not.toMatch(/\/I\d+ Do/);
     expect(pages[0]).toContain('FC');
     expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // #1E5A8B tile
+  });
+
+  it('draws the project’s icon on its colour when it has an icon and no picture, as the app shows it', () => {
+    const { pages, contents } = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image: null, icon: 'rocket' } }));
+    expect(contents[0]).not.toMatch(/\/I\d+ Do/);
+    expect(pages[0]).not.toContain('FC'); // no initials
+    expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // #1E5A8B tile
+    expect(contents[0]).toMatch(/1 1 1 SCN/); // drawn in white…
+    expect(contents[0]).toMatch(/SCN\nS\n/); // …as outlines
+  });
+
+  it('prints the initials for an icon it doesn’t know', () => {
+    const { pages } = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image: null, icon: 'no-such-icon' } }));
+    expect(pages[0]).toContain('FC');
   });
 
   it('keeps the MICO360 masthead for a meeting without a project', () => {

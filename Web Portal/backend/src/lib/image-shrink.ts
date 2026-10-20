@@ -24,7 +24,15 @@ export interface ImageShrinker {
   check(): Promise<boolean>;
   /** What the last check found: null before anything has asked. */
   status(): boolean | null;
+  /**
+   * Any picture (WebP, GIF, any PNG…) as a small opaque PNG on white that a PDF can embed as it is
+   * (a project's logo in the minutes); null when it can't be read or the library can't load.
+   */
+  toPrintable(content: Buffer): Promise<Buffer | null>;
 }
+
+/** A logo in a document is printed small: this many pixels on its long side is plenty. */
+const PRINTABLE_MAX_SIDE = 512;
 
 /** An animated PNG says so in an acTL chunk before its first image data. */
 export function isAnimatedPng(content: Buffer): boolean {
@@ -95,9 +103,27 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
     }
   }
 
+  async function toPrintable(content: Buffer): Promise<Buffer | null> {
+    const sharp = await library();
+    if (!sharp) return null;
+    try {
+      return await sharp(content, { limitInputPixels: MAX_INPUT_PIXELS })
+        .rotate()
+        .resize({ width: PRINTABLE_MAX_SIDE, height: PRINTABLE_MAX_SIDE, fit: 'inside', withoutEnlargement: true })
+        .flatten({ background: '#ffffff' })
+        .toColourspace('srgb')
+        .png()
+        .toBuffer();
+    } catch (err) {
+      warn('A picture could not be prepared for a document', { err, bytes: content.length });
+      return null;
+    }
+  }
+
   return {
     shrink,
     check: async () => (await library()) !== null,
     status: () => available,
+    toPrintable,
   };
 }

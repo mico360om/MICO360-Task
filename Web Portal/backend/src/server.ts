@@ -403,6 +403,7 @@ async function main(): Promise<void> {
       code: p.code,
       number: p.number,
       color: p.color,
+      icon: p.icon,
       imageUrl: p.imageUrl,
       clientName: p.clientName,
       status: p.status,
@@ -618,6 +619,14 @@ async function main(): Promise<void> {
       });
       // Open boards show the new occurrence at once (its CREATED activity is written by the port).
       if (next) broadcast(task.projectId, 'task:created', await taskService.getTask(next.id));
+    }
+
+    // Meeting action items tracked as this task follow it into (and out of) Done. Best effort: the
+    // move itself has happened, so a failure here is logged rather than undoing it.
+    if ((toCol?.category === 'DONE') !== (fromCol?.category === 'DONE')) {
+      await actionItemService
+        .followTask(task.id, toCol?.category === 'DONE')
+        .catch((err) => logger.error('action items could not follow their task', { err, taskId: task.id }));
     }
 
     // Everyone following the task except whoever moved it.
@@ -932,6 +941,18 @@ async function main(): Promise<void> {
   void runMeetingReminders();
   const meetingReminderTimer = setInterval(() => void runMeetingReminders(), 15 * 60 * 1000);
   meetingReminderTimer.unref?.();
+  // A meeting that is over is Completed (unless cancelled): every 5 minutes, one lease-locked
+  // instance closes the ones whose end has passed. No emails; open pages refresh.
+  const runMeetingCompletion = () =>
+    runExclusive(jobLock, 'meeting-completion-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
+      for (const id of await meetingRepository.completeEnded(new Date())) broadcastMeetingChange(id, 'meeting:updated');
+    }).catch((err) => {
+      logger.error('meeting completion sweep failed', { err });
+      return false;
+    });
+  void runMeetingCompletion();
+  const meetingCompletionTimer = setInterval(() => void runMeetingCompletion(), 5 * 60 * 1000);
+  meetingCompletionTimer.unref?.();
 
   // ── Engagement: daily digest + escalation sweeps ──────────────────────────
   // Company-local calendar day + hour, used to gate the once-a-day digest to the morning.
@@ -1140,6 +1161,8 @@ async function main(): Promise<void> {
     // The minutes PDF prints the project's picture: read it back from where uploads are stored.
     readProjectImage: async (url: string) =>
       url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null,
+    // …and a WebP, GIF or unusual PNG picture is converted so the logo still prints.
+    printableProjectImage: imageShrinker.toPrintable,
     activityService,
     auditService,
     settingsService,

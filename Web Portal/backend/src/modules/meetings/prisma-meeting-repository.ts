@@ -8,7 +8,9 @@ import type {
   RecurrenceRule,
   MeetingAccessCore,
   MeetingSeriesStore,
+  EndedMeetingSweep,
 } from './meeting-repository';
+import { MEETING_DEFAULT_LENGTH_MS } from './meeting-end';
 
 type Row = Meeting;
 
@@ -66,7 +68,7 @@ function updateData(patch: UpdateMeetingData): Prisma.MeetingUncheckedUpdateInpu
   };
 }
 
-export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepository & MeetingSeriesStore {
+export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepository & MeetingSeriesStore & EndedMeetingSweep {
   return {
     async create(data: CreateMeetingData) {
       const row = await prisma.meeting.create({
@@ -163,6 +165,24 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
         take: 200,
       });
       return rows.map(toRecord);
+    },
+
+    async completeEnded(now) {
+      const ended = await prisma.meeting.findMany({
+        where: {
+          deletedAt: null,
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+          // The same rule as meetingHasEnded: its end time, else an hour after it starts.
+          OR: [{ endAt: { lte: now } }, { endAt: null, startAt: { lte: new Date(now.getTime() - MEETING_DEFAULT_LENGTH_MS) } }],
+        },
+        select: { id: true },
+      });
+      const ids = ended.map((m) => m.id);
+      if (ids.length) {
+        // The status check again, so a meeting cancelled meanwhile stays cancelled.
+        await prisma.meeting.updateMany({ where: { id: { in: ids }, status: { in: ['SCHEDULED', 'IN_PROGRESS'] } }, data: { status: 'COMPLETED' } });
+      }
+      return ids;
     },
 
     async findAnyById(id) {

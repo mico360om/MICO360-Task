@@ -11,7 +11,7 @@ function inMemory(): ActionItemRepository {
       const rec: ActionItemRecord = {
         id: `ai${seq++}`, meetingId: d.meetingId ?? null, agendaItemId: d.agendaItemId ?? null, sourceNoteId: d.sourceNoteId ?? null,
         projectId: d.projectId ?? null, description: d.description, assigneeId: d.assigneeId ?? null, priority: d.priority ?? 'NORMAL',
-        status: d.status ?? 'OPEN', dueDate: d.dueDate ?? null, progress: 0, completedAt: null, taskId: null,
+        status: d.status ?? 'OPEN', dueDate: d.dueDate ?? null, progress: 0, completedAt: null, taskId: d.taskId ?? null,
         createdById: d.createdById, createdAt: now, updatedAt: now,
       };
       rows.set(rec.id, rec);
@@ -19,6 +19,7 @@ function inMemory(): ActionItemRepository {
     },
     async findById(id) { return rows.get(id) ?? null; },
     async listByMeeting(meetingId) { return [...rows.values()].filter((a) => a.meetingId === meetingId); },
+    async listByTask(taskId) { return [...rows.values()].filter((a) => a.taskId === taskId); },
     async listForAssignee(userId, filter: AssigneeListFilter = {}) {
       let all = [...rows.values()].filter((a) => a.assigneeId === userId);
       if (filter.status) all = all.filter((a) => a.status === filter.status);
@@ -110,5 +111,52 @@ describe('ActionItemService', () => {
     const a = await svc.addItem('m1', 'u1', { description: 'Temp' });
     await svc.removeItem(a.id);
     expect(await svc.listByMeeting('m1')).toHaveLength(0);
+  });
+});
+
+describe('ActionItemService.followTask (an action item follows the task it is tracked as)', () => {
+  async function setup() {
+    const changed: Array<string | null> = [];
+    const repo = inMemory();
+    const svc = createActionItemService({ actionItems: repo, onChanged: (m) => changed.push(m), now: () => at('2026-10-21T08:00:00Z') });
+    const open = await svc.addItem('m1', 'u1', { description: 'Book the inspection', taskId: 't1' });
+    const doing = await svc.addItem('m2', 'u1', { description: 'Same task, another meeting', taskId: 't1' });
+    await svc.setStatus(doing.id, 'IN_PROGRESS');
+    const other = await svc.addItem('m1', 'u1', { description: 'Not tracked as t1', taskId: 't2' });
+    changed.length = 0;
+    return { svc, repo, changed, open, doing, other };
+  }
+
+  it('completes the items tracked as a task when the task is done', async () => {
+    const { svc, changed, open, doing, other } = await setup();
+    await svc.followTask('t1', true);
+    for (const id of [open.id, doing.id]) {
+      const a = await svc.getItem(id);
+      expect(a.status).toBe('COMPLETED');
+      expect(a.completedAt).toEqual(at('2026-10-21T08:00:00Z'));
+      expect(a.progress).toBe(100);
+    }
+    expect((await svc.getItem(other.id)).status).toBe('OPEN');
+    expect(changed.sort()).toEqual(['m1', 'm2']); // both meetings' pages refresh
+  });
+
+  it('opens them again when the task is reopened', async () => {
+    const { svc, open } = await setup();
+    await svc.followTask('t1', true);
+    await svc.followTask('t1', false);
+    const a = await svc.getItem(open.id);
+    expect(a.status).toBe('OPEN');
+    expect(a.completedAt).toBeNull();
+  });
+
+  it('leaves cancelled items, and items already in step, alone', async () => {
+    const { svc, changed, open, doing } = await setup();
+    await svc.setStatus(doing.id, 'CANCELLED');
+    changed.length = 0;
+    await svc.followTask('t1', false); // the open one is already open
+    expect((await svc.getItem(open.id)).status).toBe('OPEN');
+    expect(changed).toEqual([]);
+    await svc.followTask('t1', true);
+    expect((await svc.getItem(doing.id)).status).toBe('CANCELLED');
   });
 });

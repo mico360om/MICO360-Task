@@ -122,3 +122,12 @@ export interface MeetingSeriesStore {
   /** Delete meetings; `detach` also takes them out of their series (their places can be used again). */
   removeMany(ids: string[], opts?: { detach?: boolean }): Promise<void>;
 }
+
+/** Closes meetings that are over (the sweep that keeps statuses true; only the database store has it). */
+export interface EndedMeetingSweep {
+  /**
+   * Marks Completed every scheduled or started meeting that has ended by `now` (a meeting without
+   * an end lasts an hour, as the app shows it); returns their ids. Drafts and cancelled ones stay.
+   */
+  completeEnded(now: Date): Promise<string[]>;
+}

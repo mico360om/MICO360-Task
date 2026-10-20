@@ -6,7 +6,7 @@ import { createProjectService } from './project-service';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import type { CreateProjectData, ProjectRecord, ProjectRepository } from './project-repository';
-import { PROJECT_ICONS } from './project-icons';
+import { PROJECT_ICONS, PROJECT_ICON_PATHS } from './project-icons';
 import { jpegHeader, pngHeader, webpLossy } from '../../lib/test-images';
 
 /** Projects in memory; deleted ones keep their code (as the database's unique index does). */
@@ -161,5 +161,12 @@ describe('project icons', () => {
   it.skipIf(!existsSync(web))('the web app draws exactly the icons the server accepts', () => {
     const drawn = [...readFileSync(web, 'utf8').matchAll(/^\s{2}'?([a-z-]+)'?: \[/gm)].map((m) => m[1]);
     expect(drawn).toEqual([...PROJECT_ICONS]);
+  });
+
+  // The minutes PDF draws a project's icon itself, so it keeps the same shapes as the web app.
+  it.skipIf(!existsSync(web))('the server draws each icon with the web app’s exact shapes', () => {
+    const lines = [...readFileSync(web, 'utf8').matchAll(/^\s{2}'?([a-z-]+)'?: \[(.*)\],$/gm)];
+    const webPaths = Object.fromEntries(lines.map((m) => [m[1], [...m[2]!.matchAll(/'([^']+)'/g)].map((p) => p[1])]));
+    expect(webPaths).toEqual(PROJECT_ICON_PATHS);
   });
 });

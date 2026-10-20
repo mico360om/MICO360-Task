@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { describe, expect, it, vi } from 'vitest';
 import { createImageShrinker, SHRINK_MAX_SIDE } from './image-shrink';
 import { jpegHeader } from './test-images';
+import { printableImage } from './pdf-image';
 
 /** A smooth picture with a little grain, like a photo: it compresses the way real ones do. */
 function photo(width: number, height: number) {
@@ -146,5 +147,36 @@ describe('createImageShrinker', () => {
     expect(shrinker.status()).toBeNull();
     expect(await shrinker.check()).toBe(true);
     expect(shrinker.status()).toBe(true);
+  });
+});
+
+describe('toPrintable (a picture for a PDF)', () => {
+  const logo = () => sharp({ create: { width: 900, height: 600, channels: 4, background: { r: 30, g: 90, b: 139, alpha: 0.6 } } });
+
+  it('turns WebP, GIF, 16-bit and see-through palette PNG pictures into one a PDF can print', async () => {
+    const shrinker = createImageShrinker(quiet());
+    const inputs = {
+      webp: await logo().webp().toBuffer(),
+      gif: await logo().gif().toBuffer(),
+      png16: await logo().png().toColourspace('rgb16').toBuffer(),
+      palette: await logo().png({ palette: true }).toBuffer(),
+    };
+    for (const [kind, input] of Object.entries(inputs)) {
+      expect(printableImage(input), `${kind} can't be printed as it is`).toBeNull();
+      const out = await shrinker.toPrintable(input);
+      expect(out && printableImage(out), `${kind} printable after`).not.toBeNull();
+      const meta = await sharp(out!).metadata();
+      expect(Math.max(meta.width!, meta.height!), kind).toBeLessThanOrEqual(512);
+      expect(meta.hasAlpha, kind).toBe(false); // on white, so it prints in one go
+    }
+  });
+
+  it('returns nothing for a file that isn’t a picture', async () => {
+    expect(await createImageShrinker(quiet()).toPrintable(Buffer.from('not a picture'))).toBeNull();
+  });
+
+  it('returns nothing when the picture library can’t load', async () => {
+    const shrinker = createImageShrinker({ ...quiet(), load: async () => { throw new Error('missing libvips'); } });
+    expect(await shrinker.toPrintable(await logo().webp().toBuffer())).toBeNull();
   });
 });
