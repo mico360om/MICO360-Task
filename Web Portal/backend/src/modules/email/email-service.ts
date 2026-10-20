@@ -157,6 +157,8 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
       deliver('alert', email, alertEmail(params, opts)),
     sendNotification: (email: string, params: Parameters<typeof genericNotificationEmail>[0], opts?: TemplateOptions) =>
       deliver('notification', email, genericNotificationEmail(params, opts)),
+    /** An email already built elsewhere (the daily task emails), logged under its own template name. */
+    sendPrepared: (template: string, email: string, content: EmailContent) => deliver(template, email, content),
 
     // Meetings — invitations, reminders, cancellations, minutes (with .ics / PDF attachments)
     sendMeetingInvite: (email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions) =>

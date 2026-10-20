@@ -14,6 +14,23 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Daily task emails: every morning (06:00 Oman time unless you choose another time, in your own time
+  zone) everyone gets two emails. "Pending tasks" lists the tasks assigned to you that aren't done,
+  grouped as overdue (how many days), due today, upcoming and no due date, each with its priority,
+  due day, status and a link to the task. "Completed yesterday" lists your tasks completed the day
+  before, when, and whether on time. An email with nothing in it isn't sent. In Settings → Daily task
+  emails each can be turned on or off, the time changed, and "Send me a test now" sends them at once.
+  Each email goes out once a day; a failed send is tried again after 5, 15 and 45 minutes; if the
+  server was asleep at the time they go when it wakes, the same day. Administrators see every send,
+  retry and failure in System Settings → Daily task emails. They replace the old single digest email
+  (the in-app digest stays). They need email (Mailjet) to be set up on the server.
+
+### Bug fixes
+- The Android app's "Download" on a new-version notice opens the app file again: the server named it
+  by a site-relative address, which the phone couldn't open; the installed apps now open the file on
+  the server they use (no new app needed).
+
 ## [1.4.0] - 2026-10-21
 
 ### New features

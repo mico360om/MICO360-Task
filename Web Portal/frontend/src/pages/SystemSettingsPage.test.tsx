@@ -30,6 +30,13 @@ function renderPage() {
   );
 }
 
+describe('SystemSettingsPage — daily task emails', () => {
+  it('has the daily task email log', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Daily task emails' })).toBeInTheDocument();
+  });
+});
+
 describe('SystemSettingsPage', () => {
   it('renders system settings from the API', async () => {
     renderPage();

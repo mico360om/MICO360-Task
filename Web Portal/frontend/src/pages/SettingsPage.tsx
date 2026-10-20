@@ -10,6 +10,8 @@ import { useThemeChoice, type ThemeChoice } from '../lib/theme';
 import { DatePreferences } from '../components/DatePreferences';
 import { LoadError } from '../components/ui/LoadError';
 import { photoUploadProblem } from '../lib/photo-upload';
+import { Toggle } from '../components/ui/Toggle';
+import { DailyEmailSettings } from '../components/settings/DailyEmailSettings';
 
 const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
@@ -19,20 +21,6 @@ const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'TASK_DUE_SOON', label: 'Due soon', desc: 'A reminder shortly before a task is due' },
   { type: 'TASK_OVERDUE', label: 'Overdue', desc: 'When one of your tasks becomes overdue' },
 ];
-
-function Toggle({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={onChange}
-      className={`relative h-6 w-11 flex-none rounded-full transition-colors ${on ? 'bg-brand' : 'bg-line'}`}
-    >
-      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-soft transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
-    </button>
-  );
-}
 
 const THEME_OPTIONS: ThemeChoice[] = ['light', 'dark', 'system'];
 
@@ -233,6 +221,9 @@ export function SettingsPage() {
             </div>
           ) : null}
         </section>
+
+        {/* Daily task emails */}
+        <DailyEmailSettings />
 
         {/* Appearance */}
         <section className="card p-5 lg:col-span-2">

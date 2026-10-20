@@ -142,3 +142,40 @@ describe('renderEmail — layout', () => {
     expect(html).toContain('help@acme.test');
   });
 });
+
+describe('renderEmail — a list of tasks', () => {
+  const model = () =>
+    renderEmail({
+      preheader: 'p',
+      heading: 'Your tasks',
+      blocks: [
+        {
+          kind: 'tasks',
+          heading: 'Overdue',
+          tone: 'danger',
+          items: [
+            { title: 'Fix <the> pump', href: 'https://task.example/my-tasks?task=t1', key: 'RIG-4', project: 'Rig & Co', facts: ['High priority', 'Due Mon 19 Oct', 'In Progress'], flag: { text: '2 days overdue', tone: 'danger' } },
+            { title: 'Sneaky', href: 'javascript:alert(1)', key: 'RIG-5', project: 'Rig', facts: [] },
+          ],
+        },
+      ],
+    });
+
+  it('shows each task as a link with its key, project, facts and flag, escaped', () => {
+    const { html } = model();
+    expect(html).toContain('Overdue');
+    expect(html).toContain('href="https://task.example/my-tasks?task=t1"');
+    expect(html).toContain('Fix &lt;the&gt; pump');
+    expect(html).toContain('RIG-4 · Rig &amp; Co');
+    expect(html).toContain('High priority · Due Mon 19 Oct · In Progress');
+    expect(html).toContain('2 days overdue');
+    expect(html).not.toContain('javascript:');
+  });
+
+  it('has a plain-text version with every task and its link', () => {
+    const { text } = model();
+    expect(text).toContain('OVERDUE (2)');
+    expect(text).toContain('- Fix <the> pump (RIG-4, Rig & Co) — High priority · Due Mon 19 Oct · In Progress — 2 days overdue');
+    expect(text).toContain('  https://task.example/my-tasks?task=t1');
+  });
+});

@@ -147,6 +147,13 @@ describe('public client config', () => {
     expect((await without.inject({ method: 'GET', url: '/api/v1/config' })).json().data.androidAppUrl).toBeNull();
   });
 
+  it('names no link for the app this site hosts itself, so the phone app opens the full address of its own server', async () => {
+    // The phone's "Download" can't open a site-relative path; without a link it opens
+    // <its server>/downloads/MICO360-Tasks.apk, and the website offers that same file.
+    const hosted = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', androidAppUrl: '/downloads/MICO360-Tasks.apk' } });
+    expect((await hosted.inject({ method: 'GET', url: '/api/v1/config' })).json().data.androidAppUrl).toBeNull();
+  });
+
   it('says which app version the download offers (asked each time: the file can be replaced), null when none', async () => {
     let offered: string | null = '1.3.3';
     const app = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', androidAppVersion: () => offered } });

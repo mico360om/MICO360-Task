@@ -38,6 +38,7 @@ import { registerUserRoutes } from './modules/users/user-routes';
 import { registerPreferenceRoutes, type PreferencesRepository } from './modules/users/user-preferences';
 import type { UserService } from './modules/users/user-service';
 import { registerNotificationRoutes } from './modules/notifications/notification-routes';
+import { registerDailyEmailRoutes, type DailyEmailRouteDeps } from './modules/daily-emails/daily-email-routes';
 import type { NotificationService } from './modules/notifications/notification-service';
 import { registerDeviceTokenRoutes } from './modules/device-tokens/device-token-routes';
 import type { DeviceTokenService } from './modules/device-tokens/device-token-service';
@@ -135,6 +136,8 @@ export interface AppDeps extends AuthRouteDeps {
   dependencyService?: DependencyService;
   userService?: UserService;
   notificationService?: NotificationService;
+  /** The two morning task emails: "Send me a test now" and the admins' delivery log. */
+  dailyEmails?: Omit<DailyEmailRouteDeps, 'guard'>;
   deviceTokenService?: DeviceTokenService;
   reportService?: ReportService;
   /** Reads a task with everything its Excel / PDF export shows. */
@@ -357,11 +360,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       companyName: deps.appConfig?.companyName ?? 'MICO360',
       // Lets sign-in screens hide "email me a code" / password reset when email isn't set up.
       emailEnabled: deps.appConfig?.emailEnabled ?? true,
-      // Where the "Download for Android" button points: ANDROID_APP_URL, or the APK a self-contained
-      // install hosts at /downloads/MICO360-Tasks.apk. Null: the web app offers that same address
-      // on its own site (the file is put there by the site package) and asks the site whether the
-      // file is there; it never sends anyone to a code-hosting page.
-      androidAppUrl: deps.appConfig?.androidAppUrl || null,
+      // Where the "Download for Android" button points: ANDROID_APP_URL (a full address). Null for the
+      // APK this site hosts itself: the web app offers /downloads/MICO360-Tasks.apk on its own site
+      // and asks the site whether the file is there, and the phone app opens that path on the server
+      // it is connected to (it can't open a site-relative path). Never a code-hosting page.
+      androidAppUrl: deps.appConfig?.androidAppUrl && !deps.appConfig.androidAppUrl.startsWith('/') ? deps.appConfig.androidAppUrl : null,
       // The phone app says "new version" only when this download is newer than itself, so a release
       // that changes only the website never asks anyone to update.
       androidAppVersion: deps.appConfig?.androidAppVersion?.() ?? null,
@@ -549,6 +552,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.notificationService) {
         await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard });
+      }
+      if (deps.dailyEmails) {
+        await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard });
       }
       if (deps.deviceTokenService) {
         await registerDeviceTokenRoutes(api, { deviceTokenService: deps.deviceTokenService, guard });

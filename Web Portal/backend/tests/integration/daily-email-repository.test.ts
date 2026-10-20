@@ -1,0 +1,64 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+import { createPrismaDailyEmailRepository } from '../../src/modules/daily-emails/prisma-daily-email-repository';
+
+// Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
+const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
+const repo = createPrismaDailyEmailRepository(prisma);
+let userId = '';
+
+async function cleanup() {
+  await prisma.dailyTaskEmail.deleteMany({ where: { user: { email: 'daily@mico360.test' } } });
+  await prisma.user.deleteMany({ where: { email: 'daily@mico360.test' } });
+}
+beforeAll(async () => {
+  await prisma.$connect();
+});
+afterAll(async () => {
+  await cleanup();
+  await prisma.$disconnect();
+});
+beforeEach(async () => {
+  await cleanup();
+  userId = (await prisma.user.create({ data: { email: 'daily@mico360.test', username: 'daily', passwordHash: 'x', firstName: 'Dai', lastName: 'Ly' } })).id;
+});
+
+describe('PrismaDailyEmailRepository (integration)', () => {
+  it('lets only one claim through for a person, day and email, even at the same moment', async () => {
+    const claims = await Promise.all([1, 2, 3, 4].map(() => repo.claim(userId, '2026-10-21', 'PENDING')));
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(claims.find(Boolean)).toMatchObject({ status: 'SENDING', attempts: 1, day: '2026-10-21', kind: 'PENDING' });
+    // The other email, and the next day, are separate.
+    expect(await repo.claim(userId, '2026-10-21', 'COMPLETED')).not.toBeNull();
+    expect(await repo.claim(userId, '2026-10-22', 'PENDING')).not.toBeNull();
+  });
+
+  it('finds retries that are due and sends stuck since a crash, and only one sweep retakes each', async () => {
+    const now = new Date('2026-10-21T03:00:00Z');
+    const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
+    await repo.finish(a.id, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T02:55:00Z'), lastError: 'HTTP 503' });
+    const b = (await repo.claim(userId, '2026-10-21', 'COMPLETED'))!;
+    await repo.finish(b.id, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T03:30:00Z') }); // not yet
+    const stuck = (await repo.claim(userId, '2026-10-20', 'PENDING'))!;
+    await prisma.dailyTaskEmail.update({ where: { id: stuck.id }, data: { updatedAt: new Date('2026-10-21T02:00:00Z') } });
+
+    const due = await repo.dueForRetry(now, new Date('2026-10-21T02:45:00Z'));
+    expect(due.map((r) => r.id).sort()).toEqual([a.id, stuck.id].sort());
+
+    const row = due.find((r) => r.id === a.id)!;
+    const [first, second] = await Promise.all([repo.retake(row), repo.retake(row)]);
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect((first ?? second)!).toMatchObject({ status: 'SENDING', attempts: 2 });
+  });
+
+  it('keeps the delivery log, with who it was for, newest first and filtered', async () => {
+    const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
+    await repo.finish(a.id, { status: 'SENT', taskCount: 4, sentAt: new Date('2026-10-21T02:00:05Z') });
+    const b = (await repo.claim(userId, '2026-10-21', 'COMPLETED'))!;
+    await repo.finish(b.id, { status: 'SKIPPED', taskCount: 0 });
+    const all = await repo.list({ day: '2026-10-21' });
+    expect(all.map((r) => r.kind)).toEqual(['COMPLETED', 'PENDING']);
+    expect(all[1]).toMatchObject({ status: 'SENT', taskCount: 4, userName: 'Dai Ly', email: 'daily@mico360.test' });
+    expect((await repo.list({ day: '2026-10-21', status: 'SENT' })).map((r) => r.kind)).toEqual(['PENDING']);
+  });
+});

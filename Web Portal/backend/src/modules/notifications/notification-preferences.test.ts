@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { emptyPreferences, isMuted, normalizePreferences } from './notification-preferences';
+import { dailyEmailPrefs, emptyPreferences, isMuted, normalizePreferences, DEFAULT_DAILY_EMAILS } from './notification-preferences';
 
 describe('notification-preferences', () => {
   it('defaults to nothing muted', () => {
@@ -28,5 +28,23 @@ describe('notification-preferences', () => {
     expect(isMuted(prefs, 'TASK_COMMENT')).toBe(true);
     expect(isMuted(prefs, 'TASK_ASSIGNED')).toBe(false);
     expect(isMuted(null, 'TASK_COMMENT')).toBe(false);
+  });
+});
+
+describe('daily task email settings', () => {
+  it('are both on at 06:00 for someone who never chose', () => {
+    expect(DEFAULT_DAILY_EMAILS).toEqual({ pending: true, completed: true, time: '06:00' });
+    expect(dailyEmailPrefs(emptyPreferences())).toEqual(DEFAULT_DAILY_EMAILS);
+  });
+
+  it('keep what was chosen, and fill in or fix the rest', () => {
+    const p = normalizePreferences({ muted: [], dailyEmails: { pending: false, time: '07:30' } });
+    expect(p.dailyEmails).toEqual({ pending: false, completed: true, time: '07:30' });
+    expect(normalizePreferences({ dailyEmails: { completed: 'yes', time: '25:00' } }).dailyEmails).toEqual(DEFAULT_DAILY_EMAILS);
+    expect(normalizePreferences({ dailyEmails: { time: '6:5' } }).dailyEmails?.time).toBe('06:00');
+  });
+
+  it('are left out when they were never saved (older stored settings stay as they are)', () => {
+    expect(normalizePreferences({ muted: ['TASK_COMMENT'] })).toEqual({ muted: ['TASK_COMMENT'] });
   });
 });

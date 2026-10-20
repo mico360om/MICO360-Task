@@ -11,7 +11,20 @@ export type Block =
   | { kind: 'details'; rows: Array<[string, string]> }
   | { kind: 'callout'; text: string; tone?: Tone }
   | { kind: 'list'; items: string[] }
+  | { kind: 'tasks'; heading: string; tone?: Tone; items: EmailTaskItem[] }
   | { kind: 'divider' };
+
+/** One task in a `tasks` block: its title links to it; key, project, facts and an optional flag beneath. */
+export interface EmailTaskItem {
+  title: string;
+  href: string;
+  key: string;
+  project: string;
+  /** Short facts, joined with " · " (priority, due day, status, completed at…). */
+  facts: string[];
+  /** A pill at the end of the row ("2 days overdue"). */
+  flag?: { text: string; tone: Tone };
+}
 
 /** Who the email is about, shown in its header instead of the product logo (a project's minutes). */
 export interface EmailIdentity {
@@ -116,6 +129,28 @@ function renderBlockHtml(block: Block, brand: Brand): string {
       return `<ul class="email-text" style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:${c.ink}">${block.items
         .map((item) => `<li style="margin:0 0 4px">${escapeHtml(item)}</li>`)
         .join('')}</ul>`;
+    case 'tasks': {
+      const accent = TONE_COLORS[block.tone ?? 'info'];
+      const rows = block.items
+        .map((item) => {
+          const flag = item.flag
+            ? `<span style="display:inline-block;margin-top:6px;padding:2px 9px;border-radius:999px;background:${TONE_COLORS[item.flag.tone].bg};color:${TONE_COLORS[item.flag.tone].ink};font-size:12px;font-weight:700">${escapeHtml(item.flag.text)}</span>`
+            : '';
+          const facts = item.facts.length
+            ? `<div class="email-muted" style="margin-top:3px;font-size:13px;color:${c.ink2}">${escapeHtml(item.facts.join(' · '))}</div>`
+            : '';
+          return `<tr><td class="email-card" style="padding:12px 14px;border-top:1px solid ${c.line};background:${c.surface}">
+            <a href="${safeHref(item.href)}" target="_blank" dir="auto" style="font-size:15px;font-weight:700;line-height:1.4;color:${c.ink};text-decoration:none">${escapeHtml(item.title)}</a>
+            <div class="email-muted" style="margin-top:2px;font-size:12px;color:${c.ink2}">${escapeHtml(`${item.key} · ${item.project}`)}</div>
+            ${facts}${flag}
+          </td></tr>`;
+        })
+        .join('');
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-details" style="margin:0 0 20px;border:1px solid ${c.line};border-radius:12px;overflow:hidden">
+        <tr><td style="padding:10px 14px;background:${accent.bg};border-left:4px solid ${accent.border};font-size:13px;font-weight:800;letter-spacing:0.4px;text-transform:uppercase;color:${accent.ink}">${escapeHtml(block.heading)} (${block.items.length})</td></tr>
+        ${rows}
+      </table>`;
+    }
     case 'divider':
       return `<hr class="email-divider" style="border:none;border-top:1px solid ${c.line};margin:8px 0 20px"/>`;
   }
@@ -135,6 +170,14 @@ function renderBlockText(block: Block): string {
       return `> ${block.text}`;
     case 'list':
       return block.items.map((i) => `  - ${i}`).join('\n');
+    case 'tasks':
+      return [
+        `${block.heading.toUpperCase()} (${block.items.length})`,
+        ...block.items.map((i) => {
+          const line = [`- ${i.title} (${i.key}, ${i.project})`, i.facts.length ? i.facts.join(' · ') : null, i.flag?.text ?? null].filter(Boolean).join(' — ');
+          return /^https?:\/\//i.test(i.href.trim()) ? `${line}\n  ${i.href.trim()}` : line;
+        }),
+      ].join('\n');
     case 'divider':
       return '----------------------------------------';
   }

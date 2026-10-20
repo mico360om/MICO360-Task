@@ -123,6 +123,7 @@ model User {
   auditLogs        AuditLog[]
   loginOtps        LoginOtp[]
   deviceTokens     DeviceToken[]
+  dailyTaskEmails  DailyTaskEmail[]
   settings         UserSetting?
 
   @@index([status])
@@ -930,4 +931,41 @@ model MeetingTemplate {
 
   @@index([projectId])
   @@map("meeting_templates")
+}
+
+/// The two morning task emails: one row per person, day and email, so each goes out once. It is the
+/// delivery log too: sent, skipped (nothing to report), retrying after a failure, or failed.
+enum DailyEmailKind {
+  PENDING
+  COMPLETED
+}
+
+enum DailyEmailStatus {
+  SENDING
+  SENT
+  SKIPPED
+  RETRY
+  FAILED
+}
+
+model DailyTaskEmail {
+  id            String           @id @default(cuid())
+  userId        String
+  /// The person's calendar day the email is for ('YYYY-MM-DD', in their time zone).
+  day           String           @db.VarChar(10)
+  kind          DailyEmailKind
+  status        DailyEmailStatus @default(SENDING)
+  attempts      Int              @default(1)
+  taskCount     Int              @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?          @db.Text
+  sentAt        DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day, kind])
+  @@index([status, nextAttemptAt])
+  @@index([day])
+  @@map("daily_task_emails")
 }

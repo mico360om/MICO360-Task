@@ -66,6 +66,9 @@ import { createPrismaNotificationRepository, createPrismaPreferenceStore, create
 import { planReminders } from './modules/notifications/reminder';
 import { dispatchReminders } from './modules/notifications/reminder-dispatch';
 import { buildDigests } from './modules/notifications/notification-digest';
+import { createDailyEmailService } from './modules/daily-emails/daily-email-service';
+import { createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
+import { createPrismaDailyEmailSources } from './modules/daily-emails/prisma-daily-email-sources';
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
@@ -984,26 +987,19 @@ async function main(): Promise<void> {
     for (const digest of digests) {
       const user = userById.get(digest.userId);
       if (!user) continue;
-      // A muted digest is muted everywhere — in-app and email.
+      // A muted digest isn’t written.
       if (isMuted(normalizePreferences(user.notificationPrefs), 'TASK_DIGEST')) continue;
       // A per-day marker keeps the digest to once daily even as the sweep re-runs hourly.
       const dedupe = `digest:${digest.userId}:${day}`;
       if (await reminderLogStore.has(dedupe)) continue;
       await reminderLogStore.add(dedupe);
-      const total = digest.overdue.length + digest.dueToday.length;
       const summary = `${digest.overdue.length} overdue · ${digest.dueToday.length} due today`;
       const items = [...digest.overdue.map((i) => `${i.key} ${i.title} (overdue, due ${i.dueDate})`), ...digest.dueToday.map((i) => `${i.key} ${i.title} (due today)`)];
       const lines = items.map((i) => `• ${i}`).join('\n');
       // In-app notification — reliable regardless of email deliverability. Nothing stored means
       // the type is suppressed for this user, so no email either.
-      const inApp = await notificationService.notify({ userId: digest.userId, type: 'TASK_DIGEST', title: `Your daily digest — ${summary}`, body: lines, entityType: 'digest', entityId: day });
-      if (!inApp) continue;
-      // Email digest (best-effort — needs a configured mail transport).
-      if (user.email) {
-        await emailService
-          .sendNotification(user.email, { heading: 'Your task digest', message: `Hi ${user.firstName || 'there'}, you have ${total} task${total === 1 ? '' : 's'} needing attention today — ${summary}.`, items, actionLabel: 'Open My Tasks', actionLink: `${env.APP_URL}/my-tasks` })
-          .catch((err) => logger.warn('digest email failed', { err, userId: digest.userId }));
-      }
+      // The morning emails (pending tasks, completed yesterday) are the daily task emails below.
+      await notificationService.notify({ userId: digest.userId, type: 'TASK_DIGEST', title: `Your daily digest — ${summary}`, body: lines, entityType: 'digest', entityId: day });
     }
   }
 
@@ -1041,6 +1037,37 @@ async function main(): Promise<void> {
   void runEscalation();
   const digestTimer = setInterval(() => { void runDigest(); void runEscalation(); }, 60 * 60 * 1000);
   digestTimer.unref?.();
+
+  // ── Daily task emails: "Pending tasks" and "Completed yesterday", every morning ──
+  // Each person's emails go at their time (06:00 unless they chose another, in their own time zone).
+  // The sweep runs every minute on one lease-locked instance; one record per person, day and email
+  // keeps each to a single send and is the delivery log. Nothing is attempted while email isn't set up.
+  const dailyEmailRepository = createPrismaDailyEmailRepository(prisma);
+  const dailyEmailSources = createPrismaDailyEmailSources(prisma);
+  const dailyEmailService = createDailyEmailService({
+    repo: dailyEmailRepository,
+    people: dailyEmailSources.people,
+    tasks: dailyEmailSources.tasks,
+    send: (to, content, template) => emailService.sendPrepared(template, to, content),
+    isConfigured: () => emailService.isConfigured(),
+    companyTimeZone: companyTz,
+    appUrl: env.APP_URL,
+    logger,
+  });
+  // Job leases are held for their whole length (never released), so this one is under a minute or
+  // the sweep would only run every 10 minutes. Overlapping runs are harmless: each email is claimed
+  // once (a unique row) and each retry is retaken by one run only.
+  const DAILY_EMAIL_LEASE_MS = 55 * 1000;
+  const runDailyEmails = () =>
+    runExclusive(jobLock, 'daily-task-emails', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
+      await dailyEmailService.runSweep();
+    }).catch((err) => {
+      logger.error('daily task email sweep failed', { err });
+      return false;
+    });
+  void runDailyEmails();
+  const dailyEmailTimer = setInterval(() => void runDailyEmails(), 60 * 1000);
+  dailyEmailTimer.unref?.();
 
   const otpService = createOtpService({
     users: createPrismaOtpUserLookup(prisma),
@@ -1125,6 +1152,7 @@ async function main(): Promise<void> {
     dependencyService,
     userService,
     notificationService,
+    dailyEmails: { service: dailyEmailService, log: dailyEmailRepository, isConfigured: () => emailService.isConfigured() },
     deviceTokenService,
     reportService,
     // Task exports (Excel / PDF) read the task with its lists in one go.

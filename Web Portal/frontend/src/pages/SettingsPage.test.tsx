@@ -43,6 +43,14 @@ function renderPage() {
   );
 }
 
+describe('SettingsPage — daily task emails', () => {
+  it('has the daily task emails card', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Daily task emails' })).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: 'Pending tasks email' })).toBeInTheDocument();
+  });
+});
+
 describe('SettingsPage — notification switches', () => {
   it('says so when a switch could not be saved (it used to flip back without a word)', async () => {
     saveAnswer = () => json({ error: { code: 'INTERNAL', message: 'boom' } }, 500);

@@ -21,6 +21,20 @@ export interface NotificationPreferences {
   muted: string[];
   /** Minutes before a task's due date to send a "due soon" reminder (omitted = default). */
   reminderLeadMinutes?: number;
+  /** The two morning emails and when they go (HH:MM, the person's time zone); the server fills in the defaults. */
+  dailyEmails?: DailyEmailPrefs;
+}
+
+export interface DailyEmailPrefs {
+  pending: boolean;
+  completed: boolean;
+  time: string;
+}
+
+/** What "Send me a test now" sent: an email with nothing in it isn't sent. */
+export interface DailyEmailTestResult {
+  pending: 'sent' | 'empty';
+  completed: 'sent' | 'empty';
 }
 
 export function notificationsApi(client: ApiClient) {
@@ -30,7 +44,9 @@ export function notificationsApi(client: ApiClient) {
     markRead: (id: string) => client.put<{ data: ApiNotification }>(`/notifications/${id}/read`).then((r) => r.data),
     markAllRead: () => client.post<{ data: { ok: boolean } }>('/notifications/read-all'),
     getPreferences: () => client.get<{ data: NotificationPreferences }>('/notifications/preferences').then((r) => r.data),
-    setPreferences: (prefs: NotificationPreferences) =>
+    /** Saves what is sent; daily email settings left out are kept as they are. */
+    setPreferences: (prefs: Partial<NotificationPreferences>) =>
       client.put<{ data: NotificationPreferences }>('/notifications/preferences', prefs).then((r) => r.data),
+    sendDailyTest: () => client.post<{ data: DailyEmailTestResult }>('/notifications/daily-emails/test').then((r) => r.data),
   };
 }

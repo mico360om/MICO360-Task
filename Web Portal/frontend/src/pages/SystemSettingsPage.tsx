@@ -6,6 +6,7 @@ import { apiClient } from '../api/client';
 import { systemSettingsApi } from '../api/system-settings';
 import { tasksApi } from '../api/tasks';
 import { LoadError } from '../components/ui/LoadError';
+import { DailyEmailLog } from '../components/admin/DailyEmailLog';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -181,6 +182,9 @@ export function SystemSettingsPage() {
             </p>
           ) : null}
         </section>
+
+        {/* The morning task emails: who got which, and how it went. */}
+        <DailyEmailLog />
       </div>
     </div>
   );

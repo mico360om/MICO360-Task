@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildApp } from '../../app';
 import { createNotificationService } from './notification-service';
+import { normalizePreferences } from './notification-preferences';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import type { NotificationRecord, NotificationRepository } from './notification-repository';
@@ -72,5 +73,49 @@ describe('Notification routes', () => {
   it('rejects unauthenticated access (401)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/notifications' });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('Notification preferences: daily task emails', () => {
+  async function appWithStore() {
+    const stored = new Map<string, unknown>();
+    const notificationService = createNotificationService({
+      notifications: inMemory(),
+      preferences: {
+        async get(userId) { return normalizePreferences(stored.get(userId) ?? null); },
+        async set(userId, prefs) { stored.set(userId, prefs); return prefs; },
+      },
+    });
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    return buildApp({ authService, tokenService, notificationService });
+  }
+
+  it('reads the daily email settings, on at 06:00 by default', async () => {
+    const a = await appWithStore();
+    const res = await a.inject({ method: 'GET', url: '/api/v1/notifications/preferences', headers: { authorization: `Bearer ${await token()}` } });
+    expect(res.json().data.dailyEmails).toEqual({ pending: true, completed: true, time: '06:00' });
+  });
+
+  it('saves them without losing other settings, and an app that doesn’t know them keeps them', async () => {
+    const a = await appWithStore();
+    const auth = { authorization: `Bearer ${await token()}` };
+    await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { muted: ['TASK_COMMENT'], reminderLeadMinutes: 120 } });
+    const saved = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { completed: false, time: '07:15' } } });
+    expect(saved.json().data).toMatchObject({ muted: ['TASK_COMMENT'], reminderLeadMinutes: 120, dailyEmails: { pending: true, completed: false, time: '07:15' } });
+    // The phone app (before this release) saves the muted types with the reminder time, and leaves the
+    // reminder time out to go back to the default — that still works, and the daily emails stay.
+    await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { muted: [] } });
+    const after = (await a.inject({ method: 'GET', url: '/api/v1/notifications/preferences', headers: auth })).json().data;
+    expect(after).toMatchObject({ muted: [], dailyEmails: { pending: true, completed: false, time: '07:15' } });
+    expect(after.reminderLeadMinutes).toBeUndefined();
+  });
+
+  it('refuses a time that isn’t HH:MM', async () => {
+    const a = await appWithStore();
+    const res = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: { authorization: `Bearer ${await token()}` }, payload: { dailyEmails: { time: '6pm' } } });
+    expect(res.statusCode).toBe(400);
   });
 });
