@@ -14,10 +14,29 @@ export interface KanbanColumnData {
 export interface KanbanColumnProps {
   column: KanbanColumnData;
   onTaskClick?: (taskKey: string) => void;
+  /** Start a new task in this column (New task opens with the column chosen); none: read-only. */
+  onAddTask?: () => void;
   timeZone?: string;
 }
 
-export function KanbanColumn({ column, onTaskClick, timeZone }: KanbanColumnProps) {
+const PLUS = <path d="M12 5v14M5 12h14" />;
+
+/** The "+" that starts a task in this column, in its header (and on its collapsed rail). */
+function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onAddTask}
+      aria-label={`Add a task to ${name}`}
+      title={`Add a task to ${name}`}
+      className="grid h-6 w-6 flex-none place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+    >
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">{PLUS}</svg>
+    </button>
+  );
+}
+
+export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [collapsed, setCollapsed] = useState(false);
 
@@ -39,6 +58,7 @@ export function KanbanColumn({ column, onTaskClick, timeZone }: KanbanColumnProp
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
         <span className="min-w-[1.5rem] rounded-full bg-ground px-1.5 text-center text-xs font-semibold text-ink-2">{column.tasks.length}</span>
+        {onAddTask ? <AddTaskButton name={column.name} onAddTask={onAddTask} /> : null}
         <span dir="auto" className="flex-1 whitespace-nowrap text-sm font-bold text-ink [writing-mode:vertical-rl]">{column.name}</span>
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: column.color }} aria-hidden="true" />
       </section>
@@ -60,13 +80,16 @@ export function KanbanColumn({ column, onTaskClick, timeZone }: KanbanColumnProp
           <span dir="auto" className="truncate text-sm font-bold text-ink">{column.name}</span>
           <span className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2">{column.tasks.length}</span>
         </div>
-        <button
-          onClick={() => setCollapsed(true)}
-          aria-label={`Collapse ${column.name}`}
-          className="grid h-6 w-6 flex-none place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-        </button>
+        <div className="flex flex-none items-center gap-0.5">
+          {onAddTask ? <AddTaskButton name={column.name} onAddTask={onAddTask} /> : null}
+          <button
+            onClick={() => setCollapsed(true)}
+            aria-label={`Collapse ${column.name}`}
+            className="grid h-6 w-6 flex-none place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+          </button>
+        </div>
       </header>
       <div className="flex min-h-[80px] flex-col gap-2.5">
         <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>
@@ -75,11 +98,26 @@ export function KanbanColumn({ column, onTaskClick, timeZone }: KanbanColumnProp
           ))}
         </SortableContext>
         {column.tasks.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg>
-            <p className="text-xs font-medium text-ink-3">No tasks</p>
-            <p className="text-[11px] text-ink-3/80">Drop a card here</p>
-          </div>
+          onAddTask ? (
+            // The empty box is itself the way to start the column's first task.
+            <button
+              type="button"
+              onClick={onAddTask}
+              className="group flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center transition-colors hover:border-brand/60 hover:bg-brand/5 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3 group-hover:text-brand"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg>
+              <span className="text-xs font-medium text-ink-3">No tasks</span>
+              <span className="text-[11px] text-ink-3/80">
+                <span className="font-semibold text-brand">Add a task</span> or drop a card here
+              </span>
+            </button>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg>
+              <p className="text-xs font-medium text-ink-3">No tasks</p>
+              <p className="text-[11px] text-ink-3/80">Drop a card here</p>
+            </div>
+          )
         ) : null}
       </div>
     </section>

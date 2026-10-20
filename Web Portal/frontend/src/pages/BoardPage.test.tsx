@@ -54,7 +54,12 @@ beforeEach(() => {
       if (u.includes('/members')) return json({ data: [{ id: 'u2', username: 'omar', email: 'o@x', firstName: 'Omar', lastName: 'A', role: 'MEMBER' }] });
       if (u.includes('/columns')) {
         const pid = u.includes('/projects/p2/') ? 'p2' : 'p1';
-        return json({ data: [{ id: `c-${pid}`, projectId: pid, name: pid === 'p2' ? 'Ops To Do' : 'To Do', category: 'TODO', position: 0, color: '#3A6EA5', enabled: true }] });
+        return json({
+          data: [
+            { id: `c-${pid}`, projectId: pid, name: pid === 'p2' ? 'Ops To Do' : 'To Do', category: 'TODO', position: 0, color: '#3A6EA5', enabled: true },
+            { id: `c-${pid}-ip`, projectId: pid, name: 'In Progress', category: 'IN_PROGRESS', position: 1, color: '#C98A1B', enabled: true },
+          ],
+        });
       }
       if (u.includes('/tasks')) {
         return json({ data: [{ id: 't1', key: 'MICO-1', title: 'Prepare report', description: null, projectId: 'p1', columnId: 'c-p1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' }] });
@@ -121,6 +126,18 @@ describe('BoardPage', () => {
     expect(post.headers['Idempotency-Key']).toBeTruthy();
     // no second "assign" call that could fail half-way
     expect(calls.some((c) => c.method === 'POST' && c.url.includes('/assignees'))).toBe(false);
+  });
+
+  it('adds a task straight into the column it was asked from', async () => {
+    renderPage();
+    await screen.findByText('Prepare report');
+    const column = await screen.findByRole('region', { name: 'In Progress' });
+    await userEvent.click(within(column).getByRole('button', { name: /no tasks.*add a task/i }));
+    const dialog = await screen.findByRole('dialog', { name: /new task/i });
+    await userEvent.type(within(dialog).getByLabelText(/task title/i), 'Fix the pump');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/tasks'))).toBe(true));
+    expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/tasks'))!.body).toMatchObject({ title: 'Fix the pump', projectId: 'p1', columnId: 'c-p1-ip' });
   });
 
   it('fits short screens: the new-task fields scroll while "Create task" stays in view', async () => {

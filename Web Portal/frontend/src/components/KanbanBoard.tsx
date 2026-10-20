@@ -25,6 +25,8 @@ export interface KanbanBoardProps {
   onReorder?: (columnId: string, orderedKeys: string[]) => void;
   /** Company time zone, for the cards' overdue rule. */
   timeZone?: string;
+  /** Start a new task in a column (its "+" and its empty box); without it the board is read-only. */
+  onAddTask?: (columnId: string) => void;
 }
 
 /**
@@ -39,7 +41,7 @@ const KEYBOARD_CODES = { start: ['Space'], cancel: ['Escape'], end: ['Space'] };
  * in a body-level portal so it stays visible over the columns' `overflow-hidden` edges and the
  * board's horizontal scroll. The container persists the change via the API (broadcast over realtime).
  */
-export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone }: KanbanBoardProps) {
+export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone, onAddTask }: KanbanBoardProps) {
   // Mouse drags after a small move; touch needs a short press so a swipe still scrolls the board;
   // keyboard users pick cards up with Space and move them with the arrow keys.
   const sensors = useSensors(
@@ -100,7 +102,7 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone 
     >
       <div className="kanban-scroll flex gap-3 overflow-x-auto pb-3" tabIndex={0} role="region" aria-label="Board columns">
         {columns.map((column) => (
-          <KanbanColumn key={column.id} column={column} onTaskClick={onTaskClick} timeZone={timeZone} />
+          <KanbanColumn key={column.id} column={column} onTaskClick={onTaskClick} onAddTask={onAddTask ? () => onAddTask(column.id) : undefined} timeZone={timeZone} />
         ))}
       </div>
       {/* Portal the overlay to <body> so its `position: fixed` is viewport-relative and follows the

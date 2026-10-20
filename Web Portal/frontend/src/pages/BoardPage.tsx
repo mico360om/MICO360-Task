@@ -209,11 +209,12 @@ export function BoardPage() {
 
   const boardColumns = boardQ.data?.columns ?? [];
 
-  function openAddTask() {
-    setNewTaskColumn(boardColumns[0]?.id ?? '');
+  /** New task, in the column it was started from (a column's "+" or empty box), else the first. */
+  function openAddTask(columnId?: string) {
+    setNewTaskColumn(columnId ?? boardColumns[0]?.id ?? '');
     setAddingTask(true);
   }
-  useShortcut('new', openAddTask, { enabled: boardColumns.length > 0 });
+  useShortcut('new', () => openAddTask(), { enabled: boardColumns.length > 0 });
 
   // Live board: refetch when another client creates/moves/updates/deletes/reassigns a task (T7.4).
   const onLiveEvent = useCallback(
@@ -300,7 +301,7 @@ export function BoardPage() {
                   {manageColumns ? 'Done' : 'Manage columns'}
                 </button>
               ) : null}
-              <Button onClick={openAddTask} disabled={boardColumns.length === 0} title="New task" shortcut="new">
+              <Button onClick={() => openAddTask()} disabled={boardColumns.length === 0} title="New task" shortcut="new">
                 + New task
               </Button>
             </>
@@ -395,6 +396,7 @@ export function BoardPage() {
           timeZone={timeZone}
           onMove={onMove}
           onReorder={onReorder}
+          onAddTask={(columnId) => openAddTask(columnId)}
           onTaskClick={(key) => {
             const id = boardQ.data?.idByKey[key];
             if (id) setOpenTaskId(id);
