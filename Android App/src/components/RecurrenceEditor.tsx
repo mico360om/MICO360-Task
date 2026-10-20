@@ -10,6 +10,7 @@ import {
 } from '../lib/recurrence-edit';
 import { parseDueDateInput } from '../lib/form-input';
 import { formatDueDay } from '../lib/due-date';
+import { dueFieldValue } from '../lib/task-detail';
 import { TextField } from './ui';
 
 /**
@@ -32,7 +33,7 @@ export function RecurrenceEditor({
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const rule = value;
-  const dueKey = dueDate ? dueDate.slice(0, 10) : '';
+  const dueKey = dueFieldValue(dueDate);
   const [untilText, setUntilText] = useState(rule?.until ? String(rule.until).slice(0, 10) : '');
   const [untilErr, setUntilErr] = useState<string | null>(null);
 

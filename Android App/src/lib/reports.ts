@@ -1,3 +1,4 @@
+import { CATEGORY_LABEL } from './task-status';
 /**
  * Reports on the phone (admins): the exports offered (the same as the web portal and the extension),
  * their paths and file names, and the summary numbers on the Reports screen. Pure TypeScript.
@@ -76,14 +77,7 @@ export interface TimeSeries {
 }
 
 const CATEGORY_ORDER = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE'];
-const CATEGORY_LABEL: Record<string, string> = {
-  BACKLOG: 'Backlog',
-  TODO: 'To do',
-  IN_PROGRESS: 'In progress',
-  BLOCKED: 'Blocked',
-  REVIEW: 'Review',
-  DONE: 'Done',
-};
+
 
 const pct = (part: number, total: number) => (total ? Math.round((part / total) * 100) : 0);
 

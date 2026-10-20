@@ -1,3 +1,4 @@
+import { normalizeDigits } from './form-input';
 /**
  * Signing in with an emailed code (the "Email code" tab).
  *
@@ -48,7 +49,8 @@ export function resendLabel(waitSeconds: number): string {
 
 /** Digits only (a pasted "123 456" or "123-456" works), at most the longest code the server sends. */
 export function normaliseCode(text: string): string {
-  return text.replace(/\D/g, '').slice(0, CODE_MAX_DIGITS);
+  // Arabic-Indic and Persian digits (an Arabic keyboard) count as the code's digits too.
+  return normalizeDigits(text).replace(/\D/g, '').slice(0, CODE_MAX_DIGITS);
 }
 
 export function isCodeComplete(code: string): boolean {

@@ -5,6 +5,23 @@ import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
 import type { ApiActivityEntry, ApiColumn, ApiTask, ApiTaskMeeting } from './types';
 
+/** The due date field's value: the due day (company time), as the header and the website show it. */
+export function dueFieldValue(dueDate: DateInput): string {
+  return dueDayKey(dueDate) ?? '';
+}
+
+/** A failed action's message: offline, the server's own message, or the fallback. */
+export function failureText(e: unknown, fallback: string): string {
+  if (isNetworkError(e)) return 'You’re offline — this needs a connection. Please try again.';
+  return e instanceof Error && e.message ? e.message : fallback;
+}
+
+/** Someone else changed the task since it was loaded (the edit was refused): say so plainly. */
+export function conflictText(e: unknown, fallback = 'Couldn’t save the change.'): string {
+  if (e instanceof ApiError && e.code === 'VERSION_CONFLICT') return 'Someone else changed this task. Pull down to reload it, then try again.';
+  return failureText(e, fallback);
+}
+
 /** Admins and the project's managers may delete a task (the server's rule). */
 export function canDeleteTask(user: { id: string; roles: string[] } | null, members: { id: string; role: 'MEMBER' | 'MANAGER' }[]): boolean {
   if (!user) return false;

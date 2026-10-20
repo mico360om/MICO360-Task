@@ -54,6 +54,8 @@ export interface ApiTask {
   recurrenceNextId?: string | null;
   /** A milestone of its project (older servers leave it out). */
   isMilestone?: boolean;
+  /** Edit counter: sent back as expectedVersion, so an edit made over someone else's is refused. */
+  version?: number;
   /** The meeting this task was created from (a Live note made into a task); older servers leave it out. */
   meetingId?: string | null;
   /** That meeting, for the task details (null when none, or deleted). */

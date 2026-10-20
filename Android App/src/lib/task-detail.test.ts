@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { activityFeed, blockerRefs, canDeleteTask, dueState, meetingLine, moveBy, taskLoadProblem } from './task-detail';
+import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueFieldValue, dueState, meetingLine, moveBy, taskLoadProblem } from './task-detail';
 import { ApiError, NetworkError } from './api-client';
 import type { ApiActivityEntry, ApiColumn, ApiTask } from './types';
 
@@ -110,5 +110,24 @@ describe('meetingLine', () => {
   it('has nothing for a task made anywhere else, or whose meeting is gone', () => {
     expect(meetingLine(undefined, api)).toBeNull();
     expect(meetingLine(null, api)).toBeNull();
+  });
+});
+
+describe('dueFieldValue — the due date field shows the same day as everywhere else', () => {
+  it('a timestamp is read as its company-time day, not cut at the T', () => {
+    expect(dueFieldValue('2026-10-11T22:30:00.000Z')).toBe('2026-10-12'); // Muscat is UTC+4
+    expect(dueFieldValue('2026-10-12T00:00:00.000Z')).toBe('2026-10-12'); // a date-only value keeps its day
+    expect(dueFieldValue('2026-10-12')).toBe('2026-10-12');
+    expect(dueFieldValue(null)).toBe('');
+  });
+});
+
+describe('conflictText — someone else changed the task first', () => {
+  it('says so for a version conflict', () => {
+    expect(conflictText(new ApiError(409, 'VERSION_CONFLICT', 'This task was changed by someone else.'))).toBe('Someone else changed this task. Pull down to reload it, then try again.');
+  });
+  it('otherwise the usual failure text', () => {
+    expect(conflictText(new ApiError(400, 'VALIDATION', 'Title is required.'), 'Couldn’t save.')).toBe('Title is required.');
+    expect(conflictText(new Error(''), 'Couldn’t save.')).toBe('Couldn’t save.');
   });
 });

@@ -58,6 +58,7 @@ export function QuickAddTaskSheet({
   const effectiveColumnId = columnId || enabled[0]?.id || '';
 
   function reset() {
+    setNotice(null); // an earlier "queued offline" notice doesn't come back next time
     setTitle('');
     setDescription('');
     setPriority('NORMAL');

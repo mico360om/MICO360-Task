@@ -115,7 +115,7 @@ export function resourcesApi(client: ApiClient) {
         },
         opts?: WriteOptions,
       ) => data(client.post<Envelope<ApiTask>>('/tasks', body, idempotencyHeaders(opts?.idempotencyKey))),
-      update: (id: string, body: Partial<ApiTask> & { scope?: 'one' | 'series' }) =>
+      update: (id: string, body: Partial<ApiTask> & { scope?: 'one' | 'series'; expectedVersion?: number }) =>
         data(client.put<Envelope<ApiTask>>(`/tasks/${id}`, body)),
       move: (id: string, columnId: string, position?: number) =>
         data(client.patch<Envelope<ApiTask>>(`/tasks/${id}/move`, { columnId, position })),

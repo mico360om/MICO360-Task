@@ -32,13 +32,14 @@ import {
 import { useMyQueuedChanges, useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote, Button } from '../components/ui';
-import { isNetworkError } from '../lib/api-client';
+import { ApiError, isNetworkError } from '../lib/api-client';
+import { statusOf } from '../lib/task-status';
 import { inSeries, isEarlierCopy } from '../lib/recurrence-edit';
 import type { MentionPerson } from '../lib/mentions';
 import { attachmentHref, canRemoveAttachment, uploadErrorMessage, uploadPart, type ApiAttachment } from '../lib/attachments';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
-import { activityFeed, blockerRefs, canDeleteTask, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
+import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
 import type { AppScreenProps } from '../navigation/types';
 import { displayName } from '../lib/types';
 import { HeaderCard } from '../components/task-detail/HeaderCard';
@@ -119,9 +120,11 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
     return <ErrorNote message={problem.message} onRetry={problem.canRetry ? () => void taskQ.refetch() : undefined} retrying={taskQ.isRefetching} />;
   }
 
-  const columns = (columnsQ.data ?? []).filter((col) => col.enabled);
+  const allColumns = columnsQ.data ?? [];
+  // The status chips offer the shown columns, plus the task's own when it sits in a hidden one.
+  const columns = allColumns.filter((col) => col.enabled || col.id === task.columnId);
   const projectTasks = projectTasksQ.data ?? [];
-  const current = columns.find((col) => col.id === task.columnId);
+  const current = statusOf(task, allColumns);
   const due = dueState(task);
   const myId = session?.user.id ?? null;
   const myRoles = session?.user.roles ?? [];
@@ -132,8 +135,22 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const deps = depsQ.data ?? { blockedBy: [], blocks: [] };
 
   /** Save a field edit; `withScope` applies "entire series" when chosen (title, description, priority, estimate). */
-  const patch = (p: TaskPatch, withScope = false) =>
-    update.mutateAsync({ ...p, ...(withScope && series && scope === 'series' ? { scope: 'series' as const } : {}) });
+  const patch = async (p: TaskPatch, withScope = false) => {
+    try {
+      return await update.mutateAsync({
+        ...p,
+        // The server refuses an edit made over someone else's (VERSION_CONFLICT) instead of losing theirs.
+        ...(typeof task.version === 'number' ? { expectedVersion: task.version } : {}),
+        ...(withScope && series && scope === 'series' ? { scope: 'series' as const } : {}),
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'VERSION_CONFLICT') {
+        void taskQ.refetch();
+        throw new Error(conflictText(e));
+      }
+      throw e;
+    }
+  };
 
   async function exportTask(format: 'xlsx' | 'pdf') {
     if (!task) return;

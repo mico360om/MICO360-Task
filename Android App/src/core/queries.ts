@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { meetingWindow } from '../lib/meetings';
+import { refetchAfterMove } from '../lib/task-status';
 import { newIdempotencyKey } from '../lib/idempotency';
 import type { SyncQueue } from '../lib/sync-queue';
 import type { ApiTask } from '../lib/types';
@@ -60,6 +61,8 @@ export function useProjectTasks(projectId: string, boardDate?: string) {
     queryKey: ['tasks', 'project', projectId, dk],
     queryFn: async () =>
       (await cache.read(`tasks.${projectId}.${dk}`, () => resources.tasks.list({ projectId, boardDate }))).data,
+    // Without a project id this would list every task the user can see (and cache it).
+    enabled: !!projectId,
   });
 }
 
@@ -408,7 +411,10 @@ export function useMoveTask(projectId: string) {
       for (const [key, data] of ctx?.boards ?? []) qc.setQueryData(key, data);
       if (ctx?.detail) qc.setQueryData(['task', vars.id], ctx.detail);
     },
-    onSettled: (_data, _err, vars) => {
+    onSettled: (_data, err, vars) => {
+      // Offline, the move is queued: reloading now would read the cache from before the move and put
+      // the card back. The sync after reconnecting refreshes the board.
+      if (!refetchAfterMove(err)) return;
       void qc.invalidateQueries({ queryKey: boardPrefix });
       void qc.invalidateQueries({ queryKey: ['task', vars.id], exact: true });
       void qc.invalidateQueries({ queryKey: ['tasks', 'mine'] });

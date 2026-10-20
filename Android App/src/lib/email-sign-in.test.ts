@@ -59,3 +59,10 @@ describe('the code box', () => {
     expect(isCodeComplete('123456')).toBe(true);
   });
 });
+
+describe('the code box — Arabic digits', () => {
+  it('turns Arabic-Indic and Persian digits into the code', () => {
+    expect(normaliseCode('١٢٣٤٥٦')).toBe('123456');
+    expect(normaliseCode('۱۲۳ ۴۵۶')).toBe('123456');
+  });
+});

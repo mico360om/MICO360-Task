@@ -13,10 +13,9 @@ export type SaveState =
   | { status: 'error'; message: string };
 
 /** The message for a failed action: the server's reason when it gave one. */
-export function failureText(e: unknown, fallback: string): string {
-  if (isNetworkError(e)) return 'You’re offline — this needs a connection. Please try again.';
-  return e instanceof Error && e.message ? e.message : fallback;
-}
+import { failureText } from '../../lib/task-detail';
+
+export { failureText };
 
 /**
  * The saving → saved / queued / error state of one change. `run` awaits it and says whether it

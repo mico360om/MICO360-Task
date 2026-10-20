@@ -10,6 +10,7 @@ import { parseDueDateInput, parseHoursInput } from '../../lib/form-input';
 import { parseTags } from '../../lib/quick-add';
 import { displayName, type ApiAssignee, type ApiColumn, type ApiTag, type ApiTask, type Priority, type RecurrenceRule } from '../../lib/types';
 import { Chip, IconButton, SaveNote, SectionCard, useSave } from './kit';
+import { dueFieldValue } from '../../lib/task-detail';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
@@ -79,9 +80,9 @@ export function DetailsCard({
   const tagsSave = useSave();
   const progressSave = useSave();
 
-  const [dueText, setDueText] = useState(task.dueDate ? task.dueDate.slice(0, 10) : '');
+  const [dueText, setDueText] = useState(dueFieldValue(task.dueDate));
   const [estText, setEstText] = useState(task.estimatedHours != null ? String(task.estimatedHours) : '');
-  useEffect(() => setDueText(task.dueDate ? task.dueDate.slice(0, 10) : ''), [task.dueDate]);
+  useEffect(() => setDueText(dueFieldValue(task.dueDate)), [task.dueDate]);
   useEffect(() => setEstText(task.estimatedHours != null ? String(task.estimatedHours) : ''), [task.estimatedHours]);
   const [suggestion, setSuggestion] = useState<{ priority: Priority; reason: string } | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -99,7 +100,7 @@ export function DetailsCard({
       dueSave.fail(parsed.error);
       return;
     }
-    const current = task.dueDate ? task.dueDate.slice(0, 10) : null;
+    const current = dueFieldValue(task.dueDate) || null;
     if (parsed.value === current || parsed.value === sentDue.current) return;
     sentDue.current = parsed.value;
     if (!(await dueSave.run(() => onPatch({ dueDate: parsed.value }), 'Couldn’t save the due date.'))) sentDue.current = undefined;
