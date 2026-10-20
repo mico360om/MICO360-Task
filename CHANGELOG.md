@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- The Android app says a new version is out only when the app offered on the site is newer than it:
+  the site reads the version inside the app file it offers. A release that changes only the website
+  keeps the app's own version, so nobody is asked to download the same app again.
+
 ## [1.3.2] - 2026-10-20
 
 ### Improvements

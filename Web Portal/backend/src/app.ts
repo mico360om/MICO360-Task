@@ -92,7 +92,15 @@ export interface AppDeps extends AuthRouteDeps {
   recordTaskActivity?: RecordTaskActivity;
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
   /** Public app config surfaced at GET /api/v1/config (company time zone, names, whether email works). */
-  appConfig?: { timeZone: string; productName: string; companyName: string; emailEnabled?: boolean; androidAppUrl?: string | null };
+  appConfig?: {
+    timeZone: string;
+    productName: string;
+    companyName: string;
+    emailEnabled?: boolean;
+    androidAppUrl?: string | null;
+    /** The version of the app file the site offers (read from the file; null: none or unknown). */
+    androidAppVersion?: () => string | null;
+  };
   /**
    * Live account state for the auth guard (token version, status, current roles). When set, a
    * suspended / deleted / demoted user loses access at once instead of when their token expires.
@@ -341,6 +349,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // on its own site (the file is put there by the site package) and asks the site whether the
       // file is there; it never sends anyone to a code-hosting page.
       androidAppUrl: deps.appConfig?.androidAppUrl || null,
+      // The phone app says "new version" only when this download is newer than itself, so a release
+      // that changes only the website never asks anyone to update.
+      androidAppVersion: deps.appConfig?.androidAppVersion?.() ?? null,
       serverTime: new Date().toISOString(),
     },
   }));

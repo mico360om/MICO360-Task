@@ -25,15 +25,25 @@ export function updateAvailable(app: string, server: string | null | undefined):
   return compareVersions(app, server) < 0;
 }
 
-/** The server version whose "new version" banner was put away (kept on the phone). */
+/** The offered version whose "new version" banner was put away (kept on the phone). */
 export const UPDATE_DISMISSED_KEY = 'mico360.updateDismissed';
 
 /**
- * Show the "new version" banner? Only while the server is newer and that version's banner hasn't
- * been put away: a release that changed only the website has no new app to download.
+ * The app version the site's download offers: the version inside that app file (the server reads
+ * it), so a release that changes only the website never shows the notice. Null: no file to offer.
+ * A server from before this rule doesn't say, and its own version stands in, as it used to.
  */
-export function showUpdateBanner(app: string, server: string | null | undefined, dismissed: string | null): boolean {
-  return updateAvailable(app, server) && dismissed !== server;
+export function offeredAppVersion(config: { androidAppVersion?: string | null } | null | undefined, serverVersion: string | null): string | null {
+  if (config && 'androidAppVersion' in config) return config.androidAppVersion ?? null;
+  return serverVersion;
+}
+
+/**
+ * Show the "new version" banner? Only while the offered app is newer and that version's banner hasn't
+ * been put away.
+ */
+export function showUpdateBanner(app: string, offered: string | null | undefined, dismissed: string | null): boolean {
+  return updateAvailable(app, offered) && dismissed !== offered;
 }
 
 /** The release name crash reports carry. */

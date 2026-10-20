@@ -2,14 +2,16 @@
 /**
  * Make a release: one version for the whole system, and its changelog entry.
  *
- *   node tools/release/release.mjs [major|minor|patch|X.Y.Z] [--date YYYY-MM-DD] [--dry-run] [--commit]
+ *   node tools/release/release.mjs [major|minor|patch|X.Y.Z] [--web-only] [--date YYYY-MM-DD] [--dry-run] [--commit]
  *   (or: npm run release -- minor)
  *
  * 1. Takes the changes listed under "## [Unreleased]" in CHANGELOG.md (refuses if there are none).
  *    Without a level it picks one from them: BREAKING → major, New features → minor, else patch.
  * 2. Writes the new version everywhere: the server, web app, extension and Android packages (and
  *    their lockfiles), the extension manifest, the Android app (version and build number) and the
- *    Windows installer.
+ *    Windows installer. With --web-only (nothing in "Android App" changed) the Android app keeps its
+ *    version: there is no new app to sign, and phones are not told about a "new version" — they
+ *    compare themselves with the app file the site offers.
  * 3. Dates the changelog entry (Oman date) and opens a fresh [Unreleased].
  * 4. Runs the release-consistency test, which fails if anything is out of step.
  * 5. With --commit: commits "Release vX.Y.Z" and tags it vX.Y.Z (push them yourself).
@@ -30,6 +32,7 @@ const flag = (name) => args.includes(`--${name}`);
 const option = (name) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
 const level = args.find((a) => !a.startsWith('--') && a !== option('date'));
 const dryRun = flag('dry-run');
+const webOnly = flag('web-only');
 
 // Loading the TypeScript rules makes Node print notes about the file's module type: not useful here.
 process.removeAllListeners('warning');
@@ -106,7 +109,8 @@ function editText(rel, pattern, replace) {
 const setVersion = (d) => {
   d.version = next;
 };
-for (const rel of ['package.json', 'Web Portal/backend/package.json', 'Web Portal/frontend/package.json', 'Extension/package.json', 'Android App/package.json']) {
+const androidFiles = (...rels) => (webOnly ? [] : rels);
+for (const rel of ['package.json', 'Web Portal/backend/package.json', 'Web Portal/frontend/package.json', 'Extension/package.json', ...androidFiles('Android App/package.json')]) {
   editJson(rel, setVersion);
 }
 // The manifest keeps its own layout: only its version changes.
@@ -118,18 +122,20 @@ editJson('package-lock.json', (d) => {
     d.packages[key].version = next;
   }
 });
-for (const rel of ['Web Portal/backend/package-lock.json', 'Android App/package-lock.json']) {
+for (const rel of ['Web Portal/backend/package-lock.json', ...androidFiles('Android App/package-lock.json')]) {
   editJson(rel, (d) => {
     d.version = next;
     d.packages[''].version = next;
   });
 }
 // The Android app keeps its own layout: its version, and the build number Android uses to tell an
-// update from an older copy (one more each release).
+// update from an older copy (one more each release of the app; unchanged by a website-only release).
 const appJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'Android App', 'app.json'), 'utf8'));
-const versionCode = (Number(appJson.expo.android.versionCode) || 0) + 1;
-editText('Android App/app.json', /"version": "[^"]*"/, `"version": "${next}"`);
-editText('Android App/app.json', /"versionCode": \d+/, `"versionCode": ${versionCode}`);
+const versionCode = (Number(appJson.expo.android.versionCode) || 0) + (webOnly ? 0 : 1);
+if (!webOnly) {
+  editText('Android App/app.json', /"version": "[^"]*"/, `"version": "${next}"`);
+  editText('Android App/app.json', /"versionCode": \d+/, `"versionCode": ${versionCode}`);
+}
 editText('tools/release/windows/Shared/ServerCore.cs', /public const string Version = "[^"]*";/, `public const string Version = "${next}";`);
 editText('tools/release/windows/app.manifest', /assemblyIdentity version="[^"]*"/, `assemblyIdentity version="${next}.0"`);
 
@@ -137,7 +143,11 @@ const newChangelog = releaseChangelog(changelogMd, next, date);
 changed.push('CHANGELOG.md');
 if (!dryRun) fs.writeFileSync(changelogFile, newChangelog);
 
-console.log(`  Version ${next} written to ${changed.length} files (Android build number ${versionCode}).`);
+console.log(
+  webOnly
+    ? `  Version ${next} written to ${changed.length} files; the Android app stays ${appJson.expo.version} (build ${versionCode}) — no new app to sign.`
+    : `  Version ${next} written to ${changed.length} files (Android build number ${versionCode}).`,
+);
 if (dryRun) {
   console.log(`  Dry run: nothing was written.\n  ${changed.join('\n  ')}`);
   process.exit(0);

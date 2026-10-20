@@ -49,6 +49,8 @@ export interface ServerConfig {
   emailEnabled?: boolean;
   /** Where the Android app can be downloaded (the site's /downloads page by default). */
   androidAppUrl?: string | null;
+  /** The version inside the app file the site offers (null: none); absent from older servers. */
+  androidAppVersion?: string | null;
 }
 
 /** Your own date settings (GET /users/me/preferences), shared with the website. */

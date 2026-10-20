@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { compareVersions, updateAvailable, showUpdateBanner, releaseName, versionHeaders } from './app-version';
+import { compareVersions, updateAvailable, showUpdateBanner, releaseName, versionHeaders, offeredAppVersion } from './app-version';
+
+describe('offeredAppVersion — what the "new version" notice compares with', () => {
+  it('the version inside the app file the site offers, not the website’s own version', () => {
+    expect(offeredAppVersion({ androidAppVersion: '1.3.3' }, '1.3.6')).toBe('1.3.3');
+  });
+  it('no app file on the site (or unreadable): nothing to offer, so no notice', () => {
+    expect(offeredAppVersion({ androidAppVersion: null }, '1.3.6')).toBeNull();
+  });
+  it('a server from before this rule says nothing about the file: its own version, as before', () => {
+    expect(offeredAppVersion({}, '1.2.0')).toBe('1.2.0');
+    expect(offeredAppVersion(undefined, '1.2.0')).toBe('1.2.0');
+  });
+  it('a website-only release no longer shows the notice on an up-to-date app', () => {
+    expect(showUpdateBanner('1.3.3', offeredAppVersion({ androidAppVersion: '1.3.3' }, '1.3.6'), null)).toBe(false);
+    expect(showUpdateBanner('1.3.3', offeredAppVersion({ androidAppVersion: '1.3.4' }, '1.3.6'), null)).toBe(true);
+  });
+});
 
 describe('app version', () => {
   it('compares versions number by number', () => {

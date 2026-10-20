@@ -6,6 +6,7 @@ import { createPrismaIdempotencyStore } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
 import { registerWebApp, androidAppLink, downloadsDirFor } from './lib/web-app';
+import { createHostedApkVersion } from './lib/apk-version';
 import { loadReleaseFile } from './modules/about/build-info';
 import { resolve as resolvePath } from 'node:path';
 import { createPrismaDataExporter } from './modules/users/data-export';
@@ -1143,6 +1144,11 @@ async function main(): Promise<void> {
       emailEnabled: emailService.isConfigured(),
       // The APK this server hosts (the downloads folder, or the web root); otherwise ANDROID_APP_URL (if set).
       androidAppUrl: androidAppLink(env.ANDROID_APP_URL, env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null, downloadsDir),
+      // The version inside that APK, in the order it is served (the downloads folder, then the web root).
+      androidAppVersion: createHostedApkVersion([
+        resolvePath(downloadsDir, 'MICO360-Tasks.apk'),
+        env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT, 'downloads', 'MICO360-Tasks.apk') : null,
+      ]),
     },
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     rateLimitMax: env.RATE_LIMIT_MAX,

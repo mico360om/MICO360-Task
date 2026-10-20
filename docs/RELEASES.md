@@ -1,8 +1,9 @@
 # Versions and releases
 
-MICO360 Tasks has one version for the whole system: the server, the web portal, the Android app and
-the Chrome extension. It follows [Semantic Versioning](https://semver.org): **Major.Minor.Patch**,
-e.g. v1.2.3.
+MICO360 Tasks has one release version for the server, the web portal and the Chrome extension, and
+the Android app shares it when it changes; a release that changes only the website keeps the app's
+own version (see *Website-only releases* below). It follows [Semantic Versioning](https://semver.org):
+**Major.Minor.Patch**, e.g. v1.2.3.
 
 | Release | When | Example |
 | --- | --- | --- |
@@ -64,12 +65,26 @@ restart.
    - the live site: Redeploy in hPanel;
    - the packages: `tools/release/build-release.mjs` and `tools/release/build-apk.sh`.
 
+### Website-only releases
+
+When nothing under `Android App/` changed, release with `--web-only`
+(`npm run release -- patch --web-only`). The Android app keeps its version and build number, so there
+is no new app to build or sign.
+
+Phones don't learn about releases from the website's version. The server reads the version written
+inside the app file it offers at `/downloads/MICO360-Tasks.apk` (the downloads folder beside the
+uploads, else the web build's copy) and sends it as `androidAppVersion` in `GET /api/v1/config`. The
+app shows "A new version is available" only when that file is newer than itself. So after an app
+release, upload its signed APK to the downloads folder as `MICO360-Tasks.apk`; until then nobody is
+told to update. Apps from before 1.3.3 still compare with the server's version.
+
 ## What keeps it accurate
 
 - `Web Portal/backend/src/modules/about/release-consistency.test.ts`, run with every backend test
   run, fails if:
-  - any package, lockfile, manifest, the Android app or the Windows installer carries a different
-    version;
+  - any package, lockfile, manifest or the Windows installer carries a different version;
+  - the Android app's files disagree with each other, or are ahead of the release (they may be
+    behind it after website-only releases; the rule is in `release-versions.ts`);
   - CHANGELOG.md is malformed;
   - CHANGELOG.md's newest release isn't the current version.
 - The server's build (`npm run build` → `postbuild`) writes `dist/src/release.json`, and refuses to

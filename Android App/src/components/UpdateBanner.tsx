@@ -5,21 +5,23 @@ import { useServices } from '../core/providers';
 import { useServerConfig, useServerVersion } from '../core/queries';
 import { useColors } from '../core/theme';
 import { asyncStore } from '../adapters/async-storage';
-import { showUpdateBanner, UPDATE_DISMISSED_KEY } from '../lib/app-version';
+import { offeredAppVersion, showUpdateBanner, UPDATE_DISMISSED_KEY } from '../lib/app-version';
 import { sitePageUrl } from '../lib/server-address';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 
 /**
- * "A new version of MICO360 Tasks is available" — shown when the server runs a newer release than
- * this app (the website and the app share one version number). Download opens the site's Android
- * download; "Not now" puts the banner away until a newer version comes out.
+ * "A new version of MICO360 Tasks is available" — shown when the app file the site offers is newer
+ * than this app (the server reads its version; a release that changes only the website never shows
+ * it). Download opens the site's Android download; "Not now" puts it away until a newer one.
  */
 export function UpdateBanner() {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const { app, baseUrl } = useServices();
-  const server = useServerVersion().data?.version ?? null;
+  const serverVersion = useServerVersion().data?.version ?? null;
   const config = useServerConfig().data;
+  // Decided once the site's settings are in, so the notice never flashes up and away again.
+  const server = config ? offeredAppVersion(config, serverVersion) : null;
   const insets = useSafeAreaInsets();
   // undefined until read, so a banner already put away never flashes up.
   const [dismissed, setDismissed] = useState<string | null | undefined>(undefined);

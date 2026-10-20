@@ -138,6 +138,16 @@ describe('public client config', () => {
     const without = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', androidAppUrl: '' } });
     expect((await without.inject({ method: 'GET', url: '/api/v1/config' })).json().data.androidAppUrl).toBeNull();
   });
+
+  it('says which app version the download offers (asked each time: the file can be replaced), null when none', async () => {
+    let offered: string | null = '1.3.3';
+    const app = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', androidAppVersion: () => offered } });
+    expect((await app.inject({ method: 'GET', url: '/api/v1/config' })).json().data.androidAppVersion).toBe('1.3.3');
+    offered = null;
+    expect((await app.inject({ method: 'GET', url: '/api/v1/config' })).json().data).toHaveProperty('androidAppVersion', null);
+    const none = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C' } });
+    expect((await none.inject({ method: 'GET', url: '/api/v1/config' })).json().data).toHaveProperty('androidAppVersion', null);
+  });
 });
 
 describe('rate limiting behind a proxy', () => {
