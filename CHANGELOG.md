@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-20
+
 ### Improvements
 - A picture can be pasted into a task (Ctrl+V, ⌘V on a Mac) anywhere in its details panel: a
   screenshot, or an image copied from a web page or a document, is attached like a chosen file, with

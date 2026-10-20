@@ -1,6 +1,6 @@
 {
   "name": "@mico360/frontend",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "type": "module",
   "description": "MICO360 Tasks web app (React + Vite + Tailwind).",
