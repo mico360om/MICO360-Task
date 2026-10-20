@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-21
+
 ### New features
 - Daily task emails: every morning (06:00 Oman time unless you choose another time, in your own time
   zone) everyone gets two emails. "Pending tasks" lists the tasks assigned to you that aren't done,
