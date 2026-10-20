@@ -19,3 +19,12 @@ export async function readLockSetting(isEnabled: () => Promise<boolean>): Promis
     return true;
   }
 }
+
+/**
+ * Block screenshots, screen recording and the recent-apps preview (FLAG_SECURE)? Only while someone
+ * is signed in with the lock on: the lock stays on for its owner after a sign-out, but the sign-in
+ * screen shows nothing private.
+ */
+export function screenPrivate(state: { signedIn: boolean; enabled: boolean | null }): boolean {
+  return state.signedIn && state.enabled === true;
+}

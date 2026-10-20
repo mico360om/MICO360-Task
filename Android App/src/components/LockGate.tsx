@@ -5,7 +5,7 @@ import { useColors } from '../core/theme';
 import { Button } from './ui';
 import { useDrawerStore } from '../lib/drawer-store';
 import { createLockPolicy } from '../lib/lock-policy';
-import { lockView, readLockSetting } from '../lib/lock-view';
+import { lockView, readLockSetting, screenPrivate } from '../lib/lock-view';
 import { setScreenPrivacy } from '../adapters/screen-capture';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 
@@ -86,10 +86,11 @@ export function LockGate({ children }: { children: React.ReactNode }) {
   // Turned on or off in Settings (or for a different person): follow it.
   useEffect(() => biometric.subscribe((on) => setEnabled(on)), [biometric]);
 
-  // No screenshots, screen recording or recent-apps preview while the lock is on.
+  // No screenshots, screen recording or recent-apps preview while signed in with the lock on.
+  const isPrivate = screenPrivate({ signedIn: !!userId, enabled });
   useEffect(() => {
-    void setScreenPrivacy(enabled === true);
-  }, [enabled]);
+    void setScreenPrivacy(isPrivate);
+  }, [isPrivate]);
 
   // Back from the background after the grace period → lock.
   useEffect(() => {

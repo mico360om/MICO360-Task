@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { lockView, readLockSetting } from './lock-view';
+import { lockView, readLockSetting, screenPrivate } from './lock-view';
+
+describe('screenPrivate — no screenshots or recent-apps preview while it matters', () => {
+  it('only while someone is signed in with the lock on', () => {
+    expect(screenPrivate({ signedIn: true, enabled: true })).toBe(true);
+    expect(screenPrivate({ signedIn: true, enabled: false })).toBe(false);
+    expect(screenPrivate({ signedIn: true, enabled: null })).toBe(false);
+  });
+  it('the sign-in screen is never private, even with the lock left on for the same person', () => {
+    expect(screenPrivate({ signedIn: false, enabled: true })).toBe(false);
+  });
+});
 
 describe('readLockSetting — the cover always lifts', () => {
   it('passes the setting through', async () => {
