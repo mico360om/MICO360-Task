@@ -9,6 +9,7 @@ export type LinkTarget =
   | { screen: 'Meetings' }
   | { screen: 'MyActionItems' }
   | { screen: 'Chat' }
+  | { screen: 'ChatThread'; params: { conversationId: string } }
   | { screen: 'Notifications' }
   | { screen: 'Reset'; params: { token: string } };
 
@@ -16,8 +17,8 @@ export type LinkTarget =
  * Map a push notification's data payload to a navigation target (A6.2). The backend notification
  * carries `entityType` + `entityId` (entityType is lowercase — `task` / `conversation` / `digest`,
  * and `meeting` once the server sends meeting notifications), so matching is case-insensitive. A
- * conversation opens the Chat tab (the push payload doesn't carry the title/kind a specific thread
- * needs); unknown/absent entities open the notifications list.
+ * conversation opens its thread (3a: the thread finds its own title in the inbox), or the Chat tab
+ * without an id; unknown/absent entities open the notifications list.
  */
 export function notificationToTarget(data: Record<string, unknown>): LinkTarget {
   const entityType = typeof data.entityType === 'string' ? data.entityType.trim().toLowerCase() : '';
@@ -25,6 +26,7 @@ export function notificationToTarget(data: Record<string, unknown>): LinkTarget 
   if (entityType === 'task' && entityId) return { screen: 'TaskDetail', params: { taskId: entityId } };
   if (entityType === 'project' && entityId) return { screen: 'Board', params: { projectId: entityId } };
   if (entityType === 'meeting' && entityId) return { screen: 'MeetingDetail', params: { meetingId: entityId } };
+  if (entityType === 'conversation' && entityId) return { screen: 'ChatThread', params: { conversationId: entityId } };
   if (entityType === 'conversation') return { screen: 'Chat' };
   return { screen: 'Notifications' };
 }

@@ -16,6 +16,8 @@ import * as Notifications from 'expo-notifications';
 import { useServices, useUserId } from '../core/providers';
 import { useProjects } from '../core/queries';
 import { useAppRealtime } from '../core/useAppRealtime';
+import { useChatBadge } from '../core/chat';
+import { chatTabBadge, chatTabLabel } from '../lib/chat';
 import { useTheme } from '../core/theme';
 import { spacing } from '../lib/theme';
 import { notificationToTarget } from '../lib/deep-link';
@@ -25,7 +27,7 @@ import { DATE_ZONES_KEY, nextDateZones } from '../lib/date-settings';
 import { asyncStore } from '../adapters/async-storage';
 import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
-import { targetToAction, requiresSession, meetingScreenId, taskScreenId, type NavAction } from './nav-actions';
+import { targetToAction, requiresSession, chatScreenId, meetingScreenId, taskScreenId, type NavAction } from './nav-actions';
 import { createPendingAction } from './pending-action';
 import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
@@ -117,6 +119,9 @@ function applyAction(action: NavAction): void {
       break;
     case 'MeetingDetail':
       navigationRef.navigate('MeetingDetail', action.params);
+      break;
+    case 'ChatThread':
+      navigationRef.navigate('ChatThread', action.params);
       break;
     case 'MyActionItems':
       navigationRef.navigate('MyActionItems');
@@ -213,6 +218,8 @@ function HamburgerButton() {
 
 function MainTabs() {
   const { colors } = useTheme();
+  // Unread chat messages (3a): without muted conversations or the one being read.
+  const unread = useChatBadge();
   return (
     <Tabs.Navigator
       screenOptions={({ route }) => ({
@@ -228,7 +235,16 @@ function MainTabs() {
     >
       {/* Six tabs, in the side menu's order; Settings is in the menu (navigation/tabs). */}
       {TAB_ITEMS.map((t) => (
-        <Tabs.Screen key={t.name} name={t.name} component={TAB_SCREENS[t.name] as React.ComponentType} options={{ title: t.title }} />
+        <Tabs.Screen
+          key={t.name}
+          name={t.name}
+          component={TAB_SCREENS[t.name] as React.ComponentType}
+          options={
+            t.name === 'Chat'
+              ? { title: t.title, tabBarBadge: chatTabBadge(unread), tabBarAccessibilityLabel: chatTabLabel(unread), tabBarBadgeStyle: { backgroundColor: colors.brand, color: colors.onBrand } }
+              : { title: t.title }
+          }
+        />
       ))}
     </Tabs.Navigator>
   );
@@ -368,7 +384,12 @@ export function RootNavigator() {
             <AppStack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
             <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports' }} />
             <AppStack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
-            <AppStack.Screen name="ChatThread" component={ChatThreadScreen} options={{ title: 'Chat' }} />
+            <AppStack.Screen
+              name="ChatThread"
+              component={ChatThreadScreen}
+              getId={chatScreenId}
+              options={({ route }) => ({ title: route.params.title ?? 'Chat' })}
+            />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />
           <RealtimeMount />

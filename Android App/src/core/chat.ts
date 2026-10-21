@@ -3,8 +3,9 @@ import { AppState } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useMyQueuedChanges, useServices } from './providers';
 import { enqueueChatMessage, outboxFor, settledByServer } from '../lib/chat-outbox';
-import { shouldMarkRead, withConversationRead } from '../lib/chat';
-import { setViewingConversation, viewingConversation } from '../lib/chat-viewing';
+import { chatBadgeCount, conversationForProject, openChannelError, shouldMarkRead, withConversationRead } from '../lib/chat';
+import { setViewingConversation, subscribeViewing, viewingConversation } from '../lib/chat-viewing';
+import { useConversations } from './queries';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { refresh } from '../lib/refresh';
 import { dismissNotificationsAbout } from '../adapters/push';
@@ -118,4 +119,46 @@ export function useReadWhileOpen({ conversationId, unread, newestId, focused }: 
     const t = setTimeout(() => markRead(conversationId), 800);
     return () => clearTimeout(t);
   }, [focused, appActive, unread, newestId, conversationId, markRead]);
+}
+
+/** The Chat tab's number, live: unread messages without muted conversations or the one on screen. */
+export function useChatBadge(): number {
+  // The same inbox query as the Chat screen (one request, one cache entry).
+  const inbox = useConversations().data;
+  const viewing = useSyncExternalStore(subscribeViewing, viewingConversation, viewingConversation);
+  return chatBadgeCount(inbox, { viewing });
+}
+
+/**
+ * Open a project's channel: straight away when the inbox knows it (works offline, from its copy),
+ * otherwise once the server has made it. The thread marks it read as it opens (useReadWhileOpen).
+ */
+export function useOpenProjectChat(go: (conversationId: string, name: string) => void) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  const [opening, setOpening] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const open = useCallback(
+    async (projectId: string, name: string) => {
+      if (opening) return;
+      setError(null);
+      const known = conversationForProject(qc.getQueryData<ApiConversationSummary[]>(INBOX), projectId);
+      if (known) {
+        go(known, name);
+        return;
+      }
+      setOpening(projectId);
+      try {
+        const { conversation } = await resources.chat.openProjectChannel(projectId);
+        void qc.invalidateQueries({ queryKey: INBOX });
+        go(conversation.id, name);
+      } catch (e) {
+        setError(openChannelError(e, name));
+      } finally {
+        setOpening(null);
+      }
+    },
+    [opening, qc, resources, go],
+  );
+  return { open, opening, error };
 }

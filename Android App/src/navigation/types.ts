@@ -32,7 +32,8 @@ export type AppStackParamList = {
   Profile: undefined;
   Reports: undefined;
   Settings: undefined;
-  ChatThread: { conversationId: string; title: string; kind: 'PROJECT' | 'DIRECT' };
+  /** A conversation; the title is a hint (the thread names itself from the inbox, e.g. opened from a push). */
+  ChatThread: { conversationId: string; title?: string };
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;

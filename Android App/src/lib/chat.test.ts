@@ -170,3 +170,38 @@ describe('shouldMarkRead (messages arriving while the thread is open are read)',
     expect(shouldMarkRead({ focused: true, appActive: true, unread: 0 })).toBe(false);
   });
 });
+
+import { chatTabBadge, chatTabLabel, openChannelError, threadLoadError } from './chat';
+import { ApiError as ChatApiError, NetworkError as ChatNetworkError } from './api-client';
+
+describe('chatTabBadge / chatTabLabel (the Chat tab)', () => {
+  it('shows the number, capped, and nothing at 0', () => {
+    expect(chatTabBadge(0)).toBeUndefined();
+    expect(chatTabBadge(7)).toBe(7);
+    expect(chatTabBadge(120)).toBe('99+');
+  });
+  it('says it to TalkBack', () => {
+    expect(chatTabLabel(0)).toBe('Chat');
+    expect(chatTabLabel(1)).toBe('Chat, 1 unread message');
+    expect(chatTabLabel(5)).toBe('Chat, 5 unread messages');
+  });
+});
+
+describe('openChannelError (opening a project’s channel the server must create first)', () => {
+  it('says why, in plain words', () => {
+    expect(openChannelError(new ChatNetworkError('offline'), 'Tower A')).toBe('Couldn’t open #Tower A — you’re offline. Try again when connected.');
+    expect(openChannelError(new ChatApiError(403, 'FORBIDDEN', 'No.'), 'Tower A')).toBe(
+      'You can’t open #Tower A because you aren’t a member of this project. Ask the project’s manager to add you to the team.',
+    );
+    expect(openChannelError(new ChatApiError(404, 'NOT_FOUND', 'Project not found.'), 'Tower A')).toBe('Project not found.');
+    expect(openChannelError(new Error('?'), 'Tower A')).toBe('Couldn’t open #Tower A. Please try again.');
+  });
+});
+
+describe('threadLoadError (a conversation that didn’t load)', () => {
+  it('passes on the server’s reason for a refusal, else asks to check the connection', () => {
+    expect(threadLoadError(new ChatApiError(403, 'FORBIDDEN', 'You do not have access to this conversation.'))).toBe('You do not have access to this conversation.');
+    expect(threadLoadError(new ChatNetworkError('offline'))).toBe('Couldn’t load this conversation. Check your connection and try again.');
+    expect(threadLoadError(new ChatApiError(500, 'ERROR', 'Request failed (500)'))).toBe('Couldn’t load this conversation. Check your connection and try again.');
+  });
+});

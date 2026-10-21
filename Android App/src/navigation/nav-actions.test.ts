@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { meetingScreenId, targetToAction, taskScreenId } from './nav-actions';
+import { chatScreenId, meetingScreenId, targetToAction, taskScreenId } from './nav-actions';
 import { DRAWER_ITEMS, activeDrawerKey, actionRouteName, drawerItemsFor } from './drawer-menu';
 import { TAB_ITEMS } from './tabs';
 import { notificationToTarget } from '../lib/deep-link';
@@ -19,6 +19,12 @@ describe('targetToAction', () => {
     expect(targetToAction(notificationToTarget({ entityType: 'meeting', entityId: 'm2' }))).toEqual({ type: 'stack', screen: 'MeetingDetail', params: { meetingId: 'm2' } });
   });
 
+  it('opens a conversation’s thread (a chat push, 3a), one screen per conversation', () => {
+    expect(targetToAction({ screen: 'ChatThread', params: { conversationId: 'c1' } })).toEqual({ type: 'stack', screen: 'ChatThread', params: { conversationId: 'c1' } });
+    const route = { params: { conversationId: 'c1', title: 'Tower A' } };
+    expect(chatScreenId(route)).toBe('c1');
+  });
+
   it('gives each task and each meeting its own screen, so a link from one to another adds a screen (Back returns)', () => {
     expect(taskScreenId({ params: { taskId: 't1' } })).toBe('t1');
     const route = { params: { meetingId: 'm1', title: 'Weekly' } };
@@ -29,7 +35,7 @@ describe('targetToAction', () => {
   it('composes with the push resolver end to end', () => {
     // a real backend push (lowercase entityType) → opens the task
     expect(targetToAction(notificationToTarget({ entityType: 'task', entityId: 't9' }))).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't9' } });
-    expect(targetToAction(notificationToTarget({ entityType: 'conversation', entityId: 'c1' }))).toEqual({ type: 'tab', tab: 'Chat' });
+    expect(targetToAction(notificationToTarget({ entityType: 'conversation', entityId: 'c1' }))).toEqual({ type: 'stack', screen: 'ChatThread', params: { conversationId: 'c1' } });
   });
 });
 

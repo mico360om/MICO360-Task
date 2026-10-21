@@ -11,6 +11,7 @@ export type NavAction =
   | { type: 'stack'; screen: 'TaskDetail'; params: AppStackParamList['TaskDetail'] }
   | { type: 'stack'; screen: 'Board'; params: AppStackParamList['Board'] }
   | { type: 'stack'; screen: 'MeetingDetail'; params: AppStackParamList['MeetingDetail'] }
+  | { type: 'stack'; screen: 'ChatThread'; params: AppStackParamList['ChatThread'] }
   | { type: 'stack'; screen: 'MyActionItems' }
   | { type: 'stack'; screen: 'Calendar' }
   | { type: 'stack'; screen: 'Profile' }
@@ -34,6 +35,8 @@ export function targetToAction(target: LinkTarget): NavAction {
       return { type: 'tab', tab: 'Meetings' };
     case 'Chat':
       return { type: 'tab', tab: 'Chat' };
+    case 'ChatThread':
+      return { type: 'stack', screen: 'ChatThread', params: target.params };
     case 'Reset':
       return { type: 'auth', screen: 'Reset', params: target.params };
     case 'Notifications':
@@ -50,6 +53,8 @@ export function targetToAction(target: LinkTarget): NavAction {
  */
 export const taskScreenId = ({ params }: { params?: { taskId?: string } }): string | undefined => params?.taskId;
 export const meetingScreenId = ({ params }: { params?: { meetingId?: string } }): string | undefined => params?.meetingId;
+/** One thread screen per conversation (a push for another conversation adds a screen). */
+export const chatScreenId = ({ params }: { params?: { conversationId?: string } }): string | undefined => params?.conversationId;
 
 /** True when the action needs a signed-in user (everything except the auth screens). */
 export function requiresSession(action: NavAction): boolean {

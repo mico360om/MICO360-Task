@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProjects, useConversations, useDirectory } from '../core/queries';
-import { useServices, useSession } from '../core/providers';
+import { useSession } from '../core/providers';
+import { useOpenProjectChat } from '../core/chat';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote } from '../components/ui';
-import { ApiError, isNetworkError } from '../lib/api-client';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 
@@ -15,14 +15,20 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
   const projectsQ = useProjects();
   const inboxQ = useConversations();
   const dirQ = useDirectory();
-  const { resources } = useServices();
   const session = useSession();
   const myId = session?.user?.id;
-  const [opening, setOpening] = useState<string | null>(null);
-  const [openErr, setOpenErr] = useState<string | null>(null);
+  // A channel the inbox knows opens at once (offline too); the thread marks it read as it opens.
+  const goToThread = useCallback(
+    (conversationId: string, name: string) => navigation.navigate('ChatThread', { conversationId, title: name }),
+    [navigation],
+  );
+  const channel = useOpenProjectChat(goToThread);
+  const opening = channel.opening;
+  const openErr = channel.error;
 
+  const people = useMemo(() => new Map((dirQ.data ?? []).map((u) => [u.id, u])), [dirQ.data]);
   const nameOf = (userId: string): string => {
-    const u = (dirQ.data ?? []).find((d) => d.id === userId);
+    const u = people.get(userId);
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Someone';
   };
   const inbox = inboxQ.data ?? [];
@@ -34,31 +40,8 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
     return other ? nameOf(other) : 'Direct message';
   };
 
-  async function openChannel(projectId: string, name: string) {
-    if (opening) return;
-    setOpenErr(null);
-    setOpening(projectId);
-    try {
-      const { conversation } = await resources.chat.openProjectChannel(projectId);
-      void resources.chat.markRead(conversation.id).then(() => inboxQ.refetch(), () => {});
-      navigation.navigate('ChatThread', { conversationId: conversation.id, title: name, kind: 'PROJECT' });
-    } catch (e) {
-      // Opening a channel offline used to fail silently (MOB-08).
-      setOpenErr(
-        isNetworkError(e)
-          ? `Couldn't open #${name} — you're offline. Try again when connected.`
-          : e instanceof ApiError && e.message
-            ? e.message
-            : `Couldn't open #${name}. Please try again.`,
-      );
-    } finally {
-      setOpening(null);
-    }
-  }
-  function openDm(conversationId: string, title: string) {
-    void resources.chat.markRead(conversationId).then(() => inboxQ.refetch(), () => {});
-    navigation.navigate('ChatThread', { conversationId, title, kind: 'DIRECT' });
-  }
+  const openChannel = (projectId: string, name: string) => void channel.open(projectId, name);
+  const openDm = (conversationId: string, title: string) => navigation.navigate('ChatThread', { conversationId, title });
 
   if (projectsQ.isLoading) return <Loader />;
   const refreshing = projectsQ.isRefetching || inboxQ.isRefetching;
@@ -88,7 +71,7 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
             <Pressable
               key={p.id}
               style={styles.row}
-              onPress={() => void openChannel(p.id, p.name)}
+              onPress={() => openChannel(p.id, p.name)}
               disabled={opening !== null}
               accessibilityRole="button"
               accessibilityLabel={`${p.name} channel${unread ? `, ${unread} unread` : ''}`}

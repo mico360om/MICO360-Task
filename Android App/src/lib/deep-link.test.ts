@@ -27,8 +27,10 @@ describe('notificationToTarget (A6.2 — deep-link on push tap)', () => {
     expect(notificationToTarget({ entityType: 'project', entityId: 'p2' })).toEqual({ screen: 'Board', params: { projectId: 'p2' } });
   });
 
-  it('routes a conversation notification to the Chat tab', () => {
-    expect(notificationToTarget({ entityType: 'conversation', entityId: 'c1' })).toEqual({ screen: 'Chat' });
+  it('opens the conversation itself from a chat notification (3a), or the Chat tab without an id', () => {
+    expect(notificationToTarget({ entityType: 'conversation', entityId: 'c1' })).toEqual({ screen: 'ChatThread', params: { conversationId: 'c1' } });
+    expect(notificationToTarget({ entityType: 'Conversation', entityId: 'c1' })).toEqual({ screen: 'ChatThread', params: { conversationId: 'c1' } });
+    expect(notificationToTarget({ entityType: 'conversation' })).toEqual({ screen: 'Chat' });
   });
 
   it('falls back to the Notifications screen for a digest / unknown / absent entity', () => {

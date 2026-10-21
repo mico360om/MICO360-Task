@@ -31,6 +31,12 @@ describe('linking config (MOB-09)', () => {
     expect(tabs?.state?.routes[0]).toMatchObject({ name: 'Meetings' });
   });
 
+  it('opens a conversation from a chat link (3a), without taking its title from the link', () => {
+    expect(getStateFromPath('chat/c1', cfg)?.routes[0]).toMatchObject({ name: 'ChatThread', params: { conversationId: 'c1' } });
+    const state = withoutLinkTitles(getStateFromPath('chat/c1?title=Payroll', cfg));
+    expect(state?.routes[0]?.params).toEqual({ conversationId: 'c1' });
+  });
+
   it('opens the website’s own meeting address (/meetings/<id>) as the meeting too', () => {
     expect(normalizeLinkPath('meetings/m1')).toBe('meeting/m1');
     expect(normalizeLinkPath('/meetings/m1?from=mail')).toBe('/meeting/m1?from=mail');

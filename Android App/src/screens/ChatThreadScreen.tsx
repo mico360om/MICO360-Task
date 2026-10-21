@@ -23,7 +23,7 @@ import { useChatOutbox, useOnline, useReadWhileOpen } from '../core/chat';
 import { Loader, ErrorNote, NoticeNote } from '../components/ui';
 import { MentionSuggestions, MentionText, useMentionInput } from '../components/Mentions';
 import type { MentionPerson } from '../lib/mentions';
-import { conversationTitle } from '../lib/chat';
+import { conversationTitle, threadLoadError } from '../lib/chat';
 import { CHAT_MAX_LENGTH, connectionNote, outboxLabel, type OutboxEntry } from '../lib/chat-outbox';
 import { threadItems, threadMessages, type ThreadItem } from '../lib/chat-thread';
 import { afterNewest, isFarFromNewest, isNearNewest, newMessagesLabel } from '../lib/chat-scroll';
@@ -293,7 +293,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
           // A failed load is not "No messages yet" (MOB-08); messages waiting to be sent still show.
           <View style={styles.noteWrap}>
             <ErrorNote
-              message="Couldn’t load this conversation. Check your connection and try again."
+              message={threadLoadError(messagesQ.error)}
               onRetry={() => void messagesQ.refetch()}
               retrying={messagesQ.isRefetching}
             />

@@ -1,5 +1,6 @@
 import type { ApiChatMessage, ApiConversationSummary, ApiDirectoryUser } from './types';
 import type { MentionPerson } from './mentions';
+import { ApiError, isNetworkError } from './api-client';
 
 /** Realtime chat events broadcast by the API over socket.io (mirrors server event names). */
 export type ChatEvent =
@@ -112,4 +113,31 @@ export function mentionPeopleFor(memberIds: readonly string[] | null, directory:
 /** Mark the open conversation read: it is on screen, the app is in front, and something is unread. */
 export function shouldMarkRead({ focused, appActive, unread }: { focused: boolean; appActive: boolean; unread: number }): boolean {
   return focused && appActive && unread > 0;
+}
+
+/** The Chat tab's badge: the number (99+ at most), nothing at 0. */
+export function chatTabBadge(n: number): number | string | undefined {
+  if (n <= 0) return undefined;
+  return n > 99 ? '99+' : n;
+}
+
+/** What TalkBack reads for the Chat tab. */
+export function chatTabLabel(n: number): string {
+  return n > 0 ? `Chat, ${n} unread message${n === 1 ? '' : 's'}` : 'Chat';
+}
+
+/** Why a project's channel couldn't be opened (it had to be asked of the server). */
+export function openChannelError(error: unknown, name: string): string {
+  if (isNetworkError(error)) return `Couldn’t open #${name} — you’re offline. Try again when connected.`;
+  if (error instanceof ApiError && error.status === 403) {
+    return `You can’t open #${name} because you aren’t a member of this project. Ask the project’s manager to add you to the team.`;
+  }
+  if (error instanceof ApiError && error.message && !/^Request failed/.test(error.message)) return error.message;
+  return `Couldn’t open #${name}. Please try again.`;
+}
+
+/** Why a conversation didn't load: the server's reason for a refusal, else the connection. */
+export function threadLoadError(error: unknown): string {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.message && !/^Request failed/.test(error.message)) return error.message;
+  return 'Couldn’t load this conversation. Check your connection and try again.';
 }

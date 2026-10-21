@@ -1,10 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl, Pressable } from 'react-native';
 import { useProject, useProjectMeetings, useProjectMembers, useProjectProgress, useProjectTasks } from '../core/queries';
-import { useServices } from '../core/providers';
+import { useOpenProjectChat } from '../core/chat';
 import { useColors } from '../core/theme';
 import { Card, SectionTitle, Loader, ErrorNote, Pill, Badge, Button } from '../components/ui';
-import { ApiError, isNetworkError } from '../lib/api-client';
 import { displayName, type ApiProjectMeetingsOverview } from '../lib/types';
 import { companyTodayKey, formatDueDay } from '../lib/due-date';
 import { daysLeftLabel, projectDeadlines, projectMilestones, type MilestoneState } from '../lib/project-dashboard';
@@ -25,7 +24,6 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
   const { projectId } = route.params;
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { resources } = useServices();
   const projectQ = useProject(projectId);
   const progressQ = useProjectProgress(projectId);
   const membersQ = useProjectMembers(projectId);
@@ -34,8 +32,14 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
   const today = companyTodayKey();
   const milestones = useMemo(() => projectMilestones(tasksQ.data ?? [], today), [tasksQ.data, today]);
   const deadlines = useMemo(() => projectDeadlines(tasksQ.data ?? [], today), [tasksQ.data, today]);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [openingChat, setOpeningChat] = useState(false);
+  // The project's channel: at once when the inbox knows it (offline too), read as it opens (3a).
+  const goToChat = useCallback(
+    (conversationId: string, name: string) => navigation.navigate('ChatThread', { conversationId, title: name }),
+    [navigation],
+  );
+  const chat = useOpenProjectChat(goToChat);
+  const chatError = chat.error;
+  const openingChat = chat.opening === projectId;
 
   const project = projectQ.data;
   const progress = progressQ.data;
@@ -43,18 +47,8 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
   const refreshing = projectQ.isRefetching || progressQ.isRefetching || membersQ.isRefetching || tasksQ.isRefetching || meetingsQ.isRefetching;
   const openTask = (t: { id: string; title: string }) => navigation.navigate('TaskDetail', { taskId: t.id, title: t.title });
 
-  async function openChat() {
-    if (!project) return;
-    setOpeningChat(true);
-    setChatError(null);
-    try {
-      const { conversation } = await resources.chat.openProjectChannel(projectId);
-      navigation.navigate('ChatThread', { conversationId: conversation.id, title: project.name, kind: 'PROJECT' });
-    } catch (e) {
-      setChatError(isNetworkError(e) ? 'You’re offline — try again when connected.' : e instanceof ApiError ? e.message : 'Couldn’t open the project chat.');
-    } finally {
-      setOpeningChat(false);
-    }
+  function openChat() {
+    if (project) void chat.open(projectId, project.name);
   }
 
   if (projectQ.isLoading) return <Loader />;
