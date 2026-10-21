@@ -117,3 +117,14 @@ export function taskHoldsEdit(task: ApiTask, patch: Record<string, unknown>): bo
   const fields = Object.entries(patch).filter(([k]) => k !== 'expectedVersion' && k !== 'scope');
   return fields.length > 0 && fields.every(([field, wanted]) => holdsField(task, field, wanted));
 }
+
+/**
+ * A task edit or move replayed by the sync made a new version: it is this phone's own, so the next
+ * edit (made before the task's reload lands) is sent against it — not refused as someone else's.
+ */
+export function noteReplayed(writes: TaskWrites, m: QueuedMutation, result: unknown): void {
+  if (m.kind !== 'task.update' && m.kind !== 'task.move') return;
+  const id = (m.payload as TaskWritePayload | null)?.id;
+  const version = (result as { version?: unknown } | null | undefined)?.version;
+  if (typeof id === 'string' && typeof version === 'number') writes.note(id, version);
+}

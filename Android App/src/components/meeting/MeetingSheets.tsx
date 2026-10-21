@@ -4,7 +4,7 @@ import { useColors } from '../../core/theme';
 import { useInvitePreview, useMinutesPreview, useSendInvites, useSendMinutes } from '../../core/meeting-mutations';
 import { ActionRowButton, CardChoice, CheckRow, Sheet, SheetButtons, SheetMessage, useSheetStyles } from './sheet-kit';
 import { inviteChoice, inviteFailure, inviteRequest, minutesChoice, sendFailure, sendSummary } from '../../lib/meeting-invites';
-import { inviteTry, minutesTry, pendingKeys } from '../../lib/pending-keys';
+
 import { meetingFailure, type ConfirmDialog, type MenuItem } from '../../lib/meeting-flow';
 import { meetingWhen } from '../../lib/meeting-detail';
 import { spacing, fontSize, radius } from '../../lib/theme';
@@ -133,13 +133,9 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
     if (!choice) return;
     setError(null);
     // A send that got no answer keeps its key until one comes — also after this sheet is closed —
-    // so sending the same again can't email anyone twice (pending-keys).
-    const opts = inviteRequest(choice);
-    const what = inviteTry(meeting.id, opts, choice.targets.map((r) => r.email));
-    send.mutate({ opts, idempotencyKey: pendingKeys.keyFor(what) }, {
-      onSuccess: () => pendingKeys.settle(what),
+    // so sending the same again can't email anyone twice (useSendInvites, pending-keys).
+    send.mutate({ opts: inviteRequest(choice), emails: choice.targets.map((r) => r.email) }, {
       onError: (e) => {
-        pendingKeys.settle(what, e);
         const f = inviteFailure(e);
         setError(f.text);
         if (f.reload) void previewQ.refetch();
@@ -239,18 +235,8 @@ export function MinutesEmailSheet({
     if (!choice) return;
     setError(null);
     // A send that got no answer keeps its key until one comes — also after this sheet is closed and
-    // opened again — so "nobody gets it twice" holds (the server has no other guard on it).
-    const what = minutesTry(meeting.id, choice.chosen.map((r) => r.email));
-    send.mutate(
-      { recipients: choice.recipients, idempotencyKey: pendingKeys.keyFor(what) },
-      {
-        onSuccess: () => pendingKeys.settle(what),
-        onError: (e) => {
-          pendingKeys.settle(what, e);
-          setError(sendFailure(e, 'Couldn’t email the minutes.'));
-        },
-      },
-    );
+    // opened again — so "nobody gets it twice" holds (useSendMinutes, pending-keys).
+    send.mutate({ recipients: choice.recipients, emails: choice.chosen.map((r) => r.email) }, { onError: (e) => setError(sendFailure(e, 'Couldn’t email the minutes.')) });
   };
   const toggle = (email: string) =>
     setLeft((prev) => {

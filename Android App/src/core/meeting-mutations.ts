@@ -4,6 +4,7 @@ import { queueOnOffline, writeOrder, type Keyed } from './queries';
 import { isNetworkError } from '../lib/api-client';
 import { sendInOrder } from '../lib/write-order';
 import { noteTaskFailure } from '../lib/meeting-parts';
+import { inviteTry, minutesTry, pendingKeys, sendKept, tryName } from '../lib/pending-keys';
 import { refresh } from '../lib/refresh';
 import { afterMeetingSaved, afterPartChanged, dropRow, patchRow, putRow } from '../lib/meeting-cache';
 import type { SaveRequest } from '../lib/meeting-form';
@@ -66,8 +67,10 @@ export function useMeetingActions(meetingId: string) {
     mutationFn: (scope: SeriesScope) => resources.meetings.cancel(meetingId, scope),
     onSuccess: (saved, scope) => afterMeetingSaved(qc, saved, { scope }),
   });
+  // A copy whose try got no answer keeps its key (settled by the write itself), so tapping again
+  // can't make a second copy (pending-keys).
   const duplicate = useMutation({
-    mutationFn: ({ idempotencyKey }: Keyed<object>) => resources.meetings.duplicate(meetingId, { idempotencyKey }),
+    mutationFn: () => sendKept(pendingKeys, tryName('duplicate', meetingId), (idempotencyKey) => resources.meetings.duplicate(meetingId, { idempotencyKey })),
     onSuccess: (copy) => afterMeetingSaved(qc, copy, {}),
   });
   // The screen closes first, then drops the meeting's data (afterMeetingDeleted).
@@ -83,8 +86,10 @@ export function useAttendeeMutations(meetingId: string) {
   const qc = useQueryClient();
   const key = part(meetingId, 'attendees');
   const changed = () => afterPartChanged(qc, meetingId, 'attendees');
+  // A try that got no answer keeps its key, so tapping again can't add them twice (pending-keys).
   const add = useMutation({
-    mutationFn: ({ input, idempotencyKey }: Keyed<{ input: AttendeeInput }>) => resources.meetings.addAttendee(meetingId, input, { idempotencyKey }),
+    mutationFn: ({ input }: { input: AttendeeInput }) =>
+      sendKept(pendingKeys, tryName('attendee', meetingId, input), (idempotencyKey) => resources.meetings.addAttendee(meetingId, input, { idempotencyKey })),
     onSuccess: (row) => {
       putRow(qc, key, row);
       changed();
@@ -142,9 +147,11 @@ export function useSendInvites(meeting: Pick<ApiMeeting, 'id' | 'status'>) {
   const { resources } = useServices();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ opts, idempotencyKey }: Keyed<{ opts: { onlyNew?: boolean; resend?: boolean } }>) => {
+    // A send that got no answer keeps its key until one comes — also after the sheet is closed — so
+    // sending the same again can't email anyone twice (pending-keys; `emails` is who it goes to).
+    mutationFn: async ({ opts, emails }: { opts: { onlyNew?: boolean; resend?: boolean }; emails: string[] }) => {
       if (meeting.status === 'DRAFT') afterMeetingSaved(qc, await resources.meetings.update(meeting.id, { status: 'SCHEDULED' }), {});
-      return resources.meetings.sendInvites(meeting.id, opts, { idempotencyKey });
+      return sendKept(pendingKeys, inviteTry(meeting.id, opts, emails), (idempotencyKey) => resources.meetings.sendInvites(meeting.id, opts, { idempotencyKey }));
     },
     // Who was invited, and when invitations went out, changed.
     onSettled: () => refresh(qc, [{ queryKey: ['meeting', meeting.id], exact: true }, { queryKey: part(meeting.id, 'attendees'), exact: true }, { queryKey: ['meetings'], later: true }]),
@@ -158,8 +165,10 @@ export function useAgendaMutations(meetingId: string) {
   const { resources, queue, currentUserId } = services;
   const qc = useQueryClient();
   const key = part(meetingId, 'agenda');
+  // A try that got no answer keeps its key, so tapping Add again can't add it twice (pending-keys).
   const add = useMutation({
-    mutationFn: ({ input, idempotencyKey }: Keyed<{ input: AgendaItemInput }>) => resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey }),
+    mutationFn: ({ input }: { input: AgendaItemInput }) =>
+      sendKept(pendingKeys, tryName('agenda', meetingId, input), (idempotencyKey) => resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey })),
     onSuccess: (row) => putRow(qc, key, row),
   });
   const update = useMutation({
@@ -251,7 +260,9 @@ export function useNoteToTask(meetingId: string) {
   const { resources } = useServices();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ noteId, input, idempotencyKey }: Keyed<{ noteId: string; input: NoteTaskInput }>) => resources.meetings.noteToTask(meetingId, noteId, input, { idempotencyKey }),
+    // A try that got no answer keeps its key, so tapping again can't make a second task (pending-keys).
+    mutationFn: ({ noteId, input }: { noteId: string; input: NoteTaskInput }) =>
+      sendKept(pendingKeys, tryName('note-task', meetingId, noteId, input), (idempotencyKey) => resources.meetings.noteToTask(meetingId, noteId, input, { idempotencyKey })),
     onSuccess: (res) => {
       if (res?.note) putRow<ApiMeetingNote>(qc, part(meetingId, 'notes'), res.note);
       if (res?.actionItem) putRow<ApiActionItem>(qc, part(meetingId, 'action-items'), { ...res.actionItem, taskKey: res.task.key });
@@ -345,6 +356,9 @@ export function useMinutesPreview(meetingId: string, enabled: boolean) {
 export function useSendMinutes(meetingId: string) {
   const { resources } = useServices();
   return useMutation({
-    mutationFn: ({ recipients, idempotencyKey }: Keyed<{ recipients: string[] | undefined }>) => resources.meetings.sendMinutes(meetingId, recipients, { idempotencyKey }),
+    // The key of a send with no answer is kept until one comes — also after the sheet is closed and
+    // opened again — so "nobody gets it twice" holds (pending-keys; `emails` is who it goes to).
+    mutationFn: ({ recipients, emails }: { recipients: string[] | undefined; emails: string[] }) =>
+      sendKept(pendingKeys, minutesTry(meetingId, emails), (idempotencyKey) => resources.meetings.sendMinutes(meetingId, recipients, { idempotencyKey })),
   });
 }

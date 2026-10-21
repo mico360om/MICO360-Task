@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createTaskWrites, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
+import { createTaskWrites, noteReplayed, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
 import type { QueuedMutation } from './sync-queue';
 import type { ApiTask } from './types';
 
@@ -180,5 +180,21 @@ describe('taskHoldsEdit — does the task already hold what a queued edit sets?'
     expect(taskHoldsEdit(task, { title: 'Ship it', priority: 'LOW' })).toBe(false);
     expect(taskHoldsEdit(task, { expectedVersion: 5 })).toBe(false);
     expect(taskHoldsEdit(task, {})).toBe(false);
+  });
+});
+
+describe('noteReplayed — a replayed edit or move of this phone’s is its own version', () => {
+  it('the next edit is made against the version the sync’s replay made, not the one the screen loaded', () => {
+    const writes = createTaskWrites();
+    const m = (kind: string, payload: unknown) => ({ id: 'q', kind, payload, createdAt: 0, userId: 'u1', idempotencyKey: 'k', attempts: 0, status: 'pending' as const });
+    noteReplayed(writes, m('task.update', { id: 't1', patch: { title: 'B', expectedVersion: 4 } }), { id: 't1', version: 5 });
+    expect(writes.expectedVersion('t1', 4)).toBe(5);
+    noteReplayed(writes, m('task.move', { id: 't1', columnId: 'c2' }), { id: 't1', version: 6 });
+    expect(writes.expectedVersion('t1', 4)).toBe(6);
+    // Other changes (and an answer without a version) note nothing.
+    noteReplayed(writes, m('checklist.update', { id: 't2', itemId: 'k1', patch: { done: true } }), { version: 9 });
+    noteReplayed(writes, m('task.update', { id: 't3', patch: {} }), undefined);
+    expect(writes.expectedVersion('t2', 1)).toBe(1);
+    expect(writes.expectedVersion('t3', 2)).toBe(2);
   });
 });

@@ -71,3 +71,20 @@ export function keptTryText(e: unknown, fallback: string, again: string, fallbac
   if (e instanceof ApiError && e.code === 'IDEMPOTENCY_IN_PROGRESS') return 'Still being saved — try again in a moment.';
   return fallbackText(e, fallback);
 }
+
+/**
+ * Send a try under its kept key, and settle the key by how it ended — inside the write itself, so
+ * it is settled even when the screen that asked has closed (a callback given to `mutate` is dropped
+ * then, and the key would outlive its answer: a later, deliberate try would get the old reply).
+ */
+export async function sendKept<T>(keys: PendingKeys, what: string, send: (key: string) => Promise<T>): Promise<T> {
+  let result: T;
+  try {
+    result = await send(keys.keyFor(what));
+  } catch (e) {
+    keys.settle(what, e);
+    throw e;
+  }
+  keys.settle(what);
+  return result;
+}

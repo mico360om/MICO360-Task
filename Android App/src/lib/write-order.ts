@@ -160,3 +160,15 @@ export async function queueOnOffline(
   if (!userId || !isNetworkError(err) || isKeptOnPhone(err)) return;
   await queue.enqueue(kind, payload, { userId, idempotencyKey });
 }
+
+/**
+ * After a sync: a refused change (shown with Retry) that a later change of the same fields — now
+ * replayed — has replaced is dropped, as after a live success: its Retry would overwrite the newer
+ * change (tick on bad Wi-Fi, untick; the tick's replay is refused, the untick's goes through).
+ */
+export async function dropOvertaken(queue: Pick<SyncQueue, 'failedFor' | 'discard'>, userId: string, done: readonly QueuedMutation[]): Promise<void> {
+  for (const d of done) {
+    if (!writeTarget(d.kind, d.payload)) continue;
+    for (const m of queue.failedFor(userId)) if (m.id !== d.id && m.createdAt <= d.createdAt && supersedes(d, m)) await queue.discard(m.id);
+  }
+}

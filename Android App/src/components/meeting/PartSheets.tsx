@@ -25,7 +25,7 @@ import {
   personFlags,
 } from '../../lib/meeting-parts';
 import { meetingFailure } from '../../lib/meeting-flow';
-import { keptTryText, pendingKeys, tryName } from '../../lib/pending-keys';
+import { keptTryText } from '../../lib/pending-keys';
 import { parseDueDateInput } from '../../lib/form-input';
 import { dueDayKey } from '../../lib/due-date';
 import { displayName } from '../../lib/types';
@@ -92,21 +92,19 @@ export function AddPersonSheet({ meetingId, attendees, directory, visible, onClo
     }
     const input = mode === 'member' ? { userId, role } : { externalName: name.trim(), externalEmail: email.trim() || null, role };
     const who = mode === 'member' ? options.find((o) => o.value === userId)?.label ?? 'The person' : name.trim();
-    // A try that got no answer keeps its key, so tapping again can't add them twice (pending-keys).
-    const what = tryName('attendee', meetingId, input);
-    add.mutate({ input, idempotencyKey: pendingKeys.keyFor(what) }, {
-      onSuccess: () => {
-        pendingKeys.settle(what);
-        setAdded(`${who} was added.`);
-        setUserId('');
-        setName('');
-        setEmail('');
+    // A try that got no answer keeps its key, so tapping again can't add them twice (the hook's pending-keys).
+    add.mutate(
+      { input },
+      {
+        onSuccess: () => {
+          setAdded(`${who} was added.`);
+          setUserId('');
+          setName('');
+          setEmail('');
+        },
+        onError: (e) => setError(attendeeAddFailure(e, mode)),
       },
-      onError: (e) => {
-        pendingKeys.settle(what, e);
-        setError(attendeeAddFailure(e, mode));
-      },
-    });
+    );
   };
 
   return (
@@ -266,21 +264,8 @@ export function AgendaItemSheet({
       update.mutate({ itemId: item.id, patch: input }, { onSuccess: onClose, onError: (e) => setError(meetingFailure(e, 'Couldn’t save the agenda item.')) });
       return;
     }
-    // A try that got no answer keeps its key, so tapping Add again can't add it twice (pending-keys).
-    const what = tryName('agenda', meetingId, input);
-    add.mutate(
-      { input, idempotencyKey: pendingKeys.keyFor(what) },
-      {
-        onSuccess: () => {
-          pendingKeys.settle(what);
-          onClose();
-        },
-        onError: (e) => {
-          pendingKeys.settle(what, e);
-          setError(keptTryText(e, 'Couldn’t add the agenda item.', 'Add', meetingFailure));
-        },
-      },
-    );
+    // A try that got no answer keeps its key, so tapping Add again can't add it twice (the hook's pending-keys).
+    add.mutate({ input }, { onSuccess: onClose, onError: (e) => setError(keptTryText(e, 'Couldn’t add the agenda item.', 'Add', meetingFailure)) });
   };
   const move = (dir: -1 | 1) => {
     const ids = moveAgenda(items, index, dir);
@@ -430,17 +415,10 @@ export function NoteTaskSheet({
     const d = parseDueDateInput(due);
     if (!d.ok) return setError(d.error);
     const input = { title: title.trim(), projectId, priority, dueDate: d.value, assigneeId: assigneeId || null };
-    // A try that got no answer keeps its key, so tapping again can't make a second task (pending-keys).
-    const what = tryName('note-task', meetingId, note.id, input);
-    make.mutate({ noteId: note.id, input, idempotencyKey: pendingKeys.keyFor(what) }, {
-      onSuccess: (res) => {
-        pendingKeys.settle(what);
-        setCreated(res);
-      },
-      onError: (e) => {
-        pendingKeys.settle(what, e);
-        setError(noteTaskFailure(e).text);
-      },
+    // A try that got no answer keeps its key, so tapping again can't make a second task (the hook's pending-keys).
+    make.mutate({ noteId: note.id, input }, {
+      onSuccess: setCreated,
+      onError: (e) => setError(noteTaskFailure(e).text),
     });
   };
 

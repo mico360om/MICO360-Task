@@ -17,7 +17,8 @@ import { BOARD_DAYS_KEPT, isBoardDayCopy } from '../lib/offline-copy';
 import { createSyncQueue, type QueuedMutation } from '../lib/sync-queue';
 import { performMutation, refreshesAfterReplay } from '../lib/perform-mutation';
 import { refresh } from '../lib/refresh';
-import { rebaseQueuedVersion } from '../lib/task-writes';
+import { noteReplayed, rebaseQueuedVersion, taskWrites } from '../lib/task-writes';
+import { dropOvertaken } from '../lib/write-order';
 import { createSyncController } from '../lib/sync-controller';
 import { createPushRegistrar } from '../lib/push-registrar';
 import { createBiometricGate } from '../lib/biometric-gate';
@@ -155,7 +156,12 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
 
   const queue = createSyncQueue({
     store: asyncStore,
-    perform: (m: QueuedMutation) => performMutation(resources, m),
+    // A replayed task edit or move made this phone's own new version: the next edit follows it.
+    perform: (m: QueuedMutation) =>
+      performMutation(resources, m).then((result) => {
+        noteReplayed(taskWrites, m, result);
+        return result;
+      }),
     // A task edit queued after an earlier one of this phone's moves on to the version that one made.
     rebase: rebaseQueuedVersion,
   });
@@ -169,7 +175,12 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     getUserId: currentUserId,
     // Replayed changes are now on the server (and refused ones never will be): refresh what they
     // touched, not every query in the app.
-    onFlushed: (result) => refresh(queryClient, [...result.done, ...result.failed].flatMap(refreshesAfterReplay)),
+    onFlushed: (result) => {
+      // A refused change that a replayed later one replaced goes: its Retry would overwrite it.
+      const owner = result.done[0]?.userId;
+      if (owner) void dropOvertaken(queue, owner, result.done);
+      refresh(queryClient, [...result.done, ...result.failed].flatMap(refreshesAfterReplay));
+    },
   });
   triggerSync = () => {
     if (!sync.isFlushing() && queue.pendingFor(currentUserId()).length > 0) void sync.trigger();

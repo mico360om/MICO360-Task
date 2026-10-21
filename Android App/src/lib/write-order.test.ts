@@ -3,7 +3,7 @@ import { createSyncQueue } from './sync-queue';
 import { performMutation } from './perform-mutation';
 import { createTaskWrites } from './task-writes';
 import { ApiError, NetworkError, isNetworkError } from './api-client';
-import { isKeptOnPhone, queueOnOffline, sendInOrder, writeTarget, type Write } from './write-order';
+import { dropOvertaken, isKeptOnPhone, queueOnOffline, sendInOrder, writeTarget, type Write } from './write-order';
 import type { ResourcesApi } from './resources';
 import type { KeyValueStore } from './storage';
 
@@ -201,5 +201,28 @@ describe('what a queued change writes to', () => {
     for (const kind of ['meeting.note.add', 'meeting.action.add', 'task.create', 'comment.add', 'chat.send', 'checklist.add', 'notification.read']) {
       expect(writeTarget(kind, { id: 't1', meetingId: 'm1' }), kind).toBeNull();
     }
+  });
+});
+
+describe('after the sync, a refused older change can’t be retried over a newer one', () => {
+  it('drops a refused change of the same fields that a later replayed change replaced — not a later one, nor another field', async () => {
+    const store = fakeStore();
+    // The server refuses the tick on replay (5xx, one try allowed) and takes the untick.
+    const queue = createSyncQueue({
+      store,
+      maxAttempts: 1,
+      perform: async (m) => {
+        if ((m.payload as { completed?: boolean }).completed === true) throw new ApiError(503, 'BUSY', 'Try later');
+      },
+    });
+    await queue.load();
+    await queue.enqueue('meeting.agenda.covered', { meetingId: 'm1', itemId: 'a2', completed: true }, { userId: 'u1' });
+    await queue.enqueue('meeting.agenda.covered', { meetingId: 'm1', itemId: 'a2', completed: false }, { userId: 'u1' });
+    await queue.enqueue('meeting.agenda.covered', { meetingId: 'm1', itemId: 'a9', completed: true }, { userId: 'u1' });
+    const result = await queue.flush('u1');
+    expect(queue.failedFor('u1')).toHaveLength(2);
+    await dropOvertaken(queue, 'u1', result.done);
+    // a2's refused tick is gone (its Retry would tick it again over the untick); a9's stays.
+    expect(queue.failedFor('u1').map((m) => (m.payload as { itemId: string }).itemId)).toEqual(['a9']);
   });
 });

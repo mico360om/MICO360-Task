@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
-import { createPendingKeys, inviteTry, minutesTry, tryName } from './pending-keys';
+import { createPendingKeys, inviteTry, minutesTry, sendKept, tryName } from './pending-keys';
 
 const counter = () => {
   let n = 0;
@@ -46,5 +46,28 @@ describe('the key of a try that got no answer', () => {
     expect(minutesTry('m1', ['a@x.co'])).not.toBe(minutesTry('m2', ['a@x.co']));
     expect(inviteTry('m1', { onlyNew: true }, ['b@x.co', 'a@x.co'])).toBe(inviteTry('m1', { onlyNew: true }, ['a@x.co', 'b@x.co']));
     expect(inviteTry('m1', { onlyNew: true }, ['a@x.co'])).not.toBe(inviteTry('m1', { resend: true }, ['a@x.co']));
+  });
+});
+
+describe('sendKept — the key is settled by the write itself', () => {
+  it('keeps the key after no answer, and lets it go after an answer — even when nobody is listening any more', async () => {
+    const keys = createPendingKeys(counter());
+    const seen: string[] = [];
+    const what = tryName('duplicate', 'm1');
+    await sendKept(keys, what, async (k) => {
+      seen.push(k);
+      throw new NetworkError('slow', { timedOut: true });
+    }).catch(() => undefined);
+    await sendKept(keys, what, async (k) => {
+      seen.push(k);
+      return 'copy';
+    });
+    await sendKept(keys, what, async (k) => {
+      seen.push(k);
+      throw new ApiError(403, 'FORBIDDEN', 'No');
+    }).catch(() => undefined);
+    await sendKept(keys, what, async (k) => void seen.push(k));
+    // The retry after the time-out reused the key; after the answer, and after the refusal, new ones.
+    expect(seen).toEqual(['k1', 'k1', 'k2', 'k3']);
   });
 });
