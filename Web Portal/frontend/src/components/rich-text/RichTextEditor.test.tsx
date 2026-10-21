@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { Editor } from '@tiptap/react';
 import { RichTextEditor } from './RichTextEditor';
 
+type KeyMidUpdate = { after: string; text: string };
+
 /** The editor as a page uses it: the HTML it reports back is kept and passed in again. */
-function Harness({ initial = '', onSubmit, spy }: { initial?: string; onSubmit?: () => void; spy?: (html: string) => void }) {
+function Harness({ initial = '', onSubmit, spy, keyMidUpdate }: { initial?: string; onSubmit?: () => void; spy?: (html: string) => void; keyMidUpdate?: KeyMidUpdate }) {
   const [value, setValue] = useState(initial);
   return (
     <>
@@ -19,10 +22,26 @@ function Harness({ initial = '', onSubmit, spy }: { initial?: string; onSubmit?:
         placeholder="Write a discussion…"
         onSubmit={onSubmit}
       />
+      {keyMidUpdate ? <KeyPressedMidUpdate value={value} {...keyMidUpdate} /> : null}
       <output data-testid="html">{value}</output>
       <button type="button" onClick={() => setValue('')}>Reset</button>
     </>
   );
+}
+
+/**
+ * Once the page shows `after`, the box takes in `text` straight away: after React has shown the
+ * page's change but before React's effects for it have run — the moment a key pressed while the
+ * page is busy can land in.
+ */
+function KeyPressedMidUpdate({ value, after, text }: KeyMidUpdate & { value: string }) {
+  const pressed = useRef(false);
+  useLayoutEffect(() => {
+    if (pressed.current || value !== after) return;
+    pressed.current = true;
+    (screen.getByRole('textbox', { name: 'New note' }) as HTMLElement & { editor: Editor }).editor.commands.insertContent(text);
+  }, [value, after, text]);
+  return null;
 }
 
 const box = () => screen.getByRole('textbox', { name: 'New note' });
@@ -31,6 +50,26 @@ async function selectAll() {
   await userEvent.click(box());
   await userEvent.keyboard('{Control>}a{/Control}');
 }
+
+describe('RichTextEditor: typing fast', () => {
+  it('keeps what was typed when the page shows an older copy of it back late', async () => {
+    const reported: string[] = [];
+    const { rerender } = render(<RichTextEditor value="" onChange={(h) => reported.push(h)} ariaLabel="New note" />);
+    await userEvent.click(box());
+    await userEvent.keyboard('ab');
+    expect(reported).toEqual(['<p>a</p>', '<p>ab</p>']);
+    // The page catches up one change at a time: first the words as they were after "a".
+    rerender(<RichTextEditor value="<p>a</p>" onChange={(h) => reported.push(h)} ariaLabel="New note" />);
+    expect(box()).toHaveTextContent('ab');
+    rerender(<RichTextEditor value="<p>ab</p>" onChange={(h) => reported.push(h)} ariaLabel="New note" />);
+    expect(box()).toHaveTextContent('ab');
+    // The page's own change still comes through: cleared after the note is added, or another note.
+    rerender(<RichTextEditor value="" onChange={(h) => reported.push(h)} ariaLabel="New note" />);
+    expect(box()).toHaveTextContent('');
+    rerender(<RichTextEditor value="<p>Another note</p>" onChange={(h) => reported.push(h)} ariaLabel="New note" />);
+    expect(box()).toHaveTextContent('Another note');
+  });
+});
 
 describe('RichTextEditor', () => {
   it('is a labelled box with a toolbar of formatting buttons, none pressed yet', () => {
@@ -94,6 +133,16 @@ describe('RichTextEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
     await waitFor(() => expect(box()).toHaveTextContent(''));
     await act(async () => {});
+  });
+
+  it('keeps a key pressed while the page is still taking in the last one', async () => {
+    render(<Harness keyMidUpdate={{ after: '<p>Book the</p>', text: ' ' }} />);
+    await userEvent.type(box(), 'Book the');
+    await waitFor(() => expect(html()).toBe('<p>Book the </p>'));
+    expect(box().textContent).toBe('Book the '); // the box still has the space, not the words before it
+    await userEvent.keyboard('venue');
+    await waitFor(() => expect(html()).toBe('<p>Book the venue</p>'));
+    expect(box().textContent).toBe('Book the venue');
   });
 
   it('reports an empty box as an empty string', async () => {
