@@ -37,6 +37,40 @@ describe('the thread’s rows for the inverted list, newest first (3b)', () => {
     expect(rows.map(key)).toEqual(['d', 'c', '--unread--', 'b', '[Today]', 'a', '[Yesterday]']);
   });
 
+  it('an edit or a delete the server refused says so on its message, with Retry and Discard (3b review fix 12)', () => {
+    const failed = (id: string, kind: string, messageId: string, over: Partial<QueuedMutation> = {}): QueuedMutation => ({
+      id,
+      kind,
+      payload: { conversationId: 'c1', messageId, body: 'new words' },
+      createdAt: 1,
+      userId: 'me',
+      idempotencyKey: id,
+      attempts: 0,
+      status: 'failed',
+      ...over,
+    });
+    const rows = threadRows({
+      data: data([msg('a', '2026-10-21T09:00:00.000Z', { userId: 'me' }), msg('b', '2026-10-21T09:05:00.000Z', { userId: 'me' }), msg('c', '2026-10-21T09:06:00.000Z')]),
+      outbox: [],
+      uploads: [],
+      pending: [],
+      failed: [
+        failed('q1', 'chat.edit', 'a', { refused: true, lastError: 'You can only edit your own messages.' }),
+        failed('q2', 'chat.delete', 'b', { attempts: 5, lastError: 'Request failed (503)' }),
+        failed('q3', 'chat.edit', 'other-conversation-message', { refused: true, lastError: 'No.' }),
+        failed('q4', 'chat.send', 'c', { refused: true, lastError: 'No.' }),
+      ],
+      myId: 'me',
+      unreadAfter: null,
+      now: NOW,
+      timeZone: 'UTC',
+    });
+    const byId = new Map(rows.flatMap((r) => (r.type === 'message' ? [[r.message.id, r.message.changeFailed]] : [])));
+    expect(byId.get('a')).toEqual({ queueId: 'q1', text: 'Couldn’t edit — You can only edit your own messages.' });
+    expect(byId.get('b')).toEqual({ queueId: 'q2', text: 'Couldn’t delete — the server had a problem.' });
+    expect(byId.get('c')).toBeUndefined();
+  });
+
   it('messages still on the phone (and files on their way) come at the newest end, marked as waiting', () => {
     const entry: OutboxEntry = { queueId: 'q1', clientId: 'k1', conversationId: 'c1', body: 'mine', createdAt: '2026-10-21T09:20:00.000Z', state: 'failed', reason: 'No.' };
     const upload: UploadEntry = { key: 'up1', clientId: 'k2', conversationId: 'c1', name: 'plan.pdf', size: 2048, type: 'application/pdf', uri: 'file:///plan.pdf', progress: 0.5, state: 'sending', caption: '', replyTo: null, createdAt: '2026-10-21T09:21:00.000Z' };

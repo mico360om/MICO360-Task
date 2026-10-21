@@ -331,6 +331,22 @@ export const MessageBubble = memo(function MessageBubble({
           {state}
         </Text>
       ) : null}
+      {m.changeFailed ? (
+        // An edit or deletion of this message the server didn't save says so here (3b review), as the outbox does.
+        <View style={mine ? s.alignEnd : null}>
+          <Text style={[s.state, { color: c.danger, fontWeight: '700' }, mine ? s.textEnd : null]} accessibilityLiveRegion="polite">
+            {m.changeFailed.text}
+          </Text>
+          <View style={[s.outboxActions, mine ? s.alignEnd : null]}>
+            <Pressable style={s.smallBtn} onPress={() => handlers.onRetry(m.changeFailed!.queueId)} accessibilityRole="button" accessibilityLabel={`Retry: ${m.changeFailed.text}`}>
+              <Text style={[s.smallBtnText, { color: c.brand }]}>Retry</Text>
+            </Pressable>
+            <Pressable style={s.smallBtn} onPress={() => handlers.onDiscard(m.changeFailed!.queueId)} accessibilityRole="button" accessibilityLabel={`Discard the change: ${m.changeFailed.text}`}>
+              <Text style={s.smallBtnText}>Discard</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       {outbox && (outbox.state === 'failed' || outbox.canDiscard) ? (
         <View style={[s.outboxActions, s.alignEnd]}>
           {outbox.state === 'failed' ? (

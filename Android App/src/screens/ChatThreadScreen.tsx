@@ -175,8 +175,8 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   const uploads = useChatUploads(conversationId);
   const msgActions = useChatMessageActions(conversationId);
   const rows = useMemo(
-    () => threadRows({ data: messagesQ.data, outbox: outbox.entries, uploads: uploads.uploads, pending: queued.pending, myId, unreadAfter }),
-    [messagesQ.data, outbox.entries, uploads.uploads, queued.pending, myId, unreadAfter],
+    () => threadRows({ data: messagesQ.data, outbox: outbox.entries, uploads: uploads.uploads, pending: queued.pending, failed: queued.failed, myId, unreadAfter }),
+    [messagesQ.data, outbox.entries, uploads.uploads, queued.pending, queued.failed, myId, unreadAfter],
   );
   const messageRows = useMemo(() => rows.filter((r): r is Extract<ThreadRow, { type: 'message' }> => r.type === 'message'), [rows]);
   const newestId = messageRows[0]?.message.id;

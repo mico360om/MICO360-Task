@@ -75,6 +75,31 @@ export function replyQuoteOf(m: Pick<ApiChatMessage, 'id' | 'userId' | 'body' | 
 
 type ChangePayload = { messageId?: unknown; body?: unknown; emoji?: unknown; add?: unknown };
 
+/** An edit or deletion of a message that wasn't saved, said on the message (with Retry and Discard). */
+export interface FailedChatChange {
+  /** The queued change (for Retry and Discard). */
+  queueId: string;
+  text: string;
+}
+
+/**
+ * This phone's edits and deletions the server didn't save, by message (3b review): the message
+ * shows "Couldn't edit — <why>" (the server's own reason when it refused, else that it had a
+ * problem) instead of quietly going back to how it was. The newest per message wins.
+ */
+export function failedChatChanges(failed: readonly QueuedMutation[]): Map<string, FailedChatChange> {
+  const out = new Map<string, FailedChatChange>();
+  for (const c of failed) {
+    if (c.kind !== CHAT_EDIT && c.kind !== CHAT_DELETE) continue;
+    const id = (c.payload as ChangePayload | null)?.messageId;
+    if (typeof id !== 'string') continue;
+    const said = (c.lastError ?? '').trim();
+    const reason = c.refused && said && !/^Request failed/i.test(said) && said !== 'Could not be saved.' ? said : 'the server had a problem.';
+    out.set(id, { queueId: c.id, text: `Couldn’t ${c.kind === CHAT_EDIT ? 'edit' : 'delete'} — ${reason}` });
+  }
+  return out;
+}
+
 /**
  * The thread's messages with this phone's waiting edits, deletions and reactions laid over them, in
  * the order they were made — so a change made offline shows at once and stays shown until it is sent.

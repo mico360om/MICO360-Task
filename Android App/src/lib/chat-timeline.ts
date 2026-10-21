@@ -6,7 +6,7 @@
  * waiting; this phone's waiting edits, deletions and reactions show over the server's copy
  * (chat-actions). Pure, so it is tested here.
  */
-import { withQueuedChatChanges } from './chat-actions';
+import { failedChatChanges, withQueuedChatChanges, type FailedChatChange } from './chat-actions';
 import { buildTimeline, type ShownMessage } from './chat-model';
 import type { OutboxEntry } from './chat-outbox';
 import { threadMessages, type ThreadPages } from './chat-thread';
@@ -35,7 +35,7 @@ export interface UploadEntry {
 }
 
 /** A message as the thread shows it: the server's, or one on its way (with what it stands for). */
-export type ThreadMessage = ShownMessage & { outbox?: OutboxEntry; upload?: UploadEntry };
+export type ThreadMessage = ShownMessage & { outbox?: OutboxEntry; upload?: UploadEntry; changeFailed?: FailedChatChange };
 
 export type ThreadRow =
   | { type: 'day'; key: string; label: string }
@@ -49,12 +49,16 @@ export function threadRows(input: {
   outbox: readonly OutboxEntry[];
   uploads: readonly UploadEntry[];
   pending: readonly QueuedMutation[];
+  /** This phone's changes that weren't saved: a refused edit or deletion shows on its message (3b review). */
+  failed?: readonly QueuedMutation[];
   myId: string;
   unreadAfter: string | null;
   now?: Date;
   timeZone?: string;
 }): ThreadRow[] {
-  const server = withQueuedChatChanges([...threadMessages(input.data)].reverse(), input.pending, input.myId);
+  const notSaved = failedChatChanges(input.failed ?? []);
+  const shown = withQueuedChatChanges([...threadMessages(input.data)].reverse(), input.pending, input.myId);
+  const server: ThreadMessage[] = notSaved.size ? shown.map((m) => (notSaved.has(m.id) ? { ...m, changeFailed: notSaved.get(m.id) } : m)) : shown;
   const waiting: ThreadMessage[] = [
     ...input.outbox.map<ThreadMessage>((e) => ({
       id: `out-${e.queueId}`,
