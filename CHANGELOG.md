@@ -14,6 +14,59 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-21
+
+### New features
+- Describe the meeting in a sentence: the new-meeting and edit forms suggest the title, day and time,
+  length, repeat, project, place and link (and, in a new meeting, the people, guests and agenda
+  points). Nothing changes until you choose; a suggestion that would replace what you typed starts
+  unticked, and a name several people share asks which one, showing their usernames.
+- The new-meeting form has People and Agenda: invite team members and guests by email, and add agenda
+  points with a lead and minutes, totalled against the meeting's length. They are saved with the
+  meeting in one go (all or nothing); invitations still go out only when you send them.
+- Free times: "Suggest 3 times" finds the nearest times when everyone invited is free, inside the
+  company's meeting hours; the form warns who already has a meeting at the chosen time and shows each
+  person's day (a meeting you may not see shows only as "Busy"). Admins set the meeting hours in System
+  Settings (Sunday–Thursday, 08:00–17:00 to start with).
+- Draft agenda, in the new-meeting form and on a meeting's page: the AI proposes items from what you
+  wrote, the project's open tasks and what the last meeting left open, each with a lead and minutes
+  that fit the meeting; you tick which to add. Write description drafts the invitation's description
+  for you to use or decline.
+
+### Improvements
+- In the Android app, Suggest steps and Suggest priority wait for MICO360 AI's slower answers (up to two
+  minutes) and say "The AI is taking longer than usual" instead of "You're offline". A refused
+  attachment shows the server's reason (type, size, damaged file, storage limit) instead of "Check
+  your connection". Profile shows Administrator or Employee, not a code.
+- The Chrome extension shows the server's own reason when something is refused. Clicking a
+  notification opens its task, chat or meeting. Changes made offline stay in place on the board, in the
+  task and in chat, marked "Saved on this device" until they are sent, and the toolbar badge follows
+  the unread count at once. Task exports wait long enough for big files.
+- The Chrome extension works fully from the keyboard: a board card opens with Enter or Space and has
+  a "Move to…" menu, and the task panel is a proper dialog (focus stays inside it, Escape closes it,
+  and focus goes back to the card). Settings → About shows the extension's and the website's
+  versions, with how to update when a new extension file is handed out. It needs Chrome 116 or later.
+
+### Security
+- The Chrome extension keeps the short-lived sign-in token in memory only, never on disk.
+
+### Bug fixes
+- The Chrome extension no longer saves over someone else's change to a task: an edit made from an
+  older copy is refused with a plain message and the latest version is shown, as on the website and
+  in the app; offline edits are checked the same way when they are sent. Tasks in columns a project
+  has switched off no longer show on its boards, a 200 reply that isn't from the server is never
+  kept, and a sign-in renewal refused by a firewall no longer signs you out. A turned-off account is
+  signed out at once instead of piling up changes; a quick run of edits while the server is down no
+  longer uses up the first change's tries; and an edit whose check can't reach the server waits and
+  tries again instead of being shown as someone else's change.
+- In the Android app: the "new version" notice's Download opens the app file (only ever a web
+  address), and says so if it can't;
+  a task in a Done column without a completion time is never shown as overdue; the repeat editor no
+  longer shows the old repeat after saving; the task panel follows changes others make to people,
+  tags, watchers, checklists and comments; an offline edit already saved before its reply was lost
+  no longer shows as failed; and a sign-in renewal is ended only by the server itself (a turned-off
+  account), never by a firewall page or a reply that isn't a session.
+
 ## [1.5.2] - 2026-10-21
 
 ### Security
