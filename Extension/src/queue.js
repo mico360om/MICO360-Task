@@ -377,6 +377,28 @@ function alreadyGone(kind, status, code) {
 }
 
 /**
+ * The server checks who may delete a task before it looks the task up, and a deleted task has no
+ * project to check against, so deleting one that is already gone is refused (403) for everyone but
+ * an admin. Reading it tells: the server's 404 means it is gone, and the delete has done its job.
+ * (The server also answers 404 to someone who may no longer see the task: it is gone for them too.)
+ */
+async function deleteRefusedButGone(item, status, code, doFetch) {
+  if (item.kind !== 'task.delete' || status !== 403 || code !== 'FORBIDDEN') return false;
+  try {
+    const res = await doFetch(`/tasks/${(item.payload || {}).id}`, { method: 'GET' });
+    if (res.status !== 404) return false;
+    return (await errorInfo(res)).code === 'NOT_FOUND';
+  } catch {
+    return false;
+  }
+}
+
+/** A delete that found nothing to delete, sent now or replayed: done. */
+async function deleteDone(item, status, code, doFetch) {
+  return alreadyGone(item.kind, status, code) || deleteRefusedButGone(item, status, code, doFetch);
+}
+
+/**
  * Build the `perform(item)` used to replay one queued mutation. `doFetch(path, init)` is the
  * caller's authenticated fetch, so the replay logic lives in ONE place for every surface. It
  * resolves with the server's answer (for an edit or move: the task, at its new version), which
@@ -390,7 +412,7 @@ export function makePerformMutation(doFetch, { onTask } = {}) {
     if (!res.ok) {
       const { code, message } = await errorInfo(res);
       if (item.kind === 'task.update' && isVersionConflict({ status: res.status, code })) return settleConflict(item, doFetch, onTask, code);
-      if (alreadyGone(item.kind, res.status, code)) return undefined;
+      if (await deleteDone(item, res.status, code, doFetch)) return undefined;
       throw replayError(message || `${item.kind} failed (${res.status})`, { status: res.status, code, outcome: outcomeForStatus(res.status, code) });
     }
     const reply = await readReply(res);
@@ -515,6 +537,6 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
   }
   if (QUEUE_ON_STATUS.has(res.status)) return queueIt();
   const { code, message, details } = await errorInfo(res);
-  if (alreadyGone(kind, res.status, code)) return { queued: false, data: undefined };
+  if (await deleteDone(item, res.status, code, doFetch)) return { queued: false, data: undefined };
   throw new ApiError(res.status, message, code, details);
 }

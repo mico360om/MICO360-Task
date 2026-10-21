@@ -712,3 +712,162 @@ describe('the drawer’s messages are live regions that stay on the page', () =>
     expect(regions[2].className).toBe('sr-only');
   });
 });
+
+describe('quick changes, late answers and redraws', () => {
+  const gated = () => {
+    let open;
+    const gate = new Promise((r) => { open = r; });
+    return { gate, open };
+  };
+  const at = (m) => `2026-10-21T08:${String(m).padStart(2, '0')}:00.000Z`;
+  const mineToo = [
+    { id: 'c1', userId: 'u1', body: 'First of mine', parentId: null, createdAt: at(1) },
+    { id: 'c2', userId: 'u1', body: 'Second of mine', parentId: null, createdAt: at(2) },
+  ];
+  const row = (root, id) => root.querySelector(`[data-comment-id="${id}"]`);
+
+  it('“Assign me” then “Unassign me” at once: sent in that order, and the newest shows', async () => {
+    const g = gated();
+    const ctx = drawerCtx();
+    ctx.write = vi.fn()
+      .mockImplementationOnce(async () => { await g.gate; return { queued: false, data: [{ id: 'u1', firstName: 'Mariam', lastName: 'Al Hinai' }] }; })
+      .mockImplementationOnce(async () => ({ queued: false, data: undefined }));
+    const root = await open(ctx);
+    byText(root, 'button', 'Assign me').click();
+    await settle();
+    byText(root, 'button', 'Unassign me').click();
+    await settle();
+    expect(ctx.write).toHaveBeenCalledTimes(1); // the second waits for the first's answer
+    g.open();
+    await settle();
+    expect(ctx.write.mock.calls.map((c) => c[0])).toEqual(['task.assign', 'task.unassign']);
+    expect(byLabel(root, 'Assignees').textContent).not.toContain('Mariam');
+    expect(byText(root, 'button', 'Assign me')).toBeTruthy();
+  });
+
+  it('a refused assignment takes back only itself', async () => {
+    const g = gated();
+    const ctx = drawerCtx();
+    ctx.write = vi.fn()
+      .mockImplementationOnce(async () => { await g.gate; throw new ApiError(400, 'Only active members of this project can be assigned.', 'VALIDATION'); })
+      .mockImplementationOnce(async () => ({ queued: false, data: undefined }));
+    const root = await open(ctx);
+    change(byLabel(root, 'Add an assignee'), 'u2');
+    await settle();
+    change(byLabel(root, 'Add an assignee'), 'u3');
+    await settle();
+    g.open();
+    await settle();
+    const people = byLabel(root, 'Assignees').textContent;
+    expect(people).toContain('Aisha Khan');
+    expect(people).not.toContain('Omar Ahmed');
+    expect(root.querySelector('[role="alert"]').textContent).toBe('Only active members of this project can be assigned.');
+  });
+
+  it('Watch then stop watching at once: the newest shows, and the count follows it', async () => {
+    const g = gated();
+    const ctx = drawerCtx({ watchers: [{ id: 'u2' }] });
+    ctx.write = vi.fn()
+      .mockImplementationOnce(async () => { await g.gate; return { queued: false, data: { watching: true, watchers: [{ id: 'u2' }, { id: 'u1' }] } }; })
+      .mockImplementationOnce(async () => ({ queued: false, data: undefined }));
+    const root = await open(ctx);
+    byLabel(root, 'Watch this task').click();
+    await settle();
+    byLabel(root, 'Watch this task').click();
+    await settle();
+    expect(ctx.write).toHaveBeenCalledTimes(1);
+    g.open();
+    await settle();
+    expect(ctx.write.mock.calls.map((c) => c[0])).toEqual(['task.watch', 'task.unwatch']);
+    expect(byLabel(root, 'Watch this task').getAttribute('aria-pressed')).toBe('false');
+    expect(root.querySelector('.td-watchers').textContent).toBe('1 watching');
+  });
+
+  it('a delete that fails late puts back only what it deleted (files and comments)', async () => {
+    const g = gated();
+    const files = [
+      { id: 'f1', uploadedById: 'u1', filename: 'a.txt', mimeType: 'text/plain', sizeBytes: 1, url: '/uploads/a.txt' },
+      { id: 'f2', uploadedById: 'u1', filename: 'b.txt', mimeType: 'text/plain', sizeBytes: 1, url: '/uploads/b.txt' },
+    ];
+    const ctx = drawerCtx({ attachments: files, comments: mineToo });
+    ctx.write = vi.fn(async (kind, p) => {
+      if ((kind === 'attachment.delete' && p.attachmentId === 'f1') || (kind === 'comment.delete' && p.commentId === 'c1')) {
+        await g.gate;
+        throw new ApiError(400, 'Not now.', 'VALIDATION');
+      }
+      return { queued: false, data: undefined };
+    });
+    const root = await open(ctx);
+    for (const id of ['f1', 'f2']) {
+      byLabel(root, `Delete ${id === 'f1' ? 'a.txt' : 'b.txt'}`).click();
+      await settle();
+      byText(root, 'button', 'Yes, delete').click();
+      await settle();
+    }
+    for (const id of ['c1', 'c2']) {
+      row(root, id).querySelector('[aria-label="Delete your comment"]').click();
+      await settle();
+      byText(root, 'button', 'Yes, delete').click();
+      await settle();
+    }
+    g.open();
+    await settle();
+    const list = byLabel(root, 'Attachments').textContent;
+    expect(list).toContain('a.txt');
+    expect(list).not.toContain('b.txt');
+    expect(row(root, 'c1')).toBeTruthy();
+    expect(row(root, 'c2')).toBeNull();
+  });
+
+  it('an open “Delete this …?” doesn’t pull focus away when its section draws again', async () => {
+    const ctx = drawerCtx({ comments: mineToo, attachments: [{ id: 'f1', uploadedById: 'u1', filename: 'a.txt', mimeType: 'text/plain', sizeBytes: 1, url: '/uploads/a.txt' }] });
+    ctx.write = vi.fn(async (kind, p) => ({ queued: false, data: kind === 'comment.add' ? { id: 'c9', userId: 'u1', body: p.body, parentId: null, createdAt: at(9) } : undefined }));
+    const root = await open(ctx);
+    row(root, 'c1').querySelector('[aria-label="Delete your comment"]').click();
+    byLabel(root, 'Delete a.txt').click();
+    await settle();
+    const box = byLabel(root, 'New comment');
+    box.focus();
+    type(box, 'Another note');
+    key(box, 'Enter', { ctrlKey: true });
+    await settle();
+    expect(row(root, 'c9')).toBeTruthy();
+    expect(active()).toBe(byLabel(root, 'New comment'));
+    // A screenshot pasted while typing: the files section draws again as it goes up.
+    const e = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'clipboardData', { value: { files: [new File(['p'], 'image.png', { type: 'image/png' })], items: [], getData: () => '' } });
+    box.dispatchEvent(e);
+    await settle();
+    expect(ctx.api.attachments.upload).toHaveBeenCalledTimes(1);
+    expect(active()).toBe(byLabel(root, 'New comment'));
+  });
+
+  it('a file attached while the list is still loading stays listed when the list comes', async () => {
+    const g = gated();
+    const ctx = drawerCtx();
+    ctx.api.tasks.attachments = vi.fn(async () => { await g.gate; return { data: [{ id: 'old', filename: 'old.pdf', mimeType: 'application/pdf', sizeBytes: 5, url: '/uploads/old.pdf' }] }; });
+    const root = await open(ctx);
+    const input = byLabel(root, 'Attach files');
+    Object.defineProperty(input, 'files', { value: [new File(['n'], 'new.txt', { type: 'text/plain' })], configurable: true });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
+    g.open();
+    await settle();
+    const list = byLabel(root, 'Attachments').textContent;
+    expect(list).toContain('new.txt');
+    expect(list).toContain('old.pdf');
+  });
+
+  it('focus stays on the very control it was on, though others in the list have the same name', async () => {
+    const g = gated();
+    const ctx = drawerCtx({ comments: mineToo });
+    ctx.api.tasks.mentionable = vi.fn(async () => { await g.gate; return { data: [] }; });
+    const root = await open(ctx);
+    const second = row(root, 'c2').querySelector('[aria-label="Edit your comment"]');
+    second.focus();
+    g.open(); // the people to mention arrive: the comments draw again
+    await settle();
+    expect(second.isConnected).toBe(false);
+    expect(active()).toBe(row(root, 'c2').querySelector('[aria-label="Edit your comment"]'));
+  });
+});

@@ -17,20 +17,27 @@ export function section(id, title, ...children) {
 /**
  * Draw `container` again (`draw()` fills it) keeping keyboard focus on the same control: the one
  * with the same id, else the same label, else the same kind of control with the same text (or
- * `fallback()`). A text box being typed in keeps its caret. Nothing happens to focus elsewhere.
+ * `fallback()`) — looked for first in the same row (`data-row`, e.g. one comment), since controls
+ * of different rows can share a name ("Edit your comment"). A text box being typed in keeps its
+ * caret. Nothing happens to focus elsewhere.
  */
 export function redrawKeepingFocus(container, draw, fallback) {
   const doc = container.ownerDocument;
   const a = doc.activeElement;
+  const rowOf = (n) => {
+    const r = n.closest('[data-row]');
+    return r && container.contains(r) ? r.dataset.row : null;
+  };
   const had = a && a !== container && container.contains(a)
-    ? { id: a.id, tag: a.tagName, label: a.getAttribute('aria-label'), text: a.textContent, start: a.selectionStart, end: a.selectionEnd }
+    ? { id: a.id, tag: a.tagName, label: a.getAttribute('aria-label'), text: a.textContent, start: a.selectionStart, end: a.selectionEnd, row: rowOf(a) }
     : null;
   draw();
   if (!had) return;
   const all = [...container.querySelectorAll(had.tag)];
-  const again = (had.id && all.find((n) => n.id === had.id))
-    || (had.label && all.find((n) => n.getAttribute('aria-label') === had.label))
-    || (!had.label && all.find((n) => !n.getAttribute('aria-label') && n.textContent === had.text));
+  const match = (list) => (had.id && list.find((n) => n.id === had.id))
+    || (had.label && list.find((n) => n.getAttribute('aria-label') === had.label))
+    || (!had.label && list.find((n) => !n.getAttribute('aria-label') && n.textContent === had.text));
+  const again = (had.row && match(all.filter((n) => rowOf(n) === had.row))) || match(all);
   const target = again || (fallback && fallback());
   if (!target || target.disabled) return;
   target.focus();

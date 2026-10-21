@@ -162,7 +162,7 @@ describe('TaskDetail — messages and changes saved on this device', () => {
     expect(ctx.write).not.toHaveBeenCalled();
     byLabel(root, 'Synced step').click();
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('checklist.update', { itemId: 'k1', patch: { done: true } });
+    expect(ctx.write).toHaveBeenCalledWith('checklist.update', { id: 't1', itemId: 'k1', patch: { done: true } });
   });
 });
 

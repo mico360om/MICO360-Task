@@ -5,11 +5,14 @@
  * can reach (all active, `/tasks/:id/mentionable`) are known.
  */
 import { el, mount } from '../dom.js';
+import { createWriteLane } from '../../src/task-writes.js';
 import { personName, redrawKeepingFocus, section } from './kit.js';
 
 export function PeopleSection(d) {
   const node = el('div');
   const me = () => d.ctx.me;
+  const lane = createWriteLane(); // one change of the task's people at a time
+  let latest = 0;                 // the newest change asked for: only its answer is shown
 
   function render() {
     redrawKeepingFocus(node, () => mount(node, draw()), () => node.querySelector('select'));
@@ -56,37 +59,49 @@ export function PeopleSection(d) {
     );
   }
 
-  async function change(next, write, fallback, said) {
+  /**
+   * Show a change at once (`apply`), then send it after the one before it has been answered, so two
+   * quick changes reach the server in order. Only the newest change's answer is shown; one that is
+   * refused takes back only itself (`undo`), not what was changed after it.
+   */
+  function change(apply, undo, write, fallback, said) {
     d.clearError();
-    const before = d.s.assignees;
-    d.s.assignees = next;
+    d.s.assignees = apply(d.s.assignees);
     render();
-    try {
-      const r = await write();
-      // The server answers an assignment with the task's people as they are now.
-      if (!r.queued && Array.isArray(r.data)) d.s.assignees = r.data;
-      d.announce(said);
-    } catch (e) {
-      d.s.assignees = before;
-      d.fail(e, fallback);
-    }
-    render();
+    latest += 1;
+    const mine = latest;
+    return lane.run(async () => {
+      try {
+        const r = await write();
+        // The server answers an assignment with the task's people as they are now.
+        if (!r.queued && Array.isArray(r.data) && mine === latest) d.s.assignees = r.data;
+        d.announce(said);
+      } catch (e) {
+        d.s.assignees = undo(d.s.assignees);
+        d.fail(e, fallback);
+      }
+      render();
+    });
   }
+
+  const without = (id) => (list) => list.filter((x) => x.id !== id);
+  const withRow = (row) => (list) => (list.some((x) => x.id === row.id) ? list : [...list, row]);
 
   function assign(userId) {
     const m = (d.s.members || []).find((x) => x.id === userId) || { id: userId };
     const name = userId === me().id ? 'you' : personName(m);
-    return change([...d.s.assignees, m], () => d.send('task.assign', { id: d.taskId, userIds: [userId] }), `Couldn’t assign ${name}.`, `Assigned ${name}.`);
+    return change(withRow(m), without(userId), () => d.send('task.assign', { id: d.taskId, userIds: [userId] }), `Couldn’t assign ${name}.`, `Assigned ${name}.`);
   }
 
   function unassign(a) {
     const name = d.name(a.id, a);
-    return change(d.s.assignees.filter((x) => x.id !== a.id), () => d.send('task.unassign', { id: d.taskId, userId: a.id }), `Couldn’t remove ${name}.`, `Removed ${name}.`);
+    return change(without(a.id), withRow(a), () => d.send('task.unassign', { id: d.taskId, userId: a.id }), `Couldn’t remove ${name}.`, `Removed ${name}.`);
   }
 
   function toggleMe(mine) {
     if (!mine) return assign(me().id);
-    return change(d.s.assignees.filter((a) => a.id !== me().id), () => d.send('task.unassign', { id: d.taskId, userId: me().id }), 'Could not unassign you.', 'You’re no longer assigned.');
+    const row = d.s.assignees.find((a) => a.id === me().id);
+    return change(without(me().id), withRow(row), () => d.send('task.unassign', { id: d.taskId, userId: me().id }), 'Could not unassign you.', 'You’re no longer assigned.');
   }
 
   return { node, render };

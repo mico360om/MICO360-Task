@@ -13,6 +13,7 @@ export const VERSIONED_KINDS = new Set(['task.update', 'task.move']);
 const TASK_KINDS = new Set([
   'task.update', 'task.move', 'task.assign', 'task.unassign', 'comment.add', 'checklist.add',
   'comment.update', 'comment.delete', 'task.tags', 'task.watch', 'task.unwatch', 'attachment.delete', 'task.delete',
+  'checklist.update', // its payload carries the task's `id` beside the item's (queued before Stage 3: none)
 ]);
 
 /** The task a queued change is about, or null. */

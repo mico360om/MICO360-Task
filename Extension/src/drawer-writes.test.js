@@ -102,6 +102,34 @@ describe('the order they reach the server', () => {
     await enqueue(s, { kind: 'comment.update', payload: { id: 't1', commentId: 'c1', body: 'x' }, userId: A });
     expect(await flushQueue(s, makePerformMutation(gone), { userId: A })).toMatchObject({ synced: 0, failed: 1 });
   });
+
+  it('a manager deleting a task that is already gone is refused (the server can’t find its project): it counts as done when the task is gone', async () => {
+    // The server checks permission first, and a deleted task has no project to check: 403. Reading it says 404.
+    const server = (exists) => vi.fn(async (path, init) => (init.method === 'DELETE'
+      ? jsonRes({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } }, 403)
+      : exists ? jsonRes({ data: { id: 't1' } }) : jsonRes({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404)));
+    const gone = server(false);
+    expect(await sendOrQueue({ kind: 'task.delete', payload: { id: 't1' } }, { doFetch: gone, storage: fakeStorage(), userId: A })).toEqual({ queued: false, data: undefined });
+    expect(gone).toHaveBeenLastCalledWith('/tasks/t1', { method: 'GET' });
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.delete', payload: { id: 't1' }, userId: A });
+    expect(await flushQueue(s, makePerformMutation(server(false)), { userId: A })).toMatchObject({ synced: 1, failed: 0 });
+    // Still there: the refusal stands.
+    const err = await sendOrQueue({ kind: 'task.delete', payload: { id: 't1' } }, { doFetch: server(true), storage: fakeStorage(), userId: A }).catch((e) => e);
+    expect(err).toMatchObject({ status: 403, message: 'You do not have permission to do that.' });
+    await enqueue(s, { kind: 'task.delete', payload: { id: 't1' }, userId: A });
+    expect(await flushQueue(s, makePerformMutation(server(true)), { userId: A })).toMatchObject({ synced: 0, failed: 1 });
+  });
+
+  it('a delete waits behind a ticked checklist item of the task too', async () => {
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'checklist.update', payload: { id: 't1', itemId: 'k1', patch: { done: true } }, userId: A });
+    const send = doFetch();
+    expect((await sendOrQueue({ kind: 'task.delete', payload: { id: 't1' } }, { doFetch: send, storage: s, userId: A })).queued).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    expect(taskIdOf({ kind: 'checklist.update', payload: { id: 't1', itemId: 'k1' } })).toBe('t1');
+    expect(req('checklist.update', { id: 't1', itemId: 'k1', patch: { done: true } })).toEqual({ path: '/checklist/k1', init: { method: 'PUT', body: JSON.stringify({ done: true }) } });
+  });
 });
 
 describe('changes saved on this device, shown in the drawer and lists (H3)', () => {

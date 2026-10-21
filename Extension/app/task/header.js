@@ -4,11 +4,14 @@
  */
 import { el, mount } from '../dom.js';
 import { taskExportPath, taskFileName } from '../../src/reports.js';
+import { createWriteLane } from '../../src/task-writes.js';
 import { redrawKeepingFocus } from './kit.js';
 
 export function HeaderActions(d) {
   const node = el('div', { class: 'export-box' });
   let exporting = null;
+  const lane = createWriteLane(); // one watch toggle at a time
+  let latest = 0;
 
   function render() {
     redrawKeepingFocus(node, () => mount(node, watchButton(), [['xlsx', 'Excel'], ['pdf', 'PDF']].map(([format, label]) => el('button', {
@@ -31,7 +34,11 @@ export function HeaderActions(d) {
     ];
   }
 
-  async function toggleWatch() {
+  /**
+   * Shown at once, then sent after the toggle before it has been answered (two quick presses reach
+   * the server in order). Only the newest toggle's answer, or failure, changes what is shown.
+   */
+  function toggleWatch() {
     const me = d.ctx.me.id;
     const was = d.s.watching;
     const before = d.s.watchers;
@@ -40,16 +47,22 @@ export function HeaderActions(d) {
     d.s.watchers = was ? others : [...others, { id: me }];
     d.clearError();
     render();
-    try {
-      const r = await d.send(was ? 'task.unwatch' : 'task.watch', { id: d.taskId });
-      if (!r.queued && r.data && Array.isArray(r.data.watchers)) d.s.watchers = r.data.watchers;
-      d.announce(was ? 'You stopped watching this task.' : 'You’re watching this task. You’ll hear about its changes.');
-    } catch (e) {
-      d.s.watching = was;
-      d.s.watchers = before;
-      d.fail(e, 'Couldn’t change watching.');
-    }
-    render();
+    latest += 1;
+    const mine = latest;
+    return lane.run(async () => {
+      try {
+        const r = await d.send(was ? 'task.unwatch' : 'task.watch', { id: d.taskId });
+        if (!r.queued && r.data && Array.isArray(r.data.watchers) && mine === latest) d.s.watchers = r.data.watchers;
+        d.announce(was ? 'You stopped watching this task.' : 'You’re watching this task. You’ll hear about its changes.');
+      } catch (e) {
+        if (mine === latest) {
+          d.s.watching = was;
+          d.s.watchers = before;
+        }
+        d.fail(e, 'Couldn’t change watching.');
+      }
+      render();
+    });
   }
 
   async function exportTask(format) {

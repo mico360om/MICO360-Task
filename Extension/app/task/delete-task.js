@@ -22,15 +22,18 @@ export function DeleteSection(d) {
   function render() {
     const t = d.s.task;
     redrawKeepingFocus(node, () => mount(node, t && !t.pendingDelete && canDelete() ? draw(t) : null), () => node.querySelector('button'));
-    if (ask) {
-      ask.focusSafe();
-      ask = null;
-    }
+  }
+
+  /** Ask which (or whether) to delete, with focus on the safe answer — only when first asked. */
+  function askNow() {
+    asking = true;
+    render();
+    if (ask) ask.focusSafe();
   }
 
   function draw(t) {
     if (!asking) {
-      return el('button', { class: 'btn sm ghost danger', type: 'button', disabled: busy, onClick: () => { asking = true; render(); } }, 'Delete task');
+      return el('button', { class: 'btn sm ghost danger', type: 'button', disabled: busy, onClick: askNow }, 'Delete task');
     }
     const series = inSeries(t);
     const box = confirmBox(

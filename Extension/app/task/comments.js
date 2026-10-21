@@ -40,7 +40,7 @@ export function CommentsSection(d) {
   let editing = null;    // the comment whose text is being changed
   let editDraft = '';
   let confirming = null; // the comment being asked about
-  let ask = null;
+  let ask = null;        // its question, to focus the safe answer once — when it is first asked
 
   const byId = (id) => d.s.comments.find((c) => c.id === id) || null;
   const mine = (c) => c.userId === d.ctx.me.id;
@@ -49,19 +49,22 @@ export function CommentsSection(d) {
   function render() {
     redrawKeepingFocus(list, () => mount(list, threadComments(d.s.comments).map(drawThread)));
     empty.textContent = d.s.comments.length ? '' : 'No comments yet. Start the conversation.';
-    if (ask) {
-      ask.focusSafe();
-      ask = null;
-    }
+  }
+
+  /** Ask "Delete this comment?" under it, with focus on the safe answer. */
+  function askDelete(c) {
+    confirming = c.id;
+    render();
+    if (ask) ask.focusSafe();
   }
 
   function drawThread({ comment, replies }) {
     const author = d.name(comment.userId);
     const replyHere = replying && (replying === comment.id || replies.some((r) => r.comment.id === replying));
-    return el('li', { class: 'td-thread', dataset: { commentId: comment.id } },
+    return el('li', { class: 'td-thread', dataset: { commentId: comment.id, row: `comment:${comment.id}` } },
       drawComment(comment, null),
       replies.length ? el('ul', { class: 'td-replies', 'aria-label': `Replies to ${author}` },
-        replies.map((r) => el('li', { class: 'td-reply', dataset: { commentId: r.comment.id } }, drawComment(r.comment, r.replyTo)))) : null,
+        replies.map((r) => el('li', { class: 'td-reply', dataset: { commentId: r.comment.id, row: `comment:${r.comment.id}` } }, drawComment(r.comment, r.replyTo)))) : null,
       replyHere ? replyBox(byId(replying)) : null,
     );
   }
@@ -101,7 +104,7 @@ export function CommentsSection(d) {
       el('button', { class: 'linkbtn', type: 'button', 'aria-label': `Reply to ${author}`, onClick: () => startReply(c) }, 'Reply'),
       mine(c) ? el('button', { class: 'linkbtn', type: 'button', 'aria-label': 'Edit your comment', onClick: () => startEdit(c) }, 'Edit') : null,
       canDelete && confirming !== c.id
-        ? el('button', { class: 'linkbtn danger', type: 'button', 'aria-label': mine(c) ? 'Delete your comment' : `Delete comment by ${author}`, onClick: () => { confirming = c.id; render(); } }, 'Delete')
+        ? el('button', { class: 'linkbtn danger', type: 'button', 'aria-label': mine(c) ? 'Delete your comment' : `Delete comment by ${author}`, onClick: () => askDelete(c) }, 'Delete')
         : null,
     );
   }
@@ -276,15 +279,15 @@ export function CommentsSection(d) {
   async function remove(c) {
     confirming = null;
     d.clearError();
-    const before = d.s.comments;
-    d.s.comments = before.filter((x) => x.id !== c.id);
+    d.s.comments = d.s.comments.filter((x) => x.id !== c.id);
     render();
     if (!node.contains(node.ownerDocument.activeElement)) box.focus();
     try {
       await d.send('comment.delete', { id: d.taskId, commentId: c.id });
       d.announce('Comment deleted.');
     } catch (e) {
-      d.s.comments = before;
+      // Only this comment comes back (threads are shown in time order): changes made meanwhile stay.
+      if (!d.s.comments.some((x) => x.id === c.id)) d.s.comments = [...d.s.comments, c];
       d.fail(e, 'Couldn’t delete the comment.');
       render();
     }

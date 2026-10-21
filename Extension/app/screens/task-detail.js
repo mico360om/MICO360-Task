@@ -98,10 +98,16 @@ export function TaskDetail(ctx, onClose) {
     { read: () => call(ctx.api.tags), take: (v) => { s.tagCatalog = list(v); }, shows: [tags] },
     { read: () => call(ctx.api.tasks.watch, taskId), take: (v) => { s.watching = v && typeof v.watching === 'boolean' ? v.watching : null; }, shows: [header] },
     { read: () => call(ctx.api.tasks.watchers, taskId), take: (v) => { s.watchers = list(v); }, shows: [header] },
-    { read: () => call(ctx.api.tasks.attachments, taskId), take: (v) => { s.attachments = list(v); }, shows: [attachments] },
+    // Files attached while the list was still being read stay in it (the read was made before them).
+    { read: () => call(ctx.api.tasks.attachments, taskId), take: (v) => { s.attachments = withAttached(list(v), s.attachments); }, shows: [attachments] },
     { read: () => call(ctx.api.tasks.activity, taskId), take: (v) => { s.activity = list(v); }, shows: [activity] },
   ];
   const list = (v) => (Array.isArray(v) ? v : null);
+  const withAttached = (read, shown) => {
+    if (!Array.isArray(shown)) return read;
+    const got = read || [];
+    return [...got, ...shown.filter((a) => !got.some((g) => g.id === a.id))];
+  };
 
   const panel = el('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Task details', tabindex: '-1' },
     el('div', { class: 'drawer-head' }, titleEl, header.node, el('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: onClose }, '✕')),
@@ -123,6 +129,7 @@ export function TaskDetail(ctx, onClose) {
   /** Load (or reload) the task. `message` is shown above it, e.g. why it was reloaded. */
   async function load(message) {
     const id = (loads += 1);
+    s.attachments = undefined; // read afresh (only files attached during this read are added to it)
     mount(content, Loader());
     err = typeof message === 'string' ? message : '';
     renderMessages();

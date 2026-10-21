@@ -54,7 +54,8 @@ export function ChecklistSection(d) {
     d.clearError();
     render();
     try {
-      await d.send('checklist.update', { itemId: item.id, patch: { done } });
+      // The task's id rides along, so deleting the task waits for this tick (task-writes.js).
+      await d.send('checklist.update', { id: d.taskId, itemId: item.id, patch: { done } });
     } catch (e) {
       item.done = !done;
       recount();

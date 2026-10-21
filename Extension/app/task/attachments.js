@@ -20,7 +20,7 @@ export function AttachmentsSection(d) {
   let uploads = [];     // { key, name, error? } — files going up, or that couldn't
   let seq = 0;
   let confirming = null; // the file being asked about
-  let ask = null;        // its question, to focus the safe answer once drawn
+  let ask = null;        // its question, to focus the safe answer once — when it is first asked
 
   node.addEventListener('dragover', (e) => {
     if (!hasFiles(e)) return;
@@ -43,10 +43,13 @@ export function AttachmentsSection(d) {
 
   function render() {
     redrawKeepingFocus(node, () => mount(node, draw()), () => node.querySelector('input[type="file"]'));
-    if (ask) {
-      ask.focusSafe();
-      ask = null;
-    }
+  }
+
+  /** Ask "Delete this file?" under it, with focus on the safe answer. */
+  function askDelete(a) {
+    confirming = a.id;
+    render();
+    if (ask) ask.focusSafe();
   }
 
   function draw() {
@@ -77,7 +80,7 @@ export function AttachmentsSection(d) {
     const thumb = kind === 'image' && href
       ? el('img', { class: 'td-thumb', src: href, alt: '', loading: 'lazy' })
       : el('span', { class: `td-thumb kind-${kind}`, 'aria-hidden': 'true' }, KIND_LABEL[kind]);
-    return el('li', { class: 'td-file' },
+    return el('li', { class: 'td-file', dataset: { row: `file:${a.id}` } },
       el('div', { class: 'td-file-row' },
         thumb,
         el('div', { class: 'td-file-body' },
@@ -89,7 +92,7 @@ export function AttachmentsSection(d) {
           ? el('button', { class: 'iconbtn sm', type: 'button', 'aria-label': `Preview ${a.filename}`, title: 'Preview', onClick: () => preview(a) }, el('span', { 'aria-hidden': 'true' }, '👁'))
           : null,
         canDelete(a) && confirming !== a.id
-          ? el('button', { class: 'iconbtn sm', type: 'button', 'aria-label': `Delete ${a.filename}`, title: 'Delete', onClick: () => { confirming = a.id; render(); } }, el('span', { 'aria-hidden': 'true' }, '🗑'))
+          ? el('button', { class: 'iconbtn sm', type: 'button', 'aria-label': `Delete ${a.filename}`, title: 'Delete', onClick: () => askDelete(a) }, el('span', { 'aria-hidden': 'true' }, '🗑'))
           : null,
       ),
       confirming === a.id ? questionFor(a) : null,
@@ -151,15 +154,17 @@ export function AttachmentsSection(d) {
   async function remove(a) {
     confirming = null;
     d.clearError();
-    const before = d.s.attachments;
-    d.s.attachments = (before || []).filter((x) => x.id !== a.id);
+    const at = (d.s.attachments || []).findIndex((x) => x.id === a.id);
+    d.s.attachments = (d.s.attachments || []).filter((x) => x.id !== a.id);
     render();
     focusSection();
     try {
       await d.send('attachment.delete', { id: d.taskId, attachmentId: a.id, filename: a.filename });
       d.announce(`Deleted ${a.filename}.`);
     } catch (e) {
-      d.s.attachments = before;
+      // Only this file comes back, where it was: files added or deleted meanwhile stay as they are.
+      const now = Array.isArray(d.s.attachments) ? d.s.attachments : [];
+      if (!now.some((x) => x.id === a.id)) d.s.attachments = [...now.slice(0, Math.max(0, at)), a, ...now.slice(Math.max(0, at))];
       d.fail(e, 'Couldn’t delete the file.');
       render();
     }
