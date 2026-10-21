@@ -187,3 +187,28 @@ export function uploadFailure(e: unknown): string {
   if (isNetworkError(e) && (e as { timedOut?: unknown }).timedOut !== true) return 'You’re offline — files can be sent when you’re connected.';
   return uploadErrorMessage(e);
 }
+
+/**
+ * Is an upload's new progress worth drawing (3b review)? Each step redraws the thread, so only every
+ * 5% — and the end, and a fresh try starting over — not every event the upload sends.
+ */
+export function progressWorthShowing(shown: number, next: number): boolean {
+  return next >= 1 || next < shown || next - shown >= 0.05;
+}
+
+/**
+ * Who is online, as the receipts need it (3b review): only the other person of a direct conversation
+ * ("Delivered" when they are online). `key` changes only when that person comes or goes, so the
+ * thread isn't drawn again when anyone else does.
+ */
+export function receiptOnlineCheck(
+  kind: 'DIRECT' | 'PROJECT',
+  participants: readonly { userId: string }[],
+  myId: string,
+  online: ReadonlySet<string>,
+): { key: string; isOnline: (userId: string) => boolean } {
+  const partner = kind === 'DIRECT' ? participants.find((p) => p.userId !== myId)?.userId : undefined;
+  if (!partner) return { key: '', isOnline: () => false };
+  const on = online.has(partner);
+  return { key: `${partner}:${on ? 'on' : 'off'}`, isOnline: (userId) => userId === partner && on };
+}

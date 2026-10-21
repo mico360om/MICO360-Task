@@ -11,12 +11,37 @@ import {
   pickedFile,
   prefsFailure,
   prefsMenu,
+  progressWorthShowing,
+  receiptOnlineCheck,
   receiptText,
   startDirectError,
   uploadFailure,
   withPrefs,
 } from './chat-ui';
 import type { ApiConversationSummary, ApiDirectoryUser } from './types';
+
+describe('the thread isn’t redrawn for nothing (3b review fix 10)', () => {
+  it('an upload’s progress is shown in steps of 5% (and its end), not on every event', () => {
+    expect(progressWorthShowing(0, 0.01)).toBe(false);
+    expect(progressWorthShowing(0, 0.05)).toBe(true);
+    expect(progressWorthShowing(0.05, 0.08)).toBe(false);
+    expect(progressWorthShowing(0.95, 0.97)).toBe(false);
+    expect(progressWorthShowing(0.97, 1)).toBe(true);
+    expect(progressWorthShowing(0.5, 0)).toBe(true); // a fresh try starts over
+  });
+
+  it('who is online matters to the receipts only for the other person of a direct conversation', () => {
+    const online = new Set(['u2', 'u7']);
+    const dm = receiptOnlineCheck('DIRECT', [{ userId: 'me' }, { userId: 'u2' }], 'me', online);
+    expect(dm.key).toBe('u2:on');
+    expect(dm.isOnline('u2')).toBe(true);
+    expect(dm.isOnline('u7')).toBe(false);
+    // Someone else coming or going changes nothing.
+    expect(receiptOnlineCheck('DIRECT', [{ userId: 'me' }, { userId: 'u2' }], 'me', new Set(['u2'])).key).toBe('u2:on');
+    expect(receiptOnlineCheck('DIRECT', [{ userId: 'me' }, { userId: 'u2' }], 'me', new Set()).key).toBe('u2:off');
+    expect(receiptOnlineCheck('PROJECT', [{ userId: 'me' }, { userId: 'u2' }], 'me', online).key).toBe('');
+  });
+});
 
 const NOW = new Date('2026-10-21T12:00:00.000Z');
 const user = (id: string, first: string, last: string, over: Partial<ApiDirectoryUser> = {}): ApiDirectoryUser => ({ id, username: first.toLowerCase(), firstName: first, lastName: last, ...over });

@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, TextInput, type AccessibilityActionEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProjects, useConversations, useDirectory } from '../core/queries';
@@ -88,6 +88,10 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
     if (row.kind === 'PROJECT' && row.projectId) void channel.open(row.projectId, row.title);
     else if (row.conversationId) goToThread(row.conversationId, row.title);
   };
+  // The same function for every render, so the memoized rows stay as they are.
+  const openRowRef = useRef(openRow);
+  openRowRef.current = openRow;
+  const onOpenRow = useCallback((r: InboxRow) => openRowRef.current(r), []);
   const openResult = (m: ApiChatMessage) => goToThread(m.conversationId, titleOf(m.conversationId), m.id);
   const changePrefs = (row: InboxRow, patch: Partial<ConversationPrefs>) =>
     void prefs.change({ conversationId: row.conversationId, kind: row.kind, projectId: row.projectId }, patch).then((ok) => {
@@ -99,72 +103,22 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
   const searching = query.trim().length > 0;
   const nothingFound = searching && !messageSearch && sections.favorites.length + sections.channels.length + sections.directs.length + sections.archived.length === 0;
 
-  const row = (r: InboxRow) => {
-    const preview = previewOf(r.lastMessage, { myId, kind: r.kind, nameOf: fullName });
-    const isOnline = r.kind === 'DIRECT' && !!r.partnerId && online.has(r.partnerId);
-    const label = [
-      r.kind === 'PROJECT' ? `${r.title} channel` : r.title,
-      isOnline ? 'online' : null,
-      r.prefs.favorite ? 'favorite' : null,
-      r.prefs.muted ? 'muted' : null,
-      r.unread ? `${r.unread} unread` : null,
-      preview || null,
-      r.lastMessage ? listTime(r.lastMessage.createdAt) : null,
-    ]
-      .filter(Boolean)
-      .join(', ');
-    const onAction = (e: AccessibilityActionEvent) => {
-      if (e.nativeEvent.actionName === 'longpress') setMenuFor(r);
-      else openRow(r);
-    };
-    return (
-      <Pressable
-        key={r.key}
-        style={({ pressed }) => [styles.row, pressed && { opacity: 0.8 }]}
-        onPress={() => openRow(r)}
-        onLongPress={() => setMenuFor(r)}
-        disabled={channel.opening !== null}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        accessibilityHint="Long press for favorite, mute and archive."
-        accessibilityActions={[{ name: 'activate' }, { name: 'longpress', label: 'More options' }]}
-        onAccessibilityAction={onAction}
-        accessibilityState={{ busy: channel.opening === r.projectId, disabled: channel.opening !== null }}
-      >
-        {r.kind === 'PROJECT' ? (
-          <View style={[styles.tile, { backgroundColor: c.brand }]}>
-            <Text style={styles.tileText}>#</Text>
-          </View>
-        ) : (
-          <View style={[styles.tile, styles.round, { backgroundColor: c.brandWash }]}>
-            <Text style={[styles.tileText, { color: c.brand }]}>{r.title.slice(0, 1).toUpperCase()}</Text>
-            <View style={[styles.dot, { backgroundColor: isOnline ? c.success : c.ink3, borderColor: c.surface }]} />
-          </View>
-        )}
-        <View style={styles.grow}>
-          <View style={styles.line}>
-            <Text style={[styles.rowTitle, r.unread ? styles.bold : null]} numberOfLines={1}>
-              {r.prefs.favorite ? '★ ' : ''}
-              {r.title}
-            </Text>
-            {r.lastMessage ? <Text style={[styles.time, r.unread ? { color: c.brand, fontWeight: '700' } : null]}>{listTime(r.lastMessage.createdAt)}</Text> : null}
-          </View>
-          <View style={styles.line}>
-            <Text style={[styles.preview, r.unread ? { color: c.ink } : null]} numberOfLines={1}>
-              {preview || (r.kind === 'PROJECT' && !r.conversationId ? 'Project channel' : 'No messages yet')}
-            </Text>
-            {/* Muted: said, and its count in grey — it isn't in the Chat tab's number (as on the website). */}
-            {r.prefs.muted ? <Text style={styles.muted}>🔕 Muted</Text> : null}
-            {r.unread ? (
-              <View style={[styles.badge, r.prefs.muted && styles.badgeMuted]}>
-                <Text style={[styles.badgeText, r.prefs.muted && styles.badgeTextMuted]}>{r.unread > 99 ? '99+' : r.unread}</Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      </Pressable>
-    );
-  };
+  // One row per conversation, memoized (3b review): a presence change redraws only the rows whose
+  // person came or went, not the whole list.
+  const rowFor = (r: InboxRow) => (
+    <ConversationRow
+      key={r.key}
+      r={r}
+      isOnline={r.kind === 'DIRECT' && !!r.partnerId && online.has(r.partnerId)}
+      myId={myId}
+      nameOf={fullName}
+      opening={channel.opening}
+      onOpen={onOpenRow}
+      onMenu={setMenuFor}
+      styles={styles}
+      c={c}
+    />
+  );
 
   const section = (key: SectionKey, rows: InboxRow[], empty?: React.ReactNode) => {
     if (key === 'favorites' && rows.length === 0) return null;
@@ -191,7 +145,7 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
             <Text style={styles.sectionCount}>{rows.length}</Text>
           )}
         </Pressable>
-        {isOpen ? (rows.length ? rows.map(row) : empty ?? null) : null}
+        {isOpen ? (rows.length ? rows.map(rowFor) : empty ?? null) : null}
       </View>
     );
   };
@@ -299,6 +253,95 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
     </SafeAreaView>
   );
 }
+
+/**
+ * One conversation in the list. Memoized (3b review): it is drawn again only when its own row,
+ * whether its person is online, the names or the channel being opened change.
+ */
+const ConversationRow = memo(function ConversationRow({
+  r,
+  isOnline,
+  myId,
+  nameOf,
+  opening,
+  onOpen,
+  onMenu,
+  styles,
+  c,
+}: {
+  r: InboxRow;
+  isOnline: boolean;
+  myId: string;
+  nameOf: (userId: string) => string;
+  opening: string | null;
+  onOpen: (r: InboxRow) => void;
+  onMenu: (r: InboxRow) => void;
+  styles: ReturnType<typeof makeStyles>;
+  c: Palette;
+}) {
+  const preview = previewOf(r.lastMessage, { myId, kind: r.kind, nameOf });
+  const label = [
+    r.kind === 'PROJECT' ? `${r.title} channel` : r.title,
+    isOnline ? 'online' : null,
+    r.prefs.favorite ? 'favorite' : null,
+    r.prefs.muted ? 'muted' : null,
+    r.unread ? `${r.unread} unread` : null,
+    preview || null,
+    r.lastMessage ? listTime(r.lastMessage.createdAt) : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const onAction = (e: AccessibilityActionEvent) => {
+    if (e.nativeEvent.actionName === 'longpress') onMenu(r);
+    else onOpen(r);
+  };
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && { opacity: 0.8 }]}
+      onPress={() => onOpen(r)}
+      onLongPress={() => onMenu(r)}
+      disabled={opening !== null}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Long press for favorite, mute and archive."
+      accessibilityActions={[{ name: 'activate' }, { name: 'longpress', label: 'More options' }]}
+      onAccessibilityAction={onAction}
+      accessibilityState={{ busy: opening === r.projectId, disabled: opening !== null }}
+    >
+      {r.kind === 'PROJECT' ? (
+        <View style={[styles.tile, { backgroundColor: c.brand }]}>
+          <Text style={styles.tileText}>#</Text>
+        </View>
+      ) : (
+        <View style={[styles.tile, styles.round, { backgroundColor: c.brandWash }]}>
+          <Text style={[styles.tileText, { color: c.brand }]}>{r.title.slice(0, 1).toUpperCase()}</Text>
+          <View style={[styles.dot, { backgroundColor: isOnline ? c.success : c.ink3, borderColor: c.surface }]} />
+        </View>
+      )}
+      <View style={styles.grow}>
+        <View style={styles.line}>
+          <Text style={[styles.rowTitle, r.unread ? styles.bold : null]} numberOfLines={1}>
+            {r.prefs.favorite ? '★ ' : ''}
+            {r.title}
+          </Text>
+          {r.lastMessage ? <Text style={[styles.time, r.unread ? { color: c.brand, fontWeight: '700' } : null]}>{listTime(r.lastMessage.createdAt)}</Text> : null}
+        </View>
+        <View style={styles.line}>
+          <Text style={[styles.preview, r.unread ? { color: c.ink } : null]} numberOfLines={1}>
+            {preview || (r.kind === 'PROJECT' && !r.conversationId ? 'Project channel' : 'No messages yet')}
+          </Text>
+          {/* Muted: said, and its count in grey — it isn't in the Chat tab's number (as on the website). */}
+          {r.prefs.muted ? <Text style={styles.muted}>🔕 Muted</Text> : null}
+          {r.unread ? (
+            <View style={[styles.badge, r.prefs.muted && styles.badgeMuted]}>
+              <Text style={[styles.badgeText, r.prefs.muted && styles.badgeTextMuted]}>{r.unread > 99 ? '99+' : r.unread}</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+});
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({

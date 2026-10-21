@@ -40,7 +40,7 @@ import { CHAT_MAX_LENGTH, connectionNote } from '../lib/chat-outbox';
 import { newestPageOnly, threadMessages, type ThreadPages } from '../lib/chat-thread';
 import { rowIndexOf, threadRows, unreadAfterOf, type ThreadMessage, type ThreadRow } from '../lib/chat-timeline';
 import { jumpNotice, jumpStep, MAX_JUMP_PAGES } from '../lib/chat-jump';
-import { conversationSubtitle, memberRows, pickedFile, receiptText } from '../lib/chat-ui';
+import { conversationSubtitle, memberRows, pickedFile, receiptOnlineCheck, receiptText } from '../lib/chat-ui';
 import { threadKey } from '../lib/chat-cache';
 import { isSafeId } from '../lib/ids';
 import { keptOnPhoneText } from '../lib/write-order';
@@ -125,6 +125,16 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   const draftMention = useMentionInput(draft, setDraft, canMention);
   const isOnline = useCallback((id: string) => presence.has(id), [presence]);
   const members = useMemo(() => memberRows(memberIds ?? [], dirQ.data ?? [], myId, isOnline), [memberIds, dirQ.data, myId, isOnline]);
+  // The receipts need only the direct partner's presence: the rows aren't drawn again when anyone
+  // else comes or goes (3b review).
+  const receiptPresence = receiptOnlineCheck(kind, summary?.participants ?? [], myId, presence);
+  const receiptRef = useRef(receiptPresence);
+  receiptRef.current = receiptPresence;
+  // Remade only when the partner comes or goes (its key).
+  const receiptOnline = useMemo(() => {
+    const check = receiptRef.current.isOnline;
+    return (userId: string) => check(userId);
+  }, [receiptPresence.key]);
   const partnerId = kind === 'DIRECT' ? summary?.participants.find((p) => p.userId !== myId)?.userId : undefined;
   const prefs: ConversationPrefs = summary?.prefs ?? NO_PREFS;
 
@@ -414,7 +424,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
       if (item.type === 'unread') return <UnreadLine />;
       const m = item.message;
       const mine = m.userId === myId;
-      const receipt = mine && !m.deletedAt && !m.pending ? receiptText(receiptState(m, { myId, kind, participants, isOnline })) : undefined;
+      const receipt = mine && !m.deletedAt && !m.pending ? receiptText(receiptState(m, { myId, kind, participants, isOnline: receiptOnline })) : undefined;
       return (
         <MessageBubble
           m={m}
@@ -433,7 +443,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
         />
       );
     },
-    [myId, kind, participants, isOnline, nameOf, mentionPeople, isAdmin, highlight, baseUrl, handlers],
+    [myId, kind, participants, receiptOnline, nameOf, mentionPeople, isAdmin, highlight, baseUrl, handlers],
   );
 
   async function send() {

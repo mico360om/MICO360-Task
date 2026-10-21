@@ -10,7 +10,7 @@ import { applyReaction } from '../lib/chat-realtime';
 import { threadKey } from '../lib/chat-cache';
 import { createSerialRunner } from '../lib/chat-jump';
 import type { UploadEntry } from '../lib/chat-timeline';
-import { directWith, fileProblem, prefsFailure, startDirectError, uploadFailure, withPrefs } from '../lib/chat-ui';
+import { directWith, fileProblem, prefsFailure, progressWorthShowing, startDirectError, uploadFailure, withPrefs } from '../lib/chat-ui';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { presence } from '../lib/presence-store';
@@ -202,6 +202,8 @@ export function useChatUploads(conversationId: string) {
   // One after another; a file discarded while it waits its turn is never sent (chat-jump).
   const runner = useRef(createSerialRunner()).current;
   const seq = useRef(0);
+  // The progress each upload last showed: a step redraws the thread, so only every 5% (3b review).
+  const shown = useRef(new Map<string, number>());
 
   const update = useCallback((key: string, patch: Partial<UploadEntry>) => setUploads((list) => list.map((u) => (u.key === key ? { ...u, ...patch } : u))), []);
 
@@ -209,12 +211,18 @@ export function useChatUploads(conversationId: string) {
     (entry: UploadEntry) => {
       // Shown as being sent at once (no Retry or Discard offered twice while it waits its turn).
       update(entry.key, { state: 'sending', error: undefined, progress: 0 });
+      shown.current.set(entry.key, 0);
+      const onProgress = (f: number) => {
+        if (!progressWorthShowing(shown.current.get(entry.key) ?? 0, f)) return;
+        shown.current.set(entry.key, f);
+        update(entry.key, { progress: f });
+      };
       return runner.run(entry.key, async () => {
         try {
           const saved = await resources.chat.uploadAttachment(
             conversationId,
             { uri: entry.uri, name: entry.name, type: entry.type },
-            { body: entry.caption || undefined, clientId: entry.clientId, replyToId: entry.replyTo?.id, onProgress: (f) => update(entry.key, { progress: f }) },
+            { body: entry.caption || undefined, clientId: entry.clientId, replyToId: entry.replyTo?.id, onProgress },
           );
           // Its saved copy takes its place in the thread.
           if (saved?.id) chat.put(conversationId, saved);
