@@ -544,6 +544,13 @@ describe('resourcesApi: meeting AI and free times (2c)', () => {
     expect(sent[0]!.opts?.timeoutMs).toBe(AI_TIMEOUT_MS);
   });
 
+  it('reads a task’s sentence the same way (4a: New task’s Describe), and hands back what it found as read carefully', async () => {
+    const { sent, api } = recorder({ title: 'Review the report', dueDate: '2026-10-16', priority: 'HIGH', project: { id: 'p2', code: 'OPS', number: null, name: 'Ops' } });
+    const draft = await api.ai.parseTask(`  ${'y'.repeat(1200)}  `, '2026-10-21');
+    expect(sent[0]).toMatchObject({ path: '/ai/parse-task', body: { text: 'y'.repeat(1000), today: '2026-10-21' }, opts: { timeoutMs: AI_TIMEOUT_MS } });
+    expect(draft).toEqual({ title: 'Review the report', description: null, dueDate: '2026-10-16', priority: 'HIGH', recurrence: null, project: { id: 'p2', code: 'OPS', number: null, name: 'Ops' } });
+  });
+
   it('drafts an agenda and writes a description, with the AI’s wait', async () => {
     const agenda = recorder({ items: [{ title: 'Budget', ownerId: 'u1', minutes: 20 }] });
     const input = { title: 'Weekly sync', startAt: '2026-10-22T06:00:00.000Z', minutes: 60, peopleIds: ['u1'], projectId: 'p1', meetingId: 'm1' };

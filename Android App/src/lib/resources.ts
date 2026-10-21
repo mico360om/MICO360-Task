@@ -4,6 +4,7 @@ import type { ApiAttachment } from './attachments';
 import type { NotificationPreferences, PreferencesUpdate } from './notification-prefs';
 import type { DatePreferences, ServerConfig } from './date-settings';
 import type { ApiAccountUser } from './account';
+import { readTaskDraft } from './task-describe';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -404,6 +405,14 @@ export function resourcesApi(client: ApiClient) {
             { timeoutMs: AI_TIMEOUT_MS },
           ),
         ),
+      /**
+       * New task's "Describe it in plain English" (4a): what a sentence fills in (title, description,
+       * due date, priority, repeat, one of your projects), read carefully; `today` is the company's day.
+       */
+      parseTask: (text: string, today?: string) =>
+        data(
+          client.post<Envelope<unknown>>('/ai/parse-task', { text: text.trim().slice(0, AI_SENTENCE_MAX), ...(today ? { today } : {}) }, { timeoutMs: AI_TIMEOUT_MS }),
+        ).then(readTaskDraft),
       // ── Meeting AI (2c): suggestions the person reviews before anything changes ──
       /** Fill the meeting form from a sentence; `today` is the company's day, for "Monday" or "tomorrow". */
       parseMeeting: (text: string, today?: string) =>
