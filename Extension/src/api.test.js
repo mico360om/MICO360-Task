@@ -167,3 +167,49 @@ describe('quick capture calls (Stage 2)', () => {
     await expect(api.ai.parseTask('anything', '2026-10-21')).rejects.toMatchObject({ status: 400, serverMessage: message });
   });
 });
+
+describe('Stage 5: notification preferences and chat calls', () => {
+  it('reads and saves the notification preferences (the whole muted list and reminder time)', async () => {
+    const auth = fakeAuth((path, opts) => json({ data: { path, method: opts?.method || 'GET', body: opts?.body ? JSON.parse(opts.body) : null } }));
+    const api = createApi({ auth, cache: noCache });
+    expect((await api.notifications.preferences()).data).toMatchObject({ path: '/notifications/preferences', method: 'GET' });
+    expect(await api.notifications.setPreferences({ muted: ['MENTION'], reminderLeadMinutes: 60 })).toEqual({ path: '/notifications/preferences', method: 'PUT', body: { muted: ['MENTION'], reminderLeadMinutes: 60 } });
+  });
+
+  it('pages of history: the newest kept for offline; older ones (?before=) read fresh', async () => {
+    const auth = fakeAuth((path) => json({ data: [{ id: 'm1', body: path, deletedAt: null }] }));
+    const cache = { read: vi.fn(async (_key, load) => ({ data: await load(), stale: false })) };
+    const api = createApi({ auth, cache });
+    expect((await api.chat.messages('c1')).data[0].body).toBe('/conversations/c1/messages');
+    expect(cache.read).toHaveBeenCalledWith('messages:c1', expect.any(Function));
+    expect(await api.chat.older('c1', '2026-10-20T09:00:00.000Z')).toEqual([{ id: 'm1', body: '/conversations/c1/messages?before=2026-10-20T09%3A00%3A00.000Z&limit=50', deletedAt: null }]);
+    expect(cache.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts a direct conversation, changes a conversation’s own settings, says messages arrived', async () => {
+    const seen = [];
+    const auth = fakeAuth((path, opts) => { seen.push([opts?.method, path, opts?.body ? JSON.parse(opts.body) : undefined]); return path.endsWith('/delivered') ? { ok: true, status: 204, json: async () => ({}), headers: { get: () => null } } : json({ data: { id: 'c9', favorite: true } }); });
+    const api = createApi({ auth, cache: noCache });
+    expect(await api.chat.startDirect('u2')).toEqual({ id: 'c9', favorite: true });
+    expect(await api.chat.setPrefs('c9', { favorite: true })).toEqual({ id: 'c9', favorite: true });
+    await api.chat.markDelivered('c9');
+    expect(seen).toEqual([
+      ['POST', '/conversations/direct', { userId: 'u2' }],
+      ['PUT', '/conversations/c9/prefs', { favorite: true }],
+      ['POST', '/conversations/c9/delivered', {}],
+    ]);
+  });
+
+  it('sends a file as a message: its clientId and caption go before the file, with the upload timeout', async () => {
+    let sent;
+    const auth = fakeAuth((path, opts) => { sent = { path, opts }; return json({ data: { id: 'm2' } }); });
+    const api = createApi({ auth, cache: noCache });
+    const file = new File(['x'], 'gauge.png', { type: 'image/png' });
+    expect(await api.chat.upload('c1', file, { clientId: 'k1', body: 'The gauge' })).toEqual({ id: 'm2' });
+    expect(sent.path).toBe('/conversations/c1/attachments');
+    expect(sent.opts.method).toBe('POST');
+    expect([...sent.opts.body.keys()]).toEqual(['clientId', 'body', 'file']);
+    expect(sent.opts.body.get('clientId')).toBe('k1');
+    expect(sent.opts.signal).toBeTruthy();
+  });
+});

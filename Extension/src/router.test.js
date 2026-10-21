@@ -51,8 +51,12 @@ describe('refreshOnReturn', () => {
     for (const r of [{ name: 'board' }, { name: 'dashboard' }, { name: 'calendar' }]) expect(refreshOnReturn(r, false)).toBe(true);
   });
 
+  it('Stage 5: chat and notifications read themselves again in place (what is being typed stays)', () => {
+    for (const r of [{ name: 'chat' }, { name: 'chat-thread' }, { name: 'notifications' }]) expect(refreshOnReturn(r, false)).toBe(true);
+  });
+
   it('leaves screens with typing in progress alone, and never reloads under an open task drawer', () => {
-    for (const r of [{ name: 'my-tasks' }, { name: 'chat' }, { name: 'chat-thread' }, { name: 'settings' }]) expect(refreshOnReturn(r, false)).toBe(false);
+    for (const r of [{ name: 'my-tasks' }, { name: 'settings' }, { name: 'reports' }]) expect(refreshOnReturn(r, false)).toBe(false);
     expect(refreshOnReturn({ name: 'board' }, true)).toBe(false);
     expect(refreshOnReturn(null, false)).toBe(false);
   });

@@ -63,3 +63,12 @@ describe('background worker', () => {
     expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'chrome-extension://ext/app/app.html#/notifications' });
   });
 });
+
+describe('background worker: a session that ended (review fix #6)', () => {
+  it('a poll with nobody signed in takes the last desktop alert off the screen', async () => {
+    chrome.notifications.clear.mockClear();
+    listeners.alarm[0]({ name: 'poll' });
+    await settle();
+    expect(chrome.notifications.clear).toHaveBeenCalledWith(NOTIFICATION_ID);
+  });
+});

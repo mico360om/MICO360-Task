@@ -259,7 +259,8 @@ export function rememberRecent(list, entry, max = RECENT_MAX) {
  */
 export function recentStatus(entry, queue) {
   if (entry && entry.id) return 'created';
-  const item = (Array.isArray(queue) ? queue : []).find((i) => i && entry && i.idempotencyKey === entry.queuedKey);
+  // Its change keeps the key it was made with (`firstKey`) when a Retry gives it a new one.
+  const item = (Array.isArray(queue) ? queue : []).find((i) => i && entry && (i.firstKey || i.idempotencyKey) === entry.queuedKey);
   if (!item) return 'synced';
   return item.status === 'failed' ? 'failed' : 'waiting';
 }

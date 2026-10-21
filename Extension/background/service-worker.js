@@ -1,12 +1,13 @@
 import { resolveBases } from '../src/config.js';
-import { shouldNotify, notificationText, unreadBaseline, setToolbarBadge, NOTIFICATION_ID } from '../src/notify.js';
-import { flushQueue, makePerformMutation, FLUSH_MESSAGE } from '../src/queue.js';
+import { setToolbarBadge, clearDesktopAlert, NOTIFICATION_ID } from '../src/notify.js';
+import { flushQueue, makePerformMutation, sendOrQueue, FLUSH_MESSAGE } from '../src/queue.js';
 import { createAuth } from '../src/auth.js';
 import { ensureSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { rememberTask } from '../src/task-writes.js';
 import { openAppTab } from '../src/open-app.js';
 import { createMenu, onMenuClick } from '../src/context-menu.js';
+import { pollNotifications, openAlert } from '../src/background-poll.js';
 
 const local = chrome.storage.local;
 const sessionStore = chrome.storage.session;
@@ -26,8 +27,9 @@ async function signedIn() {
   const s = await ensureSession({ local, session: sessionStore, apiBase });
   if (!s) return null;
   // One shared, locked refresh with the app tab (XP-04). When the server ends the session the
-  // tokens are cleared; open app tabs notice the change and show the sign-in screen.
-  const auth = createAuth({ local, session: sessionStore, apiBase, onExpired: () => setBadge(0) });
+  // tokens are cleared; open app tabs notice the change and show the sign-in screen. The badge and
+  // the last desktop alert go with it.
+  const auth = createAuth({ local, session: sessionStore, apiBase, onExpired: () => sessionEnded() });
   return { ...s, apiBase, auth };
 }
 
@@ -39,37 +41,57 @@ async function flushNow(ctx) {
   return flushQueue(local, perform, { userId: c.userId });
 }
 
+/** Nobody is signed in (any more): no count on the icon, and no alert of theirs left on screen. */
+function sessionEnded() {
+  setBadge(0);
+  clearDesktopAlert(chrome.notifications);
+}
+
 async function poll() {
   const ctx = await signedIn();
   if (!ctx) {
-    setBadge(0);
+    sessionEnded();
     return;
   }
   try {
-    const res = await ctx.auth.authedFetch('/notifications/unread-count');
-    if (!res.ok) return;
-    const json = await res.json();
-    const count = json?.data?.count ?? 0;
-    setBadge(count);
-
-    // Desktop notification only when the count rises above this user's own baseline (EXT-06).
-    const stored = await local.get(['lastUnread', 'lastUnreadUser']);
-    if (shouldNotify(unreadBaseline(stored, ctx.userId), count)) {
-      chrome.notifications?.create(NOTIFICATION_ID, {
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
-        title: 'MICO360 Tasks',
-        message: notificationText(count),
-      });
-    }
-    await local.set({ lastUnread: count, lastUnreadUser: ctx.userId });
+    // The badge, and a desktop alert only when the count rises above this user's own baseline
+    // (EXT-06) — saying what the newest is about only when this device allows it (Stage 5).
+    const r = await pollNotifications({
+      authedFetch: (path, init) => ctx.auth.authedFetch(path, init),
+      local,
+      session: sessionStore,
+      notifications: chrome.notifications,
+      setBadge,
+      userId: ctx.userId,
+    });
+    if (!r) return; // offline — leave the badge as-is; the queue drains on the next successful poll
 
     // Connection is up — replay any offline changes and record the sync time.
     await flushNow(ctx);
     await local.set({ lastSync: Date.now() });
   } catch {
-    /* offline — leave the badge as-is; the queue drains on the next successful poll */
+    /* offline — the queue drains on the next successful poll */
   }
+}
+
+/**
+ * The desktop alert was clicked: open what it was about (marked read: sent now, or kept for later
+ * like any change), else Notifications. The badge then follows.
+ */
+async function alertClicked() {
+  const ctx = await signedIn();
+  const { appBase } = resolveBases(await local.get(['apiBase', 'appBase']));
+  await openAlert({
+    session: sessionStore,
+    open: (hash) => openApp(hash),
+    openUrl: (url) => chrome.tabs.create({ url }),
+    markRead: (id) => (ctx
+      ? sendOrQueue({ kind: 'notification.read', payload: { id } }, { doFetch: (path, init) => ctx.auth.authedFetch(path, init), storage: local, userId: ctx.userId })
+      : null),
+    appBase,
+    userId: ctx ? ctx.userId : null,
+  });
+  if (ctx) await poll();
 }
 
 /** The full app in a tab: an open one is focused (src/open-app.js), else a new one opens. */
@@ -93,7 +115,7 @@ async function ensurePollAlarm() {
 chrome.notifications?.onClicked.addListener((id) => {
   if (id !== NOTIFICATION_ID) return;
   chrome.notifications.clear(id);
-  void openApp('#/notifications');
+  void alertClicked().catch(() => openApp('#/notifications'));
 });
 
 // The right-click menu's "Add to MICO360 Tasks" (a selection, a link or the page) opens the popup

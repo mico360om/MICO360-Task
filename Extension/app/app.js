@@ -5,13 +5,14 @@ import { createReadCache } from '../src/read-cache.js';
 import { createApi } from '../src/api.js';
 import { flushQueue, queueStats, makePerformMutation, sendOrQueue, pendingItems, FLUSH_MESSAGE } from '../src/queue.js';
 import { rememberTask } from '../src/task-writes.js';
-import { setToolbarBadge } from '../src/notify.js';
+import { setToolbarBadge, clearDesktopAlert } from '../src/notify.js';
 import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
 import { showModal, returnFocus, createRouteHold } from './dialog.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
+import { createChatDrafts } from '../src/chat-drafts.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -113,8 +114,12 @@ async function boot() {
     local: storage,
     session: sessionStore,
     apiBase,
-    // XP-04: the server refused the session — go back to sign-in (queued changes are kept).
-    onExpired: () => reloadWithNotice('Your session has ended. Sign in again — changes waiting to sync are kept.'),
+    // XP-04: the server refused the session — go back to sign-in (queued changes are kept). The last
+    // desktop alert goes: it may say what it was about, and the next person may sign in here.
+    onExpired: () => {
+      clearDesktopAlert(chrome.notifications);
+      reloadWithNotice('Your session has ended. Sign in again — changes waiting to sync are kept.');
+    },
   });
   const cache = createReadCache(storage);
   cache.prune().catch(() => { /* best effort */ });
@@ -173,6 +178,8 @@ class App {
     // again under it — not on coming back to the tab, nor on a hash change: those wait until it has
     // closed. The task drawer doesn't count (a route change is how it closes).
     this.hold = createRouteHold(document, { except: () => this.overlay });
+    // Chat text not sent yet, per conversation, for this person (memory only; gone on sign-out).
+    this.chatDrafts = createChatDrafts(sessionStore, this.me.id);
   }
 
   ctx(params, query) {
@@ -185,6 +192,7 @@ class App {
       me: this.me,
       manifest: this.manifest,
       timeZone: this.timeZone,
+      chatDrafts: this.chatDrafts,
       params: params || {},
       query: query || {},
       isOnline: () => this.state.online,
@@ -363,13 +371,24 @@ class App {
 
   async refreshMeta() {
     await this.refreshQueueCounts();
+    const before = this.state.unread;
+    let counted = false;
     try {
       // Notifications marked read but still waiting to sync are already left out (H3).
       const c = (await this.api.notifications.unreadCount()).data;
       this.state.unread = typeof c?.count === 'number' ? c.count : 0;
+      counted = true;
     } catch { /* offline */ }
     this.renderBadge();
     this.renderStatus();
+    // Something new (or read elsewhere): the Notifications screen reads itself again in place (Stage 5).
+    if (counted && this.state.unread !== before && this.routeName() === 'notifications') this.refresh();
+  }
+
+  /** The name of the route shown under any drawer (e.g. 'notifications'). */
+  routeName() {
+    const matched = matchRoute(ROUTES, parseHash(this.contentBase || window.location.hash).path);
+    return matched ? matched.route.name : null;
   }
 
   /** The unread count in the sidebar and, at the same moment, on the toolbar icon (M7). */
@@ -402,7 +421,7 @@ class App {
 
   async signOut() {
     mode = null; // our own sign-out: don't treat the token removal as a remote sign-out
-    await endSession({ local: this.storage, session: sessionStore });
+    await endSession({ local: this.storage, session: sessionStore, notifications: chrome.notifications });
     try { await chrome.action.setBadgeText({ text: '' }); } catch { /* ignore */ }
     reloadWithNotice('');
   }

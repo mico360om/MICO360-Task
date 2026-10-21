@@ -249,15 +249,23 @@ function overUnread(value, items) {
   return { data: { ...value, count: all ? 0 : Math.max(0, value.count - reads) }, applied: all ? 1 : reads };
 }
 
+/**
+ * Messages waiting to be sent, after the conversation's own. Each carries its clientId (which the
+ * server keeps with the message; one kept before it had its own was its Idempotency-Key), so one the
+ * server already has — its first try did arrive — isn't shown twice (as on the web).
+ */
 function overMessages(conversationId, list, items) {
   let rows = list;
   let applied = 0;
+  const arrived = new Set(list.map((m) => m && m.clientId).filter(Boolean));
   for (const item of items) {
     const p = item.payload || {};
     if (item.kind !== 'chat.send' || p.conversationId !== conversationId) continue;
+    const clientId = p.clientId || item.idempotencyKey || null;
+    if (clientId && arrived.has(clientId)) continue;
     rows = [...rows, {
       id: tempId(item), conversationId, userId: item.userId, body: p.body || '', createdAt: atIso(item),
-      editedAt: null, deletedAt: null, attachments: [], reactions: [], pending: true,
+      editedAt: null, deletedAt: null, attachments: [], reactions: [], pending: true, clientId,
     }];
     applied += 1;
   }

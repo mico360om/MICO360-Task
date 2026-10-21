@@ -50,6 +50,17 @@ export function ProjectAvatar(project, { size = 'md', apiBase = '', label = fals
   }, fallback.kind === 'icon' ? svgIcon(PROJECT_ICON_PATHS[fallback.icon], AVATAR_ICON[size] || 18) : fallback.text);
 }
 
+/**
+ * An on/off switch (role="switch"), named by `label`, as the web's Toggle. `focusKey` lets a screen
+ * that draws it again put focus back on it.
+ */
+export function switchButton({ on, label, onChange, disabled = false, focusKey }) {
+  return el('button', {
+    class: 'switch', type: 'button', role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-label': label,
+    disabled, onClick: onChange, dataset: focusKey ? { focusKey } : null,
+  }, el('span', { class: 'switch-knob', 'aria-hidden': 'true' }));
+}
+
 /** A project's status in words, coloured as on the web (Planning, Active, On hold, Completed, Archived). */
 export function projectStatusPill(status) {
   return status ? el('span', { class: `pill pstatus s-${status}` }, projectStatusLabel(status)) : null;

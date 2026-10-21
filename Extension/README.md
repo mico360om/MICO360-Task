@@ -34,6 +34,19 @@ Settings — a sidebar + hash-routed single-page app under `app/`.
   **New task**) opens the New task form there, on the board's day.
 - **My Tasks** can be filtered by project and sorted (due date, priority, progress, title), and
   **Mark done** moves a task to its project's Done column.
+- **Chat** lists Favorites, every project's channel, direct messages and the Archive; each row's
+  "⋯" adds it to favorites, mutes it or archives it, and **New direct message** starts one. An open
+  conversation reads itself again every 12 seconds while it is on screen (no live connection), and
+  at once when you come back to the tab; what you are typing stays. It shows files, the message a
+  reply answers and reactions, loads older messages, and sends text (Enter), files and pasted or
+  dropped pictures (online only). Each message keeps one clientId through every try, so the server
+  never stores it twice. The server is told which direct messages reached this device
+  ("Delivered").
+- **Notifications** read themselves again when you come back to the tab or the unread count
+  changes. **Settings → Notifications** has the web's preferences (which kinds to get, how early a
+  "due soon" reminder comes, the two morning emails), saved on the server, and this device's desktop
+  alerts: on or off, and whether one may say what the newest notification is about (off until you
+  choose it; a click then opens that item).
 
 ## Offline
 
@@ -73,7 +86,8 @@ It needs Chrome 116 or later (`minimum_chrome_version`). The access token is kep
 the open app tab is found with `chrome.runtime.getContexts` (Chrome 116+).
 
 Permissions: `storage` (settings, the session, offline copies and the sync queue), `alarms` (the
-one-minute background check), `notifications` (the unread alert), `unlimitedStorage` (installed
+one-minute background check), `notifications` (the desktop alert when something new arrives),
+`unlimitedStorage` (installed
 copies already have it: without it, an app tab left open for days can fill Chrome's 10 MB with
 offline copies, and the next renewal of the sign-in could not be saved). The offline copies are
 still capped at 200 (`src/read-cache.js`), and when storage is full they make room for changes
@@ -85,13 +99,16 @@ content script.
 
 ```
 app/            full-page app (app.html, app.js router+shell, app.css, dom.js, components.js, theme.js,
-                dialog.js modal dialogs + focus, menu.js menu buttons, new-task-dialog.js)
+                dialog.js modal dialogs + focus, menu.js menu buttons, new-task-dialog.js,
+                notification-settings.js)
 app/screens/    one module per screen (export function XScreen(ctx))
+app/chat/       the chat inbox, a conversation and one message
 src/            shared logic: api.js, read-cache.js, router.js, queue.js, auth.js, config.js, chat.js,
-                version.js, project-identity.js, task-cards.js, …
+                version.js, project-identity.js, task-cards.js, background-poll.js, …
 popup/          the toolbar popup: popup.html/js/css and quick-add-form.js/.css (the New task form,
                 also the board's New task dialog)
-background/     service-worker.js (right-click menu, badge count, background queue flush)
+background/     service-worker.js (right-click menu, badge count and desktop alert, background queue
+                flush)
 ```
 
 ## Keyboard
@@ -114,7 +131,8 @@ install (no Web Store). There is no "newer version" banner.
   session / locks, due dates, summaries, chat helpers, config, versions — plus DOM tests of the
   screens (jsdom), keyboard use and the drawer dialog, and the popup. `src/shared-copies.test.js`
   and `src/clipboard-files.dom.test.js` check that the copies of the web's due-date rules, the
-  server's repeat summaries and the web's pasted-file rules still give the same answers.
+  server's repeat summaries and the web's pasted-file rules still give the same answers, as
+  `src/chat-stage5.test.js` does for the web's chat rules (`lib/chat-model.ts`).
 - `npm run lint` (ESLint; also part of the root `npm run lint`).
 - `npm run test:e2e` runs the browser checks in `tools/extension-e2e/` — headless Chrome loads this
   folder unpacked and drives it against a local server (default `http://localhost:4000`, which must

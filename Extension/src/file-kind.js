@@ -37,12 +37,28 @@ export function fileKind(mimeType, filename) {
 export const KIND_LABEL = { image: 'IMG', pdf: 'PDF', sheet: 'XLS', doc: 'DOC', slides: 'PPT', archive: 'ZIP', text: 'TXT', other: 'FILE' };
 
 /**
+ * Whether a path is one of the files the server stored: under `/uploads/`, and never climbing out of
+ * it (`..`, written plainly or encoded, or a backslash). Any other page of the server is not a file.
+ */
+export function isUploadPath(url) {
+  if (typeof url !== 'string' || !url.startsWith('/uploads/')) return false;
+  let decoded;
+  try {
+    decoded = decodeURIComponent(url);
+  } catch {
+    return false;
+  }
+  return ![url, decoded].some((u) => u.includes('..') || u.includes('\\'));
+}
+
+/**
  * Where an attachment's file is: the server keeps the path it is served at (`/uploads/<key>`), beside
  * the API (its address without `/api/v1`), as the web app builds it. Anything that isn't such a path
- * (an address elsewhere, a `javascript:` link) gives null: only the server's own files are linked.
+ * (an address elsewhere, a `javascript:` link, another page of the server) gives null: only the
+ * server's own stored files are linked or shown.
  */
 export function attachmentUrl(apiBase, url) {
-  if (typeof url !== 'string' || !url.startsWith('/') || url.startsWith('//')) return null;
+  if (!isUploadPath(url)) return null;
   const origin = String(apiBase || '').replace(/\/+$/, '').replace(/\/api\/v1$/, '');
   return origin ? `${origin}${url}` : null;
 }
