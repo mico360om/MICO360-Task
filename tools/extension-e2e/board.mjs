@@ -58,6 +58,14 @@ try {
   ck('Enter on the card opens its drawer, a modal dialog named after the task', dialog && dialog.modal === 'true' && dialog.label === `Task ${T.key}: ${TITLE}`, JSON.stringify(dialog));
   ck('focus moves into the drawer and the page behind is inert', dialog && dialog.focusInside && dialog.appInert, JSON.stringify(dialog));
   await shot('03-drawer.png');
+  // Leaving a field saves it and redraws the drawer: Tab still lands on the next control.
+  await evaluate(`document.querySelector('[role="dialog"] textarea[aria-label="Description"]').focus(); true`);
+  await browser.send('Input.insertText', { text: 'Typed from the keyboard' }, page.sessionId);
+  await press('Tab');
+  await sleep(1500);
+  const afterTab = await evaluate(`document.activeElement.getAttribute('aria-label')`);
+  const desc = (await server.call('GET', `/tasks/${T.id}`)).data.description;
+  ck('Tab out of the description saves it and moves on to the next control', afterTab === 'New checklist item' && desc === 'Typed from the keyboard', `${afterTab} / ${desc}`);
   let outside = 0;
   const seen = new Set();
   for (let i = 0; i < 40; i += 1) {

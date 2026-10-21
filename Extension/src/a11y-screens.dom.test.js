@@ -280,6 +280,19 @@ describe('the task drawer is a modal dialog', () => {
     expect(dialog.contains(active())).toBe(true);
   });
 
+  it('Tab after editing the title goes on to the next control, though saving the title redraws the drawer', async () => {
+    const { dialog, ctx } = await openDrawer();
+    const title = dialog.querySelector('input[aria-label="Task title"]');
+    title.focus();
+    title.value = 'Report v2';
+    expect(key(title, 'Tab').defaultPrevented).toBe(false); // not at an end: the browser moves focus…
+    title.blur(); // …which blurs the title: it saves, and the drawer redraws under it
+    await settle();
+    expect(ctx.write).toHaveBeenCalledWith('task.update', { id: 't1', patch: { title: 'Report v2' }, expectedVersion: 3 });
+    expect(active().textContent.trim()).toBe('Low'); // the priority chip after the title
+    expect(dialog.contains(active())).toBe(true);
+  });
+
   it('releasing it gives the page back', async () => {
     const { app, release } = await openDrawer();
     release();

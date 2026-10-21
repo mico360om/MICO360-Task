@@ -46,10 +46,12 @@ export function showModal(node, { onEscape } = {}) {
   for (const n of inerted) n.setAttribute('inert', '');
 
   let last = null; // the control that had focus
+  let heading = null; // where a Tab press is taking focus (a blur-save may redraw it away first)
 
   function onFocusIn(e) {
     if (panel.contains(e.target)) {
       if (e.target !== panel) last = describe(e.target);
+      heading = null;
     } else {
       panel.focus();
     }
@@ -66,13 +68,18 @@ export function showModal(node, { onEscape } = {}) {
     }
     const first = items[0];
     const end = items[items.length - 1];
-    if (e.shiftKey && (!inside || a === first)) {
-      e.preventDefault();
-      end.focus();
-    } else if (!e.shiftKey && (!inside || a === end)) {
-      e.preventDefault();
-      first.focus();
+    let next;
+    if (e.shiftKey && (!inside || a === first)) next = end;
+    else if (!e.shiftKey && (!inside || a === end)) next = first;
+    else {
+      // The browser moves focus; leaving a field saves it, which can redraw the next control away.
+      const i = items.indexOf(a);
+      heading = i >= 0 ? describe(items[i + (e.shiftKey ? -1 : 1)]) : null;
+      return;
     }
+    e.preventDefault();
+    heading = describe(next);
+    next.focus();
   }
 
   function onKeyDown(e) {
@@ -89,7 +96,8 @@ export function showModal(node, { onEscape } = {}) {
   const observer = new MutationObserver(() => {
     const a = doc.activeElement;
     if (a && a !== doc.body && a.isConnected) return; // focus is where it should be
-    const again = findAgain(panel, last);
+    const again = findAgain(panel, heading) || findAgain(panel, last);
+    heading = null;
     (again || panel).focus();
   });
 
