@@ -5,7 +5,7 @@ import { useColors } from '../core/theme';
 import { Button } from './ui';
 import { useDrawerStore } from '../lib/drawer-store';
 import { createLockPolicy } from '../lib/lock-policy';
-import { lockView, readLockSetting, screenPrivate } from '../lib/lock-view';
+import { createAppStateCover, lockView, readLockSetting, screenPrivate } from '../lib/lock-view';
 import { setScreenPrivacy } from '../adapters/screen-capture';
 import { setAppCovered } from '../lib/chat-viewing';
 import { spacing, fontSize, type Palette } from '../lib/theme';
@@ -106,22 +106,18 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     setAppCovered(view !== 'content');
   }, [view]);
 
-  // Back from the background after the grace period → lock. Covered at once, before the setting is
-  // read, so the thread underneath isn't read in the moment before the lock shows.
+  // Back from the background after the grace period → lock (lib/lock-view createAppStateCover).
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background') policy.onBackground();
-      else if (state === 'active' && policy.onForeground()) {
-        setAppCovered(true);
-        void lockIfEnabled().then(
-          (didLock) => {
-            // Locked: the lock view keeps it covered until unlocked. Not on: shown again.
-            if (!didLock) setAppCovered(viewRef.current !== 'content');
-          },
-          () => setAppCovered(viewRef.current !== 'content'),
-        );
-      }
+    const onChange = createAppStateCover({
+      policy,
+      lockOn: () => enabledRef.current,
+      view: () => viewRef.current,
+      setCovered: setAppCovered,
+      lockIfEnabled,
     });
+    const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
   }, [policy, lockIfEnabled]);
 
