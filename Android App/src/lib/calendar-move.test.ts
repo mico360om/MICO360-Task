@@ -70,7 +70,10 @@ describe('moving a task on the calendar', () => {
     expect(a.sent).toEqual([{ id: 't1', body: { dueDate: '2026-10-14', expectedVersion: 4 } }]);
     server.resolve({ ...task({ dueDate: '2026-10-14T00:00:00.000Z', version: 5 }) } as unknown as ApiTask);
     await done;
-    expect(a.qc.getQueryData<ApiTask>(['task', 't1'])?.version).toBe(5);
+    // The details were never opened: they aren't made from the move's answer (5a review), but the
+    // next edit goes against the version this move made.
+    expect(a.qc.getQueryData<ApiTask>(['task', 't1'])).toBeUndefined();
+    expect(a.writes.expectedVersion('t1', 4)).toBe(5);
     expect(a.qc.getQueryState(RANGE_KEY)?.isInvalidated).toBe(true);
     expect(a.queue.pendingFor('u1')).toEqual([]);
   });
@@ -157,5 +160,68 @@ describe('moving a task on the calendar', () => {
     expect(a.sent).toEqual([]);
     expect(a.queue.pendingFor('u1').map((m) => (m.payload as { patch: object }).patch)).toEqual([{ title: 'Renamed', expectedVersion: 4 }, { dueDate: '2026-10-14', expectedVersion: 4 }]);
     expect(a.dueOf()).toBe('2026-10-14T00:00:00.000Z');
+  });
+});
+
+describe('moving a task on the calendar (5a review fixes)', () => {
+  it('a move kept on this phone after no answer is shown on its new day again, even when a reload landed meanwhile', async () => {
+    const answer = deferred<ApiTask | undefined>();
+    const a = await app(() => answer.promise);
+    const done = a.move(vars());
+    await new Promise((r) => setTimeout(r, 0));
+    // A reload answered before the move (an earlier move's refresh, a pull, the app back in front)…
+    a.qc.setQueryData(RANGE_KEY, range([task()]));
+    // …then the move gets no answer, and is kept on this phone.
+    answer.reject(new NetworkError('The server took too long to respond.', { timedOut: true }));
+    await done;
+    expect(a.queue.pendingFor('u1')).toHaveLength(1);
+    expect(a.dueOf()).toBe('2026-10-14T00:00:00.000Z');
+  });
+
+  it('refused: each range goes back to the day it showed (not another range’s older copy)', async () => {
+    const a = await app(async () => {
+      throw new ApiError(409, 'VERSION_CONFLICT', 'Changed by someone else');
+    });
+    // An older range, cached first, still has the task on the day it had before a colleague moved it.
+    const SEPTEMBER = ['tasks', 'calendar', '2026-08-30', '2026-10-03'];
+    a.qc.removeQueries({ queryKey: RANGE_KEY, exact: true });
+    a.qc.setQueryData(SEPTEMBER, { ...range([task({ dueDate: '2026-10-01T00:00:00.000Z' })]), from: '2026-08-30', to: '2026-10-03' });
+    a.qc.setQueryData(RANGE_KEY, range([task()]));
+    await a.move(vars());
+    expect(a.dueOf()).toBe('2026-10-12T00:00:00.000Z');
+    expect((a.qc.getQueryData(SEPTEMBER) as CalendarRange).tasks[0]!.dueDate).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  it('is sent against the version the calendar read, not a newer one from the task’s details (its rule comes from the calendar’s copy)', async () => {
+    const a = await app(async () => undefined);
+    a.qc.setQueryData(['task', 't1'], { ...task(), version: 7 });
+    const rule = { freq: 'WEEKLY' as const, interval: 1, resumeFrom: '2026-10-12' };
+    await a.move(vars({ patch: { dueDate: '2026-10-14', recurrenceRule: rule } }));
+    expect(a.sent[0]!.body.expectedVersion).toBe(4);
+  });
+});
+
+describe('moving a task twice quickly (5a review fixes)', () => {
+  it('the first move getting no answer doesn’t hide the second (the newest day stays shown)', async () => {
+    const first = deferred<ApiTask | undefined>();
+    const a = await app(() => first.promise);
+    const one = a.move(vars());
+    const two = a.move(vars({ patch: { dueDate: '2026-10-15' } }));
+    await new Promise((r) => setTimeout(r, 0));
+    first.reject(new NetworkError('offline'));
+    await Promise.all([one, two]);
+    expect(a.dueOf()).toBe('2026-10-15T00:00:00.000Z');
+  });
+
+  it('the first move refused doesn’t take the second one back off the calendar', async () => {
+    const first = deferred<ApiTask | undefined>();
+    const a = await app(async () => (a.sent.length === 1 ? first.promise : ({ ...task({ dueDate: '2026-10-15T00:00:00.000Z' }), version: 5 } as unknown as ApiTask)));
+    const one = a.move(vars());
+    const two = a.move(vars({ patch: { dueDate: '2026-10-15' } }));
+    await new Promise((r) => setTimeout(r, 0));
+    first.reject(new ApiError(400, 'VALIDATION', 'No'));
+    await one;
+    expect(a.dueOf()).toBe('2026-10-15T00:00:00.000Z');
+    await two;
   });
 });

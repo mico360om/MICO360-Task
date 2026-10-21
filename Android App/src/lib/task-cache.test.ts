@@ -188,3 +188,24 @@ describe('afterTaskDeleted', () => {
     expect(refreshedKeys(qc)).not.toContain('["project","p2","progress"]');
   });
 });
+
+describe('afterTaskSaved when the task’s details were never loaded (5a review: a move from the calendar)', () => {
+  it('doesn’t make the details from the save’s answer — it has no "From meeting" — so they load in full when opened', () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    afterTaskSaved(qc, 't1', { ...t('t1'), dueDate: '2026-10-30', version: 4 }, { dueDate: '2026-10-30' });
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+  });
+
+  it('a first load of the details on its way (it may have been answered before the save) is called off and marked to load again', async () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    let answer!: (task: ApiTask) => void;
+    const loading = qc.fetchQuery({ queryKey: ['task', 't1'], queryFn: () => new Promise<ApiTask>((r) => (answer = r)), staleTime: 0 });
+    afterTaskSaved(qc, 't1', { ...t('t1'), dueDate: '2026-10-30', version: 4 }, { dueDate: '2026-10-30' });
+    answer({ ...t('t1'), version: 3 });
+    await loading.catch(() => {});
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+    expect(qc.getQueryState(['task', 't1'])?.isInvalidated).toBe(true);
+  });
+});

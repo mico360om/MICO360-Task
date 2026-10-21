@@ -1,4 +1,4 @@
-import type { MutationOptions, QueryClient } from '@tanstack/react-query';
+import type { MutationOptions, QueryClient, QueryKey } from '@tanstack/react-query';
 import { isNetworkError } from './api-client';
 import { movedInCached, type CalendarRange, type DuePatch } from './calendar-data';
 import type { CalendarTask } from './calendar-model';
@@ -32,19 +32,19 @@ export interface RescheduleDeps {
   writes?: TaskWrites;
 }
 
-const newest = (a: number | undefined, b: number | undefined) => (typeof a === 'number' && typeof b === 'number' ? Math.max(a, b) : (a ?? b));
+/**
+ * The task's day and repeat before the move (only the fields the move changes) in each cached
+ * answer that held it, to put each back as it showed it on a refusal (5a review: one range's older
+ * copy must not be laid over the others).
+ */
+type Context = { before: { queryKey: QueryKey; patch: DuePatch }[] };
 
-/** The task's day and repeat before the move (only the fields the move changes), to put back on a refusal. */
-type Context = { before: DuePatch | null };
-
-/** The task as a cached calendar answer holds it (a range's tasks or series heads, or the overdue list). */
-function cachedTask(qc: QueryClient, taskId: string): CalendarTask | undefined {
-  for (const [, data] of qc.getQueriesData({ queryKey: CALENDAR_KEY })) {
-    const lists = Array.isArray(data) ? [data] : data && typeof data === 'object' ? [(data as CalendarRange).tasks, (data as CalendarRange).series] : [];
-    for (const list of lists) {
-      const found = Array.isArray(list) ? (list as CalendarTask[]).find((t) => t?.id === taskId) : undefined;
-      if (found) return found;
-    }
+/** The task as one cached calendar answer holds it (a range's tasks or series heads, or the overdue list). */
+function taskIn(data: unknown, taskId: string): CalendarTask | undefined {
+  const lists = Array.isArray(data) ? [data] : data && typeof data === 'object' ? [(data as CalendarRange).tasks, (data as CalendarRange).series] : [];
+  for (const list of lists) {
+    const found = Array.isArray(list) ? (list as CalendarTask[]).find((t) => t?.id === taskId) : undefined;
+    if (found) return found;
   }
   return undefined;
 }
@@ -61,11 +61,15 @@ export function rescheduleOptions(deps: RescheduleDeps, qc: QueryClient): Mutati
   const order: WriteOrderDeps = { queue: deps.queue, userId: deps.userId, sync: deps.sync };
   /** What each move was sent as (with its expectedVersion), so a move made offline is kept the same. */
   const sentMoves = new WeakMap<object, object>();
+  /** Each task's newest move made here (what the calendar shows): an older one's outcome mustn't hide it. */
+  const newestMove = new Map<string, RescheduleVars>();
   return {
     mutationFn: (v) =>
       writes.run(v.taskId, async () => {
-        const loaded = newest(qc.getQueryData<ApiTask>(['task', v.taskId])?.version, v.readVersion);
-        const body = withExpectedVersion(v.patch, writes.expectedVersion(v.taskId, loaded));
+        // Against the version the calendar read (its rule is the calendar's copy) or this phone's own
+        // newer write — never a newer one from the details, which could carry a colleague's change
+        // the move would overwrite unseen (5a review).
+        const body = withExpectedVersion(v.patch, writes.expectedVersion(v.taskId, v.readVersion));
         sentMoves.set(v, body);
         return sendInOrder(order, { kind: 'task.update', payload: { id: v.taskId, patch: body } }, async () => {
           const updated = await deps.update(v.taskId, body);
@@ -77,21 +81,33 @@ export function rescheduleOptions(deps: RescheduleDeps, qc: QueryClient): Mutati
       // A reload landing after the move would show it undone, so it is called off — but not a first
       // load: called off, it would stay empty with nothing loading it again.
       await qc.cancelQueries({ queryKey: CALENDAR_KEY, predicate: (q) => q.state.data !== undefined });
-      const was = cachedTask(qc, v.taskId);
-      const before: DuePatch | null = was ? { dueDate: was.dueDate, ...('recurrenceRule' in v.patch ? { recurrenceRule: was.recurrenceRule ?? null } : {}) } : null;
+      const before: Context['before'] = [];
+      for (const [queryKey, data] of qc.getQueriesData({ queryKey: CALENDAR_KEY })) {
+        const was = taskIn(data, v.taskId);
+        if (was) before.push({ queryKey, patch: { dueDate: was.dueDate, ...('recurrenceRule' in v.patch ? { recurrenceRule: was.recurrenceRule ?? null } : {}) } });
+      }
       qc.setQueriesData({ queryKey: CALENDAR_KEY }, (data: unknown) => movedInCached(data, v.taskId, v.patch as DuePatch));
+      newestMove.set(v.taskId, v);
       return { before };
     },
     onError: async (err, v, ctx) => {
       if (isNetworkError(err)) {
-        // No answer: kept on this phone (by the write, or here) and shown on its new day until sent.
+        // No answer: kept on this phone (by the write, or here) and shown on its new day until sent —
+        // laid on again (the task's newest move), as a reload may have landed meanwhile (5a review).
         await queueOnOffline(deps.queue, deps.userId(), err, 'task.update', { id: v.taskId, patch: sentMoves.get(v) ?? v.patch });
+        const shown = newestMove.get(v.taskId) ?? v;
+        qc.setQueriesData({ queryKey: CALENDAR_KEY }, (data: unknown) => movedInCached(data, v.taskId, shown.patch as DuePatch));
         return;
       }
-      // Refused: only this task goes back (another move made meanwhile stays), and the server's copy is loaded.
-      const before = ctx?.before;
-      if (before) qc.setQueriesData({ queryKey: CALENDAR_KEY }, (data: unknown) => movedInCached(data, v.taskId, before));
+      // Refused: this task goes back, in each range as it showed it — unless a newer move of it was
+      // made meanwhile (that one is shown and on its way) — and the server's copy is loaded.
+      if (newestMove.get(v.taskId) === v) {
+        for (const { queryKey, patch } of ctx?.before ?? []) qc.setQueryData(queryKey, (data: unknown) => movedInCached(data, v.taskId, patch));
+      }
       refresh(qc, [{ listsHolding: v.taskId }, { queryKey: ['task', v.taskId], exact: true }]);
+    },
+    onSettled: (_saved, _err, v) => {
+      if (newestMove.get(v.taskId) === v) newestMove.delete(v.taskId);
     },
     // The task's details take the server's copy; the lists showing it (the calendar's too) are fetched again.
     onSuccess: (saved, v) => afterTaskSaved(qc, v.taskId, saved, v.patch),

@@ -62,14 +62,18 @@ export function moveRefreshes(taskId: string, projectId: string): Refresh[] {
  * fetched again — not the task's other parts, every list and every project. A load of the details
  * still on its way is called off first: it may have been answered before the edit was saved, and
  * landing after the save it would show the edit as undone.
+ *
+ * Details never loaded (an edit from the calendar or a list) are not made from the save's answer:
+ * it lacks what only the details call returns ("From meeting"), and it would count as fresh. They
+ * are left to load in full when opened (a first load on its way is called off and loaded again).
  */
 export function afterTaskSaved(qc: QueryClient, taskId: string, saved: ApiTask | undefined, patch: object): void {
   const targets = editRefreshes(taskId, patch);
-  if (saved?.id === taskId) {
-    // Calling it off puts the details back as they were before that load, at once (TanStack's
-    // revert), so the server's copy is laid over them on the next line.
-    void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
-    qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...saved } : saved));
+  // Calling a load off puts the details back as they were before it, at once (TanStack's revert).
+  void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
+  if (saved?.id === taskId && qc.getQueryData<ApiTask>(['task', taskId]) !== undefined) {
+    // The server's copy is laid over the details shown.
+    qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...saved } : prev));
   } else {
     targets.push({ queryKey: ['task', taskId], exact: true });
   }
