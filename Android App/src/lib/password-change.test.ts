@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   PASSWORD_RULE_ERROR,
   PASSWORD_RULE_HINT,
+  PasswordChangeNotSent,
   checkPasswordChange,
   createPasswordChange,
   isStrongPassword,
@@ -43,7 +44,22 @@ describe('password change: the server’s rule, in the website’s words', () =>
       field: null,
       message: 'Too many requests. Please wait a moment and try again.',
     });
-    expect(passwordChangeProblem(new NetworkError('Network request failed.'))).toEqual({ field: null, message: 'You’re offline — your password can be changed when you’re connected.' });
+  });
+
+  it('a change whose answer was lost may have happened: it never says "not changed" then (6a review)', () => {
+    const unsure = { field: null, message: 'We couldn’t confirm the change. If you’re asked to sign in, use your new password.', unsure: true };
+    expect(passwordChangeProblem(new NetworkError('Network request failed.'))).toEqual(unsure);
+    expect(passwordChangeProblem(new NetworkError('The server took too long to respond.', { timedOut: true }))).toEqual(unsure);
+  });
+
+  it('only a change that never left the phone (offline before sending) says it can be changed when connected', async () => {
+    const { d } = deps();
+    const change = createPasswordChange({ ...d, isOnline: () => false });
+    const e = await change('old-pass1', 'abcd1234').catch((err: unknown) => err);
+    expect(d.send).not.toHaveBeenCalled();
+    expect(e).toBeInstanceOf(PasswordChangeNotSent);
+    expect(passwordChangeProblem(e)).toEqual({ field: null, message: 'You’re offline — your password can be changed when you’re connected.' });
+    await expect(createPasswordChange({ ...d, isOnline: () => true })('old-pass1', 'abcd1234')).resolves.toMatchObject({ keptHere: true });
   });
 });
 

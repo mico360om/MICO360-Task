@@ -31,9 +31,23 @@ export function checkPasswordChange(form: { current: string; next: string; confi
 
 const FALLBACK = 'Couldn’t change your password. Check that your current password is correct.';
 
-/** Why the change was refused, and the field it is about (null: the form as a whole). */
-export function passwordChangeProblem(error: unknown): { field: PasswordField | null; message: string } {
-  if (isNetworkError(error)) return { field: null, message: 'You’re offline — your password can be changed when you’re connected.' };
+/** The phone knew it was offline, so the change was never sent: nothing changed. */
+export class PasswordChangeNotSent extends Error {
+  constructor() {
+    super('Not sent: offline.');
+    this.name = 'PasswordChangeNotSent';
+  }
+}
+
+/**
+ * Why the change was refused, and the field it is about (null: the form as a whole). A change sent
+ * without an answer (a time-out, a connection lost on the way) may have happened — the server may
+ * have changed the password and ended every session — so it is never reported as "not changed"
+ * (`unsure`): the next sign-in may need the new password (6a review).
+ */
+export function passwordChangeProblem(error: unknown): { field: PasswordField | null; message: string; unsure?: true } {
+  if (error instanceof PasswordChangeNotSent) return { field: null, message: 'You’re offline — your password can be changed when you’re connected.' };
+  if (isNetworkError(error)) return { field: null, message: 'We couldn’t confirm the change. If you’re asked to sign in, use your new password.', unsure: true };
   if (error instanceof ApiError) {
     const own = error.code !== 'ERROR' && !!error.message && !/^Request failed/.test(error.message);
     if (error.status === 429 && own) return { field: null, message: error.message };
@@ -54,6 +68,8 @@ export interface PasswordChangeDeps {
   registerPush: () => Promise<unknown>;
   /** This phone's fingerprint sign-in key, which the change ends on the server. */
   fingerprint: { isArmed(): Promise<boolean>; disarm(): Promise<void> };
+  /** Can the server be reached, as far as the phone knows? Offline, nothing is sent. */
+  isOnline?: () => boolean;
 }
 
 export interface PasswordChangeResult {
@@ -71,6 +87,8 @@ export interface PasswordChangeResult {
  */
 export function createPasswordChange(deps: PasswordChangeDeps) {
   return async function change(currentPassword: string, newPassword: string): Promise<PasswordChangeResult> {
+    // Known to be offline: nothing is sent, so it can say plainly that nothing changed.
+    if (deps.isOnline && !deps.isOnline()) throw new PasswordChangeNotSent();
     const fresh = await deps.send(currentPassword, newPassword);
     const held = deps.session.getSession();
     const keptHere = !!(fresh?.accessToken && fresh.refreshToken && held);
