@@ -33,6 +33,11 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
   let focusWant = null; // what to focus after the next render: { id, part: 'row' | 'mark' }
   let reads = 0; // each read's number: an older answer is dropped
   let marks = 0; // each "Mark done" pressed: a read made before one is dropped (it would undo it on screen)
+  let owed = false; // a read is still owed (a repeating task's next copy): made once no task is being marked done
+  let shown = null; // what the screen shows: 'list' or 'error' (null while the first read is on its way)
+  let shownDay = ''; // the company's day the list was drawn for (Overdue and Due today change at midnight)
+  let shownStale = false;
+  let filterOptions = ''; // the project filter's options as drawn
   const activePriorities = new Set();
   const marking = new Set(); // tasks being marked done (their button waits)
 
@@ -71,7 +76,12 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
   };
   return root;
 
-  /** Read my tasks. `quiet` (reading again): no spinner, and a read that fails leaves the list shown. */
+  /**
+   * Read my tasks. `quiet` (reading again): no spinner; a read that fails leaves what is on screen
+   * (the list, or the error already shown — not put up and announced again); and the same tasks
+   * and projects as shown aren't drawn again (a screen reader keeps its place, an open list stays
+   * open). Any answer to a read made before a "Mark done" is dropped — it would undo it on screen.
+   */
   async function load({ quiet = false } = {}) {
     const n = (reads += 1);
     const marked = marks;
@@ -81,24 +91,40 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
         ctx.api.tasks.mine(),
         ctx.api.projects && ctx.api.projects.list ? ctx.api.projects.list().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ]);
-      if (n !== reads || (quiet && (marked !== marks || marking.size))) return; // a newer read, or a task marked done meanwhile
-      allTasks = mine.data ?? [];
-      projects = Array.isArray(list && list.data) ? list.data : [];
+      if (n !== reads || marked !== marks || marking.size) return; // a newer read, or a task marked done meanwhile
+      owed = false;
+      const found = mine.data ?? [];
+      const foundProjects = Array.isArray(list && list.data) ? list.data : [];
+      const day = todayKey(ctx.timeZone, new Date());
+      const same = shown === 'list' && day === shownDay && !!mine.stale === shownStale
+        && JSON.stringify(found) === JSON.stringify(allTasks) && JSON.stringify(foundProjects) === JSON.stringify(projects);
+      if (same) return;
+      allTasks = found;
+      projects = foundProjects;
+      shownDay = day;
+      shownStale = !!mine.stale;
       staleTag.classList.toggle('hidden', !mine.stale);
       renderProjectFilter();
       if (!root.contains(resultsEl)) mount(root, head, messages, resultsEl, live);
+      shown = 'list';
       syncReset();
       renderResults();
     } catch {
-      if (n !== reads || (quiet && root.contains(resultsEl))) return; // keep what is on screen
+      if (n !== reads || (quiet && shown)) return; // keep what is on screen
       mount(root, ErrorState('Could not load your tasks.', () => load()));
+      shown = 'error';
     }
   }
 
+  /** The project filter's options; drawn again only when they change (drawing them closes an open list). */
   function renderProjectFilter() {
     const options = projectFilterOptions(allTasks, projects);
     if (project && !options.some((o) => o.value === project)) project = '';
-    mount(projectSel, options.map((o) => el('option', { value: o.value }, o.label)));
+    const drawn = JSON.stringify(options);
+    if (drawn !== filterOptions) {
+      mount(projectSel, options.map((o) => el('option', { value: o.value }, o.label)));
+      filterOptions = drawn;
+    }
     projectSel.value = project;
   }
 
@@ -145,6 +171,10 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
 
   function renderResults() {
     renderMessages();
+    // Calendar days in the company time zone; finished tasks are never overdue (XP-03).
+    const now = Date.now();
+    // Today (the side panel) says which day it is — with or without tasks.
+    if (today) dateEl.textContent = formatDayKey(todayKey(ctx.timeZone, new Date(now)));
     if (allTasks.length === 0) {
       mount(resultsEl, Empty('No tasks assigned', 'Tasks assigned to you show up here.'));
       return;
@@ -155,14 +185,11 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
       return;
     }
 
-    // Calendar days in the company time zone; finished tasks are never overdue (XP-03).
-    const now = Date.now();
     const g = groupTasksByDue(tasks, { timeZone: ctx.timeZone, now });
 
     const kept = focusedPart();
     if (today) {
       // Today (the side panel): what is overdue or due today, and what was finished today.
-      dateEl.textContent = formatDayKey(todayKey(ctx.timeZone, new Date(now)));
       const doneToday = g.completed.filter((t) => isCompletedToday(t, ctx.timeZone, now));
       mount(resultsEl,
         g.overdue.length || g.dueToday.length ? null : Empty('Nothing due today', 'Tasks that are overdue or due today show up here.'),
@@ -205,8 +232,9 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
 
   function section(label, tasks) {
     if (!tasks.length) return null;
+    // A heading under the page's own (a screen reader can move from group to group).
     return el('div', { class: 'mt-section', style: { marginTop: '20px' } },
-      el('div', { class: 'section-title' }, `${label} · ${tasks.length}`),
+      el('h2', { class: 'section-title' }, `${label} · ${tasks.length}`),
       el('div', { class: 'list' }, sortTasks(tasks, sort, ctx.timeZone).map(row)),
     );
   }
@@ -238,7 +266,8 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
 
   /**
    * Move the task to its project's Done column (the server then completes it). A repeating task's
-   * next copy is made on the server, so the list is read again.
+   * next copy is made on the server, so the list is read again — once no task is being marked done
+   * (a read made before another "Mark done" reached the server would undo it on screen).
    */
   async function markDone(t) {
     err = '';
@@ -250,6 +279,14 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
     marks += 1;
     focusWant = { id: t.id, part: 'mark' }; // the button waits, with focus still on it
     renderResults();
+    try {
+      await moveToDone(t);
+    } finally {
+      if (!marking.size && owed) void load({ quiet: true });
+    }
+  }
+
+  async function moveToDone(t) {
     let columnId = null;
     try {
       const cols = await ctx.api.projects.columns(t.projectId);
@@ -277,8 +314,8 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
         if (r.data && r.data.id === t.id) Object.assign(t, r.data);
       }
       live.textContent = `“${t.title}” is done.`;
-      if (!r.queued && repeats) await load();
-      else renderResults();
+      if (!r.queued && repeats) owed = true; // its next copy: read once no task is being marked done
+      renderResults();
     } catch (e) {
       marking.delete(t.id);
       Object.assign(t, before);

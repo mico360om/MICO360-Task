@@ -137,6 +137,30 @@ export function setToolbarBadge(action, count) {
 }
 
 /**
+ * "Mark all read" stops at the newest notification shown (POST /notifications/read-all `{ upTo }`),
+ * so one that comes in after the person looked — or before an offline one is replayed — stays
+ * unread. Its time as the server takes it (ISO, UTC), or null when none has one (then all are read).
+ */
+export function newestShown(list) {
+  let best = NaN;
+  for (const n of Array.isArray(list) ? list : []) {
+    const t = Date.parse(n && n.createdAt);
+    if (!Number.isNaN(t) && (Number.isNaN(best) || t > best)) best = t;
+  }
+  return Number.isNaN(best) ? null : new Date(best).toISOString();
+}
+
+/**
+ * A "Mark all read" change's `upTo`, as the server takes it — or null (then everything is read; a
+ * time the server would refuse is never sent). A server from before `upTo` ignores it and reads all.
+ */
+export function readAllUpTo(payload) {
+  const v = payload && payload.upTo;
+  const t = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
+/**
  * Where clicking a notification takes the person (M7), as the web's notification links do: a task
  * opens in the task drawer, a conversation in Chat, a meeting on its page (Stage 6; its notes and
  * minutes are a click away on the website). Returns `{ hash }` for a screen here, or null.

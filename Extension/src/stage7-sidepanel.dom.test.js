@@ -7,7 +7,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MyTasksScreen } from '../app/screens/my-tasks.js';
 import { TodayScreen } from '../app/screens/today.js';
+import { PanelShell } from '../app/panel-shell.js';
+import { QuickAddForm } from '../popup/quick-add-form.js';
 import { formatDayKey } from './due-date.js';
+import { DRAFT_KEY, PANEL_DRAFT_KEY, QUICK_ADD_SESSION_KEYS } from './quick-add.js';
+import { fakeStorage } from './test-helpers.js';
 
 const TZ = 'Asia/Muscat';
 const settle = async () => {
@@ -197,5 +201,138 @@ describe('Today in the side panel (Stage 7)', () => {
     await settle();
     expect(section(root, 'Due today').textContent).toContain('Fix the gate');
     expect(byText(root, '.section-title', 'Due today · 2')).toBeTruthy();
+  });
+});
+
+describe('the side panel’s own header and tabs (Stage 7)', () => {
+  it('names the app, says how it is connected, and has “Open MICO360 Tasks” (the full app page)', () => {
+    const onOpenApp = vi.fn();
+    const shell = PanelShell({ onOpenApp });
+    document.body.append(shell.node);
+    expect(shell.node.querySelector('.panel-brand').textContent).toBe('MICO360');
+    expect(shell.node.contains(shell.connEl)).toBe(true);
+    expect(shell.node.contains(shell.offbar)).toBe(true);
+    const open = byText(shell.node, 'button', 'Open MICO360 Tasks');
+    open.click();
+    expect(onOpenApp).toHaveBeenCalledTimes(1);
+  });
+
+  it('three tabs — Today, My Tasks, Add a task — as links in a named navigation; the one shown is the current page', () => {
+    const shell = PanelShell({ onOpenApp: vi.fn() });
+    document.body.append(shell.node);
+    const nav = shell.node.querySelector('nav');
+    expect(nav.getAttribute('aria-label')).toBe('Side panel');
+    const links = [...nav.querySelectorAll('a')];
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Today', '#/'], ['My Tasks', '#/my-tasks'], ['Add a task', '#/add']]);
+    shell.setActive('/my-tasks', 'My Tasks');
+    expect(links.map((a) => a.getAttribute('aria-current'))).toEqual([null, 'page', null]);
+    expect(shell.node.querySelector('h1').textContent).toBe('My Tasks');
+    shell.setActive('/', 'Today');
+    expect(links.map((a) => a.getAttribute('aria-current'))).toEqual(['page', null, null]);
+    shell.setActive('/task/t1', 'Task'); // a task's panel over a list: the tab stays as it was
+    expect(links.map((a) => a.getAttribute('aria-current'))).toEqual(['page', null, null]);
+    expect(shell.node.querySelector('h1').textContent).toBe('Today');
+  });
+
+  it('a polite live region the screens can speak through, and a place for them', () => {
+    const shell = PanelShell({ onOpenApp: vi.fn() });
+    expect(shell.live.getAttribute('aria-live')).toBe('polite');
+    expect(shell.node.contains(shell.content)).toBe(true);
+  });
+});
+
+describe('the new-task form in the side panel (Stage 7)', () => {
+  const PROJ = [{ id: 'p1', name: 'Ops', code: 'OPS', status: 'ACTIVE' }];
+  function panelCtx(over = {}) {
+    let n = 0;
+    return {
+      me: { id: 'me', name: 'Mariam' },
+      timeZone: TZ,
+      appBase: 'https://task.mico360.com',
+      local: fakeStorage(),
+      session: fakeStorage(over.session || {}),
+      isOnline: () => true,
+      api: {
+        projects: {
+          list: vi.fn(async () => ({ data: PROJ })),
+          columns: vi.fn(async () => ({ data: [{ id: 'c1', name: 'To do', category: 'TODO', position: 0, enabled: true }] })),
+          members: vi.fn(async () => ({ data: [] })),
+        },
+        ai: { parseTask: vi.fn() },
+        attachments: { upload: vi.fn() },
+      },
+      newKey: () => `key-${(n += 1)}`,
+      send: vi.fn(async (kind, payload) => ({ queued: false, data: { id: 't9', key: 'OPS-12', title: payload.title, projectId: payload.projectId } })),
+      currentPage: vi.fn(async () => null),
+      capture: null,
+      openApp: vi.fn(),
+      close: vi.fn(),
+      inPanel: true,
+      ...over.ctx,
+    };
+  }
+  const type = (node, value) => { node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); };
+
+  it('has no header of its own, no “Add this page” and no shortcut tip (the panel has its own header; Chrome lets only the popup read the page)', async () => {
+    const ctx = panelCtx();
+    const root = await show(QuickAddForm(ctx));
+    expect(root.querySelector('.qa-head')).toBeNull();
+    expect(byText(root, 'button', 'Open MICO360 Tasks')).toBeUndefined();
+    expect(byText(root, 'button', 'Add this page')).toBeUndefined();
+    expect(root.querySelector('.qa-foot').textContent).toBe('');
+    expect(root.querySelector('form').getAttribute('aria-label')).toBe('New task');
+  });
+
+  it('creates the task through the app’s write with its own key; “Open it” opens its panel here, and the side panel stays open', async () => {
+    const ctx = panelCtx();
+    const root = await show(QuickAddForm(ctx));
+    type(document.getElementById('qa-title'), 'Call the crane company');
+    root.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await settle();
+    expect(ctx.send).toHaveBeenCalledWith('task.create', expect.objectContaining({ title: 'Call the crane company', projectId: 'p1' }), { idempotencyKey: 'key-1', hold: false });
+    byText(root, 'button', 'Open it').click();
+    await settle();
+    expect(ctx.openApp).toHaveBeenCalledWith('#/task/t9');
+    expect(ctx.close).not.toHaveBeenCalled();
+  });
+
+  it('keeps what was typed under its own key (not the popup’s), and sign-out takes it too', async () => {
+    const ctx = panelCtx();
+    await show(QuickAddForm(ctx));
+    type(document.getElementById('qa-title'), 'Half typed');
+    await settle();
+    expect(ctx.session.data[PANEL_DRAFT_KEY]).toMatchObject({ userId: 'me', fields: { title: 'Half typed' } });
+    expect(ctx.session.data[DRAFT_KEY]).toBeUndefined();
+    expect(QUICK_ADD_SESSION_KEYS).toContain(PANEL_DRAFT_KEY);
+    document.body.innerHTML = '';
+    // Opened again (the panel was closed): it comes back.
+    const again = panelCtx({ session: { [PANEL_DRAFT_KEY]: ctx.session.data[PANEL_DRAFT_KEY], [DRAFT_KEY]: { userId: 'me', fields: { title: 'The popup’s' } } } });
+    await show(QuickAddForm(again));
+    expect(document.getElementById('qa-title').value).toBe('Half typed');
+  });
+});
+
+describe('the toolbar popup opens the side panel (Stage 7)', () => {
+  const popupCtx = (over = {}) => ({
+    me: { id: 'me', name: 'Mariam' }, timeZone: TZ, appBase: 'https://task.mico360.com', appPage: 'chrome-extension://abc/app/app.html',
+    local: fakeStorage(), session: fakeStorage(), isOnline: () => true,
+    api: { projects: { list: vi.fn(async () => ({ data: [] })), columns: vi.fn(async () => ({ data: [] })), members: vi.fn(async () => ({ data: [] })) }, ai: { parseTask: vi.fn() }, attachments: { upload: vi.fn() } },
+    newKey: () => 'k', send: vi.fn(), currentPage: vi.fn(async () => null), capture: null, openApp: vi.fn(), close: vi.fn(), shortcut: async () => 'Ctrl+Shift+K',
+    ...over,
+  });
+
+  it('a labelled button in the popup’s header opens it, at once (in the same click)', async () => {
+    const openPanel = vi.fn();
+    const root = await show(QuickAddForm(popupCtx({ openPanel })));
+    const btn = root.querySelector('.qa-head [aria-label="Open the side panel"]');
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn.getAttribute('title')).toBe('Show your tasks beside the page you are on');
+    btn.click();
+    expect(openPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('no button where Chrome can’t open it (or in the small window before Chrome 127)', async () => {
+    const root = await show(QuickAddForm(popupCtx()));
+    expect(root.querySelector('[aria-label="Open the side panel"]')).toBeNull();
   });
 });

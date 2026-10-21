@@ -29,14 +29,21 @@ export function canOpenSidePanel(chromeApi) {
   return !!(chromeApi && chromeApi.sidePanel && typeof chromeApi.sidePanel.open === 'function');
 }
 
+/** Said when Chrome didn't open the side panel (a policy, say, or the window went away). */
+export const PANEL_FAILED_MESSAGE = 'Couldn’t open the side panel. Please try again.';
+
 /**
- * Open the side panel in window `windowId`. Chrome opens it only straight from a click or a key
- * press, so it is asked at once — nothing is awaited first. Resolves whether it opened; never throws.
+ * Open the side panel in window `windowId` — or, while that isn't known yet, in this page's own
+ * window (Chrome's "current window"). Chrome opens it only straight from a click or a key press, so
+ * it is asked at once — nothing is awaited first. Resolves whether it opened; never throws.
  */
 export function openSidePanel(chromeApi, windowId) {
-  if (!canOpenSidePanel(chromeApi) || typeof windowId !== 'number') return Promise.resolve(false);
+  if (!canOpenSidePanel(chromeApi)) return Promise.resolve(false);
+  const current = chromeApi.windows && chromeApi.windows.WINDOW_ID_CURRENT;
+  const id = typeof windowId === 'number' ? windowId : current;
+  if (typeof id !== 'number') return Promise.resolve(false);
   try {
-    return Promise.resolve(chromeApi.sidePanel.open({ windowId })).then(() => true, () => false);
+    return Promise.resolve(chromeApi.sidePanel.open({ windowId: id })).then(() => true, () => false);
   } catch {
     return Promise.resolve(false);
   }

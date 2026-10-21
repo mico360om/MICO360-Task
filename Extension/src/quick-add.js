@@ -15,7 +15,18 @@ export const PRIORITY_NAMES = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGE
  */
 export const DRAFT_KEY = 'mico360.quickAdd.draft';
 export const CAPTURE_KEY = 'mico360.quickAdd.capture';
-export const QUICK_ADD_SESSION_KEYS = [DRAFT_KEY, CAPTURE_KEY];
+/**
+ * The side panel's form not sent yet (Stage 7): its own, so the popup's and the panel's don't mix —
+ * and one per window (`panelDraftKey`), so two windows' side panels don't take each other's.
+ */
+export const PANEL_DRAFT_KEY = 'mico360.quickAdd.panelDraft';
+export const PANEL_DRAFT_PREFIX = `${PANEL_DRAFT_KEY}:`;
+export const QUICK_ADD_SESSION_KEYS = [DRAFT_KEY, CAPTURE_KEY, PANEL_DRAFT_KEY];
+
+/** The key of the side panel's kept form in window `windowId` (PANEL_DRAFT_KEY when it isn't known). */
+export function panelDraftKey(windowId) {
+  return typeof windowId === 'number' && Number.isFinite(windowId) ? `${PANEL_DRAFT_PREFIX}${windowId}` : PANEL_DRAFT_KEY;
+}
 /**
  * Before Chrome 127 the right-click menu opens the form in a small window: its id, so the next
  * click focuses it instead of opening another. Not personal (not cleared at sign-out with the above).

@@ -27,6 +27,7 @@ import {
   VERSIONED_KINDS, ORDERED_KINDS, DELETE_KINDS, subjectOf, mustFollow, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE, supersede,
 } from './task-writes.js';
 import { mergeTagChange } from './tags.js';
+import { readAllUpTo } from './notify.js';
 
 const KEY = 'syncQueue';
 export const QUEUE_LOCK = 'mico360:sync-queue';
@@ -273,8 +274,11 @@ export function mutationRequest(item) {
       return { path: `/checklist/${p.itemId}`, init: { method: 'PUT', body: JSON.stringify(p.patch || {}) } };
     case 'notification.read':
       return { path: `/notifications/${p.id}/read`, init: { method: 'PUT' } };
-    case 'notification.readAll':
-      return post('/notifications/read-all', {});
+    case 'notification.readAll': {
+      // Only what came in by the newest one shown (`upTo`, kept in the change for a later replay).
+      const upTo = readAllUpTo(p);
+      return post('/notifications/read-all', upTo ? { upTo } : {});
+    }
     case 'chat.send': {
       // The message's own clientId: the server recognises a message sent again by it even after its
       // stored replies have expired (24 hours), so a message is never posted twice. Each try may

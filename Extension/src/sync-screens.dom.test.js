@@ -283,7 +283,8 @@ describe('NotificationsScreen (M7)', () => {
     await settle();
     byText(root, 'button', 'Mark all as read').click();
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('notification.readAll', {});
+    // Up to the newest one shown (one that comes in meanwhile stays unread).
+    expect(ctx.write).toHaveBeenCalledWith('notification.readAll', { upTo: '2026-10-21T08:00:00.000Z' });
     expect(root.querySelectorAll('.nrow.unread')).toHaveLength(0);
     expect(root.querySelector('[role="status"]').textContent).toContain('Saved on this device');
     expect(ctx.afterMutation).toHaveBeenCalled();

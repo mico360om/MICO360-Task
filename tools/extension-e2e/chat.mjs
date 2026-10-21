@@ -192,6 +192,18 @@ try {
   const newestNow = (await get(admin, '/notifications'))[0];
   ck('Notifications read themselves again on coming back to the tab: the newest is at the top', list.first === newestNow.title && !list.spinner && list.rows >= Math.min(before, 100), JSON.stringify({ ...list, newest: newestNow.title, before }));
   await shot('05-notifications.png');
+
+  // "Mark all as read" stops at the newest one shown (`upTo`); a server from before it ignores the
+  // body and reads them all — either way nothing shown is left unread.
+  await evaluate(`(() => { window.__readAll = []; const real = window.fetch.bind(window);
+    window.fetch = (url, init) => { if (String(url).endsWith('/notifications/read-all')) window.__readAll.push(init && init.body); return real(url, init); }; return true; })()`);
+  const markAll = await evaluate(`(() => { const b = document.querySelector('.mark-all'); if (b) b.click(); return !!b; })()`);
+  await sleep(2500);
+  const bodies = await evaluate('window.__readAll');
+  const sentUpTo = bodies && bodies[0] ? JSON.parse(bodies[0]).upTo : undefined;
+  ck('“Mark all as read” sends the newest notification shown as upTo', markAll && sentUpTo === new Date(newestNow.createdAt).toISOString(), JSON.stringify({ markAll, bodies, newest: newestNow.createdAt }));
+  const leftUnread = (await get(admin, '/notifications/unread-count')).count;
+  ck('…and the server reads them (an older server, which ignores upTo, reads them all)', leftUnread === 0, String(leftUnread));
   ck('no script errors in the extension page', page.errors.length === 0, page.errors.join(' | ').slice(0, 300));
 } catch (e) {
   error(e);

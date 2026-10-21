@@ -15,36 +15,48 @@
  * Built with el() (no HTML strings); the context comes from popup.js (or a test).
  */
 import { el, mount } from '../app/dom.js';
-import { ProjectAvatar } from '../app/components.js';
+import { ProjectAvatar, svgIcon } from '../app/components.js';
 import { todayKey } from '../src/due-date.js';
 import { getQueue } from '../src/queue.js';
 import { messageFor } from '../src/errors.js';
 import { pastedFiles, isTypingTarget } from '../src/clipboard-files.js';
 import { suggestionsFrom, chosenPatch, toggleSuggestion, describeFailure, scheduleText } from '../src/describe-task.js';
 import {
-  TITLE_MAX, DESCRIPTION_MAX, PRIORITIES, PRIORITY_NAMES, DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY,
+  TITLE_MAX, DESCRIPTION_MAX, PRIORITIES, PRIORITY_NAMES, DRAFT_KEY, PANEL_DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY,
   buildQuickAddPayload, openProjects, startProjectId, projectFromUrl, boardColumns, pickColumn, personName, assigneeNote,
   removedNotice, isAddablePage, withPage, mergeCapture, ownedBy, rememberRecent, recentStatus, fileFailure, createFailure,
   attachFailureMessage, createdMessage, createdBeforeMessage, restoredMessage, keyIsSpent, formatSize, OFFLINE_FILES_MESSAGE,
   UNREACHABLE_FILES_MESSAGE, QUEUED_MESSAGE, QUEUED_WITHOUT_FILES_MESSAGE,
 } from '../src/quick-add.js';
+import { PANEL_FAILED_MESSAGE } from '../src/side-panel.js';
 
 const BLANK = { title: '', description: '', priority: 'NORMAL', dueDate: '', projectId: '', columnId: '', assigneeIds: [], rule: null };
 /** The server's upload limit, said up front (as on the web). */
 const MAX_UPLOAD_MB = 10;
 const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '');
 
+/** A side panel beside a page (decorative: the button says what it does). */
+const PANEL_ICON = ['M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z', 'M15 4v16'];
+
+/** Open the full app (or, in the side panel, the task's panel there): a popup then closes; the side panel stays. */
 async function openFull(ctx, hash = '') {
   try {
     await ctx.openApp(hash);
   } finally {
-    ctx.close();
+    if (!ctx.inPanel) ctx.close();
   }
 }
 
-function header(ctx, { withOpen = true } = {}) {
+/**
+ * The popup's header: the name, "Open the side panel" (Stage 7, where Chrome can open it from here)
+ * and "Open MICO360 Tasks". `onPanel()` runs straight from the click (Chrome needs that).
+ */
+function header(ctx, { withOpen = true, onPanel = () => ctx.openPanel() } = {}) {
   return el('header', { class: 'qa-head' },
     el('h1', { class: 'qa-brand' }, el('span', { class: 'm' }, 'MICO'), '360 Tasks'),
+    withOpen && typeof ctx.openPanel === 'function'
+      ? el('button', { class: 'iconbtn sm qa-panel-btn', type: 'button', 'aria-label': 'Open the side panel', title: 'Show your tasks beside the page you are on', onClick: () => onPanel() }, svgIcon(PANEL_ICON, 17))
+      : null,
     withOpen ? el('button', { class: 'btn sm', type: 'button', title: 'Open the full app in a tab', onClick: () => openFull(ctx) }, 'Open MICO360 Tasks') : null,
   );
 }
@@ -71,6 +83,15 @@ export function SignedOutView(ctx, message) {
  */
 export function QuickAddForm(ctx) {
   const place = ctx.place && ctx.place.project && ctx.place.project.id ? ctx.place : null;
+  // In the side panel (Stage 7): no header of its own (the panel has one), no "Add this page" (Chrome
+  // lets the extension read the page only from the popup or the right-click menu), no shortcut tip,
+  // and a kept draft of its own.
+  const inPanel = !place && !!ctx.inPanel;
+  // The side panel's is kept per window (`ctx.panelDraftKey()`: two windows' panels don't take each
+  // other's); it may take a moment to know, so every read and write of the draft waits for it.
+  const plainKey = inPanel ? PANEL_DRAFT_KEY : DRAFT_KEY;
+  const draftKey = Promise.resolve(inPanel && typeof ctx.panelDraftKey === 'function' ? ctx.panelDraftKey() : plainKey)
+    .then((k) => (typeof k === 'string' && k ? k : plainKey), () => plainKey);
   // ---- State --------------------------------------------------------------------------------
   const state = {
     fields: { ...BLANK, assigneeIds: [] },
@@ -95,6 +116,8 @@ export function QuickAddForm(ctx) {
   const known = new Map([[ctx.me.id, ctx.me.name || 'You']]); // id → name, for chips and notices
   let fileSeq = 0;
   let draftWrite = Promise.resolve();
+  let recentReads = 0; // each read of "Recently added": an older one finishing late is dropped
+  let recentDrawn = null; // what "Recently added" shows, so the same isn't drawn again
 
   // ---- Elements -----------------------------------------------------------------------------
   const announcer = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
@@ -168,7 +191,7 @@ export function QuickAddForm(ctx) {
     el('div', {},
       el('div', { class: 'qa-label-row' },
         el('label', { class: 'lbl', for: 'qa-desc' }, 'Description ', el('span', { class: 'qa-opt' }, '(optional)')),
-        place ? null : el('button', { class: 'linkbtn', type: 'button', title: 'Put this page’s title and address into the description', onClick: () => addPage() }, 'Add this page')),
+        place || inPanel ? null : el('button', { class: 'linkbtn', type: 'button', title: 'Put this page’s title and address into the description', onClick: () => addPage() }, 'Add this page')),
       descInput, pageNote),
     el('div', {}, el('span', { class: 'lbl' }, 'Attachments ', el('span', { class: 'qa-opt' }, '(optional)')), filesList, dropZone),
     el('div', { class: 'qa-actions' }, clearBtn, el('span', { class: 'sp' }), createBtn),
@@ -180,8 +203,15 @@ export function QuickAddForm(ctx) {
         el('h2', { class: 'qa-brand', id: 'qa-dialog-title' }, 'New task'),
         el('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: () => requestClose() }, el('span', { 'aria-hidden': 'true' }, '✕'))),
       offbar, form, announcer)
-    : el('div', { class: 'qa' }, header(ctx), offbar, form, recentBox, footer, announcer);
+    // In the side panel, the panel's own offline bar says it (one bar, not two).
+    : el('div', { class: `qa${inPanel ? ' qa-in-panel' : ''}` }, inPanel ? null : header(ctx, { onPanel: openPanel }), inPanel ? null : offbar, form, recentBox, footer, announcer);
   root.requestClose = () => requestClose();
+  // The side panel's Add tab shown again: its projects (and the chosen one's columns and team) are
+  // read again, quietly — a read that fails leaves what is there.
+  root.refresh = () => {
+    void readAgain();
+    return true;
+  };
 
   // ---- Events -------------------------------------------------------------------------------
   titleInput.addEventListener('input', () => {
@@ -249,6 +279,14 @@ export function QuickAddForm(ctx) {
   }
   // In a window of its own the form stays open: a new right-click capture comes to it (popup.js).
   if (typeof ctx.onCapture === 'function') ctx.onCapture((capture) => useCapture(capture));
+  // "Recently added" follows the queue while the form stays open (the side panel keeps it): a task
+  // kept on this device shows "Synced" once it has synced, or "Couldn't sync" when it couldn't.
+  const changes = !place && ctx.local && ctx.local.onChanged;
+  if (changes && typeof changes.addListener === 'function') {
+    changes.addListener((c) => {
+      if (c && (c.syncQueue || c[RECENT_KEY])) void renderRecent();
+    });
+  }
   // In the app, Escape closes the dialog — asking first when something was typed.
   if (place) {
     root.addEventListener('keydown', (e) => {
@@ -309,7 +347,8 @@ export function QuickAddForm(ctx) {
     let restored = null; // { files, maybeSent }: how the form not sent last time comes back
     let createdBefore = null; // the popup closed after the task was created (while its files went up)
     try {
-      const draft = ownedBy(((await ctx.session.get(DRAFT_KEY)) || {})[DRAFT_KEY], ctx.me.id);
+      const key = await draftKey;
+      const draft = ownedBy(((await ctx.session.get(key)) || {})[key], ctx.me.id);
       if (draft && draft.createdTask && typeof draft.createdTask === 'object') {
         createdBefore = draft.createdTask;
       } else if (draft && draft.fields) {
@@ -356,6 +395,7 @@ export function QuickAddForm(ctx) {
     // A form brought back may name people who have left its project's team since (M3): take them off.
     await loadProjects({ currentId, lastId, prune: !!restored });
     renderRecent();
+    if (inPanel || typeof ctx.shortcut !== 'function') return; // the tip is about the popup
     try {
       const sc = await ctx.shortcut();
       mount(footer, sc ? `Open this from any page with ${sc}.` : 'Tip: give this a keyboard shortcut at chrome://extensions/shortcuts.');
@@ -389,21 +429,62 @@ export function QuickAddForm(ctx) {
     await loadPlace({ prune });
   }
 
-  /** The chosen project's columns and team. `prune`: take off people who aren't on it (a project change). */
-  async function loadPlace({ preferCategory = null, prune = false } = {}) {
+  /**
+   * Read the projects again (the side panel's Add tab shown again: one may have been made, archived
+   * or shared since), then the chosen one's columns and team — quietly: nothing shows "Loading…",
+   * and a read that fails leaves what is there. Not while a task is being created or once it exists.
+   */
+  async function readAgain() {
+    if (place || !state.projectsLoaded || state.saving || state.created) return;
+    let list;
+    try {
+      list = openProjects((await ctx.api.projects.list()).data);
+    } catch {
+      return; // offline or refused: what is shown stays
+    }
+    if (state.saving || state.created) return;
+    state.projects = list;
+    const f = fields();
+    const gone = !list.some((p) => p.id === f.projectId);
+    if (gone) {
+      // Its project is gone (archived, or no longer yours): start where a new form would.
+      f.projectId = startProjectId(list, {});
+      f.columnId = '';
+      state.placeChosen = false;
+      state.initial = { ...BLANK, projectId: f.projectId };
+      if (!list.length) setBanner('info', 'Create a project first, then you can add tasks to it.');
+    }
+    renderProjects();
+    renderActions();
+    void renderRecent();
+    await loadPlace({ prune: true, quiet: !gone });
+  }
+
+  /**
+   * The chosen project's columns and team. `prune`: take off people who aren't on it (a project
+   * change). `quiet` (reading again): what is shown stays until the answer, and stays if it fails.
+   */
+  async function loadPlace({ preferCategory = null, prune = false, quiet = false } = {}) {
     const pid = fields().projectId;
-    state.columns = null;
-    state.members = undefined;
-    renderColumns();
-    renderPeople();
+    if (!quiet || !pid) {
+      state.columns = null;
+      state.members = undefined;
+      renderColumns();
+      renderPeople();
+    }
     const [cols, team] = await Promise.allSettled([
       pid ? ctx.api.projects.columns(pid) : Promise.resolve({ data: [] }),
       pid ? ctx.api.projects.members(pid) : Promise.resolve({ data: [] }),
     ]);
     if (pid !== fields().projectId) return; // another project was chosen meanwhile
-    state.columns = cols.status === 'fulfilled' ? boardColumns(cols.value && cols.value.data) : [];
+    if (quiet && (state.saving || state.created)) return;
+    if (!quiet || cols.status === 'fulfilled' || state.columns === null) {
+      state.columns = cols.status === 'fulfilled' ? boardColumns(cols.value && cols.value.data) : [];
+    }
     fields().columnId = pickColumn(state.columns, { currentId: fields().columnId, preferCategory });
-    state.members = team.status === 'fulfilled' ? (Array.isArray(team.value && team.value.data) ? team.value.data : []) : null;
+    if (!quiet || team.status === 'fulfilled' || state.members === undefined) {
+      state.members = team.status === 'fulfilled' ? (Array.isArray(team.value && team.value.data) ? team.value.data : []) : null;
+    }
     for (const m of state.members || []) known.set(m.id, personName(m));
     if (prune && state.members) {
       const onTeam = new Set(state.members.map((m) => m.id));
@@ -634,8 +715,13 @@ export function QuickAddForm(ctx) {
     );
   }
 
+  /**
+   * "Recently added", with where each one stands. Drawn again only when that changed; focus on a
+   * row stays on the same task's row. An older read finishing late is dropped.
+   */
   async function renderRecent() {
     if (place) return; // the app shows the task on its board instead
+    const n = (recentReads += 1);
     let entries = [];
     let queue = [];
     try {
@@ -645,16 +731,31 @@ export function QuickAddForm(ctx) {
     } catch {
       entries = [];
     }
-    if (!entries.length) {
+    if (n !== recentReads) return;
+    const rows = entries.map((e) => ({ e, status: recentStatus(e, queue), project: (projectOf(e.projectId) || {}).name || '' }));
+    const drawn = JSON.stringify(rows);
+    if (drawn === recentDrawn) return;
+    recentDrawn = drawn;
+    if (!rows.length) {
       mount(recentBox);
       return;
     }
+    const a = document.activeElement;
+    const had = a && recentBox.contains(a) ? a.dataset.recent : null;
     mount(recentBox,
       el('h2', { class: 'qa-recent-head' }, 'Recently added'),
-      el('ul', {}, entries.map((e) => el('li', {}, recentRow(e, recentStatus(e, queue))))));
+      el('ul', {}, rows.map(({ e, status }) => el('li', {}, recentRow(e, status)))));
+    const again = had && [...recentBox.querySelectorAll('[data-recent]')].find((r) => r.dataset.recent === had);
+    if (again && again.tagName === 'BUTTON') again.focus();
   }
 
   function recentRow(e, status) {
+    const row = recentLine(e, status);
+    row.dataset.recent = String(e.id || e.queuedKey || '');
+    return row;
+  }
+
+  function recentLine(e, status) {
     const name = [e.key ? el('span', { class: 'qa-key' }, e.key) : null, e.key ? ' ' : null, el('span', {}, e.title || 'Untitled')];
     const project = projectOf(e.projectId);
     if (status === 'created') return el('button', { class: 'qa-recent-row', type: 'button', title: 'Open in MICO360 Tasks', onClick: () => openFull(ctx, `#/task/${encodeURIComponent(e.id)}`) }, ...name);
@@ -704,7 +805,8 @@ export function QuickAddForm(ctx) {
       };
       if (state.pending) Object.assign(value, { pendingKey: state.pending.key, payloadJSON: state.pending.payloadJSON });
     }
-    draftWrite = draftWrite.then(() => (value ? ctx.session.set({ [DRAFT_KEY]: value }) : ctx.session.remove(DRAFT_KEY))).catch(() => { /* best effort */ });
+    draftWrite = draftWrite.then(() => draftKey)
+      .then((key) => (value ? ctx.session.set({ [key]: value }) : ctx.session.remove(key))).catch(() => { /* best effort */ });
     return draftWrite;
   }
 
@@ -737,6 +839,19 @@ export function QuickAddForm(ctx) {
 
   function announce(text) {
     announcer.textContent = text;
+  }
+
+  /** "Open the side panel" (the popup's header): asked straight from the click; says so when Chrome doesn't. */
+  function openPanel() {
+    let asked;
+    try {
+      asked = ctx.openPanel();
+    } catch {
+      asked = false;
+    }
+    Promise.resolve(asked).then((opened) => {
+      if (opened === false) setBanner('error', PANEL_FAILED_MESSAGE);
+    }, () => setBanner('error', PANEL_FAILED_MESSAGE));
   }
 
   function addFiles(list) {

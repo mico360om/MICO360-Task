@@ -10,6 +10,7 @@
  * copies. Returns `{ data, applied }`, `applied` being how many queued changes touched this read.
  */
 import { tagRecords, mergeTagChange } from './tags.js';
+import { readAllUpTo } from './notify.js';
 
 /** The temporary id of something created offline: stable for as long as its change is queued. */
 export function tempId(item) {
@@ -230,7 +231,11 @@ function overNotifications(list, items) {
   let applied = 0;
   for (const item of items) {
     if (item.kind === 'notification.readAll') {
-      rows = rows.map((n) => (n.readAt ? n : { ...n, readAt: atIso(item) }));
+      // Up to the newest one shown when it was pressed (`upTo`): one that came in later stays unread.
+      const upTo = readAllUpTo(item.payload);
+      const until = upTo ? Date.parse(upTo) : null;
+      const later = (n) => until !== null && Date.parse(n.createdAt) > until;
+      rows = rows.map((n) => (n.readAt || later(n) ? n : { ...n, readAt: atIso(item) }));
       applied += 1;
     } else if (item.kind === 'notification.read') {
       const id = item.payload && item.payload.id;
@@ -241,6 +246,10 @@ function overNotifications(list, items) {
   return { data: rows, applied };
 }
 
+/**
+ * The unread count with this person's waiting reads taken off. A waiting "Mark all read" makes it 0
+ * (even one with `upTo`: a count can't say which came in later — that shows once it has synced).
+ */
 function overUnread(value, items) {
   if (typeof value.count !== 'number') return { data: value, applied: 0 };
   const all = items.some((i) => i.kind === 'notification.readAll');

@@ -109,9 +109,7 @@ describe('manifest.json', () => {
 });
 
 /** Packaged modules nothing imports yet, and why they stay. */
-const NOT_YET_USED = {
-  'app/screens/today.js': 'Stage 7: the side panel’s Today — the panel layout of app/app.js shows it in the next step',
-};
+const NOT_YET_USED = {};
 
 describe('packaged code', () => {
   it('every module is used by a page (the popup, the app) or the background worker', () => {
