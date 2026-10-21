@@ -89,6 +89,9 @@ button { font: inherit; }
 .side-ver:hover { color: var(--brand); }
 
 .main { display: flex; flex-direction: column; min-width: 0; }
+/* Keyboard focus is never hidden under the sticky top bar (WCAG 2.4.11): a control that takes focus
+   is scrolled clear of it. The side panel has its own rule (data-layout="panel", below). */
+html:not([data-layout="panel"]) { scroll-padding-top: 76px; }
 .topbar {
   position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
   padding: 12px 22px; background: color-mix(in srgb, var(--ground) 90%, transparent);

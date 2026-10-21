@@ -40,10 +40,18 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - The Chrome extension has Meetings: Up next with Join (also on the Dashboard), the coming meetings with
   your answer, each meeting's page, and Accept, Maybe or Decline (kept on this device while offline).
   Meeting notifications and "From meeting" open the meeting in the extension.
+- The Chrome extension has a side panel beside any page: Today (overdue, due today and done today,
+  with Mark done), My Tasks and Add a task; a task opens inside the panel. Open it from the popup's or
+  the app's side-panel button, or set a keyboard shortcut at chrome://extensions/shortcuts. It keeps
+  itself up to date while open and adds no new permission warning.
 
 ### Improvements
 - The meetings list tells each person their own answer to every meeting, so the apps don't need a
   request per meeting to show it.
+- The Chrome extension: keyboard focus is never hidden under the app page's or the side panel's top
+  bar; Today and My Tasks don't redraw when nothing changed, and their groups are headings for screen
+  readers; each window's side panel keeps its own unsent task; and "Mark all as read" marks only the
+  notifications you saw (also when it is sent later from offline).
 
 ### Security
 - The Chrome extension shows project pictures only from your MICO360 server, and uses only proper
