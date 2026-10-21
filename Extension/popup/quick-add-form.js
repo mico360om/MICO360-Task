@@ -24,8 +24,8 @@ import {
   TITLE_MAX, DESCRIPTION_MAX, PRIORITIES, PRIORITY_NAMES, DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY,
   buildQuickAddPayload, openProjects, startProjectId, projectFromUrl, boardColumns, pickColumn, personName, assigneeNote,
   removedNotice, isAddablePage, withPage, mergeCapture, ownedBy, rememberRecent, recentStatus, fileFailure, createFailure,
-  attachFailureMessage, createdMessage, createdBeforeMessage, keyIsSpent, formatSize, OFFLINE_FILES_MESSAGE, QUEUED_MESSAGE,
-  QUEUED_WITHOUT_FILES_MESSAGE,
+  attachFailureMessage, createdMessage, createdBeforeMessage, restoredMessage, keyIsSpent, formatSize, OFFLINE_FILES_MESSAGE,
+  UNREACHABLE_FILES_MESSAGE, QUEUED_MESSAGE, QUEUED_WITHOUT_FILES_MESSAGE,
 } from '../src/quick-add.js';
 
 const BLANK = { title: '', description: '', priority: 'NORMAL', dueDate: '', projectId: '', columnId: '', assigneeIds: [], rule: null };
@@ -105,7 +105,8 @@ export function QuickAddForm(ctx) {
   );
 
   const titleInput = el('input', { id: 'qa-title', class: 'field', maxlength: String(TITLE_MAX), 'aria-required': 'true', autocomplete: 'off', placeholder: 'What needs to be done?' });
-  const titleErr = el('p', { id: 'qa-title-err', class: 'qa-field-err hidden' });
+  // An alert: read out even when focus is already in the title (moving it there again says nothing).
+  const titleErr = el('p', { id: 'qa-title-err', class: 'qa-field-err hidden', role: 'alert' });
   const projectSel = el('select', { id: 'qa-project', class: 'field' });
   const columnSel = el('select', { id: 'qa-column', class: 'field' });
   const noticeBox = el('p', { class: 'qa-hint', role: 'status' });
@@ -227,7 +228,7 @@ export function QuickAddForm(ctx) {
   // ---- Loading ------------------------------------------------------------------------------
   async function init() {
     // The form not sent last time (only this person's), then what the right-click menu captured.
-    let restored = false;
+    let restored = null; // { files, maybeSent }: how the form not sent last time comes back
     let createdBefore = null; // the popup closed after the task was created (while its files went up)
     try {
       const draft = ownedBy(((await ctx.session.get(DRAFT_KEY)) || {})[DRAFT_KEY], ctx.me.id);
@@ -237,7 +238,10 @@ export function QuickAddForm(ctx) {
         state.fields = { ...BLANK, ...draft.fields, assigneeIds: Array.isArray(draft.fields.assigneeIds) ? [...draft.fields.assigneeIds] : [] };
         state.placeChosen = !!draft.placeChosen;
         if (typeof draft.pendingKey === 'string' && typeof draft.payloadJSON === 'string') state.pending = { key: draft.pendingKey, payloadJSON: draft.payloadJSON };
-        restored = true;
+        for (const [id, name] of Object.entries(draft.names && typeof draft.names === 'object' ? draft.names : {})) {
+          if (typeof name === 'string' && name && !known.has(id)) known.set(id, name);
+        }
+        restored = { files: Number(draft.files) || 0, maybeSent: !!state.pending };
       }
     } catch {
       /* no session storage: start empty */
@@ -251,7 +255,9 @@ export function QuickAddForm(ctx) {
       const id = createdBefore.id;
       setBanner('success', createdBeforeMessage(createdBefore), id ? { label: 'Open it', onClick: () => openFull(ctx, `#/task/${encodeURIComponent(id)}`) } : undefined);
     } else if (restored) {
-      announce('Your unsent task is back.');
+      // Files that weren't kept, or a task that may have been sent, are shown as well as read out.
+      if (restored.files || restored.maybeSent) setBanner('info', restoredMessage(restored));
+      else announce(restoredMessage(restored));
     }
     if (restored || createdBefore || ctx.capture) saveDraft();
 
@@ -269,7 +275,8 @@ export function QuickAddForm(ctx) {
     } catch {
       currentId = null;
     }
-    await loadProjects({ currentId, lastId });
+    // A form brought back may name people who have left its project's team since (M3): take them off.
+    await loadProjects({ currentId, lastId, prune: !!restored });
     renderRecent();
     try {
       const sc = await ctx.shortcut();
@@ -279,14 +286,14 @@ export function QuickAddForm(ctx) {
     }
   }
 
-  async function loadProjects({ currentId = null, lastId = null } = {}) {
+  async function loadProjects({ currentId = null, lastId = null, prune = false } = {}) {
     try {
       state.projects = openProjects((await ctx.api.projects.list()).data);
     } catch (e) {
       state.projects = [];
       state.projectsLoaded = true;
       renderProjects();
-      setBanner('error', messageFor(e, 'Your projects couldn’t be loaded. Check the connection and try again.'), { label: 'Try again', onClick: () => loadProjects({ currentId, lastId }) });
+      setBanner('error', messageFor(e, 'Your projects couldn’t be loaded. Check the connection and try again.'), { label: 'Try again', onClick: () => loadProjects({ currentId, lastId, prune }) });
       return;
     }
     state.projectsLoaded = true;
@@ -301,7 +308,7 @@ export function QuickAddForm(ctx) {
     state.initial = { ...BLANK, projectId: state.placeChosen ? start : f.projectId };
     if (!state.projects.length) setBanner('info', 'Create a project first, then you can add tasks to it.');
     renderProjects();
-    await loadPlace();
+    await loadPlace({ prune });
   }
 
   /** The chosen project's columns and team. `prune`: take off people who aren't on it (a project change). */
@@ -605,7 +612,16 @@ export function QuickAddForm(ctx) {
       const t = state.created;
       value = { userId: ctx.me.id, createdTask: { id: t.id || '', key: t.key || '', title: t.title || '', withFiles: state.files.length > 0 } };
     } else if (isDirty()) {
-      value = { userId: ctx.me.id, fields: { ...fields(), assigneeIds: [...fields().assigneeIds] }, placeChosen: state.placeChosen };
+      const ids = fields().assigneeIds;
+      value = {
+        userId: ctx.me.id,
+        fields: { ...fields(), assigneeIds: [...ids] },
+        placeChosen: state.placeChosen,
+        // Files can't be kept (memory-only storage holds plain data): how many, so the popup can say so.
+        files: state.files.length,
+        // The people's names, for the chips and for saying who was taken off if they left the team.
+        names: Object.fromEntries(ids.filter((id) => known.has(id)).map((id) => [id, known.get(id)])),
+      };
       if (state.pending) Object.assign(value, { pendingKey: state.pending.key, payloadJSON: state.pending.payloadJSON });
     }
     draftWrite = draftWrite.then(() => (value ? ctx.session.set({ [DRAFT_KEY]: value }) : ctx.session.remove(DRAFT_KEY))).catch(() => { /* best effort */ });
@@ -624,14 +640,17 @@ export function QuickAddForm(ctx) {
     }
   }
 
+  /** `action`: `{ label, onClick }`, or a list of them. */
   function setBanner(kind, text, action) {
     if (!kind) {
       mount(bannerBox);
       return;
     }
+    const actions = (Array.isArray(action) ? action : [action]).filter(Boolean);
     mount(bannerBox, el('div', { class: `qa-banner ${kind}`, role: kind === 'error' ? 'alert' : 'status' },
       el('span', {}, text),
-      action ? el('button', { class: 'btn sm', type: 'button', onClick: action.onClick }, action.label) : null));
+      actions.length ? el('div', { class: 'qa-banner-actions' },
+        actions.map((a) => el('button', { class: 'btn sm', type: 'button', onClick: a.onClick }, a.label))) : null));
     // An alert is read out when it appears; a new status line may not be, so it is said as well.
     if (kind !== 'error') announce(text);
   }
@@ -775,6 +794,7 @@ export function QuickAddForm(ctx) {
       hold(payload, key);
       return;
     }
+    if (bannerBox.contains(document.activeElement)) createBtn.focus(); // "Try again" goes with the banner
     setSaving(true);
     setBanner(null);
     try {
@@ -842,11 +862,17 @@ export function QuickAddForm(ctx) {
   /** Files can't wait offline with the task (as on the web): say so, and offer to save it without them. */
   function hold(payload, key) {
     state.held = { payload, key };
-    showHeld(OFFLINE_FILES_MESSAGE);
+    showHeld(ctx.isOnline() ? UNREACHABLE_FILES_MESSAGE : OFFLINE_FILES_MESSAGE);
   }
 
+  /** The held task's choices: "Try again" (with its files, the same key) or "Save without the files". Focus goes to them. */
   function showHeld(text) {
-    setBanner('error', text, { label: 'Save without the files', onClick: () => saveWithoutFiles() });
+    setBanner('error', text, [
+      { label: 'Try again', onClick: () => submit() },
+      { label: 'Save without the files', onClick: () => saveWithoutFiles() },
+    ]);
+    const first = bannerBox.querySelector('button');
+    if (first) first.focus();
   }
 
   async function saveWithoutFiles() {

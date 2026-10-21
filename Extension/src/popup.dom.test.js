@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QuickAddForm, SignedOutView } from '../popup/quick-add-form.js';
-import { DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY, QUEUED_MESSAGE, QUEUED_WITHOUT_FILES_MESSAGE, OFFLINE_FILES_MESSAGE } from './quick-add.js';
+import { DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY, QUEUED_MESSAGE, QUEUED_WITHOUT_FILES_MESSAGE, OFFLINE_FILES_MESSAGE, UNREACHABLE_FILES_MESSAGE } from './quick-add.js';
 import { ApiError, QueueError } from './errors.js';
 import { fakeStorage } from './test-helpers.js';
 
@@ -151,6 +151,16 @@ describe('creating the task', () => {
     const err = $($('qa-title').getAttribute('aria-describedby'));
     expect(err.textContent).toBe('Give the task a title.');
     expect(document.activeElement).toBe($('qa-title'));
+  });
+
+  it('the missing-title message is read out even when focus is already in the title (M5)', async () => {
+    const { ctx } = await open();
+    $('qa-title').focus();
+    $('qa-title').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    await settle();
+    expect(ctx.send).not.toHaveBeenCalled();
+    expect($('qa-title-err').textContent).toBe('Give the task a title.');
+    expect($('qa-title-err').getAttribute('role')).toBe('alert');
   });
 
   it('sends the title, place, priority, due date, people and description, then is ready for the next one', async () => {
@@ -405,8 +415,31 @@ describe('offline', () => {
     byText(root, 'button', 'Create task').click();
     await settle();
     expect(ctx.send).toHaveBeenCalledWith('task.create', expect.any(Object), { idempotencyKey: 'key-1', hold: true });
-    expect(root.querySelector('[role="alert"]').textContent).toContain(OFFLINE_FILES_MESSAGE);
     expect(root.querySelector('.qa-files').textContent).toContain('spec.pdf');
+  });
+
+  it('online but the server can’t be reached: it says so (not "offline"), and "Try again" (focused) keeps the key (M6)', async () => {
+    const ctx = makeCtx({ ctx: { send: vi.fn(async (kind, payload, opts) => ({ queued: false, held: true, item: { kind, payload, idempotencyKey: opts.idempotencyKey } })) } });
+    const { root } = await open(ctx);
+    type($('qa-title'), 'With a file');
+    paste(root.querySelector('form'), [new File(['%PDF'], 'spec.pdf', { type: 'application/pdf' })]);
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    const alert = root.querySelector('.qa-banner[role="alert"]');
+    expect(alert.textContent).toContain(UNREACHABLE_FILES_MESSAGE);
+    expect(alert.textContent).not.toContain('offline');
+    const again = byText(alert, 'button', 'Try again');
+    expect(document.activeElement).toBe(again);
+    expect(byText(alert, 'button', 'Save without the files')).toBeTruthy();
+    again.click();
+    await settle();
+    expect(ctx.send).toHaveBeenCalledTimes(2);
+    expect(ctx.send.mock.calls[1][2]).toEqual({ idempotencyKey: 'key-1', hold: true });
+    // Offline it still says "offline".
+    online = false;
+    byText(root, 'button', 'Try again').click();
+    await settle();
+    expect(root.querySelector('.qa-banner[role="alert"]').textContent).toContain(OFFLINE_FILES_MESSAGE);
   });
 });
 
@@ -570,6 +603,29 @@ describe('"Add this page", the right-click menu and the unsent form', () => {
     const someoneElse = makeCtx({ session: { [DRAFT_KEY]: { userId: 'other', fields: { title: 'Not yours' } } } });
     await open(someoneElse);
     expect($('qa-title').value).toBe('');
+  });
+
+  it('a form brought back says its attached files weren’t kept (M8)', async () => {
+    const first = makeCtx();
+    const { root } = await open(first);
+    type($('qa-title'), 'With two photos');
+    paste($('qa-title'), [new File(['a'], 'a.png', { type: 'image/png' }), new File(['b'], 'b.png', { type: 'image/png' })]);
+    await settle();
+    root.remove();
+    const { root: again } = await open(makeCtx({ session: first.session.data }));
+    expect($('qa-title').value).toBe('With two photos');
+    expect(again.textContent).toContain('Your unsent task is back. Its 2 attached files weren’t kept — add them again.');
+    expect(again.querySelector('.qa-files li')).toBeNull();
+  });
+
+  it('a form brought back takes off people who are no longer on its project’s team (M3)', async () => {
+    const session = { [DRAFT_KEY]: { userId: 'me', fields: { title: 'Kept', projectId: 'p1', columnId: 'c1', assigneeIds: ['u2', 'u3'] }, placeChosen: true, names: { u3: 'Mariam Al Hinai' } } };
+    const { root, ctx } = await open(makeCtx({ session }));
+    expect(root.querySelector('[aria-label="Remove Omar Said"]')).toBeTruthy();
+    expect(root.textContent).toContain('Mariam Al Hinai isn’t on Ops, so they were taken off this task.');
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect(ctx.send.mock.calls[0][1].assigneeIds).toEqual(['u2']);
   });
 });
 

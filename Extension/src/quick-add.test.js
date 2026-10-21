@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildQuickAddPayload, parseTags, openProjects, startProjectId, projectFromUrl, boardColumns, pickColumn, personName, listNames,
   assigneeNote, removedNotice, withPage, isAddablePage, captureFromContext, mergeCapture, rememberRecent, recentStatus, ownedBy,
-  fileFailure, createFailure, attachFailureMessage, createdMessage, createdBeforeMessage, keyIsSpent, formatSize, TITLE_MAX, DESCRIPTION_MAX,
+  fileFailure, createFailure, attachFailureMessage, createdMessage, createdBeforeMessage, restoredMessage, keyIsSpent, formatSize, TITLE_MAX, DESCRIPTION_MAX,
 } from './quick-add.js';
 
 describe('buildQuickAddPayload', () => {
@@ -281,6 +281,13 @@ describe('what the person is told', () => {
   it('files that could not be attached after the task was created', () => {
     expect(attachFailureMessage([{ name: 'a.png', reason: 'That file is too large to upload.' }])).toBe('The task was created, but a.png wasn’t attached: That file is too large to upload.');
     expect(attachFailureMessage([{ name: 'a.png', reason: 'x' }, { name: 'b.pdf', reason: 'y' }])).toBe('The task was created, but these files weren’t attached: a.png (x); b.pdf (y). Add them from the task.');
+  });
+
+  it('the form brought back: its files weren’t kept, and it may have been sent', () => {
+    expect(restoredMessage({})).toBe('Your unsent task is back.');
+    expect(restoredMessage({ files: 1 })).toBe('Your unsent task is back. Its attached file wasn’t kept — add it again.');
+    expect(restoredMessage({ files: 3 })).toBe('Your unsent task is back. Its 3 attached files weren’t kept — add them again.');
+    expect(restoredMessage({ maybeSent: true })).toBe('Your task is back. If it was sent before the popup closed, creating it again won’t make a second one.');
   });
 
   it('a task created before the popup closed: it exists — add its files from it', () => {

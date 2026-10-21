@@ -292,6 +292,17 @@ export function createdMessage(task) {
 }
 
 /**
+ * The form not sent last time is back (`files`: how many were attached — files can't be kept;
+ * `maybeSent`: the popup closed while it was being sent).
+ */
+export function restoredMessage({ files = 0, maybeSent = false } = {}) {
+  const parts = [maybeSent ? 'Your task is back. If it was sent before the popup closed, creating it again won’t make a second one.' : 'Your unsent task is back.'];
+  if (files === 1) parts.push('Its attached file wasn’t kept — add it again.');
+  else if (files > 1) parts.push(`Its ${files} attached files weren’t kept — add them again.`);
+  return parts.join(' ');
+}
+
+/**
  * The popup closed after the task was created (`{ key, title, withFiles }`, kept in place of the
  * form): reopened, it says the task exists — and, when it had files, to add them from the task.
  */
@@ -312,6 +323,8 @@ export function keyIsSpent(err) {
 
 /** The server can't be reached and files can't wait offline (as on the web): say so, never drop them silently. */
 export const OFFLINE_FILES_MESSAGE = 'You’re offline, and files can’t be attached offline. Try again when you’re connected, or save the task now without its files.';
+/** The same, when the device is online but the server didn't answer (M6): not "you're offline". */
+export const UNREACHABLE_FILES_MESSAGE = 'The server couldn’t be reached, so the files can’t be attached yet. Try again, or save the task now without its files.';
 export const QUEUED_MESSAGE = 'Saved on this device — the task will be created when the connection is back.';
 export const QUEUED_WITHOUT_FILES_MESSAGE = `${QUEUED_MESSAGE} Its files weren’t kept: add them to the task once it has synced.`;
 

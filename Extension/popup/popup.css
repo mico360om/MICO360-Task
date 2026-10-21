@@ -27,8 +27,10 @@ body.in-window { width: auto; }
 .qa-hint:empty { margin: 0; }
 .qa-field-err { font-size: 12px; font-weight: 600; color: var(--danger); margin: 4px 0 0; }
 
-.qa-banner { display: flex; align-items: center; gap: 10px; border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; }
-.qa-banner span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.qa-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; }
+.qa-banner > span { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+/* Two actions don't fit beside the text in the popup: they go under it, on the right. */
+.qa-banner-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .qa-banner.error { background: var(--danger-soft); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
 .qa-banner.info { background: var(--info-soft); color: var(--info); }
 .qa-banner.success { background: var(--success-soft); color: var(--success); }
