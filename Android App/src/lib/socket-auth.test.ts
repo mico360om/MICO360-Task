@@ -109,3 +109,14 @@ describe('currentTokenAuth', () => {
     expect(cb).toHaveBeenCalledWith({ token: 'fresh' });
   });
 });
+
+describe('a socket whose session became someone else’s (6a review)', () => {
+  it('stops without ending the new session (the socket is set up again for them)', async () => {
+    const s = setup(['changed']);
+    await s.h.onConnectError(UNAUTHORIZED, false);
+    expect(s.onSessionEnded).not.toHaveBeenCalled();
+    expect(s.reconnect).not.toHaveBeenCalled();
+    await s.h.onConnectError(UNAUTHORIZED, false);
+    expect(s.refresh).toHaveBeenCalledOnce();
+  });
+});

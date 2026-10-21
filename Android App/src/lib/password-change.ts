@@ -70,6 +70,13 @@ export interface PasswordChangeDeps {
   fingerprint: { isArmed(): Promise<boolean>; disarm(): Promise<void> };
   /** Can the server be reached, as far as the phone knows? Offline, nothing is sent. */
   isOnline?: () => boolean;
+  /**
+   * The app's change gate: a session refresh refused while the change is on its way waits for it
+   * (the server ends the old session before it answers), so this phone isn't signed out meanwhile.
+   */
+  gate?: ChangeGate;
+  /** A sign-out has begun: the fresh session is then not kept (it would be signed out anyway). */
+  isSigningOut?: () => boolean;
 }
 
 export interface PasswordChangeResult {
@@ -89,29 +96,108 @@ export function createPasswordChange(deps: PasswordChangeDeps) {
   return async function change(currentPassword: string, newPassword: string): Promise<PasswordChangeResult> {
     // Known to be offline: nothing is sent, so it can say plainly that nothing changed.
     if (deps.isOnline && !deps.isOnline()) throw new PasswordChangeNotSent();
-    const fresh = await deps.send(currentPassword, newPassword);
-    const held = deps.session.getSession();
-    const keptHere = !!(fresh?.accessToken && fresh.refreshToken && held);
-    if (keptHere && held && fresh?.accessToken && fresh.refreshToken) {
-      await deps.session.setSession({ user: held.user, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken });
-    }
+    // Sent and kept inside the gate: a refresh refused meanwhile waits until the fresh session is kept.
+    const run = <T>(fn: () => Promise<T>) => (deps.gate ? deps.gate.run(fn) : fn());
+    const { keptHere, signedOut } = await run(async () => {
+      const fresh = await deps.send(currentPassword, newPassword);
+      const held = deps.session.getSession();
+      const signingOut = deps.isSigningOut?.() ?? false;
+      if (!signingOut && held && fresh?.accessToken && fresh.refreshToken) {
+        await deps.session.setSession({ user: held.user, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken });
+        return { keptHere: true, signedOut: false };
+      }
+      return { keptHere: false, signedOut: signingOut };
+    });
     const fingerprintStopped = await deps.fingerprint.isArmed().catch(() => false);
     if (fingerprintStopped) await deps.fingerprint.disarm().catch(() => {});
     if (keptHere) await deps.registerPush().catch(() => {});
     const message = keptHere
       ? 'Password changed. Other devices have been signed out; you’re still signed in here.' +
         (fingerprintStopped ? ' Fingerprint sign-in has stopped on this phone; you can turn it back on in Settings.' : '')
-      : 'Password changed. You’ll be asked to sign in again with your new password shortly.';
+      : signedOut
+        ? 'Password changed. Sign in again with your new password.'
+        : 'Password changed. You’ll be asked to sign in again with your new password shortly.';
     return { keptHere, fingerprintStopped, message };
   };
 }
+
+/** A session as the refresh checks it: whose it is, and its refresh token. */
+type HeldSession = { refreshToken: string; user: { id: string } } | null | undefined;
 
 /**
  * A session refresh the server refused, decided again: when the refresh token it sent has been
  * replaced meanwhile (a password change on this phone stores the fresh session the server hands
  * back), the session this phone now holds is the good one — the request is tried with it, not
- * signed out. Otherwise the refusal stands.
+ * signed out. If the phone now holds someone else's session (signed out and in as another person
+ * meanwhile), the request is never tried with it: 'changed' (6a review). Otherwise the refusal stands.
  */
-export function refusedRefreshOutcome(outcome: Exclude<RefreshOutcome, 'ok'>, sentToken: string, heldToken: string | null | undefined): RefreshOutcome {
-  return outcome === 'invalid' && !!heldToken && heldToken !== sentToken ? 'ok' : outcome;
+export function refusedRefreshOutcome(outcome: Exclude<RefreshOutcome, 'ok'>, sent: { refreshToken: string; user: { id: string } }, held: HeldSession): RefreshOutcome {
+  if (outcome !== 'invalid' || !held) return outcome;
+  if (held.user.id !== sent.user.id) return 'changed';
+  return held.refreshToken !== sent.refreshToken ? 'ok' : 'invalid';
+}
+
+/**
+ * A refresh that worked, but the session changed while it was on its way: the request is tried
+ * again only with the same person's session ('ok'); with someone else's it is not ('changed');
+ * with none, the session is over.
+ */
+export function refreshRaceOutcome(sent: { user: { id: string } }, now: HeldSession): RefreshOutcome {
+  if (!now) return 'invalid';
+  return now.user.id === sent.user.id ? 'ok' : 'changed';
+}
+
+/** The app's password-change gate (one per app): what a refused refresh waits for. */
+export interface ChangeGate {
+  run<T>(fn: () => Promise<T>): Promise<T>;
+  /** Until the change on its way has finished — at most `maxMs` (the change may itself wait on the refresh). */
+  wait(maxMs: number): Promise<void>;
+  busy(): boolean;
+}
+
+export function createChangeGate(): ChangeGate {
+  let current: Promise<unknown> | null = null;
+  return {
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+      // Busy from the first line of the change (its request goes out at once).
+      let release!: () => void;
+      const marker = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      current = marker;
+      try {
+        return await fn();
+      } finally {
+        release();
+        if (current === marker) current = null;
+      }
+    },
+    wait(maxMs: number): Promise<void> {
+      const p = current;
+      if (!p) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, maxMs);
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        p.then(done, done);
+      });
+    },
+    busy: () => current !== null,
+  };
+}
+
+/**
+ * A refused refresh, settled: while a password change is on its way it waits for it (at most
+ * `waitMs`) and then decides with the session the phone holds (refusedRefreshOutcome) — so the
+ * fresh session the change brings is used instead of signing this phone out (6a review).
+ */
+export async function settleRefusedRefresh(
+  outcome: Exclude<RefreshOutcome, 'ok'>,
+  sent: { refreshToken: string; user: { id: string } },
+  deps: { gate?: ChangeGate; held: () => HeldSession; signingOut: () => boolean; waitMs: number },
+): Promise<RefreshOutcome> {
+  if (outcome === 'invalid' && deps.gate?.busy()) await deps.gate.wait(deps.waitMs);
+  return refusedRefreshOutcome(outcome, sent, deps.signingOut() ? null : deps.held());
 }

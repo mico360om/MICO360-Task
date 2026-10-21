@@ -52,6 +52,9 @@ export function createSocketAuthHandler(deps: SocketAuthDeps) {
         schedule(() => {
           if (!stopped) deps.reconnect();
         }, delay);
+      } else if (outcome === 'changed') {
+        // Someone else signed in: this socket was the last person's — stop (theirs is set up anew).
+        stopped = true;
       } else {
         stopped = true;
         deps.onSessionEnded?.();

@@ -4,10 +4,13 @@ import {
   PASSWORD_RULE_HINT,
   PasswordChangeNotSent,
   checkPasswordChange,
+  createChangeGate,
   createPasswordChange,
   isStrongPassword,
   passwordChangeProblem,
+  refreshRaceOutcome,
   refusedRefreshOutcome,
+  settleRefusedRefresh,
 } from './password-change';
 import { ApiError, NetworkError } from './api-client';
 import type { Session } from './types';
@@ -143,14 +146,82 @@ describe('password change: what happens to the session afterwards (as on the web
   });
 });
 
+const as = (userId: string, refreshToken: string) => ({ refreshToken, user: { id: userId } });
+
 describe('a session refresh refused after this phone already holds a new session', () => {
   it('counts as done when the token it sent was replaced meanwhile (a password change here)', () => {
-    expect(refusedRefreshOutcome('invalid', 'old-refresh', 'new-refresh')).toBe('ok');
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), as('u1', 'new-refresh'))).toBe('ok');
   });
 
   it('still ends the session when nothing replaced it, or it is gone', () => {
-    expect(refusedRefreshOutcome('invalid', 'old-refresh', 'old-refresh')).toBe('invalid');
-    expect(refusedRefreshOutcome('invalid', 'old-refresh', null)).toBe('invalid');
-    expect(refusedRefreshOutcome('transient', 'old-refresh', 'new-refresh')).toBe('transient');
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), as('u1', 'old-refresh'))).toBe('invalid');
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), null)).toBe('invalid');
+    expect(refusedRefreshOutcome('transient', as('u1', 'old-refresh'), as('u1', 'new-refresh'))).toBe('transient');
+  });
+
+  it('never replays one person’s request with someone else’s session (6a review)', () => {
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), as('u2', 'their-refresh'))).toBe('changed');
+    expect(refreshRaceOutcome(as('u1', 'old-refresh'), as('u2', 'their-refresh'))).toBe('changed');
+    expect(refreshRaceOutcome(as('u1', 'old-refresh'), as('u1', 'newer-refresh'))).toBe('ok');
+    expect(refreshRaceOutcome(as('u1', 'old-refresh'), null)).toBe('invalid');
+  });
+});
+
+describe('a refresh refused while a password change is on its way (6a review)', () => {
+  it('waits for the change: once its fresh session is kept, the request is tried with it, not signed out', async () => {
+    const gate = createChangeGate();
+    let held = as('u1', 'old-refresh');
+    let answer!: () => void;
+    const change = gate.run(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = () => {
+            held = as('u1', 'fresh-refresh');
+            resolve();
+          };
+        }),
+    );
+    expect(gate.busy()).toBe(true);
+    const outcome = settleRefusedRefresh('invalid', as('u1', 'old-refresh'), { gate, held: () => held, signingOut: () => false, waitMs: 20_000 });
+    answer();
+    await change;
+    expect(await outcome).toBe('ok');
+    expect(gate.busy()).toBe(false);
+  });
+
+  it('waits no longer than its limit (the change itself may be waiting on this refresh)', async () => {
+    vi.useFakeTimers();
+    try {
+      const gate = createChangeGate();
+      void gate.run(() => new Promise<void>(() => {}));
+      const outcome = settleRefusedRefresh('invalid', as('u1', 'old-refresh'), { gate, held: () => as('u1', 'old-refresh'), signingOut: () => false, waitMs: 20_000 });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(await outcome).toBe('invalid');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('without a change on its way it decides at once; signing out ends it', async () => {
+    const gate = createChangeGate();
+    expect(await settleRefusedRefresh('invalid', as('u1', 'a'), { gate, held: () => as('u1', 'b'), signingOut: () => false, waitMs: 20_000 })).toBe('ok');
+    expect(await settleRefusedRefresh('invalid', as('u1', 'a'), { gate, held: () => as('u1', 'b'), signingOut: () => true, waitMs: 20_000 })).toBe('invalid');
+    expect(await settleRefusedRefresh('transient', as('u1', 'a'), { gate, held: () => as('u1', 'a'), signingOut: () => false, waitMs: 20_000 })).toBe('transient');
+  });
+
+  it('the change runs through the gate, and a sign-out that began meanwhile isn’t undone by it', async () => {
+    const gate = createChangeGate();
+    const { d, current } = deps();
+    let signingOut = false;
+    d.send.mockImplementationOnce(async () => {
+      expect(gate.busy()).toBe(true);
+      signingOut = true;
+      return { accessToken: 'new-access', refreshToken: 'new-refresh' };
+    });
+    const result = await createPasswordChange({ ...d, gate, isSigningOut: () => signingOut })('old-pass1', 'abcd1234');
+    expect(d.session.setSession).not.toHaveBeenCalled();
+    expect(current()?.refreshToken).toBe('old-refresh');
+    expect(result).toEqual({ keptHere: false, fingerprintStopped: false, message: 'Password changed. Sign in again with your new password.' });
+    expect(gate.busy()).toBe(false);
   });
 });

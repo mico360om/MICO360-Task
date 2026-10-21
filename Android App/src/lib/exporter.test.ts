@@ -93,3 +93,15 @@ describe('exporter — plain http only on the office network', () => {
     expect(files.download).not.toHaveBeenCalled();
   });
 });
+
+describe('exporter — someone else signed in meanwhile (6a review)', () => {
+  it('stops without downloading again and without signing anyone out', async () => {
+    const { files } = fakeFiles([{ status: 401 }, { status: 200 }]);
+    const onUnauthorized = vi.fn();
+    const ex = exporter(files, { refreshSession: vi.fn(async () => 'changed' as const), onUnauthorized });
+    await expect(ex.exportFile('/reports/export.xlsx', 'r.xlsx', 'Report')).rejects.toMatchObject({ code: 'SESSION_CHANGED' });
+    expect(files.download).toHaveBeenCalledTimes(1);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(files.share).not.toHaveBeenCalled();
+  });
+});
