@@ -184,7 +184,7 @@ export function OverviewTab(p: OverviewProps) {
         )}
       </SectionCard>
 
-      <AiSummaryCard request={p.summaryRequest} />
+      <AiSummaryCard projectId={project.id} ready={p.statsReady} request={p.summaryRequest} />
 
       <SectionCard title="Team" action={<LinkButton label="Manage team" onPress={() => p.onShow('team')} />}>
         <Text style={s.detailLabel}>Project manager</Text>
