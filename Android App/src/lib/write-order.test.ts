@@ -3,7 +3,17 @@ import { createSyncQueue } from './sync-queue';
 import { performMutation } from './perform-mutation';
 import { createTaskWrites } from './task-writes';
 import { ApiError, NetworkError, isNetworkError } from './api-client';
-import { dropOvertaken, isKeptOnPhone, queueOnOffline, sendInOrder, writeTarget, type Write } from './write-order';
+import { dropOvertaken, isKeptOnPhone, keptOnPhoneText, queueOnOffline, sendInOrder, WaitingBehindError, writeTarget, type Write } from './write-order';
+
+describe('what the screen says about a change kept on this phone (2c review fix 4)', () => {
+  it('one waiting behind an earlier change is not blamed on the connection', () => {
+    expect(keptOnPhoneText(new WaitingBehindError())).toBe('Saved on this phone — it goes after an earlier change to this that is still waiting to sync.');
+    expect(keptOnPhoneText(new NetworkError('The server took too long to respond.', { timedOut: true }))).toBe(
+      'The server didn’t answer in time — saved on this phone and sent again shortly.',
+    );
+    expect(keptOnPhoneText(new NetworkError('Network request failed.'))).toBe('Saved on this phone — will sync when you’re online.');
+  });
+});
 import type { ResourcesApi } from './resources';
 import type { KeyValueStore } from './storage';
 

@@ -67,6 +67,35 @@ export function writeTarget(kind: string, payload: unknown): string | null {
   }
 }
 
+/**
+ * What a change kept on this phone waits behind when the sync sends it (2c and 3a reviews): the
+ * earlier changes of the same item, a conversation's earlier messages, the earlier new notes of a
+ * meeting… — never an unrelated change. One that gets no answer, or a server hiccup, holds only its
+ * own lane: a stuck meeting note doesn't hold every chat message behind it.
+ */
+export function replayLane(m: Pick<QueuedMutation, 'id' | 'kind' | 'payload'>): string {
+  const item = writeTarget(m.kind, m.payload);
+  if (item) return item;
+  const p = (m.payload ?? {}) as Record<string, unknown>;
+  const lane = (tag: string, v: unknown) => tagged(tag, v) ?? `change:${m.id}`;
+  switch (m.kind) {
+    case 'chat.send':
+      return lane('chat', p.conversationId);
+    case 'comment.add':
+      return lane('comments', p.id);
+    case 'checklist.add':
+      return lane('new-subtasks', p.id);
+    case 'task.create':
+      return lane('new-tasks', p.projectId);
+    case 'meeting.note.add':
+      return lane('notes', p.meetingId);
+    case 'meeting.action.add':
+      return lane('new-actions', p.meetingId);
+    default:
+      return `change:${m.id}`;
+  }
+}
+
 /** The fields a change sets (for "a newer change of the same fields"), or null when that can't be told. */
 function fieldsOf(kind: string, payload: unknown): string[] | null {
   const p = (payload ?? {}) as { patch?: unknown };
@@ -101,6 +130,18 @@ export class WaitingBehindError extends NetworkError {
   constructor() {
     super('An earlier change to this is still waiting to sync — this one goes after it.');
   }
+}
+
+/**
+ * What the screen says about a change kept on this phone (2c review): one waiting behind an older
+ * change of the same thing is not blamed on the connection (the person may well be online), and one
+ * whose try got no answer in time is sent again shortly — only a change made with no connection
+ * waits for one.
+ */
+export function keptOnPhoneText(e: unknown): string {
+  if (e instanceof WaitingBehindError) return 'Saved on this phone — it goes after an earlier change to this that is still waiting to sync.';
+  if (isNetworkError(e) && (e as { timedOut?: unknown }).timedOut === true) return 'The server didn’t answer in time — saved on this phone and sent again shortly.';
+  return 'Saved on this phone — will sync when you’re online.';
 }
 
 const KEPT = Symbol.for('mico360.keptOnPhone');

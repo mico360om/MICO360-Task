@@ -192,6 +192,16 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
   }
 }
 
+/** Why a change still waiting can be discarded (sync-queue waitingTooLong): no answer yet, or a long wait. */
+export function waitingReason(m: Pick<QueuedMutation, 'createdAt' | 'timeouts'>, now: number): string {
+  const tries = m.timeouts ?? 0;
+  if (tries > 0) return `The server hasn’t answered it yet (${tries} ${tries === 1 ? 'try' : 'tries'}). It may already be saved.`;
+  const minutes = Math.max(1, Math.round((now - m.createdAt) / 60_000));
+  if (minutes < 120) return `Waiting to sync for ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+  const hours = Math.round(minutes / 60);
+  return `Waiting to sync for ${hours} hours.`;
+}
+
 /** Short, human description of a queued change for the "waiting to sync / couldn't save" list. */
 export function describeMutation(m: Pick<QueuedMutation, 'kind' | 'payload'>): string {
   const p = (m.payload ?? {}) as Record<string, unknown>;

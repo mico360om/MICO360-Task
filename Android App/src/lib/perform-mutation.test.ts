@@ -1,5 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { performMutation, describeMutation, refreshesAfterReplay } from './perform-mutation';
+import { performMutation, describeMutation, refreshesAfterReplay, waitingReason } from './perform-mutation';
+
+describe('waitingReason — why a waiting change can be discarded (2c review fix 4)', () => {
+  it('says the server hasn’t answered, or that it has waited a long while', () => {
+    expect(waitingReason({ timeouts: 2, createdAt: 0 }, 60_000)).toBe('The server hasn’t answered it yet (2 tries). It may already be saved.');
+    expect(waitingReason({ timeouts: 1, createdAt: 0 }, 60_000)).toBe('The server hasn’t answered it yet (1 try). It may already be saved.');
+    expect(waitingReason({ createdAt: 0 }, 20 * 60_000)).toBe('Waiting to sync for 20 minutes.');
+    expect(waitingReason({ createdAt: 0 }, 3 * 3_600_000)).toBe('Waiting to sync for 3 hours.');
+  });
+});
 import { createTaskWrites, isReloaded, noteReplayed } from './task-writes';
 import { ApiError, NetworkError } from './api-client';
 import { moveRefreshes } from './task-cache';

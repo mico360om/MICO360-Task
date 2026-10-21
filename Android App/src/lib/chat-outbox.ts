@@ -1,4 +1,4 @@
-import type { QueuedMutation, SyncQueue } from './sync-queue';
+import { NO_ANSWER_TEXT, waitingTooLong, type QueuedMutation, type SyncQueue } from './sync-queue';
 
 /**
  * The chat outbox (3a): every message is kept on the phone — in the offline queue (sync-queue),
@@ -21,7 +21,8 @@ export const CHAT_SEND = 'chat.send';
 /** The server's longest message. */
 export const CHAT_MAX_LENGTH = 4000;
 
-export type OutboxState = 'sending' | 'waiting' | 'failed';
+/** `unanswered`: a try got no answer in time; it is tried again (and can be discarded). */
+export type OutboxState = 'sending' | 'waiting' | 'unanswered' | 'failed';
 
 /** A message of this conversation still on this phone. */
 export interface OutboxEntry {
@@ -35,6 +36,8 @@ export interface OutboxEntry {
   state: OutboxState;
   /** Why it was not sent (failed only). */
   reason?: string;
+  /** Still waiting, but too long (no answer, or a long wait): it can be discarded, as in the sync list. */
+  canDiscard?: true;
 }
 
 interface ChatSendPayload {
@@ -80,11 +83,16 @@ export async function enqueueChatMessage(
   return { ok: true };
 }
 
-/** Why a message was not sent, in plain words: the server's reason, or that it had a problem. */
-export function notSentReason(lastError: string | undefined): string {
-  const text = (lastError ?? '').trim();
-  if (!text || /^Request failed/i.test(text) || text === 'Could not be saved.') return 'The server had a problem.';
-  return text;
+/**
+ * Why a message was not sent, in the website's words (3a review): the server's own reason only when
+ * it refused the message (a 4xx), "Couldn't reach the server." when no answer ever came, and
+ * otherwise "The server had a problem." — never the raw text of its own failure.
+ */
+export function notSentReason(m: Pick<QueuedMutation, 'lastError' | 'refused' | 'timeouts'>): string {
+  const text = (m.lastError ?? '').trim();
+  if (m.refused && text && !/^Request failed/i.test(text) && text !== 'Could not be saved.') return text;
+  if (!m.refused && (m.lastError === NO_ANSWER_TEXT || (m.timeouts ?? 0) > 0)) return 'Couldn’t reach the server.';
+  return 'The server had a problem.';
 }
 
 /**
@@ -95,8 +103,9 @@ export function notSentReason(lastError: string | undefined): string {
 export function outboxFor(
   conversationId: string,
   queued: { pending: readonly QueuedMutation[]; failed: readonly QueuedMutation[] },
-  opts: { online: boolean; confirmed: ReadonlySet<string> },
+  opts: { online: boolean; confirmed: ReadonlySet<string>; now?: number },
 ): OutboxEntry[] {
+  const now = opts.now ?? Date.now();
   const entries: Array<OutboxEntry & { at: number }> = [];
   const add = (m: QueuedMutation, state: OutboxState) => {
     if (m.kind !== CHAT_SEND) return;
@@ -112,10 +121,12 @@ export function outboxFor(
       body: p.body,
       createdAt: new Date(m.createdAt).toISOString(),
       state,
-      ...(state === 'failed' ? { reason: notSentReason(m.lastError) } : {}),
+      ...(state === 'failed' ? { reason: notSentReason(m) } : {}),
+      // The same rule as the sync list: a message stuck waiting can be discarded (2c review).
+      ...(state !== 'failed' && waitingTooLong(m, now) ? { canDiscard: true as const } : {}),
     });
   };
-  for (const m of queued.pending) add(m, opts.online ? 'sending' : 'waiting');
+  for (const m of queued.pending) add(m, (m.timeouts ?? 0) > 0 ? 'unanswered' : opts.online ? 'sending' : 'waiting');
   for (const m of queued.failed) add(m, 'failed');
   return entries.sort((a, b) => a.at - b.at).map(({ at: _at, ...e }) => e);
 }
@@ -129,6 +140,7 @@ export function settledByServer(failed: readonly QueuedMutation[], confirmed: Re
 export function outboxLabel(e: Pick<OutboxEntry, 'body' | 'state' | 'reason'>): string {
   const said = `You: ${e.body}.`;
   if (e.state === 'waiting') return `${said} Waiting for connection. It will be sent when you’re back online.`;
+  if (e.state === 'unanswered') return `${said} The server hasn’t answered yet. It will be tried again.`;
   if (e.state === 'failed') return `${said} Not sent. ${e.reason ?? 'The server had a problem.'}`;
   return `${said} Sending.`;
 }

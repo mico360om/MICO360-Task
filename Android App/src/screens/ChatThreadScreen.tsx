@@ -7,6 +7,7 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -108,11 +109,25 @@ const OutboxRow = memo(function OutboxRow({
         <View style={styles.msgHead}>
           <Text style={styles.author}>You</Text>
           <Text style={[styles.time, failed && styles.notSent]} accessibilityLiveRegion="polite">
-            {entry.state === 'sending' ? 'Sending…' : entry.state === 'waiting' ? 'Waiting for connection' : `Not sent — ${entry.reason ?? ''}`}
+            {entry.state === 'sending'
+              ? 'Sending…'
+              : entry.state === 'waiting'
+                ? 'Waiting for connection'
+                : entry.state === 'unanswered'
+                  ? 'Not answered yet — trying again'
+                  : `Not sent — ${entry.reason ?? ''}`}
           </Text>
         </View>
         <MentionText style={styles.body} body={entry.body} people={people} />
       </View>
+      {!failed && entry.canDiscard ? (
+        // Stuck waiting: it can be discarded, as in the sync list (it may still arrive if the server got it).
+        <View style={styles.outboxActions}>
+          <Pressable style={styles.outboxBtn} onPress={() => onDiscard(entry.queueId)} accessibilityRole="button" accessibilityLabel={`Discard “${snippet}”`}>
+            <Text style={styles.discardText}>Discard</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {failed ? (
         <View style={styles.outboxActions}>
           <Pressable
@@ -231,14 +246,29 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
     if (!messagesQ.isFetchNextPageError) loadOlder();
   }, [messagesQ.isFetchNextPageError, loadOlder]);
 
+  // A message still waiting (not refused) may yet reach the server: discarding it asks first.
+  const entriesRef = useRef(outbox.entries);
+  entriesRef.current = outbox.entries;
+  const discardEntry = useCallback(
+    (queueId: string) => {
+      const entry = entriesRef.current.find((e) => e.queueId === queueId);
+      if (!entry || entry.state === 'failed') return outbox.discard(queueId);
+      Alert.alert('Discard this message?', 'It won’t be sent from this phone. If the server got it already, it may still appear.', [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: () => outbox.discard(queueId) },
+      ]);
+    },
+    [outbox.discard],
+  );
+
   const renderItem = useCallback<ListRenderItem<ThreadItem>>(
     ({ item }) =>
       item.kind === 'outbox' ? (
-        <OutboxRow entry={item.entry} people={mentionPeople} styles={styles} onRetry={outbox.retry} onDiscard={outbox.discard} />
+        <OutboxRow entry={item.entry} people={mentionPeople} styles={styles} onRetry={outbox.retry} onDiscard={discardEntry} />
       ) : (
         <MessageRow m={item.message} author={nameOf(item.message.userId)} people={mentionPeople} styles={styles} />
       ),
-    [mentionPeople, styles, outbox.retry, outbox.discard, nameOf],
+    [mentionPeople, styles, outbox.retry, discardEntry, nameOf],
   );
 
   async function send() {

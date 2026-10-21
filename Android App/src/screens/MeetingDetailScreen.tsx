@@ -42,6 +42,7 @@ import { ActionItemSheet, AddPersonSheet, AgendaItemSheet, NoteSheet, NoteTaskSh
 import { openJoinLink, useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { isNetworkError } from '../lib/api-client';
 import { keptTryText } from '../lib/pending-keys';
+import { keptOnPhoneText } from '../lib/write-order';
 import { appTimeZone } from '../lib/due-date';
 import { afterMeetingDeleted } from '../lib/meeting-cache';
 import { agendaTiming, agendaTimingText, answerAfterTap, canAnswer, meetingLoadProblem, myInvitation, responseLine, responseSummary } from '../lib/meeting-detail';
@@ -55,7 +56,6 @@ import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 
 const WHAT: Record<Section, string> = { agenda: 'the agenda', people: 'the people', notes: 'the notes', actions: 'the action items', minutes: 'the final minutes' };
-const QUEUED = 'Saved on this phone — will sync when you’re online.';
 
 type Sheet =
   | { kind: 'actions' }
@@ -269,7 +269,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   };
 
   const toggleCovered = (item: ApiAgendaItem) =>
-    agendaM.covered.mutate({ itemId: item.id, completed: !item.completed }, { onError: (e) => say(isNetworkError(e) ? QUEUED : meetingFailure(e, 'Couldn’t update the agenda item.'), !isNetworkError(e)) });
+    agendaM.covered.mutate({ itemId: item.id, completed: !item.completed }, { onError: (e) => say(isNetworkError(e) ? keptOnPhoneText(e) : meetingFailure(e, 'Couldn’t update the agenda item.'), !isNetworkError(e)) });
   const toggleKey = (note: ApiMeetingNote) => notesM.update.mutate({ noteId: note.id, patch: { highlighted: !note.highlighted } }, { onError: (e) => say(meetingFailure(e, 'Couldn’t change the key point.'), true) });
   const deleteNote = (note: ApiMeetingNote) =>
     Alert.alert('Delete this note?', 'You can bring it back for a few seconds after.', [

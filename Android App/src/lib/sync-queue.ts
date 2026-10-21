@@ -22,9 +22,27 @@ export interface QueuedMutation {
   idempotencyKey: string;
   /** Server-side failures (5xx etc.) so far; network/401 pauses do not count. */
   attempts: number;
+  /** Tries the server didn't answer in time (a timeout, not "no connection"); older builds leave it out. */
+  timeouts?: number;
+  /** It was refused, and the server keeps that refusal under its key: a Retry goes under a new key. */
+  refused?: boolean;
   status: MutationStatus;
   /** Last error message, shown next to a failed item. */
   lastError?: string;
+}
+
+/** Why a change the server never answered stopped being sent (it shows with Retry and Discard). */
+export const NO_ANSWER_TEXT = 'The server didn’t answer in time. It may have been saved — check before you retry.';
+
+/** A change waiting this long can be discarded from the list (it may be stuck). */
+export const LONG_WAIT_MS = 15 * 60_000;
+
+/**
+ * Has this waiting change waited too long (2c review)? The server didn't answer one of its tries,
+ * or it has been waiting a quarter of an hour. Such a change can be discarded, not only a refused one.
+ */
+export function waitingTooLong(m: Pick<QueuedMutation, 'createdAt' | 'timeouts' | 'status'>, now: number): boolean {
+  return m.status === 'pending' && ((m.timeouts ?? 0) > 0 || now - m.createdAt >= LONG_WAIT_MS);
 }
 
 /** How one replay failure should be handled. */
@@ -61,6 +79,13 @@ export interface SyncQueueOptions {
   classifyError?: (error: unknown) => FailureKind;
   /** Server-side failures tolerated before an item is marked failed (default 5). */
   maxAttempts?: number;
+  /** Tries without an answer (timeouts) before an item is marked failed (default 3). */
+  maxTimeouts?: number;
+  /**
+   * What a change waits behind (write-order replayLane): changes of one lane go in order, and one
+   * that gets no answer or a server hiccup holds only its own lane. Default: one lane for all.
+   */
+  lane?: (m: QueuedMutation) => string;
   now?: () => number;
   genId?: () => string;
   genKey?: () => string;
@@ -115,6 +140,9 @@ export function createSyncQueue(options: SyncQueueOptions) {
   const { store, perform } = options;
   const classify = options.classifyError ?? classifyReplayError;
   const maxAttempts = Math.max(1, options.maxAttempts ?? 5);
+  const maxTimeouts = Math.max(1, options.maxTimeouts ?? 3);
+  const laneOf = (m: QueuedMutation) => options.lane?.(m) ?? '';
+  const isTimeout = (e: unknown) => (e as { timedOut?: unknown } | null)?.timedOut === true;
   const now = options.now ?? Date.now;
   const genId = options.genId ?? (() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const genKey = options.genKey ?? (() => newIdempotencyKey());
@@ -182,13 +210,34 @@ export function createSyncQueue(options: SyncQueueOptions) {
     const done: QueuedMutation[] = [];
     const failed: QueuedMutation[] = [];
     let pausedBy: FlushResult['pausedBy'];
+    // Lanes held back for the rest of this flush: their first change got no answer, or a hiccup.
+    const held = new Set<string>();
+    let heldBy: 'offline' | 'server' | undefined;
+    const fail = async (m: QueuedMutation, patch: Partial<QueuedMutation>) => {
+      await update(m.id, { status: 'failed', ...patch });
+      failed.push({ ...m, status: 'failed', ...patch });
+    };
+    /**
+     * One change of a lane got no answer (or a server hiccup): its lane waits, the others go on —
+     * unless one already did this flush, then the connection or the server is the problem and the
+     * whole flush pauses. True when the flush must stop.
+     */
+    const holdLane = (m: QueuedMutation, why: 'offline' | 'server'): boolean => {
+      if (held.size > 0) {
+        pausedBy = why;
+        return true;
+      }
+      held.add(laneOf(m));
+      heldBy = why;
+      return false;
+    };
 
     for (;;) {
       if (opts.shouldContinue && !opts.shouldContinue()) {
         pausedBy = 'user-changed';
         break;
       }
-      const m = queue.find((x) => x.userId === userId && x.status === 'pending');
+      const m = queue.find((x) => x.userId === userId && x.status === 'pending' && !held.has(laneOf(x)));
       if (!m) break;
       try {
         const result = await perform(m);
@@ -200,16 +249,29 @@ export function createSyncQueue(options: SyncQueueOptions) {
       } catch (error) {
         const kind = classify(error);
         if (kind === 'offline') {
-          pausedBy = 'offline';
-          break;
+          // No connection at all: everything waits, nothing is counted.
+          if (!isTimeout(error)) {
+            pausedBy = 'offline';
+            break;
+          }
+          // The request went and no answer came in time (2c review): counted, so a change the server
+          // never answers stops holding its lane after a few tries — shown with Retry and Discard.
+          const timeouts = (m.timeouts ?? 0) + 1;
+          if (timeouts >= maxTimeouts) {
+            await fail(m, { timeouts, lastError: NO_ANSWER_TEXT });
+            continue;
+          }
+          await update(m.id, { timeouts });
+          if (holdLane(m, 'offline')) break;
+          continue;
         }
         if (kind === 'unauthorized') {
           pausedBy = 'unauthorized';
           break;
         }
         if (kind === 'permanent') {
-          await update(m.id, { status: 'failed', lastError: errorText(error) });
-          failed.push({ ...m, status: 'failed', lastError: errorText(error) });
+          // The server keeps this refusal under the key: a Retry goes under a new one (3a review).
+          await fail(m, { lastError: errorText(error), refused: true });
           continue;
         }
         const attempts = m.attempts + 1;
@@ -217,15 +279,15 @@ export function createSyncQueue(options: SyncQueueOptions) {
         // after it is marked failed): the next try goes under a new key.
         const rekey = needsNewKey(error) ? { idempotencyKey: genKey() } : {};
         if (attempts >= maxAttempts) {
-          await update(m.id, { attempts, status: 'failed', lastError: errorText(error), ...rekey });
-          failed.push({ ...m, attempts, status: 'failed', lastError: errorText(error), ...rekey });
+          await fail(m, { attempts, lastError: errorText(error), ...rekey });
           continue; // one poisoned item must not block everything behind it
         }
         await update(m.id, { attempts, lastError: errorText(error), ...rekey });
-        pausedBy = 'server';
-        break;
+        // A hiccup on one change (a meeting note) holds its own lane, not the chat behind it (3a review).
+        if (holdLane(m, 'server')) break;
       }
     }
+    if (!pausedBy && held.size > 0 && pendingFor(userId).length > 0) pausedBy = heldBy;
 
     return { synced, done, failed, remaining: pendingFor(userId).length, ...(pausedBy ? { pausedBy } : {}) };
   }
@@ -248,8 +310,15 @@ export function createSyncQueue(options: SyncQueueOptions) {
     failedFor,
     /** Stable snapshot of the whole queue (changes identity on every update). */
     snapshot: () => queue,
-    /** Put a failed item back in line for another try. */
-    retry: (id: string) => update(id, { status: 'pending', attempts: 0, lastError: undefined }),
+    /**
+     * Put a failed item back in line for another try, counted afresh. After a refusal it goes under a
+     * new key — the server would hand the kept refusal back for a day (a message's client id still
+     * keeps it from being stored twice); after no answer or hiccups the key stays (it may be saved).
+     */
+    retry: (id: string) => {
+      const m = queue.find((x) => x.id === id);
+      return update(id, { status: 'pending', attempts: 0, timeouts: 0, lastError: undefined, refused: undefined, ...(m?.refused ? { idempotencyKey: genKey() } : {}) });
+    },
     /** Throw away one item (the user chose to discard a change that cannot be saved). */
     discard: (id: string) => commit(queue.filter((m) => m.id !== id)),
     /** Remove every item owned by this user (explicit sign-out, after warning about unsynced work). */

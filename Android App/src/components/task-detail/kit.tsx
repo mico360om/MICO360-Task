@@ -2,14 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, type ViewStyle } from 'react-native';
 import { useColors } from '../../core/theme';
 import { isNetworkError } from '../../lib/api-client';
+import { keptOnPhoneText } from '../../lib/write-order';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 
 export type SaveState =
   | { status: 'idle' }
   | { status: 'saving' }
   | { status: 'saved' }
-  /** Offline: kept on this phone and sent when there's a connection. */
-  | { status: 'queued' }
+  /** Kept on this phone and sent later; `message` says why (offline, no answer, waiting behind another change). */
+  | { status: 'queued'; message?: string }
   | { status: 'error'; message: string };
 
 /** The message for a failed action: the server's reason when it gave one. */
@@ -38,7 +39,7 @@ export function useSave() {
       return true;
     } catch (e) {
       if (queueable && isNetworkError(e)) {
-        setState({ status: 'queued' });
+        setState({ status: 'queued', message: keptOnPhoneText(e) });
         return true;
       }
       setState({ status: 'error', message: failureText(e, fallback) });
@@ -61,7 +62,7 @@ export function SaveNote({ state }: { state: SaveState }) {
       </Text>
     );
   }
-  const text = state.status === 'saving' ? 'Saving…' : state.status === 'saved' ? '✓ Saved' : 'Saved on this phone — will sync when you’re online';
+  const text = state.status === 'saving' ? 'Saving…' : state.status === 'saved' ? '✓ Saved' : state.message ?? 'Saved on this phone — will sync when you’re online.';
   const color = state.status === 'saved' ? c.success : c.ink3;
   return (
     <View accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>

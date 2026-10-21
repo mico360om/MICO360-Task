@@ -18,7 +18,7 @@ import { createSyncQueue, type QueuedMutation } from '../lib/sync-queue';
 import { performMutation, refreshesAfterReplay } from '../lib/perform-mutation';
 import { refresh } from '../lib/refresh';
 import { noteReplayed, rebaseQueuedVersion, taskWrites } from '../lib/task-writes';
-import { dropOvertaken } from '../lib/write-order';
+import { dropOvertaken, replayLane } from '../lib/write-order';
 import { createSyncController } from '../lib/sync-controller';
 import { createChatCache, type ChatCache } from '../lib/chat-cache';
 import { createPushRegistrar } from '../lib/push-registrar';
@@ -170,6 +170,9 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
       }),
     // A task edit queued after an earlier one of this phone's moves on to the version that one made.
     rebase: rebaseQueuedVersion,
+    // A change waits only behind earlier changes of its own item or conversation: one the server
+    // doesn't answer holds its lane, not every chat message behind it (2c and 3a reviews).
+    lane: replayLane,
   });
   // The lists read through the offline copy; one it answered is out of date at once (refreshed when
   // back online or back in the app), and the board shows the moves still waiting (offline-reads).

@@ -26,6 +26,7 @@ import {
 } from '../../lib/meeting-parts';
 import { meetingFailure } from '../../lib/meeting-flow';
 import { keptTryText } from '../../lib/pending-keys';
+import { keptOnPhoneText } from '../../lib/write-order';
 import { parseDueDateInput } from '../../lib/form-input';
 import { dueDayKey } from '../../lib/due-date';
 import { displayName } from '../../lib/types';
@@ -162,10 +163,11 @@ export function PersonSheet({
 }) {
   const { update, attendance, remove } = useAttendeeMutations(meeting.id);
   const [error, setError] = useState<string | null>(null);
-  const [queued, setQueued] = useState(false);
+  // Why the change is kept on this phone (keptOnPhoneText), or null.
+  const [queued, setQueued] = useState<string | null>(null);
   useEffect(() => {
     setError(null);
-    setQueued(false);
+    setQueued(null);
   }, [attendee?.id]);
   if (!attendee) return null;
   const name = attendeeName(attendee, nameOf);
@@ -202,17 +204,17 @@ export function PersonSheet({
           value={attendee.attendance}
           onChange={(value) => {
             setError(null);
-            setQueued(false);
+            setQueued(null);
             attendance.mutate(
               { attendeeId: attendee.id, attendance: value },
-              { onError: (e) => (isNetworkError(e) ? setQueued(true) : setError(meetingFailure(e, 'Couldn’t save the change.'))) },
+              { onError: (e) => (isNetworkError(e) ? setQueued(keptOnPhoneText(e)) : setError(meetingFailure(e, 'Couldn’t save the change.'))) },
             );
           }}
         />
       ) : null}
       {!canEdit && !(attendanceTime && own) ? <SheetMessage text="Only the organizer, the project manager or an admin can change the people." tone="info" /> : null}
       {canEdit ? <ActionRowButton label={`Remove ${name}`} danger onPress={confirmRemove} busy={remove.isPending} /> : null}
-      <SheetMessage text={queued ? 'Saved on this phone — will sync when you’re online.' : null} tone="info" />
+      <SheetMessage text={queued} tone="info" />
       <SheetMessage text={error} />
     </Sheet>
   );
@@ -313,7 +315,8 @@ export function NoteSheet({ meetingId, note, visible, onClose }: { meetingId: st
   const [body, setBody] = useState('');
   const [key, setKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [queued, setQueued] = useState(false);
+  // Why the note is kept on this phone, or null.
+  const [queued, setQueued] = useState<string | null>(null);
   const start = note ? noteEditStart(note) : null;
   useEffect(() => {
     if (!visible) return;
@@ -321,12 +324,12 @@ export function NoteSheet({ meetingId, note, visible, onClose }: { meetingId: st
     setBody(note ? noteEditStart(note).text : '');
     setKey(note?.highlighted ?? false);
     setError(null);
-    setQueued(false);
+    setQueued(null);
   }, [visible, note?.id]);
 
   const submit = () => {
     setError(null);
-    setQueued(false);
+    setQueued(null);
     if (!body.trim()) return setError(note ? 'A note can’t be empty.' : 'Write the note first.');
     if (note) {
       update.mutate(
@@ -346,7 +349,7 @@ export function NoteSheet({ meetingId, note, visible, onClose }: { meetingId: st
         if (isNetworkError(e)) {
           setBody('');
           setKey(false);
-          setQueued(true);
+          setQueued((e as { timedOut?: unknown }).timedOut === true ? keptOnPhoneText(e) : 'Saved on this phone — the note is added when you’re online.');
         } else setError(meetingFailure(e, 'Couldn’t save the note — it’s still here, so you can try again.'));
       },
     });
@@ -363,7 +366,7 @@ export function NoteSheet({ meetingId, note, visible, onClose }: { meetingId: st
       <TextField accessibilityLabel={note ? 'Edit note' : 'New note'} value={body} onChangeText={setBody} placeholder={notePlaceholder(type)} multiline style={styles.multiline} autoFocus />
       {start?.formatted ? <SheetMessage text="This note was formatted on the website. Saving here keeps its words but not its formatting (bold, lists, links)." tone="info" /> : null}
       {!note ? <CheckRow label="Mark as a key point" checked={key} onChange={setKey} /> : null}
-      <SheetMessage text={queued ? 'Saved on this phone — the note is added when you’re online.' : null} tone="info" />
+      <SheetMessage text={queued} tone="info" />
       <SheetMessage text={error} />
       <Text style={[styles.small, { color: c.ink3 }]}>Notes from the phone are plain text.</Text>
     </Sheet>
@@ -511,7 +514,8 @@ export function ActionItemSheet({
   const [priority, setPriority] = useState<Priority>('NORMAL');
   const [status, setStatus] = useState<ActionItemStatus>('OPEN');
   const [error, setError] = useState<string | null>(null);
-  const [queued, setQueued] = useState(false);
+  // Why the change is kept on this phone (keptOnPhoneText), or null.
+  const [queued, setQueued] = useState<string | null>(null);
   useEffect(() => {
     if (!visible) return;
     setDescription(item?.description ?? '');
@@ -520,17 +524,17 @@ export function ActionItemSheet({
     setPriority(item?.priority ?? 'NORMAL');
     setStatus(item?.status ?? 'OPEN');
     setError(null);
-    setQueued(false);
+    setQueued(null);
   }, [visible, item?.id]);
   const people = useMemo(() => peopleOptions(directory, 'Unassigned'), [directory]);
 
   const failedOrQueued = (fallback: string) => (e: unknown) => {
-    if (isNetworkError(e)) setQueued(true);
+    if (isNetworkError(e)) setQueued(keptOnPhoneText(e));
     else setError(meetingFailure(e, fallback));
   };
   const submit = () => {
     setError(null);
-    setQueued(false);
+    setQueued(null);
     if (!description.trim()) return setError('Describe the action item.');
     const d = parseDueDateInput(due);
     if (!d.ok) return setError(d.error);
@@ -589,7 +593,7 @@ export function ActionItemSheet({
         />
       ) : null}
       {item && canRemove ? <ActionRowButton label="Remove this action item" danger onPress={confirmRemove} busy={remove.isPending} /> : null}
-      <SheetMessage text={queued ? 'Saved on this phone — will sync when you’re online.' : null} tone="info" />
+      <SheetMessage text={queued} tone="info" />
       <SheetMessage text={error} />
     </Sheet>
   );

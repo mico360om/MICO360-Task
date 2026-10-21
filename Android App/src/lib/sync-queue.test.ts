@@ -1,7 +1,140 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSyncQueue, classifyReplayError, type QueuedMutation } from './sync-queue';
+import { createSyncQueue, classifyReplayError, NO_ANSWER_TEXT, waitingTooLong, type QueuedMutation } from './sync-queue';
+import { replayLane } from './write-order';
 import { createMemoryStore } from './storage';
 import { ApiError, NetworkError } from './api-client';
+
+const slow = () => new NetworkError('The server took too long to respond.', { timedOut: true });
+/** Every change in a lane of its own, named by its payload (the app's lanes are tested in write-order). */
+const byPayload = (m: QueuedMutation) => String((m.payload as { lane?: unknown } | null)?.lane ?? m.id);
+
+describe('a change the server keeps not answering (2c review fix 4, 3a review fix 11)', () => {
+  it('counts each time-out; after a few it stops waiting and shows the change with Retry and Discard', async () => {
+    const perform = vi.fn(async () => {
+      throw slow();
+    });
+    const q = createSyncQueue(opts({ perform }));
+    await q.enqueue('chat.send', { conversationId: 'c1', body: 'hi' }, A);
+    expect((await q.flush('userA')).pausedBy).toBe('offline');
+    expect(q.pendingFor('userA')[0]).toMatchObject({ timeouts: 1, attempts: 0 });
+    await q.flush('userA');
+    const third = await q.flush('userA');
+    expect(third.failed).toHaveLength(1);
+    expect(q.failedFor('userA')[0]).toMatchObject({ status: 'failed', timeouts: 3, lastError: NO_ANSWER_TEXT });
+    // Retry starts it over.
+    await q.retry(q.failedFor('userA')[0]!.id);
+    expect(q.pendingFor('userA')[0]).toMatchObject({ timeouts: 0, attempts: 0 });
+  });
+
+  it('a plain "no connection" still pauses everything and counts nothing', async () => {
+    const perform = vi.fn(async () => {
+      throw new NetworkError('Network request failed.');
+    });
+    const q = createSyncQueue(opts({ perform, lane: byPayload }));
+    await q.enqueue('a', { lane: 'x' }, A);
+    await q.enqueue('b', { lane: 'y' }, A);
+    expect((await q.flush('userA')).pausedBy).toBe('offline');
+    expect(perform).toHaveBeenCalledTimes(1);
+    expect(q.pendingFor('userA').map((m) => m.timeouts ?? 0)).toEqual([0, 0]);
+  });
+
+  it('one stuck change holds only its own lane: a message in another conversation goes, the next in its own waits', async () => {
+    const sent: string[] = [];
+    const perform = vi.fn(async (m: QueuedMutation) => {
+      const p = m.payload as { lane: string; body: string };
+      if (p.body === 'stuck') throw slow();
+      sent.push(p.body);
+    });
+    const q = createSyncQueue(opts({ perform, lane: byPayload }));
+    await q.enqueue('chat.send', { lane: 'chat:c1', body: 'stuck' }, A);
+    await q.enqueue('chat.send', { lane: 'chat:c1', body: 'after it' }, A);
+    await q.enqueue('chat.send', { lane: 'chat:c2', body: 'other conversation' }, A);
+    const res = await q.flush('userA');
+    expect(sent).toEqual(['other conversation']);
+    expect(res.remaining).toBe(2);
+    expect(res.pausedBy).toBe('offline');
+  });
+
+  it('a second change without an answer in the same sync pauses it: the connection is the problem, not one change', async () => {
+    const perform = vi.fn(async () => {
+      throw slow();
+    });
+    const q = createSyncQueue(opts({ perform, lane: byPayload }));
+    for (const lane of ['x', 'y', 'z']) await q.enqueue('a', { lane }, A);
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(2);
+  });
+
+  it('a server hiccup on one change (a meeting note) doesn’t hold chat messages behind it', async () => {
+    const sent: string[] = [];
+    const perform = vi.fn(async (m: QueuedMutation) => {
+      if (m.kind === 'meeting.note.add') throw new ApiError(503, 'UNAVAILABLE', 'down');
+      sent.push(m.kind);
+    });
+    const q = createSyncQueue(opts({ perform, lane: byPayload }));
+    await q.enqueue('meeting.note.add', { lane: 'notes:m1' }, A);
+    await q.enqueue('chat.send', { lane: 'chat:c1' }, A);
+    const res = await q.flush('userA');
+    expect(sent).toEqual(['chat.send']);
+    expect(res.pausedBy).toBe('server');
+    expect(q.pendingFor('userA')[0]).toMatchObject({ kind: 'meeting.note.add', attempts: 1 });
+  });
+
+  it('says which waiting changes have been waiting too long — those can be discarded', () => {
+    const base = { id: 'q', kind: 'chat.send', payload: {}, userId: 'u', idempotencyKey: 'k', attempts: 0, status: 'pending' as const };
+    const now = 10 * 60 * 60_000;
+    expect(waitingTooLong({ ...base, createdAt: now - 60_000 }, now)).toBe(false);
+    expect(waitingTooLong({ ...base, createdAt: now - 60_000, timeouts: 1 }, now)).toBe(true);
+    expect(waitingTooLong({ ...base, createdAt: now - 16 * 60_000 }, now)).toBe(true);
+  });
+});
+
+describe('Retry after a refusal (3a review fix 7)', () => {
+  it('goes under a new key: the server keeps a refusal under its key and would hand it back for a day', async () => {
+    const keys: string[] = [];
+    let refuse = true;
+    const perform = vi.fn(async (m: QueuedMutation) => {
+      keys.push(m.idempotencyKey);
+      if (refuse) throw new ApiError(403, 'FORBIDDEN', 'You do not have access to this conversation.');
+    });
+    const q = createSyncQueue(opts({ perform }));
+    await q.enqueue('chat.send', { conversationId: 'c1', body: 'hi', clientId: 'c-1' }, { ...A, idempotencyKey: 'first' });
+    await q.flush('userA');
+    refuse = false;
+    await q.retry(q.failedFor('userA')[0]!.id);
+    await q.flush('userA');
+    expect(keys[0]).toBe('first');
+    expect(keys[1]).not.toBe('first');
+  });
+
+  it('keeps the key after a change that only got no answer or a server hiccup (it may have been saved)', async () => {
+    const keys: string[] = [];
+    let fail = true;
+    const perform = vi.fn(async (m: QueuedMutation) => {
+      keys.push(m.idempotencyKey);
+      if (fail) throw slow();
+    });
+    const q = createSyncQueue(opts({ perform }));
+    await q.enqueue('task.create', { title: 'x' }, { ...A, idempotencyKey: 'first' });
+    for (let i = 0; i < 3; i++) await q.flush('userA');
+    fail = false;
+    await q.retry(q.failedFor('userA')[0]!.id);
+    await q.flush('userA');
+    expect(new Set(keys)).toEqual(new Set(['first']));
+  });
+});
+
+describe('replayLane — what a waiting change waits behind', () => {
+  it('a conversation’s messages share a lane; another conversation, a note or an item change has its own', () => {
+    const m = (kind: string, payload: unknown, id = 'q') => ({ id, kind, payload });
+    expect(replayLane(m('chat.send', { conversationId: 'c1' }, 'a'))).toBe(replayLane(m('chat.send', { conversationId: 'c1' }, 'b')));
+    expect(replayLane(m('chat.send', { conversationId: 'c1' }))).not.toBe(replayLane(m('chat.send', { conversationId: 'c2' })));
+    expect(replayLane(m('meeting.note.add', { meetingId: 'm1' }))).not.toBe(replayLane(m('chat.send', { conversationId: 'c1' })));
+    expect(replayLane(m('task.move', { id: 't1' }))).toBe(replayLane(m('task.update', { id: 't1' })));
+    expect(replayLane(m('checklist.update', { id: 't1', itemId: 'k1' }))).not.toBe(replayLane(m('checklist.update', { id: 't1', itemId: 'k2' })));
+    expect(replayLane(m('???', {}, 'x'))).not.toBe(replayLane(m('???', {}, 'y')));
+  });
+});
 
 const opts = (overrides: Partial<Parameters<typeof createSyncQueue>[0]> = {}) => {
   let n = 0;

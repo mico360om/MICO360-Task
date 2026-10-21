@@ -9,7 +9,7 @@ import {
   settledByServer,
   type OutboxEntry,
 } from './chat-outbox';
-import { createSyncQueue, type QueuedMutation } from './sync-queue';
+import { createSyncQueue, NO_ANSWER_TEXT, type QueuedMutation } from './sync-queue';
 import { createMemoryStore } from './storage';
 import { ApiError, NetworkError } from './api-client';
 
@@ -71,7 +71,9 @@ describe('outboxFor (the messages of this conversation still on this phone, show
     queued({ id: 'q9', payload: p('c2', 'elsewhere', 'k9') }),
     queued({ id: 't1', kind: 'task.update', payload: { id: 't1', conversationId: 'c1' } }),
   ];
-  const failed = [queued({ id: 'q3', status: 'failed', lastError: 'You do not have access to this conversation.', createdAt: Date.parse('2026-10-21T08:03:00.000Z'), payload: p('c1', 'third', 'k3') })];
+  const failed = [
+    queued({ id: 'q3', status: 'failed', refused: true, lastError: 'You do not have access to this conversation.', createdAt: Date.parse('2026-10-21T08:03:00.000Z'), payload: p('c1', 'third', 'k3') }),
+  ];
 
   it('lists only this conversation’s messages, oldest first, each with where it stands', () => {
     const entries = outboxFor('c1', { pending, failed }, { online: true, confirmed: new Set() });
@@ -95,7 +97,7 @@ describe('outboxFor (the messages of this conversation still on this phone, show
 
   it('shows a message kept by an older version (no client id) too', () => {
     const old = [queued({ id: 'q7', payload: p('c1', 'old one') })];
-    expect(outboxFor('c1', { pending: old, failed: [] }, { online: true, confirmed: new Set() })).toEqual([
+    expect(outboxFor('c1', { pending: old, failed: [] }, { online: true, confirmed: new Set(), now: Date.parse('2026-10-21T08:01:00.000Z') })).toEqual([
       { queueId: 'q7', clientId: null, conversationId: 'c1', body: 'old one', createdAt: '2026-10-21T08:00:00.000Z', state: 'sending' },
     ]);
   });
@@ -111,18 +113,38 @@ describe('settledByServer', () => {
   });
 });
 
-describe('notSentReason (why a message was not sent, in plain words)', () => {
-  it('passes on what the server said about the message', () => {
-    expect(notSentReason('You do not have access to this conversation.')).toBe('You do not have access to this conversation.');
+describe('notSentReason (why a message was not sent, in the website’s words — 3a review fix 13)', () => {
+  it('passes on what the server said only when it refused the message', () => {
+    expect(notSentReason({ refused: true, lastError: 'You do not have access to this conversation.' })).toBe('You do not have access to this conversation.');
+    expect(notSentReason({ refused: true, lastError: new ApiError(403, 'FORBIDDEN', 'No access.').message })).toBe('No access.');
+    expect(notSentReason({ refused: true, lastError: 'Request failed (400)' })).toBe('The server had a problem.');
   });
-  it('says the server had a problem when it gave no reason', () => {
-    expect(notSentReason('Request failed (503)')).toBe('The server had a problem.');
-    expect(notSentReason('Could not be saved.')).toBe('The server had a problem.');
-    expect(notSentReason(undefined)).toBe('The server had a problem.');
+  it('says the server had a problem after its own failures — never their raw text', () => {
+    expect(notSentReason({ lastError: 'Something went wrong.' })).toBe('The server had a problem.');
+    expect(notSentReason({ lastError: 'The original request is still being processed. Retry shortly.' })).toBe('The server had a problem.');
+    expect(notSentReason({ lastError: 'Request failed (503)' })).toBe('The server had a problem.');
+    expect(notSentReason({})).toBe('The server had a problem.');
   });
-  it('is usable with the queue’s own error text for real errors', () => {
-    expect(notSentReason(new ApiError(403, 'FORBIDDEN', 'No access.').message)).toBe('No access.');
-    expect(notSentReason(new NetworkError('timeout').message)).toBe('timeout');
+  it('says the server couldn’t be reached when it never answered', () => {
+    expect(notSentReason({ lastError: NO_ANSWER_TEXT, timeouts: 3 })).toBe('Couldn’t reach the server.');
+  });
+});
+
+describe('a message the server hasn’t answered (2c review fix 4: the outbox follows the queue’s rules)', () => {
+  it('says so and can be discarded, like a change waiting too long in the sync list', () => {
+    const now = Date.parse('2026-10-21T08:05:00.000Z');
+    const pending = [
+      queued({ id: 'q1', payload: p('c1', 'stuck', 'k1'), timeouts: 1, createdAt: now - 60_000 }),
+      queued({ id: 'q2', payload: p('c1', 'fresh', 'k2'), createdAt: now - 60_000 }),
+      queued({ id: 'q3', payload: p('c1', 'old', 'k3'), createdAt: now - 20 * 60_000 }),
+    ];
+    const entries = outboxFor('c1', { pending, failed: [] }, { online: true, confirmed: new Set(), now });
+    expect(entries.map((e) => [e.body, e.state, !!e.canDiscard])).toEqual([
+      ['old', 'sending', true],
+      ['stuck', 'unanswered', true],
+      ['fresh', 'sending', false],
+    ]);
+    expect(outboxLabel(entries[1]!)).toBe('You: stuck. The server hasn’t answered yet. It will be tried again.');
   });
 });
 
@@ -194,7 +216,7 @@ describe('the outbox with the real queue: in order, the same client id on every 
     expect(queue.pendingFor('u1')).toEqual([]);
   });
 
-  it('refused: shown as not sent with the reason; Retry sends it again under the same id', async () => {
+  it('refused: shown as not sent with the reason; Retry sends it again under the same id, with a new key (3a review fix 7)', async () => {
     const { queue, sends, d } = await setup(['refused', 'ok']);
     await enqueueChatMessage(d, 'c1', 'hello');
     await queue.flush('u1');
@@ -202,10 +224,10 @@ describe('the outbox with the real queue: in order, the same client id on every 
     expect(entry).toMatchObject({ state: 'failed', reason: 'You do not have access to this conversation.' });
     await queue.retry(entry!.queueId);
     await queue.flush('u1');
-    expect(sends.map((s) => [s.clientId, s.key])).toEqual([
-      ['key-1', 'key-1'],
-      ['key-1', 'key-1'],
-    ]);
+    // The same client id (never stored twice), but a new Idempotency-Key: the server kept its refusal under the first.
+    expect(sends.map((s) => s.clientId)).toEqual(['key-1', 'key-1']);
+    expect(sends[0]!.key).toBe('key-1');
+    expect(sends[1]!.key).not.toBe('key-1');
     expect(queue.failedFor('u1')).toEqual([]);
   });
 });
