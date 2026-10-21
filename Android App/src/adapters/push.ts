@@ -1,5 +1,6 @@
 import { Linking, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { notificationsAbout, pushPresentation, viewingConversation } from '../lib/chat-viewing';
 
 /** Android channel the backend should target (`android.notification.channel_id`). */
 export const PUSH_CHANNEL_ID = 'default';
@@ -9,15 +10,17 @@ export type PushPermission = 'granted' | 'denied' | 'undetermined';
 let configured = false;
 
 /**
- * One-time notification setup (NTF-01): show pushes that arrive while the app is open, and create
- * the Android channel with high importance so they appear as heads-up notifications.
+ * One-time notification setup (NTF-01): show pushes that arrive while the app is open — except one
+ * about the conversation open on screen (3a, its messages are already there) — and create the
+ * Android channel with high importance so they appear as heads-up notifications.
  */
 export function configureNotifications(): void {
   if (configured) return;
   configured = true;
   try {
     Notifications.setNotificationHandler({
-      handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+      handleNotification: async (n) =>
+        pushPresentation(n.request.content.data as Record<string, unknown> | null | undefined, viewingConversation()),
     });
     if (Platform.OS === 'android') {
       void Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
@@ -28,6 +31,19 @@ export function configureNotifications(): void {
     }
   } catch {
     /* notifications unavailable (e.g. Expo Go on some devices) — the app works without them */
+  }
+}
+
+/**
+ * Take this phone's notifications about one thing off the screen (a conversation once read, 3a), so
+ * the launcher's badge doesn't count what was already seen. Best effort.
+ */
+export async function dismissNotificationsAbout(entityType: string, entityId: string): Promise<void> {
+  try {
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    for (const id of notificationsAbout(presented, entityType, entityId)) await Notifications.dismissNotificationAsync(id);
+  } catch {
+    /* notifications unavailable in this build: nothing to clear */
   }
 }
 

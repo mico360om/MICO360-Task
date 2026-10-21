@@ -5,11 +5,13 @@ import {
   newestPageCopy,
   olderPageCursor,
   patchThreadMessage,
+  threadItems,
   threadMessages,
   upsertThreadMessage,
   type ThreadPages,
 } from './chat-thread';
 import type { ApiChatMessage } from './types';
+import type { OutboxEntry } from './chat-outbox';
 
 const msg = (id: string, at: string, over: Partial<ApiChatMessage> = {}): ApiChatMessage => ({
   id,
@@ -112,5 +114,27 @@ describe('completeMessage', () => {
       reactions: [],
       attachments: [],
     });
+  });
+});
+
+describe('threadItems (server messages and the ones still on the phone, newest first)', () => {
+  const entry = (queueId: string, at: string, over: Partial<OutboxEntry> = {}): OutboxEntry => ({
+    queueId,
+    clientId: queueId,
+    conversationId: 'c1',
+    body: queueId,
+    createdAt: `2026-10-21T09:${at}:00.000Z`,
+    state: 'sending',
+    ...over,
+  });
+  it('puts the messages still on the phone at the newest end, newest first', () => {
+    const data = pages([msg('a', '01'), msg('b', '02')]);
+    const items = threadItems(data, [entry('q1', '01'), entry('q2', '02')], 'me');
+    expect(items.map((i) => i.key)).toEqual(['out-q2', 'out-q1', 'msg-b', 'msg-a']);
+    expect(items[0]).toMatchObject({ kind: 'outbox', userId: 'me' });
+    expect(items[2]).toMatchObject({ kind: 'message', userId: 'u2' });
+  });
+  it('is just the history when nothing waits', () => {
+    expect(threadItems(pages([msg('a', '01')]), [], 'me').map((i) => i.key)).toEqual(['msg-a']);
   });
 });

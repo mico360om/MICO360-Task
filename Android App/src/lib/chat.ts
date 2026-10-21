@@ -1,4 +1,5 @@
-import type { ApiChatMessage, ApiConversationSummary } from './types';
+import type { ApiChatMessage, ApiConversationSummary, ApiDirectoryUser } from './types';
+import type { MentionPerson } from './mentions';
 
 /** Realtime chat events broadcast by the API over socket.io (mirrors server event names). */
 export type ChatEvent =
@@ -40,10 +41,75 @@ export function unreadTotal(summaries: ApiConversationSummary[]): number {
   return summaries.reduce((sum, s) => sum + (s.unread || 0), 0);
 }
 
+
+// ── 3a: read state, the badge, titles and who can be mentioned ──────────────────
+
+/** The Chat tab's number: unread messages, without muted conversations or the one open on screen. */
+export function chatBadgeCount(inbox: ApiConversationSummary[] | undefined, { viewing }: { viewing: string | null }): number {
+  if (!Array.isArray(inbox)) return 0;
+  return inbox.reduce((sum, s) => (s.prefs?.muted || s.conversation.id === viewing ? sum : sum + (s.unread || 0)), 0);
+}
+
+/** The inbox right after this conversation was read: its unread is 0 (the same list when it already was). */
+export function withConversationRead(inbox: ApiConversationSummary[] | undefined, conversationId: string): ApiConversationSummary[] | undefined {
+  if (!Array.isArray(inbox) || !inbox.some((s) => s.conversation.id === conversationId && s.unread > 0)) return inbox;
+  return inbox.map((s) => (s.conversation.id === conversationId ? { ...s, unread: 0 } : s));
+}
+
+/** The project's channel as the inbox knows it (opened without asking the server), or null. */
+export function conversationForProject(inbox: ApiConversationSummary[] | undefined, projectId: string): string | null {
+  if (!Array.isArray(inbox)) return null;
+  return inbox.find((s) => s.conversation.kind === 'PROJECT' && s.conversation.projectId === projectId)?.conversation.id ?? null;
+}
+
+/** A thread's title: the project's name, or the other person's; plain words while unknown. */
+export function conversationTitle({
+  summary,
+  projects,
+  nameOf,
+  myId,
+  fallback,
+}: {
+  summary: ApiConversationSummary | undefined;
+  projects: ReadonlyArray<{ id: string; name: string }>;
+  nameOf: (userId: string) => string;
+  myId: string | null | undefined;
+  fallback?: string;
+}): string {
+  if (!summary) return fallback || 'Chat';
+  if (summary.conversation.kind === 'PROJECT') {
+    return projects.find((p) => p.id === summary.conversation.projectId)?.name ?? (fallback || 'Project channel');
+  }
+  const other = summary.participants.find((p) => p.userId !== myId)?.userId;
+  return other ? nameOf(other) : fallback || 'Direct message';
+}
+
 /**
- * Whether the conversation is scrolled to its newest message (within a finger's width), so it can
- * stay there when the on-screen keyboard opens and the list gets shorter.
+ * Who is in the conversation: a direct one's two people (from the inbox), a channel's project
+ * people (from the server). null while unknown.
  */
-export function isAtLatest({ offset, viewport, content }: { offset: number; viewport: number; content: number }): boolean {
-  return offset + viewport >= content - 40;
+export function chatMemberIds({ summary, members }: { summary: ApiConversationSummary | undefined; members: string[] | undefined }): string[] | null {
+  if (summary?.conversation.kind === 'DIRECT') return summary.participants.map((p) => p.userId);
+  return Array.isArray(members) ? members : null;
+}
+
+/**
+ * The people an @mention can name: the conversation's members (the server tells only them), never
+ * yourself, and only active accounts. No one while the members are unknown.
+ */
+export function mentionPeopleFor(memberIds: readonly string[] | null, directory: readonly ApiDirectoryUser[], myId: string | null | undefined): MentionPerson[] {
+  if (!memberIds) return [];
+  const byId = new Map(directory.map((u) => [u.id, u]));
+  const out: MentionPerson[] = [];
+  for (const id of memberIds) {
+    const u = byId.get(id);
+    if (!u || id === myId || u.active === false) continue;
+    out.push({ id: u.id, username: u.username, name: `${u.firstName} ${u.lastName}`.trim() });
+  }
+  return out;
+}
+
+/** Mark the open conversation read: it is on screen, the app is in front, and something is unread. */
+export function shouldMarkRead({ focused, appActive, unread }: { focused: boolean; appActive: boolean; unread: number }): boolean {
+  return focused && appActive && unread > 0;
 }

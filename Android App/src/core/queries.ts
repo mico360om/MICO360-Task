@@ -14,10 +14,10 @@ import { withAnswer } from '../lib/meeting-detail';
 import { findMeeting } from '../lib/meeting-screen';
 import { answerFailed, answerScope } from '../lib/meeting-cache';
 import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
-import { CHAT_PAGE_SIZE, olderPageCursor } from '../lib/chat-thread';
+import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-thread';
 import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
-import type { ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
+import type { ApiChatMessage, ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
 import type { NotificationPreferences } from '../lib/notification-prefs';
 import type { ReportFilters } from '../lib/reports';
 
@@ -693,27 +693,13 @@ export function useConversations() {
  */
 export function useConversationMessages(conversationId: string) {
   const { resources } = useServices();
-  return useInfiniteQuery({
+  return useInfiniteQuery<ApiChatMessage[], Error, ThreadPages, string[], string | undefined>({
     queryKey: threadKey(conversationId),
     queryFn: ({ pageParam }) => resources.chat.messages(conversationId, pageParam, CHAT_PAGE_SIZE),
-    initialPageParam: undefined as string | undefined,
+    initialPageParam: undefined,
     getNextPageParam: olderPageCursor,
     enabled: !!conversationId,
   });
 }
 
-export function useSendMessage(conversationId: string) {
-  const { resources, queue, currentUserId, chat } = useServices();
-  const qc = useQueryClient();
-  return useMutation({
-    // The action's key is also the message's client id: a retry (or the replay) is recognised.
-    mutationFn: ({ body, idempotencyKey }: Keyed<{ body: string }>) =>
-      resources.chat.send(conversationId, body, { idempotencyKey, clientId: idempotencyKey }),
-    onSuccess: (saved) => {
-      chat.put(conversationId, saved);
-      void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
-    },
-    onError: (err, v) =>
-      queueOnOffline(queue, currentUserId(), err, 'chat.send', { conversationId, body: v.body, clientId: v.idempotencyKey }, v.idempotencyKey),
-  });
-}
+// Sending a message: the outbox (core/chat useChatOutbox) keeps it in the offline queue first.

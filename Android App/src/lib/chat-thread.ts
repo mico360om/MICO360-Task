@@ -1,5 +1,6 @@
 import type { InfiniteData } from '@tanstack/react-query';
 import type { ApiChatMessage } from './types';
+import type { OutboxEntry } from './chat-outbox';
 
 /**
  * A conversation's history as the phone holds it (3a): pages from the server, the newest page
@@ -99,4 +100,22 @@ export function newestPageCopy(data: ThreadPages | undefined): ApiChatMessage[] 
   if (!isPages(data)) return [];
   const newest = Array.isArray(data.pages[0]) ? data.pages[0]! : [];
   return newest.length > CHAT_PAGE_SIZE ? newest.slice(newest.length - CHAT_PAGE_SIZE) : newest;
+}
+
+/** One row of the thread: a message the server has, or one still on this phone (chat-outbox). */
+export type ThreadItem =
+  | { kind: 'message'; key: string; userId: string; message: ApiChatMessage }
+  | { kind: 'outbox'; key: string; userId: string; entry: OutboxEntry };
+
+/**
+ * The thread's rows, newest first (the inverted list's order): the messages still on this phone at
+ * the newest end — they are on their way — then the history.
+ */
+export function threadItems(data: ThreadPages | undefined, outbox: readonly OutboxEntry[], myId: string): ThreadItem[] {
+  const waiting: ThreadItem[] = [];
+  for (let i = outbox.length - 1; i >= 0; i--) {
+    const entry = outbox[i]!;
+    waiting.push({ kind: 'outbox', key: `out-${entry.queueId}`, userId: myId, entry });
+  }
+  return [...waiting, ...threadMessages(data).map<ThreadItem>((message) => ({ kind: 'message', key: `msg-${message.id}`, userId: message.userId, message }))];
 }
