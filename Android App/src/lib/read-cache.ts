@@ -123,7 +123,7 @@ export function createReadCache({
     }
   }
 
-  async function dayOrder(userId: string): Promise<string[]> {
+  async function dayOrder(userId: string, gen: number): Promise<string[]> {
     const known = days.get(userId);
     if (known) return known;
     let order: string[] | null = null;
@@ -139,13 +139,14 @@ export function createReadCache({
       const keys = store.keys ? await store.keys().catch(() => [] as string[]) : [];
       order = keys.filter((k) => k.startsWith(mine)).map((k) => k.slice(mine.length)).filter((k) => rolling!.matches(k)).sort();
     }
-    days.set(userId, order);
+    // A sign-out while this was read cleared the cache: don't bring the old order back.
+    if (gen === generation) days.set(userId, order);
     return order;
   }
 
   /** This board day was just stored: it is now the newest; the ones beyond `keep` go. */
   async function noteDay(userId: string, key: string, gen: number): Promise<void> {
-    const order = await dayOrder(userId);
+    const order = await dayOrder(userId, gen);
     if (gen !== generation) return;
     const at = order.indexOf(key);
     if (at >= 0) order.splice(at, 1);

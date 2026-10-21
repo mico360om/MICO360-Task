@@ -12,9 +12,8 @@ import { createRefreshBatcher } from '../lib/refresh-batch';
  * DMs) and we join each project room so channel messages arrive. Any chat event refreshes the
  * inbox (conversation list + unread) and the affected thread; the events that follow one within
  * about 300 ms are gathered into one pass (a burst of messages or read receipts doesn't fetch the
- * inbox once per event). The
- * socket re-authenticates with a fresh token after expiry, and after a reconnect all chat data is
- * refetched so messages sent while disconnected appear.
+ * inbox once per event). The socket re-authenticates with a fresh token after expiry, and after a
+ * reconnect all chat data is refetched so messages sent while disconnected appear.
  */
 export function useChatRealtime(projectIds: string[]): void {
   const services = useServices();
