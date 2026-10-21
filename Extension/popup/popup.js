@@ -142,9 +142,14 @@ async function boot() {
       use(c);
     })) : undefined,
     shortcut,
-    // "Open the side panel": asked at once (in the click), then the popup closes once it is open.
-    openPanel: typeof windowId === 'number'
-      ? () => { void openSidePanel(chrome, windowId).then((opened) => { if (opened) window.close(); }); }
+    // "Open the side panel": asked at once (in the click) — in this popup's window, or Chrome's
+    // current one when it couldn't be found — then the popup closes once it is open. Resolves
+    // whether it opened (the form says so when it didn't).
+    openPanel: !inWindow && canOpenSidePanel(chrome)
+      ? () => openSidePanel(chrome, windowId).then((opened) => {
+        if (opened) window.close();
+        return opened;
+      })
       : undefined,
   };
   mount(root, QuickAddForm(ctx));

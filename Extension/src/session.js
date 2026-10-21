@@ -15,7 +15,7 @@ import { checkBaseUrl, sameOrigin } from './config.js';
 import { decodeJwtSub } from './jwt.js';
 import { assignOwnerlessItems } from './queue.js';
 import { CACHE_PREFIX } from './read-cache.js';
-import { LAST_PROJECT_KEY, RECENT_KEY, QUICK_ADD_SESSION_KEYS } from './quick-add.js';
+import { LAST_PROJECT_KEY, RECENT_KEY, QUICK_ADD_SESSION_KEYS, PANEL_DRAFT_PREFIX } from './quick-add.js';
 import { DESKTOP_ALERTS_KEY, ALERT_TARGET_KEY, clearDesktopAlert } from './notify.js';
 import { CHAT_DRAFTS_KEY } from './chat-drafts.js';
 
@@ -29,6 +29,17 @@ export const USER_DATA_KEYS = ['syncQueue', 'cacheOwner', 'lastUnread', 'lastUnr
  */
 const PERSON_LOCAL_KEYS = [DESKTOP_ALERTS_KEY, LAST_PROJECT_KEY, RECENT_KEY];
 const PERSON_SESSION_KEYS = [...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY, CHAT_DRAFTS_KEY];
+
+/** Take one person's leftovers out of session storage — with each window's side-panel form. */
+async function removePersonSession(session) {
+  let kept = [];
+  try {
+    kept = Object.keys((await session.get(null)) || {}).filter((k) => k.startsWith(PANEL_DRAFT_PREFIX));
+  } catch {
+    kept = [];
+  }
+  await session.remove([...PERSON_SESSION_KEYS, ...kept]);
+}
 
 /** Delete every cached API response (`cache:*`). */
 export async function clearCache(local) {
@@ -45,9 +56,9 @@ export async function clearUserData({ local, session, notifications }) {
   clearDesktopAlert(notifications);
   await createTokenStore({ local, session }).clear();
   await local.remove(USER_DATA_KEYS);
-  // The popup's unsent form, what the right-click menu captured for it, what the last desktop alert
-  // was about, and chat text not sent yet (memory only).
-  await session.remove(PERSON_SESSION_KEYS);
+  // The popup's and the side panels' unsent forms, what the right-click menu captured for it, what
+  // the last desktop alert was about, and chat text not sent yet (memory only).
+  await removePersonSession(session);
   await clearCache(local);
 }
 
@@ -89,7 +100,7 @@ export async function startSession({ local, session }, { accessToken, refreshTok
   if (cacheOwner !== uid) {
     await clearCache(local);
     await local.remove(PERSON_LOCAL_KEYS);
-    await session.remove(PERSON_SESSION_KEYS);
+    await removePersonSession(session);
   }
   await local.remove(['lastUnread', 'lastUnreadUser', 'lastSync']);
   await local.set({ cacheOwner: uid });
