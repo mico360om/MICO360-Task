@@ -201,8 +201,9 @@ function NewUserForm({ navigation }: { navigation: Nav }) {
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
-            autoComplete="password-new"
-            textContentType="newPassword"
+            // The new person's password, not yours: the phone's password manager doesn't offer to save it (6b review).
+            autoComplete="off"
+            importantForAutofill="no"
             value={form.password}
             onChangeText={(v) => set({ password: v })}
             maxLength={SIGN_IN_LIMITS.password}
@@ -381,8 +382,9 @@ function ResetPassword({ user, navigation }: { user: ApiAdminUser; navigation: N
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
-            autoComplete="password-new"
-            textContentType="newPassword"
+            // This person's password, not yours: the phone's password manager doesn't offer to save it (6b review).
+            autoComplete="off"
+            importantForAutofill="no"
             value={password}
             onChangeText={(v) => {
               setPassword(v);

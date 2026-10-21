@@ -57,6 +57,21 @@ describe('“+ New” on User Management', () => {
   });
 });
 
+// 6b review: the temporary and reset passwords are someone else's — the phone's password manager
+// must not offer to save them as the administrator's own.
+describe('passwords set for someone else', () => {
+  it('the temporary and the reset password are never offered to the password manager', () => {
+    const form = readFileSync(resolve(__dirname, '../screens/UserFormScreen.tsx'), 'utf8');
+    const fields = form.split('<TextField').filter((f) => /secureTextEntry/.test(f.split('/>')[0]!)).map((f) => f.split('/>')[0]!);
+    expect(fields).toHaveLength(2);
+    for (const f of fields) {
+      expect(f).toMatch(/importantForAutofill="no"/);
+      expect(f).toMatch(/autoComplete="off"/);
+      expect(f).not.toMatch(/password-new|newPassword/);
+    }
+  });
+});
+
 const user = (over: Partial<ApiAdminUser> = {}): ApiAdminUser => ({
   id: 'u1',
   email: 'omar@mico360.com',
