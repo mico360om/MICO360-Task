@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNotifications, useMarkNotificationRead } from '../core/queries';
 import { notificationToTarget } from '../lib/deep-link';
-import { targetToAction } from '../navigation/nav-actions';
+import { alertRoute, targetToAction } from '../navigation/nav-actions';
 import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
@@ -55,11 +55,12 @@ export function NotificationsScreen({ navigation }: TabScreenProps<'Notification
   /** Tapping an alert marks it read and opens what it is about — e.g. the task (WEB-18). */
   const open = (n: ApiNotification) => {
     if (!n.readAt) markRead.mutate(n.id);
-    const action = targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId }));
-    if (action.type === 'stack' && action.screen === 'TaskDetail') navigation.navigate('TaskDetail', action.params);
-    else if (action.type === 'stack' && action.screen === 'Board') navigation.navigate('Board', action.params);
-    else if (action.type === 'stack' && action.screen === 'MeetingDetail') navigation.navigate('MeetingDetail', action.params);
-    else if (action.type === 'tab' && action.tab !== 'Notifications') navigation.navigate('Tabs', { screen: action.tab });
+    const route = alertRoute(targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId })));
+    if (route?.name === 'TaskDetail') navigation.navigate('TaskDetail', route.params);
+    else if (route?.name === 'Board') navigation.navigate('Board', route.params);
+    else if (route?.name === 'MeetingDetail') navigation.navigate('MeetingDetail', route.params);
+    else if (route?.name === 'ChatThread') navigation.navigate('ChatThread', route.params);
+    else if (route?.name === 'Tabs') navigation.navigate('Tabs', route.params);
   };
 
   return (
