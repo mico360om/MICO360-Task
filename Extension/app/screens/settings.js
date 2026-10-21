@@ -4,6 +4,7 @@ import { UPDATE_STEPS } from '../components.js';
 import { resolveBases, checkBaseUrl, sameOrigin, DEFAULTS } from '../../src/config.js';
 import { queueStats, describeMutation, retryQueued, removeQueued } from '../../src/queue.js';
 import { versionStatus, aboutUrl } from '../../src/version.js';
+import { isTransientFailure } from '../../src/errors.js';
 import { requestHostAccess } from './login.js';
 
 /**
@@ -66,17 +67,19 @@ export function SettingsScreen(ctx) {
   async function renderAbout(appBase) {
     let server = null;
     let saved = false;
+    let offline = true;
     try {
       const r = ctx.api && ctx.api.version ? await ctx.api.version() : null;
       server = (r && r.data && r.data.version) || null;
       saved = Boolean(r && r.stale);
-    } catch {
-      server = null; // offline, with no saved answer
+    } catch (e) {
+      server = null;
+      offline = isTransientFailure(e); // else the server answered but can't say (older than /version)
     }
     const status = versionStatus({ manifest: ctx.manifest, server });
     const serverLine = status.server
       ? `Server version ${status.server}${saved ? ' (saved — you appear to be offline)' : ''}`
-      : 'Server version not known — you appear to be offline.';
+      : `Server version not known${offline ? ' — you appear to be offline' : ''}.`;
     let note = null;
     if (status.updateAvailable) {
       note = el('div', { class: 'infobar', style: { marginTop: '10px', marginBottom: 0 } },

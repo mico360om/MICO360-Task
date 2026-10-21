@@ -5,6 +5,7 @@ import { SettingsScreen } from '../app/screens/settings.js';
 import { updateNotice } from '../app/components.js';
 import { versionStatus } from './version.js';
 import { DEFAULTS } from './config.js';
+import { ApiError } from './errors.js';
 import { fakeStorage } from './test-helpers.js';
 
 const settle = async () => {
@@ -73,6 +74,11 @@ describe('Settings → About', () => {
     root = SettingsScreen(settingsCtx({ version: async () => { throw new TypeError('Failed to fetch'); } }));
     await settle();
     expect(about(root).textContent).toContain('Server version not known — you appear to be offline');
+    // A server that answers but can't say (one older than /version): not "offline".
+    root = SettingsScreen(settingsCtx({ version: async () => { throw new ApiError(404, 'Not found'); } }));
+    await settle();
+    expect(about(root).textContent).toContain('Server version not known.');
+    expect(about(root).textContent).not.toContain('offline');
   });
 });
 
