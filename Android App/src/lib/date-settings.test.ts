@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { WEEK_START_OPTIONS, calendarZoneNote, datePrefsSavedText, deviceTimeZone, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, withDatePatch } from './date-settings';
+import { describe, it, expect, vi } from 'vitest';
+import { QueryClient } from '@tanstack/react-query';
+import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, withDatePatch } from './date-settings';
 
 const prev = { company: 'Asia/Dubai', own: 'Europe/London' };
 
@@ -99,5 +100,63 @@ describe('what TalkBack hears after a date setting is saved', () => {
     expect(datePrefsSavedText({ timeZone: 'Europe/London', weekStart: 6 }, { timeZone: null, weekStart: 6 })).toBe('Saved. The calendar uses the company time zone.');
     expect(datePrefsSavedText(undefined, { timeZone: null, weekStart: null })).toBe('Saved. Weeks start on Sunday.');
     expect(datePrefsSavedText({ timeZone: null, weekStart: 1 }, { timeZone: null, weekStart: 1 })).toBe('Saved.');
+  });
+});
+
+describe('loadDateSettings (5a review: the calendar knows the week start on its first open)', () => {
+  const makeQc = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const deps = (over: Partial<Parameters<typeof loadDateSettings>[0]> = {}) => {
+    let zones = { company: 'Asia/Muscat', own: null as string | null };
+    const kept: unknown[] = [];
+    const d = {
+      qc: makeQc(),
+      config: async () => ({ timeZone: 'Asia/Dubai' }),
+      readPrefs: vi.fn(async () => ({ timeZone: 'Europe/London', weekStart: 1 as const })),
+      keepZones: async (z: unknown) => {
+        kept.push(z);
+      },
+      zones: { get: () => zones, set: (z: typeof zones) => (zones = z) },
+      ...over,
+    };
+    return { d, kept, zones: () => zones };
+  };
+
+  it('puts your date settings where the calendar reads them, so its first open has your week start', async () => {
+    const { d } = deps();
+    await loadDateSettings(d);
+    expect(d.qc.getQueryData(DATE_PREFERENCES_KEY)).toEqual({ timeZone: 'Europe/London', weekStart: 1 });
+  });
+
+  it('sets and keeps both zones, as before', async () => {
+    const { d, kept, zones } = deps();
+    await loadDateSettings(d);
+    expect(zones()).toEqual({ company: 'Asia/Dubai', own: 'Europe/London' });
+    expect(kept).toEqual([{ company: 'Asia/Dubai', own: 'Europe/London' }]);
+  });
+
+  it('asks again each time (back in the app), even when the settings it has are fresh — they may have changed on the website', async () => {
+    const { d } = deps();
+    await loadDateSettings(d);
+    await loadDateSettings(d);
+    expect(d.readPrefs).toHaveBeenCalledTimes(2);
+  });
+
+  it('a load that failed keeps what the phone had; one that ended after the screen went changes nothing', async () => {
+    const failed = deps({ config: async () => Promise.reject(new Error('offline')), readPrefs: vi.fn(async () => Promise.reject(new Error('offline'))) });
+    await loadDateSettings(failed.d);
+    expect(failed.zones()).toEqual({ company: 'Asia/Muscat', own: null });
+    expect(failed.kept).toEqual([]);
+    const gone = deps({ isActive: () => false });
+    await loadDateSettings(gone.d);
+    expect(gone.zones()).toEqual({ company: 'Asia/Muscat', own: null });
+  });
+});
+
+describe('weekStartKnown — the calendar asks for its days once it knows how its weeks are laid out', () => {
+  it('known once the settings are here, or their load has ended without them (the default is used)', () => {
+    expect(weekStartKnown({ data: { timeZone: null, weekStart: 1 }, fetchStatus: 'fetching' })).toBe(true);
+    expect(weekStartKnown({ data: undefined, fetchStatus: 'fetching' })).toBe(false);
+    expect(weekStartKnown({ data: undefined, fetchStatus: 'idle' })).toBe(true);
+    expect(weekStartKnown({ data: undefined, fetchStatus: 'paused' })).toBe(true);
   });
 });

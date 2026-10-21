@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { AppState, Pressable, Text } from 'react-native';
+import { Pressable, Text } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
   NavigationContainer,
@@ -20,8 +20,8 @@ import { useTheme } from '../core/theme';
 import { spacing } from '../lib/theme';
 import { notificationToTarget } from '../lib/deep-link';
 import { useDrawerStore } from '../lib/drawer-store';
-import { dateZones, setDateZones, subscribeTimeZone } from '../lib/due-date';
-import { DATE_ZONES_KEY, nextDateZones } from '../lib/date-settings';
+import { dateZones, subscribeTimeZone } from '../lib/due-date';
+import { useDateSettingsLoad } from '../core/calendar-queries';
 import { asyncStore } from '../adapters/async-storage';
 import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
@@ -166,33 +166,12 @@ function PushRegistrationMount() {
 }
 
 /**
- * Dates follow the website: the company's time zone everywhere, your own (Settings → Date and time
- * there) on the calendar. Loaded once signed in and whenever the app comes back to the front; a
- * load that fails keeps the zones the phone had, and the last ones are kept for the next start.
+ * Dates follow the website: the company's time zone everywhere, your own on the calendar, with
+ * your week start (core/calendar-queries useDateSettingsLoad). Loaded once signed in and whenever
+ * the app comes back to the front.
  */
 function TimeZoneMount() {
-  const { resources } = useServices();
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const [config, prefs] = await Promise.all([
-        resources.settings.config().catch(() => null),
-        resources.settings.datePreferences().catch(() => null),
-      ]);
-      if (!active || (!config && !prefs)) return;
-      const next = nextDateZones(dateZones(), { config, prefs });
-      setDateZones(next);
-      await asyncStore.setItem(DATE_ZONES_KEY, JSON.stringify(next)).catch(() => {});
-    };
-    void load();
-    const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') void load();
-    });
-    return () => {
-      active = false;
-      sub.remove();
-    };
-  }, [resources]);
+  useDateSettingsLoad();
   return null;
 }
 

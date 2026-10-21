@@ -16,6 +16,7 @@ import {
 import { useColors } from '../core/theme';
 import { isNetworkError } from '../lib/api-client';
 import { calendarTimeZone, companyTodayKey, dateZones } from '../lib/due-date';
+import { weekStartKnown } from '../lib/date-settings';
 import { dayLabel, periodLabel, stepCursor, visibleRange, weekStartOf, type CalendarView } from '../lib/calendar';
 import { activeFilterCount, applyFilters, buildItems, DEFAULT_FILTERS, groupByDay, type CalendarFilters, type CalendarTask, type CalItem } from '../lib/calendar-model';
 import { filterCalendarMeetings, groupMeetingsByDay, meetingItems } from '../lib/calendar-meetings';
@@ -74,7 +75,10 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   const timeZone = calendarTimeZone();
   const zones = dateZones();
   const today = companyTodayKey(new Date(), timeZone);
-  const weekStart = weekStartOf(useDatePreferences().data);
+  // Usually here already (loaded on start); otherwise the days are asked for once it is (5a review).
+  const prefsQ = useDatePreferences();
+  const weekStart = weekStartOf(prefsQ.data);
+  const weekKnown = weekStartKnown(prefsQ);
 
   // The view, day and filters, kept while the app is open (the website keeps them in its address).
   const [place, setPlace] = useState<CalendarPlace>(() => calendarPlace.get(userId));
@@ -92,8 +96,8 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   }, []);
 
   const { from, to } = visibleRange(view, cursor, weekStart);
-  const rangeQ = useCalendarRange(from, to);
-  const meetingsQ = useCalendarMeetingsIn(from, to, timeZone);
+  const rangeQ = useCalendarRange(from, to, weekKnown);
+  const meetingsQ = useCalendarMeetingsIn(from, to, timeZone, weekKnown);
   const overdueQ = useCalendarOverdue(view === 'agenda');
   const projectsQ = useProjects();
   const dirQ = useDirectory();
@@ -369,7 +373,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
         </View>
       </View>
 
-      {rangeQ.isLoading ? (
+      {rangeQ.isLoading || !weekKnown ? (
         <Loader />
       ) : rangeQ.isError && !rangeQ.data ? (
         <View style={styles.errorWrap}>

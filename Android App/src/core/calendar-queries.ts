@@ -1,6 +1,11 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
+import { AppState } from 'react-native';
 import { hashKey, keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
+import type { Services } from './services';
+import { asyncStore } from '../adapters/async-storage';
+import { DATE_PREFERENCES_COPY, DATE_PREFERENCES_KEY, DATE_ZONES_KEY, loadDateSettings } from '../lib/date-settings';
+import { dateZones, setDateZones } from '../lib/due-date';
 import { listWithPendingDueDates, meetingsInRange, rangeView, slimRange } from '../lib/calendar-data';
 import { meetingRange } from '../lib/calendar-meetings';
 import { CALENDAR_KEY, rescheduleOptions } from '../lib/calendar-move';
@@ -20,7 +25,7 @@ export const CALENDAR_OVERDUE_KEY = [...CALENDAR_KEY, 'overdue'];
 export const CALENDAR_MEETINGS_KEY = ['meetings', 'calendar'] as const;
 
 /** One range of days: everyone's tasks due in it (projects you can see) and the repeats to come. */
-export function useCalendarRange(from: string, to: string) {
+export function useCalendarRange(from: string, to: string, enabled = true) {
   const { resources, reads, queue, currentUserId } = useServices();
   return useQuery({
     queryKey: calendarRangeKey(from, to),
@@ -31,6 +36,8 @@ export function useCalendarRange(from: string, to: string) {
     },
     // The days you leave stay on screen (dimmed) until the next ones arrive.
     placeholderData: keepPreviousData,
+    // Asked for once the week start is known: the days depend on it (5a review).
+    enabled,
   });
 }
 
@@ -46,7 +53,7 @@ export function useCalendarOverdue(enabled: boolean) {
 }
 
 /** The meetings in the visible days (the calendar's time zone). */
-export function useCalendarMeetingsIn(from: string, to: string, timeZone: string) {
+export function useCalendarMeetingsIn(from: string, to: string, timeZone: string, enabled = true) {
   const { resources, reads } = useServices();
   const span = meetingRange(from, to, timeZone);
   return useQuery({
@@ -57,20 +64,55 @@ export function useCalendarMeetingsIn(from: string, to: string, timeZone: string
       return reads.answeredFromCopy({ queryHash: hashKey(queryKey) }) ? meetingsInRange(list, span.from, span.to) : list;
     },
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
 /** Where your date settings are kept (Settings saves into it: core/account-queries). */
-export const DATE_PREFERENCES_KEY = ['settings', 'date-preferences'];
+export { DATE_PREFERENCES_KEY };
+
+/** Your date settings through their offline copy (one read for the calendar and the load on start). */
+const readDatePreferences = (s: Pick<Services, 'resources' | 'reads'>) =>
+  s.reads.read(DATE_PREFERENCES_KEY, DATE_PREFERENCES_COPY, () => s.resources.settings.datePreferences());
 
 /** Your date settings (the week start; shared with the website), kept for an offline start. */
 export function useDatePreferences() {
-  const { resources, reads } = useServices();
+  const services = useServices();
   return useQuery({
     queryKey: DATE_PREFERENCES_KEY,
-    queryFn: ({ queryKey }) => reads.read(queryKey, 'date-preferences', () => resources.settings.datePreferences()),
+    queryFn: () => readDatePreferences(services),
     staleTime: 5 * 60_000,
   });
+}
+
+/**
+ * Dates follow the website: the company's time zone everywhere, your own (Settings → Calendar &
+ * dates) on the calendar. Loaded once signed in and whenever the app comes back to the front; a
+ * load that fails keeps the zones the phone had, and the last ones are kept for the next start.
+ * Your settings go where the calendar reads them, so it opens with your week start (5a review).
+ */
+export function useDateSettingsLoad() {
+  const services = useServices();
+  useEffect(() => {
+    let active = true;
+    const load = () =>
+      void loadDateSettings({
+        qc: services.queryClient,
+        config: () => services.resources.settings.config(),
+        readPrefs: () => readDatePreferences(services),
+        keepZones: (zones) => asyncStore.setItem(DATE_ZONES_KEY, JSON.stringify(zones)),
+        zones: { get: dateZones, set: setDateZones },
+        isActive: () => active,
+      });
+    load();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') load();
+    });
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, [services]);
 }
 
 /** Move a task to another day, through the app's task-edit path (lib/calendar-move). */

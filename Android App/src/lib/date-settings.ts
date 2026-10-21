@@ -1,5 +1,11 @@
+import type { FetchStatus, QueryClient } from '@tanstack/react-query';
 import type { DateZones } from './due-date';
 import { TIME_ZONES } from './time-zones';
+
+/** Where your date settings are kept in the app (the calendar's week start reads them). */
+export const DATE_PREFERENCES_KEY = ['settings', 'date-preferences'];
+/** Their offline copy (kept for a start without a connection). */
+export const DATE_PREFERENCES_COPY = 'date-preferences';
 
 /** The company's time zone when the server doesn't say (and the app's default). */
 const FALLBACK_TIME_ZONE = 'Asia/Muscat';
@@ -27,6 +33,41 @@ export function nextDateZones(prev: DateZones, loaded: { config: ServerConfig | 
   const company = loaded.config ? (isValidTimeZone(loaded.config.timeZone) ? loaded.config.timeZone : FALLBACK_TIME_ZONE) : prev.company;
   const own = loaded.prefs ? (isValidTimeZone(loaded.prefs.timeZone) ? loaded.prefs.timeZone : null) : prev.own;
   return { company, own };
+}
+
+export interface DateSettingsLoad {
+  qc: QueryClient;
+  /** GET /config. */
+  config: () => Promise<ServerConfig>;
+  /** GET /users/me/preferences through its offline copy (the calendar's own read). */
+  readPrefs: () => Promise<DatePreferences>;
+  /** Keep the zones for the next start. */
+  keepZones: (zones: DateZones) => Promise<void>;
+  zones: { get: () => DateZones; set: (next: DateZones) => void };
+  /** False once the load is no longer wanted (signed out meanwhile). */
+  isActive?: () => boolean;
+}
+
+/**
+ * Load the server's settings and yours (signed in, and each time the app comes back to the front):
+ * the zones are set and kept, and your settings go where the calendar reads them, so it opens with
+ * your week start at once instead of starting on Sunday and asking for its days twice (5a review).
+ * Asked again every time — they may have changed on the website.
+ */
+export async function loadDateSettings(d: DateSettingsLoad): Promise<void> {
+  const [config, prefs] = await Promise.all([
+    d.config().catch(() => null),
+    d.qc.fetchQuery({ queryKey: DATE_PREFERENCES_KEY, queryFn: () => d.readPrefs(), staleTime: 0 }).catch(() => null),
+  ]);
+  if ((d.isActive && !d.isActive()) || (!config && !prefs)) return;
+  const next = nextDateZones(d.zones.get(), { config, prefs });
+  d.zones.set(next);
+  await d.keepZones(next).catch(() => {});
+}
+
+/** Does the calendar know how its weeks are laid out: your settings are here, or their load ended without them? */
+export function weekStartKnown(q: { data: DatePreferences | null | undefined; fetchStatus: FetchStatus }): boolean {
+  return q.data != null || q.fetchStatus !== 'fetching';
 }
 
 /** The zones saved by an earlier start, or null when there are none (or they are unusable). */
