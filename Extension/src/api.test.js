@@ -24,6 +24,21 @@ describe('api.reports', () => {
   });
 });
 
+describe('api.version', () => {
+  it('reads GET /version and keeps the answer, so the versions still show offline', async () => {
+    const store = fakeStorage();
+    let online = true;
+    const auth = fakeAuth((path) => {
+      if (!online) throw new TypeError('Failed to fetch');
+      return json({ data: { version: '1.6.0', deployedAt: '2026-10-21T05:00:00Z', path } });
+    });
+    const api = createApi({ auth, cache: createReadCache(store) });
+    expect(await api.version()).toMatchObject({ data: { version: '1.6.0', path: '/version' }, stale: false });
+    online = false;
+    expect(await api.version()).toMatchObject({ data: { version: '1.6.0' }, stale: true });
+  });
+});
+
 describe('cached reads only keep real API answers (M6)', () => {
   const saved = () => fakeStorage({ 'cache:projects': { data: [{ id: 'p1', name: 'Ops' }], cachedAt: 1 } });
 

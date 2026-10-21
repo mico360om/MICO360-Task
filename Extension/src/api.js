@@ -102,6 +102,8 @@ export function createApi({ auth, cache, pending }) {
     raw,
     download,
     config: () => raw('/config'),
+    /** The server's version (`{ version, deployedAt }`); the saved answer while offline. */
+    version: () => get('version', '/version'),
     reports: {
       projects: (f) => raw(`/reports/projects${filters(f)}`),
       status: (f) => raw(`/reports/status${filters(f)}`),

@@ -9,7 +9,9 @@ import { setToolbarBadge } from '../src/notify.js';
 import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
+import { versionStatus, aboutUrl } from '../src/version.js';
 import { applyStoredTheme } from './theme.js';
+import { updateNotice } from './components.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -27,6 +29,8 @@ const storage = chrome.storage.local;
 // The access token lives in memory-only session storage (EXT-07), never on disk.
 const sessionStore = chrome.storage.session;
 const NOTICE_KEY = 'mico360.loginNotice';
+/** How often an open app tab asks the server for its version (a newer one means an update is out). */
+const VERSION_CHECK_MS = 30 * 60000;
 
 const NAV = [
   { path: '/', icon: '🏠', label: 'Dashboard' },
@@ -145,6 +149,7 @@ async function boot() {
 
   const app = new App({
     root, api, cache, auth, storage, apiBase, appBase, me, state, performMutation,
+    manifest: chrome.runtime.getManifest(),
     timeZone: safeTimeZone(stored.companyTimeZone || DEFAULT_TIME_ZONE),
   });
   app.start();
@@ -176,6 +181,7 @@ class App {
       apiBase: this.apiBase,
       appBase: this.appBase,
       me: this.me,
+      manifest: this.manifest,
       timeZone: this.timeZone,
       params: params || {},
       query: query || {},
@@ -233,7 +239,34 @@ class App {
     this.refreshMeta();
     this.sync();
     this.refreshTimeZone();
+    this.checkVersion();
     setInterval(() => this.refreshMeta(), 60000);
+    setInterval(() => this.checkVersion(), VERSION_CHECK_MS);
+  }
+
+  /**
+   * The server's version (GET /version). A zip install is told when the server is newer — Chrome
+   * never updates those — until it is dismissed for that version (Settings → About still says so).
+   */
+  async checkVersion() {
+    let server = null;
+    try {
+      server = (await this.api.version()).data?.version ?? null;
+    } catch {
+      /* offline with nothing saved — check again later */
+    }
+    const status = versionStatus({ manifest: this.manifest, server });
+    let dismissed = null;
+    try { dismissed = (await this.storage.get('dismissedUpdate')).dismissedUpdate ?? null; } catch { dismissed = null; }
+    const show = status.updateAvailable && dismissed !== status.server;
+    mount(this.updateEl, show ? updateNotice({
+      status,
+      aboutHref: aboutUrl(this.appBase),
+      onDismiss: async () => {
+        clear(this.updateEl);
+        try { await this.storage.set({ dismissedUpdate: status.server }); } catch { /* shown again next time */ }
+      },
+    }) : null);
   }
 
   /** Company time zone from GET /config (cached for the next start; used by boards and due dates). */
@@ -269,7 +302,7 @@ class App {
   renderNav() {
     mount(this.navEl,
       NAV.filter((n) => !n.adminOnly || (this.me.roles || []).includes('ADMIN')).map((n) => el('a', { href: `#${n.path}`, class: 'navlink', dataset: { path: n.path } },
-        el('span', { class: 'ic' }, n.icon), el('span', {}, n.label),
+        el('span', { class: 'ic', 'aria-hidden': 'true' }, n.icon), el('span', {}, n.label),
         n.badge ? el('span', { class: 'badge nav-unread hidden' }) : null,
       )),
     );
@@ -290,15 +323,18 @@ class App {
     const sidebar = el('aside', { class: 'sidebar' },
       el('div', { class: 'brand' }, el('span', { class: 'n' }, el('span', { class: 'm' }, 'MICO'), '360')),
       this.navEl,
-      el('div', { class: 'side-foot' }, this.userEl),
+      el('div', { class: 'side-foot' }, this.userEl,
+        el('a', { class: 'side-ver', href: '#/settings', title: 'Versions and updates: Settings → About' }, `Version ${this.manifest?.version || ''}`)),
     );
-    this.titleEl = el('h1', {}, 'Dashboard');
+    this.titleEl = el('h1', { tabindex: '-1' }, 'Dashboard');
     this.connEl = el('span', { class: 'conn' });
     this.offbar = el('div', { class: 'offbar hidden' }, 'Offline — showing saved data. Changes will sync when you reconnect.');
+    this.updateEl = el('div');
     this.content = el('div', { class: 'content' });
     const main = el('main', { class: 'main' },
       el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), this.connEl),
       this.offbar,
+      this.updateEl,
       this.content,
     );
     mount(this.root, el('div', { class: 'app' }, sidebar, main));
@@ -322,7 +358,10 @@ class App {
   setActiveNav(path) {
     for (const a of this.root.querySelectorAll('.navlink')) {
       const p = a.dataset.path;
-      a.classList.toggle('active', p === '/' ? path === '/' : path.startsWith(p));
+      const active = p === '/' ? path === '/' : path.startsWith(p);
+      a.classList.toggle('active', active);
+      if (active) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
     }
   }
 
