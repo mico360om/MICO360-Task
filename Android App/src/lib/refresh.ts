@@ -1,5 +1,8 @@
 import { matchQuery, type Query, type QueryClient } from '@tanstack/react-query';
 
+/** The Projects list's card figures (core/project-queries useProjectCardFigures). */
+export const PROJECT_FIGURES_KEY = ['projects', 'figures'];
+
 /**
  * A query key to refresh, with everything under it unless `exact`. `later` only marks it out of
  * date: it is fetched when next shown (a screen coming back into view, the app back in front, a
@@ -107,6 +110,9 @@ export function refresh(qc: QueryClient, targets: Refresh[]): void {
   const isLater = (t: Refresh) => 'queryKey' in t && t.later === true;
   const now = targets.filter((t) => !isLater(t)).map((t) => matcher(qc, t));
   const later = targets.filter(isLater).map((t) => matcher(qc, t));
+  // A task's change also moves the Projects list's figures (one list of every task): they are
+  // marked out of date and fetched when next shown, never at once for each change (5b review).
+  if (targets.some((t) => 'progressFor' in t)) later.push((q) => matchQuery({ queryKey: PROJECT_FIGURES_KEY, exact: true }, q));
   const all = qc.getQueryCache().getAll();
   const hits = new Set(all.filter((q) => now.some((test) => test(q))));
   const marks = new Set(all.filter((q) => !hits.has(q) && later.some((test) => test(q))));

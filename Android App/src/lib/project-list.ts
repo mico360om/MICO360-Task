@@ -6,11 +6,11 @@
  * project, with each project's completion coloured by how healthy it is. Pure TypeScript.
  */
 import { ApiError, isNetworkError } from './api-client';
-import { formatDueDay } from './due-date';
+import { formatDueDay, isOverdue, isTaskDone } from './due-date';
 import { projectStatusLabel } from './project-identity';
 import { summarize, type ProjectPerformanceRow } from './reports';
 import type { Tone } from './tone';
-import type { ApiProject, ApiProjectProgress } from './types';
+import type { ApiProject, ApiProjectProgress, ApiTask } from './types';
 
 export interface ProjectCardMeta {
   total: number;
@@ -21,8 +21,39 @@ export interface ProjectCardMeta {
   ownerName: string | null;
 }
 
-/** A card's figures from the project's progress (null until it has come). */
-export function projectCardMeta(progress: ApiProjectProgress | undefined, ownerName: string | null): ProjectCardMeta | null {
+/** One project's figures on its card. */
+export interface ProjectFigures {
+  total: number;
+  done: number;
+  overdue: number;
+  completionPct: number;
+}
+
+/**
+ * Every card's figures from ONE task list (5b review), as the website's Projects page works them
+ * out from its tasks/all query: each project's tasks, the finished ones (completed, or in a Done
+ * column) and the overdue ones — due before today in company time; finished work is never overdue.
+ */
+export function projectCardFigures(tasks: Pick<ApiTask, 'projectId' | 'dueDate' | 'completedAt' | 'columnCategory'>[], now: Date, timeZone: string): Record<string, ProjectFigures> {
+  const out: Record<string, ProjectFigures> = {};
+  for (const t of tasks) {
+    const f = (out[t.projectId] ??= { total: 0, done: 0, overdue: 0, completionPct: 0 });
+    f.total += 1;
+    if (isTaskDone(t)) f.done += 1;
+    else if (isOverdue(t, now, timeZone)) f.overdue += 1;
+  }
+  for (const f of Object.values(out)) f.completionPct = f.total ? Math.round((f.done / f.total) * 100) : 0;
+  return out;
+}
+
+/** A project's figures once the list has come (none of its tasks: nothing yet), else undefined. */
+export function projectFiguresFor(figures: Record<string, ProjectFigures> | undefined, projectId: string): ProjectFigures | undefined {
+  if (!figures) return undefined;
+  return figures[projectId] ?? { total: 0, done: 0, overdue: 0, completionPct: 0 };
+}
+
+/** A card's figures (null until they have come). */
+export function projectCardMeta(progress: ApiProjectProgress | ProjectFigures | undefined, ownerName: string | null): ProjectCardMeta | null {
   if (!progress) return null;
   return { total: progress.total, overdue: progress.overdue, completedPct: progress.completionPct, hasProgress: progress.total > 0, ownerName };
 }

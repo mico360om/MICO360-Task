@@ -75,3 +75,14 @@ describe('chat copies (3a)', () => {
     expect(CHAT_THREADS_KEPT).toBe(20);
   });
 });
+
+describe('the projects’ progress kept offline (5b review #2)', () => {
+  it('is capped: only the boards most recently opened keep their figures', async () => {
+    const { offlineCopyCaps, PROGRESS_KEPT } = await import('./offline-copy');
+    const capOf = (key: string) => offlineCopyCaps().find((g) => g.matches(key));
+    expect(capOf('progress.p1')?.keep).toBe(PROGRESS_KEPT);
+    expect(capOf('progress.p1')?.name).toBe('progress');
+    expect(capOf('projects.figures')).toBeUndefined();
+    expect(PROGRESS_KEPT).toBe(20);
+  });
+});

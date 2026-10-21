@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
-import { adminTotals, completionBars, emptyProjects, ownerChangeProblem, projectCardLabel, projectCardMeta, projectDates, projectsSubtitle, statusChangeProblem, statusChangeRequest } from './project-list';
+import { adminTotals, completionBars, emptyProjects, ownerChangeProblem, projectCardFigures, projectCardLabel, projectCardMeta, projectFiguresFor, projectDates, projectsSubtitle, statusChangeProblem, statusChangeRequest } from './project-list';
 import type { ApiProject } from './types';
 
 const project = (patch: Partial<ApiProject> = {}): ApiProject => ({
@@ -81,5 +81,43 @@ describe('Home for administrators: all projects’ totals, as the website shows 
       { id: 'b', label: 'Beta', pct: 33, tone: 'danger' },
       { id: 'c', label: 'Gamma', pct: 50, tone: 'warning' },
     ]);
+  });
+});
+
+describe('the cards’ figures come from one task list, as on the website (5b review #2)', () => {
+  const t = (id: string, projectId: string, patch: Record<string, unknown> = {}) => ({ id, projectId, dueDate: null, completedAt: null, columnCategory: 'TODO', ...patch });
+  it('counts each project’s tasks, the finished ones and the overdue ones (company day; finished work is never overdue)', () => {
+    const now = new Date('2026-10-21T08:00:00Z');
+    const figures = projectCardFigures(
+      [
+        t('a', 'p1'),
+        t('b', 'p1', { columnCategory: 'DONE' }),
+        t('c', 'p1', { completedAt: '2026-10-01T10:00:00Z', dueDate: '2026-10-02' }),
+        t('d', 'p1', { dueDate: '2026-10-20' }),
+        t('e', 'p1', { dueDate: '2026-10-21' }),
+        t('f', 'p2', { dueDate: '2026-10-19', columnCategory: 'DONE' }),
+      ] as never,
+      now,
+      'Asia/Muscat',
+    );
+    expect(figures.p1).toEqual({ total: 5, done: 2, overdue: 1, completionPct: 40 });
+    expect(figures.p2).toEqual({ total: 1, done: 1, overdue: 0, completionPct: 100 });
+    expect(figures.p3).toBeUndefined();
+    expect(projectCardMeta(figures.p1, null)).toEqual({ total: 5, overdue: 1, completedPct: 40, hasProgress: true, ownerName: null });
+  });
+
+  it('a project with no tasks in the list shows nothing done yet, once the list has loaded', () => {
+    expect(projectFiguresFor({}, 'p9')).toEqual({ total: 0, done: 0, overdue: 0, completionPct: 0 });
+    expect(projectFiguresFor(undefined, 'p9')).toBeUndefined();
+  });
+
+  it('the Projects list sends one request for every card, never one per project', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const queries = readFileSync(resolve(__dirname, '../core/project-queries.ts'), 'utf8');
+    const screen = readFileSync(resolve(__dirname, '../screens/ProjectsScreen.tsx'), 'utf8');
+    expect(queries).not.toMatch(/useQueries/);
+    expect(screen).not.toMatch(/useProjectsProgress/);
+    expect(screen).toMatch(/useProjectCardFigures\(\)/);
   });
 });

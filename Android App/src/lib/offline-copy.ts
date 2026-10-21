@@ -53,11 +53,22 @@ export const chatMembersCopyKey = (conversationId: string): string => `chat.memb
 const CHAT_THREAD = /^chat\.thread\.[^.]+$/;
 const CHAT_MEMBERS = /^chat\.members\.[^.]+$/;
 
-/** The copies that pile up, each capped on its own: board days, chat threads, channel members. */
+// ── Projects (5b review) ─────────────────────────────────────────────────────
+
+/** Boards whose progress figures are kept offline (the most recently opened). */
+export const PROGRESS_KEPT = 20;
+
+const PROGRESS = /^progress\.[^.]+$/;
+
+/** The Projects list's card figures (one small copy, from one task list). */
+export const PROJECT_FIGURES_COPY = 'projects.figures';
+
+/** The copies that pile up, each capped on its own: board days, chat threads, channel members, boards' progress. */
 export function offlineCopyCaps(): RollingGroup[] {
   return [
     { matches: isBoardDayCopy, keep: BOARD_DAYS_KEPT },
     { name: 'chat', matches: (key) => CHAT_THREAD.test(key), keep: CHAT_THREADS_KEPT },
     { name: 'chat-members', matches: (key) => CHAT_MEMBERS.test(key), keep: CHAT_THREADS_KEPT },
+    { name: 'progress', matches: (key) => PROGRESS.test(key), keep: PROGRESS_KEPT },
   ];
 }

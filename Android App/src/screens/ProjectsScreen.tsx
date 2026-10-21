@@ -1,15 +1,16 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, AccessibilityInfo } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDirectory, useProjects } from '../core/queries';
-import { useProjectStatus, useProjectsProgress } from '../core/project-queries';
+import { useProjectCardFigures, useProjectStatus } from '../core/project-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Badge } from '../components/ui';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
 import { PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
-import { emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectsSubtitle, statusChangeProblem, type ProjectCardMeta } from '../lib/project-list';
+import { emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectFiguresFor, projectsSubtitle, statusChangeProblem, type ProjectCardMeta } from '../lib/project-list';
 import { ownerName } from '../lib/project-dashboard';
 import { canEditProject } from '../lib/project-team';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -30,7 +31,16 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
   const admin = canEditProject(user);
   const { data: projects, isLoading, isError, refetch, isRefetching } = useProjects();
   const list = useMemo(() => projects ?? [], [projects]);
-  const progress = useProjectsProgress(useMemo(() => list.map((p) => p.id), [list]));
+  // One request for every card's figures (5b review), fetched again when the tab is shown and out of date.
+  const figuresQ = useProjectCardFigures();
+  const figures = figuresQ.data;
+  const refetchFigures = figuresQ.refetch;
+  const figuresStale = figuresQ.isStale;
+  useFocusEffect(
+    useCallback(() => {
+      if (figuresStale) void refetchFigures();
+    }, [figuresStale, refetchFigures]),
+  );
   const dirQ = useDirectory();
   const people = useMemo(() => dirQ.data ?? [], [dirQ.data]);
   const [statusFor, setStatusFor] = useState<ApiProject | null>(null);
@@ -60,7 +70,15 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
         data={isError && !projects ? [] : list}
         keyExtractor={(p) => p.id}
         contentContainerStyle={s.scroll}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={() => {
+              void refetch();
+              void refetchFigures();
+            }}
+          />
+        }
         ListHeaderComponent={
           <View style={s.head}>
             <Text style={s.subtitle}>{projectsSubtitle(admin)}</Text>
@@ -71,7 +89,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
         renderItem={({ item }) => (
           <ProjectCard
             project={item}
-            meta={projectCardMeta(progress[item.id], item.ownerId && dirQ.data ? ownerName(item.ownerId, people) : null)}
+            meta={projectCardMeta(projectFiguresFor(figures, item.id), item.ownerId && dirQ.data ? ownerName(item.ownerId, people) : null)}
             admin={admin}
             onOpen={open}
             onBoard={board}

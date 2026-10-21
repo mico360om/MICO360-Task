@@ -197,3 +197,15 @@ describe('refresh (one pass over the cache, each query at most once)', () => {
     stop();
   });
 });
+
+describe('the Projects list’s figures (5b review #2)', () => {
+  it('a task change marks them out of date, to be fetched when next shown — never at once for every change', () => {
+    const qc = client();
+    qc.setQueryData(['task', 't1'], task('t1', 'p1'));
+    qc.setQueryData(['projects', 'figures'], { p1: { total: 1, done: 0, overdue: 0, completionPct: 0 } });
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    refresh(qc, [{ progressFor: 't1' }]);
+    expect(refreshed(qc, ['projects', 'figures'])).toBe(true);
+    expect(spy.mock.calls.some(([filters]) => (filters as { refetchType?: string }).refetchType === 'none')).toBe(true);
+  });
+});

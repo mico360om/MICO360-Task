@@ -1,12 +1,15 @@
 import { useCallback } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { projectProgressQuery } from './queries';
 import { useDebouncedValue } from './useDebounced';
+import { appTimeZone } from '../lib/due-date';
+import { PROJECT_FIGURES_COPY } from '../lib/offline-copy';
+import { projectCardFigures, type ProjectFigures } from '../lib/project-list';
+import { PROJECT_FIGURES_KEY } from '../lib/refresh';
 import { codeProblem } from '../lib/project-identity';
 import { saveProject, type PictureChoice, type ProjectDraft, type SaveOutcome } from '../lib/project-form';
 import { statusChangeRequest } from '../lib/project-list';
-import type { ApiMember, ApiProject, ApiProjectProgress } from '../lib/types';
+import type { ApiMember, ApiProject } from '../lib/types';
 
 /**
  * Projects and their dashboard (5b): the cards' progress, the project form's code check and save,
@@ -18,15 +21,21 @@ import type { ApiMember, ApiProject, ApiProjectProgress } from '../lib/types';
 const membersKey = (projectId: string) => ['project', projectId, 'members'];
 const detailsKey = (projectId: string) => ['project', projectId, 'details'];
 
-/** Each listed project's progress (one small request each, kept offline), by project id. */
-export function useProjectsProgress(projectIds: string[]): Record<string, ApiProjectProgress | undefined> {
-  const services = useServices();
-  const results = useQueries({ queries: projectIds.map((id) => projectProgressQuery(services, id)) });
-  const out: Record<string, ApiProjectProgress | undefined> = {};
-  projectIds.forEach((id, i) => {
-    out[id] = results[i]?.data as ApiProjectProgress | undefined;
+/** How long the cards' figures count as fresh (a task change marks them out of date at once). */
+const FIGURES_FRESH_MS = 60_000;
+
+/**
+ * Every card's figures on the Projects list from ONE request (5b review): the tasks you can see,
+ * as the website's Projects page reads them (tasks/all), counted per project here. Only the small
+ * figures are kept offline, not the tasks.
+ */
+export function useProjectCardFigures() {
+  const { resources, reads } = useServices();
+  return useQuery<Record<string, ProjectFigures>>({
+    queryKey: PROJECT_FIGURES_KEY,
+    queryFn: ({ queryKey }) => reads.read(queryKey, PROJECT_FIGURES_COPY, async () => projectCardFigures(await resources.tasks.list(), new Date(), appTimeZone())),
+    staleTime: FIGURES_FRESH_MS,
   });
-  return out;
 }
 
 /** After a project changed: its details, the list, and anything showing it. */
