@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { queueOnOffline, type Keyed } from './queries';
+import { queueOnOffline, writeOrder, type Keyed } from './queries';
 import { isNetworkError } from '../lib/api-client';
+import { sendInOrder } from '../lib/write-order';
 import { refresh } from '../lib/refresh';
 import { afterMeetingSaved, afterPartChanged, dropRow, patchRow, putRow } from '../lib/meeting-cache';
 import type { SaveRequest } from '../lib/meeting-form';
@@ -76,7 +77,8 @@ export function useMeetingActions(meetingId: string) {
 // ── People and invitations ──────────────────────────────────────────────────
 
 export function useAttendeeMutations(meetingId: string) {
-  const { resources, queue, currentUserId } = useServices();
+  const services = useServices();
+  const { resources, queue, currentUserId } = services;
   const qc = useQueryClient();
   const key = part(meetingId, 'attendees');
   const changed = () => afterPartChanged(qc, meetingId, 'attendees');
@@ -94,11 +96,17 @@ export function useAttendeeMutations(meetingId: string) {
       changed();
     },
   });
-  /** Attendance on the day: shown at once, and kept on this phone when offline. */
+  /**
+   * Attendance on the day: shown at once, and kept on this phone when offline. A change waits
+   * behind an older one of the same person still on this phone (write-order), so the older one,
+   * replayed later, can't overwrite it.
+   */
   const attendance = useMutation({
     scope: { id: `attendance:${meetingId}` },
     mutationFn: ({ attendeeId, attendance: value }: { attendeeId: string; attendance: AttendanceStatus }) =>
-      resources.meetings.updateAttendee(meetingId, attendeeId, { attendance: value }),
+      sendInOrder(writeOrder(services), { kind: 'meeting.attendance', payload: { meetingId, attendeeId, attendance: value } }, () =>
+        resources.meetings.updateAttendee(meetingId, attendeeId, { attendance: value }),
+      ),
     onMutate: async ({ attendeeId, attendance: value }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       return { before: patchRow<ApiMeetingAttendee>(qc, key, attendeeId, { attendance: value }) };
@@ -145,7 +153,8 @@ export function useSendInvites(meeting: Pick<ApiMeeting, 'id' | 'status'>) {
 // ── The agenda ──────────────────────────────────────────────────────────────
 
 export function useAgendaMutations(meetingId: string) {
-  const { resources, queue, currentUserId } = useServices();
+  const services = useServices();
+  const { resources, queue, currentUserId } = services;
   const qc = useQueryClient();
   const key = part(meetingId, 'agenda');
   const add = useMutation({
@@ -156,10 +165,13 @@ export function useAgendaMutations(meetingId: string) {
     mutationFn: ({ itemId, patch }: { itemId: string; patch: AgendaItemPatch }) => resources.meetings.updateAgendaItem(meetingId, itemId, patch),
     onSuccess: (row) => putRow(qc, key, row),
   });
-  /** Covered or not: shown at once, and kept on this phone when offline. */
+  /** Covered or not: shown at once, kept on this phone when offline, and sent in the order tapped (write-order). */
   const covered = useMutation({
     scope: { id: `agenda:${meetingId}` },
-    mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) => resources.meetings.updateAgendaItem(meetingId, itemId, { completed }),
+    mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) =>
+      sendInOrder(writeOrder(services), { kind: 'meeting.agenda.covered', payload: { meetingId, itemId, completed } }, () =>
+        resources.meetings.updateAgendaItem(meetingId, itemId, { completed }),
+      ),
     onMutate: async ({ itemId, completed }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       return { before: patchRow<ApiAgendaItem>(qc, key, itemId, { completed }) };
@@ -252,7 +264,8 @@ export function useNoteToTask(meetingId: string) {
 // ── Action items ────────────────────────────────────────────────────────────
 
 export function useActionItemMutations(meetingId: string) {
-  const { resources, queue, currentUserId } = useServices();
+  const services = useServices();
+  const { resources, queue, currentUserId } = services;
   const qc = useQueryClient();
   const key = part(meetingId, 'action-items');
   const changed = () => afterPartChanged(qc, meetingId, 'action-items');
@@ -265,10 +278,11 @@ export function useActionItemMutations(meetingId: string) {
     },
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'meeting.action.add', { meetingId, ...v.input }, v.idempotencyKey),
   });
-  /** A change (its status, owner, due day, priority…): shown at once, and kept on this phone when offline. */
+  /** A change (its status, owner, due day, priority…): shown at once, kept on this phone when offline, sent in order (write-order). */
   const update = useMutation({
     scope: { id: `action-items:${meetingId}` },
-    mutationFn: ({ itemId, patch }: { itemId: string; patch: ActionItemPatch }) => resources.meetings.updateActionItem(itemId, patch),
+    mutationFn: ({ itemId, patch }: { itemId: string; patch: ActionItemPatch }) =>
+      sendInOrder(writeOrder(services), { kind: 'meeting.action.update', payload: { meetingId, id: itemId, patch } }, () => resources.meetings.updateActionItem(itemId, patch)),
     onMutate: async ({ itemId, patch }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       return { before: patchRow<ApiActionItem>(qc, key, itemId, patch as Partial<ApiActionItem>) };
