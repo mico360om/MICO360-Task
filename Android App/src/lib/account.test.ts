@@ -8,6 +8,7 @@ import {
   initialsOf,
   myDataFileName,
   myDataProblem,
+  photoOf,
   photoRemoveProblem,
   photoUploadProblem,
   withAvatar,
@@ -100,5 +101,15 @@ describe('account: Download my data', () => {
     expect(myDataProblem(new NetworkError('Couldn’t download the file — check your connection.'))).toBe('You’re offline — your data can be downloaded when you’re connected.');
     expect(myDataProblem(new ApiError(404, 'ERROR', 'Export failed (404)'))).toBe('Couldn’t prepare your data. Please try again.');
     expect(myDataProblem(new Error('Sharing is not available on this device.'))).toBe('Sharing is not available on this device.');
+  });
+});
+
+describe('account: which photo to show', () => {
+  it('the people list’s when it has you (it is the newest), else the session’s', () => {
+    expect(photoOf({ id: 'u1', avatarUrl: '/uploads/new.png' }, { avatarUrl: '/uploads/old.png' })).toBe('/uploads/new.png');
+    expect(photoOf({ id: 'u1', avatarUrl: null }, { avatarUrl: '/uploads/old.png' })).toBeNull();
+    expect(photoOf({ id: 'u1' }, { avatarUrl: '/uploads/old.png' })).toBe('/uploads/old.png');
+    expect(photoOf(undefined, { avatarUrl: '/uploads/old.png' })).toBe('/uploads/old.png');
+    expect(photoOf(undefined, undefined)).toBeNull();
   });
 });

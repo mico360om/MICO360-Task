@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { WEEK_START_OPTIONS, calendarZoneNote, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, withDatePatch } from './date-settings';
+import { WEEK_START_OPTIONS, calendarZoneNote, datePrefsSavedText, deviceTimeZone, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, withDatePatch } from './date-settings';
 
 const prev = { company: 'Asia/Dubai', own: 'Europe/London' };
 
@@ -80,5 +80,24 @@ describe('Settings → Calendar & dates (the website’s DatePreferences)', () =
       { value: 'Pacific/Chatham', label: 'Pacific/Chatham' },
     ]);
     expect(timeZoneChoices({ zones: ['Asia/Muscat'], company: 'Asia/Muscat', own: null, device: 'Asia/Muscat' })).toEqual([{ value: 'Asia/Muscat', label: 'Asia/Muscat', hint: 'company · this phone' }]);
+  });
+});
+
+describe('this phone’s own time zone', () => {
+  it('is the one the phone reports, when it is a real zone', () => {
+    expect(deviceTimeZone(() => 'Asia/Dubai')).toBe('Asia/Dubai');
+    expect(deviceTimeZone(() => 'Not/AZone')).toBeNull();
+    expect(deviceTimeZone(() => undefined)).toBeNull();
+    expect(deviceTimeZone(() => { throw new Error('no Intl'); })).toBeNull();
+  });
+});
+
+describe('what TalkBack hears after a date setting is saved', () => {
+  it('names what changed (the screens open again for a new time zone, so it must be said)', () => {
+    expect(datePrefsSavedText({ timeZone: null, weekStart: 0 }, { timeZone: null, weekStart: 1 })).toBe('Saved. Weeks start on Monday.');
+    expect(datePrefsSavedText({ timeZone: null, weekStart: 0 }, { timeZone: 'Europe/London', weekStart: 0 })).toBe('Saved. The calendar uses Europe/London.');
+    expect(datePrefsSavedText({ timeZone: 'Europe/London', weekStart: 6 }, { timeZone: null, weekStart: 6 })).toBe('Saved. The calendar uses the company time zone.');
+    expect(datePrefsSavedText(undefined, { timeZone: null, weekStart: null })).toBe('Saved. Weeks start on Sunday.');
+    expect(datePrefsSavedText({ timeZone: null, weekStart: 1 }, { timeZone: null, weekStart: 1 })).toBe('Saved.');
   });
 });

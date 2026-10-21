@@ -52,6 +52,12 @@ export function avatarPart(asset: { uri: string; name?: string | null; mimeType?
   return { uri: asset.uri, name, type: uploadMimeType(name, asset.mimeType) };
 }
 
+/** Your photo: the people list's when it has you (the newest), else the session's; null for none. */
+export function photoOf(me: { id?: string; avatarUrl?: string | null } | null | undefined, sessionUser: { avatarUrl?: string | null } | null | undefined): string | null {
+  if (me && me.avatarUrl !== undefined) return me.avatarUrl;
+  return sessionUser?.avatarUrl ?? null;
+}
+
 /** Where to show a photo from (the API server's origin + its path), or null for none. */
 export function avatarHref(apiBase: string, url: string | null | undefined): string | null {
   return url ? attachmentHref(apiBase, url) : null;

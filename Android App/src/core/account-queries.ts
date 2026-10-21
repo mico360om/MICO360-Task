@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
+import { AccessibilityInfo } from 'react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { CALENDAR_KEY, CALENDAR_MEETINGS_KEY, DATE_PREFERENCES_KEY } from './calendar-queries';
 import { asyncStore } from '../adapters/async-storage';
 import { withAvatar, withDirectoryUser, type ApiAccountUser } from '../lib/account';
 import { createPasswordChange } from '../lib/password-change';
-import { DATE_ZONES_KEY, nextDateZones, withDatePatch, type DatePreferences } from '../lib/date-settings';
+import { DATE_ZONES_KEY, datePrefsSavedText, nextDateZones, withDatePatch, type DatePreferences } from '../lib/date-settings';
 import { dateZones, setDateZones } from '../lib/due-date';
 import { mergePreferences, type NotificationPreferences, type PreferencesUpdate } from '../lib/notification-prefs';
 import type { ApiDirectoryUser } from '../lib/types';
@@ -108,7 +109,9 @@ export function useSaveDatePreferences() {
       if (ctx?.previous) qc.setQueryData(DATE_PREFERENCES_KEY, ctx.previous);
       else void qc.invalidateQueries({ queryKey: DATE_PREFERENCES_KEY });
     },
-    onSuccess: async (saved) => {
+    onSuccess: async (saved, _patch, ctx) => {
+      // Said before a new time zone opens the screens again (the Settings screen with them).
+      AccessibilityInfo.announceForAccessibility(datePrefsSavedText(ctx?.previous, saved));
       qc.setQueryData(DATE_PREFERENCES_KEY, saved);
       // Read again through the offline copy, so an offline start has the new settings too.
       void qc.invalidateQueries({ queryKey: DATE_PREFERENCES_KEY });
