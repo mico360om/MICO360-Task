@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
-import { printableImage } from './pdf-image';
+import { printableImage, readProjectPicture } from './pdf-image';
+import { blankPng } from './test-images';
 
 /** A PNG of `width`×`height` 8-bit pixels of `colorType` (2 RGB, 6 RGBA, 0 grey, 4 grey+alpha), filter 0 rows. */
 function png(width: number, height: number, colorType: number, pixel: number[], opts: { bitDepth?: number; interlace?: number } = {}): Buffer {
@@ -69,5 +70,71 @@ describe('printableImage', () => {
     expect(printableImage(png(1, 1, 6, [0, 0, 0, 0], { interlace: 1 }))).toBeNull();
     expect(printableImage(Buffer.from('hello'))).toBeNull();
     expect(printableImage(Buffer.alloc(0))).toBeNull();
+  });
+});
+
+describe('printableImage: a crafted picture can’t freeze or crash the server', () => {
+  // 64 × 64 pixels need 16 KB; this one's data unpacks to 256 MB (and its checksum is wrong, so
+  // the picture library turns it down and the upload stores it as it was).
+  let bomb: Buffer;
+  beforeAll(async () => {
+    bomb = await blankPng(64, 64, { unpacked: 256 * 1024 * 1024, brokenChecksum: true });
+  }, 30_000);
+
+  it('turns down a picture whose data unpacks to far more than its size needs, at once, without unpacking it', () => {
+    const started = performance.now();
+    const out = printableImage(bomb);
+    const ms = performance.now() - started;
+    expect(out, `${bomb.length} bytes in, ${out?.length ?? 0} out`).toBeNull();
+    expect(ms).toBeLessThan(500);
+  });
+
+  it('turns down a see-through picture bigger than 2048 × 2048 pixels without unpacking it', async () => {
+    const big = await blankPng(4096, 4096); // a valid 64 KB file that unpacks to 64 MB
+    const started = performance.now();
+    const out = printableImage(big);
+    const ms = performance.now() - started;
+    expect(out === null, `returned ${out?.length ?? 0} bytes after ${Math.round(ms)} ms`).toBe(true);
+    expect(ms).toBeLessThan(500);
+  }, 30_000);
+
+  it('sends a project picture the PDF can’t print as stored straight to the converter, without unpacking it here', async () => {
+    const convert = vi.fn(async () => null);
+    const started = performance.now();
+    const out = await readProjectPicture('/uploads/projects/p.png', async () => bomb, convert);
+    const ms = performance.now() - started;
+    expect(out === null, `returned ${out?.length ?? 0} bytes`).toBe(true);
+    expect(convert).toHaveBeenCalledTimes(1);
+    expect(ms).toBeLessThan(500);
+  });
+});
+
+describe('readProjectPicture', () => {
+  const read = (buf: Buffer) => async () => buf;
+  const opaque = () => png(2, 2, 2, [10, 20, 30]);
+  const seeThrough = () => png(2, 2, 6, [200, 0, 0, 128]);
+
+  it('keeps a JPEG or an opaque PNG as stored, without converting it', async () => {
+    const convert = vi.fn(async () => Buffer.from('converted'));
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46]);
+    const rgb = opaque();
+    expect(await readProjectPicture('/uploads/a.jpg', read(jpeg), convert)).toBe(jpeg);
+    expect(await readProjectPicture('/uploads/b.png', read(rgb), convert)).toBe(rgb);
+    expect(convert).not.toHaveBeenCalled();
+  });
+
+  it('converts anything else when it can, else flattens a see-through PNG itself', async () => {
+    const converted = Buffer.from('converted');
+    expect(await readProjectPicture('/uploads/c.png', read(seeThrough()), async () => converted)).toBe(converted);
+    const flat = (await readProjectPicture('/uploads/c.png', read(seeThrough())))!;
+    expect(flat[25]).toBe(2); // an opaque RGB PNG, ready to print
+    expect(printableImage(flat)).toBe(flat);
+  });
+
+  it('has nothing when there is no picture, it can’t be read, or nothing can print it', async () => {
+    expect(await readProjectPicture(null, read(opaque()))).toBeNull();
+    expect(await readProjectPicture('/uploads/gone.png', async () => { throw new Error('ENOENT'); })).toBeNull();
+    expect(await readProjectPicture('/uploads/x.webp', read(Buffer.from('RIFF....WEBPVP8 ')))).toBeNull();
+    expect(await readProjectPicture('/uploads/x.webp', read(Buffer.from('RIFF....WEBPVP8 ')), async () => { throw new Error('libvips'); })).toBeNull();
   });
 });

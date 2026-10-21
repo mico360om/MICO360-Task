@@ -5,6 +5,7 @@ import { registerTaskExportRoutes, type TaskExportRouteDeps } from './task-expor
 import type { TaskExportAttachment, TaskExportData } from './task-export';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { blankPng } from '../../lib/test-images';
 
 const attachment = (filename: string, mimeType: string): TaskExportAttachment => ({
   filename, mimeType, sizeBytes: 2048, storageKey: `key-${filename}`, uploadedBy: 'Omar Ahmed', uploadedAt: new Date('2026-09-01T00:00:00Z'),
@@ -132,6 +133,17 @@ describe('Task export routes', () => {
     expect(res.statusCode).toBe(200);
     expect(inspectPdf(res.rawPayload).pages.flat()).toContain('deck.jpg (picture could not be shown)');
   });
+
+  it('lists a crafted picture the thumbnail maker turns down instead of unpacking it (a "zip bomb" that would freeze the server)', async () => {
+    const bomb = await blankPng(64, 64, { unpacked: 256 * 1024 * 1024, brokenChecksum: true });
+    const app = await makeApp({ task: { ...data, attachments: [attachment('site.png', 'image/png')] }, extra: { readAttachment: async () => bomb, pictureThumbnail: async () => null } });
+    const started = performance.now();
+    const res = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    const ms = performance.now() - started;
+    expect(res.statusCode).toBe(200);
+    expect(inspectPdf(res.rawPayload).pages.flat()).toContain('site.png (picture could not be shown)');
+    expect(ms).toBeLessThan(2000);
+  }, 30_000);
 
   it('hides tasks the user cannot see (404), like opening the task', async () => {
     const app = await makeApp({ canView: false });

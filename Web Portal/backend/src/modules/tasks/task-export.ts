@@ -5,7 +5,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn } from '../../lib/pdf-document';
 import { isolate, layoutText, type StyledRun } from '../../lib/pdf-text';
-import { printableImage } from '../../lib/pdf-image';
+import { printableAsStored, printableImage } from '../../lib/pdf-image';
 import type { XlsxSheet } from '../../lib/xlsx-writer';
 import { BRAND, formatDateTime, formatDay, priorityLabel, wallClock } from '../../lib/export-format';
 import { dueDayKey, isOverdue } from '../../lib/due-date';
@@ -248,11 +248,17 @@ export async function withPictures(t: TaskExportData, reader: PictureReader): Pr
   return { ...t, attachments };
 }
 
+/**
+ * A picture the thumbnail maker turns down (a damaged or crafted file) is shown only when the PDF
+ * can print it as stored, and is never unpacked here; without a thumbnail maker it is printed as
+ * stored or flattened, within printableImage's limits.
+ */
 async function readPicture(storageKey: string, reader: PictureReader): Promise<Buffer | null> {
   const raw = await reader.read(storageKey).catch(() => null);
   if (!raw) return null;
-  const small = reader.thumbnail ? await reader.thumbnail(raw).catch(() => null) : null;
-  return small ?? printableImage(raw);
+  if (!reader.thumbnail) return printableImage(raw);
+  const small = await reader.thumbnail(raw).catch(() => null);
+  return small ?? (printableAsStored(raw) ? raw : null);
 }
 
 // ---------------------------------------------------------------------------

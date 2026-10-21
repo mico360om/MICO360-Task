@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { taskSheets, taskPdf, describeActivity, withPictures, commentRuns, MAX_PICTURES, type TaskExportData, type TaskExportAttachment } from './task-export';
 import { inspectPdf, type DrawnLine } from '../../lib/pdf-inspect';
 import { layoutStyledText } from '../../lib/pdf-text';
+import { blankPng } from '../../lib/test-images';
 
 const ctx = { generatedAt: new Date('2026-10-01T06:00:00Z'), timeZone: 'Asia/Muscat', generatedBy: 'Aisha Khan' };
 
@@ -430,5 +431,16 @@ describe('withPictures (reading a task’s pictures for its PDF)', () => {
     const jpeg = await photo();
     const out = await withPictures(task({ attachments: [file('ok.jpg')] }), { read: async () => jpeg, thumbnail: async () => { throw new Error('libvips'); } });
     expect(out.attachments[0]!.picture).toBe(jpeg);
+  });
+
+  it('shows a picture the thumbnail maker turns down only when the PDF can print it as stored (a JPEG, an opaque PNG); anything else is listed, never unpacked here', async () => {
+    const stored: Record<string, Buffer> = {
+      'key-a.jpg': await photo(),
+      'key-b.png': await sharp({ create: { width: 8, height: 8, channels: 3, background: '#336699' } }).png().toBuffer(),
+      'key-c.png': await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 30, g: 90, b: 140, alpha: 0.5 } } }).png().toBuffer(),
+      'key-d.png': await blankPng(64, 64, { unpacked: 64 * 1024 * 1024, brokenChecksum: true }),
+    };
+    const out = await withPictures(task({ attachments: [file('a.jpg'), file('b.png'), file('c.png'), file('d.png')] }), { read: async (k) => stored[k]!, thumbnail: async () => null });
+    expect(out.attachments.map((a) => (a.picture === stored[a.storageKey] ? 'as stored' : a.picture === null ? null : 'unpacked here'))).toEqual(['as stored', 'as stored', null, null]);
   });
 });

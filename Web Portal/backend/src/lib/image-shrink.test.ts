@@ -205,3 +205,25 @@ describe('toThumbnail (a small picture for a document, such as a task’s attach
     expect(await broken.toThumbnail(await photo(40, 30).jpeg().toBuffer())).toBeNull();
   });
 });
+
+describe('pictures for documents get a time limit', () => {
+  it('stops working on a picture for a PDF after a few seconds, so a crafted one can’t keep the server busy', async () => {
+    // A stand-in picture library that notes each step it is asked for.
+    const steps: Array<[string, unknown[]]> = [];
+    const pipeline: object = new Proxy(
+      {},
+      {
+        get: (_target, name) =>
+          name === 'then' ? undefined : name === 'toBuffer' ? async () => Buffer.from('made') : (...args: unknown[]) => (steps.push([String(name), args]), pipeline),
+      },
+    );
+    const library = Object.assign(() => pipeline, { concurrency: () => 1, cache: () => undefined });
+    const shrinker = createImageShrinker({ ...quiet(), load: async () => library as never });
+    await shrinker.toThumbnail(Buffer.from('picture'));
+    await shrinker.toPrintable(Buffer.from('picture'));
+    expect(steps.filter(([name]) => name === 'timeout')).toEqual([
+      ['timeout', [{ seconds: 10 }]],
+      ['timeout', [{ seconds: 10 }]],
+    ]);
+  });
+});

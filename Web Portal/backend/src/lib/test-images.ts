@@ -1,4 +1,43 @@
 /** Test fixtures: just the header bytes of PNG, JPEG and WebP files, with a chosen width and height. */
+import { crc32, createDeflate } from 'node:zlib';
+
+/**
+ * A see-through (RGBA) PNG of `width`×`height` blank pixels whose picture data unpacks to `unpacked`
+ * bytes — by default exactly what its size needs; more makes a crafted "zip bomb" — packed as it
+ * goes, so the test never holds the unpacked bytes. `brokenChecksum` spoils the IHDR checksum, so
+ * picture libraries turn it down (and the upload keeps it as it was).
+ */
+export async function blankPng(width: number, height: number, opts: { unpacked?: number; brokenChecksum?: boolean } = {}): Promise<Buffer> {
+  const chunk = (type: string, data: Buffer, broken = false) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE((crc32(body) ^ (broken ? 1 : 0)) >>> 0);
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  let left = opts.unpacked ?? height * (1 + width * 4);
+  const packed: Buffer[] = [];
+  const z = createDeflate({ level: 9 });
+  z.on('data', (c: Buffer) => packed.push(c));
+  const ended = new Promise((resolve) => z.on('end', resolve));
+  const block = Buffer.alloc(1 << 20);
+  while (left > 0) {
+    const n = Math.min(left, block.length);
+    if (!z.write(block.subarray(0, n))) await new Promise((resolve) => z.once('drain', resolve));
+    left -= n;
+  }
+  z.end();
+  await ended;
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return Buffer.concat([signature, chunk('IHDR', ihdr, opts.brokenChecksum), chunk('IDAT', Buffer.concat(packed)), chunk('IEND', Buffer.alloc(0))]);
+}
+
 /** The first bytes of real image files, with the given size written where each format keeps it. */
 export function pngHeader(width: number, height: number): Buffer {
   const b = Buffer.alloc(33);

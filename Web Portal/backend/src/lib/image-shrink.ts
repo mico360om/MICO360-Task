@@ -43,6 +43,9 @@ const PRINTABLE_MAX_SIDE = 512;
 /** A photo printed a third of a page wide: this many pixels on its long side keeps it sharp. */
 const THUMBNAIL_MAX_SIDE = 600;
 
+/** A picture for a document that takes longer than this to prepare is given up (a crafted file can't keep the server busy). */
+const DOCUMENT_PICTURE_SECONDS = 10;
+
 /** An animated PNG says so in an acTL chunk before its first image data. */
 export function isAnimatedPng(content: Buffer): boolean {
   let at = 8;
@@ -122,6 +125,7 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
         .flatten({ background: '#ffffff' })
         .toColourspace('srgb')
         .png()
+        .timeout({ seconds: DOCUMENT_PICTURE_SECONDS })
         .toBuffer();
     } catch (err) {
       warn('A picture could not be prepared for a document', { err, bytes: content.length });
@@ -139,6 +143,7 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
         .flatten({ background: '#ffffff' })
         .toColourspace('srgb')
         .jpeg({ quality: 80, mozjpeg: true })
+        .timeout({ seconds: DOCUMENT_PICTURE_SECONDS })
         .toBuffer();
     } catch (err) {
       warn('A picture could not be prepared for a document', { err, bytes: content.length });
