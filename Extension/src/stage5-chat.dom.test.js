@@ -350,7 +350,7 @@ describe('sending', () => {
     expect(ctx.write).not.toHaveBeenCalled();
     enter(box);
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('chat.send', { conversationId: 'd1', body: 'On my way' }, { idempotencyKey: expect.any(String) });
+    expect(ctx.write).toHaveBeenCalledWith('chat.send', { conversationId: 'd1', body: 'On my way', clientId: expect.any(String) }, { idempotencyKey: expect.any(String) });
     expect(root.querySelector('[data-message-id="srv-1"]').textContent).toContain('On my way');
     expect(box.value).toBe('');
     expect(root.querySelectorAll('[data-message-id]')).toHaveLength(3); // no stand-in left behind
@@ -372,10 +372,12 @@ describe('sending', () => {
     await settle();
     const failed = [...r2.querySelectorAll('[data-message-id]')].find((n) => n.textContent.includes('Hello?'));
     expect(failed.textContent).toContain('Not sent — You are not part of this conversation.');
-    const key = refused.write.mock.calls[0][2].idempotencyKey;
+    const [{ clientId }, { idempotencyKey: key }] = refused.write.mock.calls[0].slice(1);
     byText(failed, 'button', 'Retry').click();
     await settle();
-    expect(refused.write.mock.calls[1][2].idempotencyKey).toBe(key);
+    // The same message (its clientId), a new try (the server keeps its refusal of the last key).
+    expect(refused.write.mock.calls[1][1].clientId).toBe(clientId);
+    expect(refused.write.mock.calls[1][2].idempotencyKey).not.toBe(key);
     const again = [...r2.querySelectorAll('[data-message-id]')].find((n) => n.textContent.includes('Hello?'));
     byText(again, 'button', 'Discard').click();
     expect([...r2.querySelectorAll('[data-message-id]')].some((n) => n.textContent.includes('Hello?'))).toBe(false);

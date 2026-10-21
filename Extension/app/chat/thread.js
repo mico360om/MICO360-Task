@@ -8,10 +8,13 @@
  * the list is a log — and the message box, with what is being typed, is never drawn again. New
  * messages from others are marked read while the tab is in front.
  *
- * Sending follows the web's pending messages: each message keeps one clientId (its Idempotency-Key)
- * through every try, so the server never stores it twice. Text is sent now, or kept on this device
- * and sent later ("saved on this device, not sent yet"); one the server refuses stays with why, and
- * Retry or Discard. Files and pasted pictures go up online only, as on the web.
+ * Sending follows the web's pending messages: each message keeps one clientId through every try, so
+ * the server never stores it twice. Text is sent now, or kept on this device and sent later ("saved
+ * on this device, not sent yet"); one the server refuses stays with why, and Retry (a new try: a new
+ * Idempotency-Key, the same clientId) or Discard. Files and pasted pictures go up online only, as on
+ * the web. Messages go in the order written: one written while an earlier one is kept on this device
+ * waits behind it (the queue keeps a conversation's messages in order), and a file first has the
+ * kept ones sent — if they can't go yet, it says so, with Retry.
  */
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
 import { writeErrorMessage } from '../components.js';
@@ -19,13 +22,14 @@ import { messageNode, messageSignature } from './message.js';
 import {
   mergeMessages, hasOlderPage, validateAttachment, placeholderFor, MAX_MESSAGE_LENGTH, CHAT_POLL_MS, NO_PREFS,
 } from '../../src/chat.js';
-import { newIdempotencyKey } from '../../src/queue.js';
+import { newIdempotencyKey, getQueue } from '../../src/queue.js';
 import { tempId } from '../../src/pending-overlay.js';
 import { pastedFiles } from '../../src/clipboard-files.js';
 import { hasFiles } from '../../src/file-drop-guard.js';
 import { fileFailure } from '../../src/quick-add.js';
 
 const OFFLINE_FILES = 'Files can’t be sent offline. Send them when you’re connected.';
+const EARLIER_WAITING = 'An earlier message is still waiting to be sent. Try again once it has gone.';
 /** Within this distance of the bottom, the thread follows new messages. */
 const NEAR_BOTTOM_PX = 120;
 
@@ -428,7 +432,9 @@ export function ChatThread(ctx, conversationId) {
   }
 
   function queueSend({ body, files: shownFiles }, file) {
-    const p = { clientId: newIdempotencyKey(), body, createdAt: new Date().toISOString(), state: 'sending', error: undefined, replyTo: null, files: shownFiles };
+    const clientId = newIdempotencyKey();
+    // `key`: this try's Idempotency-Key (the first is the clientId; Retry makes a new one).
+    const p = { clientId, key: clientId, body, createdAt: new Date().toISOString(), state: 'sending', error: undefined, replyTo: null, files: shownFiles };
     if (file) files.set(p.clientId, file);
     outgoing = [...outgoing, p];
     render();
@@ -450,15 +456,16 @@ export function ChatThread(ctx, conversationId) {
     try {
       if (file) {
         if (!online()) throw Object.assign(new Error(OFFLINE_FILES), { userMessage: OFFLINE_FILES });
+        await earlierSent();
         take(await ctx.api.chat.upload(conversationId, file, { clientId: p.clientId, body: p.body || undefined }));
         settle(p);
       } else {
-        const r = await ctx.write('chat.send', { conversationId, body: p.body }, { idempotencyKey: p.clientId });
+        const r = await ctx.write('chat.send', { conversationId, body: p.body, clientId: p.clientId }, { idempotencyKey: p.key });
         if (r && r.queued) {
           // Kept on this device: the same row a later read shows from the queue (until it is sent).
           take({
             id: r.item ? tempId(r.item) : `tmp-${p.clientId}`, conversationId, userId: me, body: p.body, createdAt: p.createdAt,
-            editedAt: null, deletedAt: null, attachments: [], reactions: [], pending: true, clientId: (r.item && r.item.idempotencyKey) || p.clientId,
+            editedAt: null, deletedAt: null, attachments: [], reactions: [], pending: true, clientId: p.clientId,
           });
         } else {
           take(r && r.data);
@@ -472,6 +479,26 @@ export function ChatThread(ctx, conversationId) {
       if (ctx.afterMutation) ctx.afterMutation();
     }
     render();
+  }
+
+  /** Whether a message of this conversation is kept on this device, waiting to be sent. */
+  async function keptWaiting() {
+    if (!ctx.storage) return false;
+    try {
+      return (await getQueue(ctx.storage)).some((i) => i.userId === me && i.kind === 'chat.send' && i.status !== 'failed'
+        && i.payload && i.payload.conversationId === conversationId);
+    } catch {
+      return false;
+    }
+  }
+
+  /** A file goes after the messages kept before it: they are sent first; when they can't go yet, it waits. */
+  async function earlierSent() {
+    if (!(await keptWaiting())) return;
+    if (typeof ctx.requestSync === 'function') {
+      try { await ctx.requestSync(); } catch { /* checked below */ }
+    }
+    if (await keptWaiting()) throw Object.assign(new Error(EARLIER_WAITING), { userMessage: EARLIER_WAITING });
   }
 
   /** The server's copy of a message sent from here goes into the newest page. */
@@ -492,9 +519,12 @@ export function ChatThread(ctx, conversationId) {
     return outgoing.find((p) => p.clientId === m.clientId) || null;
   }
 
+  /** Send it again: a new try (a new Idempotency-Key — the server keeps its refusal of the last one), the same message. */
   function retry(m) {
     const p = findOutgoing(m);
-    if (p) deliver(p);
+    if (!p) return;
+    p.key = newIdempotencyKey();
+    deliver(p);
   }
 
   function discard(m) {

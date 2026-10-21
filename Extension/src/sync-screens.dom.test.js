@@ -323,8 +323,8 @@ describe('ChatScreen — messages waiting to send (H3)', () => {
     box.dispatchEvent(new Event('input', { bubbles: true }));
     byText(root, 'button', 'Send').click();
     await settle();
-    // Stage 5: the message keeps one clientId (its Idempotency-Key) through every try.
-    expect(ctx.write).toHaveBeenCalledWith('chat.send', { conversationId: 'cv1', body: 'And another' }, { idempotencyKey: expect.any(String) });
+    // Stage 5: the message keeps one clientId through every try (each try has its Idempotency-Key).
+    expect(ctx.write).toHaveBeenCalledWith('chat.send', { conversationId: 'cv1', body: 'And another', clientId: expect.any(String) }, { idempotencyKey: expect.any(String) });
     expect([...root.querySelectorAll('.msg')].filter((m) => m.textContent.includes('not sent yet'))).toHaveLength(2);
   });
 });

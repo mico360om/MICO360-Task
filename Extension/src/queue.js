@@ -15,6 +15,7 @@
  *    time: a new one waits behind the task's queued ones, and each replay moves this device's later
  *    edits of that task on to the version it made (src/task-writes.js). Its tags, people, watching
  *    and a comment's edits keep their order the same way, and a delete waits behind the task's changes;
+ *    a conversation's messages too: one written while an earlier one is kept waits behind it;
  *  - a change of tags is sent over the task's tags as they are then, so others' changes stay; a failed
  *    change that a later change of the same thing replaced can't be tried again (it would undo it);
  *  - a delete that finds nothing to delete (the server's 404) is done, not failed.
@@ -23,7 +24,7 @@ import { withLock } from './locks.js';
 import { ApiError, QueueError } from './errors.js';
 import { pruneCache, MAX_CACHE_ENTRIES } from './read-cache.js';
 import {
-  VERSIONED_KINDS, ORDERED_KINDS, DELETE_KINDS, taskIdOf, mustFollow, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE, supersede,
+  VERSIONED_KINDS, ORDERED_KINDS, DELETE_KINDS, subjectOf, mustFollow, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE, supersede,
 } from './task-writes.js';
 import { mergeTagChange } from './tags.js';
 
@@ -129,8 +130,7 @@ const waitingTaskWrites = (q, item) =>
  * would only spend another of its tries, so the next alarm or reconnect sends them.
  */
 async function enqueueBehindTaskWrites(storage, item) {
-  const taskId = taskIdOf(item);
-  if (!item.userId || !taskId || !ORDERED_KINDS.has(item.kind)) return null;
+  if (!item.userId || !subjectOf(item) || !ORDERED_KINDS.has(item.kind)) return null;
   const { value } = await withLock(QUEUE_LOCK, async () => {
     const q = await readQueue(storage);
     const waiting = waitingTaskWrites(q, item);
@@ -174,9 +174,19 @@ export async function removeQueued(storage, id) {
 /**
  * Put a failed item back in line for the next sync — not one a later change has replaced
  * (`superseded`, task-writes.js): sent now, it would undo that change. It can only be discarded.
+ * One the server refused (a 4xx) gets a new Idempotency-Key: the server keeps its answer to a key
+ * for a day, so the same key would only bring the refusal back. That is safe — a refused request
+ * changed nothing — and a message keeps its clientId, so it is still never stored twice. After
+ * tries that got no answer the key stays: the first may have arrived. `firstKey` keeps the key it
+ * was made with (the popup's recent tasks find their change by it).
  */
 export async function retryQueued(storage, id) {
-  await mutateQueue(storage, (q) => q.map((i) => (i.id === id && !i.superseded ? { ...i, status: 'pending', attempts: 0, lastError: null } : i)));
+  await mutateQueue(storage, (q) => q.map((i) => {
+    if (i.id !== id || i.superseded) return i;
+    const refused = typeof i.lastStatus === 'number' && i.lastStatus >= 400 && i.lastStatus < 500;
+    const fresh = refused ? { idempotencyKey: newIdempotencyKey(), firstKey: i.firstKey || i.idempotencyKey } : {};
+    return { ...i, status: 'pending', attempts: 0, lastError: null, lastStatus: null, ...fresh };
+  }));
 }
 
 /**
@@ -265,10 +275,14 @@ export function mutationRequest(item) {
       return { path: `/notifications/${p.id}/read`, init: { method: 'PUT' } };
     case 'notification.readAll':
       return post('/notifications/read-all', {});
-    case 'chat.send':
-      // The clientId is the Idempotency-Key: the server recognises a retried send by it even after
-      // its stored replies have expired (24 hours), so a message is never posted twice.
-      return post(`/conversations/${p.conversationId}/messages`, { body: p.body, ...(item.idempotencyKey ? { clientId: item.idempotencyKey } : {}) });
+    case 'chat.send': {
+      // The message's own clientId: the server recognises a message sent again by it even after its
+      // stored replies have expired (24 hours), so a message is never posted twice. Each try may
+      // carry its own Idempotency-Key (a new one after a refusal); one kept before the two were
+      // apart used its key as its clientId.
+      const clientId = p.clientId || item.idempotencyKey;
+      return post(`/conversations/${p.conversationId}/messages`, { body: p.body, ...(clientId ? { clientId } : {}) });
+    }
     default:
       return null;
   }
@@ -489,7 +503,7 @@ export async function flushQueue(storage, perform, { userId, maxAttempts = MAX_A
           if (i.id !== item.id) return i;
           const attempts = (i.attempts || 0) + 1;
           if (attempts >= maxAttempts) gaveUp = true;
-          return { ...i, attempts, lastError: errorText(e), status: gaveUp ? 'failed' : 'pending' };
+          return { ...i, attempts, lastError: errorText(e), lastStatus: typeof e.status === 'number' ? e.status : null, status: gaveUp ? 'failed' : 'pending' };
         }));
         if (gaveUp) {
           result.failed += 1;

@@ -24,9 +24,21 @@ export function taskIdOf(item) {
 }
 
 /**
+ * What a queued change is about, for keeping changes of one thing in order: a task (its changes,
+ * see LANE), or a conversation (its messages). Null for anything else.
+ */
+export function subjectOf(item) {
+  const task = taskIdOf(item);
+  if (task) return `task:${task}`;
+  const p = item && item.kind === 'chat.send' ? item.payload || {} : null;
+  return p && p.conversationId ? `chat:${p.conversationId}` : null;
+}
+
+/**
  * Changes of one thing that must reach the server in the order they were made, or an older one
  * replayed late would undo a newer one sent straight away: a task's edits and moves (they also carry
  * its version), its whole list of tags, its people, whether you watch it, and one comment's text.
+ * A conversation's messages too: one kept on this device goes before the ones written after it.
  */
 const LANE = {
   'task.update': 'version', 'task.move': 'version',
@@ -34,6 +46,7 @@ const LANE = {
   'task.assign': 'people', 'task.unassign': 'people',
   'task.watch': 'watch', 'task.unwatch': 'watch',
   'comment.update': 'comment', 'comment.delete': 'comment',
+  'chat.send': 'chat',
 };
 
 /** Kinds sent behind this person's waiting changes they must follow (see `mustFollow`). */
@@ -48,8 +61,8 @@ export const DELETE_KINDS = new Set(['comment.delete', 'attachment.delete', 'tas
  * task's delete waits behind every change of that task, so none of them fails on a deleted task.
  */
 export function mustFollow(next, waiting) {
-  const id = taskIdOf(next);
-  if (!id || !waiting || taskIdOf(waiting) !== id) return false;
+  const id = subjectOf(next);
+  if (!id || !waiting || subjectOf(waiting) !== id) return false;
   if (next.kind === 'task.delete') return true;
   const lane = LANE[next.kind];
   if (!lane || LANE[waiting.kind] !== lane) return false;
@@ -87,6 +100,7 @@ export function supersede(done, older) {
   if (!done || !older || older.status !== 'failed' || older.superseded || older.userId !== done.userId) return older;
   if (done.kind === 'task.delete' || !mustFollow(done, older)) return older;
   const lane = LANE[done.kind];
+  if (lane === 'chat') return older; // a later message never replaces an earlier one
   if (lane === 'version') return done.kind === 'task.move' && older.kind === 'task.move' ? superseded(older) : older;
   if (lane === 'tags') {
     const touched = tagsTouched(done);
