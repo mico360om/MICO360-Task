@@ -69,3 +69,14 @@ describe('AI feature routes', () => {
     await app.close();
   });
 });
+
+describe('AI meeting routes', () => {
+  it('refuses text over 1000 characters', async () => {
+    const { app, headers, calls } = await makeApp();
+    const res = await app.inject({ method: 'POST', url: '/api/v1/ai/parse-meeting', headers, payload: { text: 'x'.repeat(1001) } });
+    expect(res.statusCode).toBe(400);
+    expect(calls()).toBe(0);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/ai/parse-meeting', payload: { text: 'sync' } })).statusCode).toBe(401);
+    await app.close();
+  });
+});

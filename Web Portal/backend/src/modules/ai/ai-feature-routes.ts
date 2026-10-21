@@ -37,6 +37,11 @@ export async function registerAiFeatureRoutes(app: FastifyInstance, deps: AiFeat
     return { data: await aiFeatureService.parseTask(body, requester(req)) };
   });
 
+  app.post('/ai/parse-meeting', { preHandler: guard.authenticate }, async (req) => {
+    const body = parseSchema.parse(req.body);
+    return { data: await aiFeatureService.parseMeeting(body, requester(req)) };
+  });
+
   app.post('/ai/summary', { preHandler: guard.authenticate }, async (req) => {
     const body = summarySchema.parse(req.body);
     return { data: { summary: await aiFeatureService.summarizeProject(body, requester(req)) } };

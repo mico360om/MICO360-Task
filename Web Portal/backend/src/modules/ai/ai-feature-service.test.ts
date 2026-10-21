@@ -305,3 +305,104 @@ describe('AiFeatureService on MICO360 AI (its API guide)', () => {
     }
   });
 });
+
+describe('AiFeatureService: filling the meeting form from a sentence', () => {
+  const projects = [
+    { id: 'p4', code: 'PUMP', number: 'PDO-2026-020', name: 'Pump Station Upgrade', status: 'ACTIVE' as const },
+    { id: 'p2', code: 'WEB', number: null, name: 'Company Website', status: 'ACTIVE' as const },
+  ];
+  const people = [
+    { id: 'u2', firstName: 'Sara', lastName: 'Al Balushi', username: 'sara' },
+    { id: 'u3', firstName: 'Ali', lastName: 'Hassan', username: 'ali.h' },
+    { id: 'u4', firstName: 'Omar', lastName: 'Al Rawahi', username: 'omar.r' },
+    { id: 'u5', firstName: 'Omar', lastName: 'Said', username: 'osaid' },
+  ];
+  function meetingAi(answer: Record<string, unknown>) {
+    const prompts: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init!.body));
+      prompts.push(body.messages.map((m: { content: string }) => m.content).join('\n'));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(answer) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl, listProjectsFor: async () => projects, listPeople: async () => people });
+    return { svc, prompts };
+  }
+  const me = { userId: 'u1', roles: ['EMPLOYEE'] };
+  const nobody = { found: [], choices: [], notFound: [] };
+
+  it('reads title, day, time, length, repeat, project, place and link', async () => {
+    const text = 'Weekly site review every Monday 10am for 90 minutes at the Rig 1 site office for PUMP, https://meet.example/x';
+    const { svc } = meetingAi({
+      title: 'Weekly site review', description: null, date: '2026-10-26', startTime: '10:00', minutes: 90,
+      repeat: { freq: 'WEEKLY', interval: 1, weekdays: [1] }, project: 'PUMP', location: 'Rig 1 site office',
+      onlineLink: 'https://meet.example/x', people: [], guests: [], agenda: [],
+    });
+    expect(await svc.parseMeeting({ text, today: '2026-10-21' }, me)).toEqual({
+      title: 'Weekly site review',
+      description: null,
+      date: '2026-10-26',
+      startTime: '10:00',
+      minutes: 90,
+      recurrence: { freq: 'WEEKLY', interval: 1, weekdays: [1] },
+      project: { id: 'p4', code: 'PUMP', number: 'PDO-2026-020', name: 'Pump Station Upgrade' },
+      location: 'Rig 1 site office',
+      onlineLink: 'https://meet.example/x',
+      people: nobody,
+      guests: [],
+      agenda: [],
+    });
+  });
+
+  it('keeps only times, lengths and dates the form can use', async () => {
+    const read = async (a: Record<string, unknown>) => meetingAi({ title: 'Sync', ...a }).svc.parseMeeting({ text: 'sync', today: '2026-10-21' }, me);
+    const bad = await read({ startTime: '25:00', minutes: 2, date: '2026-02-30' });
+    expect([bad.startTime, bad.minutes, bad.date]).toEqual([null, null, null]);
+    expect((await read({ minutes: 5000 })).minutes).toBeNull();
+    expect((await read({ startTime: '09:30', minutes: 45 })).startTime).toBe('09:30');
+  });
+
+  it('matches names to people, by the ids the model gives, checked against active users', async () => {
+    const { svc, prompts } = meetingAi({ title: 'Budget', people: [{ said: 'Sara', ids: ['u2'] }, { said: 'Ali', ids: ['u3'] }] });
+    const out = await svc.parseMeeting({ text: 'budget with Sara and Ali tomorrow', today: '2026-10-21' }, me);
+    expect(out.people).toEqual({ found: [{ id: 'u2', name: 'Sara Al Balushi' }, { id: 'u3', name: 'Ali Hassan' }], choices: [], notFound: [] });
+    // People are listed for the model as id | name | username, nothing else.
+    expect(prompts[0]).toContain('u2 | Sara Al Balushi | sara');
+    expect(prompts[0]).toContain('PUMP');
+  });
+
+  it('offers a choice when a name fits two people', async () => {
+    for (const ids of [['u4', 'u5'], ['u4']]) {
+      const { svc } = meetingAi({ title: 'Pump test', people: [{ said: 'Omar', ids }] });
+      const out = await svc.parseMeeting({ text: 'pump test with Omar', today: '2026-10-21' }, me);
+      expect(out.people, ids.join()).toEqual({ found: [], choices: [{ said: 'Omar', options: [{ id: 'u4', name: 'Omar Al Rawahi' }, { id: 'u5', name: 'Omar Said' }] }], notFound: [] });
+    }
+  });
+
+  it('lists a name nobody has as not found, and never an id outside the list', async () => {
+    const { svc } = meetingAi({ title: 'Review', people: [{ said: 'Zainab', ids: [] }, { said: 'Khalid', ids: ['u99'] }, { said: 'Sara', ids: ['u2', 'u99'] }] });
+    const out = await svc.parseMeeting({ text: 'review with Zainab, Khalid and Sara', today: '2026-10-21' }, me);
+    expect(out.people).toEqual({ found: [{ id: 'u2', name: 'Sara Al Balushi' }], choices: [], notFound: ['Zainab', 'Khalid'] });
+  });
+
+  it('turns emails into guests named from before the @', async () => {
+    const { svc } = meetingAi({
+      title: 'Handover',
+      guests: [{ email: 'sami.k@contractor.om', name: 'Sami Al Kindi' }, { email: 'HUDA@pdo.co.om', name: '' }, { email: 'made.up@nowhere.com', name: 'Ghost' }],
+    });
+    const out = await svc.parseMeeting({ text: 'handover with sami.k@contractor.om and huda@pdo.co.om', today: '2026-10-21' }, me);
+    expect(out.guests).toEqual([{ email: 'sami.k@contractor.om', name: 'Sami Al Kindi' }, { email: 'huda@pdo.co.om', name: 'huda' }]);
+  });
+
+  it('keeps an online link only if the sentence has it', async () => {
+    const answer = { title: 'Call', onlineLink: 'https://meet.example/x' };
+    expect((await meetingAi(answer).svc.parseMeeting({ text: 'call at 3pm', today: '2026-10-21' }, me)).onlineLink).toBeNull();
+    expect((await meetingAi(answer).svc.parseMeeting({ text: 'call at 3pm on https://meet.example/x', today: '2026-10-21' }, me)).onlineLink).toBe('https://meet.example/x');
+    expect((await meetingAi({ title: 'Call', onlineLink: 'javascript:alert(1)' }).svc.parseMeeting({ text: 'call javascript:alert(1)', today: '2026-10-21' }, me)).onlineLink).toBeNull();
+  });
+
+  it('keeps a short agenda of plain points', async () => {
+    const { svc } = meetingAi({ title: 'Kick-off', agenda: ['Scope', '  ', 42, 'Timeline', 'x'.repeat(400)] });
+    const out = await svc.parseMeeting({ text: 'kick-off: scope and timeline', today: '2026-10-21' }, me);
+    expect(out.agenda).toEqual(['Scope', 'Timeline', 'x'.repeat(300)]);
+  });
+});

@@ -22,6 +22,11 @@ export interface AiFeatureServiceDeps {
    * task can suggest one. Without it, no project is suggested.
    */
   listProjectsFor?: (user: { id: string; roles: string[] }) => Promise<DescribableProject[]>;
+  /**
+   * The active portal users a described meeting may invite (first name, last name and username
+   * only go in the prompt). Without it, nobody is matched.
+   */
+  listPeople?: () => Promise<MeetingCandidate[]>;
   repo: AiConfigRepository;
   fetchImpl?: typeof fetch;
   /** Per-user request budget. Default 10 a minute, 200 a day. */
@@ -60,6 +65,7 @@ export interface ProjectSummaryInput {
 export function createAiFeatureService({
   repo,
   listProjectsFor,
+  listPeople,
   fetchImpl,
   limits,
   timeZone = 'Asia/Muscat',
@@ -125,9 +131,8 @@ export function createAiFeatureService({
    * due date, priority, repeat and project. The project is one the person can add tasks to: the
    * one whose number or code is written in the note, else the one the model names.
    */
-  async function parseTask(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedTask> {
-    // "Today" is the company-local date: before 04:00 in Muscat the UTC date is still yesterday.
-    const today = input.today ?? todayKey(timeZone, now());
+  /** The person's projects for a prompt (not archived ones), and the prompt lines listing them. */
+  async function promptProjects(requester?: AiRequester): Promise<{ projects: DescribableProject[]; projectList: string }> {
     const projects =
       listProjectsFor && requester
         ? (await listProjectsFor({ id: requester.userId, roles: requester.roles ?? [] }))
@@ -138,6 +143,13 @@ export function createAiFeatureService({
     const projectList = projects.length
       ? `\nProjects (code | number | name), one per line:\n${projects.map((p) => `${p.code} | ${p.number ?? '-'} | ${p.name}`).join('\n')}`
       : '';
+    return { projects, projectList };
+  }
+
+  async function parseTask(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedTask> {
+    // "Today" is the company-local date: before 04:00 in Muscat the UTC date is still yesterday.
+    const today = input.today ?? todayKey(timeZone, now());
+    const { projects, projectList } = await promptProjects(requester);
     const text = await run(
       [
         `Extract a single task from the user's note. Today is ${today}. Reply with ONLY JSON:`,
@@ -163,6 +175,65 @@ export function createAiFeatureService({
     const match = matchProject(input.text, typeof obj.project === 'string' ? obj.project : null, projects);
     const project = match ? { id: match.id, code: match.code, number: match.number, name: match.name } : null;
     return { title, description, dueDate, priority, recurrence, project };
+  }
+
+  /**
+   * Fill the new-meeting form from a sentence: only what it says of the title, day, time, length,
+   * repeat, project, place, link, people, guests and agenda. People are matched among the active
+   * users by the ids the model gives, checked against that list; a name more than one person goes
+   * by comes back as a choice, never a guess. Emails and links are kept only if the sentence has them.
+   */
+  async function parseMeeting(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedMeeting> {
+    const today = input.today ?? todayKey(timeZone, now());
+    const { projects, projectList } = await promptProjects(requester);
+    const people = (listPeople ? await listPeople() : [])
+      .map((p) => ({ ...p, name: `${p.firstName} ${p.lastName}`.trim() || p.username }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, MAX_PROMPT_PEOPLE);
+    const peopleList = people.length ? `\nPeople (id | name | username), one per line:\n${people.map((p) => `${p.id} | ${p.name} | ${p.username}`).join('\n')}` : '';
+    const text = await run(
+      [
+        `Fill in a meeting from the user's sentence. Today is ${today}; times are company time. Reply with ONLY JSON:`,
+        '{"title": string, "description": string|null, "date": "YYYY-MM-DD"|null, "startTime": "HH:MM" (24-hour)|null, "minutes": number|null,',
+        ' "repeat": null | {"freq": "DAILY"|"WEEKLY"|"MONTHLY"|"QUARTERLY"|"YEARLY", "interval": number, "weekdays"?: number[] (0=Sunday…6=Saturday, WEEKLY only), "dayOfMonth"?: number (MONTHLY/QUARTERLY), "until"?: "YYYY-MM-DD", "count"?: number},',
+        ' "project": string|null, "location": string|null, "onlineLink": string|null,',
+        ' "people": [{"said": string, "ids": string[]}], "guests": [{"email": string, "name": string}], "agenda": string[]}.',
+        'Title: concise, without date, time, people or project words. Description: only details the sentence gives beyond the title; else null.',
+        'date: resolve relative days like "Monday" or "tomorrow"; null if none. minutes: how long it lasts; null if not said. Repeat: only if the sentence says it repeats; else null.',
+        'location: a place written in the sentence; onlineLink: a link written in the sentence; else null.',
+        people.length
+          ? 'people: each person named, "said" as written; "ids": every id from the people list whose name could be them (several if unsure, none if nobody fits).'
+          : 'people: each person named, with "ids": [].',
+        'guests: email addresses written in the sentence, each with the name given for it, else "". agenda: the topics the sentence lists; else [].',
+        projects.length ? 'project: the code of the project from the list the meeting is about; null if none fits.' : 'project: null.',
+      ].join('\n') + projectList + peopleList,
+      input.text,
+      900,
+      requester,
+      { json: true },
+    );
+    const obj = parseJsonObject(text);
+    const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+    const title = str(obj.title, 300) ?? input.text.trim().slice(0, 300);
+    const rawDescription = str(obj.description, 4000);
+    const description = rawDescription && normalise(rawDescription) !== normalise(title) ? rawDescription : null;
+    const minutes = typeof obj.minutes === 'number' && Number.isInteger(obj.minutes) && obj.minutes >= 5 && obj.minutes <= 720 ? obj.minutes : null;
+    const match = matchProject(input.text, typeof obj.project === 'string' ? obj.project : null, projects);
+    const link = str(obj.onlineLink, 2000);
+    return {
+      title,
+      description,
+      date: isDay(obj.date) ? obj.date : null,
+      startTime: typeof obj.startTime === 'string' && HHMM.test(obj.startTime) ? obj.startTime : null,
+      minutes,
+      recurrence: toRepeatRule(obj.repeat),
+      project: match ? { id: match.id, code: match.code, number: match.number, name: match.name } : null,
+      location: str(obj.location, 200),
+      onlineLink: link && /^https?:\/\//i.test(link) && input.text.includes(link) ? link : null,
+      people: matchPeople(obj.people, people),
+      guests: guestsIn(input.text, obj.guests),
+      agenda: (Array.isArray(obj.agenda) ? obj.agenda : []).map((a) => str(a, 300)).filter((a): a is string => !!a).slice(0, MAX_AGENDA_POINTS),
+    };
   }
 
   /** A concise 2–3 sentence status summary for a project. */
@@ -225,7 +296,7 @@ export function createAiFeatureService({
     return obj;
   }
 
-  return { breakdownTask, parseTask, summarizeProject, suggestPriority, draftMinutes };
+  return { breakdownTask, parseTask, parseMeeting, summarizeProject, suggestPriority, draftMinutes };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;
@@ -238,6 +309,88 @@ export interface DescribedTask {
   priority: Priority | null;
   recurrence: RecurrenceRule | null;
   project: { id: string; code: string; number: string | null; name: string } | null;
+}
+
+/** An active portal user a described meeting may invite. */
+export interface MeetingCandidate {
+  id: string;
+  firstName: string;
+  lastName: string;
+  username: string;
+}
+
+/** What a sentence fills in on the new-meeting form (null or empty where it says nothing). */
+export interface DescribedMeeting {
+  title: string;
+  description: string | null;
+  /** YYYY-MM-DD, company time. */
+  date: string | null;
+  /** HH:MM, 24-hour, company time. */
+  startTime: string | null;
+  minutes: number | null;
+  recurrence: RecurrenceRule | null;
+  project: { id: string; code: string; number: string | null; name: string } | null;
+  location: string | null;
+  onlineLink: string | null;
+  people: {
+    found: Array<{ id: string; name: string }>;
+    /** A name that fits more than one person: they choose. */
+    choices: Array<{ said: string; options: Array<{ id: string; name: string }> }>;
+    notFound: string[];
+  };
+  guests: Array<{ email: string; name: string }>;
+  agenda: string[];
+}
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** At most this many people are listed in the prompt (each one is a line). */
+const MAX_PROMPT_PEOPLE = 300;
+const MAX_AGENDA_POINTS = 10;
+const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+/**
+ * The model's people, checked: only ids in the list count. A name more than one person goes by is a
+ * choice even when the model picked one of them; one id is found; none is "not found".
+ */
+function matchPeople(value: unknown, people: Array<MeetingCandidate & { name: string }>): DescribedMeeting['people'] {
+  const order = new Map(people.map((p, i) => [p.id, i]));
+  const out: DescribedMeeting['people'] = { found: [], choices: [], notFound: [] };
+  for (const entry of (Array.isArray(value) ? value : []).slice(0, 50)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const said = typeof e.said === 'string' ? e.said.trim().slice(0, 100) : '';
+    if (!said) continue;
+    const ids = (Array.isArray(e.ids) ? e.ids : []).filter((id): id is string => typeof id === 'string' && order.has(id));
+    const n = normalise(said);
+    const sameName = people.filter((p) => [p.firstName, p.lastName, p.username, p.name].some((x) => normalise(x) === n)).map((p) => p.id);
+    const options = [...new Set([...ids, ...(sameName.length > 1 ? sameName : [])])]
+      .sort((a, b) => order.get(a)! - order.get(b)!)
+      .map((id) => ({ id, name: people[order.get(id)!]!.name }));
+    if (options.length === 1) {
+      if (!out.found.some((f) => f.id === options[0]!.id)) out.found.push(options[0]!);
+    } else if (options.length > 1) out.choices.push({ said, options });
+    else out.notFound.push(said);
+  }
+  return out;
+}
+
+/** The email addresses written in the sentence, named as the model says, else from the part before the @. */
+function guestsIn(sentence: string, value: unknown): DescribedMeeting['guests'] {
+  const named = new Map<string, string>();
+  for (const g of Array.isArray(value) ? value : []) {
+    if (!g || typeof g !== 'object') continue;
+    const { email, name } = g as Record<string, unknown>;
+    if (typeof email === 'string' && typeof name === 'string' && name.trim()) named.set(email.trim().toLowerCase(), name.trim().slice(0, 200));
+  }
+  const seen = new Set<string>();
+  const guests: DescribedMeeting['guests'] = [];
+  for (const email of sentence.match(EMAIL) ?? []) {
+    const key = email.toLowerCase();
+    if (seen.has(key) || guests.length >= 50) continue;
+    seen.add(key);
+    guests.push({ email, name: named.get(key) ?? email.split('@')[0]! });
+  }
+  return guests;
 }
 
 /** The minutes draft is the one long answer: it gets 3 minutes, as MICO360 AI's guide advises for long text. */
