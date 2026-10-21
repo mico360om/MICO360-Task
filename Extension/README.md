@@ -53,14 +53,35 @@ full those copies make room for changes waiting to sync, never the other way rou
 ## Structure
 
 ```
-app/            full-page app (app.html, app.js router+shell, app.css, dom.js, components.js, theme.js)
+app/            full-page app (app.html, app.js router+shell, app.css, dom.js, components.js, theme.js,
+                dialog.js modal dialogs + focus, menu.js menu buttons)
 app/screens/    one module per screen (export function XScreen(ctx))
-src/            shared logic: api.js, read-cache.js, router.js, queue.js, auth.js, config.js, chat.js, …
+src/            shared logic: api.js, read-cache.js, router.js, queue.js, auth.js, config.js, chat.js,
+                version.js, …
 background/     service-worker.js (opens the app, badge count, background queue flush)
 ```
 
+## Keyboard
+
+Board cards are buttons: Tab to one, Enter or Space opens it, and its "⋯" button ("Move to…") lists
+the other columns (arrows to choose, Enter to move, Escape to close). The task drawer is a modal
+dialog: focus moves into it and stays there, Escape closes it, and focus goes back to the card.
+
+## Versions and updates
+
+Settings → About shows the extension's version and the server's (`GET /version`). A zip install
+(no Web Store) is told when the server is newer, with the steps to update and a link to the web
+app's About page; the notice at the top of the app can be dismissed for that version.
+
 ## Tests
 
-`npm test` (Vitest) covers the logic — router, read-cache, offline queue + write mapping, auth /
-session / locks, due dates, summaries, chat helpers, config — plus DOM smoke tests of the main
-screens.
+- `npm test` (Vitest) covers the logic — router, read-cache, offline queue + write mapping, auth /
+  session / locks, due dates, summaries, chat helpers, config, versions — plus DOM tests of the
+  screens (jsdom), keyboard use and the drawer dialog. `src/shared-copies.test.js` checks that the
+  copies of the web's due-date rules and the server's repeat summaries still give the same answers.
+- `npm run lint` (ESLint; also part of the root `npm run lint`).
+- `npm run test:e2e` runs the browser checks in `tools/extension-e2e/` — headless Chrome loads this
+  folder unpacked and drives it against a local server (default `http://localhost:4000`, which must
+  allow `chrome-extension://*` in `CORS_ORIGINS`): sign-in, board and keyboard, the drawer dialog,
+  versions, edit conflicts, repeating tasks, reports and exports. Settings are at the top of
+  `tools/extension-e2e/lib.mjs`.
