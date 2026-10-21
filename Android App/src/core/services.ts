@@ -1,6 +1,8 @@
 import Constants from 'expo-constants';
-import { QueryClient } from '@tanstack/react-query';
-import { createApiClient, readRefreshReply, ApiError, DEFAULT_TIMEOUT_MS, type RefreshOutcome } from '../lib/api-client';
+import type { QueryClient } from '@tanstack/react-query';
+import { createApiClient, readRefreshReply, DEFAULT_TIMEOUT_MS, type RefreshOutcome } from '../lib/api-client';
+import { createQueryClient } from '../lib/query-client';
+import { createConnectivity } from '../lib/connectivity';
 import { createSessionStore } from '../lib/session-store';
 import { assertAllowedUrl } from '../lib/server-address';
 import { refreshWithRetry } from '../lib/refresh-retry';
@@ -35,6 +37,8 @@ export interface Services {
   /** This build's version and build number (shown in Settings, sent with every request). */
   app: AppInfo;
   queryClient: QueryClient;
+  /** Whether the server can be reached, from the app's own requests and sockets. */
+  connectivity: ReturnType<typeof createConnectivity>;
   session: ReturnType<typeof createSessionStore>;
   api: ReturnType<typeof createApiClient>;
   auth: ReturnType<typeof authApi>;
@@ -64,15 +68,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   // A server chosen on the sign-in screen (e.g. a self-hosted office server) wins over the build's.
   const baseUrl = opts.apiBaseUrl || defaultBaseUrl;
 
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-        // Retry once for a dropped connection or a 5xx; a 4xx answer will not change on retry.
-        retry: (failureCount, error) => failureCount < 1 && !(error instanceof ApiError && error.status < 500),
-      },
-    },
-  });
+  const queryClient = createQueryClient();
+  const connectivity = createConnectivity();
 
   const session = createSessionStore({ store: secureStore });
   const currentUserId = () => session.getSession()?.user.id ?? null;
@@ -143,7 +140,11 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
       void signOutApi.signOut('expired');
     },
     // Any answer from the server means we are online — replay queued offline changes (XP-06).
-    onReachable: () => triggerSync(),
+    onReachable: () => {
+      connectivity.reachable();
+      triggerSync();
+    },
+    onUnreachable: () => connectivity.unreachable(),
   });
   const auth = authApi(api);
   const resources = resourcesApi(api);
@@ -216,6 +217,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     appEnv,
     app,
     queryClient,
+    connectivity,
     session,
     api,
     auth,

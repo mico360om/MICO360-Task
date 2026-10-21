@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import { createSocketAuthHandler, currentTokenAuth } from '../lib/socket-auth';
 import { isAllowedUrl } from '../lib/server-address';
+import { isConnectionDrop } from '../lib/connectivity';
 import type { Services } from './services';
 
 /**
@@ -10,10 +11,12 @@ import type { Services } from './services';
  * - an `unauthorized` rejection, or the server closing the socket (expired token / revoked
  *   session), refreshes the session through the app's single-flight refresh and reconnects;
  * - `onConnect(socket, isReconnect)` runs on every connect so callers can (re)join rooms and, on a
- *   reconnect, refetch whatever changed while the socket was down.
+ *   reconnect, refetch whatever changed while the socket was down;
+ * - connecting tells the app the server can be reached, and a live connection dropping tells it
+ *   the server can't (connectivity), so screens refresh once it is back.
  */
 export function connectAuthedSocket(
-  services: Pick<Services, 'baseUrl' | 'session' | 'api' | 'signOut' | 'sync'>,
+  services: Pick<Services, 'baseUrl' | 'session' | 'api' | 'signOut' | 'sync' | 'connectivity'>,
   onConnect: (socket: Socket, isReconnect: boolean) => void,
 ): { socket: Socket; dispose: () => void } {
   const origin = services.baseUrl.replace(/\/api\/v1\/?$/, '');
@@ -35,6 +38,7 @@ export function connectAuthedSocket(
   });
 
   socket.on('connect', () => {
+    services.connectivity.reachable();
     const isReconnect = auth.onConnect();
     onConnect(socket, isReconnect);
     // Being connected again is a good moment to replay queued offline changes.
@@ -46,6 +50,7 @@ export function connectAuthedSocket(
   // The server closes the socket when the access token expires or the session is revoked;
   // socket.io does not reconnect after a server-side close, so refresh and reconnect ourselves.
   socket.on('disconnect', (reason: string) => {
+    if (isConnectionDrop(reason)) services.connectivity.unreachable();
     void auth.onDisconnect(reason);
   });
 

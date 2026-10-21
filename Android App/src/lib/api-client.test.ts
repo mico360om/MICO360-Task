@@ -233,6 +233,34 @@ describe('api-client', () => {
     expect((err as NetworkError).timedOut).toBe(true);
   });
 
+  it('says the server is out of reach when a request gets no answer at all', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('Network request failed');
+    });
+    const onReachable = vi.fn();
+    const onUnreachable = vi.fn();
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch, onReachable, onUnreachable });
+    await api.get('/tasks').catch(() => {});
+    expect(onUnreachable).toHaveBeenCalledOnce();
+    expect(onReachable).not.toHaveBeenCalled();
+  });
+
+  it('does not call a slow answer (a time-out) or a refusal "out of reach"', async () => {
+    const onUnreachable = vi.fn();
+    const hung = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    );
+    const slow = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: hung as unknown as typeof fetch, timeoutMs: 20, onUnreachable });
+    await slow.get('/slow').catch(() => {});
+    const refusing = vi.fn(async () => jsonResponse({ error: { code: 'X', message: 'no' } }, 500));
+    const busy = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: refusing as unknown as typeof fetch, onUnreachable });
+    await busy.get('/tasks').catch(() => {});
+    expect(onUnreachable).not.toHaveBeenCalled();
+  });
+
   it('sends per-request headers (Idempotency-Key) and reports reachability', async () => {
     const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse({ data: {} })));
     const onReachable = vi.fn();
@@ -347,12 +375,14 @@ describe('api-client upload with progress', () => {
 
   it('is a network error when the connection drops, a server error with its reason otherwise', async () => {
     FakeXhr.sent = [];
-    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 'tok', xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest });
+    const onUnreachable = vi.fn();
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 'tok', xhrImpl: FakeXhr as unknown as typeof XMLHttpRequest, onUnreachable });
     const dropped = api.upload('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
     await tick();
     FakeXhr.sent[0]!.onerror?.();
     const err = await dropped.catch((e) => e);
     expect(isNetworkError(err)).toBe(true);
+    expect(onUnreachable).toHaveBeenCalledOnce();
     const refused = api.upload('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
     await tick();
     FakeXhr.sent[1]!.respond(413, { error: { code: 'TOO_LARGE', message: 'File too large.' } });

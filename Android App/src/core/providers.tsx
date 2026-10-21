@@ -7,6 +7,7 @@ import { asyncStore } from '../adapters/async-storage';
 import { loadServerOverride, saveServerOverride } from '../lib/server-address';
 import { DATE_ZONES_KEY, parseDateZones } from '../lib/date-settings';
 import { setDateZones } from '../lib/due-date';
+import { followAppState, followConnectivity } from '../lib/query-client';
 import type { Session } from '../lib/types';
 import type { QueuedMutation } from '../lib/sync-queue';
 
@@ -95,6 +96,17 @@ function ServicesRoot({
     })();
     return () => {
       active = false;
+    };
+  }, [services]);
+
+  // Out-of-date data on screen refreshes when the app returns to the front and when the server can
+  // be reached again (TanStack's focus and online states follow the app's).
+  useEffect(() => {
+    const stopFocus = followAppState(AppState);
+    const stopOnline = followConnectivity(services.connectivity);
+    return () => {
+      stopFocus();
+      stopOnline();
     };
   }, [services]);
 

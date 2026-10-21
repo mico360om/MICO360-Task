@@ -63,6 +63,11 @@ export interface ApiClientOptions {
   onUnauthorized?: () => void | Promise<void>;
   /** Called whenever the server answered (any HTTP status) — used to flush the offline queue. */
   onReachable?: () => void;
+  /**
+   * Called when a request got no answer at all (no connection). A time-out isn't counted: the
+   * server may only be slow.
+   */
+  onUnreachable?: () => void;
   /** Per-request timeout in ms (default 20 s). */
   timeoutMs?: number;
   /** XMLHttpRequest for uploads that report progress (injectable for tests; fetch can't report it). */
@@ -109,12 +114,22 @@ export function createApiClient({
   refreshTokens,
   onUnauthorized,
   onReachable,
+  onUnreachable,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   xhrImpl,
   appHeaders,
 }: ApiClientOptions): ApiClient {
   const doFetch = fetchImpl ?? fetch;
   const Xhr = xhrImpl ?? (typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : undefined);
+
+  /** Tell a listener; a listener must never turn a good response into a failure (or change an error). */
+  const notify = (listener: (() => void) | undefined) => {
+    try {
+      listener?.();
+    } catch {
+      /* ignored */
+    }
+  };
 
   /** A multipart POST over XMLHttpRequest, reporting progress — same timeout and errors as `send`. */
   function sendWithProgress(
@@ -133,7 +148,10 @@ export function createApiClient({
         if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
       };
       xhr.onload = () => resolve({ status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300, text: xhr.responseText });
-      xhr.onerror = () => reject(new NetworkError('Network request failed.'));
+      xhr.onerror = () => {
+        notify(onUnreachable);
+        reject(new NetworkError('Network request failed.'));
+      };
       xhr.ontimeout = () => reject(new NetworkError('The server took too long to respond.', { timedOut: true }));
       xhr.send(form);
     });
@@ -198,11 +216,7 @@ export function createApiClient({
 
     if (form && onProgress && Xhr) {
       const result = await sendWithProgress(path, form, headers, limitMs, onProgress);
-      try {
-        onReachable?.();
-      } catch {
-        /* a listener must never turn a good response into a failure */
-      }
+      notify(onReachable);
       return result;
     }
 
@@ -224,6 +238,7 @@ export function createApiClient({
       });
       result = { status: res.status, ok: res.ok, text: await res.text() };
     } catch (e) {
+      if (!timedOut) notify(onUnreachable);
       throw new NetworkError(timedOut ? 'The server took too long to respond.' : 'Network request failed.', {
         timedOut,
         cause: e,
@@ -231,11 +246,7 @@ export function createApiClient({
     } finally {
       if (timer) clearTimeout(timer);
     }
-    try {
-      onReachable?.();
-    } catch {
-      /* a listener must never turn a good response into a failure */
-    }
+    notify(onReachable);
     return result;
   }
 
