@@ -161,6 +161,14 @@ export interface ApiProject {
   priority?: string | null;
   startDate?: string | null;
   targetDate?: string | null;
+  /** Its colour as #RRGGBB (5b); older servers leave the look out. */
+  color?: string | null;
+  /** One of the server's project icons (lib/project-identity), or null for its initials. */
+  icon?: string | null;
+  /** Its picture: '/uploads/…' on this server, or null. */
+  imageUrl?: string | null;
+  /** Its owner (new tasks are assigned to them), or null. */
+  ownerId?: string | null;
 }
 
 // ── Meetings (taking part in them — 2a — and running them — 2b) ─────────────

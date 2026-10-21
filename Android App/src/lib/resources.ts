@@ -62,6 +62,8 @@ import type {
 import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
 import type { CalendarRange } from './calendar-data';
 import type { CalendarTask } from './calendar-model';
+import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
+import type { SummaryRequest } from './project-dashboard';
 
 export interface TaskListParams {
   projectId?: string;
@@ -149,6 +151,27 @@ export function resourcesApi(client: ApiClient) {
       members: (id: string) => data(client.get<Envelope<ApiMember[]>>(`/projects/${id}/members`)),
       /** Per-project progress/dashboard figures. */
       progress: (id: string) => data(client.get<Envelope<ApiProjectProgress>>(`/projects/${id}/progress`)),
+      // ── Administrators: New and Edit project (5b) ──
+      /** Is this code well formed and free (deleted projects keep theirs)? */
+      checkCode: (code: string) => data(client.get<Envelope<CodeCheck>>(`/projects/code-check?code=${encodeURIComponent(code)}`)),
+      /** Create a project; the try's key means a lost answer never makes two. */
+      create: (input: ProjectInput, idempotencyKey?: string) => data(client.post<Envelope<ApiProject>>('/projects', input, idempotencyHeaders(idempotencyKey))),
+      update: (id: string, patch: ProjectPatch) => data(client.put<Envelope<ApiProject>>(`/projects/${id}`, patch)),
+      /** Archive a project (its own action, recorded as such). */
+      archive: (id: string) => data(client.post<Envelope<ApiProject>>(`/projects/${id}/archive`, {})),
+      uploadImage: (id: string, part: { uri: string; name: string; type: string }) => {
+        const form = new FormData();
+        // React Native sends a { uri, name, type } part as the file's bytes.
+        form.append('file', part as unknown as Blob);
+        return data(client.upload<Envelope<ApiProject>>(`/projects/${id}/image`, form));
+      },
+      removeImage: (id: string) => data(client.del<Envelope<ApiProject>>(`/projects/${id}/image`)),
+      // ── The team: administrators and the project's managers (5b) ──
+      /** Add people; the team as it now is comes back. */
+      addMembers: (id: string, userIds: string[]) => data(client.post<Envelope<ApiMember[]>>(`/projects/${id}/members`, { userIds })),
+      setMemberRole: (id: string, userId: string, role: 'MEMBER' | 'MANAGER') =>
+        data(client.patch<Envelope<ApiMember[]>>(`/projects/${id}/members/${encodeURIComponent(userId)}`, { role })),
+      removeMember: (id: string, userId: string) => client.del<void>(`/projects/${id}/members/${encodeURIComponent(userId)}`),
     },
     tasks: {
       list: (params: TaskListParams = {}) =>
@@ -379,6 +402,9 @@ export function resourcesApi(client: ApiClient) {
       /** A short description for the meeting's invitation. */
       writeMeetingDescription: (input: { title: string; agenda?: string[]; text?: string }) =>
         data(client.post<Envelope<{ description?: string }>>('/ai/write-meeting-description', input, { timeoutMs: AI_TIMEOUT_MS })).then((r) => r?.description ?? ''),
+      /** A project's plain-language status summary (5b): its figures and a few open task titles. */
+      summary: (input: SummaryRequest) =>
+        data(client.post<Envelope<{ summary?: string }>>('/ai/summary', input, { timeoutMs: AI_TIMEOUT_MS })).then((r) => (r?.summary ?? '').trim()),
     },
     /** Shared tag catalog for suggestions/autocomplete. */
     tagCatalog: () => data(client.get<Envelope<ApiTag[]>>('/tags')),
