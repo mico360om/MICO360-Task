@@ -5,8 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   keyed,
   useTask,
+  useTasksById,
+  useTaskSearch,
   useProjectColumns,
-  useProjectTasks,
   useMoveTask,
   useUpdateTask,
   useTaskTags,
@@ -30,6 +31,7 @@ import {
   useDirectory,
 } from '../core/queries';
 import { useMyQueuedChanges, useServices, useSession } from '../core/providers';
+import { useDebouncedValue } from '../core/useDebounced';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote, Button } from '../components/ui';
 import { ApiError, isNetworkError } from '../lib/api-client';
@@ -40,6 +42,7 @@ import { attachmentHref, canRemoveAttachment, uploadErrorMessage, uploadPart, ty
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
 import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
+import { stillMatching } from '../lib/blocker-search';
 import type { AppScreenProps } from '../navigation/types';
 import { displayName } from '../lib/types';
 import { HeaderCard } from '../components/task-detail/HeaderCard';
@@ -51,6 +54,9 @@ import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 
 /** At this width and up (tablets, landscape) the details sit beside the work in a second column. */
 const TWO_COLUMNS_FROM = 720;
+
+/** "Add a blocker" searches once typing pauses this long. */
+const BLOCKER_SEARCH_PAUSE_MS = 250;
 
 /**
  * Task details: header (reference, status, priority, due date, title, ⋯ menu), the description,
@@ -68,7 +74,6 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const task = taskQ.data;
   const projectId = task?.projectId ?? '';
   const columnsQ = useProjectColumns(projectId);
-  const projectTasksQ = useProjectTasks(projectId);
   const move = useMoveTask(projectId);
   const update = useUpdateTask(taskId);
   const tagsQ = useTaskTags(taskId);
@@ -87,6 +92,13 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const activityQ = useTaskActivity(taskId);
   const depsQ = useTaskDependencies(taskId);
   const depM = useDependencyMutations(taskId);
+  // The linked tasks are read one by one, and "Add a blocker" searches the server once typing
+  // pauses — instead of loading every task of the project, all days.
+  const linkedIds = useMemo(() => [...new Set([...(depsQ.data?.blockedBy ?? []), ...(depsQ.data?.blocks ?? [])])], [depsQ.data]);
+  const linked = useTasksById(linkedIds);
+  const [blockerQuery, setBlockerQuery] = useState('');
+  const searchFor = useDebouncedValue(blockerQuery.trim(), BLOCKER_SEARCH_PAUSE_MS);
+  const blockerSearch = useTaskSearch(projectId, searchFor);
   const watch = useTaskWatch(taskId);
   const deleteTask = useDeleteTask(taskId);
   const directoryQ = useDirectory();
@@ -123,7 +135,6 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const allColumns = columnsQ.data ?? [];
   // The status chips offer the shown columns, plus the task's own when it sits in a hidden one.
   const columns = allColumns.filter((col) => col.enabled || col.id === task.columnId);
-  const projectTasks = projectTasksQ.data ?? [];
   const current = statusOf(task, allColumns);
   const due = dueState(task);
   const myId = session?.user.id ?? null;
@@ -278,12 +289,22 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
       unavailable={attachmentsQ.isError}
     />
   );
+  // While the next search runs, only the earlier results that still plainly match are offered.
+  const hits = blockerSearch.isPlaceholderData ? stillMatching(blockerSearch.data ?? [], blockerQuery) : (blockerSearch.data ?? []);
+  const searchProblem = blockerSearch.isError
+    ? isNetworkError(blockerSearch.error)
+      ? 'Searching needs a connection — check your connection and try again.'
+      : 'Couldn’t search. Please try again.'
+    : null;
   const blockers = (
     <BlockersCard
       taskId={task.id}
-      blockedBy={blockerRefs(deps.blockedBy, projectTasks, columns)}
-      blocks={blockerRefs(deps.blocks, projectTasks, columns)}
-      candidates={blockerRefs(projectTasks.map((t) => t.id), projectTasks, columns)}
+      blockedBy={blockerRefs(deps.blockedBy, linked.tasks, columns, linked.loading)}
+      blocks={blockerRefs(deps.blocks, linked.tasks, columns, linked.loading)}
+      candidates={blockerRefs(hits.map((t) => t.id), hits, columns)}
+      onQueryChange={setBlockerQuery}
+      searching={blockerQuery.trim() !== searchFor || blockerSearch.isFetching}
+      searchProblem={searchProblem}
       onAdd={(id) => depM.add.mutateAsync(id)}
       onRemove={(id) => depM.remove.mutateAsync(id)}
     />

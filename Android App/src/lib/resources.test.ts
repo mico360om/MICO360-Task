@@ -94,6 +94,12 @@ describe('resourcesApi.tasks', () => {
     expect(path).toContain('overdue=true');
   });
 
+  it('asks for one page of tasks (a search) with limit and offset', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).tasks.list({ projectId: 'p1', q: 'fix', limit: 30, offset: 0 });
+    expect(calls[0]!.path).toBe('/tasks?projectId=p1&q=fix&limit=30&offset=0');
+  });
+
   it('reads per-project progress', async () => {
     const { client, calls } = fakeClient();
     await resourcesApi(client).projects.progress('p1');

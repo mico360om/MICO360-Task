@@ -6,7 +6,7 @@ import { KeyboardGroup } from '../KeyboardAware';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { buildTimeline, type FeedEntry, type TimelineKind } from '../../lib/activity-feed';
 import { fileKind } from '../../lib/file-kind';
-import { filterTasks } from '../../lib/task-picker';
+import { rankSearchHits } from '../../lib/blocker-search';
 import { attachmentIcon, formatFileSize } from '../../lib/attachments';
 import type { TaskRef } from '../../lib/task-detail';
 import type { ApiAttachment } from '../../lib/attachments';
@@ -190,13 +190,17 @@ function RefLine({ t, onRemove }: { t: TaskRef; onRemove?: () => void }) {
 /**
  * What this task waits on (and what waits on it), with status; a search to add a blocker that
  * never offers the task itself, one already linked, or one it blocks — a longer loop is refused
- * by the server, with its reason shown.
+ * by the server, with its reason shown. What is typed goes to `onQueryChange`; the server's
+ * matches come back as `candidates` (best key and title matches first).
  */
 export function BlockersCard({
   taskId,
   blockedBy,
   blocks,
   candidates,
+  onQueryChange,
+  searching = false,
+  searchProblem = null,
   onAdd,
   onRemove,
 }: {
@@ -204,16 +208,26 @@ export function BlockersCard({
   blockedBy: TaskRef[];
   blocks: TaskRef[];
   candidates: TaskRef[];
+  onQueryChange: (query: string) => void;
+  /** The search for what was typed is still running. */
+  searching?: boolean;
+  /** Why the search failed, in plain words. */
+  searchProblem?: string | null;
   onAdd: (id: string) => Promise<unknown>;
   onRemove: (id: string) => Promise<unknown>;
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const save = useSave();
-  const [query, setQuery] = useState('');
+  const [query, setQueryText] = useState('');
+  const setQuery = (v: string) => {
+    setQueryText(v);
+    onQueryChange(v);
+  };
   const exclude = new Set([taskId, ...blockedBy.map((d) => d.id), ...blocks.map((d) => d.id)]);
-  const matches = query.trim() ? filterTasks(candidates, query, exclude, 6) : [];
+  const matches = query.trim() ? rankSearchHits(candidates, query, exclude, 6) : [];
   const open = blockedBy.filter((d) => !d.done).length;
+  const nothingFound = searching ? 'Searching…' : (searchProblem ?? 'No task matches (a task can’t block itself or one it already blocks).');
   return (
     <SectionCard title="Dependencies" right={open > 0 ? <Text style={s.waiting}>{`Waiting on ${open} open ${open === 1 ? 'task' : 'tasks'}`}</Text> : undefined}>
       <Text style={s.sub}>Blocked by</Text>
@@ -232,7 +246,7 @@ export function BlockersCard({
           accessibilityLabel="Add a blocking task"
           autoCapitalize="none"
         />
-        {query.trim() && matches.length === 0 ? <Text style={s.muted}>No task matches (a task can’t block itself or one it already blocks).</Text> : null}
+        {query.trim() && matches.length === 0 ? <Text style={s.muted}>{nothingFound}</Text> : null}
         {matches.map((t) => (
           <Pressable
             key={t.id}

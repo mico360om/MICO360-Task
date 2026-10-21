@@ -93,13 +93,16 @@ export interface TaskRef {
   done: boolean;
 }
 
-/** Linked tasks by id → key, title and status, from the project's tasks and columns. */
-export function blockerRefs(ids: string[], tasks: ApiTask[], columns: ApiColumn[]): TaskRef[] {
+/**
+ * Linked tasks by id → key, title and status, from the tasks loaded and the project's columns (a
+ * task in another project is done by its own column's stage). `loading` holds ids still on their way.
+ */
+export function blockerRefs(ids: string[], tasks: ApiTask[], columns: ApiColumn[], loading: Set<string> = new Set()): TaskRef[] {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const colById = new Map(columns.map((c) => [c.id, c]));
   return ids.map((id) => {
     const t = byId.get(id);
-    if (!t) return { id, key: id, title: 'Task not in this project list', done: false };
+    if (!t) return loading.has(id) ? { id, key: '…', title: 'Loading…', done: false } : { id, key: id, title: 'Couldn’t load this task', done: false };
     const col = colById.get(t.columnId);
     return {
       id: t.id,

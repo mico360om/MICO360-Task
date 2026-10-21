@@ -56,8 +56,15 @@ describe('blockerRefs', () => {
       { id: 't3', key: 'MICO-3', title: 'Approved', statusName: 'Done', statusCategory: 'DONE', done: true },
     ]);
   });
-  it('still lists a task it can’t find (by id)', () => {
-    expect(blockerRefs(['tx'], tasks, columns)).toEqual([{ id: 'tx', key: 'tx', title: 'Task not in this project list', done: false }]);
+  it('still lists a task it couldn’t load (by id)', () => {
+    expect(blockerRefs(['tx'], tasks, columns)).toEqual([{ id: 'tx', key: 'tx', title: 'Couldn’t load this task', done: false }]);
+  });
+  it('says so while a linked task is still loading', () => {
+    expect(blockerRefs(['tx'], tasks, columns, new Set(['tx']))).toEqual([{ id: 'tx', key: '…', title: 'Loading…', done: false }]);
+  });
+  it('knows a task from another project is done by its own column', () => {
+    const elsewhere = [{ id: 't7', key: 'RIG-7', title: 'Elsewhere', columnId: 'other', columnCategory: 'DONE', completedAt: null }] as unknown as ApiTask[];
+    expect(blockerRefs(['t7'], elsewhere, columns)).toEqual([{ id: 't7', key: 'RIG-7', title: 'Elsewhere', statusName: undefined, statusCategory: undefined, done: true }]);
   });
 });
 

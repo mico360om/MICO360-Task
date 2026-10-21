@@ -50,6 +50,9 @@ export interface TaskListParams {
   boardDate?: string;
   sort?: 'dueDate' | 'priority' | 'createdAt' | 'updatedAt' | 'title' | 'position';
   order?: 'asc' | 'desc';
+  /** One page of the filtered, sorted list: at most `limit` tasks, from `offset` (the server's 1–1000). */
+  limit?: number;
+  offset?: number;
 }
 
 function queryString(params: Record<string, string | undefined>): string {
@@ -116,6 +119,8 @@ export function resourcesApi(client: ApiClient) {
               boardDate: params.boardDate,
               sort: params.sort,
               order: params.order,
+              limit: params.limit?.toString(),
+              offset: params.offset?.toString(),
             })}`,
           ),
         ),

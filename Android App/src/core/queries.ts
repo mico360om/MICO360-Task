@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { meetingWindow } from '../lib/meetings';
@@ -6,6 +6,7 @@ import { refetchAfterMove } from '../lib/task-status';
 import { taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { afterTaskDeleted, afterTaskSaved, moveRefreshes } from '../lib/task-cache';
 import { projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
+import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
 import { newIdempotencyKey } from '../lib/idempotency';
 import type { SyncQueue } from '../lib/sync-queue';
@@ -82,6 +83,38 @@ export function useMyTasks() {
 export function useTask(taskId: string) {
   const { resources } = useServices();
   return useQuery({ queryKey: ['task', taskId], queryFn: () => resources.tasks.get(taskId) });
+}
+
+/**
+ * Several tasks by id (the ones a task is linked to as blockers), each under its own details key —
+ * a few small reads instead of every task of the project. `loading` holds the ids still on their way.
+ */
+export function useTasksById(ids: string[]): { tasks: ApiTask[]; loading: Set<string> } {
+  const { resources } = useServices();
+  const results = useQueries({ queries: ids.map((id) => ({ queryKey: ['task', id], queryFn: () => resources.tasks.get(id) })) });
+  const tasks: ApiTask[] = [];
+  const loading = new Set<string>();
+  results.forEach((r, i) => {
+    if (r.data) tasks.push(r.data);
+    else if (r.isLoading) loading.add(ids[i]!);
+  });
+  return { tasks, loading };
+}
+
+/**
+ * "Add a blocker": this project's tasks matching what was typed — one page from the server
+ * (blockerSearchParams), never every task of the project. The last results stay on screen while
+ * the next search runs. Needs a connection.
+ */
+export function useTaskSearch(projectId: string, query: string) {
+  const { resources } = useServices();
+  const q = query.trim();
+  return useQuery({
+    queryKey: ['tasks', 'search', projectId, q],
+    queryFn: () => resources.tasks.list(blockerSearchParams(projectId, q)),
+    enabled: !!projectId && q.length > 0,
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useTaskTags(taskId: string) {
