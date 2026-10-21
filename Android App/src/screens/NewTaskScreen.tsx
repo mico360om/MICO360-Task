@@ -345,7 +345,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           setLocked(true);
           setBanner(out.message);
           return;
-        case 'offline':
+        case 'not-sent':
           setLocked(false);
           setBanner(out.message);
           return;

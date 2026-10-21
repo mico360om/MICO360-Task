@@ -30,6 +30,10 @@ export const NEW_TASK_TEXT = {
   /** A try that got no answer in time may be on the server: the next tap finishes it under the same key. */
   noAnswer: 'The server didn’t answer in time — the task may already be created. Tap Create task again to finish: it won’t be created twice.',
   stillSaving: 'The task is still being created — wait a moment, then tap Create task again.',
+  /** A 5xx or 408 (a proxy's 502/504 too): the server may have finished it — the key stays (4a review). */
+  serverTrouble: 'The server had a problem — the task may already be created. Tap Create task again to finish: it won’t be created twice.',
+  /** 429: the server didn't take it at all. */
+  tooMany: 'Too many tries just now — wait a moment, then tap Create task again.',
   /** Shown while the form is locked after a try with files got no answer. */
   locked:
     'Until the task is created, its details can’t change — if the first try reached the server, a change made now would be lost. You can still add or take off files, or start over.',
@@ -332,8 +336,8 @@ export type NewTaskOutcome =
   | { kind: 'kept'; message: string }
   /** No answer (or the first try is still being saved): it may be on the server — the key stays and the form is locked. */
   | { kind: 'no-answer'; message: string }
-  /** Offline with files: the request never left — nothing is locked (files can't wait offline with it). */
-  | { kind: 'offline'; message: string }
+  /** Not taken: offline with files (the request never left), or too many tries (429) — nothing is locked, the key stays. */
+  | { kind: 'not-sent'; message: string }
   /** The server refused it: the form stays as it is, and the next try is a new one. */
   | { kind: 'refused'; message: string };
 
@@ -355,12 +359,16 @@ export async function sendNewTask(deps: SendNewTaskDeps, req: { input: NewTaskIn
     task = await (withFiles ? deps.createLive : deps.createKept)(req.input, req.key);
   } catch (e) {
     if (e instanceof ApiError && e.code === 'IDEMPOTENCY_IN_PROGRESS') return { kind: 'no-answer', message: NEW_TASK_TEXT.stillSaving };
+    // A server problem isn't a refusal (4a review): the server may have finished the task behind a
+    // proxy's 502/504, and it lets the key go on a 5xx — the same key goes again, the form locked.
+    if (e instanceof ApiError && (e.status >= 500 || e.status === 408)) return { kind: 'no-answer', message: NEW_TASK_TEXT.serverTrouble };
+    if (e instanceof ApiError && e.status === 429) return { kind: 'not-sent', message: NEW_TASK_TEXT.tooMany };
     if (isNetworkError(e)) {
       if (!withFiles && isKeptOnPhone(e)) return { kind: 'kept', message: keptOnPhoneText(e) };
       // Files can't wait offline with the task: say so rather than save it without them. Offline
       // the request never left, so the form isn't locked; only a try with no answer may be saved.
       const timedOut = (e as { timedOut?: unknown }).timedOut === true;
-      if (withFiles && !timedOut) return { kind: 'offline', message: NEW_TASK_TEXT.offlineWithFiles };
+      if (withFiles && !timedOut) return { kind: 'not-sent', message: NEW_TASK_TEXT.offlineWithFiles };
       return { kind: 'no-answer', message: NEW_TASK_TEXT.noAnswer };
     }
     return { kind: 'refused', message: `Couldn’t create the task. ${reasonOf(e)}` };

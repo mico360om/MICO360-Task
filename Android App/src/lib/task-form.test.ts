@@ -296,7 +296,7 @@ describe('sendNewTask', () => {
   it('with files and no answer: nothing kept offline; the key is kept and the form locked (the task may be on the server)', async () => {
     // Offline, the request never left: the form isn't locked (4a review #5).
     const { d } = deps({ createLive: async () => Promise.reject(new NetworkError('Network request failed.')) });
-    expect(await sendNewTask(d, { input, key: 'k1', files: [file('a')] })).toEqual({ kind: 'offline', message: NEW_TASK_TEXT.offlineWithFiles });
+    expect(await sendNewTask(d, { input, key: 'k1', files: [file('a')] })).toEqual({ kind: 'not-sent', message: NEW_TASK_TEXT.offlineWithFiles });
     const late = deps({ createLive: async () => Promise.reject(new NetworkError('slow', { timedOut: true })) });
     expect(await sendNewTask(late.d, { input, key: 'k1', files: [file('a')] })).toEqual({ kind: 'no-answer', message: NEW_TASK_TEXT.noAnswer });
     // The first try is still being saved on the server: the same key, wait, and tap again.
@@ -314,7 +314,8 @@ describe('sendNewTask', () => {
       kind: 'refused',
       message: 'Couldn’t create the task. You don’t have permission to do that.',
     });
-    expect(await sendNewTask(refuse(new ApiError(500, 'HTTP_500', 'Request failed (500)')), { input, key: 'k1', files: [] })).toEqual({
+    // A refusal without words of its own: the plain fallback (a 5xx isn't a refusal — 4a review #10).
+    expect(await sendNewTask(refuse(new ApiError(400, 'HTTP_400', 'Request failed (400)')), { input, key: 'k1', files: [] })).toEqual({
       kind: 'refused',
       message: 'Couldn’t create the task. Please try again.',
     });
@@ -436,6 +437,34 @@ describe('a locked New task form, and one that never reached the server (4a revi
 
   it('offline with files the form stays open: nothing was sent, so nothing is locked', () => {
     const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
-    expect(screen).toMatch(/case 'offline':\r?\n\s+setLocked\(false\);/);
+    expect(screen).toMatch(/case 'not-sent':\r?\n\s+setLocked\(false\);/);
+  });
+});
+
+describe('a server problem on create keeps the key (4a review #10)', () => {
+  const input = { projectId: 'p1', columnId: 'c1', title: 'Write the report', priority: 'NORMAL' as const };
+  const file = (key: string): NewTaskFile => ({ key, uri: `file:///${key}.jpg`, name: `${key}.jpg`, mimeType: 'image/jpeg', size: 10 });
+  const deps = (over: Partial<Parameters<typeof sendNewTask>[0]>) => ({
+    d: {
+      createKept: async () => ({}) as ApiTask,
+      createLive: async () => ({}) as ApiTask,
+      upload: async () => ({}),
+      onFile: () => {},
+      ...over,
+    },
+  });
+  it('a 5xx or 408 (a proxy’s 502/504 too: the server may have finished) keeps the key and locks the form, as no answer does', async () => {
+    for (const status of [500, 502, 503, 504, 408]) {
+      const d = deps({ createKept: async () => Promise.reject(new ApiError(status, 'ERROR', `Request failed (${status})`)), createLive: async () => Promise.reject(new ApiError(status, 'ERROR', 'x')) }).d;
+      expect(await sendNewTask(d, { input, key: 'k1', files: [] }), String(status)).toEqual({ kind: 'no-answer', message: NEW_TASK_TEXT.serverTrouble });
+      expect(await sendNewTask(d, { input, key: 'k1', files: [file('a')] }), String(status)).toEqual({ kind: 'no-answer', message: NEW_TASK_TEXT.serverTrouble });
+    }
+    expect(NEW_TASK_TEXT.serverTrouble).toBe('The server had a problem — the task may already be created. Tap Create task again to finish: it won’t be created twice.');
+  });
+
+  it('too many tries (429): nothing was taken — the same key, nothing locked, wait a moment', async () => {
+    const d = deps({ createKept: async () => Promise.reject(new ApiError(429, 'RATE_LIMITED', 'Too many requests')) }).d;
+    expect(await sendNewTask(d, { input, key: 'k1', files: [] })).toEqual({ kind: 'not-sent', message: NEW_TASK_TEXT.tooMany });
+    expect(NEW_TASK_TEXT.tooMany).toBe('Too many tries just now — wait a moment, then tap Create task again.');
   });
 });
