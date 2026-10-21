@@ -201,9 +201,12 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
       // The thread already has the server's copy (put in as the reply came, chat-cache); the inbox
       // (last message, unread) is fetched again.
       return [{ queryKey: ['chat', 'conversations'] }];
-    case 'chat.react':
-      // Put in place in the thread (and heard live by everyone else): nothing to fetch.
-      return [];
+    case 'chat.react': {
+      // Shown at once (put in the thread as it was made): once sent — or refused — the thread is
+      // read again as the server has it.
+      const cid = typeof p.conversationId === 'string' ? p.conversationId : '';
+      return cid ? [{ queryKey: ['chat', 'messages', cid] }] : [];
+    }
     case 'meeting.note.add':
     case 'meeting.action.add':
     case 'meeting.action.update':

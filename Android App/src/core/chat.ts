@@ -9,7 +9,7 @@ import { useConversations } from './queries';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { refresh } from '../lib/refresh';
 import { dismissNotificationsAbout } from '../adapters/push';
-import type { ApiConversationSummary } from '../lib/types';
+import type { ApiConversationSummary, ReplyQuote } from '../lib/types';
 
 /** Is the server reachable, as far as the app can tell (connectivity), live. */
 export function useOnline(): boolean {
@@ -44,8 +44,8 @@ export function useChatOutbox(conversationId: string, confirmed: ReadonlySet<str
   }, [mine.failed, confirmed, queue]);
 
   const send = useCallback(
-    (text: string) =>
-      enqueueChatMessage({ queue, sync: () => void sync.trigger(), userId: currentUserId, newKey: () => newIdempotencyKey() }, conversationId, text),
+    (text: string, replyTo?: ReplyQuote | null) =>
+      enqueueChatMessage({ queue, sync: () => void sync.trigger(), userId: currentUserId, newKey: () => newIdempotencyKey() }, conversationId, text, replyTo),
     [queue, sync, currentUserId, conversationId],
   );
   const retry = useCallback(

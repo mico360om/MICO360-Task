@@ -7,6 +7,7 @@ import { MEETING_EVENTS, meetingEventRefreshes, meetingsReconnectRefreshes } fro
 import { PROJECT_REMOVED_EVENT } from '../lib/realtime';
 import { refresh } from '../lib/refresh';
 import { createRefreshBatcher } from '../lib/refresh-batch';
+import { PRESENCE_EVENTS, presence, presenceEvent } from '../lib/presence-store';
 
 /**
  * The app's one signed-in socket for live chat and meeting updates (A2.3, XP-05; meetings since
@@ -51,6 +52,17 @@ export function useAppRealtime(projectIds: string[]): void {
       });
     }
     for (const ev of MEETING_EVENTS) socket.on(ev, (payload: unknown) => meetings.add(meetingEventRefreshes(ev, payload)));
+    // Who is online (3b): the server sends the set on connect, then each change. Someone's "last
+    // active" moved: the people list is out of date, fetched when next shown.
+    for (const ev of PRESENCE_EVENTS) {
+      socket.on(ev, (payload: unknown) => {
+        const change = presenceEvent(ev, payload);
+        if (!change) return;
+        presence.apply(change);
+        if (change.type === 'offline') refresh(qc, [{ queryKey: ['chat', 'directory'], later: true }]);
+      });
+    }
+    socket.on('disconnect', () => presence.reset());
     // Removed from a project: its channel, meetings and data are gone — refresh projects, chats,
     // meetings and tasks. (The new project list changes the joined rooms, which reconnects this socket.)
     socket.on(PROJECT_REMOVED_EVENT, () => {
@@ -62,6 +74,7 @@ export function useAppRealtime(projectIds: string[]): void {
 
     return () => {
       dispose();
+      presence.reset();
       chat.flush();
       meetings.flush();
     };

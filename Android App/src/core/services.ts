@@ -21,6 +21,7 @@ import { noteReplayed, rebaseQueuedVersion, taskWrites } from '../lib/task-write
 import { dropOvertaken, replayLane } from '../lib/write-order';
 import { createSyncController } from '../lib/sync-controller';
 import { createChatCache, type ChatCache } from '../lib/chat-cache';
+import { createChatDrafts, type ChatDrafts } from '../lib/chat-drafts';
 import { createPushRegistrar } from '../lib/push-registrar';
 import { createBiometricGate } from '../lib/biometric-gate';
 import { createBiometricLogin } from '../lib/biometric-login';
@@ -55,6 +56,8 @@ export interface Services {
   sync: ReturnType<typeof createSyncController>;
   /** Chat messages put into a loaded thread in place (sent ones, live ones), 3a. */
   chat: ChatCache;
+  /** Each conversation's unsent message, kept on this phone (3b; cleared with the offline copy at sign-out). */
+  drafts: ChatDrafts;
   push: ReturnType<typeof createPushRegistrar>;
   biometric: ReturnType<typeof createBiometricGate>;
   biometricLogin: ReturnType<typeof createBiometricLogin>;
@@ -185,6 +188,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     keepCopy: (conversationId, newest) => cache.keep(chatThreadCopyKey(conversationId), newest),
     reviseCopy: (conversationId, change) => void cache.revise(chatThreadCopyKey(conversationId), change),
   });
+  // Stored with the offline copy, so signing out (cache.clear) removes them too.
+  const drafts = createChatDrafts({ store: asyncStore, getUserId: currentUserId });
 
   const sync = createSyncController({
     queue,
@@ -260,6 +265,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     queue,
     sync,
     chat,
+    drafts,
     push,
     biometric,
     biometricLogin,

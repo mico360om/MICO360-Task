@@ -116,6 +116,7 @@ describe('edits, deletions and reactions kept on the phone (offline, 3b)', () =>
     expect(describeMutation(queued(CHAT_REACT, { emoji: '👍', add: false }))).toBe('Take back a 👍 reaction');
     // The thread gets the server's copy in place (chat-cache); the list's last message is fetched again.
     expect(refreshesAfterReplay(queued(CHAT_EDIT, { conversationId: 'c1', messageId: 'm1' }))).toEqual([{ queryKey: ['chat', 'conversations'] }]);
-    expect(refreshesAfterReplay(queued(CHAT_REACT, { conversationId: 'c1', messageId: 'm1' }))).toEqual([]);
+    // A reaction is shown at once; once sent (or refused) the thread is read again as the server has it.
+    expect(refreshesAfterReplay(queued(CHAT_REACT, { conversationId: 'c1', messageId: 'm1' }))).toEqual([{ queryKey: ['chat', 'messages', 'c1'] }]);
   });
 });

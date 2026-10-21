@@ -16,6 +16,7 @@ import { answerFailed, answerScope } from '../lib/meeting-cache';
 import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
 import { pendingKeys, settleShownAgenda, settleShownAttendees } from '../lib/pending-keys';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
+import { useDebouncedValue } from './useDebounced';
 import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-thread';
 import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
@@ -741,3 +742,22 @@ export function useConversationMessages(conversationId: string) {
 }
 
 // Sending a message: the outbox (core/chat useChatOutbox) keeps it in the offline queue first.
+
+/** The shortest search the server runs. */
+export const CHAT_SEARCH_MIN = 2;
+
+/**
+ * Messages containing the words (3b, as the website's SearchResults): in all of my conversations,
+ * or in one — asked once typing pauses (250 ms), from two letters. Needs a connection.
+ */
+export function useChatSearch(q: string, conversationId?: string) {
+  const { resources } = useServices();
+  const term = useDebouncedValue(q.trim(), 250);
+  const query = useQuery({
+    queryKey: ['chat', 'search', conversationId ?? 'all', term],
+    queryFn: () => resources.chat.search(term, conversationId),
+    enabled: term.length >= CHAT_SEARCH_MIN,
+    staleTime: 15_000,
+  });
+  return { query, term, waiting: q.trim().length >= CHAT_SEARCH_MIN && term !== q.trim() };
+}

@@ -684,6 +684,10 @@ export interface ApiDirectoryUser {
   lastName: string;
   /** False for an inactive or suspended account: still named in history, but not offered to invite. */
   active?: boolean;
+  /** Their picture (a server path), if they set one. */
+  avatarUrl?: string | null;
+  /** When they were last connected ("Last active 5m ago"); older servers leave it out. */
+  lastActiveAt?: string | null;
 }
 
 /** The success envelope: `{ data: T }`. */

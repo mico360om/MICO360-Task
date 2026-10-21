@@ -20,7 +20,8 @@ export interface UploadEntry {
   clientId: string;
   conversationId: string;
   name: string;
-  size: number;
+  /** null when the picker didn't know it. */
+  size: number | null;
   type: string;
   uri: string;
   /** How much has been sent (0–1). */

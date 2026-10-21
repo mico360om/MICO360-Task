@@ -17,6 +17,7 @@ import { useServices, useUserId } from '../core/providers';
 import { useProjects } from '../core/queries';
 import { useAppRealtime } from '../core/useAppRealtime';
 import { useChatBadge } from '../core/chat';
+import { useDeliveryAcks } from '../core/chat-features';
 import { chatTabBadge, chatTabLabel } from '../lib/chat';
 import { useTheme } from '../core/theme';
 import { spacing } from '../lib/theme';
@@ -147,6 +148,8 @@ function applyAction(action: NavAction): void {
 function RealtimeMount() {
   const { data: projects } = useProjects();
   useAppRealtime((projects ?? []).map((p) => p.id));
+  // A direct message that reached this phone: its sender sees "Delivered" (3b).
+  useDeliveryAcks();
   return null;
 }
 
