@@ -4,7 +4,7 @@
  * helpers; the screen supplies the picker, the requests and the share sheet.
  */
 import { ApiError, isNetworkError } from './api-client';
-import { attachmentHref, uploadMimeType } from './attachments';
+import { serverFileHref, uploadMimeType } from './attachments';
 import type { Session } from './types';
 
 /** You, as the server sends you back after a photo change (POST/DELETE /users/me/avatar). */
@@ -58,9 +58,9 @@ export function photoOf(me: { id?: string; avatarUrl?: string | null } | null | 
   return sessionUser?.avatarUrl ?? null;
 }
 
-/** Where to show a photo from (the API server's origin + its path), or null for none. */
+/** Where to show a photo from — only one stored on this server (attachments serverFileHref) — or null for none. */
 export function avatarHref(apiBase: string, url: string | null | undefined): string | null {
-  return url ? attachmentHref(apiBase, url) : null;
+  return serverFileHref(apiBase, url);
 }
 
 /** Did the server give a reason of its own (not just "Request failed (400)")? */

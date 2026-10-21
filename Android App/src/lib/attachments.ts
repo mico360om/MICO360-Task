@@ -23,6 +23,42 @@ export function attachmentHref(apiBase: string, url: string): string {
   return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
+/** 'https://host[:port]' of an absolute address, lower-cased, or null. */
+const originOf = (address: string): string | null => {
+  const m = /^(https?):\/\/([^/?#\\@]+)(?=[/?#]|$)/i.exec(address);
+  return m ? `${m[1]!.toLowerCase()}://${m[2]!.toLowerCase()}` : null;
+};
+
+/**
+ * Where to load a chat file or a profile photo from (3b review, and the 6a review for photos — one
+ * rule for both): only a file stored on this server, '/uploads/…' (or the API origin's own
+ * '/uploads/…' address). Anything else — another site, another port, another of the server's
+ * paths, a path that climbs out of /uploads — is not loaded or opened (null).
+ */
+export function serverFileHref(apiBase: string, url: string | null | undefined): string | null {
+  const u = (url ?? '').trim();
+  if (!u || /\\/.test(u)) return null;
+  const origin = apiBase.replace(/\/api\/v\d+\/?$/, '').replace(/\/+$/, '');
+  let path: string;
+  if (/^[a-z][a-z\d+.-]*:/i.test(u) || u.startsWith('//')) {
+    // Absolute: the API server's own origin only (scheme, host and port).
+    const own = originOf(origin);
+    const theirs = originOf(u);
+    if (!own || !theirs || own !== theirs) return null;
+    path = u.slice(theirs.length);
+  } else {
+    path = u.startsWith('/') ? u : `/${u}`;
+  }
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path.split(/[?#]/)[0]!);
+  } catch {
+    return null;
+  }
+  if (!decoded.startsWith('/uploads/') || decoded.split('/').some((part) => part === '..' || part === '.') || /\\/.test(decoded)) return null;
+  return /^[a-z][a-z\d+.-]*:/i.test(u) ? u : `${origin}${path}`;
+}
+
 /** "532 B", "12.4 KB", "3.1 MB". */
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '';

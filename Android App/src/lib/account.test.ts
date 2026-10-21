@@ -54,6 +54,8 @@ describe('account: the profile photo', () => {
     expect(avatarHref('https://task.mico360.com/api/v1', '/uploads/a.png')).toBe('https://task.mico360.com/uploads/a.png');
     expect(avatarHref('https://task.mico360.com/api/v1', null)).toBeNull();
     expect(avatarHref('https://task.mico360.com/api/v1', undefined)).toBeNull();
+    // Only a photo stored on this server is loaded (3b review fix 8, the 6a review's avatar rule).
+    expect(avatarHref('https://task.mico360.com/api/v1', 'https://tracker.example/pixel.png')).toBeNull();
   });
 
   it('says why a picture wasn’t taken, in the website’s words', () => {

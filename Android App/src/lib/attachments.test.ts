@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attachmentHref, formatFileSize, canRemoveAttachment, uploadMimeType, attachmentIcon, uploadPart, uploadErrorMessage } from './attachments';
+import { attachmentHref, formatFileSize, canRemoveAttachment, uploadMimeType, attachmentIcon, uploadPart, uploadErrorMessage, serverFileHref } from './attachments';
 import { ApiError, NetworkError } from './api-client';
 
 describe('attachments', () => {
@@ -8,6 +8,35 @@ describe('attachments', () => {
     expect(attachmentHref('http://192.168.1.20:4000/api/v1/', '/uploads/x.png')).toBe('http://192.168.1.20:4000/uploads/x.png');
     expect(attachmentHref('http://10.0.2.2:4000/api/v1', 'uploads/x.png')).toBe('http://10.0.2.2:4000/uploads/x.png');
     expect(attachmentHref('https://task.mico360.com/api/v1', 'https://cdn.example.com/x.png')).toBe('https://cdn.example.com/x.png');
+  });
+
+  it('a chat file or a photo is loaded only from this server’s /uploads/ (3b review fix 8 — one rule for files and photos)', () => {
+    const base = 'https://task.mico360.com/api/v1';
+    expect(serverFileHref(base, '/uploads/a.png')).toBe('https://task.mico360.com/uploads/a.png');
+    expect(serverFileHref(base, 'uploads/a.png')).toBe('https://task.mico360.com/uploads/a.png');
+    expect(serverFileHref(base, 'https://task.mico360.com/uploads/a.png')).toBe('https://task.mico360.com/uploads/a.png');
+    expect(serverFileHref(base, 'HTTPS://Task.MICO360.com/uploads/a.png')).toBe('HTTPS://Task.MICO360.com/uploads/a.png');
+    expect(serverFileHref('http://192.168.1.20:4000/api/v1/', 'http://192.168.1.20:4000/uploads/x.png')).toBe('http://192.168.1.20:4000/uploads/x.png');
+    for (const bad of [
+      'https://evil.example/uploads/a.png',
+      'https://task.mico360.com.evil.example/uploads/a.png',
+      'https://task.mico360.com@evil.example/uploads/a.png',
+      'http://task.mico360.com/uploads/a.png',
+      'https://task.mico360.com:8443/uploads/a.png',
+      'https://task.mico360.com/api/v1/users/me/export',
+      '/api/v1/users/me/export',
+      '//evil.example/uploads/a.png',
+      '/uploads/../api/v1/users/me/export',
+      '/uploads/%2e%2e/api/v1/x',
+      '/uploads\\..\\x',
+      'javascript:alert(1)',
+      'file:///data/x.png',
+      '',
+      null,
+      undefined,
+    ]) {
+      expect(serverFileHref(base, bad), String(bad)).toBeNull();
+    }
   });
 
   it('formats sizes', () => {

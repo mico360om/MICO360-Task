@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '../../core/theme';
 import { MentionText } from '../Mentions';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
-import { attachmentHref } from '../../lib/attachments';
+import { serverFileHref } from '../../lib/attachments';
 import { messageActions, reactionLabel, type MessageActionSet } from '../../lib/chat-actions';
 import { formatSize } from '../../lib/chat-model';
 import { linkParts } from '../../lib/chat-ui';
@@ -240,30 +240,33 @@ export const MessageBubble = memo(function MessageBubble({
 
       {files.length ? (
         <View style={[s.files, mine ? s.alignEnd : null]}>
-          {files.map((f) =>
-            f.mimeType.startsWith('image/') ? (
+          {files.map((f) => {
+            // Only a file stored on this server is loaded or opened (3b review): anything else shows as a file that can't be opened.
+            const href = serverFileHref(baseUrl, f.url);
+            return f.mimeType.startsWith('image/') && href ? (
               <Pressable key={f.id} onPress={() => handlers.onOpenImage(f)} onLongPress={anyAction ? () => handlers.onActions(m) : undefined} accessibilityRole="imagebutton" accessibilityLabel={`Open picture ${f.fileName}`}>
-                <Image source={{ uri: attachmentHref(baseUrl, f.url) }} style={[s.picture, { borderColor: c.line }]} resizeMode="cover" accessibilityIgnoresInvertColors />
+                <Image source={{ uri: href }} style={[s.picture, { borderColor: c.line }]} resizeMode="cover" accessibilityIgnoresInvertColors />
               </Pressable>
             ) : (
               <Pressable
                 key={f.id}
                 style={[s.file, { borderColor: c.line, backgroundColor: c.surface }]}
-                onPress={() => void Linking.openURL(attachmentHref(baseUrl, f.url))}
+                onPress={href ? () => void Linking.openURL(href) : undefined}
+                disabled={!href && !anyAction}
                 onLongPress={anyAction ? () => handlers.onActions(m) : undefined}
                 accessibilityRole="button"
-                accessibilityLabel={`Open file ${f.fileName}, ${formatSize(f.sizeBytes)}`}
+                accessibilityLabel={href ? `Open file ${f.fileName}, ${formatSize(f.sizeBytes)}` : `${f.fileName} — this file can’t be opened here`}
               >
                 <Text style={s.fileIcon}>📄</Text>
                 <View style={s.grow}>
                   <Text style={s.fileName} numberOfLines={1}>
                     {f.fileName}
                   </Text>
-                  <Text style={s.fileSize}>{formatSize(f.sizeBytes)}</Text>
+                  <Text style={s.fileSize}>{href ? formatSize(f.sizeBytes) : 'Can’t be opened here'}</Text>
                 </View>
               </Pressable>
-            ),
-          )}
+            );
+          })}
         </View>
       ) : null}
       {upload ? (
@@ -510,7 +513,9 @@ export function ImageViewer({ attachment, baseUrl, onClose }: { attachment: ApiC
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   if (!attachment) return null;
-  const url = attachmentHref(baseUrl, attachment.url);
+  // Only a picture stored on this server (3b review); the list never opens one that isn't.
+  const url = serverFileHref(baseUrl, attachment.url);
+  if (!url) return null;
   return (
     <Modal visible transparent={false} animationType="fade" onRequestClose={onClose}>
       <View style={[s.viewer, { paddingTop: insets.top, paddingBottom: insets.bottom }]} accessibilityViewIsModal>
