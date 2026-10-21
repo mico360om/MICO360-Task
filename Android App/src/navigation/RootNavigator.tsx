@@ -5,6 +5,7 @@ import {
   NavigationContainer,
   DefaultTheme,
   DarkTheme,
+  getStateFromPath,
   type Theme as NavTheme,
   type LinkingOptions,
   type InitialState,
@@ -26,7 +27,7 @@ import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
 import { targetToAction, requiresSession, type NavAction } from './nav-actions';
 import { createPendingAction } from './pending-action';
-import { LINKING_PREFIXES, linkingConfig } from './linking';
+import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
 import { AppDrawer } from '../components/AppDrawer';
 import { UpdateBanner } from '../components/UpdateBanner';
@@ -82,6 +83,8 @@ const TAB_ICON: Record<keyof TabsParamList, string> = {
 const linking = {
   prefixes: LINKING_PREFIXES,
   config: linkingConfig,
+  // The website's /meetings/<id> opens the meeting as well as the app's meeting/<id>.
+  getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) => getStateFromPath(normalizeLinkPath(path), options),
 } as unknown as LinkingOptions<AppStackParamList>;
 
 /** Perform a navigation action against the root container (imperative: push taps, deep links, drawer). */

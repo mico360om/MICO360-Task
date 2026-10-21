@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getStateFromPath } from '@react-navigation/core';
-import { LINKING_PREFIXES, linkingConfig } from './linking';
+import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath } from './linking';
 import { createPendingAction } from './pending-action';
 import { requiresSession, targetToAction } from './nav-actions';
 import { parseDeepLink } from '../lib/deep-link';
@@ -30,6 +30,15 @@ describe('linking config (MOB-09)', () => {
     const tabs = getStateFromPath('meetings', cfg)?.routes[0];
     expect(tabs).toMatchObject({ name: 'Tabs' });
     expect(tabs?.state?.routes[0]).toMatchObject({ name: 'Meetings' });
+  });
+
+  it('opens the website’s own meeting address (/meetings/<id>) as the meeting too', () => {
+    expect(normalizeLinkPath('meetings/m1')).toBe('meeting/m1');
+    expect(normalizeLinkPath('/meetings/m1?from=mail')).toBe('/meeting/m1?from=mail');
+    expect(normalizeLinkPath('meetings')).toBe('meetings');
+    expect(normalizeLinkPath('meetings?q=x')).toBe('meetings?q=x');
+    expect(normalizeLinkPath('task/t1')).toBe('task/t1');
+    expect(getStateFromPath(normalizeLinkPath('meetings/m9'), cfg)?.routes[0]).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm9' } });
   });
 
   it('maps a parsed reset link to a signed-out navigation action', () => {

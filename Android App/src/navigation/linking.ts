@@ -12,6 +12,14 @@
  */
 export const LINKING_PREFIXES = ['mico360://', 'https://task.mico360.com'];
 
+/**
+ * The website's own address for a meeting (`/meetings/<id>`) read as the app's `meeting/<id>`, so
+ * either opens the meeting (React Navigation allows one path per screen). Anything else is left as is.
+ */
+export function normalizeLinkPath(path: string): string {
+  return path.replace(/^(\/?)meetings\/(?=[^/?#])/, '$1meeting/');
+}
+
 export const linkingConfig = {
   screens: {
     // Signed-out (auth stack)
