@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-21
+
 ### New features
 - The Chrome extension's board shows what the website's cards show: the due date (marked "Overdue"
   when late, never for finished work), steps done, comments, files, up to three people, milestones,
