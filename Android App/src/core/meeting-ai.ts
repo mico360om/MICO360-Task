@@ -4,7 +4,7 @@ import { useDebouncedValue } from './useDebounced';
 import { refresh } from '../lib/refresh';
 import { putRow } from '../lib/meeting-cache';
 import { addInTurn, readFreeTimes } from '../lib/meeting-ai';
-import { pendingKeys, tryName } from '../lib/pending-keys';
+import { pendingKeys, sendKept, tryName } from '../lib/pending-keys';
 import type { AiAgendaItem, AiDraftAgendaInput, ApiAgendaItem, FreeTimesInput } from '../lib/types';
 
 /**
@@ -37,8 +37,9 @@ export function useDraftAgenda() {
  */
 export function useFreeTimes(input: FreeTimesInput | null, enabled = true) {
   const { resources } = useServices();
-  const key = useDebouncedValue(input ? JSON.stringify(input) : '', 400);
-  return useQuery({
+  const asked = input ? JSON.stringify(input) : '';
+  const key = useDebouncedValue(asked, 400);
+  const query = useQuery({
     queryKey: ['meeting-free-times', key],
     queryFn: async () => {
       const reply = readFreeTimes(await resources.meetings.freeTimes(JSON.parse(key) as FreeTimesInput));
@@ -50,6 +51,8 @@ export function useFreeTimes(input: FreeTimesInput | null, enabled = true) {
     gcTime: 60_000,
     retry: false,
   });
+  // Whether the answer is for what the form holds now (the 400 ms wait is over).
+  return { query, settled: key === asked && !!key };
 }
 
 /**
@@ -65,16 +68,9 @@ export function useAddDraftedAgenda(meetingId: string) {
     mutationFn: (items: AiAgendaItem[]) =>
       addInTurn(items, async (item) => {
         const input = { title: item.title.trim().slice(0, 300), ownerId: item.ownerId ?? null, expectedMinutes: item.minutes > 0 ? Math.min(600, Math.round(item.minutes)) : null };
-        const what = tryName('agenda', meetingId, input);
-        try {
-          const row = await resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey: pendingKeys.keyFor(what) });
-          pendingKeys.settle(what);
-          if (row?.id) putRow<ApiAgendaItem>(qc, key, row);
-          return row;
-        } catch (e) {
-          pendingKeys.settle(what, e);
-          throw e;
-        }
+        const row = await sendKept(pendingKeys, tryName('agenda', meetingId, input), (idempotencyKey) => resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey }));
+        if (row?.id) putRow<ApiAgendaItem>(qc, key, row);
+        return row;
       }),
     // What was added shows at once; the agenda is loaded again for the server's order.
     onSettled: () => refresh(qc, [{ queryKey: key, exact: true }, { queryKey: ['meetings'], later: true }]),

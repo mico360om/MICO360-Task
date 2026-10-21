@@ -42,7 +42,13 @@ export type MeetingPerson = { kind: 'user'; id: string; name: string; role: Atte
 
 export const personKey = (p: MeetingPerson): string => (p.kind === 'user' ? `u:${p.id}` : `e:${p.email.toLowerCase()}`);
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** An address the server takes: no spaces, one @, and a domain of dot-separated parts (none empty). */
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+
+/** The server's limits for a new meeting's people and agenda (more can be added on its page). */
+export const PEOPLE_MAX = 100;
+export const AGENDA_MAX = 50;
+const GUEST_NAME_MAX = 200;
 
 /**
  * The team members who can be invited: active ones (an older server sends no flag: offered), not
@@ -58,16 +64,20 @@ export function invitableOptions(directory: ApiDirectoryUser[], organizerId: str
 
 export function addTeamMember(people: MeetingPerson[], directory: ApiDirectoryUser[], id: string): MeetingPerson[] {
   const u = directory.find((d) => d.id === id);
-  if (!u || people.some((p) => p.kind === 'user' && p.id === id)) return people;
+  if (!u || people.length >= PEOPLE_MAX || people.some((p) => p.kind === 'user' && p.id === id)) return people;
   return [...people, { kind: 'user', id, name: displayName(u), role: 'REQUIRED' }];
 }
+
+export const PEOPLE_FULL = 'Up to 100 people can be added here — add more from the meeting’s page once it is saved.';
+export const AGENDA_FULL = 'Up to 50 agenda items can be added here — add more from the meeting’s page once it is saved.';
 
 /** A guest by email, named from the part before the @ unless a name is given. */
 export function addGuest(people: MeetingPerson[], email: string, name: string): { ok: true; people: MeetingPerson[] } | { ok: false; error: string } {
   const e = email.trim();
   if (!EMAIL_RE.test(e)) return { ok: false, error: 'Enter a valid email address, for example name@company.com.' };
   if (people.some((p) => p.kind === 'guest' && p.email.toLowerCase() === e.toLowerCase())) return { ok: false, error: 'That guest is already invited.' };
-  return { ok: true, people: [...people, { kind: 'guest', email: e, name: name.trim() || e.split('@')[0]!, role: 'REQUIRED' }] };
+  if (people.length >= PEOPLE_MAX) return { ok: false, error: PEOPLE_FULL };
+  return { ok: true, people: [...people, { kind: 'guest', email: e, name: (name.trim() || e.split('@')[0]!).slice(0, GUEST_NAME_MAX), role: 'REQUIRED' }] };
 }
 
 /** Who may lead an agenda item: the organizer (first, "you") and the invited team members. */
@@ -109,6 +119,7 @@ export function agendaMinutesInput(v: string): number | null {
 export function addAgendaTopic(agenda: AgendaDraft[], title: string): { ok: true; agenda: AgendaDraft[] } | { ok: false; error: string } {
   const t = title.trim();
   if (!t) return { ok: false, error: 'Enter an agenda item.' };
+  if (agenda.length >= AGENDA_MAX) return { ok: false, error: AGENDA_FULL };
   return { ok: true, agenda: [...agenda, { key: newAgendaKey(), title: t.slice(0, TOPIC_MAX), ownerId: null, minutes: null }] };
 }
 
@@ -323,7 +334,7 @@ export function describeSuggestions(
     (d.people?.choices ?? []).forEach((c, i) => out.push({ kind: 'choice', key: `choice-${i}`, said: c.said, options: c.options, chosen: null }));
     for (const g of d.guests ?? []) {
       if (!EMAIL_RE.test(g.email ?? '')) continue;
-      const name = g.name?.trim() || g.email.split('@')[0]!;
+      const name = (g.name?.trim() || g.email.split('@')[0]!).slice(0, GUEST_NAME_MAX);
       offer({ kind: 'guest', email: g.email, name, role: 'REQUIRED' }, 'Guest', `${name} (${g.email})`);
     }
     (d.agenda ?? []).forEach((a, i) => {
@@ -379,9 +390,11 @@ export function applyDescribed(s: DescribeState, patch: DescribedPatch, ctx: { t
     const from = instant(patch.start ?? localTimes(s.draft).start, ctx.timeZone);
     if (from) draft = withStart(draft, from, patch.minutes ?? lengthOfDraft(s.draft, ctx.timeZone), ctx.timeZone);
   }
+  // Within the server's limits for a new meeting (more can be added on its page).
   let people = s.people;
-  for (const p of patch.people ?? []) if (!people.some((q) => personKey(q) === personKey(p))) people = [...people, p];
-  const agenda = [...s.agenda, ...(patch.agenda ?? []).map((t) => ({ key: newAgendaKey(), title: t, ownerId: null, minutes: null }))];
+  for (const p of patch.people ?? []) if (people.length < PEOPLE_MAX && !people.some((q) => personKey(q) === personKey(p))) people = [...people, p];
+  const topics = (patch.agenda ?? []).slice(0, Math.max(0, AGENDA_MAX - s.agenda.length));
+  const agenda = [...s.agenda, ...topics.map((t) => ({ key: newAgendaKey(), title: t, ownerId: null, minutes: null }))];
   return { draft, ...withPeople(people, agenda, ctx.organizerId) };
 }
 
@@ -437,6 +450,7 @@ export function addDraftedItems(agenda: AgendaDraft[], chosen: AiAgendaItem[], l
     ...agenda,
     ...chosen
       .filter((c) => c.title?.trim())
+      .slice(0, Math.max(0, AGENDA_MAX - agenda.length))
       .map((c) => ({
         key: newAgendaKey(),
         title: c.title.trim().slice(0, TOPIC_MAX),
@@ -548,4 +562,21 @@ export function descriptionRequest(o: { title: string; agenda: AgendaDraft[]; se
 export function draftAddText(added: number, total: number, error: unknown): string {
   const why = keptTryText(error, 'Couldn’t add all of the drafted items.', 'Add selected', meetingFailure);
   return added > 0 ? `Added ${added} of ${total}. ${why}` : why;
+}
+
+/**
+ * What "Suggest 3 times" shows. Until the time, length, repeat and people have settled (the 400 ms
+ * wait), and while asking, it is "finding" — never an error or the answer for what was there before.
+ */
+export function freeTimesView(o: { shown: boolean; settled: boolean; fetching: boolean; error: unknown; data: FreeTimesReply | undefined }): 'hidden' | 'error' | 'finding' | 'suggestions' | 'none' {
+  if (!o.shown) return 'hidden';
+  if (!o.settled || o.fetching) return 'finding';
+  if (o.error) return 'error';
+  if (!o.data) return 'finding';
+  return o.data.suggestions.length ? 'suggestions' : 'none';
+}
+
+/** Asking (again) checks afresh — someone may have booked a meeting — once what is asked for has settled. */
+export function recheckFreeTimes(o: { shown: boolean; stale: boolean; settled: boolean }): boolean {
+  return o.settled && (o.shown || o.stale);
 }

@@ -4,7 +4,7 @@ import { useColors } from '../../core/theme';
 import { useFreeTimes } from '../../core/meeting-ai';
 import { Button } from '../ui';
 import { SheetMessage } from '../meeting/sheet-kit';
-import { busyLines, clashLine, freeTimesFailure, rangeText } from '../../lib/meeting-ai';
+import { busyLines, clashLine, freeTimesFailure, freeTimesView, rangeText, recheckFreeTimes } from '../../lib/meeting-ai';
 import { meetingWhen } from '../../lib/meeting-detail';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import type { FreeTimesInput } from '../../lib/types';
@@ -17,15 +17,17 @@ import type { FreeTimesInput } from '../../lib/types';
  */
 export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTimesInput | null; timeZone: string; onPick: (startAt: string) => void; disabled?: boolean }) {
   const c = useColors();
-  const q = useFreeTimes(input);
+  const { query: q, settled } = useFreeTimes(input);
   const [show, setShow] = useState(false);
   // Suggestions are for what was chosen when asked: a change hides them until asked again.
   const key = input ? JSON.stringify(input) : '';
   useEffect(() => setShow(false), [key]);
-  const data = q.data;
+  // Clashes and the busy day only for what the form holds now (not the time before it changed).
+  const data = settled ? q.data : undefined;
+  const view = freeTimesView({ shown: show, settled, fetching: q.isFetching, error: q.isError ? q.error : null, data });
   const ask = () => {
     // Asking (again) checks afresh: someone may have booked a meeting, or the meeting hours changed.
-    if (show || q.isStale) void q.refetch();
+    if (recheckFreeTimes({ shown: show, stale: q.isStale, settled })) void q.refetch();
     setShow(true);
   };
 
@@ -38,12 +40,11 @@ export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTi
         <Button title="Suggest 3 times" variant="secondary" onPress={ask} disabled={disabled || !input} style={styles.ask} />
       </View>
       {!input ? <Text style={[styles.small, { color: c.ink2 }]}>Choose when it starts to see who is free.</Text> : null}
-      {show ? (
-        q.isError ? (
-          <SheetMessage text={freeTimesFailure(q.error)} />
-        ) : !data || q.isFetching ? (
-          <Text style={[styles.small, { color: c.ink2 }]}>Finding free times…</Text>
-        ) : data.suggestions.length ? (
+      {view === 'error' ? (
+        <SheetMessage text={freeTimesFailure(q.error)} />
+      ) : view === 'finding' ? (
+        <Text style={[styles.small, { color: c.ink2 }]}>Finding free times…</Text>
+      ) : view === 'suggestions' && data ? (
           <View style={styles.chips} accessibilityLabel="Suggested times">
             {data.suggestions.map((s) => (
               <Pressable
@@ -58,9 +59,8 @@ export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTi
               </Pressable>
             ))}
           </View>
-        ) : (
-          <Text style={[styles.small, { color: c.ink2 }]}>No free time found in the next two weeks.</Text>
-        )
+      ) : view === 'none' ? (
+        <Text style={[styles.small, { color: c.ink2 }]}>No free time found in the next two weeks.</Text>
       ) : null}
       {data?.clashes.length ? (
         <View style={[styles.clash, { backgroundColor: c.warningSoft }]} accessibilityRole="alert" accessibilityLabel="Clashes">

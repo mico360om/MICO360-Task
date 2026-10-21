@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Button, TextField } from '../ui';
 import { InlinePicker, SheetMessage } from '../meeting/sheet-kit';
-import { addGuest, addTeamMember, invitableOptions, personKey, type MeetingPerson } from '../../lib/meeting-ai';
+import { addGuest, addTeamMember, invitableOptions, personKey, PEOPLE_FULL, PEOPLE_MAX, type MeetingPerson } from '../../lib/meeting-ai';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import type { ApiDirectoryUser } from '../../lib/types';
 
@@ -74,6 +74,7 @@ export function PeopleField({
           </Pressable>
         </View>
       ))}
+      {people.length >= PEOPLE_MAX ? <SheetMessage text={PEOPLE_FULL} tone="info" /> : null}
       <InlinePicker
         label="Add a team member"
         options={options}
@@ -81,7 +82,7 @@ export function PeopleField({
         onChange={(id) => id && onChange(addTeamMember(people, directory, id))}
         placeholder="Add a team member…"
         emptyText="Everyone is already invited."
-        disabled={disabled}
+        disabled={disabled || people.length >= PEOPLE_MAX}
       />
       <TextField
         accessibilityLabel="Guest email"
@@ -96,7 +97,7 @@ export function PeopleField({
         autoCorrect={false}
         editable={!disabled}
       />
-      <TextField accessibilityLabel="Guest name (optional)" value={name} onChangeText={setName} placeholder="Guest name (optional)" editable={!disabled} />
+      <TextField accessibilityLabel="Guest name (optional)" value={name} onChangeText={setName} placeholder="Guest name (optional)" editable={!disabled} maxLength={200} />
       <Button title="Add guest" variant="secondary" onPress={add} disabled={disabled || !email.trim()} />
       <SheetMessage text={problem} />
     </View>

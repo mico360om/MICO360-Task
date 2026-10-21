@@ -16,6 +16,10 @@ import {
   clashLine,
   describeBaseline,
   describeFields,
+  AGENDA_MAX,
+  PEOPLE_MAX,
+  freeTimesView,
+  recheckFreeTimes,
   describeSuggestions,
   draftAddText,
   descriptionRequest,
@@ -322,5 +326,40 @@ describe('adding a drafted agenda on the meeting’s page', () => {
     expect(draftAddText(2, 4, new NetworkError('offline'))).toBe('Added 2 of 4. Couldn’t add all of the drafted items. You’re offline — this needs a connection.');
     expect(draftAddText(0, 3, new NetworkError('slow', { timedOut: true }))).toBe('The server took too long to answer — it may already be done. Tap “Add selected” again to finish: it won’t happen twice.');
     expect(draftAddText(1, 2, new ApiError(403, 'FORBIDDEN', 'x'))).toBe('Added 1 of 2. Couldn’t add all of the drafted items. You don’t have permission to do that.');
+  });
+});
+
+describe('the server’s limits, checked on the phone before Schedule (2c review)', () => {
+  const many = (n: number): MeetingPerson[] => Array.from({ length: n }, (_, i) => ({ kind: 'guest', email: `g${i}@x.co`, name: `g${i}`, role: 'REQUIRED' }));
+  it('up to 100 people and 50 agenda items, a guest name up to 200 characters, and an email the server takes', () => {
+    expect(addGuest([], 'name@company.com.', '')).toEqual({ ok: false, error: 'Enter a valid email address, for example name@company.com.' });
+    expect(addGuest([], 'name@company..com', '')).toMatchObject({ ok: false });
+    expect(addGuest(many(PEOPLE_MAX), 'new@x.co', '')).toEqual({ ok: false, error: 'Up to 100 people can be added here — add more from the meeting’s page once it is saved.' });
+    expect(addTeamMember(many(PEOPLE_MAX), directory, 'u3')).toHaveLength(PEOPLE_MAX);
+    const long = addGuest([], 'a@x.co', 'n'.repeat(250));
+    expect(long.ok && long.people[0]!.name).toHaveLength(200);
+    const full: AgendaDraft[] = Array.from({ length: AGENDA_MAX }, (_, i) => ({ key: `k${i}`, title: `T${i}`, ownerId: null, minutes: null }));
+    expect(addAgendaTopic(full, 'One more')).toEqual({ ok: false, error: 'Up to 50 agenda items can be added here — add more from the meeting’s page once it is saved.' });
+    expect(addDraftedItems(full.slice(0, 48), [1, 2, 3].map((n) => ({ title: `D${n}`, ownerId: null, minutes: 5 })), [])).toHaveLength(AGENDA_MAX);
+    const filled = applyDescribed({ draft: form(), people: many(99), agenda: full.slice(0, 49) }, { people: many(102).slice(99), agenda: ['X', 'Y'] }, { timeZone: TZ, organizerId: ME });
+    expect(filled.people).toHaveLength(PEOPLE_MAX);
+    expect(filled.agenda).toHaveLength(AGENDA_MAX);
+  });
+});
+
+describe('free times while the form is still changing', () => {
+  it('says it is finding them (never an error, nor the last answer) until the time has settled', () => {
+    const data = { suggestions: [], clashes: [], day: [], workingHours: { days: [0], start: '08:00', end: '17:00' } };
+    expect(freeTimesView({ shown: false, settled: true, fetching: false, error: null, data })).toBe('hidden');
+    expect(freeTimesView({ shown: true, settled: false, fetching: false, error: new Error('x'), data })).toBe('finding');
+    expect(freeTimesView({ shown: true, settled: true, fetching: true, error: null, data })).toBe('finding');
+    expect(freeTimesView({ shown: true, settled: true, fetching: false, error: new Error('x'), data: undefined })).toBe('error');
+    expect(freeTimesView({ shown: true, settled: true, fetching: false, error: null, data })).toBe('none');
+    expect(freeTimesView({ shown: true, settled: true, fetching: false, error: null, data: { ...data, suggestions: ['2026-10-22T08:00:00.000Z'] } })).toBe('suggestions');
+    // Asking again checks afresh — only once what is asked for has settled.
+    expect(recheckFreeTimes({ shown: true, stale: false, settled: false })).toBe(false);
+    expect(recheckFreeTimes({ shown: true, stale: false, settled: true })).toBe(true);
+    expect(recheckFreeTimes({ shown: false, stale: true, settled: true })).toBe(true);
+    expect(recheckFreeTimes({ shown: false, stale: false, settled: true })).toBe(false);
   });
 });
