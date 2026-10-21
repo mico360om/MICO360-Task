@@ -71,6 +71,11 @@ export function ChatInbox(ctx) {
   mount(root, body, live);
 
   root.refresh = () => poll();
+  // A read that came while a menu or the people picker was in use is drawn once it closes — by a
+  // pick, Escape, Tab or a click elsewhere: focus leaves it, or the menu leaves the page.
+  const catchUp = () => setTimeout(() => { if (dirty && !busy()) render(); }, 0);
+  root.addEventListener('focusout', catchUp);
+  new MutationObserver(() => { if (dirty) catchUp(); }).observe(root, { childList: true, subtree: true });
   load();
   return root;
 

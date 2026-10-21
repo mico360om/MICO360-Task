@@ -292,3 +292,63 @@ describe('#11 reading only when it is seen, and a conversation that is gone', ()
     root.remove();
   });
 });
+
+describe('#8 the inbox catches up once a menu or the people picker closes, however it closes', () => {
+  const summary = (unread) => [{
+    conversation: { id: 'd1', kind: 'DIRECT', projectId: null, createdAt: at(0) }, participants: [{ userId: ME, lastReadAt: at(9) }, { userId: 'u2' }],
+    unread, lastMessage: msg('b', 7, { body: 'Call me' }), prefs: { favorite: false, archived: false, muted: false },
+  }];
+  function inboxCtx(state) {
+    return {
+      params: {}, me: { id: ME }, chatPollMs: 60000, navigate: vi.fn(),
+      api: {
+        projects: { list: vi.fn(async () => ({ data: [] })) },
+        directory: vi.fn(async () => ({ data: [{ id: 'u2', firstName: 'Omar', lastName: 'Ahmed', username: 'omar' }] })),
+        chat: { conversations: vi.fn(async () => ({ data: summary(state.unread) })), markDelivered: vi.fn(async () => {}), setPrefs: vi.fn(async () => ({})) },
+      },
+    };
+  }
+  const unreadBadge = (root, n) => root.querySelector(`[aria-label="${n} unread"]`);
+
+  for (const [how, close] of [
+    ['Escape', (root) => root.querySelector('[role="menuitem"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))],
+    ['Tab', (root) => {
+      root.querySelector('[role="menuitem"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      root.querySelector('[data-focus-key="dm"]').focus(); // where Tab took focus
+    }],
+    ['a click elsewhere', (root) => {
+      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      document.activeElement.blur();
+    }],
+  ]) {
+    it(`a menu closed with ${how}`, async () => {
+      const state = { unread: 1 };
+      const root = await openChat(inboxCtx(state));
+      root.querySelector('[aria-label="More options for Omar Ahmed"]').click();
+      expect(root.querySelector('[role="menu"]')).toBeTruthy();
+      state.unread = 5;
+      await root.refresh(); // a read while the menu is open: not drawn under it
+      expect(root.querySelector('[role="menu"]')).toBeTruthy();
+      expect(unreadBadge(root, 5)).toBeNull();
+      close(root);
+      await settle();
+      expect(root.querySelector('[role="menu"]')).toBeNull();
+      expect(unreadBadge(root, 5)).toBeTruthy();
+    });
+  }
+
+  it('the people picker left without choosing', async () => {
+    const state = { unread: 1 };
+    const root = await openChat(inboxCtx(state));
+    byText(root, 'button', '＋ New direct message').click();
+    await settle();
+    const pick = root.querySelector('[aria-label="Start a direct message"]');
+    pick.focus();
+    state.unread = 7;
+    await root.refresh();
+    expect(unreadBadge(root, 7)).toBeNull();
+    pick.blur();
+    await settle();
+    expect(unreadBadge(root, 7)).toBeTruthy();
+  });
+});

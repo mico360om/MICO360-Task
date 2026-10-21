@@ -182,3 +182,37 @@ describe('#5 drafts and unsent messages are kept per conversation, for the perso
     expect(s2.data[CHAT_DRAFTS_KEY]).toBeUndefined();
   });
 });
+
+describe('#7 every direct message that reaches this device is reported delivered, as on the web', async () => {
+  const { pollNotifications } = await import('./background-poll.js');
+  const last = { id: 'm9', userId: 'omar', body: 'hi', createdAt: '2026-10-21T09:00:00Z', deletedAt: null };
+  const routes = (count) => ({
+    'GET /notifications/unread-count': { data: { count } },
+    'GET /conversations': { data: [
+      { conversation: { id: 'c1', kind: 'DIRECT' }, participants: [{ userId: 'me', lastReadAt: null, lastDeliveredAt: null }, { userId: 'omar' }], unread: 1, lastMessage: last },
+    ] },
+    'POST /conversations/c1/delivered': {},
+  });
+  const serve = (r, calls) => vi.fn(async (path, init = {}) => {
+    calls.push(`${init.method || 'GET'} ${path}`);
+    const body = r[`${init.method || 'GET'} ${path}`];
+    return body === undefined ? res(404, { error: {} }) : res(200, body);
+  });
+
+  it('also when the unread count didn’t rise (a second message, or a muted conversation, makes no new notification)', async () => {
+    const calls = [];
+    const local = fakeStorage({ lastUnread: 3, lastUnreadUser: 'me' });
+    await pollNotifications({ authedFetch: serve(routes(3), calls), local, session: fakeStorage(), notifications: { create: vi.fn() }, setBadge: vi.fn(), userId: 'me' });
+    expect(calls).toContain('POST /conversations/c1/delivered');
+  });
+
+  it('the count is saved before the reports go, so a worker stopped in the middle doesn’t alert twice', async () => {
+    const calls = [];
+    const local = fakeStorage({ lastUnread: 1, lastUnreadUser: 'me' });
+    const set = local.set.bind(local);
+    local.set = vi.fn(async (o) => { calls.push(`save ${Object.keys(o).join(',')}`); return set(o); });
+    await pollNotifications({ authedFetch: serve(routes(2), calls), local, session: fakeStorage(), notifications: { create: vi.fn() }, setBadge: vi.fn(), userId: 'me' });
+    expect(calls.indexOf('save lastUnread,lastUnreadUser')).toBeGreaterThan(-1);
+    expect(calls.indexOf('save lastUnread,lastUnreadUser')).toBeLessThan(calls.indexOf('GET /conversations'));
+  });
+});

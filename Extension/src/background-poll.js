@@ -6,8 +6,9 @@
  * person's own last count, a desktop alert says how many are new — or, when this device allows it
  * (Settings → Notifications), what the newest one is about, and a click then opens that item. The
  * server only makes the notifications someone hasn't switched off, so the alert follows their
- * preferences. Something new has usually come with a message, so the direct messages that reached
- * this device are reported too (the sender then sees "Delivered").
+ * preferences. Every poll also reports the direct messages that reached this device (the sender
+ * then sees "Delivered"), as the web does for every message — whether or not they made a
+ * notification.
  */
 import {
   shouldNotify, unreadBaseline, readAlertSettings, newestUnread, alertContent, notificationTarget, NOTIFICATION_ID, ALERT_TARGET_KEY,
@@ -78,9 +79,12 @@ export async function pollNotifications({ authedFetch, local, session, notificat
         notifications?.create(NOTIFICATION_ID, { type: 'basic', iconUrl: 'icons/icon128.png', ...content });
       } catch { /* no desktop notifications here */ }
     }
-    await reportDeliveries(authedFetch, userId);
   }
+  // The count first: a worker stopped while reporting must not alert about the same ones again.
   await local.set({ lastUnread: count, lastUnreadUser: userId });
+  // Every poll, as the web reports every message: a second message in a conversation, or one in a
+  // muted conversation, makes no new notification, but its sender should still see "Delivered".
+  await reportDeliveries(authedFetch, userId);
   return { count };
 }
 
