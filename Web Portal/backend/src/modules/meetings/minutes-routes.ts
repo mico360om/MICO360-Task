@@ -83,6 +83,11 @@ export interface MinutesRouteDeps {
   finalMinutes?: FinalMinutesRepository;
   /** Asks the AI for a draft of the final minutes from the meeting's facts (the person's AI limits apply). */
   draftMinutesWithAi?: (facts: string, requester: { userId: string; roles?: string[] }) => Promise<unknown>;
+  /**
+   * The final minutes were saved, approved or reopened: the meeting's live event, so the people on it
+   * (and the lists showing how far its minutes are) see the change without reloading.
+   */
+  onFinalMinutesChanged?: (meetingId: string) => void;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
   notify?: {
     sendMinutes: (meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }) => Promise<{ sent: number; failed?: number }>;
@@ -337,6 +342,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         throw new ConflictError('These minutes are final. Reopen them to make changes.', 'FINAL_MINUTES_LOCKED');
       }
       const saved = await store.save(id, { content, status: 'DRAFT', approvedById: null, approvedAt: null });
+      deps.onFinalMinutesChanged?.(id);
       return { data: await view(saved, true) };
     });
 
@@ -350,6 +356,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       const content = body.content !== undefined ? normalizeFinalMinutes(body.content) : (await store.get(id))?.content;
       if (!content || !hasContent(content)) throw new ValidationError('Write the final minutes before marking them final.');
       const saved = await store.save(id, { content, status: 'APPROVED', approvedById: req.user!.id, approvedAt: new Date() });
+      deps.onFinalMinutesChanged?.(id);
       return { data: await view(saved, true) };
     });
 
@@ -360,6 +367,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       const current = await store.get(id);
       if (!current) throw new NotFoundError('There are no final minutes to reopen.');
       const saved = await store.save(id, { content: current.content, status: 'DRAFT', approvedById: null, approvedAt: null });
+      deps.onFinalMinutesChanged?.(id);
       return { data: await view(saved, true) };
     });
   }
