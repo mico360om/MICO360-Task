@@ -17,7 +17,7 @@ export const WEEK_OF_MONTH = [
   { week: -1, label: 'last' },
 ];
 
-/** A short description of a rule — the same wording as the web and Android apps. */
+/** A short description of a rule — the same wording as the server, web and Android apps (src/shared-copies.test.js). */
 export function recurrenceSummary(rule) {
   const unit = UNIT[rule.freq] || 'period';
   let s = `Repeats ${rule.interval === 1 ? `every ${unit}` : `every ${rule.interval} ${unit}s`}`;
