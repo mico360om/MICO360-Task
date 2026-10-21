@@ -26,8 +26,8 @@ export function statusOf(
 }
 
 /**
- * Reload the board after a move? Not after a network error: the move is queued and the cached list
- * still has the card where it was, so a reload would put it back. Otherwise yes (as the web does).
+ * Reload the board after a move? Not after a network error: the move is queued, a reload would get
+ * no answer, and the sync refreshes the board once the move is sent. Otherwise yes (as the web does).
  */
 export function refetchAfterMove(error: unknown): boolean {
   return !isNetworkError(error);

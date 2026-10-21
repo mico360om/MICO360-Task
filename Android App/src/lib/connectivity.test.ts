@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createConnectivity, isConnectionDrop } from './connectivity';
+import { createConnectivity, isConnectionDrop, serverReached } from './connectivity';
+import { createSyncQueue } from './sync-queue';
+import { createSyncController } from './sync-controller';
 
 describe('createConnectivity (online / offline from the app’s own requests and sockets)', () => {
   it('starts online', () => {
@@ -35,6 +37,28 @@ describe('createConnectivity (online / offline from the app’s own requests and
     stop();
     c.unreachable();
     expect(heard).not.toHaveBeenCalled();
+  });
+});
+
+describe('serverReached (the server can be reached again)', () => {
+  it('starts replaying the queued changes before the app counts as online again', async () => {
+    const m = new Map<string, string>();
+    const store = { getItem: async (k: string) => m.get(k) ?? null, setItem: async (k: string, v: string) => void m.set(k, v), deleteItem: async (k: string) => void m.delete(k) };
+    const sent: string[] = [];
+    const queue = createSyncQueue({ store, perform: async (item) => void sent.push(item.kind) });
+    await queue.load();
+    await queue.enqueue('task.move', { id: 't1', columnId: 'c2' }, { userId: 'u1' });
+    const sync = createSyncController({ queue, getUserId: () => 'u1' });
+    const c = createConnectivity();
+    c.unreachable();
+    // Screens refresh when they hear the app is online (TanStack's reconnect refetch).
+    const heard: Array<{ flushing: boolean; sent: number }> = [];
+    c.subscribe(() => heard.push({ flushing: sync.isFlushing(), sent: sent.length }));
+
+    serverReached(c, () => void sync.trigger());
+
+    expect(c.isOnline()).toBe(true);
+    expect(heard).toEqual([{ flushing: true, sent: 1 }]);
   });
 });
 

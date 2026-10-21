@@ -41,42 +41,43 @@ async function queueOnOffline(
   await queue.enqueue(kind, payload, { userId, idempotencyKey });
 }
 
-/** List queries read through the offline cache so a cold start (offline) still shows the last data. */
+/** List queries read through the offline cache so a cold start (offline) still shows the last data (offline-reads). */
 export function useProjects() {
-  const { resources, cache } = useServices();
+  const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['projects'],
-    queryFn: async () => (await cache.read('projects', () => resources.projects.list())).data,
+    queryFn: ({ queryKey }) => reads.read(queryKey, 'projects', () => resources.projects.list()),
   });
 }
 
 export function useProjectColumns(projectId: string) {
-  const { resources, cache } = useServices();
+  const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['columns', projectId],
-    queryFn: async () => (await cache.read(`columns.${projectId}`, () => resources.projects.columns(projectId))).data,
+    queryFn: ({ queryKey }) => reads.read(queryKey, `columns.${projectId}`, () => resources.projects.columns(projectId)),
     enabled: !!projectId,
   });
 }
 
 export function useProjectTasks(projectId: string, boardDate?: string) {
-  const { resources, cache } = useServices();
+  const { resources, reads } = useServices();
   const dk = boardDate ?? 'all';
   return useQuery({
     queryKey: ['tasks', 'project', projectId, dk],
-    queryFn: async () =>
-      (await cache.read(projectTasksCopyKey(projectId, boardDate), () => resources.tasks.list({ projectId, boardDate }), { slim: withoutOldDone(Date.now()) })).data,
+    // The moves still waiting to be sent are laid over the answer, so a card moved offline stays put.
+    queryFn: ({ queryKey }) =>
+      reads.readBoard(queryKey, projectTasksCopyKey(projectId, boardDate), () => resources.tasks.list({ projectId, boardDate }), { slim: withoutOldDone(Date.now()) }),
     // Without a project id this would list every task the user can see (and cache it).
     enabled: !!projectId,
   });
 }
 
 export function useMyTasks() {
-  const { resources, cache } = useServices();
+  const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['tasks', 'mine'],
     // Every task ever assigned comes back; a copy too long to keep leaves out long-finished ones.
-    queryFn: async () => (await cache.read('tasks.mine', () => resources.tasks.mine(), { slim: withoutOldDone(Date.now()) })).data,
+    queryFn: ({ queryKey }) => reads.read(queryKey, 'tasks.mine', () => resources.tasks.mine(), { slim: withoutOldDone(Date.now()) }),
   });
 }
 
@@ -351,12 +352,12 @@ export function useProjectProgress(projectId: string) {
 // ── Meetings (read-only) ─────────────────────────────────────────────────────
 /** The meetings the calendar shows (a week back, two months ahead), kept for an offline start. */
 export function useCalendarMeetings() {
-  const { resources, cache } = useServices();
+  const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['meetings', 'calendar'],
-    queryFn: async () => {
+    queryFn: ({ queryKey }) => {
       const w = meetingWindow();
-      return (await cache.read('meetings.calendar', () => resources.meetings.range(w.from, w.to))).data;
+      return reads.read(queryKey, 'meetings.calendar', () => resources.meetings.range(w.from, w.to));
     },
   });
 }
@@ -387,10 +388,10 @@ export function useSetTaskTags(taskId: string) {
 }
 
 export function useNotifications() {
-  const { resources, cache } = useServices();
+  const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['notifications'],
-    queryFn: async () => (await cache.read('notifications', () => resources.notifications.list())).data,
+    queryFn: ({ queryKey }) => reads.read(queryKey, 'notifications', () => resources.notifications.list()),
   });
 }
 
@@ -455,8 +456,9 @@ export function useMoveTask(projectId: string) {
       if (ctx?.detail) qc.setQueryData(['task', vars.id], ctx.detail);
     },
     onSettled: (_data, err, vars) => {
-      // Offline, the move is queued: reloading now would read the cache from before the move and put
-      // the card back. The sync after reconnecting refreshes the board.
+      // Offline, the move is queued and a reload would get no answer. Until the sync after
+      // reconnecting refreshes the board, the board lays the queued move over what it reads (the
+      // offline copy still has the card where it was — offline-reads).
       if (!refetchAfterMove(err)) return;
       refresh(qc, moveRefreshes(vars.id, projectId));
     },

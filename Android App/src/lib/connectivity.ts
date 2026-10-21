@@ -33,6 +33,17 @@ export function createConnectivity() {
 export type Connectivity = ReturnType<typeof createConnectivity>;
 
 /**
+ * The server can be reached (it answered, or a live socket connected): start replaying the queued
+ * offline changes, then count the app as online. Being online again refreshes the screens
+ * (TanStack's reconnect refetch); in this order they ask for their data once the replay is under
+ * way, and the board lays the moves still waiting over what it gets (offline-reads).
+ */
+export function serverReached(connectivity: Pick<Connectivity, 'reachable'>, startSync: () => void): void {
+  startSync();
+  connectivity.reachable();
+}
+
+/**
  * Did a live socket close because the connection went (socket.io's disconnect reasons), rather
  * than being closed on purpose by the app or the server?
  */

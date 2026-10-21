@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import type { QueryClient } from '@tanstack/react-query';
 import { createApiClient, readRefreshReply, DEFAULT_TIMEOUT_MS, type RefreshOutcome } from '../lib/api-client';
 import { createQueryClient } from '../lib/query-client';
-import { createConnectivity } from '../lib/connectivity';
+import { createConnectivity, serverReached } from '../lib/connectivity';
 import { createSessionStore } from '../lib/session-store';
 import { assertAllowedUrl } from '../lib/server-address';
 import { refreshWithRetry } from '../lib/refresh-retry';
@@ -12,6 +12,7 @@ import { resolveRuntimeConfig } from '../lib/config';
 import type { AppEnv } from '../lib/app-env';
 import { resourcesApi } from '../lib/resources';
 import { createReadCache } from '../lib/read-cache';
+import { createOfflineReads, type OfflineReads } from '../lib/offline-reads';
 import { BOARD_DAYS_KEPT, isBoardDayCopy } from '../lib/offline-copy';
 import { createSyncQueue, type QueuedMutation } from '../lib/sync-queue';
 import { performMutation, refreshesAfterReplay } from '../lib/perform-mutation';
@@ -46,6 +47,8 @@ export interface Services {
   auth: ReturnType<typeof authApi>;
   resources: ReturnType<typeof resourcesApi>;
   cache: ReturnType<typeof createReadCache>;
+  /** The lists' reads through the offline copy (with the moves still waiting laid over the board). */
+  reads: OfflineReads;
   queue: ReturnType<typeof createSyncQueue>;
   sync: ReturnType<typeof createSyncController>;
   push: ReturnType<typeof createPushRegistrar>;
@@ -142,10 +145,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
       void signOutApi.signOut('expired');
     },
     // Any answer from the server means we are online — replay queued offline changes (XP-06).
-    onReachable: () => {
-      connectivity.reachable();
-      triggerSync();
-    },
+    onReachable: () => serverReached(connectivity, triggerSync),
     onUnreachable: () => connectivity.unreachable(),
   });
   const auth = authApi(api);
@@ -160,6 +160,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     // A task edit queued after an earlier one of this phone's moves on to the version that one made.
     rebase: rebaseQueuedVersion,
   });
+  const reads = createOfflineReads({ cache, pendingChanges: () => queue.pendingFor(currentUserId()) });
 
   const sync = createSyncController({
     queue,
@@ -226,6 +227,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     auth,
     resources,
     cache,
+    reads,
     queue,
     sync,
     push,

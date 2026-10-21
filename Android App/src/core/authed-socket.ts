@@ -1,7 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import { createSocketAuthHandler, currentTokenAuth } from '../lib/socket-auth';
 import { isAllowedUrl } from '../lib/server-address';
-import { isConnectionDrop } from '../lib/connectivity';
+import { isConnectionDrop, serverReached } from '../lib/connectivity';
 import type { Services } from './services';
 
 /**
@@ -38,11 +38,12 @@ export function connectAuthedSocket(
   });
 
   socket.on('connect', () => {
-    services.connectivity.reachable();
     const isReconnect = auth.onConnect();
-    onConnect(socket, isReconnect);
     // Being connected again is a good moment to replay queued offline changes.
-    if (isReconnect) void services.sync.trigger();
+    serverReached(services.connectivity, () => {
+      if (isReconnect) void services.sync.trigger();
+    });
+    onConnect(socket, isReconnect);
   });
   socket.on('connect_error', (err: Error) => {
     void auth.onConnectError(err, socket.active);
