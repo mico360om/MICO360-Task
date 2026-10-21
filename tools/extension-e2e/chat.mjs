@@ -67,6 +67,14 @@ try {
   ck('…and it is marked read on the server (the tab is in front)', unreadAfter === 0, `unread ${unreadAfter}`);
   await shot('02-thread.png');
 
+  // Review fix #5: what was being typed stays with the conversation after going Back.
+  await evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent === '← Back').click(); true`);
+  await sleep(2000);
+  await evaluate(`location.hash = '#/chat/${dm.id}'; true`);
+  await sleep(3000);
+  const kept = await evaluate(`document.querySelector('textarea[aria-label="Message"]').value`);
+  ck('what was being typed is still there after going Back and returning', kept === 'Half a thought', JSON.stringify(kept));
+
   // ---- Sending ---------------------------------------------------------------------------------
   const SENT = `Ext hello ${stamp}`;
   await evaluate(`(() => { const t = document.querySelector('textarea[aria-label="Message"]'); t.value = ''; t.dispatchEvent(new Event('input', { bubbles: true })); t.focus(); return true; })()`);
@@ -127,9 +135,32 @@ try {
   await sleep(800);
   const alertsSet = await evaluate(`chrome.storage.local.get('desktopAlerts').then((o) => o.desktopAlerts)`);
   ck('“Say what it’s about” is kept on this device', alertsSet && alertsSet.on === true && alertsSet.details === true, JSON.stringify(alertsSet));
+
+  // Review fix #1: a time typed with the keyboard is saved once, when the field is left — Chrome
+  // reports each part as a change while it is typed (it used to save 00:00 first).
+  const TIME = prefsBefore.dailyEmails && prefsBefore.dailyEmails.time === '09:45' ? '10:15' : '09:45';
+  await evaluate(`(() => { const t = document.getElementById('nset-time'); t.scrollIntoView(); t.focus(); return true; })()`);
+  for (const ch of TIME.replace(':', '')) {
+    const base = { key: ch, code: `Digit${ch}`, windowsVirtualKeyCode: 48 + Number(ch), nativeVirtualKeyCode: 48 + Number(ch), text: ch, unmodifiedText: ch };
+    await page.send('Input.dispatchKeyEvent', { type: 'keyDown', ...base }, page.sessionId);
+    await page.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }, page.sessionId);
+    await sleep(250);
+  }
+  await sleep(1500);
+  const typing = await evaluate(`({ value: document.getElementById('nset-time').value, focus: document.activeElement?.id, alert: document.querySelector('.nset [role="alert"]')?.textContent || '' })`);
+  const whileTyping = (await get(admin, '/notifications/preferences')).dailyEmails;
+  ck('typing a time keeps the field (and focus) and saves nothing yet', typing.value === TIME && typing.focus === 'nset-time' && !typing.alert && whileTyping.time === prefsBefore.dailyEmails.time, JSON.stringify({ typing, whileTyping }));
+  // Tab moves through the field's own parts (hours, minutes, AM/PM) before it leaves the field.
+  for (let i = 0; i < 4 && (await evaluate(`document.activeElement?.id`)) === 'nset-time'; i += 1) await press('Tab');
+  await sleep(2000);
+  const afterTab = (await get(admin, '/notifications/preferences')).dailyEmails;
+  ck('…leaving the field saves the whole time once', afterTab.time === TIME, JSON.stringify(afterTab));
   await shot('04-settings.png', { full: true });
 
   // ---- The desktop alert names the newest notification ------------------------------------------
+  // Chrome stops an idle service worker after about 30 s: a message from the page wakes it.
+  await evaluate(`chrome.runtime.sendMessage({ type: 'mico360:flush' }).catch(() => null).then(() => true)`);
+  await sleep(800);
   await inWorker(browser, `(() => { self.__alerts = []; const make = chrome.notifications.create.bind(chrome.notifications);
     chrome.notifications.create = (id, opts, cb) => { self.__alerts.push({ id, opts }); return make(id, opts, cb); }; return true; })()`);
   // An unread notification about the same conversation is reworded by the server (the count stays):
@@ -168,6 +199,7 @@ try {
   await browser.close();
   await admin.call('PUT', `/conversations/${dm.id}/prefs`, { favorite: false }).catch(() => {});
   await admin.call('PUT', '/notifications/preferences', { muted: prefsBefore.muted, ...(typeof prefsBefore.reminderLeadMinutes === 'number' ? { reminderLeadMinutes: prefsBefore.reminderLeadMinutes } : {}) }).catch(() => {});
+  if (prefsBefore.dailyEmails) await admin.call('PUT', '/notifications/preferences', { dailyEmails: prefsBefore.dailyEmails }).catch(() => {});
 }
 console.log(`  (screenshots: ${shots})`);
 process.exit(done());
