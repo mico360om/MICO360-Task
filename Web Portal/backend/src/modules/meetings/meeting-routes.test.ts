@@ -177,6 +177,21 @@ describe('Meeting routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/meetings', headers: { authorization: auth } });
     const [m] = res.json().data;
     expect(m).toMatchObject({ title: 'Card', attendeeCount: 5, openActionItemCount: 1, attendees: ['Aisha Khan', 'Omar Said'], minutes: 'FINAL', decisionCount: 3 });
+    // A summary without the caller's own row: they aren't on it.
+    expect(m).toMatchObject({ myAttendeeId: null, myResponse: null });
+  });
+
+  it('gives each listed meeting the caller’s own row on it — its id and answer — so a list needs no read per meeting', async () => {
+    const meetingListCounts = vi.fn(async (ids: string[], viewerId?: string) =>
+      Object.fromEntries(ids.map((id) => [id, { attendeeCount: 2, openActionItemCount: 0, mine: viewerId === 'u1' ? { attendeeId: 'at9', response: 'TENTATIVE' } : null }])),
+    );
+    const app = await makeApp({ meetingListCounts });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Answered', startAt: '2026-10-01T09:00:00Z' } });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/meetings', headers: { authorization: auth } });
+    expect(meetingListCounts).toHaveBeenCalledWith(expect.any(Array), 'u1');
+    const [m] = res.json().data;
+    expect(m).toMatchObject({ title: 'Answered', myAttendeeId: 'at9', myResponse: 'TENTATIVE' });
   });
 
   it('cancels a meeting the organizer owns', async () => {

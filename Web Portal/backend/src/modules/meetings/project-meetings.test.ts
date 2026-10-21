@@ -42,6 +42,21 @@ describe('meeting list summaries', () => {
     expect(out.a).toMatchObject({ decisionCount: 3, openActionItemCount: 0 });
     expect(out.b).toMatchObject({ decisionCount: 0, openActionItemCount: 2 });
   });
+
+  it('gives the person asking their own row on each meeting — its id and answer — or null when they aren’t on it', () => {
+    const attendees = [
+      { meetingId: 'a', userId: 'u2', name: 'Omar', id: 'at1', response: 'DECLINED' },
+      { meetingId: 'a', userId: 'me', name: 'Mariam', id: 'at2', response: 'ACCEPTED' },
+      { meetingId: 'b', userId: 'u2', name: 'Omar', id: 'at3', response: 'PENDING' },
+      { meetingId: 'c', userId: null, name: 'guest@example.com', id: 'at4', response: 'PENDING' },
+    ];
+    const out = buildMeetingListCounts(['a', 'b', 'c'], { ...empty, attendees }, 'me');
+    expect(out.a?.mine).toEqual({ attendeeId: 'at2', response: 'ACCEPTED' });
+    expect(out.b?.mine).toBeNull();
+    expect(out.c?.mine).toBeNull();
+    // Without someone asking, there is no "own row" to give.
+    expect(buildMeetingListCounts(['a'], { ...empty, attendees }).a).not.toHaveProperty('mine');
+  });
 });
 
 describe('project meetings overview', () => {

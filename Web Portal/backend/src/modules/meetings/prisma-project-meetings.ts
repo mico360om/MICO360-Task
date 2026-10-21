@@ -18,12 +18,13 @@ const attendeeName = (a: { userId: string | null; externalName: string | null; e
 
 /**
  * The meetings list's summary of each meeting — people (the first few by name), minutes,
- * decisions and open action items — in a handful of queries for the whole list.
+ * decisions and open action items, and `viewerId`'s own row on it — in a handful of queries for the
+ * whole list.
  */
 export function createPrismaMeetingListCounts(prisma: PrismaClient) {
-  return async (ids: string[]) => {
+  return async (ids: string[], viewerId?: string) => {
     const [attendees, open, notes, decisions, minutes] = await Promise.all([
-      prisma.meetingAttendee.findMany({ where: { meetingId: { in: ids } }, orderBy: { createdAt: 'asc' }, select: { meetingId: true, userId: true, externalName: true, externalEmail: true } }),
+      prisma.meetingAttendee.findMany({ where: { meetingId: { in: ids } }, orderBy: { createdAt: 'asc' }, select: { id: true, meetingId: true, userId: true, externalName: true, externalEmail: true, response: true } }),
       prisma.actionItem.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, status: { notIn: ['COMPLETED', 'CANCELLED'] } }, _count: { _all: true } }),
       prisma.meetingNote.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, deletedAt: null }, _count: { _all: true } }),
       prisma.meetingNote.groupBy({ by: ['meetingId'], where: { meetingId: { in: ids }, deletedAt: null, type: 'DECISION' }, _count: { _all: true } }),
@@ -31,12 +32,12 @@ export function createPrismaMeetingListCounts(prisma: PrismaClient) {
     ]);
     const names = await namesOf(prisma, attendees.map((a) => a.userId));
     return buildMeetingListCounts(ids, {
-      attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, names) })),
+      attendees: attendees.map((a) => ({ meetingId: a.meetingId, userId: a.userId, name: attendeeName(a, names), id: a.id, response: a.response })),
       noteCounts: Object.fromEntries(notes.map((n) => [n.meetingId, n._count._all])),
       decisionCounts: Object.fromEntries(decisions.map((n) => [n.meetingId, n._count._all])),
       minutes,
       openActionItemCounts: Object.fromEntries(open.filter((o) => o.meetingId).map((o) => [o.meetingId!, o._count._all])),
-    });
+    }, viewerId);
   };
 }
 
