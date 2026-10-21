@@ -3,12 +3,13 @@
  * dashboard. "Today" is a 'YYYY-MM-DD' day in company time; due dates are calendar days.
  */
 import type { ApiTask } from './types';
-import { dueDayKey } from './due-date';
+import { dueDayKey, isTaskDone } from './due-date';
 
 const DAY_MS = 86_400_000;
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / DAY_MS);
 
-export const isTaskFinished = (t: ApiTask) => t.columnCategory === 'DONE' || !!t.completedAt;
+/** The app's one "finished" rule (due-date's isTaskDone). */
+export const isTaskFinished = (t: ApiTask) => isTaskDone(t);
 
 export type MilestoneState = 'done' | 'overdue' | 'upcoming' | 'undated';
 

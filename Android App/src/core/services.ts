@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { QueryClient } from '@tanstack/react-query';
-import { createApiClient, classifyRefreshStatus, ApiError, DEFAULT_TIMEOUT_MS, type RefreshOutcome } from '../lib/api-client';
+import { createApiClient, readRefreshReply, ApiError, DEFAULT_TIMEOUT_MS, type RefreshOutcome } from '../lib/api-client';
 import { createSessionStore } from '../lib/session-store';
 import { assertAllowedUrl } from '../lib/server-address';
 import { refreshWithRetry } from '../lib/refresh-retry';
@@ -25,7 +25,6 @@ import { asyncStore } from '../adapters/async-storage';
 import { getPushToken, deactivatePush } from '../adapters/push';
 import { exportFiles } from '../adapters/files';
 import { isBiometricAvailable, authenticateBiometric } from '../adapters/biometric';
-import type { Session } from '../lib/types';
 
 export interface Services {
   baseUrl: string;
@@ -83,8 +82,9 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   let signOutApi: ReturnType<typeof createSignOut>;
 
   /**
-   * Silent token refresh after a 401 (XP-04). Only a real 401/400 from /auth/refresh ends the
-   * session; being offline, a timeout, a 5xx or a 429 is transient and keeps the user signed in.
+   * Silent token refresh after a 401 (XP-04). Only a real 401/400 from /auth/refresh, or the server's
+   * 403 ACCOUNT_INACTIVE (the account was turned off), ends the session; being offline, a timeout, a
+   * 5xx, a 429, a firewall's 403 or a reply that isn't a session is transient and keeps the user signed in.
    */
   async function refreshTokens(): Promise<RefreshOutcome> {
     const current = session.getSession();
@@ -108,14 +108,11 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
       clearTimeout(timer);
     }
 
-    const outcome = classifyRefreshStatus(res.status);
-    if (outcome !== 'ok') return outcome;
-    let next: Session;
-    try {
-      next = ((await res.json()) as { data: Session }).data;
-    } catch {
-      return 'transient';
-    }
+    // A 200 that isn't a real session (a proxy or Wi-Fi page) is never stored: signed in with no
+    // user, signing out couldn't drop that person's queued changes.
+    const reply = await readRefreshReply(res);
+    if (reply.outcome !== 'ok') return reply.outcome;
+    const next = reply.session;
 
     // The user signed out (or the session changed) while we waited: never resurrect it, and
     // revoke the token we were just given since nobody will ever use it.

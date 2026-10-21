@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resourcesApi } from './resources';
+import { resourcesApi, AI_DESCRIPTION_MAX, AI_TIMEOUT_MS } from './resources';
 import type { ApiClient } from './api-client';
 
 /** A fake client that records every call and returns a benign envelope. */
@@ -227,6 +227,39 @@ describe('resourcesApi.ai', () => {
       { method: 'POST', path: '/ai/breakdown', body: { title: 'Prepare report', description: 'Monthly' } },
       { method: 'POST', path: '/ai/suggest-priority', body: { title: 'Prepare report', description: 'Monthly', dueDate: '2026-10-12' } },
     ]);
+  });
+
+  it('gives the AI longer than an ordinary request, and trims a long description to the server’s limit', async () => {
+    const sent: { path: string; body: { description?: string }; opts?: { timeoutMs?: number } }[] = [];
+    const client = {
+      post: (path: string, body: { description?: string }, opts?: { timeoutMs?: number }) => {
+        sent.push({ path, body, opts });
+        return Promise.resolve({ data: { items: [], priority: 'LOW', reason: '' } });
+      },
+    } as unknown as ApiClient;
+    const ai = resourcesApi(client).ai;
+    const long = 'a'.repeat(AI_DESCRIPTION_MAX + 500);
+    await ai.breakdown('Prepare report', long);
+    await ai.suggestPriority('Prepare report', long, null);
+    expect(AI_TIMEOUT_MS).toBe(130_000);
+    expect(AI_DESCRIPTION_MAX).toBe(4000);
+    expect(sent).toHaveLength(2);
+    for (const call of sent) {
+      expect(call.opts?.timeoutMs).toBe(AI_TIMEOUT_MS);
+      expect(call.body.description).toHaveLength(AI_DESCRIPTION_MAX);
+    }
+  });
+
+  it('never cuts a description in the middle of an emoji', async () => {
+    let description: string | undefined;
+    const client = {
+      post: (_path: string, body: { description?: string }) => {
+        description = body.description;
+        return Promise.resolve({ data: { items: [] } });
+      },
+    } as unknown as ApiClient;
+    await resourcesApi(client).ai.breakdown('x', `${'a'.repeat(AI_DESCRIPTION_MAX - 1)}😀 and more`);
+    expect(description).toBe('a'.repeat(AI_DESCRIPTION_MAX - 1));
   });
 });
 

@@ -3,7 +3,7 @@
  * check it at boot, and end it (sign-out, server change, legacy upgrade).
  *
  * Storage keys tied to a user (all in chrome.storage.local unless noted):
- *   accessToken (chrome.storage.session), refreshToken, sessionUserId, sessionApiBase,
+ *   accessToken (chrome.storage.session), refreshToken, sessionUserId, sessionApiBase, sessionUser,
  *   syncQueue, cache:*, cacheOwner, lastUnread, lastUnreadUser, lastSync.
  * Settings (apiBase, appBase, theme) and the company time zone are not user data and are kept.
  */
@@ -54,16 +54,17 @@ export async function signOut({ local, session, fetchImpl = (...a) => fetch(...a
 /**
  * Start a session after a successful POST /auth/login. Cached data belonging to a different user
  * is wiped, and the unread-notification baseline is reset so the first poll doesn't announce every
- * existing unread item as new (EXT-06).
+ * existing unread item as new (EXT-06). The profile in the reply (`user`: email, username, roles) is
+ * kept with the session, so the app knows who is signed in even when it starts offline (M12).
  */
-export async function startSession({ local, session }, { accessToken, refreshToken, userId, apiBase }) {
+export async function startSession({ local, session }, { accessToken, refreshToken, userId, apiBase, user }) {
   const uid = userId || decodeJwtSub(accessToken);
   if (!accessToken || !refreshToken || !uid || !apiBase) throw new Error('Incomplete sign-in response.');
   const { cacheOwner } = (await local.get('cacheOwner')) || {};
   if (cacheOwner !== uid) await clearCache(local);
   await local.remove(['lastUnread', 'lastUnreadUser', 'lastSync']);
   await local.set({ cacheOwner: uid });
-  await createTokenStore({ local, session }).save({ accessToken, refreshToken, userId: uid, apiBase });
+  await createTokenStore({ local, session }).save({ accessToken, refreshToken, userId: uid, apiBase, user });
   return { userId: uid };
 }
 

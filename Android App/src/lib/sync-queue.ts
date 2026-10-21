@@ -16,7 +16,8 @@ export interface QueuedMutation {
   userId: string;
   /**
    * Sent as the `Idempotency-Key` header on replay (XP-06). Minted before the first online attempt
-   * and reused here, so a write that timed out after the server saved it is not duplicated.
+   * and reused here, so a write that timed out after the server saved it is not duplicated. Replaced
+   * only after a refusal the server keeps under it (see {@link needsNewKey}).
    */
   idempotencyKey: string;
   /** Server-side failures (5xx etc.) so far; network/401 pauses do not count. */
@@ -67,7 +68,7 @@ export interface SyncQueueOptions {
  * Default replay-failure policy:
  * - no response (offline / timeout) → pause, keep order, no attempt counted;
  * - 401 → pause until the owner is signed in with a working session (never dropped);
- * - 408 / 409 IDEMPOTENCY_IN_PROGRESS / 429 / 5xx → transient, counts an attempt;
+ * - 408 / 409 IDEMPOTENCY_IN_PROGRESS / 409 TASK_KEY_CONFLICT / 429 / 5xx → transient, counts an attempt;
  * - any other 4xx → permanent: the item is marked failed and shown, and the queue moves on.
  */
 export function classifyReplayError(error: unknown): FailureKind {
@@ -76,11 +77,20 @@ export function classifyReplayError(error: unknown): FailureKind {
     const status = (error as { status: number }).status;
     const code = (error as { code?: unknown }).code;
     if (status === 401) return 'unauthorized';
-    if (status === 409) return code === 'IDEMPOTENCY_IN_PROGRESS' ? 'transient' : 'permanent';
+    if (status === 409) return code === 'IDEMPOTENCY_IN_PROGRESS' || code === 'TASK_KEY_CONFLICT' ? 'transient' : 'permanent';
     if (status === 408 || status === 429 || status >= 500) return 'transient';
     if (status >= 400) return 'permanent';
   }
   return 'transient';
+}
+
+/**
+ * A create refused because another task took its number at the same moment (TASK_KEY_CONFLICT).
+ * The server keeps that refusal under the item's idempotency key for a day and would hand it back
+ * to every retry with the same key — and no task was made under it — so the retry needs a new key.
+ */
+export function needsNewKey(error: unknown): boolean {
+  return (error as { status?: unknown } | null)?.status === 409 && (error as { code?: unknown }).code === 'TASK_KEY_CONFLICT';
 }
 
 function isValidItem(raw: unknown): raw is QueuedMutation {
@@ -199,12 +209,15 @@ export function createSyncQueue(options: SyncQueueOptions) {
           continue;
         }
         const attempts = m.attempts + 1;
+        // A refusal the server keeps under this key would come back on every retry (and a "Retry"
+        // after it is marked failed): the next try goes under a new key.
+        const rekey = needsNewKey(error) ? { idempotencyKey: genKey() } : {};
         if (attempts >= maxAttempts) {
-          await update(m.id, { attempts, status: 'failed', lastError: errorText(error) });
-          failed.push({ ...m, attempts, status: 'failed', lastError: errorText(error) });
+          await update(m.id, { attempts, status: 'failed', lastError: errorText(error), ...rekey });
+          failed.push({ ...m, attempts, status: 'failed', lastError: errorText(error), ...rekey });
           continue; // one poisoned item must not block everything behind it
         }
-        await update(m.id, { attempts, lastError: errorText(error) });
+        await update(m.id, { attempts, lastError: errorText(error), ...rekey });
         pausedBy = 'server';
         break;
       }

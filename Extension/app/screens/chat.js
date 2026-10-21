@@ -136,6 +136,7 @@ export function ChatScreen(ctx) {
         el('span', { class: 'author' }, authorName(m.userId)),
         el('span', { class: 'time' }, timeAgo(m.createdAt)),
         edited ? el('span', { class: 'time' }, '(edited)') : null,
+        m.pending ? el('span', { class: 'time' }, '· saved on this device, not sent yet') : null,
       ),
       el('div', { class: 'txt', style: deleted ? { fontStyle: 'italic', color: 'var(--ink3)' } : null },
         deleted ? 'This message was deleted.' : m.body),
@@ -147,10 +148,10 @@ export function ChatScreen(ctx) {
     if (!body) return;
     sendError = '';
     try {
-      // Sent now, or saved on this device and sent later (same Idempotency-Key → never twice).
-      await ctx.write('chat.send', { conversationId, body });
+      // Sent now, or saved on this device and sent later (same Idempotency-Key and clientId → never twice).
+      const r = await ctx.write('chat.send', { conversationId, body });
       draft = '';
-      messages = [...messages, optimistic(body)];
+      messages = [...messages, optimistic(body, r && r.queued)];
     } catch (e) {
       sendError = writeErrorMessage(e, 'Message could not be sent. Please try again.');
     } finally {
@@ -159,8 +160,8 @@ export function ChatScreen(ctx) {
     renderThread();
   }
 
-  function optimistic(body) {
-    return { id: `tmp-${Date.now()}`, userId: ctx.me.id, body, createdAt: new Date().toISOString(), editedAt: null, deletedAt: null, attachments: [], reactions: [] };
+  function optimistic(body, pending) {
+    return { id: `tmp-${Date.now()}`, userId: ctx.me.id, body, createdAt: new Date().toISOString(), editedAt: null, deletedAt: null, attachments: [], reactions: [], pending: !!pending };
   }
 
   function authorName(userId) {

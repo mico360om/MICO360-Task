@@ -5,7 +5,8 @@ import type { Session } from './types';
  * - `lock`: "Sign out instead" on the biometric lock screen. Whoever is holding the phone may not
  *   be its owner, so the session is revoked but the owner's queued offline changes are kept
  *   (they replay only when the owner signs in again).
- * - `expired`: the server rejected the refresh token (a real 401/400 from /auth/refresh).
+ * - `expired`: the server rejected the refresh token (a real 401/400 from /auth/refresh), or the
+ *   account was turned off (the server's 403 ACCOUNT_INACTIVE).
  */
 export type SignOutReason = 'user' | 'lock' | 'expired';
 

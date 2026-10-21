@@ -175,7 +175,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
         .mutateAsync({ part: uploadPart({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType }), onProgress: (fraction) => set({ fraction }) })
         .then(
           () => setUploads((u) => u.filter((x) => x.key !== key)),
-          (e) => set({ error: isNetworkError(e) ? 'You’re offline — files can be attached when you’re connected.' : uploadErrorMessage(e) }),
+          (e) => set({ error: uploadErrorMessage(e) }),
         );
     }
   }

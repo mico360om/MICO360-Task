@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Linking } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Linking, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useServices } from '../core/providers';
 import { useServerConfig, useServerVersion } from '../core/queries';
 import { useColors } from '../core/theme';
 import { asyncStore } from '../adapters/async-storage';
-import { offeredAppVersion, showUpdateBanner, UPDATE_DISMISSED_KEY } from '../lib/app-version';
-import { sitePageUrl } from '../lib/server-address';
+import { appDownloadUrl, offeredAppVersion, showUpdateBanner, UPDATE_DISMISSED_KEY } from '../lib/app-version';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 
 /**
@@ -38,7 +37,12 @@ export function UpdateBanner() {
     };
   }, []);
   if (dismissed === undefined || !showUpdateBanner(app.version, server, dismissed)) return null;
-  const download = config?.androidAppUrl || sitePageUrl(baseUrl, '/downloads/MICO360-Tasks.apk');
+  // Always a full address: a site path from an older server is opened on the server we use.
+  const download = appDownloadUrl(baseUrl, config?.androidAppUrl);
+  const openDownload = () =>
+    void Linking.openURL(download).catch(() => {
+      Alert.alert('Couldn’t open the download', `Open this address in your browser to get the new version:\n${download}`);
+    });
   const putAway = () => {
     setDismissed(server);
     if (server) void asyncStore.setItem(UPDATE_DISMISSED_KEY, server).catch(() => {});
@@ -47,7 +51,7 @@ export function UpdateBanner() {
     <View style={[s.wrap, { paddingBottom: spacing.sm + insets.bottom }]} accessibilityRole="alert">
       <Text style={s.text}>A new version of MICO360 Tasks is available (v{server}).</Text>
       <Pressable
-        onPress={() => void Linking.openURL(download).catch(() => {})}
+        onPress={openDownload}
         accessibilityRole="link"
         accessibilityLabel={`Download version ${server}`}
         style={({ pressed }) => [s.button, pressed && { opacity: 0.7 }]}

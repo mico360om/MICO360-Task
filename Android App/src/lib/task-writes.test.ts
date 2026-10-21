@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createTaskWrites, withExpectedVersion, rebaseQueuedVersion } from './task-writes';
+import { createTaskWrites, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
 import type { QueuedMutation } from './sync-queue';
+import type { ApiTask } from './types';
 
 const deferred = <T,>() => {
   let resolve!: (v: T) => void;
@@ -134,5 +135,50 @@ describe('rebaseQueuedVersion — a queued edit follows this phone’s own earli
     expect(rebaseQueuedVersion(done, { id: 't1' }, later)).toBe(later);
     expect(rebaseQueuedVersion(done, undefined, later)).toBe(later);
     expect(rebaseQueuedVersion(item('comment.add', { id: 't1' }), { id: 't1', version: 6 }, later)).toBe(later);
+  });
+});
+
+describe('taskHoldsEdit — does the task already hold what a queued edit sets?', () => {
+  const task = {
+    id: 't1',
+    title: 'Ship it',
+    description: null,
+    priority: 'HIGH',
+    dueDate: '2026-10-12T00:00:00.000Z',
+    estimatedHours: 2.5,
+    progress: 40,
+    isMilestone: false,
+    recurrenceRule: { freq: 'MONTHLY', interval: 1, anchorDay: 12 },
+    version: 6,
+  } as unknown as ApiTask;
+
+  it('yes when every field it sets matches — the version and scope it carries aside', () => {
+    expect(taskHoldsEdit(task, { title: 'Ship it', priority: 'HIGH', expectedVersion: 5, scope: 'series' })).toBe(true);
+    expect(taskHoldsEdit(task, { estimatedHours: 2.5, progress: 40, isMilestone: false })).toBe(true);
+  });
+
+  it('compares a due date by its day, and an empty description with none', () => {
+    expect(taskHoldsEdit(task, { dueDate: '2026-10-12' })).toBe(true);
+    expect(taskHoldsEdit(task, { dueDate: '2026-10-13' })).toBe(false);
+    expect(taskHoldsEdit({ ...task, dueDate: null }, { dueDate: null })).toBe(true);
+    expect(taskHoldsEdit(task, { description: '' })).toBe(true);
+    expect(taskHoldsEdit(task, { description: 'Notes' })).toBe(false);
+  });
+
+  it('a repeat matches with the day the server pins it to, but not one that differs', () => {
+    // The server pins a monthly rule to its due day (anchorDay), as lib/recurrence's withAnchorDay does.
+    expect(taskHoldsEdit(task, { recurrenceRule: { freq: 'MONTHLY', interval: 1 } })).toBe(true);
+    expect(taskHoldsEdit(task, { recurrenceRule: { freq: 'MONTHLY', interval: 2 } })).toBe(false);
+    // Taking away the end date is a change, even though everything else matches.
+    const ending = { ...task, recurrenceRule: { freq: 'WEEKLY', interval: 1, until: '2026-12-31' } } as unknown as ApiTask;
+    expect(taskHoldsEdit(ending, { recurrenceRule: { freq: 'WEEKLY', interval: 1 } })).toBe(false);
+    expect(taskHoldsEdit(task, { recurrenceRule: null })).toBe(false);
+    expect(taskHoldsEdit({ ...task, recurrenceRule: null }, { recurrenceRule: null })).toBe(true);
+  });
+
+  it('no when anything differs, or when the edit sets nothing it could check', () => {
+    expect(taskHoldsEdit(task, { title: 'Ship it', priority: 'LOW' })).toBe(false);
+    expect(taskHoldsEdit(task, { expectedVersion: 5 })).toBe(false);
+    expect(taskHoldsEdit(task, {})).toBe(false);
   });
 });

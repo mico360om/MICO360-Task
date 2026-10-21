@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { performMutation, describeMutation } from './perform-mutation';
-import { ApiError } from './api-client';
+import { ApiError, NetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
 
@@ -83,5 +83,56 @@ describe('describeMutation', () => {
     expect(describeMutation({ kind: 'task.create', payload: { title: 'Ship' } })).toBe('New task “Ship”');
     expect(describeMutation({ kind: 'chat.send', payload: { body: 'x'.repeat(60) } })).toBe(`Message “${'x'.repeat(40)}…”`);
     expect(describeMutation({ kind: '???', payload: null })).toBe('A change');
+  });
+});
+
+describe('performMutation — a replayed edit that the server had already saved', () => {
+  const conflict = () => new ApiError(409, 'VERSION_CONFLICT', 'This task was changed by someone else. Reload and try again.');
+  const edit = mut('task.update', { id: 't1', patch: { title: 'Ship it', dueDate: '2026-10-12', expectedVersion: 5 } });
+
+  it('counts as done when the reloaded task already holds the edit (its first try timed out after saving)', async () => {
+    const r = mockResources();
+    const saved = { id: 't1', title: 'Ship it', dueDate: '2026-10-12T00:00:00.000Z', version: 6 };
+    r.tasks.update.mockRejectedValueOnce(conflict());
+    (r.tasks as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn(async () => saved);
+    // Resolves with the task as it is, so this phone's later edits move on to its version.
+    await expect(performMutation(r, edit)).resolves.toBe(saved);
+  });
+
+  it('is still a conflict when the task holds something else (someone else changed it)', async () => {
+    const r = mockResources();
+    const err = conflict();
+    r.tasks.update.mockRejectedValueOnce(err);
+    (r.tasks as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn(async () => ({ id: 't1', title: 'Their title', dueDate: '2026-10-12', version: 6 }));
+    await expect(performMutation(r, edit)).rejects.toBe(err);
+  });
+
+  it('waits for a connection when the reload gets no answer (never marked failed for that)', async () => {
+    const r = mockResources();
+    r.tasks.update.mockRejectedValueOnce(conflict());
+    const offline = new NetworkError('Network request failed.');
+    (r.tasks as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn(async () => {
+      throw offline;
+    });
+    await expect(performMutation(r, edit)).rejects.toBe(offline);
+  });
+
+  it('keeps the conflict when the task can’t be reloaded (deleted, no access)', async () => {
+    const r = mockResources();
+    const err = conflict();
+    r.tasks.update.mockRejectedValueOnce(err);
+    (r.tasks as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn(async () => {
+      throw new ApiError(404, 'NOT_FOUND', 'Task not found.');
+    });
+    await expect(performMutation(r, edit)).rejects.toBe(err);
+  });
+
+  it('reloads only for a version conflict', async () => {
+    const r = mockResources();
+    const get = vi.fn(async () => ({}));
+    (r.tasks as unknown as { get: typeof get }).get = get;
+    r.tasks.update.mockRejectedValueOnce(new ApiError(400, 'VALIDATION', 'Invalid input.'));
+    await expect(performMutation(r, edit)).rejects.toBeInstanceOf(ApiError);
+    expect(get).not.toHaveBeenCalled();
   });
 });

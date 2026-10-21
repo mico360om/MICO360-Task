@@ -2,6 +2,7 @@ import { el, mount } from '../dom.js';
 import { basesFromServer, runtimeOriginsFor, sameOrigin, DEFAULTS } from '../../src/config.js';
 import { startSession, clearUserData } from '../../src/session.js';
 import { timeoutSignal } from '../../src/auth.js';
+import { signInErrorMessage } from '../../src/errors.js';
 
 /**
  * Ask Chrome for access to a non-production API host. Must be the first await in a click handler
@@ -96,7 +97,10 @@ export function LoginScreen({ apiBase, appBase, storage, session, notice, onAuth
         signal: timeoutSignal(15000),
       });
       if (!res.ok) {
-        showErr(res.status === 423 ? 'Account locked — reset your password.' : res.status === 429 ? 'Too many attempts — wait a minute and try again.' : res.status >= 500 ? 'The server had a problem. Please try again.' : 'Invalid email or password.');
+        // L20: a switched-off account and a locked one say so (and for how long), in plain words.
+        let error = {};
+        try { error = (await res.json())?.error || {}; } catch { /* not the server's JSON */ }
+        showErr(signInErrorMessage(res.status, error));
         return;
       }
       const data = (await res.json()).data || {};
@@ -105,6 +109,7 @@ export function LoginScreen({ apiBase, appBase, storage, session, notice, onAuth
         refreshToken: data.refreshToken,
         userId: data.user && data.user.id,
         apiBase: currentApi,
+        user: data.user, // M12: who is signed in, and their roles
       });
       onAuthed();
     } catch {

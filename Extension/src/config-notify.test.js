@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   resolveBases, DEFAULTS, checkBaseUrl, basesFromServer, runtimeOriginsFor, sameOrigin, originOf, safeTimeZone, isPrivateHost,
 } from './config.js';
-import { shouldNotify, notificationText, unreadBaseline, findAppContext } from './notify.js';
+import { shouldNotify, notificationText, unreadBaseline, findAppContext, notificationTarget, setToolbarBadge } from './notify.js';
 
 describe('DEFAULTS (EXT-01)', () => {
   it('points at production out of the box', () => {
@@ -118,5 +118,35 @@ describe('findAppContext (EXT-07: focus the app tab without the "tabs" permissio
     expect(findAppContext([], APP)).toBeNull();
     expect(findAppContext(undefined, APP)).toBeNull();
     expect(findAppContext([{ documentUrl: APP, tabId: -1 }], APP)).toBeNull();
+  });
+});
+
+describe('notificationTarget (M7: a notification opens what it is about, as on the web)', () => {
+  const APP = 'https://task.mico360.com';
+  it('a task opens in the task drawer, a conversation in Chat, a meeting on the website', () => {
+    expect(notificationTarget({ entityType: 'task', entityId: 't1' }, APP)).toEqual({ hash: '#/task/t1' });
+    expect(notificationTarget({ entityType: 'TASK', entityId: 't1' }, APP)).toEqual({ hash: '#/task/t1' });
+    expect(notificationTarget({ entityType: 'conversation', entityId: 'cv 1' }, APP)).toEqual({ hash: '#/chat/cv%201' });
+    expect(notificationTarget({ entityType: 'conversation', entityId: null }, APP)).toEqual({ hash: '#/chat' });
+    expect(notificationTarget({ entityType: 'meeting', entityId: 'm1' }, APP)).toEqual({ url: 'https://task.mico360.com/meetings/m1' });
+  });
+  it('anything else opens nothing', () => {
+    expect(notificationTarget({ entityType: 'task', entityId: null }, APP)).toBeNull();
+    expect(notificationTarget({ entityType: 'meeting', entityId: 'm1' }, '')).toBeNull();
+    expect(notificationTarget({}, APP)).toBeNull();
+    expect(notificationTarget(null, APP)).toBeNull();
+  });
+});
+
+describe('setToolbarBadge (M7)', () => {
+  it('shows the unread count on the toolbar icon, and nothing for 0', () => {
+    const action = { setBadgeText: vi.fn(), setBadgeBackgroundColor: vi.fn() };
+    setToolbarBadge(action, 12);
+    expect(action.setBadgeText).toHaveBeenLastCalledWith({ text: '9+' });
+    expect(action.setBadgeBackgroundColor).toHaveBeenCalledTimes(1);
+    setToolbarBadge(action, 0);
+    expect(action.setBadgeText).toHaveBeenLastCalledWith({ text: '' });
+    expect(() => setToolbarBadge(undefined, 3)).not.toThrow();
+    expect(() => setToolbarBadge({ setBadgeText: () => { throw new Error('no'); } }, 3)).not.toThrow();
   });
 });

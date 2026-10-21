@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { COMPANY_TIMEZONE, companyTodayKey, dueDayKey, daysUntilDue, isOverdue, formatDueDay, appTimeZone, setAppTimeZone, subscribeTimeZone, calendarTimeZone, dateZones, setDateZones } from './due-date';
+import { COMPANY_TIMEZONE, companyTodayKey, dueDayKey, daysUntilDue, isOverdue, isTaskDone, formatDueDay, appTimeZone, setAppTimeZone, subscribeTimeZone, calendarTimeZone, dateZones, setDateZones } from './due-date';
 
 describe('mobile due-date rules (XP-03)', () => {
   it('uses Asia/Muscat as the company zone', () => {
@@ -28,6 +28,15 @@ describe('mobile due-date rules (XP-03)', () => {
 
   it('never marks a completed task overdue', () => {
     expect(isOverdue({ dueDate: '2026-01-01T00:00:00.000Z', completedAt: '2026-02-01T00:00:00Z' }, new Date('2026-09-30T12:00:00Z'))).toBe(false);
+  });
+
+  it('a task in a Done column is finished even without a completion time (never overdue)', () => {
+    const inDone = { dueDate: '2026-01-01T00:00:00.000Z', completedAt: null, columnCategory: 'DONE' };
+    expect(isTaskDone(inDone)).toBe(true);
+    expect(isOverdue(inDone, new Date('2026-09-30T12:00:00Z'))).toBe(false);
+    expect(isTaskDone({ completedAt: null, columnCategory: 'REVIEW' })).toBe(false);
+    expect(isTaskDone({ completedAt: '2026-02-01T00:00:00Z' })).toBe(true);
+    expect(isOverdue({ ...inDone, columnCategory: 'IN_PROGRESS' }, new Date('2026-09-30T12:00:00Z'))).toBe(true);
   });
 
   it('counts whole days to the due day', () => {

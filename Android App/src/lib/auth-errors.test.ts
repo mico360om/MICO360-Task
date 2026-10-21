@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { authErrorMessage, lockoutMinutes, isAccountLocked, isEmailNotConfigured } from './auth-errors';
+import { authErrorMessage, biometricSignInProblem, lockoutMinutes, isAccountLocked, isEmailNotConfigured } from './auth-errors';
 import { ApiError, NetworkError } from './api-client';
 
 describe('auth error messages', () => {
@@ -30,5 +30,37 @@ describe('auth error messages', () => {
     expect(lockoutMinutes({ retryAfterSeconds: 0 })).toBeNull();
     expect(lockoutMinutes({ retryAfterSeconds: '60' })).toBeNull();
     expect(lockoutMinutes(undefined)).toBeNull();
+  });
+});
+
+describe('biometricSignInProblem — what a failed fingerprint sign-in says, and whether the key goes', () => {
+  it('a refused key is forgotten (password changed, 30 days unused)', () => {
+    const p = biometricSignInProblem(new ApiError(401, 'INVALID_BIOMETRIC_KEY', 'x'));
+    expect(p.forgetKey).toBe(true);
+    expect(p.message).toMatch(/Fingerprint sign-in has stopped/);
+  });
+
+  it('no answer keeps the key and blames the connection', () => {
+    expect(biometricSignInProblem(new NetworkError('Network request failed.'))).toEqual({
+      message: 'Can’t reach the server. Check your connection and try again.',
+      forgetKey: false,
+    });
+  });
+
+  it('a busy server (429, 5xx) keeps the key', () => {
+    for (const status of [429, 500, 503]) {
+      expect(biometricSignInProblem(new ApiError(status, 'X', 'x'))).toEqual({ message: 'The server is busy. Please try again in a minute.', forgetKey: false });
+    }
+  });
+
+  it('a 403 is not "busy": it says what the server said, and keeps the key', () => {
+    expect(biometricSignInProblem(new ApiError(403, 'ACCOUNT_INACTIVE', 'This account is not active. Contact an administrator.'))).toEqual({
+      message: 'This account is not active. Contact an administrator.',
+      forgetKey: false,
+    });
+    // A 403 with no reason of ours (a proxy or firewall page).
+    const blocked = biometricSignInProblem(new ApiError(403, 'ERROR', 'Request failed (403)'));
+    expect(blocked.forgetKey).toBe(false);
+    expect(blocked.message).toBe('The server refused the sign-in. Please try again later, or sign in with your password.');
   });
 });

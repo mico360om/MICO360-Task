@@ -1,8 +1,11 @@
 import { el, mount, Loader, ErrorState, timeAgo, pill } from '../dom.js';
-import { PRIORITY_LABEL, writeErrorMessage } from '../components.js';
+import { PRIORITY_LABEL, writeErrorMessage, SAVED_ON_DEVICE } from '../components.js';
 import { dueDayKey, todayKey } from '../../src/due-date.js';
 import { DEFAULT_TIME_ZONE } from '../../src/config.js';
 import { taskExportPath, taskFileName } from '../../src/reports.js';
+import { getQueue } from '../../src/queue.js';
+import { VERSIONED_KINDS, taskIdOf, isVersionConflict, createWriteLane, CONFLICT_MESSAGE } from '../../src/task-writes.js';
+import { isTempId, tempId } from '../../src/pending-overlay.js';
 import {
   FREQS, FREQ_LABEL, UNIT_LABEL, DAY_NAMES, WEEKDAY_NAMES, WEEK_OF_MONTH, recurrenceSummary, withFreq, withInterval,
   toggleWeekday, withMonthlyMode, withNth, withDayOfMonth, withEnds, endsMode, withCreateNext, togglePaused, isEarlierCopy,
@@ -10,7 +13,11 @@ import {
 
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
-/** Task detail drawer — edit title/description/priority, due date and repeat, checklist, assignees and comments (offline-queued). */
+/**
+ * Task detail drawer — edit title/description/priority, due date and repeat, checklist, assignees and
+ * comments (offline-queued). Each edit is sent against the task's version, one at a time (H1): the
+ * server refuses an edit made over someone else's change, and the drawer then says so and reloads.
+ */
 export function TaskDetail(ctx, onClose) {
   const taskId = ctx.params.taskId;
 
@@ -21,7 +28,11 @@ export function TaskDetail(ctx, onClose) {
   let comments = [];
   let directory = [];
   let err = '';
+  let notice = '';         // "Saved on this device" while this task has changes waiting to sync
   let exporting = null;
+  let hadQueued = false;   // this drawer showed or kept changes saved on this device
+  let generation = 0;      // bumped when a refused edit reloads the task: edits made before it are dropped
+  const lane = createWriteLane(); // one edit of this task at a time
 
   const titleEl = el('h2', {}, 'Task');
   const exportBox = el('div', { class: 'export-box' });
@@ -37,25 +48,31 @@ export function TaskDetail(ctx, onClose) {
   load();
   return root;
 
-  async function load() {
+  /** Load (or reload) the task. `message` is shown above it, e.g. why it was reloaded. */
+  async function load(message) {
     mount(body, Loader());
-    err = '';
+    err = typeof message === 'string' ? message : '';
     try {
-      const [t, asg, chk, cm] = await Promise.all([
+      const reads = await Promise.all([
         ctx.api.tasks.get(taskId),
         ctx.api.tasks.assignees(taskId),
         ctx.api.tasks.checklist(taskId),
         ctx.api.tasks.comments(taskId),
       ]);
+      const [t, asg, chk, cm] = reads;
       task = t.data ?? null;
       assignees = asg.data ?? [];
       const c = chk.data ?? {};
       checklist = { items: c.items ?? [], done: c.done ?? 0, total: c.total ?? 0 };
       comments = cm.data ?? [];
+      // Changes kept on this device are shown on top of the server's copy (H3): say so.
+      const waiting = reads.reduce((n, r) => n + ((r && r.pending) || 0), 0);
+      if (waiting) hadQueued = true;
+      notice = waiting ? SAVED_ON_DEVICE : '';
       try { directory = (await ctx.api.directory()).data ?? []; } catch { directory = []; }
       renderBody();
-    } catch {
-      mount(body, ErrorState('Could not load this task.', load));
+    } catch (e) {
+      mount(body, ErrorState(writeErrorMessage(e, 'Could not load this task.'), () => load()));
     }
   }
 
@@ -65,6 +82,7 @@ export function TaskDetail(ctx, onClose) {
     renderExport();
     mount(body,
       err ? el('div', { class: 'errbar', role: 'alert' }, el('span', {}, err)) : null,
+      notice ? el('div', { class: 'infobar', role: 'status' }, notice) : null,
       titleField(),
       prioritySection(),
       scheduleSection(),
@@ -95,8 +113,8 @@ export function TaskDetail(ctx, onClose) {
     try {
       const { blob, fileName } = await ctx.api.download(taskExportPath(taskId, format));
       ctx.saveFile(blob, fileName || taskFileName(task, format));
-    } catch {
-      err = 'Couldn’t export the task. Please try again.';
+    } catch (e) {
+      err = writeErrorMessage(e, 'Couldn’t export the task. Please try again.');
     } finally {
       exporting = null;
       renderBody();
@@ -228,12 +246,15 @@ export function TaskDetail(ctx, onClose) {
   // ---- Checklist ---------------------------------------------------------
   function checklistSection() {
     const rows = checklist.items.map((item) => {
-      const cb = el('input', { type: 'checkbox', 'aria-label': item.text });
+      // L13: an item added on this device has no server id yet; it can be ticked once it has synced.
+      const waiting = isTempId(item.id);
+      const cb = el('input', { type: 'checkbox', 'aria-label': item.text, disabled: waiting, title: waiting ? 'Waiting to sync' : null });
       cb.checked = !!item.done;
       cb.addEventListener('change', () => toggleChecklist(item, cb.checked));
-      return el('label', { style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 0', cursor: 'pointer' } },
+      return el('label', { style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 0', cursor: waiting ? 'default' : 'pointer' } },
         cb,
         el('span', { style: item.done ? { textDecoration: 'line-through', color: 'var(--ink2)' } : {} }, item.text),
+        waiting ? el('span', { class: 'muted', style: { fontSize: '12px' } }, '· waiting to sync') : null,
       );
     });
 
@@ -282,34 +303,86 @@ export function TaskDetail(ctx, onClose) {
   // ---- Mutations ---------------------------------------------------------
   // Each change is sent now, or saved on this device and synced later (ctx.write). A change that
   // can't even be saved locally shows an error and is rolled back — never silently lost.
-  async function updateTask(patch) {
-    const before = Object.fromEntries(Object.keys(patch).map((k) => [k, task[k]]));
-    Object.assign(task, patch);
-    err = '';
-    try {
-      await ctx.write('task.update', { id: taskId, patch });
-    } catch (e) {
-      Object.assign(task, before);
-      err = writeErrorMessage(e, 'Could not save your change.');
-    } finally {
-      renderBody();
-      ctx.afterMutation();
+
+  /** A change kept on this device: say so until it has synced. */
+  function noteSaved(r) {
+    if (r && r.queued) {
+      hadQueued = true;
+      notice = SAVED_ON_DEVICE;
     }
   }
 
+  /** Show an edit at once, then send it after this task's earlier edits have been answered (H1). */
+  function updateTask(patch) {
+    const before = Object.fromEntries(Object.keys(patch).map((k) => [k, task[k]]));
+    Object.assign(task, patch);
+    err = '';
+    renderBody();
+    const made = generation;
+    return lane.run(() => saveEdit(patch, before, made));
+  }
+
+  async function saveEdit(patch, before, made) {
+    if (made !== generation) return; // made on a copy that a refused edit has since replaced
+    try {
+      const expectedVersion = await nextVersion();
+      const r = await ctx.write('task.update', { id: taskId, patch, ...(typeof expectedVersion === 'number' ? { expectedVersion } : {}) });
+      noteSaved(r);
+      // The next edit is made against the version this one made.
+      if (!r.queued && r.data && typeof r.data.version === 'number') task.version = r.data.version;
+    } catch (e) {
+      if (isVersionConflict(e)) {
+        // Someone else changed the task: say so, show their version, and drop this edit.
+        generation += 1;
+        await load(CONFLICT_MESSAGE);
+        ctx.afterMutation();
+        return;
+      }
+      Object.assign(task, before);
+      err = writeErrorMessage(e, 'Could not save your change.');
+    }
+    renderBody();
+    ctx.afterMutation();
+  }
+
+  /**
+   * The version an edit is made against (H1): the one shown — or, once the changes this drawer kept on
+   * this device have synced, the version they made (the sync keeps it in the task's offline copy).
+   */
+  async function nextVersion() {
+    let v = task.version;
+    if (!hadQueued || !ctx.storage || !ctx.cache) return v;
+    try {
+      const mine = (await getQueue(ctx.storage)).filter((i) => i.userId === ctx.me.id && VERSIONED_KINDS.has(i.kind) && taskIdOf(i) === taskId);
+      // Still waiting: this edit goes in line behind them (they carry the versions). One refused: the server decides.
+      if (mine.length) return v;
+      const saved = await ctx.cache.peek(`task:${taskId}`);
+      if (saved && typeof saved.version === 'number' && !(typeof v === 'number' && v >= saved.version)) v = saved.version;
+    } catch {
+      return v;
+    }
+    task.version = v;
+    return v;
+  }
+
   async function toggleChecklist(item, done) {
+    if (isTempId(item.id)) {
+      err = 'This item is still waiting to sync — tick it after it syncs.';
+      renderBody();
+      return;
+    }
     item.done = done;
     checklist.done = checklist.items.filter((i) => i.done).length;
     err = '';
     renderBody();
     try {
-      await ctx.write('checklist.update', { itemId: item.id, patch: { done } });
+      noteSaved(await ctx.write('checklist.update', { itemId: item.id, patch: { done } }));
     } catch (e) {
       item.done = !done;
       checklist.done = checklist.items.filter((i) => i.done).length;
       err = writeErrorMessage(e, 'Could not update the checklist.');
-      renderBody();
     } finally {
+      renderBody();
       ctx.afterMutation();
     }
   }
@@ -318,7 +391,9 @@ export function TaskDetail(ctx, onClose) {
     err = '';
     try {
       const r = await ctx.write('checklist.add', { id: taskId, text });
-      checklist.items.push(!r.queued && r.data && r.data.id ? r.data : { id: `tmp-${Date.now()}`, text, done: false });
+      noteSaved(r);
+      // Kept on this device: the same temporary id it has when the drawer opens again (pending-overlay.js).
+      checklist.items.push(!r.queued && r.data && r.data.id ? r.data : { id: r.item ? tempId(r.item) : `tmp-${Date.now()}`, text, done: false });
     } catch (e) {
       err = writeErrorMessage(e, 'Could not add the item.');
     } finally {
@@ -337,13 +412,13 @@ export function TaskDetail(ctx, onClose) {
       : [...assignees, { id: ctx.me.id, name: ctx.me.name, email: ctx.me.email }];
     renderBody();
     try {
-      if (mine) await ctx.write('task.unassign', { id: taskId, userId: ctx.me.id });
-      else await ctx.write('task.assign', { id: taskId, userIds: [ctx.me.id] });
+      if (mine) noteSaved(await ctx.write('task.unassign', { id: taskId, userId: ctx.me.id }));
+      else noteSaved(await ctx.write('task.assign', { id: taskId, userIds: [ctx.me.id] }));
     } catch (e) {
       assignees = before;
       err = writeErrorMessage(e, mine ? 'Could not unassign you.' : 'Could not assign you.');
-      renderBody();
     } finally {
+      renderBody();
       ctx.afterMutation();
     }
   }
@@ -354,12 +429,12 @@ export function TaskDetail(ctx, onClose) {
     comments = [...comments, optimistic];
     renderBody();
     try {
-      await ctx.write('comment.add', { id: taskId, body: bodyText });
+      noteSaved(await ctx.write('comment.add', { id: taskId, body: bodyText }));
     } catch (e) {
       comments = comments.filter((c) => c !== optimistic);
       err = writeErrorMessage(e, 'Could not post your comment.');
-      renderBody();
     } finally {
+      renderBody();
       ctx.afterMutation();
     }
   }

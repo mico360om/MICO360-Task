@@ -4,8 +4,8 @@
 // Where tokens live (EXT-07):
 //   - the access token in chrome.storage.session — memory only, never written to disk, gone after a
 //     browser restart (it is re-minted from the refresh token on first use);
-//   - the refresh token, plus which user and which server the session belongs to, in
-//     chrome.storage.local so the session survives restarts.
+//   - the refresh token, plus which user and which server the session belongs to (and that person's
+//     profile and roles from the server, M12), in chrome.storage.local so the session survives restarts.
 //
 // Refresh tokens are single-use (the server rotates them). The app tab(s) and the background service
 // worker share one refresh at a time through a cross-context lock (XP-04); whoever waits re-reads the
@@ -17,6 +17,8 @@ import { sameOrigin } from './config.js';
 
 /** Requests abort after this long so the app never hangs on a slow/unreachable backend. */
 export const REQUEST_TIMEOUT_MS = 6000;
+/** A file (an Excel or PDF export) may take much longer to build and download (M4). */
+export const DOWNLOAD_TIMEOUT_MS = 120000;
 export const REFRESH_LOCK = 'mico360:auth-refresh';
 
 /** An AbortSignal that fires after `ms` (when supported), else undefined. */
@@ -40,6 +42,37 @@ export function requestHeaders(opts = {}, token = null) {
   };
 }
 
+/**
+ * A usable session from /auth/login or /auth/refresh (M5): both tokens and the person's id. Anything
+ * else — a proxy or Wi-Fi sign-in page answering 200 — is never stored, so the session we have stays.
+ */
+export function isSession(data) {
+  return !!data && typeof data.accessToken === 'string' && !!data.accessToken
+    && typeof data.refreshToken === 'string' && !!data.refreshToken
+    && !!data.user && typeof data.user.id === 'string' && !!data.user.id;
+}
+
+/**
+ * The profile kept with the session (M12): who is signed in and their roles, from the server's
+ * sign-in and refresh replies. Only these fields are kept; the server checks roles on every call.
+ */
+export function publicUser(u) {
+  if (!u || typeof u.id !== 'string' || !u.id) return null;
+  return {
+    id: u.id,
+    email: typeof u.email === 'string' ? u.email : '',
+    username: typeof u.username === 'string' ? u.username : '',
+    roles: Array.isArray(u.roles) ? u.roles.filter((r) => typeof r === 'string') : [],
+    avatarUrl: typeof u.avatarUrl === 'string' ? u.avatarUrl : null,
+  };
+}
+
+/** The signed-in person's profile from the last sign-in or refresh, or null. */
+export async function readSessionUser(local) {
+  const o = (await local.get('sessionUser')) || {};
+  return publicUser(o.sessionUser);
+}
+
 /** Token persistence split across chrome.storage.session (access) and chrome.storage.local (the rest). */
 export function createTokenStore({ local, session }) {
   const mem = session || local; // fall back to local only where storage.session doesn't exist
@@ -57,21 +90,32 @@ export function createTokenStore({ local, session }) {
       };
     },
     /** Persist a rotated pair. The refresh token goes first: the old one is already spent. */
-    async saveRotated({ accessToken, refreshToken }) {
-      if (refreshToken) await local.set({ refreshToken });
+    async saveRotated({ accessToken, refreshToken, user }) {
+      const profile = publicUser(user);
+      if (refreshToken) await local.set({ refreshToken, ...(profile ? { sessionUser: profile } : {}) });
       await mem.set({ accessToken });
     },
     /** New session. The access token is written first: other contexts treat the refresh token as "signed in". */
-    async save({ accessToken, refreshToken, userId, apiBase }) {
+    async save({ accessToken, refreshToken, userId, apiBase, user }) {
+      const profile = publicUser(user);
       await mem.set({ accessToken });
-      await local.set({ refreshToken, sessionUserId: userId, sessionApiBase: apiBase });
+      await local.set({ refreshToken, sessionUserId: userId, sessionApiBase: apiBase, ...(profile && profile.id === userId ? { sessionUser: profile } : {}) });
     },
     async clear() {
       await mem.remove('accessToken');
       if (mem !== local) await local.remove('accessToken'); // pre-hardening location
-      await local.remove(['refreshToken', 'sessionUserId', 'sessionApiBase']);
+      await local.remove(['refreshToken', 'sessionUserId', 'sessionApiBase', 'sessionUser']);
     },
   };
+}
+
+/** The error code in a reply's JSON body, or undefined when it has none (a proxy's own page). */
+async function errorCode(res) {
+  try {
+    return (await res.json())?.error?.code;
+  } catch {
+    return undefined;
+  }
 }
 
 function unauthorizedResponse() {
@@ -119,18 +163,24 @@ export function createAuth({ local, session, apiBase, fetchImpl = (...a) => fetc
       } catch {
         return { token: null, expired: false }; // offline / timeout — try again later
       }
-      if (res.status === 400 || res.status === 401 || res.status === 403) {
+      // M5, as on the web: only 400/401 mean the server ended this session. A 403 is a passing
+      // problem (a proxy or firewall in the way), like 429 and 5xx: stay signed in and try again later —
+      // unless our server says the account was turned off (ACCOUNT_INACTIVE), as on Android. It has
+      // spent the refresh token by then, and sending it again would look like a stolen token.
+      if (res.status === 400 || res.status === 401 || (res.status === 403 && (await errorCode(res)) === 'ACCOUNT_INACTIVE')) {
         await tokens.clear(); // the server said no: this session is over
         return { token: null, expired: true };
       }
-      if (!res.ok) return { token: null, expired: false }; // 429 / 5xx — transient
+      if (!res.ok) return { token: null, expired: false }; // 403 / 429 / 5xx — transient
       let data = null;
       try {
         data = (await res.json())?.data ?? null;
       } catch {
         data = null;
       }
-      if (!data || !data.accessToken) return { token: null, expired: false };
+      // A 200 that isn't a real session for this person (a portal page, a token or the user missing)
+      // is no verdict either, and must never replace the session we have.
+      if (!isSession(data) || data.user.id !== t.userId) return { token: null, expired: false };
       await tokens.saveRotated(data);
       return { token: data.accessToken, expired: false };
     }, { locks });

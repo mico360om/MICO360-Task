@@ -78,7 +78,9 @@ export function SettingsScreen(ctx) {
       return;
     }
     await ctx.storage.set({ apiBase: api.url, appBase: app.url });
-    mount(saveMsg, 'Saved — reload to apply.');
+    // L16: the same server, so the session stays — reload the app so the new addresses are used.
+    mount(saveMsg, 'Saved. Reloading…');
+    if (ctx.reload) ctx.reload();
   }
 
   async function renderSync() {

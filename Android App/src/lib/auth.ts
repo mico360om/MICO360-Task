@@ -1,6 +1,22 @@
 import type { ApiClient } from './api-client';
 import type { Envelope, Session } from './types';
 
+/**
+ * The longest text each sign-in field takes: the server's own limits (a longer email or password is
+ * refused outright), and room for any real server address.
+ */
+export const SIGN_IN_LIMITS = { identifier: 191, password: 200, serverAddress: 255 } as const;
+
+const ROLE_LABEL: Record<string, string> = { ADMIN: 'Administrator', EMPLOYEE: 'Employee' };
+
+/** A role's name as the website shows it ("Administrator", "Employee"); any other code in plain words. */
+export function roleLabel(code: string): string {
+  const known = ROLE_LABEL[code.toUpperCase()];
+  if (known) return known;
+  const words = code.replace(/_/g, ' ').trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** Auth API calls for the mobile app (login, passwordless OTP, forgot/reset). */
 export function authApi(client: ApiClient) {
   return {

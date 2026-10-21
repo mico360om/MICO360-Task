@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createReadCache } from './read-cache.js';
 import { createApi, ApiError } from './api.js';
 import { createAuth } from './auth.js';
-import { getQueue, queueSize, flushQueue, makePerformMutation, sendOrQueue } from './queue.js';
+import { getQueue, queueSize, flushQueue, makePerformMutation, sendOrQueue, pendingItems } from './queue.js';
+import { rememberTask } from './task-writes.js';
 import { fakeStorage, jsonRes } from './test-helpers.js';
 
 /**
@@ -23,7 +24,8 @@ function makeFetch(net) {
       return jsonRes({ error: { code: 'FST_ERR_CTP_EMPTY_JSON_BODY' } }, 400);
     }
     if (path === '/tasks/mine') return jsonRes({ data: [{ id: 't1', key: 'ENG-1', title: 'A', columnId: 'c1' }] });
-    if (/^\/tasks\/[^/]+\/move$/.test(path)) return jsonRes({ data: { id: 't1', columnId: 'c2' } });
+    if (/^\/tasks\/[^/]+\/move$/.test(path)) return jsonRes({ data: { id: 't1', columnId: 'c2', version: 2 } });
+    if (path === '/tasks/t1') return jsonRes({ data: { id: 't1', key: 'ENG-1', title: 'A', columnId: 'c1', version: 1 } });
     if (/^\/tasks\/[^/]+\/assignees\/[^/]+$/.test(path)) return { ok: true, status: 204, json: async () => ({}) };
     if (path === '/conversations') {
       return jsonRes({ data: [{ conversation: { id: 'cv1', kind: 'PROJECT', projectId: 'p1' }, participants: [], unread: 0, lastMessage: { id: 'm1', body: 'the wifi password is 1234', deletedAt: '2026-09-26T09:00:00Z' } }] });
@@ -46,6 +48,27 @@ function setup() {
   const doFetch = (path, init) => auth.authedFetch(path, init);
   return { local, session, net, auth, cache, api, doFetch };
 }
+
+describe('changes waiting to sync stay in view (H3, integration)', () => {
+  it('a card moved offline stays moved on the saved copy until it syncs; the sync keeps the new version', async () => {
+    const { local, net, auth, cache, doFetch } = setup();
+    const api = createApi({ auth, cache, pending: () => pendingItems(local, 'u1') });
+    await api.tasks.mine();
+    await api.tasks.get('t1');
+
+    net.online = false;
+    await sendOrQueue({ kind: 'task.move', payload: { id: 't1', columnId: 'c2', position: 0, columnCategory: 'IN_PROGRESS' } }, { doFetch, storage: local, userId: 'u1' });
+    const offline = await api.tasks.mine();
+    expect(offline).toMatchObject({ stale: true, pending: 1 });
+    expect(offline.data[0]).toMatchObject({ id: 't1', columnId: 'c2', columnCategory: 'IN_PROGRESS' });
+    expect((await api.tasks.get('t1')).data.columnId).toBe('c2');
+
+    net.online = true;
+    const r = await flushQueue(local, makePerformMutation(doFetch, { onTask: (t) => rememberTask(cache, t) }), { userId: 'u1' });
+    expect(r.synced).toBe(1);
+    expect(await cache.peek('task:t1')).toMatchObject({ id: 't1', columnId: 'c2', version: 2 });
+  });
+});
 
 describe('offline read cache + write queue + sync (integration)', () => {
   it('caches reads online, serves them stale offline, queues writes offline, and replays on reconnect', async () => {

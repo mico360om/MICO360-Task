@@ -7,6 +7,7 @@ import { Button, TextField, ErrorNote, Heading, Muted } from '../../components/u
 import { KeyboardAwareScrollView, KeyboardGroup } from '../../components/KeyboardAware';
 import { ApiError, isNetworkError } from '../../lib/api-client';
 import { extractResetToken } from '../../lib/deep-link';
+import { SIGN_IN_LIMITS } from '../../lib/auth';
 import { spacing, type Palette } from '../../lib/theme';
 import type { AuthScreenProps } from '../../navigation/types';
 
@@ -98,6 +99,7 @@ export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'Rese
             value={password}
             onChangeText={setPassword}
             placeholder="At least 8 chars, a letter and a number"
+            maxLength={SIGN_IN_LIMITS.password}
             error={weak ? 'Use at least 8 characters, including a letter and a number.' : null}
           />
           <KeyboardGroup style={styles.group}>
@@ -107,6 +109,7 @@ export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'Rese
               secureTextEntry
               value={confirm}
               onChangeText={setConfirm}
+              maxLength={SIGN_IN_LIMITS.password}
               error={mismatch ? 'Passwords do not match.' : null}
             />
             <Button

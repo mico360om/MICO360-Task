@@ -1,9 +1,11 @@
 import { resolveBases, safeTimeZone, DEFAULT_TIME_ZONE } from '../src/config.js';
-import { createAuth } from '../src/auth.js';
+import { createAuth, readSessionUser, publicUser } from '../src/auth.js';
 import { ensureSession, signOut as endSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { createApi } from '../src/api.js';
-import { flushQueue, queueStats, makePerformMutation, sendOrQueue, FLUSH_MESSAGE } from '../src/queue.js';
+import { flushQueue, queueStats, makePerformMutation, sendOrQueue, pendingItems, FLUSH_MESSAGE } from '../src/queue.js';
+import { rememberTask } from '../src/task-writes.js';
+import { setToolbarBadge } from '../src/notify.js';
 import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
@@ -114,24 +116,31 @@ async function boot() {
   });
   const cache = createReadCache(storage);
   cache.prune().catch(() => { /* best effort */ });
-  const api = createApi({ auth, cache });
-  const performMutation = makePerformMutation((path, init) => auth.authedFetch(path, init));
+  const myId = session.userId;
+  // Reads show this person's changes still waiting to sync on top (H3).
+  const api = createApi({ auth, cache, pending: () => pendingItems(storage, myId) });
+  // A replayed edit or move keeps the task's offline copy at the version it made (H1).
+  const performMutation = makePerformMutation((path, init) => auth.authedFetch(path, init), { onTask: (t) => rememberTask(cache, t) });
 
   const state = { online: navigator.onLine, syncing: false, pending: 0, failed: 0, unread: 0 };
-  const myId = session.userId;
-  let me = { id: myId, name: 'You', email: '' };
+  // M12: who is signed in comes from the session (sign-in and refresh replies), so it is known even
+  // offline; the name from the people directory.
+  const me = { id: myId, name: 'You', email: '', roles: [] };
+  let profile = null;
+  try { profile = await readSessionUser(storage); } catch { profile = null; }
+  if (profile && profile.id !== myId) profile = null;
+  applyProfile(me, profile);
+  if (!profile) {
+    // A session from before profiles were kept: roles from the access token until the next refresh.
+    try { me.roles = decodeJwtRoles((await auth.getTokens())?.accessToken); } catch { me.roles = []; }
+  }
   try {
     const dir = (await api.directory()).data ?? [];
     const u = dir.find((d) => d.id === myId);
-    if (u) me = { id: myId, name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username || 'You', email: u.email ?? u.username ?? '' };
+    if (u) me.name = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username || me.name;
+    if (u && !me.email) me.email = u.username || '';
   } catch {
-    /* offline — keep the default; the directory may be cached later */
-  }
-  // Roles from the access token, to offer admin screens (Reports); the server checks them on every call.
-  try {
-    me.roles = decodeJwtRoles((await auth.getTokens())?.accessToken);
-  } catch {
-    me.roles = [];
+    /* offline — keep what the session says; the directory may be cached later */
   }
 
   const app = new App({
@@ -139,6 +148,17 @@ async function boot() {
     timeZone: safeTimeZone(stored.companyTimeZone || DEFAULT_TIME_ZONE),
   });
   app.start();
+}
+
+/**
+ * Take the signed-in person's email, username and roles from their session profile (M12). Roles
+ * only decide which screens to offer (Reports); the server checks them on every call.
+ */
+function applyProfile(me, profile) {
+  if (!profile) return;
+  if (profile.email || profile.username) me.email = profile.email || profile.username;
+  if (me.name === 'You' && profile.username) me.name = profile.username;
+  me.roles = profile.roles || [];
 }
 
 class App {
@@ -162,17 +182,33 @@ class App {
       isOnline: () => this.state.online,
       navigate: (hash) => { window.location.hash = hash; },
       openTask: (id) => { window.location.hash = `#/task/${id}`; },
+      // A page of the website (e.g. a meeting a notification is about) in a new tab.
+      openExternal: (url) => { window.open(url, '_blank', 'noopener'); },
+      reload: () => window.location.reload(),
       saveFile,
-      // Send a change now, or queue it (same Idempotency-Key) when the server can't be reached.
-      write: (kind, payload) => sendOrQueue({ kind, payload }, {
-        doFetch: (path, init) => this.auth.authedFetch(path, init),
-        storage: this.storage,
-        userId: this.me.id,
-      }),
+      write: (kind, payload) => this.write(kind, payload),
       afterMutation: () => this.refreshMeta(),
       requestSync: () => this.sync(),
       signOut: () => this.signOut(),
     };
+  }
+
+  /**
+   * Send a change now, or queue it (same Idempotency-Key) when the server can't be reached. A task's
+   * reply keeps its offline copy at the new version (H1). A change queued behind others while online
+   * (one edit of a task at a time) is synced straight away, unless a waiting change keeps failing. One
+   * whose own send failed waits for the next alarm or reconnect: trying it again at once would only
+   * spend one of its tries.
+   */
+  async write(kind, payload) {
+    const r = await sendOrQueue({ kind, payload }, {
+      doFetch: (path, init) => this.auth.authedFetch(path, init),
+      storage: this.storage,
+      userId: this.me.id,
+      onTask: (t) => rememberTask(this.cache, t),
+    });
+    if (r.syncNow && this.state.online) void this.sync();
+    return r;
   }
 
   start() {
@@ -188,7 +224,10 @@ class App {
       if (refreshOnReturn(matched && matched.route, Boolean(this.overlay))) this.route();
     });
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.syncQueue) this.refreshQueueCounts();
+      if (area !== 'local') return;
+      if (changes.syncQueue) this.refreshQueueCounts();
+      // M12: a refresh (here or in the background) brings the person's current roles.
+      if (changes.sessionUser) this.updateProfile(publicUser(changes.sessionUser.newValue));
     });
     this.route();
     this.refreshMeta();
@@ -214,22 +253,44 @@ class App {
     }
   }
 
-  renderShell() {
-    const nav = el('nav', { class: 'nav' },
+  /** The signed-in person's profile changed (a refresh): show their current roles' screens (M12). */
+  updateProfile(profile) {
+    if (!profile || profile.id !== this.me.id) return;
+    const before = (this.me.roles || []).join(',');
+    applyProfile(this.me, profile);
+    this.renderUser();
+    if ((this.me.roles || []).join(',') !== before) {
+      this.renderNav();
+      this.setActiveNav(parseHash(window.location.hash).path);
+      this.renderBadge();
+    }
+  }
+
+  renderNav() {
+    mount(this.navEl,
       NAV.filter((n) => !n.adminOnly || (this.me.roles || []).includes('ADMIN')).map((n) => el('a', { href: `#${n.path}`, class: 'navlink', dataset: { path: n.path } },
         el('span', { class: 'ic' }, n.icon), el('span', {}, n.label),
         n.badge ? el('span', { class: 'badge nav-unread hidden' }) : null,
       )),
     );
+  }
+
+  renderUser() {
+    mount(this.userEl,
+      el('div', { class: 'avatar' }, (this.me.name[0] || 'U').toUpperCase()),
+      el('div', { style: { minWidth: 0 } }, el('div', { class: 'nm' }, this.me.name), el('div', { class: 'em' }, this.me.email)),
+    );
+  }
+
+  renderShell() {
+    this.navEl = el('nav', { class: 'nav' });
+    this.userEl = el('div', { class: 'side-user' });
+    this.renderNav();
+    this.renderUser();
     const sidebar = el('aside', { class: 'sidebar' },
       el('div', { class: 'brand' }, el('span', { class: 'n' }, el('span', { class: 'm' }, 'MICO'), '360')),
-      nav,
-      el('div', { class: 'side-foot' },
-        el('div', { class: 'side-user' },
-          el('div', { class: 'avatar' }, (this.me.name[0] || 'U').toUpperCase()),
-          el('div', { style: { minWidth: 0 } }, el('div', { class: 'nm' }, this.me.name), el('div', { class: 'em' }, this.me.email)),
-        ),
-      ),
+      this.navEl,
+      el('div', { class: 'side-foot' }, this.userEl),
     );
     this.titleEl = el('h1', {}, 'Dashboard');
     this.connEl = el('span', { class: 'conn' });
@@ -277,12 +338,19 @@ class App {
   async refreshMeta() {
     await this.refreshQueueCounts();
     try {
+      // Notifications marked read but still waiting to sync are already left out (H3).
       const c = (await this.api.notifications.unreadCount()).data;
       this.state.unread = typeof c?.count === 'number' ? c.count : 0;
     } catch { /* offline */ }
+    this.renderBadge();
+    this.renderStatus();
+  }
+
+  /** The unread count in the sidebar and, at the same moment, on the toolbar icon (M7). */
+  renderBadge() {
     const badge = this.root.querySelector('.nav-unread');
     if (badge) { badge.textContent = String(this.state.unread); badge.classList.toggle('hidden', !this.state.unread); }
-    this.renderStatus();
+    setToolbarBadge(chrome.action, this.state.unread);
   }
 
   /**

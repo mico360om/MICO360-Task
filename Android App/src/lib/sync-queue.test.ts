@@ -252,6 +252,40 @@ describe('createSyncQueue (offline mutation queue, A8 / XP-02 / XP-06)', () => {
     expect(res).toEqual({ synced: 0, failed: [], remaining: 0 });
     expect(o.perform).not.toHaveBeenCalled();
   });
+
+  it('a create refused with TASK_KEY_CONFLICT is tried again under a new key, and then goes through', async () => {
+    // The server keeps that refusal under the key for a day, so the same key would get it back on
+    // every retry. No task was made under it, so a new key can't make a duplicate.
+    const keys: string[] = [];
+    const perform = vi.fn(async (m: QueuedMutation) => {
+      keys.push(m.idempotencyKey);
+      if (keys.length === 1) throw new ApiError(409, 'TASK_KEY_CONFLICT', 'Another task was created at the same moment. Please try again.');
+    });
+    const q = createSyncQueue(opts({ perform }));
+    await q.enqueue('task.create', { title: 'x' }, { ...A, idempotencyKey: 'online-key' });
+
+    const first = await q.flush('userA');
+    expect(first.pausedBy).toBe('server');
+    expect(q.failedFor('userA')).toHaveLength(0);
+    const second = await q.flush('userA');
+    expect(second.synced).toBe(1);
+    expect(keys[0]).toBe('online-key');
+    expect(keys[1]).not.toBe('online-key');
+    expect(keys[1]).toMatch(/^key-/);
+  });
+
+  it('keeps the key on any other server hiccup (a replay must stay de-duplicated)', async () => {
+    const keys: string[] = [];
+    const perform = vi.fn(async (m: QueuedMutation) => {
+      keys.push(m.idempotencyKey);
+      if (keys.length === 1) throw new ApiError(503, 'UNAVAILABLE', 'down');
+    });
+    const q = createSyncQueue(opts({ perform }));
+    await q.enqueue('task.create', { title: 'x' }, { ...A, idempotencyKey: 'online-key' });
+    await q.flush('userA');
+    await q.flush('userA');
+    expect(keys).toEqual(['online-key', 'online-key']);
+  });
 });
 
 describe('classifyReplayError', () => {
@@ -261,6 +295,8 @@ describe('classifyReplayError', () => {
     expect(classifyReplayError(new ApiError(429, 'RATE_LIMITED', ''))).toBe('transient');
     expect(classifyReplayError(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', ''))).toBe('transient');
     expect(classifyReplayError(new ApiError(409, 'CONFLICT', ''))).toBe('permanent');
+    // Two tasks were created at the same moment: try again (under a new key, see the queue).
+    expect(classifyReplayError(new ApiError(409, 'TASK_KEY_CONFLICT', ''))).toBe('transient');
     expect(classifyReplayError(new ApiError(503, 'UNAVAILABLE', ''))).toBe('transient');
     expect(classifyReplayError(new ApiError(404, 'NOT_FOUND', ''))).toBe('permanent');
     expect(classifyReplayError(new Error('???'))).toBe('transient');

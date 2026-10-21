@@ -2,6 +2,7 @@
  * Task attachments on the phone (A4.2): list, open, upload and remove the files on a task. Pure
  * TypeScript helpers; the screen supplies the file picker and opens links.
  */
+import { ApiError, isNetworkError } from './api-client';
 
 export interface ApiAttachment {
   id: string;
@@ -35,6 +36,10 @@ export function canRemoveAttachment(a: Pick<ApiAttachment, 'uploadedById'>, user
   return !!userId && (a.uploadedById === userId || roles.includes('ADMIN'));
 }
 
+/**
+ * The types the server takes by default. The old Office formats (.doc/.xls/.ppt) aren't among them
+ * — it takes only the modern, macro-free ones — so they are not labelled here either.
+ */
 const MIME_BY_EXTENSION: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -45,11 +50,8 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   txt: 'text/plain',
   csv: 'text/csv',
   zip: 'application/zip',
-  doc: 'application/msword',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  xls: 'application/vnd.ms-excel',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  ppt: 'application/vnd.ms-powerpoint',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 };
 
@@ -76,10 +78,21 @@ export function uploadPart(file: { uri: string; name: string; mimeType?: string 
   return { uri: file.uri, name: file.name, type: uploadMimeType(file.name, file.mimeType) };
 }
 
-/** Readable reason for a refused upload (the server's message is already plain). */
+/**
+ * Why a file wasn't attached. A refusal shows the server's own reason — it is already plain (the
+ * wrong type, a damaged or renamed file, the task's storage limit, an empty file). The connection
+ * is blamed only when there was no answer at all.
+ */
 export function uploadErrorMessage(err: unknown): string {
-  const msg = (err as { message?: string } | null)?.message ?? '';
-  if (/not allowed|does not match/i.test(msg)) return 'This type of file can’t be attached. Try a picture, PDF, text, CSV or ZIP file.';
-  if (/too large|exceeds|quota/i.test(msg)) return 'The file is too large for this task.';
-  return 'Couldn’t attach the file. Check your connection and try again.';
+  if (isNetworkError(err)) {
+    return (err as { timedOut?: unknown }).timedOut === true
+      ? 'The upload took too long. Check your connection and try again.'
+      : 'You’re offline — files can be attached when you’re connected.';
+  }
+  if (!(err instanceof ApiError)) return 'Couldn’t attach the file. Please try again.';
+  // The upload limit (or a proxy in front of the server) stops a big file before the server can explain.
+  if (err.status === 413) return 'That file is too large to attach.';
+  if (err.status >= 500) return 'The server couldn’t save the file. Please try again in a moment.';
+  // 'ERROR' = the reply had no reason of ours (e.g. a proxy's page): only "Request failed (400)".
+  return err.code !== 'ERROR' && err.message ? err.message : 'The server couldn’t accept this file.';
 }

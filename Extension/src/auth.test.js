@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createAuth, createTokenStore, requestHeaders } from './auth.js';
+import { createAuth, createTokenStore, requestHeaders, isSession, readSessionUser } from './auth.js';
 import { AuthUnavailableError } from './errors.js';
 import { fakeStorage, jsonRes } from './test-helpers.js';
 
@@ -27,7 +27,7 @@ function fakeServer({ access = [], refresh = ['r1'], refreshDelayMs = 5 } = {}) 
       if (!s.refresh.has(refreshToken)) return jsonRes({ error: { code: 'INVALID_REFRESH_TOKEN' } }, 401);
       s.refresh.delete(refreshToken);
       s.n += 1;
-      const pair = { accessToken: `a${s.n}`, refreshToken: `r${s.n}` };
+      const pair = { accessToken: `a${s.n}`, refreshToken: `r${s.n}`, user: { id: 'u1', email: 'me@example.com', username: 'me', roles: ['ADMIN'], avatarUrl: null } };
       s.access.add(pair.accessToken);
       s.refresh.add(pair.refreshToken);
       return jsonRes({ data: pair });
@@ -52,6 +52,28 @@ describe('token storage (EXT-07)', () => {
     await t.clear();
     expect(session.data).toEqual({});
     expect(local.data).toEqual({});
+  });
+
+  it('M12: keeps the signed-in person’s profile from the server (not their tokens) and clears it on sign-out', async () => {
+    const local = fakeStorage();
+    const t = createTokenStore({ local, session: fakeStorage() });
+    await t.save({ accessToken: 'a', refreshToken: 'r', userId: 'u1', apiBase: API, user: { id: 'u1', email: 'me@example.com', username: 'me', roles: ['ADMIN'], avatarUrl: null, tokenVersion: 3 } });
+    expect(local.data.sessionUser).toEqual({ id: 'u1', email: 'me@example.com', username: 'me', roles: ['ADMIN'], avatarUrl: null });
+    expect(await readSessionUser(local)).toEqual(local.data.sessionUser);
+    await t.clear();
+    expect(local.data.sessionUser).toBeUndefined();
+    expect(await readSessionUser(local)).toBeNull();
+  });
+});
+
+describe('isSession (M5)', () => {
+  it('is a real session only with both tokens and a user id', () => {
+    expect(isSession({ accessToken: 'a', refreshToken: 'r', user: { id: 'u1' } })).toBe(true);
+    expect(isSession({ accessToken: 'a', refreshToken: 'r' })).toBe(false);
+    expect(isSession({ accessToken: 'a', user: { id: 'u1' } })).toBe(false);
+    expect(isSession({ refreshToken: 'r', user: { id: 'u1' } })).toBe(false);
+    expect(isSession({})).toBe(false);
+    expect(isSession(null)).toBe(false);
   });
 });
 
@@ -162,6 +184,83 @@ describe('authedFetch', () => {
     await expect(auth.authedFetch('/tasks')).rejects.toBeInstanceOf(AuthUnavailableError);
     expect(onExpired).not.toHaveBeenCalled();
     expect(local.data.refreshToken).toBe('r1');
+  });
+
+  it('M5: a 403 from /auth/refresh is a passing problem (a proxy or firewall), as on the web — not the end of the session', async () => {
+    const { local, session } = signedIn();
+    const onExpired = vi.fn();
+    const fetchImpl = vi.fn(async (url) => (String(url).endsWith('/auth/refresh') ? jsonRes({}, 403) : jsonRes({}, 401)));
+    const auth = createAuth({ local, session, apiBase: API, fetchImpl, onExpired });
+    await expect(auth.authedFetch('/tasks')).rejects.toBeInstanceOf(AuthUnavailableError);
+    expect(onExpired).not.toHaveBeenCalled();
+    expect(local.data.refreshToken).toBe('r1');
+  });
+
+  it('a 403 ACCOUNT_INACTIVE from /auth/refresh ends the session (the server spent the token), as on Android', async () => {
+    const { local, session } = signedIn();
+    const onExpired = vi.fn();
+    const inactive = jsonRes({ error: { code: 'ACCOUNT_INACTIVE', message: 'This account has been turned off.' } }, 403);
+    const fetchImpl = vi.fn(async (url) => (String(url).endsWith('/auth/refresh') ? inactive : jsonRes({}, 401)));
+    const auth = createAuth({ local, session, apiBase: API, fetchImpl, onExpired });
+    expect((await auth.authedFetch('/tasks')).status).toBe(401);
+    expect(onExpired).toHaveBeenCalled();
+    expect(local.data.refreshToken).toBeUndefined();
+    expect(session.data.accessToken).toBeUndefined();
+  });
+
+  it('any other 403 from /auth/refresh, or one that is not JSON, stays a passing problem', async () => {
+    const replies = [
+      jsonRes({ error: { code: 'FORBIDDEN', message: 'Blocked.' } }, 403),
+      { ok: false, status: 403, json: async () => { throw new SyntaxError('Unexpected token <'); } },
+    ];
+    for (const reply of replies) {
+      const { local, session } = signedIn();
+      const onExpired = vi.fn();
+      const fetchImpl = vi.fn(async (url) => (String(url).endsWith('/auth/refresh') ? reply : jsonRes({}, 401)));
+      const auth = createAuth({ local, session, apiBase: API, fetchImpl, onExpired });
+      await expect(auth.authedFetch('/tasks')).rejects.toBeInstanceOf(AuthUnavailableError);
+      expect(onExpired).not.toHaveBeenCalled();
+      expect(local.data.refreshToken).toBe('r1');
+    }
+  });
+
+  it('M5: a 400 from /auth/refresh ends the session, like a 401', async () => {
+    const { local, session } = signedIn();
+    const onExpired = vi.fn();
+    const fetchImpl = vi.fn(async (url) => (String(url).endsWith('/auth/refresh') ? jsonRes({}, 400) : jsonRes({}, 401)));
+    const auth = createAuth({ local, session, apiBase: API, fetchImpl, onExpired });
+    expect((await auth.authedFetch('/tasks')).status).toBe(401);
+    expect(onExpired).toHaveBeenCalled();
+    expect(local.data.refreshToken).toBeUndefined();
+  });
+
+  it('M5: a 200 refresh reply that is not a real session (a portal page, a missing token or user) is never stored', async () => {
+    const replies = [
+      { ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token <'); } },
+      jsonRes({ data: { accessToken: 'a9' } }),
+      jsonRes({ data: { accessToken: 'a9', refreshToken: 'r9' } }),
+      jsonRes({ data: { accessToken: 'a9', refreshToken: 'r9', user: { id: 'someone-else' } } }),
+      jsonRes({}),
+    ];
+    for (const reply of replies) {
+      const { local, session } = signedIn();
+      const onExpired = vi.fn();
+      const fetchImpl = vi.fn(async (url) => (String(url).endsWith('/auth/refresh') ? reply : jsonRes({}, 401)));
+      const auth = createAuth({ local, session, apiBase: API, fetchImpl, onExpired });
+      await expect(auth.authedFetch('/tasks')).rejects.toBeInstanceOf(AuthUnavailableError);
+      expect(onExpired).not.toHaveBeenCalled();
+      expect(local.data.refreshToken).toBe('r1');
+      expect(session.data.accessToken).toBe('a0');
+      expect(local.data.sessionUser).toBeUndefined();
+    }
+  });
+
+  it('M12: a refresh keeps the profile the server sends, so a role change is seen', async () => {
+    const server = fakeServer();
+    const { local, session } = signedIn();
+    const auth = createAuth({ local, session, apiBase: API, fetchImpl: server.fetch });
+    await auth.authedFetch('/tasks');
+    expect(local.data.sessionUser).toEqual({ id: 'u1', email: 'me@example.com', username: 'me', roles: ['ADMIN'], avatarUrl: null });
   });
 
   it('a 5xx from /auth/refresh is transient too', async () => {

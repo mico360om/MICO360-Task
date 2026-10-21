@@ -1,4 +1,6 @@
 import { assertAllowedUrl } from './server-address';
+import { isSession } from './session-store';
+import type { Session } from './types';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -36,8 +38,10 @@ export function isNetworkError(error: unknown): boolean {
 /**
  * Outcome of a session refresh:
  * - `ok`: new tokens stored — retry the request;
- * - `invalid`: the server really rejected the refresh token (401/400) — the session is over;
- * - `transient`: offline, timeout, 5xx or 429 — the session may still be fine, so do NOT log out.
+ * - `invalid`: the server really rejected the refresh token (401/400), or the account is no longer
+ *   active (our server's 403 ACCOUNT_INACTIVE) — the session is over;
+ * - `transient`: offline, timeout, 5xx, 429, a 403 from something in front of the server (a firewall
+ *   page) or a reply that isn't a session — the session may still be fine, so do NOT log out.
  */
 export type RefreshOutcome = 'ok' | 'invalid' | 'transient';
 
@@ -51,7 +55,7 @@ export interface ApiClientOptions {
   fetchImpl?: typeof fetch;
   /**
    * Attempt to refresh the access token after a 401. Resolve `'ok'` on success, `'invalid'` only
-   * when /auth/refresh itself answered 401/400, and `'transient'` for anything else. A boolean is
+   * when /auth/refresh itself answered 401/400 or ACCOUNT_INACTIVE, and `'transient'` for anything else. A boolean is
    * accepted for backwards compatibility (`true` = ok, `false` = invalid).
    */
   refreshTokens?: () => Promise<RefreshOutcome | boolean>;
@@ -72,6 +76,11 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Uploads: hear how much has been sent so far (0–1). */
   onProgress?: (fraction: number) => void;
+  /**
+   * This request's own time limit in ms, instead of the client's — for the few that the server
+   * itself may take minutes to answer (the AI helpers wait for a model that is still loading).
+   */
+  timeoutMs?: number;
 }
 
 export interface ApiClient {
@@ -168,10 +177,11 @@ export function createApiClient({
     method: string,
     path: string,
     body: unknown,
-    extraHeaders?: Record<string, string>,
+    opts: RequestOptions | undefined,
     form?: FormData,
-    onProgress?: (fraction: number) => void,
   ): Promise<{ status: number; ok: boolean; text: string }> {
+    const extraHeaders = opts?.headers;
+    const onProgress = opts?.onProgress;
     // Never send the session over plain http to the internet (only to an office-network server).
     assertAllowedUrl(`${baseUrl}${path}`);
     const headers: Record<string, string> = { ...(appHeaders ?? {}), ...(extraHeaders ?? {}) };
@@ -181,7 +191,8 @@ export function createApiClient({
     // content type (with the boundary) from the platform.
     if (body !== undefined && !form) headers['Content-Type'] = 'application/json';
     // Uploads may be several MB on a slow phone connection: allow longer than an ordinary request.
-    const limitMs = form ? Math.max(timeoutMs, 120_000) : timeoutMs;
+    // A request that names its own limit (the AI helpers) gets exactly that.
+    const limitMs = opts?.timeoutMs ?? (form ? Math.max(timeoutMs, 120_000) : timeoutMs);
     const token = await getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -233,12 +244,12 @@ export function createApiClient({
     // refresh for /auth/* (the fingerprint key calls carry the refresh token itself).
     const canRefresh = !path.startsWith('/auth/');
 
-    let res = await send(method, path, body, opts?.headers, form, opts?.onProgress);
+    let res = await send(method, path, body, opts, form);
 
     if (res.status === 401 && canRefresh) {
       const outcome = await refreshOnce();
       if (outcome === 'ok') {
-        res = await send(method, path, body, opts?.headers, form, opts?.onProgress); // retry once with the new token
+        res = await send(method, path, body, opts, form); // retry once with the new token
         if (res.status === 401) await onUnauthorized?.();
       } else if (outcome === 'invalid') {
         await onUnauthorized?.();
@@ -272,11 +283,38 @@ export function createApiClient({
 }
 
 /**
- * Classify a failed /auth/refresh HTTP status. Only a real rejection of the token (401/400) ends
- * the session; 429 (rate limited), 5xx and anything unexpected are transient.
+ * Classify a failed /auth/refresh HTTP status. Only a real rejection of the token (401/400) ends the
+ * session by status alone; 429 (rate limited), 5xx and anything unexpected are transient. A 403 is
+ * decided by readRefreshReply: our server's ACCOUNT_INACTIVE ends it, a firewall page in front of the
+ * server doesn't.
  */
 export function classifyRefreshStatus(status: number): RefreshOutcome {
   if (status >= 200 && status < 300) return 'ok';
   if (status === 401 || status === 400) return 'invalid';
   return 'transient';
+}
+
+/**
+ * What a /auth/refresh reply means, with the new session when there is one. A 200 that isn't a
+ * real session (both tokens and the user's id) — a proxy or Wi-Fi page, a reply cut short — says
+ * nothing about the session and must never replace it, so it is transient (as on the web).
+ */
+export async function readRefreshReply(res: {
+  status: number;
+  json: () => Promise<unknown>;
+}): Promise<{ outcome: 'ok'; session: Session } | { outcome: 'invalid' | 'transient' }> {
+  if (res.status === 403) {
+    // The account was turned off (our server says so): the session won't come back by waiting.
+    const code = await res.json().then((b) => (b as { error?: { code?: unknown } } | null)?.error?.code, () => undefined);
+    return { outcome: code === 'ACCOUNT_INACTIVE' ? 'invalid' : 'transient' };
+  }
+  const outcome = classifyRefreshStatus(res.status);
+  if (outcome !== 'ok') return { outcome };
+  let data: unknown;
+  try {
+    data = ((await res.json()) as { data?: unknown } | null)?.data;
+  } catch {
+    return { outcome: 'transient' };
+  }
+  return isSession(data) ? { outcome: 'ok', session: data } : { outcome: 'transient' };
 }

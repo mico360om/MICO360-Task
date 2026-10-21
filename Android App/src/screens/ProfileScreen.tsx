@@ -5,6 +5,7 @@ import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Card, SectionTitle, Muted, Pill } from '../components/ui';
 import { spacing, fontSize, type Palette } from '../lib/theme';
+import { roleLabel } from '../lib/auth';
 
 export function ProfileScreen() {
   const c = useColors();
@@ -28,7 +29,7 @@ export function ProfileScreen() {
           <Card>
             <View style={styles.roles}>
               {(user?.roles ?? []).map((r) => (
-                <Pill key={r} label={r} color={c.brand} />
+                <Pill key={r} label={roleLabel(r)} color={c.brand} />
               ))}
               {(user?.roles ?? []).length === 0 ? <Muted>No roles assigned.</Muted> : null}
             </View>

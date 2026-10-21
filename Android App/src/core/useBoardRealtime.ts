@@ -3,7 +3,8 @@ import { LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import { connectAuthedSocket } from './authed-socket';
-import { taskEventInvalidationKeys, TASK_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from '../lib/realtime';
+import { taskEventInvalidationKeys, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from '../lib/realtime';
+import type { ApiTask } from '../lib/types';
 
 // Enable the smooth layout transitions on Android (a no-op elsewhere).
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -19,8 +20,9 @@ function animateNext(): void {
  * Live board updates (A2 / mirrors web M4, MOB-04, XP-05). Joins the project room and, on every
  * task event, refetches the project's board lists (every board date), the task's detail, "My
  * tasks" and progress — realtime payloads are partial, and the board caches one list per date,
- * so writing the payload into a single cache entry never reached the screen. Column changes
- * refresh the columns. After a reconnect everything is refetched, since events may have been
+ * so writing the payload into a single cache entry never reached the screen. A change to one part
+ * of a task (assignees, tags, watchers, checklist, comments) refreshes only that part. Column
+ * changes refresh the columns. After a reconnect everything is refetched, since events may have been
  * missed while the socket was down. When the server says the user was removed from this project
  * (`project:removed`), `onProjectRemoved` runs so the screen can leave the board.
  */
@@ -47,6 +49,15 @@ export function useBoardRealtime(projectId: string | undefined, onProjectRemoved
       socket.on(ev, (payload: { id?: unknown } | undefined) => {
         animateNext();
         for (const key of taskEventInvalidationKeys(projectId, payload)) void qc.invalidateQueries({ queryKey: key });
+      });
+    }
+    // One part of a task changed (people, tags, followers, checklist, comments): refresh just that
+    // part of that task — the task details open over the board pick it up; the cards don't change.
+    for (const ev of TASK_PART_EVENTS) {
+      socket.on(ev, (payload: unknown) => {
+        const taskId = (payload as { taskId?: unknown } | null)?.taskId;
+        const inMyTasks = (qc.getQueryData<ApiTask[]>(['tasks', 'mine']) ?? []).some((t) => t.id === taskId);
+        for (const target of taskPartRefreshes(ev, payload, { myId: userId, inMyTasks })) void qc.invalidateQueries(target);
       });
     }
     // A stage was added / renamed / reordered / removed — refresh the columns.

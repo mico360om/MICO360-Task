@@ -25,6 +25,26 @@ describe('mutationRequest (offline write mapping)', () => {
     expect(body(r)).toEqual({ title: 'new' });
   });
 
+  it('H1: task.update carries the version the edit was made against', () => {
+    const r = mutationRequest({ kind: 'task.update', payload: { id: 't1', patch: { title: 'new' }, expectedVersion: 4 } });
+    expect(body(r)).toEqual({ title: 'new', expectedVersion: 4 });
+    // display-only extras in a move's payload are never sent
+    expect(body(mutationRequest({ kind: 'task.move', payload: { id: 't1', columnId: 'c2', position: 0, columnCategory: 'DONE' } }))).toEqual({ columnId: 'c2', position: 0 });
+  });
+
+  it('M7: notification.readAll → POST /notifications/read-all', () => {
+    const r = mutationRequest({ kind: 'notification.readAll', payload: {}, idempotencyKey: 'k-2' });
+    expect(r.path).toBe('/notifications/read-all');
+    expect(r.init.method).toBe('POST');
+    expect(r.init.headers).toEqual({ 'Idempotency-Key': 'k-2' });
+  });
+
+  it('a chat send carries a clientId equal to its Idempotency-Key, so even a late replay is never posted twice', () => {
+    const cs = mutationRequest({ kind: 'chat.send', payload: { conversationId: 'cv1', body: 'yo' }, idempotencyKey: '3f2a9c1e-7d4b-4e0a-9b1c-2d3e4f5a6b7c' });
+    expect(body(cs)).toEqual({ body: 'yo', clientId: '3f2a9c1e-7d4b-4e0a-9b1c-2d3e4f5a6b7c' });
+    expect(cs.init.headers).toEqual({ 'Idempotency-Key': '3f2a9c1e-7d4b-4e0a-9b1c-2d3e4f5a6b7c' });
+  });
+
   it('task.assign / task.unassign', () => {
     expect(mutationRequest({ kind: 'task.assign', payload: { id: 't1', userIds: ['u1'] } })).toMatchObject({ path: '/tasks/t1/assignees', init: { method: 'POST' } });
     expect(mutationRequest({ kind: 'task.unassign', payload: { id: 't1', userId: 'u1' } })).toEqual({ path: '/tasks/t1/assignees/u1', init: { method: 'DELETE' } });

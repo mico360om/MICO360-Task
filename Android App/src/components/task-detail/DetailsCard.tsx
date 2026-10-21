@@ -8,9 +8,10 @@ import { RecurrenceEditor } from '../RecurrenceEditor';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { parseDueDateInput, parseHoursInput } from '../../lib/form-input';
 import { parseTags } from '../../lib/quick-add';
-import { displayName, type ApiAssignee, type ApiColumn, type ApiTag, type ApiTask, type Priority, type RecurrenceRule } from '../../lib/types';
+import { displayName, type ApiAssignee, type ApiColumn, type ApiTag, type ApiTask, type Priority } from '../../lib/types';
 import { Chip, IconButton, SaveNote, SectionCard, useSave } from './kit';
-import { dueFieldValue } from '../../lib/task-detail';
+import { aiFailureText, dueFieldValue } from '../../lib/task-detail';
+import { repeatDraftDone, type RepeatDraft } from '../../lib/recurrence-edit';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
@@ -86,7 +87,12 @@ export function DetailsCard({
   useEffect(() => setEstText(task.estimatedHours != null ? String(task.estimatedHours) : ''), [task.estimatedHours]);
   const [suggestion, setSuggestion] = useState<{ priority: Priority; reason: string } | null>(null);
   const [suggesting, setSuggesting] = useState(false);
-  const [ruleDraft, setRuleDraft] = useState<RecurrenceRule | null | undefined>(undefined);
+  // The repeat being saved, shown until the task reloads after the save (then the task's own rule
+  // again, so a change made later — here or elsewhere — is never hidden by a stale draft).
+  const [ruleDraft, setRuleDraft] = useState<RepeatDraft | undefined>(undefined);
+  useEffect(() => {
+    if (repeatDraftDone(ruleDraft, task.version)) setRuleDraft(undefined);
+  }, [ruleDraft, task.version]);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState('');
   const [tagsDraft, setTagsDraft] = useState<string | null>(null);
@@ -122,7 +128,7 @@ export function DetailsCard({
     try {
       setSuggestion(await onSuggestPriority());
     } catch (e) {
-      prioritySave.fail(e instanceof Error && e.message ? e.message : 'The AI suggestion failed.');
+      prioritySave.fail(aiFailureText(e, 'The AI suggestion failed.'));
     } finally {
       setSuggesting(false);
     }
@@ -269,11 +275,13 @@ export function DetailsCard({
       <Prop label="Repeat">
         {!earlierCopy ? (
           <RecurrenceEditor
-            value={ruleDraft !== undefined ? ruleDraft : task.recurrenceRule ?? null}
+            value={ruleDraft ? ruleDraft.rule : task.recurrenceRule ?? null}
             onChange={(rule) => {
-              setRuleDraft(rule);
+              const draft: RepeatDraft = { rule, from: task.version, saved: false };
+              setRuleDraft(draft);
               void repeatSave.run(() => onPatch({ recurrenceRule: rule }), 'Couldn’t save the repeat.', true).then((ok) => {
-                if (!ok) setRuleDraft(undefined);
+                // Only this change's draft: a later one made meanwhile is left alone.
+                setRuleDraft((d) => (d !== draft ? d : ok ? { ...draft, saved: true } : undefined));
               });
             }}
             dueDate={task.dueDate}

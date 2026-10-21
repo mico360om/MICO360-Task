@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { useColors } from '../core/theme';
 import { taskRowA11yLabel } from '../lib/task-a11y';
-import { formatDueDay, isOverdue } from '../lib/due-date';
+import { formatDueDay, isOverdue, isTaskDone } from '../lib/due-date';
 import type { ApiTask, Priority } from '../lib/types';
 
 export function priorityColor(c: Palette, p: Priority): string {
@@ -32,8 +32,8 @@ export function TaskRow({ task, onPress, onLongPress }: { task: ApiTask; onPress
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const due = formatDue(task.dueDate);
-  const done = !!task.completedAt;
-  // Overdue only once the due day has passed in company time; completed tasks never are (XP-03).
+  const done = isTaskDone(task);
+  // Overdue only once the due day has passed in company time; finished tasks never are (XP-03).
   const overdue = isOverdue(task);
   return (
     <Pressable

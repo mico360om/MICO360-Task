@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createApiClient, ApiError, NetworkError, isNetworkError, classifyRefreshStatus } from './api-client';
+import { createApiClient, ApiError, NetworkError, isNetworkError, classifyRefreshStatus, readRefreshReply } from './api-client';
 import { resolveApiBaseUrl, DEFAULT_API_BASE } from './config';
 import { createReadCache } from './read-cache';
 import { createMemoryStore } from './storage';
@@ -252,10 +252,12 @@ describe('api-client', () => {
     expect(refreshTokens).toHaveBeenCalledOnce();
   });
 
-  it('classifies /auth/refresh statuses: only 401/400 end the session', () => {
+  it('classifies /auth/refresh statuses: 401/400 end the session; a 403 alone can’t tell', () => {
     expect(classifyRefreshStatus(200)).toBe('ok');
     expect(classifyRefreshStatus(401)).toBe('invalid');
     expect(classifyRefreshStatus(400)).toBe('invalid');
+    // A 403 may be our server (ACCOUNT_INACTIVE) or a firewall in front of it: readRefreshReply decides.
+    expect(classifyRefreshStatus(403)).toBe('transient');
     expect(classifyRefreshStatus(429)).toBe('transient');
     expect(classifyRefreshStatus(500)).toBe('transient');
     expect(classifyRefreshStatus(503)).toBe('transient');
@@ -416,5 +418,68 @@ describe('api-client — the app says which version it is', () => {
     expect(headers['X-App-Version']).toBe('1.2.1');
     expect(headers['X-App-Build']).toBe('10');
     expect(headers.Authorization).toBe('Bearer t');
+  });
+});
+
+describe('api-client — a request may wait longer than usual (the AI helpers)', () => {
+  /** A server that answers after `ms`, unless the request is aborted first. */
+  const answersAfter = (ms: number) =>
+    vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const t = setTimeout(() => resolve(jsonResponse({ data: { ok: true } })), ms);
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(t);
+            reject(new Error('aborted'));
+          });
+        }),
+    );
+
+  it('waits for the request’s own timeout instead of the default', async () => {
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: answersAfter(60) as unknown as typeof fetch, timeoutMs: 20 });
+    await expect(api.post('/ai/breakdown', { title: 'x' }, { timeoutMs: 1000 })).resolves.toEqual({ data: { ok: true } });
+  });
+
+  it('still gives up at that timeout, as a timed-out NetworkError', async () => {
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: answersAfter(1000) as unknown as typeof fetch, timeoutMs: 5000 });
+    const err = await api.post('/ai/breakdown', { title: 'x' }, { timeoutMs: 20 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect((err as NetworkError).timedOut).toBe(true);
+  });
+
+  it('keeps the normal timeout for every other request', async () => {
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: answersAfter(60) as unknown as typeof fetch, timeoutMs: 20 });
+    const err = await api.get('/tasks').catch((e: unknown) => e);
+    expect((err as NetworkError).timedOut).toBe(true);
+  });
+});
+
+describe('readRefreshReply — only a real session is ever stored', () => {
+  const session = { user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['EMPLOYEE'] }, accessToken: 'at-2', refreshToken: 'rt-2' };
+  const reply = (status: number, body: unknown) => ({ status, json: async () => body });
+
+  it('a 200 with both tokens and the user’s id is the new session', async () => {
+    expect(await readRefreshReply(reply(200, { data: session }))).toEqual({ outcome: 'ok', session });
+  });
+
+  it('a 200 that isn’t a session (a proxy page, a cut-off reply) is transient, never stored', async () => {
+    expect(await readRefreshReply(reply(200, { data: { ...session, refreshToken: '' } }))).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply(reply(200, { data: { accessToken: 'at-2', refreshToken: 'rt-2' } }))).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply(reply(200, { data: { ...session, user: { ...session.user, id: '' } } }))).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply(reply(200, { ok: true }))).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply(reply(200, null))).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply({ status: 200, json: async () => { throw new SyntaxError('Unexpected token <'); } })).toEqual({ outcome: 'transient' });
+  });
+
+  it('a refusal ends the session — a deactivated account (403) too; 429 and 5xx don’t', async () => {
+    expect(await readRefreshReply(reply(401, { error: { code: 'INVALID_REFRESH_TOKEN' } }))).toEqual({ outcome: 'invalid' });
+    // The account was turned off: the session won't come back by waiting.
+    expect(await readRefreshReply(reply(403, { error: { code: 'ACCOUNT_INACTIVE', message: 'This account is not active.' } }))).toEqual({ outcome: 'invalid' });
+    // A firewall or proxy page in front of the server (not our answer) signs nobody out.
+    expect(await readRefreshReply({ status: 403, json: async () => { throw new SyntaxError('Unexpected token <'); } })).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply(reply(403, { message: 'Forbidden' }))).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply(reply(403, { error: { code: 'ACCOUNT_INACTIVE' } }))).toEqual({ outcome: 'invalid' });
+    expect(await readRefreshReply(reply(429, {}))).toEqual({ outcome: 'transient' });
+    expect(await readRefreshReply(reply(502, {}))).toEqual({ outcome: 'transient' });
   });
 });

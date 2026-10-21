@@ -1,5 +1,5 @@
 import type { ApiTask } from './types';
-import { daysUntilDue } from './due-date';
+import { daysUntilDue, isTaskDone } from './due-date';
 
 export interface TaskSummary {
   total: number;
@@ -26,7 +26,8 @@ export function summarizeTasks(tasks: ApiTask[], now: Date): TaskSummary {
   let completed = 0;
 
   for (const task of tasks) {
-    if (task.completedAt) {
+    // Finished: completed, or in a Done column (which a task can be without a completion time).
+    if (isTaskDone(task)) {
       completed += 1;
       continue;
     }

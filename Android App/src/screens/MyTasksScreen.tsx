@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMyTasks } from '../core/queries';
 import { useColors } from '../core/theme';
 import { summarizeTasks } from '../lib/tasks-summary';
+import { isTaskDone } from '../lib/due-date';
 import { TaskRow } from '../components/TaskRow';
 import { SectionTitle, Loader, EmptyState, ErrorNote, TextField } from '../components/ui';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -34,8 +35,8 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
   }, [tasks, q, priority]);
 
   const summary = useMemo(() => summarizeTasks(filtered, new Date()), [filtered]);
-  const completed = useMemo(() => filtered.filter((t) => t.completedAt), [filtered]);
-  const noDue = useMemo(() => filtered.filter((t) => !t.dueDate && !t.completedAt), [filtered]);
+  const completed = useMemo(() => filtered.filter((t) => isTaskDone(t)), [filtered]);
+  const noDue = useMemo(() => filtered.filter((t) => !t.dueDate && !isTaskDone(t)), [filtered]);
 
   if (isLoading) return <Loader />;
 

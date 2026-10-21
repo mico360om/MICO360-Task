@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../core/theme';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -34,8 +34,11 @@ export function RecurrenceEditor({
   const styles = useMemo(() => makeStyles(c), [c]);
   const rule = value;
   const dueKey = dueFieldValue(dueDate);
-  const [untilText, setUntilText] = useState(rule?.until ? String(rule.until).slice(0, 10) : '');
+  const savedUntil = rule?.until ? String(rule.until).slice(0, 10) : '';
+  const [untilText, setUntilText] = useState(savedUntil);
   const [untilErr, setUntilErr] = useState<string | null>(null);
+  // The last date follows the rule shown — a reload, a refused save, a change made elsewhere.
+  useEffect(() => setUntilText(savedUntil), [savedUntil]);
 
   const set = (next: RecurrenceRule | null) => {
     if (!disabled) onChange(next);

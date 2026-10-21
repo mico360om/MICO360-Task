@@ -5,10 +5,10 @@ import { TextField, Button } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
 import { MentionSuggestions, MentionText, useMentionInput } from '../Mentions';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
-import { moveBy } from '../../lib/task-detail';
+import { aiFailureText, moveBy } from '../../lib/task-detail';
 import type { MentionPerson } from '../../lib/mentions';
 import type { ApiChecklistItem } from '../../lib/types';
-import { IconButton, SaveNote, SectionCard, failureText, relativeTime, useSave } from './kit';
+import { IconButton, SaveNote, SectionCard, relativeTime, useSave } from './kit';
 
 // ── Description ──────────────────────────────────────────────────────────────
 /** The description, edited in place (Save / Cancel). Empty, it offers to add one. */
@@ -200,7 +200,7 @@ export function ChecklistCard({
       if (steps.length === 0) save.fail('The AI had no steps to suggest for this task.');
       else setSuggestions(steps.map((text) => ({ text, on: true })));
     } catch (e) {
-      save.fail(failureText(e, 'The AI suggestion failed.'));
+      save.fail(aiFailureText(e, 'The AI suggestion failed.'));
     } finally {
       setSuggesting(false);
     }

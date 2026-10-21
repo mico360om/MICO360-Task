@@ -1,3 +1,5 @@
+import { sitePageUrl } from './server-address';
+
 /** This build of the app: its version (as on the website's About page) and Android build number. */
 export interface AppInfo {
   version: string;
@@ -44,6 +46,23 @@ export function offeredAppVersion(config: { androidAppVersion?: string | null } 
  */
 export function showUpdateBanner(app: string, offered: string | null | undefined, dismissed: string | null): boolean {
   return updateAvailable(app, offered) && dismissed !== offered;
+}
+
+/** Where the site keeps the app file it hosts itself. */
+const HOSTED_APK_PATH = '/downloads/MICO360-Tasks.apk';
+
+/**
+ * The full address the notice's Download opens. The server's `androidAppUrl` is a full address, or
+ * none when the site hosts the app itself; older servers sent the site path, which the phone can't
+ * open on its own — so a path is opened on the server the app is connected to. Only a web address
+ * is opened as it is: any other kind (intent:, file:, market:…) could start something on the phone
+ * other than a download, so the site's own download stands in, as when none is sent.
+ */
+export function appDownloadUrl(apiBase: string, androidAppUrl: string | null | undefined): string {
+  const url = (androidAppUrl ?? '').trim();
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return sitePageUrl(apiBase, HOSTED_APK_PATH);
+  return sitePageUrl(apiBase, url || HOSTED_APK_PATH);
 }
 
 /** The release name crash reports carry. */

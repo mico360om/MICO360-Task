@@ -5,8 +5,8 @@ import { useServices, useServer } from '../../core/providers';
 import { useColors } from '../../core/theme';
 import { Button, TextField, ErrorNote } from '../../components/ui';
 import { KeyboardAwareScrollView, KeyboardGroup } from '../../components/KeyboardAware';
-import { ApiError, isNetworkError } from '../../lib/api-client';
-import { authErrorMessage, isAccountLocked } from '../../lib/auth-errors';
+import { authErrorMessage, biometricSignInProblem, isAccountLocked } from '../../lib/auth-errors';
+import { SIGN_IN_LIMITS } from '../../lib/auth';
 import { parseServerAddress, probeServer, serverLabel, sitePageUrl } from '../../lib/server-address';
 import { fetchEmailEnabled, isCodeComplete, normaliseCode, resendLabel, resendWaitSeconds } from '../../lib/email-sign-in';
 import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
@@ -102,17 +102,13 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
       await forgetPreviousUser(s.user.id, userSwitch); // the key is theirs: this records who signed in
       await session.setSession(s);
     } catch (e) {
-      if (isNetworkError(e)) {
-        setError('Can’t reach the server. Check your connection and try again.');
-      } else if (e instanceof ApiError && e.status !== 401 && e.status !== 400) {
-        // 429 / 5xx: the credential may still be good — keep it.
-        setError('The server is busy. Please try again in a minute.');
-      } else {
-        // The key was revoked (password changed, admin reset) or ended (30 days unused) → forget it.
+      // Offline, a busy server or a refused account keep the key; a revoked or ended key is forgotten.
+      const problem = biometricSignInProblem(e);
+      if (problem.forgetKey) {
         await biometricLogin.disarm();
         setCanBio(false);
-        setError('Fingerprint sign-in has stopped: your password was changed, or the app wasn’t used for 30 days. Sign in with your password, then turn it on again in Settings.');
       }
+      setError(problem.message);
     } finally {
       setBusy(false);
     }
@@ -253,6 +249,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
               value={identifier}
               onChangeText={setIdentifier}
               placeholder="you@company.com"
+              maxLength={SIGN_IN_LIMITS.identifier}
               // The code just sent belongs to this address: changing it means asking for a new code.
               editable={!(mode === 'otp' && codeSent)}
               style={mode === 'otp' && codeSent ? styles.lockedInput : undefined}
@@ -267,6 +264,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                   value={password}
                   onChangeText={setPassword}
                   placeholder="••••••••"
+                  maxLength={SIGN_IN_LIMITS.password}
                 />
                 <Button title="Sign in" onPress={submitPassword} loading={busy} disabled={!identifier || !password} />
                 {emailEnabled === false ? (
@@ -335,6 +333,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                   value={serverInput}
                   onChangeText={setServerInput}
                   placeholder="https://task.mico360.com or 192.168.1.20:4000"
+                  maxLength={SIGN_IN_LIMITS.serverAddress}
                   error={serverError}
                 />
                 <Button title="Use this server" onPress={applyServer} loading={checkingServer} disabled={!serverInput.trim()} />

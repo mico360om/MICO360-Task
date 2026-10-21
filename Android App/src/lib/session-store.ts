@@ -4,6 +4,20 @@ import type { Session } from './types';
 const SESSION_KEY = 'mico360.session';
 
 /**
+ * A usable session: both tokens, and the user's id (signing out later needs it to drop that
+ * person's queued changes). The same check as the web app's.
+ */
+export function isSession(v: unknown): v is Session {
+  const s = v as Partial<Session> | null | undefined;
+  return (
+    !!s &&
+    typeof s.accessToken === 'string' && !!s.accessToken &&
+    typeof s.refreshToken === 'string' && !!s.refreshToken &&
+    typeof s.user?.id === 'string' && !!s.user.id
+  );
+}
+
+/**
  * Framework-agnostic auth session manager (A1). Persists the session to a secure
  * key/value store and notifies subscribers on change; a thin React hook wraps it.
  */

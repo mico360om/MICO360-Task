@@ -64,6 +64,22 @@ export interface WriteOptions {
 }
 
 /**
+ * How long the task AI helpers may take: the server waits up to 120 s for the model (one still
+ * loading takes 45–90 s), so the phone allows a little more before it gives up.
+ */
+export const AI_TIMEOUT_MS = 130_000;
+
+/** The longest description the server's AI helpers accept (a longer one is refused outright). */
+export const AI_DESCRIPTION_MAX = 4000;
+
+/** A description cut to the AI's limit, never in the middle of an emoji (a surrogate pair). */
+function aiDescription(description: string | undefined): string | undefined {
+  if (description === undefined || description.length <= AI_DESCRIPTION_MAX) return description;
+  const cut = description.charCodeAt(AI_DESCRIPTION_MAX - 1);
+  return description.slice(0, cut >= 0xd800 && cut <= 0xdbff ? AI_DESCRIPTION_MAX - 1 : AI_DESCRIPTION_MAX);
+}
+
+/**
  * Typed resource functions over the API client (A2). Each unwraps the `{ data }`
  * envelope so callers work with the payload directly. Paths mirror `/api/v1`.
  * POSTs that create something accept an idempotency key so a retried / replayed write is
@@ -182,12 +198,20 @@ export function resourcesApi(client: ApiClient) {
       projectOverview: (projectId: string) =>
         data(client.get<Envelope<ApiProjectMeetingsOverview>>(`/projects/${projectId}/meetings-overview`)),
     },
-    /** AI help — suggestions the user reviews before anything changes. */
+    /** AI help — suggestions the user reviews before anything changes (given longer than other requests). */
     ai: {
       breakdown: (title: string, description?: string) =>
-        data(client.post<Envelope<{ items: string[] }>>('/ai/breakdown', { title, description })).then((r) => r?.items ?? []),
+        data(
+          client.post<Envelope<{ items: string[] }>>('/ai/breakdown', { title, description: aiDescription(description) }, { timeoutMs: AI_TIMEOUT_MS }),
+        ).then((r) => r?.items ?? []),
       suggestPriority: (title: string, description?: string, dueDate?: string | null) =>
-        data(client.post<Envelope<ApiPrioritySuggestion>>('/ai/suggest-priority', { title, description, dueDate })),
+        data(
+          client.post<Envelope<ApiPrioritySuggestion>>(
+            '/ai/suggest-priority',
+            { title, description: aiDescription(description), dueDate },
+            { timeoutMs: AI_TIMEOUT_MS },
+          ),
+        ),
     },
     /** Shared tag catalog for suggestions/autocomplete. */
     tagCatalog: () => data(client.get<Envelope<ApiTag[]>>('/tags')),

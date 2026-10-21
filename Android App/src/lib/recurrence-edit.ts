@@ -104,3 +104,25 @@ export function withCreateNext(rule: RecurrenceRule, mode: 'ON_COMPLETE' | 'ON_S
 export function togglePaused(rule: RecurrenceRule): RecurrenceRule {
   return { ...rule, paused: !rule.paused };
 }
+
+/** A repeat chosen in the editor, shown until the task it was saved to has reloaded. */
+export interface RepeatDraft {
+  rule: RecurrenceRule | null;
+  /** The task's version when the change was made (unknown on an older server). */
+  from: number | undefined;
+  /** The save went through (or was kept to sync when offline). */
+  saved: boolean;
+}
+
+/**
+ * Is the draft done with, so the editor shows the task's own rule again? Once a newer copy of the
+ * task than the one it was made on has loaded — this save's, or a change made elsewhere — that copy
+ * is the truth, so the draft can never go stale. Kept while saving and until that reload lands (no
+ * flash of the old rule), and while a queued change waits to sync. Without versions (an older
+ * server) it is dropped as soon as the save went through.
+ */
+export function repeatDraftDone(draft: RepeatDraft | undefined, loadedVersion: number | undefined): boolean {
+  if (!draft?.saved) return false;
+  if (typeof draft.from !== 'number' || typeof loadedVersion !== 'number') return true;
+  return loadedVersion > draft.from;
+}

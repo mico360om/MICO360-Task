@@ -9,6 +9,7 @@ import { spacing, type Palette } from '../../lib/theme';
 import type { AuthScreenProps } from '../../navigation/types';
 import { ApiError, isNetworkError } from '../../lib/api-client';
 import { authErrorMessage, isEmailNotConfigured } from '../../lib/auth-errors';
+import { SIGN_IN_LIMITS } from '../../lib/auth';
 
 export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) {
   const c = useColors();
@@ -73,6 +74,7 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) 
               value={identifier}
               onChangeText={setIdentifier}
               placeholder="you@company.com"
+              maxLength={SIGN_IN_LIMITS.identifier}
             />
             <Button title="Send reset link" onPress={submit} loading={busy} disabled={!identifier} />
             <Button title="Back to sign in" variant="ghost" onPress={() => navigation.navigate('Login')} />

@@ -10,17 +10,21 @@
  *    items by id — an enqueue in the app tab can never be overwritten by the service worker's flush;
  *  - only one flush runs at a time (the service worker normally; the app tab only as a fallback);
  *  - nothing is dropped silently: an item that can never succeed, or keeps failing, is marked
- *    `failed` and shown in Settings (retry / discard). A 401 pauses the queue instead of dropping.
+ *    `failed` and shown in Settings (retry / discard). A 401 pauses the queue instead of dropping;
+ *  - task edits carry the version they were made against (H1). A task's edits and moves go one at a
+ *    time: a new one waits behind the task's queued ones, and each replay moves this device's later
+ *    edits of that task on to the version it made (src/task-writes.js).
  */
 import { withLock } from './locks.js';
 import { ApiError, QueueError } from './errors.js';
+import { VERSIONED_KINDS, taskIdOf, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE } from './task-writes.js';
 
 const KEY = 'syncQueue';
 export const QUEUE_LOCK = 'mico360:sync-queue';
 export const FLUSH_LOCK = 'mico360:sync-flush';
 /** runtime message the app tab sends to ask the service worker to flush now. */
 export const FLUSH_MESSAGE = 'mico360:flush';
-/** Attempts (5xx / timeouts / 403) before an item stops retrying and is shown as failed. */
+/** Attempts (5xx / timeouts) before an item stops retrying and is shown as failed. */
 export const MAX_ATTEMPTS = 5;
 
 async function readQueue(storage) {
@@ -69,6 +73,48 @@ export async function enqueue(storage, { kind, payload, userId, idempotencyKey }
 
 export async function getQueue(storage) {
   return readQueue(storage);
+}
+
+/** The signed-in person's changes still waiting to sync (not failed ones), oldest first — what reads show on top (H3). */
+export async function pendingItems(storage, userId) {
+  if (!userId) return [];
+  return (await readQueue(storage)).filter((i) => i.userId === userId && i.status !== 'failed');
+}
+
+/** This person's queued (not failed) edits and moves of one task. */
+const waitingTaskWrites = (q, userId, taskId) =>
+  q.filter((i) => i.userId === userId && i.status !== 'failed' && VERSIONED_KINDS.has(i.kind) && taskIdOf(i) === taskId);
+
+/**
+ * Queue a task edit or move behind this person's queued edits and moves of the same task, so they
+ * reach the server one at a time and in order (H1). A queued edit continues their versions: it is
+ * made against the newest version they expect (never an older one), which each replay moves on.
+ * Resolves `{ item, syncNow }`, or null when nothing of that task is waiting (send it now). `syncNow`
+ * is false while one of this person's waiting changes has already failed a try: syncing at once
+ * would only spend another of its tries, so the next alarm or reconnect sends them.
+ */
+async function enqueueBehindTaskWrites(storage, item) {
+  const taskId = taskIdOf(item);
+  if (!item.userId || !taskId || !VERSIONED_KINDS.has(item.kind)) return null;
+  const { value } = await withLock(QUEUE_LOCK, async () => {
+    const q = await readQueue(storage);
+    const waiting = waitingTaskWrites(q, item.userId, taskId);
+    if (!waiting.length) return null;
+    let payload = item.payload;
+    if (item.kind === 'task.update') {
+      const versions = waiting.map((i) => i.payload && i.payload.expectedVersion).filter((v) => typeof v === 'number');
+      const own = payload && payload.expectedVersion;
+      if (versions.length) payload = { ...payload, expectedVersion: Math.max(...versions, typeof own === 'number' ? own : -Infinity) };
+    }
+    const queued = {
+      id: newIdempotencyKey(), kind: item.kind, payload, userId: item.userId, idempotencyKey: item.idempotencyKey || newIdempotencyKey(),
+      queuedAt: Date.now(), attempts: 0, status: 'pending', lastError: null,
+    };
+    await storage.set({ [KEY]: [...q, queued] });
+    const retrying = q.some((i) => i.userId === item.userId && i.status !== 'failed' && (i.attempts || 0) > 0);
+    return { item: queued, syncNow: !retrying };
+  });
+  return value;
 }
 
 /** The signed-in user's queue: `pending` items still to send, `failed` items that need a decision. */
@@ -122,7 +168,11 @@ export function mutationRequest(item) {
     case 'task.move':
       return { path: `/tasks/${p.id}/move`, init: { method: 'PATCH', body: JSON.stringify({ columnId: p.columnId, position: p.position }) } };
     case 'task.update':
-      return { path: `/tasks/${p.id}`, init: { method: 'PUT', body: JSON.stringify(p.patch || {}) } };
+      // H1: the version the edit was made against; the server refuses it when the task changed since.
+      return {
+        path: `/tasks/${p.id}`,
+        init: { method: 'PUT', body: JSON.stringify({ ...(p.patch || {}), ...(typeof p.expectedVersion === 'number' ? { expectedVersion: p.expectedVersion } : {}) }) },
+      };
     case 'task.assign':
       return post(`/tasks/${p.id}/assignees`, { userIds: p.userIds });
     case 'task.unassign':
@@ -135,8 +185,12 @@ export function mutationRequest(item) {
       return { path: `/checklist/${p.itemId}`, init: { method: 'PUT', body: JSON.stringify(p.patch || {}) } };
     case 'notification.read':
       return { path: `/notifications/${p.id}/read`, init: { method: 'PUT' } };
+    case 'notification.readAll':
+      return post('/notifications/read-all', {});
     case 'chat.send':
-      return post(`/conversations/${p.conversationId}/messages`, { body: p.body });
+      // The clientId is the Idempotency-Key: the server recognises a retried send by it even after
+      // its stored replies have expired (24 hours), so a message is never posted twice.
+      return post(`/conversations/${p.conversationId}/messages`, { body: p.body, ...(item.idempotencyKey ? { clientId: item.idempotencyKey } : {}) });
     default:
       return null;
   }
@@ -155,6 +209,7 @@ export function describeMutation(item) {
     case 'checklist.add': return `Checklist item “${p.text || ''}”`;
     case 'checklist.update': return 'Tick a checklist item';
     case 'notification.read': return 'Mark a notification read';
+    case 'notification.readAll': return 'Mark all notifications read';
     case 'chat.send': return 'Chat message';
     default: return 'Change';
   }
@@ -166,12 +221,29 @@ export function describeMutation(item) {
  *              rate limited, the server still processing the first attempt);
  *  - 'retry' — count an attempt, stop this sync to keep the order; `failed` after MAX_ATTEMPTS;
  *  - 'fail'  — can never succeed as sent: mark `failed` (kept + shown), carry on with the rest.
+ * A 403 (no permission) can't succeed by trying again, so it fails at once, as on the web (L21).
  */
 export function outcomeForStatus(status, code) {
   if (status === 401 || status === 429) return 'pause';
   if (status === 409 && code === 'IDEMPOTENCY_IN_PROGRESS') return 'pause';
-  if (status === 408 || status === 403 || status >= 500) return 'retry';
+  if (status === 408 || status >= 500) return 'retry';
   return 'fail';
+}
+
+/**
+ * Read a 2xx write reply (M6): `{ ok: true, data }` for the server's answer (or a 204), `{ ok: false }`
+ * when something else answered (a Wi-Fi sign-in page or a proxy) — the change did not reach the server.
+ */
+async function readReply(res) {
+  if (res.status === 204) return { ok: true, data: undefined };
+  const type = res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-type') : null;
+  if (type && !/json/i.test(type)) return { ok: false };
+  try {
+    const json = await res.json();
+    return { ok: true, data: json && json.data !== undefined ? json.data : json };
+  } catch {
+    return type ? { ok: false } : { ok: true, data: {} };
+  }
 }
 
 function failureOutcome(e) {
@@ -183,33 +255,84 @@ function failureOutcome(e) {
 async function errorInfo(res) {
   try {
     const j = await res.json();
-    return { code: j?.error?.code, message: j?.error?.message };
+    return { code: j?.error?.code, message: j?.error?.message, details: j?.error?.details };
   } catch {
     return {};
   }
 }
 
+/** Hand a task the server sent on (best effort: keeping the offline copy never fails a sync). */
+async function keep(onTask, task) {
+  if (!onTask) return;
+  try {
+    await onTask(task);
+  } catch {
+    /* ignore */
+  }
+}
+
+function replayError(message, { status, code, outcome }) {
+  const e = new Error(message);
+  e.status = status;
+  e.code = code;
+  e.outcome = outcome;
+  return e;
+}
+
+/**
+ * A replayed edit the server refused because the task changed since it was made (H1). The task is
+ * reloaded: when it already holds the edited values (the first try did reach the server, or someone
+ * made the same change) the edit is done and resolves with the task; otherwise the stale edit is
+ * dropped — marked failed with a plain message, shown in Settings → Sync. The reloaded task is kept
+ * either way (`onTask`), so the next edit starts from it. A task that is gone or no longer this
+ * person's to see (404 / 403) leaves the conflict standing; a reload that gets no usable answer (no
+ * connection, a timeout, a 5xx, a page that isn't the server's) is tried again like any replay, as on
+ * Android — the change it refused may well be this device's own.
+ */
+async function settleConflict(item, doFetch, onTask, code) {
+  const p = item.payload || {};
+  const unchecked = (outcome, status) => replayError('The task could not be reloaded to check this change.', { status, outcome });
+  let res;
+  try {
+    res = await doFetch(`/tasks/${p.id}`, { method: 'GET' });
+  } catch (e) {
+    throw unchecked(failureOutcome(e));
+  }
+  if (!res.ok && res.status !== 403 && res.status !== 404) {
+    throw unchecked(outcomeForStatus(res.status) === 'pause' ? 'pause' : 'retry', res.status);
+  }
+  let task = null;
+  if (res.ok) {
+    const reply = await readReply(res);
+    task = reply.ok && reply.data && reply.data.id ? reply.data : null;
+    if (!task) throw unchecked('pause');
+  }
+  if (task) await keep(onTask, task);
+  if (task && patchHeld(task, p.patch)) return task;
+  throw replayError(QUEUED_CONFLICT_MESSAGE, { status: 409, code, outcome: 'fail' });
+}
+
 /**
  * Build the `perform(item)` used to replay one queued mutation. `doFetch(path, init)` is the
- * caller's authenticated fetch, so the replay logic lives in ONE place for every surface.
+ * caller's authenticated fetch, so the replay logic lives in ONE place for every surface. It
+ * resolves with the server's answer (for an edit or move: the task, at its new version), which
+ * `onTask(task)` also receives so the offline copy of the task can be kept up to date.
  */
-export function makePerformMutation(doFetch) {
+export function makePerformMutation(doFetch, { onTask } = {}) {
   return async (item) => {
     const req = mutationRequest(item);
-    if (!req) {
-      const e = new Error(`unknown mutation: ${item.kind}`);
-      e.outcome = 'fail';
-      throw e;
-    }
+    if (!req) throw replayError(`unknown mutation: ${item.kind}`, { outcome: 'fail' });
     const res = await doFetch(req.path, req.init);
     if (!res.ok) {
       const { code, message } = await errorInfo(res);
-      const e = new Error(message || `${item.kind} failed (${res.status})`);
-      e.status = res.status;
-      e.code = code;
-      e.outcome = outcomeForStatus(res.status, code);
-      throw e;
+      if (item.kind === 'task.update' && isVersionConflict({ status: res.status, code })) return settleConflict(item, doFetch, onTask, code);
+      throw replayError(message || `${item.kind} failed (${res.status})`, { status: res.status, code, outcome: outcomeForStatus(res.status, code) });
     }
+    const reply = await readReply(res);
+    // Something other than the server answered: like being offline, try again on the next sync.
+    if (!reply.ok) throw replayError('The server’s reply could not be read.', { outcome: 'pause' });
+    if (VERSIONED_KINDS.has(item.kind) && reply.data && reply.data.id) await keep(onTask, reply.data);
+    return reply.data;
   };
 }
 
@@ -221,7 +344,9 @@ function errorText(e) {
 /**
  * Replay the given user's queued mutations in FIFO order, one flusher at a time. Items are removed
  * by id as they succeed, and the queue is re-read before each item so changes queued (or discarded)
- * during the flush are respected. Returns { synced, failed, remaining, paused, skipped }.
+ * during the flush are respected. A synced edit or move of a task moves this person's later queued
+ * edits of it on to the version it made (H1), in the same queue write that removes it.
+ * Returns { synced, failed, remaining, paused, skipped }.
  */
 export async function flushQueue(storage, perform, { userId, maxAttempts = MAX_ATTEMPTS } = {}) {
   const base = { synced: 0, failed: 0, remaining: 0, paused: false, skipped: false };
@@ -233,8 +358,9 @@ export async function flushQueue(storage, perform, { userId, maxAttempts = MAX_A
       const item = (await readQueue(storage)).find((i) => i.userId === userId && i.status !== 'failed' && !tried.has(i.id));
       if (!item) break;
       tried.add(item.id);
+      let answer;
       try {
-        await perform(item);
+        answer = await perform(item);
       } catch (e) {
         const outcome = failureOutcome(e);
         if (outcome === 'pause') {
@@ -255,7 +381,9 @@ export async function flushQueue(storage, perform, { userId, maxAttempts = MAX_A
         result.paused = true; // keep the order: later changes wait for this one
         break;
       }
-      await removeQueued(storage, item.id);
+      await mutateQueue(storage, (q) => q
+        .filter((i) => i.id !== item.id)
+        .map((i) => (i.userId === userId ? rebaseQueuedVersion(item, answer, i) : i)));
       result.synced += 1;
     }
     result.remaining = (await queueStats(storage, userId)).pending;
@@ -274,8 +402,14 @@ const QUEUE_ON_STATUS = new Set([401, 408, 429, 502, 503, 504]);
  * server before the connection dropped is not applied twice when it is replayed.
  * Resolves `{ queued: false, data }` or `{ queued: true, item }`. Rejects with ApiError for an
  * HTTP error the user should see, or QueueError when the change could not be saved at all.
+ * An edit or move of a task that still has changes waiting to sync is queued behind them instead of
+ * sent (H1: one at a time, in order); a reply that isn't the server's (M6) is kept for later too.
+ * Only a change queued behind others says `syncNow: true` (sync straight away) — and not while a
+ * waiting change keeps failing. One whose own send just failed waits for the next alarm or reconnect,
+ * so a run of quick changes during an outage doesn't spend the first one's tries.
+ * `onTask(task)` receives the server's task after an edit or move sent now (its new version).
  */
-export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId, newKey = newIdempotencyKey }) {
+export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId, newKey = newIdempotencyKey, onTask }) {
   const item = { kind, payload, userId, idempotencyKey: newKey() };
   const req = mutationRequest(item);
   if (!req) throw new Error(`unknown mutation: ${kind}`);
@@ -288,6 +422,16 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
     }
   }
 
+  if (userId && VERSIONED_KINDS.has(kind)) {
+    let behind = null;
+    try {
+      behind = await enqueueBehindTaskWrites(storage, item);
+    } catch {
+      behind = null; // the queue can't be read: send it now (the server's version check still guards it)
+    }
+    if (behind) return { queued: true, item: behind.item, syncNow: behind.syncNow };
+  }
+
   let res;
   try {
     res = await doFetch(req.path, req.init);
@@ -295,11 +439,12 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
     return queueIt(); // offline, timed out, or the session couldn't be renewed right now
   }
   if (res.ok) {
-    if (res.status === 204) return { queued: false, data: undefined };
-    const json = await res.json().catch(() => ({}));
-    return { queued: false, data: json && json.data !== undefined ? json.data : json };
+    const reply = await readReply(res);
+    if (!reply.ok) return queueIt();
+    if (VERSIONED_KINDS.has(kind) && reply.data && reply.data.id) await keep(onTask, reply.data);
+    return { queued: false, data: reply.data };
   }
   if (QUEUE_ON_STATUS.has(res.status)) return queueIt();
-  const { code, message } = await errorInfo(res);
-  throw new ApiError(res.status, message, code);
+  const { code, message, details } = await errorInfo(res);
+  throw new ApiError(res.status, message, code, details);
 }

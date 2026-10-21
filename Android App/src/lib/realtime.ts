@@ -52,6 +52,64 @@ export function taskEventInvalidationKeys(projectId: string, payload?: { id?: un
 /** Task events the board listens to. */
 export const TASK_EVENTS = ['task:created', 'task:updated', 'task:moved', 'task:deleted'] as const;
 
+/**
+ * Changes to one part of a task, sent to its project's room with the task's id (`taskId`): its
+ * people, tags, followers, checklist and comments. None of them changes a board card.
+ */
+export const TASK_PART_EVENTS = [
+  'task:assignees',
+  'task:tagged',
+  'task:watchers',
+  'checklist:changed',
+  'comment:created',
+  'comment:updated',
+  'comment:deleted',
+] as const;
+
+/** One query to refresh: `exact` keeps a task's key from refreshing every query under it. */
+export interface RefreshTarget {
+  queryKey: string[];
+  exact?: boolean;
+}
+
+/**
+ * What to refresh for a task part event — that part of that task only, never the task's other
+ * parts or the board's lists. New assignees reload "My tasks" only when the signed-in person
+ * joined or left them (`inMyTasks`: whether the task is in their list now).
+ */
+export function taskPartRefreshes(
+  event: string,
+  payload: unknown,
+  ctx: { myId?: string | null; inMyTasks?: boolean } = {},
+): RefreshTarget[] {
+  const taskId = (payload as { taskId?: unknown } | null)?.taskId;
+  if (typeof taskId !== 'string' || !taskId) return [];
+  const part = (name?: string): RefreshTarget => ({ queryKey: name ? ['task', taskId, name] : ['task', taskId], exact: true });
+  switch (event) {
+    case 'task:assignees': {
+      const targets = [part('assignees'), part('activity')];
+      const people = (payload as { assignees?: unknown }).assignees;
+      const assignedNow = Array.isArray(people) && people.some((p) => (p as { id?: unknown } | null)?.id === ctx.myId);
+      if (ctx.myId && assignedNow !== !!ctx.inMyTasks) targets.push({ queryKey: ['tasks', 'mine'] });
+      return targets;
+    }
+    case 'task:tagged':
+      return [part('tags')];
+    case 'task:watchers':
+      return [part('watchers'), part('watch')];
+    case 'checklist:changed':
+      // The task's progress follows its checklist.
+      return [part('checklist'), part(), part('activity')];
+    case 'comment:created':
+      return [part('comments'), part('activity')];
+    case 'comment:updated':
+    case 'comment:deleted':
+      return [part('comments')];
+    default:
+      return [];
+  }
+}
+
 /** Sent to a user's own room when they are removed from a project. */
 export const PROJECT_REMOVED_EVENT = 'project:removed';
 

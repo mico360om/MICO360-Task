@@ -98,13 +98,21 @@ export function daysUntilDue(due: DateInput, now: Date = new Date(), timeZone: s
   return Math.round((Date.parse(`${key}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
 }
 
-/** True once the due day is before today (company time). Completed tasks are never overdue. */
+/**
+ * Is the task finished? Completed, or sitting in a Done column — a task can be there without a
+ * completion time — the server's rule (isTaskDone).
+ */
+export function isTaskDone(task: { completedAt?: DateInput; columnCategory?: string | null }): boolean {
+  return task.columnCategory === 'DONE' || !!task.completedAt;
+}
+
+/** True once the due day is before today (company time). Finished tasks are never overdue. */
 export function isOverdue(
-  task: { dueDate: DateInput; completedAt?: DateInput },
+  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null },
   now: Date = new Date(),
   timeZone: string = appTimeZone(),
 ): boolean {
-  if (task.completedAt) return false;
+  if (isTaskDone(task)) return false;
   const days = daysUntilDue(task.dueDate, now, timeZone);
   return days !== null && days < 0;
 }

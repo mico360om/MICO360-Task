@@ -1,6 +1,8 @@
-import { ApiError } from './errors.js';
+import { ApiError, UnexpectedReplyError } from './errors.js';
 import { sanitizeMessages, sanitizeSummaries } from './chat.js';
 import { fileNameFromDisposition } from './reports.js';
+import { timeoutSignal, DOWNLOAD_TIMEOUT_MS } from './auth.js';
+import { applyPending } from './pending-overlay.js';
 
 export { ApiError };
 
@@ -14,8 +16,12 @@ function qs(params) {
  * offline); calls go out via `auth.authedFetch` (see auth.js) and throw `ApiError` on an HTTP error
  * or reject on a network failure. Screens send queue-able writes through `sendOrQueue` (queue.js).
  * Paths mirror /api/v1 (see the backend + the Android resources).
+ *
+ * `pending()` (optional) resolves the signed-in person's changes still waiting to sync; every cached
+ * read shows them on top of the server's answer (H3, pending-overlay.js) and says how many
+ * (`pending`). The offline copy itself always keeps the server's answer.
  */
-export function createApi({ auth, cache }) {
+export function createApi({ auth, cache, pending }) {
   async function failure(res) {
     let err;
     try {
@@ -23,30 +29,70 @@ export function createApi({ auth, cache }) {
     } catch {
       /* non-JSON error body */
     }
-    return new ApiError(res.status, err?.message, err?.code);
+    return new ApiError(res.status, err?.message, err?.code, err?.details);
   }
 
-  async function raw(path, opts) {
+  const contentType = (res) => (res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-type') : null);
+
+  /**
+   * The `data` of an API answer. A read that is kept offline must be the server's JSON with its
+   * `data` (M6): a Wi-Fi sign-in page or a proxy answering 200 would otherwise be saved as `{}` over
+   * the good copy, and screens would break on it. Such a reply rejects like being offline.
+   */
+  async function strictData(res) {
+    const type = contentType(res);
+    if (type && !/json/i.test(type)) throw new UnexpectedReplyError();
+    let json;
+    try {
+      json = await res.json();
+    } catch {
+      throw new UnexpectedReplyError();
+    }
+    if (!json || typeof json !== 'object' || !('data' in json)) throw new UnexpectedReplyError();
+    return json.data;
+  }
+
+  async function raw(path, opts, { strict = false } = {}) {
     const res = await auth.authedFetch(path, opts); // rejects on network error
     if (!res.ok) throw await failure(res);
     if (res.status === 204) return undefined;
+    if (strict) return strictData(res);
+    const type = contentType(res);
+    if (type && !/json/i.test(type)) throw new UnexpectedReplyError();
     const json = await res.json().catch(() => ({}));
     return json && json.data !== undefined ? json.data : json;
   }
 
-  // Cached GET → { data, stale, cachedAt }. `transform` runs before anything is cached.
-  const get = (key, path, transform) =>
-    cache.read(key, async () => {
-      const data = await raw(path);
+  async function waiting() {
+    if (!pending) return [];
+    try {
+      return (await pending()) || [];
+    } catch {
+      return [];
+    }
+  }
+
+  // Cached GET → { data, stale, cachedAt[, pending] }. `transform` runs before anything is cached.
+  const get = async (key, path, transform) => {
+    const read = await cache.read(key, async () => {
+      const data = await raw(path, undefined, { strict: true });
       return transform ? transform(data) : data;
     });
+    const items = await waiting();
+    if (!items.length) return read;
+    const { data, applied } = applyPending(key, read.data, items);
+    return applied ? { ...read, data, pending: applied } : read;
+  };
   const post = (path, body) => raw(path, { method: 'POST', body: JSON.stringify(body ?? {}) });
   const put = (path, body) => raw(path, { method: 'PUT', body: JSON.stringify(body ?? {}) });
   const del = (path) => raw(path, { method: 'DELETE' });
 
-  /** A file (an export) with the session: `{ blob, fileName }`, the name as the server sent it (or null). */
+  /**
+   * A file (an export) with the session: `{ blob, fileName }`, the name as the server sent it (or
+   * null). It may take much longer than other calls, so it has its own, longer timeout (M4).
+   */
   async function download(path) {
-    const res = await auth.authedFetch(path, { method: 'GET' });
+    const res = await auth.authedFetch(path, { method: 'GET', signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) });
     if (!res.ok) throw await failure(res);
     return { blob: await res.blob(), fileName: fileNameFromDisposition(res.headers.get('content-disposition')) };
   }

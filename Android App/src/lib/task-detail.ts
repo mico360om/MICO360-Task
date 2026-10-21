@@ -1,5 +1,5 @@
 /** Pure helpers behind the task details screen (kept here so they can be tested without a device). */
-import { appTimeZone, dueDayKey, formatDueDay, isOverdue, type DateInput } from './due-date';
+import { appTimeZone, dueDayKey, formatDueDay, isOverdue, isTaskDone, type DateInput } from './due-date';
 import { moveItem } from './list-order';
 import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
@@ -14,6 +14,15 @@ export function dueFieldValue(dueDate: DateInput): string {
 export function failureText(e: unknown, fallback: string): string {
   if (isNetworkError(e)) return 'You’re offline — this needs a connection. Please try again.';
   return e instanceof Error && e.message ? e.message : fallback;
+}
+
+/**
+ * A failed AI suggestion's message. Running out of time is the AI being slow (a model still
+ * loading), not a lost connection, so it says that; anything else reads as {@link failureText}.
+ */
+export function aiFailureText(e: unknown, fallback: string): string {
+  if (isNetworkError(e) && (e as { timedOut?: unknown }).timedOut === true) return 'The AI is taking longer than usual. Please try again in a minute.';
+  return failureText(e, fallback);
 }
 
 /** Someone else changed the task since it was loaded (the edit was refused): say so plainly. */
@@ -31,7 +40,7 @@ export function canDeleteTask(user: { id: string; roles: string[] } | null, memb
 
 /** "Due Oct 12" / "Overdue · Oct 8" (company calendar day; a finished task is never overdue). */
 export function dueState(
-  task: { dueDate: DateInput; completedAt?: DateInput },
+  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null },
   now: Date = new Date(),
   locale?: string,
   timeZone: string = appTimeZone(),
@@ -98,7 +107,7 @@ export function blockerRefs(ids: string[], tasks: ApiTask[], columns: ApiColumn[
       title: t.title,
       statusName: col?.name,
       statusCategory: col?.category,
-      done: col ? col.category === 'DONE' : Boolean(t.completedAt),
+      done: col ? col.category === 'DONE' : isTaskDone(t),
     };
   });
 }

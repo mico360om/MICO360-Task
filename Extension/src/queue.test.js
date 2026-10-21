@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   enqueue, getQueue, queueSize, queueStats, flushQueue, clearQueue, removeQueued, retryQueued,
-  assignOwnerlessItems, makePerformMutation, sendOrQueue, MAX_ATTEMPTS,
+  assignOwnerlessItems, makePerformMutation, sendOrQueue, describeMutation, pendingItems, MAX_ATTEMPTS,
 } from './queue.js';
 import { ApiError, QueueError } from './errors.js';
 import { fakeStorage, jsonRes } from './test-helpers.js';
@@ -274,5 +274,119 @@ describe('sendOrQueue (online-first writes)', () => {
     const err = await sendOrQueue({ kind: 'comment.add', payload: { id: 't', body: 'b' } }, { doFetch, storage: s, userId: A }).catch((e) => e);
     expect(err).toBeInstanceOf(QueueError);
     expect(err.userMessage).toBeTruthy();
+  });
+
+  it('H1: an edit or move of a task with changes still waiting to sync goes in line behind them (one at a time)', async () => {
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.update', payload: { id: 't1', patch: { title: 'A' }, expectedVersion: 5 }, userId: A });
+    const doFetch = vi.fn(async () => jsonRes({ data: { id: 't1', version: 6 } }));
+    const r = await sendOrQueue({ kind: 'task.update', payload: { id: 't1', patch: { priority: 'HIGH' }, expectedVersion: 5 } }, { doFetch, storage: s, userId: A });
+    expect(r.queued).toBe(true);
+    const move = await sendOrQueue({ kind: 'task.move', payload: { id: 't1', columnId: 'c2', position: 0 } }, { doFetch, storage: s, userId: A });
+    expect(move.queued).toBe(true);
+    expect(doFetch).not.toHaveBeenCalled();
+    expect((await getQueue(s)).map((i) => i.kind)).toEqual(['task.update', 'task.update', 'task.move']);
+
+    // Another task, another person's waiting change, or a comment is sent at once.
+    await sendOrQueue({ kind: 'task.update', payload: { id: 't2', patch: { title: 'C' }, expectedVersion: 1 } }, { doFetch, storage: s, userId: A });
+    await sendOrQueue({ kind: 'task.update', payload: { id: 't1', patch: { title: 'D' }, expectedVersion: 5 } }, { doFetch, storage: s, userId: B });
+    await sendOrQueue({ kind: 'comment.add', payload: { id: 't1', body: 'hi' } }, { doFetch, storage: s, userId: A });
+    expect(doFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('H1: an edit put in line continues the waiting edits’ versions (never an older one)', async () => {
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.update', payload: { id: 't1', patch: { title: 'A' }, expectedVersion: 6 }, userId: A });
+    await sendOrQueue({ kind: 'task.update', payload: { id: 't1', patch: { title: 'B' }, expectedVersion: 5 } }, { doFetch: vi.fn(), storage: s, userId: A });
+    expect((await getQueue(s))[1].payload.expectedVersion).toBe(6);
+  });
+
+  it('H1: a task edit or move sent now hands the server’s task (its new version) on to be kept', async () => {
+    const onTask = vi.fn();
+    const doFetch = vi.fn(async () => jsonRes({ data: { id: 't1', version: 9 } }));
+    await sendOrQueue({ kind: 'task.move', payload: { id: 't1', columnId: 'c2', position: 0 } }, { doFetch, storage: fakeStorage(), userId: A, onTask });
+    expect(onTask).toHaveBeenCalledWith({ id: 't1', version: 9 });
+    await sendOrQueue({ kind: 'comment.add', payload: { id: 't1', body: 'hi' } }, { doFetch, storage: fakeStorage(), userId: A, onTask });
+    expect(onTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('a quick run of edits while the server is failing costs the first queued change at most one try', async () => {
+    const s = fakeStorage();
+    let version = 5;
+    const doFetch = vi.fn(async () => jsonRes({}, 502));
+    const perform = makePerformMutation(doFetch);
+    // As the app does: after a write, sync straight away only when the reply asks for it.
+    const write = async (title) => {
+      const r = await sendOrQueue({ kind: 'task.update', payload: { id: 't1', patch: { title }, expectedVersion: 5 } }, { doFetch, storage: s, userId: A });
+      if (r.syncNow) await flushQueue(s, perform, { userId: A });
+      return r;
+    };
+    const first = await write('A'); // its own send failed: trying it again at once would fail too
+    expect(first.queued).toBe(true);
+    expect(first.syncNow).toBeFalsy();
+    expect((await write('B')).syncNow).toBe(true); // in line behind a change not tried yet
+    for (const title of ['C', 'D', 'E']) expect((await write(title)).syncNow).toBeFalsy();
+    const [a, ...rest] = await getQueue(s);
+    expect(a).toMatchObject({ attempts: 1, status: 'pending' });
+    expect(rest.map((i) => i.payload.patch.title)).toEqual(['B', 'C', 'D', 'E']);
+
+    // The server is back (the next alarm): every change syncs, in order, and none is lost.
+    doFetch.mockImplementation(async () => jsonRes({ data: { id: 't1', version: (version += 1) } }));
+    expect(await flushQueue(s, perform, { userId: A })).toMatchObject({ synced: 5, failed: 0, remaining: 0 });
+  });
+
+  it('a failed change (Settings → Sync) does not hold the task’s next edit back', async () => {
+    const s = fakeStorage({ syncQueue: [{ id: 'f1', kind: 'task.update', userId: A, status: 'failed', payload: { id: 't1', patch: {}, expectedVersion: 2 } }] });
+    const doFetch = vi.fn(async () => jsonRes({ data: { id: 't1', version: 4 } }));
+    const r = await sendOrQueue({ kind: 'task.update', payload: { id: 't1', patch: { title: 'B' }, expectedVersion: 3 } }, { doFetch, storage: s, userId: A });
+    expect(r).toEqual({ queued: false, data: { id: 't1', version: 4 } });
+  });
+
+  it('M6: a 2xx that is not the server’s answer (a Wi-Fi sign-in page) is kept for later, not taken as saved', async () => {
+    const s = fakeStorage();
+    const portal = { ok: true, status: 200, headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html' : null) }, json: async () => { throw new SyntaxError('<'); } };
+    const r = await sendOrQueue({ kind: 'comment.add', payload: { id: 't1', body: 'hi' } }, { doFetch: async () => portal, storage: s, userId: A, newKey: keyed });
+    expect(r.queued).toBe(true);
+    expect((await getQueue(s))[0]).toMatchObject({ kind: 'comment.add', idempotencyKey: 'idem-1' });
+  });
+
+  it('M7: "Mark all read" is kept for later like other changes', async () => {
+    const s = fakeStorage();
+    const r = await sendOrQueue({ kind: 'notification.readAll', payload: {} }, { doFetch: async () => { throw new TypeError('Failed to fetch'); }, storage: s, userId: A });
+    expect(r.queued).toBe(true);
+    expect(describeMutation((await getQueue(s))[0])).toBe('Mark all notifications read');
+  });
+});
+
+describe('pendingItems (what reads layer on top, H3)', () => {
+  it('is the signed-in person’s changes still waiting to sync, oldest first — not failed ones or anyone else’s', async () => {
+    const s = fakeStorage();
+    const a1 = await enqueue(s, { kind: 'comment.add', payload: { id: 't1', body: '1' }, userId: A });
+    await enqueue(s, { kind: 'comment.add', payload: { id: 't1', body: 'b' }, userId: B });
+    const a2 = await enqueue(s, { kind: 'comment.add', payload: { id: 't1', body: '2' }, userId: A });
+    s.data.syncQueue = s.data.syncQueue.map((i) => (i.id === a2.id ? { ...i, status: 'failed' } : i));
+    expect((await pendingItems(s, A)).map((i) => i.id)).toEqual([a1.id]);
+    expect(await pendingItems(s, null)).toEqual([]);
+  });
+});
+
+describe('flushQueue — task versions (H1)', () => {
+  it('after a replayed edit, this device’s next queued edit of that task is sent against the version it made', async () => {
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.update', payload: { id: 't1', patch: { priority: 'HIGH' }, expectedVersion: 5 }, userId: A });
+    await enqueue(s, { kind: 'task.move', payload: { id: 't1', columnId: 'c2', position: 0 }, userId: A });
+    await enqueue(s, { kind: 'task.update', payload: { id: 't1', patch: { title: 'B' }, expectedVersion: 5 }, userId: A });
+    let version = 5;
+    const sent = [];
+    const perform = makePerformMutation(async (path, init) => {
+      const body = JSON.parse(init.body);
+      sent.push(body.expectedVersion);
+      if (body.expectedVersion !== undefined && body.expectedVersion !== version) return jsonRes({ error: { code: 'VERSION_CONFLICT', message: 'changed' } }, 409);
+      version += 1;
+      return jsonRes({ data: { id: 't1', version } });
+    });
+    const r = await flushQueue(s, perform, { userId: A });
+    expect(r).toMatchObject({ synced: 3, failed: 0, remaining: 0 });
+    expect(sent).toEqual([5, undefined, 7]);
   });
 });

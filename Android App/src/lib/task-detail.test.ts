@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueFieldValue, dueState, meetingLine, moveBy, taskLoadProblem } from './task-detail';
+import { activityFeed, aiFailureText, blockerRefs, canDeleteTask, conflictText, dueFieldValue, dueState, meetingLine, moveBy, taskLoadProblem } from './task-detail';
 import { ApiError, NetworkError } from './api-client';
 import type { ApiActivityEntry, ApiColumn, ApiTask } from './types';
 
@@ -25,6 +25,8 @@ describe('dueState', () => {
   });
   it('never calls a finished task overdue; no date, no text', () => {
     expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: '2026-10-09T00:00:00Z' }, NOW, 'en-US').overdue).toBe(false);
+    // In a Done column without a completion time (e.g. moved there before completion was recorded).
+    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null, columnCategory: 'DONE' }, NOW, 'en-US')).toEqual({ text: 'Due Oct 8', overdue: false, dayKey: '2026-10-08' });
     expect(dueState({ dueDate: null, completedAt: null }, NOW, 'en-US')).toEqual({ text: null, overdue: false, dayKey: null });
   });
 });
@@ -129,5 +131,20 @@ describe('conflictText — someone else changed the task first', () => {
   it('otherwise the usual failure text', () => {
     expect(conflictText(new ApiError(400, 'VALIDATION', 'Title is required.'), 'Couldn’t save.')).toBe('Title is required.');
     expect(conflictText(new Error(''), 'Couldn’t save.')).toBe('Couldn’t save.');
+  });
+});
+
+describe('aiFailureText — a slow AI is not a lost connection', () => {
+  it('says the AI is taking longer than usual when the request timed out', () => {
+    expect(aiFailureText(new NetworkError('The server took too long to respond.', { timedOut: true }), 'The AI suggestion failed.')).toBe(
+      'The AI is taking longer than usual. Please try again in a minute.',
+    );
+  });
+  it('still says offline when there was no connection at all', () => {
+    expect(aiFailureText(new NetworkError('Network request failed.'), 'The AI suggestion failed.')).toMatch(/offline/);
+  });
+  it('shows the server’s own reason, else the fallback', () => {
+    expect(aiFailureText(new ApiError(503, 'AI_UNAVAILABLE', 'AI is not set up on this server.'), 'The AI suggestion failed.')).toBe('AI is not set up on this server.');
+    expect(aiFailureText(new Error(''), 'The AI suggestion failed.')).toBe('The AI suggestion failed.');
   });
 });

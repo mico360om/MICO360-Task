@@ -1,17 +1,19 @@
 import { resolveBases } from '../src/config.js';
-import { shouldNotify, notificationText, unreadBaseline, findAppContext, NOTIFICATION_ID } from '../src/notify.js';
+import { shouldNotify, notificationText, unreadBaseline, findAppContext, setToolbarBadge, NOTIFICATION_ID } from '../src/notify.js';
 import { flushQueue, makePerformMutation, FLUSH_MESSAGE } from '../src/queue.js';
 import { createAuth } from '../src/auth.js';
 import { ensureSession } from '../src/session.js';
-import { badgeText } from '../src/chat.js';
+import { createReadCache } from '../src/read-cache.js';
+import { rememberTask } from '../src/task-writes.js';
 
 const local = chrome.storage.local;
 const sessionStore = chrome.storage.session || null;
 const APP_PATH = 'app/app.html';
+/** The offline copies the app reads; a replayed task edit keeps its task's copy at the new version (H1). */
+const cache = createReadCache(local);
 
 function setBadge(count) {
-  chrome.action.setBadgeText({ text: badgeText(count) });
-  if (count > 0) chrome.action.setBadgeBackgroundColor({ color: '#8B1E1E' });
+  setToolbarBadge(chrome.action, count);
 }
 
 /**
@@ -32,7 +34,8 @@ async function signedIn() {
 async function flushNow(ctx) {
   const c = ctx || (await signedIn());
   if (!c) return null;
-  return flushQueue(local, makePerformMutation((path, init) => c.auth.authedFetch(path, init)), { userId: c.userId });
+  const perform = makePerformMutation((path, init) => c.auth.authedFetch(path, init), { onTask: (t) => rememberTask(cache, t) });
+  return flushQueue(local, perform, { userId: c.userId });
 }
 
 async function poll() {

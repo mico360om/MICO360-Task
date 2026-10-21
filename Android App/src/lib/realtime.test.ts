@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyTaskEvent, taskEventInvalidationKeys, TASK_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from './realtime';
+import { applyTaskEvent, taskEventInvalidationKeys, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from './realtime';
 import type { ApiTask } from './types';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
@@ -84,5 +84,61 @@ describe('project:removed', () => {
     expect(isProjectRemoval({ projectId: 'p2' }, 'p1')).toBe(false);
     expect(isProjectRemoval(undefined, 'p1')).toBe(false);
     expect(isProjectRemoval({ projectId: 'p1' }, '')).toBe(false);
+  });
+});
+
+describe('task part events — assignees, tags, watchers, checklist and comments', () => {
+  it('are the events the board now listens to as well', () => {
+    expect([...TASK_PART_EVENTS]).toEqual([
+      'task:assignees',
+      'task:tagged',
+      'task:watchers',
+      'checklist:changed',
+      'comment:created',
+      'comment:updated',
+      'comment:deleted',
+    ]);
+  });
+
+  it('refresh only the part of that task that changed (never the whole task or the board)', () => {
+    const exact = (...queryKey: string[]) => ({ queryKey, exact: true });
+    expect(taskPartRefreshes('task:tagged', { taskId: 't1', tags: [] })).toEqual([exact('task', 't1', 'tags')]);
+    expect(taskPartRefreshes('task:watchers', { taskId: 't1', watchers: [] })).toEqual([exact('task', 't1', 'watchers'), exact('task', 't1', 'watch')]);
+    // The task's progress follows its checklist.
+    expect(taskPartRefreshes('checklist:changed', { taskId: 't1' })).toEqual([
+      exact('task', 't1', 'checklist'),
+      exact('task', 't1'),
+      exact('task', 't1', 'activity'),
+    ]);
+    expect(taskPartRefreshes('comment:created', { taskId: 't1', comment: {} })).toEqual([exact('task', 't1', 'comments'), exact('task', 't1', 'activity')]);
+    expect(taskPartRefreshes('comment:updated', { taskId: 't1', comment: {} })).toEqual([exact('task', 't1', 'comments')]);
+    expect(taskPartRefreshes('comment:deleted', { taskId: 't1', id: 'c1' })).toEqual([exact('task', 't1', 'comments')]);
+  });
+
+  it('new assignees refresh the task’s people and history; My tasks only when I joined or left', () => {
+    const people = [
+      { queryKey: ['task', 't1', 'assignees'], exact: true },
+      { queryKey: ['task', 't1', 'activity'], exact: true },
+    ];
+    const assignees = [{ id: 'me' }, { id: 'u2' }];
+    // I was just assigned: the task isn't in My tasks yet.
+    expect(taskPartRefreshes('task:assignees', { taskId: 't1', assignees }, { myId: 'me', inMyTasks: false })).toEqual([
+      ...people,
+      { queryKey: ['tasks', 'mine'] },
+    ]);
+    // I was taken off: it still is.
+    expect(taskPartRefreshes('task:assignees', { taskId: 't1', assignees: [{ id: 'u2' }] }, { myId: 'me', inMyTasks: true })).toEqual([
+      ...people,
+      { queryKey: ['tasks', 'mine'] },
+    ]);
+    // Someone else changed: My tasks stays as it is.
+    expect(taskPartRefreshes('task:assignees', { taskId: 't1', assignees }, { myId: 'me', inMyTasks: true })).toEqual(people);
+    expect(taskPartRefreshes('task:assignees', { taskId: 't1', assignees: [{ id: 'u2' }] }, { myId: 'me', inMyTasks: false })).toEqual(people);
+  });
+
+  it('nothing for a payload without a task id, or an unknown event', () => {
+    expect(taskPartRefreshes('task:tagged', {})).toEqual([]);
+    expect(taskPartRefreshes('task:tagged', null)).toEqual([]);
+    expect(taskPartRefreshes('noise', { taskId: 't1' })).toEqual([]);
   });
 });

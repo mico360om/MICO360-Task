@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { authApi } from './auth';
+import { authApi, roleLabel, SIGN_IN_LIMITS } from './auth';
 import type { ApiClient } from './api-client';
 
 function stubClient() {
@@ -65,5 +65,27 @@ describe('authApi', () => {
     const reset = await authApi(client).resetPassword('tok', 'NewPass123');
     expect(reset).toEqual({ reset: true });
     expect(calls.map((c) => c.path)).toEqual(['/auth/password/forgot', '/auth/password/reset']);
+  });
+});
+
+describe('SIGN_IN_LIMITS — the sign-in fields stop where the server does', () => {
+  it('matches the server’s limits (auth-routes: identifier 191, password 200)', () => {
+    expect(SIGN_IN_LIMITS.identifier).toBe(191);
+    expect(SIGN_IN_LIMITS.password).toBe(200);
+  });
+  it('leaves room for any real server address', () => {
+    expect('https://task.mico360.com'.length).toBeLessThan(SIGN_IN_LIMITS.serverAddress);
+    expect(SIGN_IN_LIMITS.serverAddress).toBeGreaterThanOrEqual(255);
+  });
+});
+
+describe('roleLabel — Profile shows role names, not codes', () => {
+  it('names the two account roles as the website does', () => {
+    expect(roleLabel('ADMIN')).toBe('Administrator');
+    expect(roleLabel('EMPLOYEE')).toBe('Employee');
+  });
+  it('turns any other code into plain words', () => {
+    expect(roleLabel('PROJECT_MANAGER')).toBe('Project manager');
+    expect(roleLabel('guest')).toBe('Guest');
   });
 });

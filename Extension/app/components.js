@@ -3,6 +3,7 @@ import { isDone } from '../src/summary.js';
 import { isRecurring } from '../src/recurrence.js';
 import { dueDayKey, formatDayKey, isOverdue } from '../src/due-date.js';
 import { DEFAULT_TIME_ZONE } from '../src/config.js';
+import { messageFor } from '../src/errors.js';
 
 export { isDone };
 
@@ -16,10 +17,17 @@ export function catVar(category) {
   return { BACKLOG: '--cat-backlog', TODO: '--cat-todo', IN_PROGRESS: '--cat-progress', BLOCKED: '--cat-blocked', REVIEW: '--cat-review', DONE: '--cat-done' }[category] || '--cat-todo';
 }
 
-/** User-facing text for a failed write (ApiError → `fallback`; storage failures explain themselves). */
+/**
+ * User-facing text for a failed call (H2): the server's own message for a 4xx answer ("This task was
+ * changed by someone else…", a date rule, no permission), a storage failure explains itself, anything
+ * else (offline, 5xx) the screen's `fallback`.
+ */
 export function writeErrorMessage(e, fallback) {
-  return (e && e.userMessage) || fallback;
+  return messageFor(e, fallback);
 }
+
+/** Shown when a change is kept on this device until the connection is back (H3). */
+export const SAVED_ON_DEVICE = 'Saved on this device — it will sync when the connection is back.';
 
 /**
  * The reusable task row (Dashboard, My Tasks, Calendar). Voices priority for screen readers. The due

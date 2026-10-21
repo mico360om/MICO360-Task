@@ -69,3 +69,12 @@ describe('summarizeTasks', () => {
     expect(s.dueToday.map((x) => x.id)).toEqual(['x']);
   });
 });
+
+describe('summarizeTasks — a task in a Done column', () => {
+  it('counts as completed (never overdue) even without a completion time', () => {
+    const inDone: ApiTask = { ...t('d', '2026-09-01T00:00:00.000Z'), columnCategory: 'DONE' };
+    const s = summarizeTasks([inDone, t('o', '2026-09-01T00:00:00.000Z')], NOW);
+    expect(s.completed).toBe(1);
+    expect(s.overdue.map((x) => x.id)).toEqual(['o']);
+  });
+});

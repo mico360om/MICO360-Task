@@ -72,5 +72,22 @@ export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACH
     return o && o[k] ? o[k].data : undefined;
   }
 
-  return { read, peek, prune };
+  /**
+   * Update a saved object with a newer answer from the server (a write's reply, e.g. a task at the
+   * version the write made), keeping the fields the reply doesn't carry. Only a key already saved is
+   * touched. Resolves true when it was updated. Best effort, like every cache write.
+   */
+  async function merge(key, patch) {
+    const k = cacheKey(key);
+    try {
+      const o = await storage.get(k);
+      const env = o && o[k];
+      if (!env || !env.data || typeof env.data !== 'object' || Array.isArray(env.data)) return false;
+      return save(k, { data: { ...env.data, ...patch }, cachedAt: now() });
+    } catch {
+      return false;
+    }
+  }
+
+  return { read, peek, prune, merge };
 }

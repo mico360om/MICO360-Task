@@ -1,4 +1,7 @@
 import type { QueuedMutation } from './sync-queue';
+import { dueDayKey } from './due-date';
+import { withAnchorDay, type RecurrenceRule } from './recurrence';
+import type { ApiTask } from './types';
 
 /**
  * Edits to a task carry the version they were made against (`expectedVersion`), and the server
@@ -68,4 +71,49 @@ export function rebaseQueuedVersion(done: QueuedMutation, result: unknown, waiti
   const p = waiting.payload as TaskWritePayload | null;
   if (!p || p.id !== doneId || !p.patch || p.patch.expectedVersion !== made - 1) return waiting;
   return { ...waiting, payload: { ...p, patch: { ...p.patch, expectedVersion: made } } };
+}
+
+/** Two values with null, undefined and absent keys all meaning "none" (a JSON-shaped deep compare). */
+function sameShape(a: unknown, b: unknown): boolean {
+  if (a === null || a === undefined || b === null || b === undefined) return (a ?? null) === (b ?? null);
+  if (typeof a !== 'object' || typeof b !== 'object') return a === b;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => sameShape(x, b[i]));
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(ao), ...Object.keys(bo)]);
+  return [...keys].every((k) => sameShape(ao[k], bo[k]));
+}
+
+/** Does the task hold this one field's edited value, as the server would have stored it? */
+function holdsField(task: ApiTask, field: string, wanted: unknown): boolean {
+  const have = (task as unknown as Record<string, unknown>)[field];
+  switch (field) {
+    // Calendar days: the phone sends 'YYYY-MM-DD', the server answers with a timestamp.
+    case 'dueDate':
+    case 'startDate':
+      return dueDayKey(have as string | null) === dueDayKey(wanted as string | null);
+    // Clearing the description may come back as an empty text or as none.
+    case 'description':
+      return ((have as string | null) || null) === ((wanted as string | null) || null);
+    // The server pins a month-based repeat to its due day (withAnchorDay), so accept either form.
+    case 'recurrenceRule': {
+      if (!wanted || !have) return !wanted && !have;
+      const due = task.dueDate ? new Date(task.dueDate) : null;
+      return sameShape(have, wanted) || sameShape(have, withAnchorDay(wanted as RecurrenceRule, due && !Number.isNaN(due.getTime()) ? due : null));
+    }
+    default:
+      return sameShape(have, wanted);
+  }
+}
+
+/**
+ * Does the task already hold every value this queued edit sets? A replayed edit whose first try
+ * timed out after the server saved it is refused as a version conflict — by its own change. When
+ * the reloaded task already holds the edit, nothing is left to do. An edit with nothing to check
+ * is never "held": better a visible conflict than a change silently dropped.
+ */
+export function taskHoldsEdit(task: ApiTask, patch: Record<string, unknown>): boolean {
+  const fields = Object.entries(patch).filter(([k]) => k !== 'expectedVersion' && k !== 'scope');
+  return fields.length > 0 && fields.every(([field, wanted]) => holdsField(task, field, wanted));
 }

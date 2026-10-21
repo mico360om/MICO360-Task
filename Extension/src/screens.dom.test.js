@@ -126,7 +126,7 @@ describe('BoardScreen — recurring tasks', () => {
     todo.querySelector('.tcard').dispatchEvent(new Event('dragstart', { bubbles: true }));
     doneCol.dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('task.move', { id: 't1', columnId: 'c9', position: 0 });
+    expect(ctx.write).toHaveBeenCalledWith('task.move', { id: 't1', columnId: 'c9', position: 0, columnCategory: 'DONE' });
     expect(ctx.api.tasks.list).toHaveBeenCalledTimes(2);
     expect(root.querySelectorAll('.tcard')).toHaveLength(2);
   });

@@ -77,4 +77,13 @@ describe('createReadCache', () => {
     expect(await cache.peek('projects')).toEqual([{ id: 'p1' }]);
     expect(await cache.peek('missing')).toBeUndefined();
   });
+
+  it('merge updates a saved object with a newer answer (a write’s reply) and leaves anything not saved alone', async () => {
+    const store = fakeStorage({ 'cache:task:t1': { data: { id: 't1', title: 'A', version: 2, meeting: null }, cachedAt: 1 } });
+    const cache = createReadCache(store, { now: () => 50 });
+    expect(await cache.merge('task:t1', { id: 't1', title: 'B', version: 3 })).toBe(true);
+    expect(store.data['cache:task:t1']).toEqual({ data: { id: 't1', title: 'B', version: 3, meeting: null }, cachedAt: 50 });
+    expect(await cache.merge('task:t9', { id: 't9' })).toBe(false);
+    expect(store.data['cache:task:t9']).toBeUndefined();
+  });
 });

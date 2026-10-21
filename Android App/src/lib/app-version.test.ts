@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareVersions, updateAvailable, showUpdateBanner, releaseName, versionHeaders, offeredAppVersion } from './app-version';
+import { appDownloadUrl, compareVersions, updateAvailable, showUpdateBanner, releaseName, versionHeaders, offeredAppVersion } from './app-version';
 
 describe('offeredAppVersion — what the "new version" notice compares with', () => {
   it('the version inside the app file the site offers, not the website’s own version', () => {
@@ -45,5 +45,40 @@ describe('app version', () => {
   it('names the release for crash reports and the request headers', () => {
     expect(releaseName({ version: '1.2.1', build: 10 })).toBe('mico360-tasks@1.2.1+10');
     expect(versionHeaders({ version: '1.2.1', build: 10 })).toEqual({ 'X-App-Version': '1.2.1', 'X-App-Build': '10' });
+  });
+});
+
+describe('appDownloadUrl — where the notice’s Download goes', () => {
+  const base = 'https://task.mico360.com/api/v1';
+
+  it('a full address from the server is used as it is', () => {
+    expect(appDownloadUrl(base, 'https://play.google.com/store/apps/details?id=com.mico360.tasks')).toBe(
+      'https://play.google.com/store/apps/details?id=com.mico360.tasks',
+    );
+  });
+
+  it('a site path (older servers) is opened on the server the app is connected to', () => {
+    expect(appDownloadUrl(base, '/downloads/MICO360-Tasks.apk')).toBe('https://task.mico360.com/downloads/MICO360-Tasks.apk');
+    expect(appDownloadUrl('http://192.168.1.20:4000/api/v1', 'downloads/MICO360-Tasks.apk')).toBe('http://192.168.1.20:4000/downloads/MICO360-Tasks.apk');
+  });
+
+  it('no address (the site hosts the app itself) means the site’s own download', () => {
+    expect(appDownloadUrl(base, null)).toBe('https://task.mico360.com/downloads/MICO360-Tasks.apk');
+    expect(appDownloadUrl(base, undefined)).toBe('https://task.mico360.com/downloads/MICO360-Tasks.apk');
+    expect(appDownloadUrl(base, '  ')).toBe('https://task.mico360.com/downloads/MICO360-Tasks.apk');
+  });
+
+  it('only a web address is opened: any other kind (intent:, file:, market:…) means the site’s own download', () => {
+    for (const url of [
+      'intent://scan/#Intent;component=com.example/.Evil;end',
+      'file:///sdcard/Download/evil.apk',
+      'content://com.example.provider/evil.apk',
+      'market://details?id=com.example',
+      'javascript:alert(1)',
+    ]) {
+      expect(appDownloadUrl(base, url)).toBe('https://task.mico360.com/downloads/MICO360-Tasks.apk');
+    }
+    expect(appDownloadUrl(base, 'HTTPS://example.com/app.apk')).toBe('HTTPS://example.com/app.apk');
+    expect(appDownloadUrl(base, 'http://192.168.1.20:4000/app.apk')).toBe('http://192.168.1.20:4000/app.apk');
   });
 });

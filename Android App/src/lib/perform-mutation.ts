@@ -1,6 +1,32 @@
-import { ApiError } from './api-client';
+import { ApiError, isNetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
+import { taskHoldsEdit } from './task-writes';
+import type { ApiTask } from './types';
+
+/**
+ * Replay a queued task edit. The server de-duplicates only POSTs, so an edit whose first try timed
+ * out after the server had saved it comes back as a version conflict — refused by its own change.
+ * On a conflict the task is reloaded: when it already holds the edit, the edit is done (and the
+ * reloaded task stands in for the server's answer); otherwise the conflict stands, as before. A
+ * reload that gets no answer waits for the connection like any other replay.
+ */
+async function replayTaskEdit(resources: ResourcesApi, id: string, patch: Record<string, unknown>): Promise<ApiTask> {
+  try {
+    return await resources.tasks.update(id, patch);
+  } catch (e) {
+    if (!(e instanceof ApiError && e.code === 'VERSION_CONFLICT')) throw e;
+    let current: ApiTask;
+    try {
+      current = await resources.tasks.get(id);
+    } catch (reloadError) {
+      if (isNetworkError(reloadError)) throw reloadError;
+      throw e; // gone, or no longer yours to see: the conflict is what to show
+    }
+    if (taskHoldsEdit(current, patch)) return current;
+    throw e;
+  }
+}
 
 /**
  * Replay one queued offline mutation against the API (A8). Every write the app can make offline maps
@@ -24,7 +50,7 @@ export async function performMutation(resources: ResourcesApi, m: QueuedMutation
     }
     case 'task.update': {
       const p = m.payload as { id: string; patch: Record<string, unknown> };
-      return resources.tasks.update(p.id, p.patch);
+      return replayTaskEdit(resources, p.id, p.patch);
     }
     case 'task.assign': {
       const p = m.payload as { id: string; userIds: string[] };

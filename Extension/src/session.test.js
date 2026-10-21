@@ -11,6 +11,7 @@ function busyDevice(extra = {}) {
     refreshToken: 'r1',
     sessionUserId: 'u1',
     sessionApiBase: API,
+    sessionUser: { id: 'u1', email: 'me@example.com', username: 'me', roles: ['ADMIN'], avatarUrl: null },
     apiBase: API,
     appBase: 'https://task.mico360.com',
     'mico360.theme': 'dark',
@@ -28,7 +29,7 @@ function busyDevice(extra = {}) {
   return { local, session };
 }
 
-const USER_KEYS = ['refreshToken', 'sessionUserId', 'sessionApiBase', 'syncQueue', 'cache:tasks:mine', 'cache:conversations', 'cacheOwner', 'lastUnread', 'lastUnreadUser', 'lastSync'];
+const USER_KEYS = ['refreshToken', 'sessionUserId', 'sessionApiBase', 'sessionUser', 'syncQueue', 'cache:tasks:mine', 'cache:conversations', 'cacheOwner', 'lastUnread', 'lastUnreadUser', 'lastSync'];
 
 describe('signOut (XP-01)', () => {
   it('revokes the session at its server and wipes tokens, queue, cache and markers — keeping settings', async () => {
@@ -64,6 +65,15 @@ describe('signOut (XP-01)', () => {
 });
 
 describe('startSession', () => {
+  it('M12: keeps the profile from the sign-in reply (not the profile of anyone else)', async () => {
+    const local = fakeStorage();
+    await startSession({ local, session: fakeStorage() }, { accessToken: 'a', refreshToken: 'r', userId: 'u1', apiBase: API, user: { id: 'u1', email: 'me@example.com', username: 'me', roles: ['ADMIN'] } });
+    expect(local.data.sessionUser).toEqual({ id: 'u1', email: 'me@example.com', username: 'me', roles: ['ADMIN'], avatarUrl: null });
+    const other = fakeStorage();
+    await startSession({ local: other, session: fakeStorage() }, { accessToken: 'a', refreshToken: 'r', userId: 'u1', apiBase: API, user: { id: 'u2' } });
+    expect(other.data.sessionUser).toBeUndefined();
+  });
+
   it('stores the access token in session storage, the refresh token + owner + server in local storage', async () => {
     const local = fakeStorage();
     const session = fakeStorage();

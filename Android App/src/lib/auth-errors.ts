@@ -36,3 +36,24 @@ export function authErrorMessage(e: unknown): string {
   if (e.code === 'RATE_LIMITED' || e.status === 429) return 'Too many attempts. Please wait a minute and try again.';
   return e.message || 'Something went wrong. Please try again.';
 }
+
+/** The fingerprint key was refused (password changed, admin reset, or 30 days unused). */
+const FINGERPRINT_STOPPED =
+  'Fingerprint sign-in has stopped: your password was changed, or the app wasn’t used for 30 days. Sign in with your password, then turn it on again in Settings.';
+
+/**
+ * What a failed fingerprint sign-in says, and whether the phone forgets its key:
+ * - no answer → the connection (keep the key);
+ * - 401/400, or a key the phone can't read any more → it has stopped working (forget it);
+ * - 429 / 5xx → the server is busy (keep it);
+ * - any other answer (403 "account not active", 423 locked) → the server's own reason (keep it:
+ *   the key may work again once an administrator has sorted out the account).
+ */
+export function biometricSignInProblem(e: unknown): { message: string; forgetKey: boolean } {
+  if (isNetworkError(e)) return { message: 'Can’t reach the server. Check your connection and try again.', forgetKey: false };
+  if (!(e instanceof ApiError) || e.status === 401 || e.status === 400) return { message: FINGERPRINT_STOPPED, forgetKey: true };
+  if (e.status === 429 || e.status >= 500) return { message: 'The server is busy. Please try again in a minute.', forgetKey: false };
+  // 'ERROR' = the reply had no reason of ours (e.g. a proxy or firewall page).
+  if (e.code === 'ERROR') return { message: 'The server refused the sign-in. Please try again later, or sign in with your password.', forgetKey: false };
+  return { message: authErrorMessage(e), forgetKey: false };
+}

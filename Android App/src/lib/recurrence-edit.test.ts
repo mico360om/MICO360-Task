@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { RecurrenceRule } from './recurrence';
 import {
   isRecurring, inSeries, withFreq, withInterval, toggleWeekday, withMonthlyMode, withNth,
-  withEnds, withCreateNext, togglePaused, nthWeekdayOf, isEarlierCopy,
+  withEnds, withCreateNext, togglePaused, nthWeekdayOf, isEarlierCopy, repeatDraftDone,
 } from './recurrence-edit';
 
 describe('series membership', () => {
@@ -57,5 +57,32 @@ describe('editing a rule', () => {
     expect(withCreateNext({ freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' }, 'ON_COMPLETE')).toEqual({ freq: 'DAILY', interval: 1 });
     expect(togglePaused({ freq: 'DAILY', interval: 1 })).toEqual({ freq: 'DAILY', interval: 1, paused: true });
     expect(togglePaused({ freq: 'DAILY', interval: 1, paused: true })).toEqual({ freq: 'DAILY', interval: 1, paused: false });
+  });
+});
+
+describe('repeatDraftDone — the repeat editor goes back to the task’s own rule after a save', () => {
+  const rule: RecurrenceRule = { freq: 'WEEKLY', interval: 1 };
+
+  it('keeps the draft while it is being saved', () => {
+    expect(repeatDraftDone({ rule, from: 5, saved: false }, 5)).toBe(false);
+    expect(repeatDraftDone({ rule, from: 5, saved: false }, 6)).toBe(false);
+  });
+
+  it('keeps it after the save until the task has reloaded (no flash of the old rule)', () => {
+    expect(repeatDraftDone({ rule, from: 5, saved: true }, 5)).toBe(false);
+  });
+
+  it('drops it once a newer copy of the task is in — this save, or a change made elsewhere', () => {
+    expect(repeatDraftDone({ rule, from: 5, saved: true }, 6)).toBe(true);
+    expect(repeatDraftDone({ rule, from: 5, saved: true }, 9)).toBe(true);
+  });
+
+  it('without versions (an older server) drops it as soon as the save went through', () => {
+    expect(repeatDraftDone({ rule, from: undefined, saved: true }, undefined)).toBe(true);
+    expect(repeatDraftDone({ rule: null, from: 5, saved: true }, undefined)).toBe(true);
+  });
+
+  it('nothing to drop without a draft', () => {
+    expect(repeatDraftDone(undefined, 6)).toBe(false);
   });
 });

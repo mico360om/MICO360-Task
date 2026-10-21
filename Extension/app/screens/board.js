@@ -1,8 +1,12 @@
 import { el, mount, Loader, ErrorState, Empty, pill } from '../dom.js';
-import { PRIORITY_LABEL, catVar, writeErrorMessage } from '../components.js';
+import { PRIORITY_LABEL, catVar, writeErrorMessage, SAVED_ON_DEVICE } from '../components.js';
 import { href } from '../../src/router.js';
 import { todayKey, shiftDayKey, isDayKey, formatDayKey, relativeDayHint } from '../../src/due-date.js';
 import { isRecurring } from '../../src/recurrence.js';
+import { isTempId, tempId } from '../../src/pending-overlay.js';
+
+/** What the board keeps from a move's reply: the task's new version and the status the server set. */
+const MOVE_REPLY_FIELDS = ['version', 'columnId', 'columnCategory', 'completedAt', 'progress', 'columnHidden'];
 
 /**
  * Kanban board for one project and ONE board day (EXT-03) — like the web and mobile boards, each day
@@ -47,12 +51,15 @@ export function BoardScreen(ctx) {
       ]);
       project = p.data ?? null;
       columns = (cols.data ?? []).filter((c) => c.enabled).sort((a, b) => a.position - b.position);
-      tasks = tks.data ?? [];
+      // M10: a task in a column switched off in Manage columns isn't on the board (as on the web).
+      tasks = (tks.data ?? []).filter((t) => t.columnHidden !== true);
       progress = prog.data ?? null;
       stale = p.stale || cols.stale || tks.stale || prog.stale;
+      // Moves and new tasks kept on this device are shown where they were put (H3): say so.
+      note = tks.pending ? SAVED_ON_DEVICE : '';
       render();
-    } catch {
-      mount(root, header(), ErrorState('Could not load this board.', load));
+    } catch (e) {
+      mount(root, header(), ErrorState(writeErrorMessage(e, 'Could not load this board.'), () => load()));
     }
   }
 
@@ -126,8 +133,19 @@ export function BoardScreen(ctx) {
     return node;
   }
 
+  /** L13: a task added on this device has no server id yet, so it can't be opened until it has synced. */
+  function openCard(task) {
+    if (isTempId(task.id)) {
+      err = '';
+      note = 'This task is still waiting to sync — open it after it syncs.';
+      render();
+      return;
+    }
+    ctx.openTask(task.id);
+  }
+
   function card(task) {
-    const node = el('div', { class: 'tcard', draggable: 'true', role: 'button', tabindex: '0', 'aria-label': task.title, onClick: () => ctx.openTask(task.id) },
+    const node = el('div', { class: 'tcard', draggable: 'true', role: 'button', tabindex: '0', 'aria-label': task.title, onClick: () => openCard(task) },
       el('div', { class: 'tt' }, task.title),
       el('div', { class: 'row' },
         el('span', { class: 'k' }, task.key || ''),
@@ -150,7 +168,7 @@ export function BoardScreen(ctx) {
     if (!id) return;
     const task = tasks.find((t) => t.id === id);
     if (!task || task.columnId === targetCol.id) return;
-    if (String(id).startsWith('tmp-')) { err = 'This task is still waiting to sync — move it after it syncs.'; render(); return; }
+    if (isTempId(String(id))) { err = 'This task is still waiting to sync — move it after it syncs.'; render(); return; }
 
     const before = { columnId: task.columnId, columnCategory: task.columnCategory, completedAt: task.completedAt, progress: task.progress };
     // Completing a repeating task makes its next copy on the server — reload to show it.
@@ -165,9 +183,14 @@ export function BoardScreen(ctx) {
     render();
 
     try {
-      const r = await ctx.write('task.move', { id, columnId: targetCol.id, position });
-      if (r.queued) { note = 'Saved on this device — it will sync when the connection is back.'; render(); }
+      // The column's status travels with a move kept on this device, so other screens show it moved too.
+      const r = await ctx.write('task.move', { id, columnId: targetCol.id, position, columnCategory: targetCol.category });
+      if (r.queued) { note = SAVED_ON_DEVICE; render(); }
       else if (completesRepeat) await load();
+      else if (r.data && r.data.id === id) {
+        // H1: the move made a new version of the task.
+        for (const f of MOVE_REPLY_FIELDS) if (r.data[f] !== undefined) task[f] = r.data[f];
+      }
     } catch (e) {
       Object.assign(task, before);
       err = writeErrorMessage(e, 'Could not move the task — please try again.');
@@ -188,7 +211,7 @@ export function BoardScreen(ctx) {
     try {
       const r = await ctx.write('task.create', payload);
       if (r.queued) note = 'Saved on this device — the task will be created when the connection is back.';
-      tasks.push(!r.queued && r.data && r.data.id ? r.data : optimisticTask(firstCol, title));
+      tasks.push(!r.queued && r.data && r.data.id ? r.data : optimisticTask(firstCol, title, r.item));
     } catch (e) {
       err = writeErrorMessage(e, 'Could not add the task — please try again.');
     } finally {
@@ -197,7 +220,8 @@ export function BoardScreen(ctx) {
     }
   }
 
-  function optimisticTask(col, title) {
-    return { id: `tmp-${Date.now()}`, key: '', title, priority: 'NORMAL', columnId: col.id, columnCategory: col.category, dueDate: null, progress: 0, completedAt: null, projectId };
+  /** A task kept on this device: the same temporary id it has after a reload (pending-overlay.js). */
+  function optimisticTask(col, title, item) {
+    return { id: item ? tempId(item) : `tmp-${Date.now()}`, key: '', title, priority: 'NORMAL', columnId: col.id, columnCategory: col.category, dueDate: null, progress: 0, completedAt: null, projectId, pending: true };
   }
 }
