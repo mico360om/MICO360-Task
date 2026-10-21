@@ -51,6 +51,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - The Chrome extension: typing the morning-email time saves it once, when you leave the field or press
   Enter (it used to save 00:00 while you typed), and quick changes to notification preferences save in
   order.
+- The Meetings list keeps today's and recent meetings when many repeating meetings lie ahead: it now
+  holds every meeting still to come and the 500 most recent ones (before, only the 500 latest-starting
+  meetings were listed, so weeks of repeats could push today's out).
 
 ## [1.7.0] - 2026-10-21
 
