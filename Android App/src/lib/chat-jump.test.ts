@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSerialRunner, jumpStep } from './chat-jump';
+import { createSerialRunner, jumpNotice, jumpStep, MAX_JUMP_PAGES } from './chat-jump';
 
 describe('jumping to a message (a reply’s quote, a search result) — 3b review', () => {
   const base = { found: false, fetching: false, nextPageError: false, hasNextPage: true, pagesTried: 0, maxPages: 10 };
@@ -11,9 +11,16 @@ describe('jumping to a message (a reply’s quote, a search result) — 3b revie
   it('stops when an older page couldn’t be loaded (offline) — not "isn’t in this conversation"', () => {
     expect(jumpStep({ ...base, nextPageError: true })).toBe('failed');
   });
-  it('says it is gone only when the whole history has been looked through (or too far back)', () => {
+  it('says it is gone only when the whole history has been looked through', () => {
     expect(jumpStep({ ...base, hasNextPage: false })).toBe('gone');
-    expect(jumpStep({ ...base, pagesTried: 10 })).toBe('gone');
+  });
+  it('looks as far back as the website (40 pages); beyond that it says so — not that the message is gone (3b review fix 9)', () => {
+    expect(MAX_JUMP_PAGES).toBe(40);
+    expect(jumpStep({ ...base, maxPages: MAX_JUMP_PAGES, pagesTried: 39 })).toBe('load');
+    expect(jumpStep({ ...base, maxPages: MAX_JUMP_PAGES, pagesTried: 40 })).toBe('too-far');
+    expect(jumpNotice('too-far')).toBe('That message is further back than the app loads. Scroll up to find it, or search on the website.');
+    expect(jumpNotice('gone')).toBe('That message isn’t in this conversation any more.');
+    expect(jumpNotice('failed')).toBe('Couldn’t load older messages to find it. Check your connection and try again.');
   });
 });
 

@@ -39,7 +39,7 @@ import { NO_PREFS, receiptState } from '../lib/chat-model';
 import { CHAT_MAX_LENGTH, connectionNote } from '../lib/chat-outbox';
 import { newestPageOnly, threadMessages, type ThreadPages } from '../lib/chat-thread';
 import { rowIndexOf, threadRows, unreadAfterOf, type ThreadMessage, type ThreadRow } from '../lib/chat-timeline';
-import { jumpStep } from '../lib/chat-jump';
+import { jumpNotice, jumpStep, MAX_JUMP_PAGES } from '../lib/chat-jump';
 import { conversationSubtitle, memberRows, pickedFile, receiptText } from '../lib/chat-ui';
 import { threadKey } from '../lib/chat-cache';
 import { isSafeId } from '../lib/ids';
@@ -49,8 +49,6 @@ import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiChatAttachment, ApiDirectoryUser, ConversationPrefs, ReactionGroup, ReplyQuote } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
 
-/** Older pages a jump to a message (a search result, a reply's quote) may load before giving up. */
-const MAX_JUMP_PAGES = 10;
 /** How long a message jumped to stays marked. */
 const HIGHLIGHT_MS = 2500;
 
@@ -267,7 +265,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
       void messagesQ.fetchNextPage();
     } else {
       setJump(null);
-      notice(step === 'failed' ? 'Couldn’t load older messages to find it. Check your connection and try again.' : 'That message isn’t in this conversation any more.');
+      notice(jumpNotice(step));
     }
   }, [jump, rows, messagesQ]);
   useEffect(() => {

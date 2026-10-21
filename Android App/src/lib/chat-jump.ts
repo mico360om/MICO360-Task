@@ -4,14 +4,24 @@
  * cancel it), and not again once an older page couldn't be loaded (offline: say so, don't retry in
  * a loop and then claim the message is gone). Pure, so it is tested here.
  */
-export type JumpStep = 'show' | 'wait' | 'load' | 'failed' | 'gone';
+export type JumpStep = 'show' | 'wait' | 'load' | 'failed' | 'gone' | 'too-far';
+
+/** Older pages a jump may load before giving up: as far back as the website looks (40 pages of 50). */
+export const MAX_JUMP_PAGES = 40;
 
 export function jumpStep(s: { found: boolean; fetching: boolean; nextPageError: boolean; hasNextPage: boolean; pagesTried: number; maxPages: number }): JumpStep {
   if (s.found) return 'show';
   if (s.fetching) return 'wait';
   if (s.nextPageError) return 'failed';
-  if (s.hasNextPage && s.pagesTried < s.maxPages) return 'load';
+  if (s.hasNextPage) return s.pagesTried < s.maxPages ? 'load' : 'too-far';
   return 'gone';
+}
+
+/** What the thread says when a jump can’t show the message. */
+export function jumpNotice(step: 'failed' | 'gone' | 'too-far'): string {
+  if (step === 'failed') return 'Couldn’t load older messages to find it. Check your connection and try again.';
+  if (step === 'too-far') return 'That message is further back than the app loads. Scroll up to find it, or search on the website.';
+  return 'That message isn’t in this conversation any more.';
 }
 
 /**
