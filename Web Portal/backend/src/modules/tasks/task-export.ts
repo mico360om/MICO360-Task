@@ -4,7 +4,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 import { PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn } from '../../lib/pdf-document';
-import { isolate, layoutText, type StyledRun } from '../../lib/pdf-text';
+import { isolate, layoutText, lineBox, type StyledRun } from '../../lib/pdf-text';
 import { printableAsStored, printableImage } from '../../lib/pdf-image';
 import type { XlsxSheet } from '../../lib/xlsx-writer';
 import { BRAND, formatDateTime, formatDay, priorityLabel, wallClock } from '../../lib/export-format';
@@ -346,6 +346,11 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
 
   const none = (text: string) => doc.text(text, { size: 9.5, color: MUTED, gap: 2 });
   const note = (text: string, gap = 3) => doc.text(text, { size: 9, color: MUTED, gap });
+  // Each section heading is kept on the page with its note and the first thing under it (a
+  // paragraph's first two lines, a picture row, a table's header and first row), never left alone
+  // at the bottom of a page; these measure them.
+  const noteHeight = (text: string, gap = 3) => doc.textHeight(text, { size: 9, gap });
+  const opening = (text: string, size: number) => Math.min(doc.textHeight(text, { size }), lineBox(null, size).height * 2);
 
   // Details: everything the cards above don't show.
   doc.heading('Details', { keepWith: 90 });
@@ -372,78 +377,88 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   );
 
   // Description: each paragraph in its own direction.
-  doc.heading('Description', { keepWith: 30 });
   const description = t.description?.replace(/\r\n?/g, '\n').trim();
-  if (description) for (const para of description.split('\n')) doc.text(para, { size: 10 });
+  const paragraphs = description ? description.split('\n') : [];
+  doc.heading('Description', { keepWith: paragraphs.length ? opening(paragraphs[0]!, 10) : 0 });
+  if (paragraphs.length) for (const para of paragraphs) doc.text(para, { size: 10 });
   else none('No description.');
 
   // Checklist: drawn boxes, ticked when done; long items wrap in full.
-  doc.heading('Checklist', { keepWith: 40 });
+  const checked = `${t.checklist.filter((c) => c.done).length} of ${t.checklist.length} done`;
+  doc.heading('Checklist', { keepWith: t.checklist.length ? noteHeight(checked) + opening(t.checklist[0]!.text, 10) : 0 });
   if (t.checklist.length === 0) none('No checklist items.');
   else {
-    note(`${t.checklist.filter((c) => c.done).length} of ${t.checklist.length} done`);
+    note(checked);
     for (const c of t.checklist) doc.checkItem(c.text, c.done, { size: 10 });
   }
 
-  // Comments: each reply under the comment it answers, a step further in; @mentions in bold.
-  doc.heading('Comments', { keepWith: 40 });
+  // Comments: each reply under the comment it answers, a step further in; @mentions in bold. A
+  // comment's name line starts on the same page as its first lines.
+  const commentStart = 34;
+  doc.heading('Comments', { keepWith: t.comments.length ? commentStart : 0 });
   if (t.comments.length === 0) none('No comments yet.');
   for (const { comment: c, depth } of commentThreads(t.comments)) {
     const inset = Math.min(depth, 3) * 18;
     const bar = depth > 0 ? THREAD : undefined;
-    doc.keepTogether(34);
+    doc.keepTogether(commentStart);
     doc.text(`${isolate(c.author)} · ${formatDateTime(c.at, tz)}${c.edited ? ' · edited' : ''}`, { size: 8.5, bold: true, color: MUTED, inset, bar, direction: 'ltr' });
     doc.styledText(commentRuns(c.body, t.mentionable), { size: 10, inset, bar, gap: 6 });
   }
 
   // Attachments: the first pictures as thumbnails, three to a row; everything else listed.
-  doc.heading('Attachments', { keepWith: 60 });
+  const shown: GridPicture[] = [];
+  const listed: string[][] = [];
+  for (const a of t.attachments) {
+    const image = a.picture && shown.length < MAX_PICTURES ? doc.prepareImage(a.picture) : null;
+    if (image) {
+      shown.push({ image, caption: a.filename });
+      continue;
+    }
+    const failed = a.picture === null || (a.picture !== undefined && shown.length < MAX_PICTURES);
+    listed.push([failed ? `${a.filename} (picture could not be shown)` : a.filename, formatSize(a.sizeBytes), a.uploadedBy, formatDateTime(a.uploadedAt, tz)]);
+  }
+  const fileCols: TableColumn[] = [{ header: 'File' }, { header: 'Size', align: 'right' }, { header: 'Added by' }, { header: 'Added' }];
+  const files = `${plural(t.attachments.length, 'file')}${shown.length ? ` · ${plural(shown.length, 'picture')} shown` : ''}`;
+  const firstFiles = shown.length ? doc.imageGridFirstRowHeight(shown) : doc.tableHeight(fileCols, listed, { size: 9, wide: 0, firstRows: 1 });
+  doc.heading('Attachments', { keepWith: t.attachments.length ? noteHeight(files, 6) + firstFiles : 0 });
   if (t.attachments.length === 0) none('No attachments.');
   else {
-    const shown: GridPicture[] = [];
-    const listed: string[][] = [];
-    for (const a of t.attachments) {
-      const image = a.picture && shown.length < MAX_PICTURES ? doc.prepareImage(a.picture) : null;
-      if (image) {
-        shown.push({ image, caption: a.filename });
-        continue;
-      }
-      const failed = a.picture === null || (a.picture !== undefined && shown.length < MAX_PICTURES);
-      listed.push([failed ? `${a.filename} (picture could not be shown)` : a.filename, formatSize(a.sizeBytes), a.uploadedBy, formatDateTime(a.uploadedAt, tz)]);
-    }
-    note(`${plural(t.attachments.length, 'file')}${shown.length ? ` · ${plural(shown.length, 'picture')} shown` : ''}`, 6);
+    note(files, 6);
     doc.imageGrid(shown);
     if (listed.length) {
-      const cols: TableColumn[] = [{ header: 'File' }, { header: 'Size', align: 'right' }, { header: 'Added by' }, { header: 'Added' }];
-      if (shown.length) doc.subheading('Other files', { topGap: 2, keepWith: doc.tableHeight(cols, listed.slice(0, 2), { size: 9, wide: 0 }) });
-      doc.table(cols, listed, { size: 9, wide: 0 });
+      if (shown.length) doc.subheading('Other files', { topGap: 2, keepWith: doc.tableHeight(fileCols, listed, { size: 9, wide: 0, firstRows: 2 }) });
+      doc.table(fileCols, listed, { size: 9, wide: 0 });
     }
   }
 
-  // Dependencies: what this task waits for, and what waits for it.
-  doc.heading('Dependencies', { keepWith: 50 });
-  if (t.blockedBy.length === 0 && t.blocks.length === 0) none('No dependencies.');
+  // Dependencies: what this task waits for, and what waits for it. The title comes last and takes
+  // the spare width, so an Arabic title ends at the page's edge.
+  const linkCols: TableColumn[] = [{ header: 'Task' }, { header: 'Status' }, { header: 'Title' }];
+  const sides = [
+    { label: 'Blocked by', rows: t.blockedBy.map((d) => [d.key, d.status, d.title]), empty: 'Nothing blocks this task.' },
+    { label: 'Blocks', rows: t.blocks.map((d) => [d.key, d.status, d.title]), empty: 'No other task waits for this one.' },
+  ].map((s) => ({ ...s, keep: { topGap: 4, keepWith: s.rows.length ? doc.tableHeight(linkCols, s.rows, { size: 9, wide: 2, firstRows: 3 }) : 16 } }));
+  const anyLinks = sides.some((s) => s.rows.length > 0);
+  doc.heading('Dependencies', { keepWith: anyLinks ? doc.subheadingRoom(sides[0]!.keep) : 0 });
+  if (!anyLinks) none('No dependencies.');
   else {
-    // The title comes last and takes the spare width, so an Arabic title ends at the page's edge.
-    const cols: TableColumn[] = [{ header: 'Task' }, { header: 'Status' }, { header: 'Title' }];
-    const side = (label: string, list: TaskExportData['blocks'], empty: string) => {
-      const tableRows = list.map((d) => [d.key, d.status, d.title]);
-      doc.subheading(label, { topGap: 4, keepWith: tableRows.length ? doc.tableHeight(cols, tableRows.slice(0, 3), { size: 9, wide: 2 }) : 16 });
-      if (tableRows.length) doc.table(cols, tableRows, { size: 9, wide: 2 });
-      else none(empty);
-    };
-    side('Blocked by', t.blockedBy, 'Nothing blocks this task.');
-    side('Blocks', t.blocks, 'No other task waits for this one.');
+    for (const side of sides) {
+      doc.subheading(side.label, side.keep);
+      if (side.rows.length) doc.table(linkCols, side.rows, { size: 9, wide: 2 });
+      else none(side.empty);
+    }
   }
 
   // Activity: the latest changes, newest first.
-  doc.heading('Activity', { keepWith: 50 });
-  if (t.activity.length === 0) none('No activity yet.');
+  const latest = [...t.activity].reverse().sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, MAX_ACTIVITY);
+  const changeCols: TableColumn[] = [{ header: 'When' }, { header: 'Who' }, { header: 'What' }];
+  const changes = latest.map((a) => [formatDateTime(a.at, tz), a.who, describeActivity(a.action, a.meta)]);
+  doc.heading('Activity', { keepWith: changes.length ? noteHeight('Newest first') + doc.tableHeight(changeCols, changes, { size: 9, wide: 2, firstRows: 1 }) : 0 });
+  if (changes.length === 0) none('No activity yet.');
   else {
-    const latest = [...t.activity].reverse().sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, MAX_ACTIVITY);
     const earlier = Math.max(t.activityTotal ?? 0, t.activity.length) - latest.length;
     note('Newest first');
-    doc.table([{ header: 'When' }, { header: 'Who' }, { header: 'What' }], latest.map((a) => [formatDateTime(a.at, tz), a.who, describeActivity(a.action, a.meta)]), { size: 9, wide: 2 });
+    doc.table(changeCols, changes, { size: 9, wide: 2 });
     if (earlier > 0) doc.spacer(4).text(`${plural(earlier, 'earlier change')} not shown`, { size: 9, color: MUTED });
   }
   return doc.build();

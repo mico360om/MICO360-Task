@@ -434,6 +434,19 @@ export class PdfDocument {
     return this;
   }
 
+  /** The room subheading() with these options keeps together (its gap, its line and what it keeps with it): a heading above it keeps this much. */
+  subheadingRoom(options: { topGap?: number; keepWith?: number } = {}): number {
+    return (options.topGap ?? 10) + 11 * 1.6 + Math.max(28, options.keepWith ?? 0);
+  }
+
+  /** The height text() would take for this paragraph (its gap included), in points. */
+  textHeight(content: string, options: TextOptions = {}): number {
+    const size = options.size ?? 10.5;
+    const width = this.contentWidth - (options.inset ?? 0) - (options.indent ?? 0);
+    const lines = layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family });
+    return lines.reduce((h, ln) => h + lineBox(ln, size).height, 0) + (options.gap ?? 0);
+  }
+
   /**
    * "Label: value" pairs in two columns, each with its own label width; values wrap within their
    * column. Kept together on one page.
@@ -572,12 +585,7 @@ export class PdfDocument {
    * under it, wrapped in full. A row is kept whole on one page. Pictures must come from prepareImage.
    */
   imageGrid(items: GridPicture[], options: { columns?: number; height?: number } = {}): this {
-    const cols = options.columns ?? 3;
-    const gap = 12;
-    const w = (this.contentWidth - gap * (cols - 1)) / cols;
-    const h = options.height ?? Math.round(w * 0.72);
-    const size = 8;
-    const capBox = lineBox(null, size, true);
+    const { cols, gap, w, h, size, capBox } = this.gridLayout(options);
     for (let r = 0; r < items.length; r += cols) {
       const row = items.slice(r, r + cols);
       const captions = row.map((it) => layoutText(it.caption, { size, maxWidth: w }));
@@ -594,6 +602,23 @@ export class PdfDocument {
       this.y = top + rowH + gap;
     }
     return this;
+  }
+
+  /** The height of imageGrid()'s first row of these pictures (0 for none): a heading above the grid keeps this much. */
+  imageGridFirstRowHeight(items: Pick<GridPicture, 'caption'>[], options: { columns?: number; height?: number } = {}): number {
+    if (items.length === 0) return 0;
+    const { cols, w, h, size, capBox } = this.gridLayout(options);
+    const lines = items.slice(0, cols).map((it) => layoutText(it.caption, { size, maxWidth: w }).length);
+    return h + 4 + Math.max(...lines) * capBox.height;
+  }
+
+  private gridLayout(options: { columns?: number; height?: number }) {
+    const cols = options.columns ?? 3;
+    const gap = 12;
+    const w = (this.contentWidth - gap * (cols - 1)) / cols;
+    const h = options.height ?? Math.round(w * 0.72);
+    const size = 8;
+    return { cols, gap, w, h, size, capBox: lineBox(null, size, true) };
   }
 
   /** A section heading: bold, slightly larger, with a hairline rule beneath. Kept with what follows it. */
@@ -958,11 +983,14 @@ export class PdfDocument {
     return this;
   }
 
-  /** The height a table would take if drawn now on one page (header + every row), in points. */
-  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number; wide?: number } = {}): number {
+  /**
+   * The height a table would take if drawn now on one page (header + every row, or just its first
+   * `firstRows` rows — columns sized from all of them, as table() sizes them), in points.
+   */
+  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number; wide?: number; firstRows?: number } = {}): number {
     if (columns.length === 0) return 0;
     const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide);
-    return header.height + body.reduce((s, r) => s + r.height, 0);
+    return header.height + body.slice(0, options.firstRows ?? body.length).reduce((s, r) => s + r.height, 0);
   }
 
   private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number, wide?: number) {

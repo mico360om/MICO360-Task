@@ -349,3 +349,40 @@ describe('PdfDocument — nested and formatted text, checklists, pictures', () =
     expect(inspectPdf(doc.build()).pages[0]).toContain('Still fine');
   });
 });
+
+describe('PdfDocument — measuring what follows a heading', () => {
+  // How far down the page a block moved the cursor.
+  const drop = (doc: PdfDocument, draw: () => void) => {
+    const before = doc.remaining;
+    draw();
+    return before - doc.remaining;
+  };
+
+  it('measures a paragraph as text() draws it, wrapped lines and Arabic lines included', () => {
+    const doc = new PdfDocument();
+    const long = 'A long paragraph that wraps over more than one line of the page, so its height is that of several lines. '.repeat(3);
+    for (const [content, options] of [['One line', { size: 9, gap: 3 }], [long, { size: 10 }], ['سطر باللغة العربية', { size: 10 }]] as const) {
+      const expected = doc.textHeight(content, options);
+      expect(drop(doc, () => doc.text(content, options)), content).toBeCloseTo(expected, 5);
+    }
+    expect(doc.textHeight(long, { size: 10 })).toBeGreaterThan(doc.textHeight('One line', { size: 10 }) * 2);
+  });
+
+  it('measures the first row of a picture grid, and a table’s header with its first rows', async () => {
+    const sharp = (await import('sharp')).default;
+    const doc = new PdfDocument();
+    const image = doc.prepareImage(await sharp({ create: { width: 40, height: 30, channels: 3, background: '#336699' } }).jpeg().toBuffer())!;
+    const items = [{ image, caption: 'a-caption-long-enough-to-wrap-onto-a-second-line-under-its-picture.jpg' }, { image, caption: 'b.jpg' }];
+    expect(drop(doc, () => doc.imageGrid(items))).toBeCloseTo(doc.imageGridFirstRowHeight(items) + 12, 5); // + the gap under the row
+    expect(doc.imageGridFirstRowHeight([])).toBe(0);
+    const cols = [{ header: 'When' }, { header: 'What' }];
+    const rows = [['1 Oct', 'Short'], ['2 Oct', 'A much longer cell that sets how wide the column is drawn']];
+    expect(doc.tableHeight(cols, rows, { firstRows: 1 })).toBeLessThan(doc.tableHeight(cols, rows));
+    expect(drop(doc, () => doc.table(cols, rows))).toBeCloseTo(doc.tableHeight(cols, rows), 5);
+  });
+
+  it('says how much room a subheading keeps together, so a heading above it can keep it too', () => {
+    expect(new PdfDocument().subheadingRoom({ topGap: 4, keepWith: 60 })).toBeCloseTo(4 + 11 * 1.6 + 60, 5);
+    expect(new PdfDocument().subheadingRoom({ topGap: 4 })).toBeCloseTo(4 + 11 * 1.6 + 28, 5);
+  });
+});

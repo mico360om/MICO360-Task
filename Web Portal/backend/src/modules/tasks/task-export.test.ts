@@ -444,6 +444,57 @@ describe('taskPdf: flow', () => {
     expect(all.some((t) => /^Page 1 of \d+$/.test(t))).toBe(true);
   });
 
+  it('never leaves a section heading at the bottom of a page: each keeps its note and the first thing under it, whatever the description’s length', async () => {
+    const picture = await photo(60, 40);
+    const at = new Date('2026-09-29T08:20:00Z');
+    const later = new Date('2026-09-29T09:20:00Z');
+    const blocker = { id: 't2', key: 'MICO-2', title: 'blocker title', status: 'To do' };
+    const waiting = { id: 't3', key: 'MICO-3', title: 'waiting title', status: 'To do' };
+    const created = { at, who: 'Aisha Khan', action: 'CREATED', meta: null };
+    // Three shapes of task: a picture and a blocker (the review's); a picture with other files, a
+    // waiting task and two changes; files only, with both kinds of dependency. Each section heading
+    // must share its page with the first thing under it.
+    const shapes: Array<{ over: Partial<TaskExportData>; keep: Array<[string, RegExp]> }> = [
+      {
+        over: { attachments: [file('pic-one.jpg', { picture })], blockedBy: [blocker], blocks: [], activity: [created] },
+        keep: [['Attachments', /^pic-one\.jpg$/], ['Dependencies', /^blocker title$/], ['Blocks', /^No other task waits for this one\.$/], ['Activity', /^Created this task$/]],
+      },
+      {
+        over: { attachments: [file('pic-one.jpg', { picture }), file('notes.xlsx')], blockedBy: [], blocks: [waiting], activity: [created, { at: later, who: 'Omar Ahmed', action: 'COMMENTED', meta: null }] },
+        keep: [['Attachments', /^pic-one\.jpg$/], ['Other files', /^notes\.xlsx$/], ['Dependencies', /^Nothing blocks this task\.$/], ['Blocks', /^waiting title$/], ['Activity', /^Commented$/]],
+      },
+      {
+        over: { attachments: [file('notes.xlsx'), file('plan.xlsx')], blockedBy: [blocker], blocks: [waiting], activity: [created] },
+        keep: [['Attachments', /^notes\.xlsx$/], ['Dependencies', /^blocker title$/], ['Blocks', /^waiting title$/], ['Activity', /^Created this task$/]],
+      },
+    ];
+    const always: Array<[string, RegExp]> = [
+      ['Description', /^Line 0$/],
+      ['Checklist', /^first item$/],
+      ['Comments', /^comment body one$/],
+    ];
+    const stranded: string[] = [];
+    for (const [s, shape] of shapes.entries()) {
+      // A page holds about 50 description lines, so this moves every heading across a page's bottom.
+      for (let n = 1; n <= 56; n++) {
+        const t = task({
+          title: 'A task',
+          description: Array.from({ length: n }, (_, i) => `Line ${i}`).join('\n'),
+          checklist: [{ text: 'first item', done: false }, { text: 'second item', done: true }],
+          comments: [{ id: 'c1', parentId: null, author: 'Omar Ahmed', at, body: 'comment body one', edited: false }],
+          ...shape.over,
+        });
+        const { pages } = inspectPdf(taskPdf(t, ctx));
+        const pageOf = (re: RegExp) => pages.findIndex((p) => p.some((l) => re.test(l)));
+        for (const [heading, first] of [...always, ...shape.keep]) {
+          const h = pageOf(new RegExp(`^${heading}$`));
+          if (h < 0 || h !== pageOf(first)) stranded.push(`shape ${s + 1}, ${n} lines: ${heading} on page ${h + 1}, what follows on page ${pageOf(first) + 1}`);
+        }
+      }
+    }
+    expect(stranded).toEqual([]);
+  }, 120_000);
+
   it('says when a list is empty', () => {
     const text = textOf(taskPdf(task({ description: null, checklist: [], comments: [], attachments: [], blockedBy: [], activity: [] }), ctx));
     for (const t of ['No description.', 'No checklist items.', 'No comments yet.', 'No attachments.', 'No dependencies.', 'No activity yet.']) expect(text, t).toContain(t);
