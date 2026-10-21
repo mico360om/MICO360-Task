@@ -85,3 +85,42 @@ describe('Activity routes — object-level scope', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/activity' })).statusCode).toBe(401);
   });
 });
+
+describe('Activity routes — a blocker is named only to someone who can open it', () => {
+  // t1 (in p1) got two blockers: OPS-2, which u1 can open, and FIN-12, in a project u1 isn't on.
+  const blockerRows: ActivityRecord[] = [
+    { id: 'b1', taskId: 't1', projectId: 'p1', userId: 'u2', action: 'BLOCKER_ADDED', meta: { dependsOnTaskId: 'open-task', key: 'OPS-2', title: 'Order the parts' }, createdAt: new Date() },
+    { id: 'b2', taskId: 't1', projectId: 'p1', userId: 'u2', action: 'BLOCKER_ADDED', meta: { dependsOnTaskId: 'hidden-task', key: 'FIN-12', title: 'Q4 payroll cuts' }, createdAt: new Date() },
+    { id: 'b3', taskId: 't1', projectId: 'p1', userId: 'u2', action: 'BLOCKER_REMOVED', meta: { dependsOnTaskId: 'hidden-task', key: 'FIN-12', title: 'Q4 payroll cuts' }, createdAt: new Date() },
+  ];
+  const blockerApp = () =>
+    buildApp({
+      authService: createAuthService({
+        users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+        maxAttempts: 5,
+      }),
+      tokenService,
+      activityService: createActivityService({
+        activities: { ...activities, async listForTask(taskId) { return blockerRows.filter((r) => r.taskId === taskId); }, async listRecent() { return blockerRows; } },
+      }),
+      projectAccess: { ...projectAccess, async canViewTask(userId: string, roles: string[], taskId: string) { return roles.includes('ADMIN') || taskId !== 'hidden-task'; } },
+    });
+  const names = (data: Array<{ id: string; meta: Record<string, unknown> | null }>) => data.map((r) => [r.id, r.meta?.key ?? null, r.meta?.title ?? null]);
+
+  it('on a task’s timeline', async () => {
+    const res = await (await blockerApp()).inject({ method: 'GET', url: '/api/v1/tasks/t1/activity', headers: await tokenFor('u1', ['EMPLOYEE']) });
+    expect(res.statusCode).toBe(200);
+    expect(names(res.json().data)).toEqual([['b1', 'OPS-2', 'Order the parts'], ['b2', null, null], ['b3', null, null]]);
+    expect(JSON.stringify(res.json().data)).not.toContain('hidden-task');
+  });
+
+  it('in the activity feed', async () => {
+    const res = await (await blockerApp()).inject({ method: 'GET', url: '/api/v1/activity', headers: await tokenFor('u1', ['EMPLOYEE']) });
+    expect(names(res.json().data)).toEqual([['b1', 'OPS-2', 'Order the parts'], ['b2', null, null], ['b3', null, null]]);
+  });
+
+  it('an admin, who can open every task, sees every name', async () => {
+    const res = await (await blockerApp()).inject({ method: 'GET', url: '/api/v1/tasks/t1/activity', headers: await tokenFor('admin', ['ADMIN']) });
+    expect(names(res.json().data)).toEqual([['b1', 'OPS-2', 'Order the parts'], ['b2', 'FIN-12', 'Q4 payroll cuts'], ['b3', 'FIN-12', 'Q4 payroll cuts']]);
+  });
+});

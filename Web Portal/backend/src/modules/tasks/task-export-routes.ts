@@ -3,6 +3,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { buildXlsx, XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
 import { BRAND, fileSlug } from '../../lib/export-format';
 import { readProjectPicture } from '../../lib/pdf-image';
+import { withoutHiddenBlockers } from '../activity/hidden-blockers';
 import { taskPdf, taskSheets, withPictures, type TaskExportData, type TaskExportLink, type TaskExportSource } from './task-export';
 
 export interface TaskExportRouteDeps {
@@ -46,7 +47,9 @@ async function asSeenBy(data: TaskExportData, user: { id: string; roles?: string
     batch.forEach((taskId, j) => seen[j] && open.add(taskId));
   }
   const visible = (list: TaskExportLink[]) => list.filter((d) => open.has(d.id));
-  return { ...data, meeting, blockedBy: visible(data.blockedBy), blocks: visible(data.blocks) };
+  // The activity names a blocker only to someone who can open it, as the task's timeline does.
+  const activity = await withoutHiddenBlockers(data.activity, (taskId) => (open.has(taskId) ? Promise.resolve(true) : canView(user.id, roles, taskId)));
+  return { ...data, meeting, blockedBy: visible(data.blockedBy), blocks: visible(data.blocks), activity };
 }
 
 /** The task with what only its PDF shows: the project's picture and the task's own pictures. */

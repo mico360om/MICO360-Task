@@ -217,6 +217,29 @@ describe('Task export routes', () => {
     expect(canViewTask.mock.calls.map((c) => c[2]).sort()).toEqual(['t1', 't1', 't2', 't2', 't3', 't3', 't4', 't4']);
   });
 
+  it('names a blocker in the activity only to a reader who can open it, in the PDF and the workbook', async () => {
+    const at = new Date('2026-09-02T06:00:00Z');
+    const withBlockers: TaskExportData = {
+      ...data,
+      activity: [
+        { at, who: 'Omar Ahmed', action: 'BLOCKER_ADDED', meta: { dependsOnTaskId: 't2', key: 'HR-2', title: 'Hidden salary review' } },
+        { at, who: 'Omar Ahmed', action: 'BLOCKER_ADDED', meta: { dependsOnTaskId: 't3', key: 'RIG-3', title: 'Order the parts' } },
+      ],
+    };
+    const open = new Set(['t1', 't3']);
+    const app = await makeApp({ task: withBlockers, extra: { canViewTask: async (_u: string, _r: string[], taskId: string) => open.has(taskId) } });
+
+    const text = inspectPdf((await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' })).rawPayload).pages.flat().join(' ');
+    expect(text).toContain('Added a blocker');
+    expect(text).toContain('Order the parts');
+    for (const hidden of ['HR-2', 'Hidden salary review']) expect(text, hidden).not.toContain(hidden);
+
+    const { sheets, text: cells } = inspectXlsx((await app.inject({ method: 'GET', url: '/tasks/t1/export.xlsx' })).rawPayload);
+    const activity = cells[sheets.indexOf('Activity')]!.join(' ');
+    expect(activity).toContain('Added a blocker');
+    for (const hidden of ['HR-2', 'Hidden salary review']) expect(activity, hidden).not.toContain(hidden);
+  });
+
   it('hides tasks the user cannot see (404), like opening the task', async () => {
     const app = await makeApp({ canView: false });
     expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' })).statusCode).toBe(404);
