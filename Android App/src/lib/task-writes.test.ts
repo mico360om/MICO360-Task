@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createTaskWrites, noteReplayed, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
+import { createTaskWrites, markReloaded, noteReplayed, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
 import type { QueuedMutation } from './sync-queue';
 import type { ApiTask } from './types';
 
@@ -196,5 +196,33 @@ describe('noteReplayed — a replayed edit or move of this phone’s is its own 
     noteReplayed(writes, m('task.update', { id: 't3', patch: {} }), undefined);
     expect(writes.expectedVersion('t2', 1)).toBe(1);
     expect(writes.expectedVersion('t3', 2)).toBe(2);
+  });
+
+  // 2c review fix 2: a replay refused as a conflict that the task already holds is answered by the
+  // reloaded task — whose version may be a colleague's later edit, not this phone's.
+  it('never takes a reloaded task’s version as this phone’s own when someone else changed it since', () => {
+    const writes = createTaskWrites();
+    const m = (payload: unknown) => ({ id: 'q', kind: 'task.update', payload, createdAt: 0, userId: 'u1', idempotencyKey: 'k', attempts: 0, status: 'pending' as const });
+    // This phone's edit (against 5) made 6; a colleague then made 7. The reload shows 7.
+    noteReplayed(writes, m({ id: 't1', patch: { title: 'B', expectedVersion: 5 } }), markReloaded({ id: 't1', title: 'B', version: 7 }));
+    // The next edit goes against the version the screen loaded, so the colleague's change is seen.
+    expect(writes.expectedVersion('t1', 5)).toBe(5);
+    // Nobody changed it since this phone's own save (6 = 5 + 1): that version is this phone's.
+    noteReplayed(writes, m({ id: 't2', patch: { title: 'B', expectedVersion: 5 } }), markReloaded({ id: 't2', title: 'B', version: 6 }));
+    expect(writes.expectedVersion('t2', 5)).toBe(6);
+  });
+});
+
+describe('rebaseQueuedVersion — never onto a colleague’s version (2c review fix 2)', () => {
+  it('leaves a later edit alone when the replay was answered by a reload that holds someone else’s later version', () => {
+    const done = item('task.update', { id: 't1', patch: { priority: 'HIGH', expectedVersion: 5 } }, 'done');
+    // This phone loaded its own 6 and edited against it; a colleague made 7 meanwhile.
+    const later = item('task.update', { id: 't1', patch: { title: 'B', expectedVersion: 6 } }, 'later');
+    expect(rebaseQueuedVersion(done, markReloaded({ id: 't1', version: 7 }), later)).toBe(later);
+    // A reload that shows only this phone's own save (6) still moves a later edit on.
+    const after5 = item('task.update', { id: 't1', patch: { title: 'B', expectedVersion: 5 } }, 'later');
+    expect(rebaseQueuedVersion(done, markReloaded({ id: 't1', version: 6 }), after5)).toEqual(
+      item('task.update', { id: 't1', patch: { title: 'B', expectedVersion: 6 } }, 'later'),
+    );
   });
 });

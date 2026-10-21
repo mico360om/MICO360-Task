@@ -4,7 +4,7 @@ import { queueOnOffline, writeOrder, type Keyed } from './queries';
 import { isNetworkError } from '../lib/api-client';
 import { sendInOrder } from '../lib/write-order';
 import { noteTaskFailure } from '../lib/meeting-parts';
-import { inviteTry, minutesTry, pendingKeys, sendKept, tryName } from '../lib/pending-keys';
+import { agendaTry, attendeeTry, inviteTry, minutesTry, pendingKeys, sendKept, settleRemovedAgenda, settleRemovedAttendee, tryName, type InviteContent } from '../lib/pending-keys';
 import { refresh } from '../lib/refresh';
 import { afterMeetingSaved, afterPartChanged, dropRow, patchRow, putRow } from '../lib/meeting-cache';
 import type { SaveRequest } from '../lib/meeting-form';
@@ -68,9 +68,13 @@ export function useMeetingActions(meetingId: string) {
     onSuccess: (saved, scope) => afterMeetingSaved(qc, saved, { scope }),
   });
   // A copy whose try got no answer keeps its key (settled by the write itself), so tapping again
-  // can't make a second copy (pending-keys).
+  // soon after can't make a second copy; a deliberate copy later, or of the changed meeting, is a
+  // new one (pending-keys).
   const duplicate = useMutation({
-    mutationFn: () => sendKept(pendingKeys, tryName('duplicate', meetingId), (idempotencyKey) => resources.meetings.duplicate(meetingId, { idempotencyKey })),
+    mutationFn: () => {
+      const changed = qc.getQueryData<ApiMeeting>(['meeting', meetingId])?.updatedAt ?? null;
+      return sendKept(pendingKeys, tryName('duplicate', meetingId, changed), (idempotencyKey) => resources.meetings.duplicate(meetingId, { idempotencyKey }));
+    },
     onSuccess: (copy) => afterMeetingSaved(qc, copy, {}),
   });
   // The screen closes first, then drops the meeting's data (afterMeetingDeleted).
@@ -89,7 +93,7 @@ export function useAttendeeMutations(meetingId: string) {
   // A try that got no answer keeps its key, so tapping again can't add them twice (pending-keys).
   const add = useMutation({
     mutationFn: ({ input }: { input: AttendeeInput }) =>
-      sendKept(pendingKeys, tryName('attendee', meetingId, input), (idempotencyKey) => resources.meetings.addAttendee(meetingId, input, { idempotencyKey })),
+      sendKept(pendingKeys, attendeeTry(meetingId, { ...input }), (idempotencyKey) => resources.meetings.addAttendee(meetingId, input, { idempotencyKey })),
     onSuccess: (row) => {
       putRow(qc, key, row);
       changed();
@@ -129,6 +133,9 @@ export function useAttendeeMutations(meetingId: string) {
   const remove = useMutation({
     mutationFn: (attendeeId: string) => resources.meetings.removeAttendee(meetingId, attendeeId),
     onSuccess: (_r, attendeeId) => {
+      // Adding them again later is a new add, not a kept try's stored reply (pending-keys).
+      const row = qc.getQueryData<ApiMeetingAttendee[]>(key)?.find((a) => a.id === attendeeId);
+      if (row) settleRemovedAttendee(pendingKeys, meetingId, row);
       dropRow(qc, key, attendeeId);
       changed();
     },
@@ -143,7 +150,7 @@ export function useInvitePreview(meetingId: string, enabled: boolean) {
 }
 
 /** Send the invitations (a draft is scheduled first, as on the website). Needs a connection. */
-export function useSendInvites(meeting: Pick<ApiMeeting, 'id' | 'status'>) {
+export function useSendInvites(meeting: InviteContent & Pick<ApiMeeting, 'status'>) {
   const { resources } = useServices();
   const qc = useQueryClient();
   return useMutation({
@@ -151,7 +158,8 @@ export function useSendInvites(meeting: Pick<ApiMeeting, 'id' | 'status'>) {
     // sending the same again can't email anyone twice (pending-keys; `emails` is who it goes to).
     mutationFn: async ({ opts, emails }: { opts: { onlyNew?: boolean; resend?: boolean }; emails: string[] }) => {
       if (meeting.status === 'DRAFT') afterMeetingSaved(qc, await resources.meetings.update(meeting.id, { status: 'SCHEDULED' }), {});
-      return sendKept(pendingKeys, inviteTry(meeting.id, opts, emails), (idempotencyKey) => resources.meetings.sendInvites(meeting.id, opts, { idempotencyKey }));
+      // Named by what the invitation says too: once the meeting is moved, sending again is a new send.
+      return sendKept(pendingKeys, inviteTry(meeting, opts, emails), (idempotencyKey) => resources.meetings.sendInvites(meeting.id, opts, { idempotencyKey }));
     },
     // Who was invited, and when invitations went out, changed.
     onSettled: () => refresh(qc, [{ queryKey: ['meeting', meeting.id], exact: true }, { queryKey: part(meeting.id, 'attendees'), exact: true }, { queryKey: ['meetings'], later: true }]),
@@ -168,7 +176,7 @@ export function useAgendaMutations(meetingId: string) {
   // A try that got no answer keeps its key, so tapping Add again can't add it twice (pending-keys).
   const add = useMutation({
     mutationFn: ({ input }: { input: AgendaItemInput }) =>
-      sendKept(pendingKeys, tryName('agenda', meetingId, input), (idempotencyKey) => resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey })),
+      sendKept(pendingKeys, agendaTry(meetingId, input), (idempotencyKey) => resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey })),
     onSuccess: (row) => putRow(qc, key, row),
   });
   const update = useMutation({
@@ -209,7 +217,12 @@ export function useAgendaMutations(meetingId: string) {
   });
   const remove = useMutation({
     mutationFn: (itemId: string) => resources.meetings.removeAgendaItem(meetingId, itemId),
-    onSuccess: (_r, itemId) => dropRow(qc, key, itemId),
+    onSuccess: (_r, itemId) => {
+      // Adding the same item again later is a new add, never a ghost of a kept try (pending-keys).
+      const row = qc.getQueryData<ApiAgendaItem[]>(key)?.find((i) => i.id === itemId);
+      if (row) settleRemovedAgenda(pendingKeys, meetingId, row);
+      dropRow(qc, key, itemId);
+    },
   });
   return { add, update, covered, reorder, remove };
 }
@@ -357,8 +370,9 @@ export function useSendMinutes(meetingId: string) {
   const { resources } = useServices();
   return useMutation({
     // The key of a send with no answer is kept until one comes — also after the sheet is closed and
-    // opened again — so "nobody gets it twice" holds (pending-keys; `emails` is who it goes to).
-    mutationFn: ({ recipients, emails }: { recipients: string[] | undefined; emails: string[] }) =>
-      sendKept(pendingKeys, minutesTry(meetingId, emails), (idempotencyKey) => resources.meetings.sendMinutes(meetingId, recipients, { idempotencyKey })),
+    // opened again — so "nobody gets it twice" holds (pending-keys; `emails` is who it goes to, and
+    // `version` which minutes: corrected minutes are a new send).
+    mutationFn: ({ recipients, emails, version }: { recipients: string[] | undefined; emails: string[]; version: string }) =>
+      sendKept(pendingKeys, minutesTry(meetingId, emails, version), (idempotencyKey) => resources.meetings.sendMinutes(meetingId, recipients, { idempotencyKey })),
   });
 }

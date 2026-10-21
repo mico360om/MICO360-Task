@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { performMutation, describeMutation, refreshesAfterReplay } from './perform-mutation';
+import { createTaskWrites, isReloaded, noteReplayed } from './task-writes';
 import { ApiError, NetworkError } from './api-client';
 import { moveRefreshes } from './task-cache';
 import type { ResourcesApi } from './resources';
@@ -109,6 +110,22 @@ describe('performMutation — a replayed edit that the server had already saved'
     (r.tasks as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn(async () => saved);
     // Resolves with the task as it is, so this phone's later edits move on to its version.
     await expect(performMutation(r, edit)).resolves.toBe(saved);
+  });
+
+  it('says its answer is the reloaded task, so its version is never taken as this phone’s own (2c review fix 2)', async () => {
+    const r = mockResources();
+    // This phone's save made 6; a colleague's edit made 7 — the reload shows 7.
+    const reloaded = { id: 't1', title: 'Ship it', dueDate: '2026-10-12T00:00:00.000Z', version: 7 };
+    r.tasks.update.mockRejectedValueOnce(conflict());
+    (r.tasks as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn(async () => reloaded);
+    const result = await performMutation(r, edit);
+    expect(isReloaded(result)).toBe(true);
+    const writes = createTaskWrites();
+    noteReplayed(writes, edit, result);
+    expect(writes.expectedVersion('t1', 5)).toBe(5);
+    // A replay that went through is the phone's own answer.
+    r.tasks.update.mockResolvedValueOnce({ id: 't1', version: 8 });
+    expect(isReloaded(await performMutation(r, edit))).toBe(false);
   });
 
   it('is still a conflict when the task holds something else (someone else changed it)', async () => {

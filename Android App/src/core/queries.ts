@@ -14,6 +14,7 @@ import { withAnswer } from '../lib/meeting-detail';
 import { findMeeting } from '../lib/meeting-screen';
 import { answerFailed, answerScope } from '../lib/meeting-cache';
 import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
+import { pendingKeys, settleShownAgenda, settleShownAttendees } from '../lib/pending-keys';
 import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-thread';
 import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
@@ -434,14 +435,32 @@ export function useMeeting(meetingId: string) {
   });
 }
 
+/** A meeting's people. Someone a timed-out add was trying to add is there: that try is done (pending-keys). */
 export function useMeetingAttendees(meetingId: string) {
   const { resources } = useServices();
-  return useQuery({ queryKey: ['meeting', meetingId, 'attendees'], queryFn: () => resources.meetings.attendees(meetingId), enabled: !!meetingId });
+  return useQuery({
+    queryKey: ['meeting', meetingId, 'attendees'],
+    queryFn: async () => {
+      const rows = await resources.meetings.attendees(meetingId);
+      if (Array.isArray(rows)) settleShownAttendees(pendingKeys, meetingId, rows);
+      return rows;
+    },
+    enabled: !!meetingId,
+  });
 }
 
+/** A meeting's agenda. An item a timed-out add was trying to add is there: that try is done (pending-keys). */
 export function useMeetingAgenda(meetingId: string) {
   const { resources } = useServices();
-  return useQuery({ queryKey: ['meeting', meetingId, 'agenda'], queryFn: () => resources.meetings.agenda(meetingId), enabled: !!meetingId });
+  return useQuery({
+    queryKey: ['meeting', meetingId, 'agenda'],
+    queryFn: async () => {
+      const rows = await resources.meetings.agenda(meetingId);
+      if (Array.isArray(rows)) settleShownAgenda(pendingKeys, meetingId, rows);
+      return rows;
+    },
+    enabled: !!meetingId,
+  });
 }
 
 export function useMeetingNotes(meetingId: string) {

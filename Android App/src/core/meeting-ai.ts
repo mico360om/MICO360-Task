@@ -4,7 +4,7 @@ import { useDebouncedValue } from './useDebounced';
 import { refresh } from '../lib/refresh';
 import { putRow } from '../lib/meeting-cache';
 import { addInTurn, readFreeTimes } from '../lib/meeting-ai';
-import { pendingKeys, sendKept, tryName } from '../lib/pending-keys';
+import { agendaTry, pendingKeys, sendKept } from '../lib/pending-keys';
 import type { AiAgendaItem, AiDraftAgendaInput, ApiAgendaItem, FreeTimesInput } from '../lib/types';
 
 /**
@@ -68,7 +68,7 @@ export function useAddDraftedAgenda(meetingId: string) {
     mutationFn: (items: AiAgendaItem[]) =>
       addInTurn(items, async (item) => {
         const input = { title: item.title.trim().slice(0, 300), ownerId: item.ownerId ?? null, expectedMinutes: item.minutes > 0 ? Math.min(600, Math.round(item.minutes)) : null };
-        const row = await sendKept(pendingKeys, tryName('agenda', meetingId, input), (idempotencyKey) => resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey }));
+        const row = await sendKept(pendingKeys, agendaTry(meetingId, input), (idempotencyKey) => resources.meetings.addAgendaItem(meetingId, input, { idempotencyKey }));
         if (row?.id) putRow<ApiAgendaItem>(qc, key, row);
         return row;
       }),

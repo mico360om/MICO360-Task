@@ -1,7 +1,7 @@
 import { ApiError, isNetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
-import { taskHoldsEdit } from './task-writes';
+import { markReloaded, taskHoldsEdit } from './task-writes';
 import { editRefreshes, moveRefreshes, MY_ACTION_ITEMS } from './task-cache';
 import type { Refresh } from './refresh';
 import type { ActionItemInput, ActionItemPatch, ApiTask, AttendanceStatus, NoteInput } from './types';
@@ -25,7 +25,8 @@ async function replayTaskEdit(resources: ResourcesApi, id: string, patch: Record
       if (isNetworkError(reloadError)) throw reloadError;
       throw e; // gone, or no longer yours to see: the conflict is what to show
     }
-    if (taskHoldsEdit(current, patch)) return current;
+    // Marked: its version may be someone else's later edit, never to be taken as this phone's own.
+    if (taskHoldsEdit(current, patch)) return markReloaded(current);
     throw e;
   }
 }

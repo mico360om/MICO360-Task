@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useInvitePreview, useMinutesPreview, useSendInvites, useSendMinutes } from '../../core/meeting-mutations';
+import { useFinalMinutes } from '../../core/queries';
+import { contentVersion } from '../../lib/pending-keys';
 import { ActionRowButton, CardChoice, CheckRow, Sheet, SheetButtons, SheetMessage, useSheetStyles } from './sheet-kit';
 import { inviteChoice, inviteFailure, inviteRequest, minutesChoice, sendFailure, sendSummary } from '../../lib/meeting-invites';
 
@@ -217,6 +219,8 @@ export function MinutesEmailSheet({
   const c = useColors();
   const previewQ = useMinutesPreview(meeting.id, visible);
   const send = useSendMinutes(meeting.id);
+  // Which minutes go: once they are corrected and approved again, sending is a new send (pending-keys).
+  const finalQ = useFinalMinutes(meeting.id);
   // Someone left out or put back is another send, with its own key (pending-keys).
   const [left, setLeft] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -236,7 +240,8 @@ export function MinutesEmailSheet({
     setError(null);
     // A send that got no answer keeps its key until one comes — also after this sheet is closed and
     // opened again — so "nobody gets it twice" holds (useSendMinutes, pending-keys).
-    send.mutate({ recipients: choice.recipients, emails: choice.chosen.map((r) => r.email) }, { onError: (e) => setError(sendFailure(e, 'Couldn’t email the minutes.')) });
+    const version = contentVersion(finalQ.data?.approvedAt, finalQ.data?.savedAt, `${preview?.subject ?? ''}\n${preview?.text ?? ''}`);
+    send.mutate({ recipients: choice.recipients, emails: choice.chosen.map((r) => r.email), version }, { onError: (e) => setError(sendFailure(e, 'Couldn’t email the minutes.')) });
   };
   const toggle = (email: string) =>
     setLeft((prev) => {

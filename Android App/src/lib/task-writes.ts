@@ -57,6 +57,36 @@ export function withExpectedVersion<P extends object>(patch: P, version: number 
 type TaskWritePayload = { id?: unknown; patch?: { expectedVersion?: unknown } };
 
 /**
+ * Replays answered by the task as reloaded (a conflict the task already held, perform-mutation) —
+ * not by this phone's own save. Its version may be a colleague's later edit (2c review).
+ */
+const reloaded = new WeakSet<object>();
+
+/** Mark a replay's answer as the reloaded task. */
+export function markReloaded<T extends object>(task: T): T {
+  reloaded.add(task);
+  return task;
+}
+
+/** Was this replay answered by the task as reloaded (rather than by this phone's own save)? */
+export function isReloaded(result: unknown): boolean {
+  return !!result && typeof result === 'object' && reloaded.has(result);
+}
+
+/**
+ * The version a replayed edit or move made, as far as this phone can be sure it is its own: the
+ * server's answer to its own save, or — for a reloaded task — only when nobody saved since this
+ * phone's edit (its version is the one the edit expected plus one). Otherwise none.
+ */
+function ownVersion(m: QueuedMutation, result: unknown): number | undefined {
+  const version = (result as { version?: unknown } | null | undefined)?.version;
+  if (typeof version !== 'number') return undefined;
+  if (!isReloaded(result)) return version;
+  const expected = (m.payload as TaskWritePayload | null)?.patch?.expectedVersion;
+  return typeof expected === 'number' && version === expected + 1 ? version : undefined;
+}
+
+/**
  * After a queued task edit or move replays and the server answers with the task's new version R,
  * this phone's later queued edit of that task made against R - 1 (the version before this phone's
  * own write) now expects R. An edit made against any other version stays as it is, so it is still
@@ -65,7 +95,7 @@ type TaskWritePayload = { id?: unknown; patch?: { expectedVersion?: unknown } };
 export function rebaseQueuedVersion(done: QueuedMutation, result: unknown, waiting: QueuedMutation): QueuedMutation {
   if (done.kind !== 'task.update' && done.kind !== 'task.move') return waiting;
   if (waiting.kind !== 'task.update') return waiting;
-  const made = (result as { version?: unknown } | null | undefined)?.version;
+  const made = ownVersion(done, result);
   if (typeof made !== 'number') return waiting;
   const doneId = (done.payload as TaskWritePayload | null)?.id;
   const p = waiting.payload as TaskWritePayload | null;
@@ -125,6 +155,7 @@ export function taskHoldsEdit(task: ApiTask, patch: Record<string, unknown>): bo
 export function noteReplayed(writes: TaskWrites, m: QueuedMutation, result: unknown): void {
   if (m.kind !== 'task.update' && m.kind !== 'task.move') return;
   const id = (m.payload as TaskWritePayload | null)?.id;
-  const version = (result as { version?: unknown } | null | undefined)?.version;
+  // Never a colleague's version shown by a reload: the next edit would overwrite their change.
+  const version = ownVersion(m, result);
   if (typeof id === 'string' && typeof version === 'number') writes.note(id, version);
 }
