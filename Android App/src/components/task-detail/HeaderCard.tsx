@@ -7,6 +7,7 @@ import { priorityColor } from '../TaskRow';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
+import { carryForward } from '../../lib/task-detail';
 import { IconButton, SaveNote, Tag, useSave } from './kit';
 
 const PRIORITY_LABEL: Record<string, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
@@ -55,6 +56,9 @@ export function HeaderCard({
   const [draft, setDraft] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const save = useSave();
+  // Moved on to the next day's board, and when (per-date boards — 4d): tapped, each move.
+  const carried = carryForward(task.carryForwardLog);
+  const [carryOpen, setCarryOpen] = useState(false);
 
   async function commit() {
     if (draft === null) return;
@@ -134,6 +138,25 @@ export function HeaderCard({
         <Text style={s.recurrence}>🔁 Part of a repeating series</Text>
       ) : null}
       {task.isMilestone ? <Text style={s.recurrence}>🏁 Milestone</Text> : null}
+      {carried ? (
+        <View>
+          <Pressable
+            onPress={() => setCarryOpen((v) => !v)}
+            accessibilityRole="button"
+            accessibilityLabel={carried.label}
+            accessibilityHint={carryOpen ? 'Hides the days it moved' : 'Shows the days it moved'}
+            accessibilityState={{ expanded: carryOpen }}
+            style={({ pressed }) => [s.carry, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={s.carryText}>↪ {carried.text} {carryOpen ? '▴' : '▾'}</Text>
+          </Pressable>
+          {carryOpen ? carried.lines.map((line) => (
+            <Text key={line} style={s.carryLine}>
+              {line}
+            </Text>
+          )) : null}
+        </View>
+      ) : null}
       {meeting?.meetingId ? (
         <Pressable
           accessibilityRole="button"
@@ -176,6 +199,9 @@ const makeStyles = (c: Palette) =>
     editActions: { flexDirection: 'row', gap: spacing.sm },
     flex: { flex: 1 },
     recurrence: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600' },
+    carry: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+    carryText: { fontSize: fontSize.sm, color: c.ink2, fontWeight: '600', backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4, overflow: 'hidden' },
+    carryLine: { fontSize: fontSize.xs, color: c.ink2, paddingLeft: spacing.md, paddingVertical: 2 },
     meetingLink: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
     meetingText: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600', textDecorationLine: 'underline' },
     meetingMuted: { fontSize: fontSize.sm, color: c.ink3, fontWeight: '600' },

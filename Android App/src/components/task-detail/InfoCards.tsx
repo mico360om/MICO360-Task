@@ -8,6 +8,7 @@ import { buildTimeline, type FeedEntry, type TimelineKind } from '../../lib/acti
 import { fileKind } from '../../lib/file-kind';
 import { rankSearchHits } from '../../lib/blocker-search';
 import { attachmentIcon, formatFileSize } from '../../lib/attachments';
+import { previewMode } from '../../lib/file-preview';
 import type { TaskRef } from '../../lib/task-detail';
 import type { ApiAttachment } from '../../lib/attachments';
 import { IconButton, SaveNote, SectionCard, relativeTime, useSave } from './kit';
@@ -85,11 +86,14 @@ export function FilesCard({
   hrefOf,
   canDelete,
   onOpen,
+  onPreview,
   onDelete,
   onPick,
   onDismissUpload,
   unavailable,
 }: {
+  /** Show a picture, text, CSV or Office file inside the app (4d). */
+  onPreview?: (a: ApiAttachment) => void;
   files: ApiAttachment[];
   uploads: UploadView[];
   hrefOf: (a: ApiAttachment) => string;
@@ -126,6 +130,7 @@ export function FilesCard({
                 <Text style={s.when}>{formatFileSize(a.sizeBytes)}</Text>
               </View>
             </Pressable>
+            {onPreview && previewMode(a.mimeType, a.filename) ? <IconButton glyph="👁" label={`Preview ${a.filename}`} onPress={() => onPreview(a)} /> : null}
             {canDelete(a) ? (
               <IconButton
                 glyph="🗑"

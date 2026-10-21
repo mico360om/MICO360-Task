@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, RefreshControl, Alert, Linking, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { pickedFiles } from '../adapters/picked-files';
@@ -39,7 +39,8 @@ import { ApiError, isNetworkError } from '../lib/api-client';
 import { statusOf } from '../lib/task-status';
 import { inSeries, isEarlierCopy } from '../lib/recurrence-edit';
 import type { MentionPerson } from '../lib/mentions';
-import { attachmentHref, canRemoveAttachment, uploadErrorMessage, uploadPart, type ApiAttachment } from '../lib/attachments';
+import { attachmentHref, canRemoveAttachment, serverFileHref, uploadErrorMessage, uploadPart, type ApiAttachment } from '../lib/attachments';
+import { loadTextPreview, previewMode } from '../lib/file-preview';
 import { checkTaskFiles } from '../lib/task-form';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
@@ -53,6 +54,7 @@ import { DetailsCard, type TaskPatch } from '../components/task-detail/DetailsCa
 import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '../components/task-detail/WorkCards';
 import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../components/task-detail/InfoCards';
 import { failureText } from '../components/task-detail/kit';
+import { FilePreviewSheet } from '../components/task-detail/FilePreviewSheet';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 
 /** At this width and up (tablets, landscape) the details sit beside the work in a second column. */
@@ -113,6 +115,10 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
   const [uploads, setUploads] = useState<UploadView[]>([]);
   const uploadSeq = useRef(0);
+  // A file shown inside the app (4d): a picture, text or CSV from this server, Office through the server's preview.
+  const [previewing, setPreviewing] = useState<ApiAttachment | null>(null);
+  const loadText = useCallback((a: ApiAttachment) => loadTextPreview(fetch, serverFileHref(baseUrl, a.url)), [baseUrl]);
+  const loadOffice = useCallback((a: ApiAttachment) => resources.tasks.attachmentPreview(a.id), [resources]);
 
   const mentionPeople = useMemo<MentionPerson[]>(
     () =>
@@ -290,6 +296,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
       hrefOf={(a) => attachmentHref(baseUrl, a.url)}
       canDelete={(a) => canRemoveAttachment(a, myId, myRoles)}
       onOpen={(a) => void openFile(a)}
+      onPreview={setPreviewing}
       onDelete={(a) => attachM.remove.mutateAsync(a.id)}
       onPick={() => void pickAndUpload()}
       onDismissUpload={(key) => setUploads((u) => u.filter((x) => x.key !== key))}
@@ -392,6 +399,15 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           </View>
         ) : null}
       </KeyboardAwareScrollView>
+      <FilePreviewSheet
+        file={previewing}
+        mode={previewing ? previewMode(previewing.mimeType, previewing.filename) : null}
+        href={previewing ? serverFileHref(baseUrl, previewing.url) : null}
+        loadText={loadText}
+        loadOffice={loadOffice}
+        onDownload={(a) => void openFile(a)}
+        onClose={() => setPreviewing(null)}
+      />
     </SafeAreaView>
   );
 }

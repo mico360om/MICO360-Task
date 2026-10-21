@@ -5,6 +5,7 @@ import type { NotificationPreferences, PreferencesUpdate } from './notification-
 import type { DatePreferences, ServerConfig } from './date-settings';
 import type { ApiAccountUser } from './account';
 import { readTaskDraft } from './task-describe';
+import { readOfficePreview } from './file-preview';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -295,6 +296,8 @@ export function resourcesApi(client: ApiClient) {
         return data(client.upload<Envelope<ApiAttachment>>(`/tasks/${seg(id)}/attachments`, form, onProgress ? { onProgress } : undefined));
       },
       removeAttachment: (attachmentId: string) => client.del<void>(`/attachments/${seg(attachmentId)}`),
+      /** The text of a .docx / .xlsx / .pptx file, read out by the server for its preview (4d); null: none it can show. */
+      attachmentPreview: (id: string) => data(client.get<Envelope<unknown>>(`/attachments/${seg(id)}/preview`)).then(readOfficePreview),
       /** The task's activity history (newest first). */
       activity: (id: string) => data(client.get<Envelope<ApiActivityEntry[]>>(`/tasks/${seg(id)}/activity`)),
       /** Blockers: what the task waits on, and what waits on it. */

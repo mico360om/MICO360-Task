@@ -1,6 +1,7 @@
 /** Pure helpers behind the task details screen (kept here so they can be tested without a device). */
 import { appTimeZone, dueDayKey, formatDueDay, isOverdue, isTaskDone, type DateInput } from './due-date';
 import { moveItem } from './list-order';
+import { dateFormat } from './intl-cache';
 import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
 import type { ApiActivityEntry, ApiColumn, ApiTask, ApiTaskMeeting } from './types';
@@ -127,4 +128,22 @@ export function taskLoadProblem(error: unknown): { message: string; canRetry: bo
   }
   if (isNetworkError(error)) return { message: 'Could not load this task. Check your connection and try again.', canRetry: true };
   return { message: 'Could not load this task. Please try again.', canRetry: true };
+}
+
+/**
+ * The task's carry-forward history (4d), as the website's "Carried forward" chip: how many times and
+ * since which day (per-date boards move an unfinished task on to the next day), and each move.
+ * Days are calendar days ('YYYY-MM-DD'). Null when it never was carried forward.
+ */
+export function carryForward(log: readonly { from: unknown; to: unknown; at?: unknown }[] | null | undefined): { text: string; label: string; lines: string[] } | null {
+  const moves = (Array.isArray(log) ? log : []).filter((e) => typeof e?.from === 'string' && typeof e?.to === 'string' && /^\d{4}-\d{2}-\d{2}/.test(e.from as string)) as { from: string; to: string }[];
+  if (moves.length === 0) return null;
+  const day = (key: string) => dateFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key.slice(0, 10)}T12:00:00.000Z`));
+  const since = day(moves[0]!.from);
+  const n = moves.length;
+  return {
+    text: `Carried forward ${n}× · since ${since}`,
+    label: `Carried forward ${n === 1 ? 'once' : `${n} times`}, since ${since}`,
+    lines: moves.map((m) => `${day(m.from)} → ${day(m.to)}`),
+  };
 }
