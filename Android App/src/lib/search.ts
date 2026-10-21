@@ -11,7 +11,7 @@ import { ApiError, isNetworkError } from './api-client';
 import { matchNavCommands, parseCommand } from './commands';
 import { isSafeId } from './ids';
 import { websiteLinkLabel } from './website';
-import type { NavAction } from '../navigation/nav-actions';
+import { ALL_PROJECTS_BOARD, type NavAction } from '../navigation/nav-actions';
 
 /** GET /search: what the server found that you may see. */
 export interface SearchResults {
@@ -59,6 +59,8 @@ export interface SearchItem {
 export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }> = {
   dashboard: { label: 'Home', target: { kind: 'screen', action: { type: 'tab', tab: 'Dashboard' } } },
   'my-tasks': { target: { kind: 'screen', action: { type: 'tab', tab: 'MyTasks' } } },
+  // The website's Kanban Board, by its name: where it opens on the phone is ALL_PROJECTS_BOARD (6b review).
+  board: { target: { kind: 'screen', action: ALL_PROJECTS_BOARD } },
   projects: { target: { kind: 'screen', action: { type: 'tab', tab: 'Projects' } } },
   calendar: { target: { kind: 'screen', action: { type: 'stack', screen: 'Calendar' } } },
   chat: { target: { kind: 'screen', action: { type: 'tab', tab: 'Chat' } } },

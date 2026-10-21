@@ -29,6 +29,14 @@ export type NavAction =
   /** A link tapped while signed out (6b review): the screens it opens, as the navigator read them, once someone signs in. */
   | { type: 'link'; state: LinkState };
 
+/**
+ * Where the website's Kanban Board (/board: every project's tasks) opens on the phone (6b review):
+ * the Projects tab, each project with its own board, until the app has an all-projects board
+ * screen. The one place to point it at that screen (Search uses it; the /board link in
+ * navigation/linking normalizeLinkPath opens the same tab).
+ */
+export const ALL_PROJECTS_BOARD: NavAction = { type: 'tab', tab: 'Projects' };
+
 /** Turn a resolved deep-link/push target into a navigation action. */
 export function targetToAction(target: LinkTarget): NavAction {
   switch (target.screen) {

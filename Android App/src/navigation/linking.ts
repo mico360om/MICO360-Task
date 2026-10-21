@@ -69,6 +69,7 @@ export function normalizeLinkPath(path: string): string {
   if (project) return `${lead}project/${project[1]}`;
   if (page === 'board') {
     const id = queryValue(query, 'project');
+    // The Kanban Board of every project opens the projects, as Search does (nav-actions ALL_PROJECTS_BOARD).
     return id ? `${lead}project/${segment(id)}/board` : `${lead}projects`;
   }
   if (page === 'chat') {

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ApiError, NetworkError } from './api-client';
 import { NAV_COMMANDS } from './commands';
+import { ALL_PROJECTS_BOARD } from '../navigation/nav-actions';
 import {
   APP_PAGES,
   SEARCH_DEBOUNCE_MS,
@@ -34,9 +35,9 @@ describe('search: what the box offers before and while typing', () => {
     expect(searchEnabled('  a ')).toBe(false);
   });
 
-  it('with nothing typed, offers the first five pages the phone has', () => {
+  it('with nothing typed, offers the first five pages, as the website’s box (the Kanban Board among them: 6b review)', () => {
     const items = searchItems({ raw: '', results: undefined, ...ctx });
-    expect(items.map((i) => i.primary)).toEqual(['Home', 'My Tasks', 'Projects', 'Calendar', 'Chat']);
+    expect(items.map((i) => i.primary)).toEqual(['Home', 'My Tasks', 'Kanban Board', 'Projects', 'Calendar']);
     expect(groups(items)).toEqual(['Go to']);
   });
 
@@ -50,11 +51,16 @@ describe('search: what the box offers before and while typing', () => {
     expect(searchItems({ raw: 'what’s new', results: undefined, ...ctx })[0]).toMatchObject({ primary: 'About and version history', target: { kind: 'screen', action: { type: 'stack', screen: 'About' } } });
   });
 
-  it('has a phone page for every page of the website’s search, except the all-projects board', () => {
+  it('has a phone page for every page of the website’s search, the Kanban Board too (6b review)', () => {
     const missing = NAV_COMMANDS.filter((c) => !APP_PAGES[c.id]).map((c) => c.id);
-    expect(missing).toEqual(['board']);
-    // "board" then finds the dashboard (Home), as the website's ranking puts it second.
-    expect(searchItems({ raw: 'board', results: undefined, ...ctx }).map((i) => i.primary)).toEqual(['Home']);
+    expect(missing).toEqual([]);
+    // "board" finds the Kanban Board first, then the dashboard (Home), as the website ranks them.
+    const board = searchItems({ raw: 'board', results: undefined, ...ctx });
+    expect(board.map((i) => i.primary)).toEqual(['Kanban Board', 'Home']);
+    // It opens the projects (each with its board) until the app has an all-projects board.
+    expect(board[0]).toMatchObject({ group: 'Go to', label: 'Go to Kanban Board', target: { kind: 'screen', action: ALL_PROJECTS_BOARD } });
+    expect(ALL_PROJECTS_BOARD).toEqual({ type: 'tab', tab: 'Projects' });
+    expect(searchItems({ raw: 'kanban', results: undefined, ...ctx })[0]?.primary).toBe('Kanban Board');
   });
 
   it('reads “open KEY” (or a bare key) and “go to …” as a command; the task-changing commands stay on the website', () => {
@@ -62,7 +68,7 @@ describe('search: what the box offers before and while typing', () => {
     expect(searchItems({ raw: 'go to calendar', results: undefined, ...ctx })[0]).toMatchObject({ group: 'Command', primary: 'Go to Calendar', target: { kind: 'screen', action: { type: 'stack', screen: 'Calendar' } } });
     expect(searchItems({ raw: 'go to audit', results: undefined, isAdmin: true, myId: 'me' })[0]).toMatchObject({ group: 'Command', primary: 'Go to Audit Logs', target: { kind: 'website', path: '/admin/audit' } });
     expect(groups(searchItems({ raw: 'complete MICO-7', results: undefined, ...ctx }))).not.toContain('Command');
-    expect(groups(searchItems({ raw: 'go to board', results: undefined, ...ctx }))).not.toContain('Command');
+    expect(searchItems({ raw: 'go to board', results: undefined, ...ctx })[0]).toMatchObject({ group: 'Command', primary: 'Go to Kanban Board', target: { kind: 'screen', action: ALL_PROJECTS_BOARD } });
   });
 });
 
