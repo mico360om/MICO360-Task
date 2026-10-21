@@ -5,6 +5,10 @@ import { TextField, Button } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
 import { priorityColor } from '../TaskRow';
 import { RecurrenceEditor } from '../RecurrenceEditor';
+import { DueDateField } from '../task-form/DueDateField';
+import { useDatePreferences } from '../../core/calendar-queries';
+import { weekStartOf } from '../../lib/calendar';
+import { companyTodayKey } from '../../lib/due-date';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { parseDueDateInput, parseHoursInput } from '../../lib/form-input';
 import { parseTags } from '../../lib/quick-add';
@@ -81,9 +85,9 @@ export function DetailsCard({
   const tagsSave = useSave();
   const progressSave = useSave();
 
-  const [dueText, setDueText] = useState(dueFieldValue(task.dueDate));
   const [estText, setEstText] = useState(task.estimatedHours != null ? String(task.estimatedHours) : '');
-  useEffect(() => setDueText(dueFieldValue(task.dueDate)), [task.dueDate]);
+  // The due date from a calendar, as in the New task form (4b) — company calendar days.
+  const weekStart = weekStartOf(useDatePreferences().data);
   useEffect(() => setEstText(task.estimatedHours != null ? String(task.estimatedHours) : ''), [task.estimatedHours]);
   const [suggestion, setSuggestion] = useState<{ priority: Priority; reason: string } | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -208,35 +212,16 @@ export function DetailsCard({
       </Prop>
 
       <Prop label="Due date">
-        <View style={s.rowCenter}>
-          <View style={s.flex}>
-            <TextField
-              value={dueText}
-              onChangeText={(v) => {
-                setDueText(v);
-                if (dueSave.state.status === 'error') dueSave.reset();
-              }}
-              onBlur={() => void saveDue(dueText)}
-              onSubmitEditing={() => void saveDue(dueText)}
-              placeholder="YYYY-MM-DD"
-              accessibilityLabel="Due date, year-month-day"
-              autoCapitalize="none"
-              keyboardType="numbers-and-punctuation"
-              maxLength={10}
-              style={overdue ? { borderColor: c.danger, color: c.danger, fontWeight: '700' } : undefined}
-            />
-          </View>
-          {task.dueDate ? (
-            <IconButton
-              glyph="×"
-              label="Clear due date"
-              onPress={() => {
-                setDueText('');
-                void saveDue('');
-              }}
-            />
-          ) : null}
-        </View>
+        <DueDateField
+          label={null}
+          value={dueFieldValue(task.dueDate)}
+          onChange={(day) => {
+            if (dueSave.state.status === 'error') dueSave.reset();
+            void saveDue(day);
+          }}
+          today={companyTodayKey()}
+          weekStart={weekStart}
+        />
         {overdue ? <Text style={s.overdue}>Overdue</Text> : null}
         <SaveNote state={dueSave.state} />
       </Prop>

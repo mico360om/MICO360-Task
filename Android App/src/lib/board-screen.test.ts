@@ -59,3 +59,12 @@ describe('Manage columns (4b)', () => {
     expect(screen).toMatch(/A column that still has tasks can’t be deleted — move them to another column first\./);
   });
 });
+
+describe('a task’s due date is picked from a calendar in its details too (4b)', () => {
+  it('the details’ due date uses the New task form’s day picker, not a typed date', () => {
+    const details = src('components/task-detail/DetailsCard.tsx');
+    expect(details).toMatch(/<DueDateField/);
+    expect(details).not.toMatch(/accessibilityLabel="Due date, year-month-day"/);
+    expect(src('components/task-form/DueDateField.tsx')).toMatch(/label = 'Due date \(optional\)'/);
+  });
+});

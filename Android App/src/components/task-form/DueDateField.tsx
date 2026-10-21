@@ -17,7 +17,10 @@ export function DueDateField({
   today,
   weekStart,
   disabled,
+  label = 'Due date (optional)',
 }: {
+  /** The field's label; null when the screen labels it itself (the task's details). */
+  label?: string | null;
   /** 'YYYY-MM-DD', or '' for none. */
   value: string;
   onChange: (day: string) => void;
@@ -30,7 +33,7 @@ export function DueDateField({
   const shown = value ? fullDayLabel(value) : 'No due date';
   return (
     <View style={styles.wrap}>
-      <FieldLabel>Due date (optional)</FieldLabel>
+      {label ? <FieldLabel>{label}</FieldLabel> : null}
       <View style={styles.row}>
         <Pressable
           onPress={() => setOpen((v) => !v)}
