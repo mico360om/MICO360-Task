@@ -95,8 +95,10 @@ describe('Settings → Notifications: the web’s preferences', () => {
     await settle();
     expect(ctx.api.notifications.setPreferences).toHaveBeenCalledWith({ dailyEmails: { pending: true, completed: true, time: '07:30' } });
     const time = card(root, 'Notifications').querySelector('input[type="time"]');
+    time.focus();
     time.value = '06:15';
     time.dispatchEvent(new Event('change', { bubbles: true }));
+    time.blur(); // saved once typed (on leaving the field, or Enter)
     await settle();
     expect(ctx.api.notifications.setPreferences).toHaveBeenLastCalledWith({ dailyEmails: { pending: true, completed: true, time: '06:15' } });
   });
