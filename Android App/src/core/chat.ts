@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useMyQueuedChanges, useServices } from './providers';
 import { enqueueChatMessage, outboxFor, settledByServer } from '../lib/chat-outbox';
 import { chatBadgeCount, conversationForProject, openChannelError, shouldMarkRead, withConversationRead } from '../lib/chat';
-import { setViewingConversation, subscribeViewing, viewingConversation } from '../lib/chat-viewing';
+import { appCovered, canReadOnScreen, setViewingConversation, stopViewing, subscribeViewing, viewingConversation } from '../lib/chat-viewing';
 import { useConversations } from './queries';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { refresh } from '../lib/refresh';
@@ -103,22 +103,22 @@ export function useMarkRead() {
 export function useReadWhileOpen({ conversationId, unread, newestId, focused }: { conversationId: string; unread: number; newestId: string | undefined; focused: boolean }) {
   const appActive = useAppActive();
   const markRead = useMarkRead();
-  const open = focused && appActive;
+  // Behind the fingerprint lock (or its cover) nobody sees the thread: it isn't read (3a review).
+  const covered = useSyncExternalStore(subscribeViewing, appCovered, appCovered);
+  const open = canReadOnScreen({ focused, appActive, covered });
 
   useEffect(() => {
     if (!open) return;
     setViewingConversation(conversationId);
     markRead(conversationId);
-    return () => {
-      if (viewingConversation() === conversationId) setViewingConversation(null);
-    };
+    return () => stopViewing(conversationId);
   }, [open, conversationId, markRead]);
 
   useEffect(() => {
-    if (!shouldMarkRead({ focused, appActive, unread })) return;
+    if (!open || !shouldMarkRead({ focused, appActive, unread })) return;
     const t = setTimeout(() => markRead(conversationId), 800);
     return () => clearTimeout(t);
-  }, [focused, appActive, unread, newestId, conversationId, markRead]);
+  }, [open, focused, appActive, unread, newestId, conversationId, markRead]);
 }
 
 /** The Chat tab's number, live: unread messages without muted conversations or the one on screen. */

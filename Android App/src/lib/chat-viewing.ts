@@ -6,15 +6,45 @@
  */
 
 let viewing: string | null = null;
+/**
+ * Is the app covered — the fingerprint lock, or the plain cover shown until the lock setting is
+ * known (3a review)? Then nothing under it is on screen: no conversation is read and no push is
+ * silenced. It starts covered (a screen's effects run before the lock gate's), until the lock gate
+ * says the app is shown.
+ */
+let covered = true;
 const listeners = new Set<() => void>();
+const tell = () => {
+  for (const l of [...listeners]) l();
+};
 
 export function setViewingConversation(conversationId: string | null): void {
   if (viewing === conversationId) return;
   viewing = conversationId;
-  for (const l of [...listeners]) l();
+  tell();
 }
 
-export const viewingConversation = (): string | null => viewing;
+/** The thread for this conversation was left: it is no longer the one open (whether covered or not). */
+export function stopViewing(conversationId: string): void {
+  if (viewing === conversationId) setViewingConversation(null);
+}
+
+/** The conversation on screen — none while the app is covered by the lock. */
+export const viewingConversation = (): string | null => (covered ? null : viewing);
+
+export const appCovered = (): boolean => covered;
+
+/** The lock gate: the app is covered (locked, or not yet known), or shown. */
+export function setAppCovered(next: boolean): void {
+  if (covered === next) return;
+  covered = next;
+  tell();
+}
+
+/** Is an open thread really in front of the person: in view, the app in front, and not behind the lock? */
+export function canReadOnScreen({ focused, appActive, covered: isCovered }: { focused: boolean; appActive: boolean; covered: boolean }): boolean {
+  return focused && appActive && !isCovered;
+}
 
 /** Hear each change; returns a function that stops listening. */
 export function subscribeViewing(listener: () => void): () => void {

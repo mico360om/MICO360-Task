@@ -7,6 +7,7 @@ import { useDrawerStore } from '../lib/drawer-store';
 import { createLockPolicy } from '../lib/lock-policy';
 import { lockView, readLockSetting, screenPrivate } from '../lib/lock-view';
 import { setScreenPrivacy } from '../adapters/screen-capture';
+import { setAppCovered } from '../lib/chat-viewing';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 
 /**
@@ -54,12 +55,14 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     }
   }, [biometric, setLocked]);
 
-  const lockIfEnabled = useCallback(async () => {
-    if (!(await readLockSetting(() => biometric.isEnabled()))) return;
+  /** Lock when the setting is on; says whether it locked. */
+  const lockIfEnabled = useCallback(async (): Promise<boolean> => {
+    if (!(await readLockSetting(() => biometric.isEnabled()))) return false;
     useDrawerStore.getState().closeDrawer();
     setLocked(true);
     setFailed(false);
     void tryUnlock();
+    return true;
   }, [biometric, setLocked, tryUnlock]);
 
   // Signed-in user changed (cold start with a saved session → lock; fresh sign-in → no lock). The
@@ -92,17 +95,35 @@ export function LockGate({ children }: { children: React.ReactNode }) {
     void setScreenPrivacy(isPrivate);
   }, [isPrivate]);
 
-  // Back from the background after the grace period → lock.
+  const view = lockView({ signedIn: !!userId, enabled, locked });
+  const showLock = view === 'lock';
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  // Behind the lock or its cover nothing is on screen: an open thread isn't read and its pushes
+  // aren't silenced (chat-viewing, 3a review).
+  useEffect(() => {
+    setAppCovered(view !== 'content');
+  }, [view]);
+
+  // Back from the background after the grace period → lock. Covered at once, before the setting is
+  // read, so the thread underneath isn't read in the moment before the lock shows.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background') policy.onBackground();
-      else if (state === 'active' && policy.onForeground()) void lockIfEnabled();
+      else if (state === 'active' && policy.onForeground()) {
+        setAppCovered(true);
+        void lockIfEnabled().then(
+          (didLock) => {
+            // Locked: the lock view keeps it covered until unlocked. Not on: shown again.
+            if (!didLock) setAppCovered(viewRef.current !== 'content');
+          },
+          () => setAppCovered(viewRef.current !== 'content'),
+        );
+      }
     });
     return () => sub.remove();
   }, [policy, lockIfEnabled]);
-
-  const view = lockView({ signedIn: !!userId, enabled, locked });
-  const showLock = view === 'lock';
 
   return (
     <View style={styles.fill}>

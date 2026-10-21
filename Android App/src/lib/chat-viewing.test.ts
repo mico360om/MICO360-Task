@@ -1,13 +1,54 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  appCovered,
+  canReadOnScreen,
   notificationsAbout,
   pushPresentation,
+  setAppCovered,
   setViewingConversation,
   subscribeViewing,
   viewingConversation,
 } from './chat-viewing';
 
+// 3a review fix 2: behind the fingerprint lock (or the cover shown until the lock setting is
+// read) nobody sees the thread — it isn't read, and its pushes aren't silenced.
+describe('a thread behind the lock is not on screen', () => {
+  it('starts covered, until the lock gate says the app is shown', () => {
+    expect(appCovered()).toBe(true);
+    setViewingConversation('c1');
+    expect(viewingConversation()).toBeNull();
+    setAppCovered(false);
+    expect(viewingConversation()).toBe('c1');
+    setAppCovered(true);
+    expect(viewingConversation()).toBeNull();
+    setViewingConversation(null);
+  });
+
+  it('while covered: a push about the conversation still shows, and nothing is read', () => {
+    setAppCovered(true);
+    setViewingConversation('c1');
+    expect(pushPresentation({ entityType: 'conversation', entityId: 'c1' }, viewingConversation())).toMatchObject({ shouldShowAlert: true });
+    expect(canReadOnScreen({ focused: true, appActive: true, covered: true })).toBe(false);
+    expect(canReadOnScreen({ focused: true, appActive: true, covered: false })).toBe(true);
+    expect(canReadOnScreen({ focused: false, appActive: true, covered: false })).toBe(false);
+    expect(canReadOnScreen({ focused: true, appActive: false, covered: false })).toBe(false);
+    setViewingConversation(null);
+  });
+
+  it('tells listeners when the cover comes and goes (the Chat tab’s number follows)', () => {
+    const heard = vi.fn();
+    const stop = subscribeViewing(heard);
+    setAppCovered(false);
+    setAppCovered(false);
+    setAppCovered(true);
+    stop();
+    expect(heard).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('the conversation on screen (3a)', () => {
+  beforeEach(() => setAppCovered(false));
+
   it('is remembered while its thread is open, and forgotten after', () => {
     setViewingConversation('c1');
     expect(viewingConversation()).toBe('c1');
