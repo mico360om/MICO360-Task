@@ -32,7 +32,7 @@ export const NEW_TASK_TEXT = {
   stillSaving: 'The task is still being created — wait a moment, then tap Create task again.',
   /** Shown while the form is locked after a try with files got no answer. */
   locked:
-    'Until the task is created, its details can’t change — if the first try reached the server, a change made now would be lost. You can still take files off, or start over.',
+    'Until the task is created, its details can’t change — if the first try reached the server, a change made now would be lost. You can still add or take off files, or start over.',
   filesHint: 'Up to 10 MB each and 50 MB in all · pictures, PDFs, text, CSV, ZIP and Office files · attached once the task is created.',
   /** A changed form would go under a key whose first try may be saved (5b review): not sent. */
   changedSinceTry: 'Your last try may have created the task, so the changed details weren’t sent. Tap Create task to finish that try, or start over.',
@@ -332,6 +332,8 @@ export type NewTaskOutcome =
   | { kind: 'kept'; message: string }
   /** No answer (or the first try is still being saved): it may be on the server — the key stays and the form is locked. */
   | { kind: 'no-answer'; message: string }
+  /** Offline with files: the request never left — nothing is locked (files can't wait offline with it). */
+  | { kind: 'offline'; message: string }
   /** The server refused it: the form stays as it is, and the next try is a new one. */
   | { kind: 'refused'; message: string };
 
@@ -355,9 +357,11 @@ export async function sendNewTask(deps: SendNewTaskDeps, req: { input: NewTaskIn
     if (e instanceof ApiError && e.code === 'IDEMPOTENCY_IN_PROGRESS') return { kind: 'no-answer', message: NEW_TASK_TEXT.stillSaving };
     if (isNetworkError(e)) {
       if (!withFiles && isKeptOnPhone(e)) return { kind: 'kept', message: keptOnPhoneText(e) };
-      // Files can't wait offline with the task: say so rather than save it without them.
+      // Files can't wait offline with the task: say so rather than save it without them. Offline
+      // the request never left, so the form isn't locked; only a try with no answer may be saved.
       const timedOut = (e as { timedOut?: unknown }).timedOut === true;
-      return { kind: 'no-answer', message: withFiles && !timedOut ? NEW_TASK_TEXT.offlineWithFiles : NEW_TASK_TEXT.noAnswer };
+      if (withFiles && !timedOut) return { kind: 'offline', message: NEW_TASK_TEXT.offlineWithFiles };
+      return { kind: 'no-answer', message: NEW_TASK_TEXT.noAnswer };
     }
     return { kind: 'refused', message: `Couldn’t create the task. ${reasonOf(e)}` };
   }

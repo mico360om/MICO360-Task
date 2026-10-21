@@ -198,7 +198,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
 
   // ── Files ──
   const pick = async (pictures: boolean) => {
-    if (frozen) return;
+    if (saving || created) return;
     try {
       const got = await DocumentPicker.getDocumentAsync({ type: pictures ? 'image/*' : '*/*', multiple: true, copyToCacheDirectory: true });
       if (got.canceled) return;
@@ -343,6 +343,10 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         case 'no-answer':
           if (!keptBody.current) keptBody.current = keptTry(check.input);
           setLocked(true);
+          setBanner(out.message);
+          return;
+        case 'offline':
+          setLocked(false);
           setBanner(out.message);
           return;
         case 'refused':

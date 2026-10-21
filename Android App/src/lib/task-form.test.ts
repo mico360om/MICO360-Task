@@ -294,8 +294,9 @@ describe('sendNewTask', () => {
   });
 
   it('with files and no answer: nothing kept offline; the key is kept and the form locked (the task may be on the server)', async () => {
+    // Offline, the request never left: the form isn't locked (4a review #5).
     const { d } = deps({ createLive: async () => Promise.reject(new NetworkError('Network request failed.')) });
-    expect(await sendNewTask(d, { input, key: 'k1', files: [file('a')] })).toEqual({ kind: 'no-answer', message: NEW_TASK_TEXT.offlineWithFiles });
+    expect(await sendNewTask(d, { input, key: 'k1', files: [file('a')] })).toEqual({ kind: 'offline', message: NEW_TASK_TEXT.offlineWithFiles });
     const late = deps({ createLive: async () => Promise.reject(new NetworkError('slow', { timedOut: true })) });
     expect(await sendNewTask(late.d, { input, key: 'k1', files: [file('a')] })).toEqual({ kind: 'no-answer', message: NEW_TASK_TEXT.noAnswer });
     // The first try is still being saved on the server: the same key, wait, and tap again.
@@ -421,5 +422,20 @@ describe('leaving the New task form while it is still sending (4a review #3)', (
     const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
     expect(screen).toMatch(/if \(busy\.current\) return; \/\/ still sending: the end of submit deletes them/);
     expect(screen).toMatch(/notice\(leftWhileSendingText\(out\)\)/);
+  });
+});
+
+describe('a locked New task form, and one that never reached the server (4a review #4, #5)', () => {
+  it('files can still be added to a locked form: the next try under the same key attaches them to the task it made', () => {
+    expect(NEW_TASK_TEXT.locked).toBe(
+      'Until the task is created, its details can’t change — if the first try reached the server, a change made now would be lost. You can still add or take off files, or start over.',
+    );
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/const pick = async \(pictures: boolean\) => \{\r?\n\s+if \(saving \|\| created\) return;/);
+  });
+
+  it('offline with files the form stays open: nothing was sent, so nothing is locked', () => {
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/case 'offline':\r?\n\s+setLocked\(false\);/);
   });
 });
