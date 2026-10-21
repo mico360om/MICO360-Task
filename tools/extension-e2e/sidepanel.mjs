@@ -278,6 +278,18 @@ try {
   const shown = await inSidePanel(`({ today: document.body.innerText.includes(${JSON.stringify(LATE)}), width: innerWidth })`);
   ck('…it shows Today there (the same session)', !!shown && shown.today, JSON.stringify(shown));
   if (shown) console.log(`  (Chrome's side panel is ${shown.width} px wide here)`);
+  // What is typed in its Add tab is kept for this window (the side panel knows its window).
+  await inSidePanel(`(location.hash = '#/add', true)`);
+  await sleep(2500);
+  const keptHere = await inSidePanel(`(async () => {
+    const t = document.getElementById('qa-title'); t.value = 'Kept for this window'; t.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 600));
+    const w = await chrome.windows.getCurrent();
+    const all = await chrome.storage.session.get(null);
+    return { windowId: w.id, keys: Object.keys(all).filter((k) => k.startsWith('mico360.quickAdd.panelDraft')), title: (all['mico360.quickAdd.panelDraft:' + w.id] || {}).fields?.title };
+  })()`);
+  ck('…what is typed in its Add tab is kept for this window’s side panel (its own key)', !!keptHere && typeof keptHere.windowId === 'number' && keptHere.title === 'Kept for this window'
+    && keptHere.keys.includes(`mico360.quickAdd.panelDraft:${keptHere.windowId}`) && !keptHere.keys.includes('mico360.quickAdd.panelDraft'), JSON.stringify(keptHere));
 
   // Signing out in the app clears the side panel too.
   await page2.evaluate(`location.hash = '#/settings'; true`);
@@ -292,6 +304,8 @@ try {
   const targets = (await send('Target.getTargets')).targetInfos.filter((t) => isPanelUrl(t.url)).map((t) => t.type);
   if (!text) console.log(`  (side panel targets: ${JSON.stringify(targets)})`);
   ck('signing out in the app clears the side panel: it asks to sign in there, and shows none of the tasks', /Sign in to MICO360 Tasks|signed out/i.test(text) && !text.includes(LATE) && !text.includes(TODAY) && !text.includes(AGAIN), text.slice(0, 200));
+  const left = await page2.evaluate(`chrome.storage.session.get(null).then((a) => Object.keys(a).filter((k) => k.startsWith('mico360.quickAdd.panelDraft')))`);
+  ck('…and what was typed in its Add tab goes too', Array.isArray(left) && left.length === 0, JSON.stringify(left));
 } catch (e) {
   error(e);
 } finally {

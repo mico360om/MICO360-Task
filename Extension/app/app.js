@@ -16,9 +16,10 @@ import { openSearch, searchShortcut } from './search.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
 import { createChatDrafts } from '../src/chat-drafts.js';
 import { openAppTab } from '../src/open-app.js';
-import { canOpenSidePanel, openSidePanel, panelShows, PANEL_LIVE_ROUTES } from '../src/side-panel.js';
+import { canOpenSidePanel, openSidePanel, panelShows, PANEL_LIVE_ROUTES, PANEL_FAILED_MESSAGE } from '../src/side-panel.js';
 import { PanelShell } from './panel-shell.js';
 import { QuickAddForm, SignedOutView } from '../popup/quick-add-form.js';
+import { panelDraftKey } from '../src/quick-add.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -283,6 +284,8 @@ class App {
       newKey: newIdempotencyKey,
       send: (kind, payload, opts) => this.write(kind, payload, opts),
       inPanel: true,
+      // What was typed is kept for this window's side panel (two windows' panels keep one each).
+      panelDraftKey: () => chrome.windows.getCurrent().then((w) => panelDraftKey(w && w.id)),
       capture: null,
       currentPage: async () => null,
       openApp: (hash) => { if (hash) window.location.hash = hash; else return openAppTab(chrome, ''); },
@@ -342,10 +345,12 @@ class App {
     this.sync();
     this.refreshTimeZone();
     setInterval(() => {
-      this.refreshMeta();
       // The side panel stays open beside your work, so its list reads itself again with the counts
       // every minute while it is on screen (no live connection), in place — never under a dialog.
-      if (PANEL && document.visibilityState === 'visible' && PANEL_LIVE_ROUTES.has(this.routeName())) this.refresh();
+      // While it is hidden nothing is asked (coming back reads Today and My Tasks again).
+      if (PANEL && document.visibilityState !== 'visible') return;
+      this.refreshMeta();
+      if (PANEL && PANEL_LIVE_ROUTES.has(this.routeName())) this.refresh();
     }, 60000);
     // The window this tab is in, so "Open the side panel" opens it straight from the click.
     if (!PANEL && canOpenSidePanel(chrome)) {
@@ -444,21 +449,36 @@ class App {
     this.offbar = el('div', { class: 'offbar hidden' }, 'Offline — showing saved data. Changes will sync when you reconnect.');
     this.content = el('div', { class: 'content' });
     this.live = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
-    // Stage 7: Today, My Tasks and Add a task in Chrome's side panel, beside any page.
+    // Stage 7: Today, My Tasks and Add a task in Chrome's side panel, beside any page. Asked straight
+    // from the click (in this tab's window, or Chrome's current one while that isn't known yet); when
+    // Chrome doesn't open it, the page says so.
+    this.topNote = el('div', { class: 'top-note' });
     const panelBtn = canOpenSidePanel(chrome)
       ? el('button', {
         class: 'btn sm top-panel', type: 'button', 'aria-label': 'Open the side panel', title: 'Show your tasks beside the page you are on',
-        onClick: () => { void openSidePanel(chrome, this.windowId); },
+        onClick: () => { void openSidePanel(chrome, this.windowId).then((opened) => this.panelOpened(opened, panelBtn)); },
       }, svgIcon(SIDE_PANEL_ICON, 15, 2))
       : null;
     const main = el('main', { class: 'main' },
       el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), panelBtn, searchBtn, this.connEl),
+      this.topNote,
       this.offbar,
       this.content,
       this.live,
     );
     mount(this.root, el('div', { class: 'app' }, sidebar, main));
     this.renderStatus();
+  }
+
+  /** "Open the side panel" was answered: say so when Chrome didn't open it (Dismiss goes back to the button). */
+  panelOpened(opened, button) {
+    if (opened) {
+      mount(this.topNote);
+      return;
+    }
+    mount(this.topNote, el('div', { class: 'errbar', role: 'alert' },
+      el('span', {}, PANEL_FAILED_MESSAGE),
+      el('button', { class: 'btn sm', type: 'button', onClick: () => { mount(this.topNote); if (button) button.focus(); } }, 'Dismiss')));
   }
 
   renderStatus() {
@@ -618,6 +638,14 @@ class App {
     this.shownHash = this.contentBase;
     this.titleEl.textContent = route.title;
     this.setActiveNav(path, route.title);
+    if (this.topNote) mount(this.topNote); // "Couldn't open the side panel" was about the page before
+    const keptForm = PANEL && route.name === 'add' ? this.addForm : null;
+    if (keptForm && this.content.firstElementChild === keptForm) {
+      // The side panel's kept form is on screen already (back from a task's panel, or the company's
+      // time zone arriving): it stays as it is — focus stays in the field being typed in.
+      if (opener) returnFocus(this.content, opener);
+      return;
+    }
     clear(this.content);
     try {
       const node = route.screen(this.ctx(params, query));
@@ -625,6 +653,8 @@ class App {
     } catch (e) {
       this.content.append(el('div', { class: 'errbar' }, `Screen error: ${e.message}`));
     }
+    // The kept form shown again (its tab chosen): its projects, columns and team are read again.
+    if (keptForm && typeof keptForm.refresh === 'function') keptForm.refresh();
     // Back from the drawer: focus the card or row that opened it once the screen has drawn it again.
     if (opener) returnFocus(this.content, opener);
     else if (PANEL && route.name === 'add') this.focusAddForm();

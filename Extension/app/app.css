@@ -714,8 +714,10 @@ html[data-layout="panel"]:has(.qa-in-panel) { scroll-padding-bottom: 64px; }
 .panel-content .qa-in-panel .qa-form { padding: 12px; }
 .panel-content .qa-in-panel .qa-actions { bottom: 0; }
 .panel-app .state { padding: 24px 12px; text-align: center; }
-/* The app's own button that opens the side panel (beside Search). */
+/* The app's own button that opens the side panel (beside Search), and what it says when it can't. */
 .top-panel { display: inline-flex; align-items: center; color: var(--ink2); padding: 6px 9px; }
+.top-note:empty { display: none; }
+.top-note .errbar { margin: 12px 22px 0; }
 .qa-panel-btn { display: inline-grid; place-items: center; }
 
 /* Narrow (the side panel, or any window under 400 px — the 400 px toolbar popup keeps its own layout):
