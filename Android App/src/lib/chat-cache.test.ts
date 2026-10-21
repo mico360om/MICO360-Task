@@ -82,3 +82,26 @@ describe('createChatCache: messages put into an open thread without reloading it
     expect(keepCopy).not.toHaveBeenCalled();
   });
 });
+
+describe('the offline copy of a thread (3a): what was seen is readable offline, after a restart too', () => {
+  it('a live message put into the thread is in the copy the next start reads offline', async () => {
+    const { createReadCache } = await import('./read-cache');
+    const { createMemoryStore } = await import('./storage');
+    const { NetworkError } = await import('./api-client');
+    const { chatThreadCopyKey, offlineCopyCaps } = await import('./offline-copy');
+    const store = createMemoryStore();
+    const cache = createReadCache({ store, getUserId: () => 'u1', rolling: offlineCopyCaps() });
+    const qc = client();
+    // The thread loaded online (its newest page is kept), then a message arrived live.
+    const first = await cache.read(chatThreadCopyKey('c1'), async () => [msg('a', '01')]);
+    seed(qc, 'c1', first.data);
+    createChatCache({ queryClient: qc, keepCopy: (cid, newest) => cache.keep(chatThreadCopyKey(cid), newest) }).put('c1', msg('b', '02'));
+    await cache.settled();
+    // The app starts again, offline.
+    const next = createReadCache({ store, getUserId: () => 'u1', rolling: offlineCopyCaps() });
+    const offline = await next.read(chatThreadCopyKey('c1'), async () => {
+      throw new NetworkError('offline');
+    });
+    expect(offline).toEqual({ data: [msg('a', '01'), msg('b', '02')], stale: true });
+  });
+});

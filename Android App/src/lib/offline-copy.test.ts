@@ -50,3 +50,28 @@ describe('withoutOldDone (a slimmer copy of a long task list)', () => {
     expect(withoutOldDone(now)(tasks).map((x) => x.id)).toEqual(['open', 'done-last-week', 'done-column-no-date']);
   });
 });
+
+describe('chat copies (3a)', () => {
+  it('names the inbox, the people, a thread’s newest messages and a channel’s members', async () => {
+    const { CHAT_INBOX_COPY, CHAT_DIRECTORY_COPY, chatThreadCopyKey, chatMembersCopyKey } = await import('./offline-copy');
+    expect(CHAT_INBOX_COPY).toBe('chat.conversations');
+    expect(CHAT_DIRECTORY_COPY).toBe('chat.directory');
+    expect(chatThreadCopyKey('c1')).toBe('chat.thread.c1');
+    expect(chatMembersCopyKey('c1')).toBe('chat.members.c1');
+  });
+
+  it('keeps the most recently opened conversations only, apart from the board days', async () => {
+    const { offlineCopyCaps, CHAT_THREADS_KEPT } = await import('./offline-copy');
+    const caps = offlineCopyCaps();
+    const capOf = (key: string) => caps.find((g) => g.matches(key));
+    expect(capOf('tasks.p1.2026-10-21')?.keep).toBe(BOARD_DAYS_KEPT);
+    expect(capOf('chat.thread.c1')?.keep).toBe(CHAT_THREADS_KEPT);
+    expect(capOf('chat.members.c1')?.keep).toBe(CHAT_THREADS_KEPT);
+    expect(capOf('chat.thread.c1')).not.toBe(capOf('chat.members.c1'));
+    expect(capOf('chat.conversations')).toBeUndefined();
+    expect(capOf('tasks.p1.all')).toBeUndefined();
+    // The board days keep the order they always had (no name: "~rolling").
+    expect(capOf('tasks.p1.2026-10-21')?.name).toBeUndefined();
+    expect(CHAT_THREADS_KEPT).toBe(20);
+  });
+});

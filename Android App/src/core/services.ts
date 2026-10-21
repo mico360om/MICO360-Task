@@ -13,7 +13,7 @@ import type { AppEnv } from '../lib/app-env';
 import { resourcesApi } from '../lib/resources';
 import { createReadCache } from '../lib/read-cache';
 import { createOfflineReads, type OfflineReads } from '../lib/offline-reads';
-import { BOARD_DAYS_KEPT, isBoardDayCopy } from '../lib/offline-copy';
+import { chatThreadCopyKey, offlineCopyCaps } from '../lib/offline-copy';
 import { createSyncQueue, type QueuedMutation } from '../lib/sync-queue';
 import { performMutation, refreshesAfterReplay } from '../lib/perform-mutation';
 import { refresh } from '../lib/refresh';
@@ -153,9 +153,10 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   });
   const auth = authApi(api);
   const resources = resourcesApi(api);
-  // The offline copy is written after a screen has its data, keeps two weeks of board days, and
-  // never keeps a copy too long for Android to read back (offline-copy).
-  const cache = createReadCache({ store: asyncStore, getUserId: currentUserId, rolling: { matches: isBoardDayCopy, keep: BOARD_DAYS_KEPT } });
+  // The offline copy is written after a screen has its data, keeps two weeks of board days and the
+  // last 20 conversations opened, and never keeps a copy too long for Android to read back
+  // (offline-copy).
+  const cache = createReadCache({ store: asyncStore, getUserId: currentUserId, rolling: offlineCopyCaps() });
 
   const queue = createSyncQueue({
     store: asyncStore,
@@ -174,7 +175,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   // back online or back in the app), and the board shows the moves still waiting (offline-reads).
   const reads = createOfflineReads({ cache, pendingChanges: () => queue.pendingFor(currentUserId()) });
   const queryClient = createQueryClient({ answeredFromCopy: reads.answeredFromCopy });
-  const chat = createChatCache({ queryClient });
+  // A thread changed in place (a live or sent message) keeps its newest page offline too.
+  const chat = createChatCache({ queryClient, keepCopy: (conversationId, newest) => cache.keep(chatThreadCopyKey(conversationId), newest) });
 
   const sync = createSyncController({
     queue,

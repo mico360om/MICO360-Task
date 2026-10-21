@@ -31,12 +31,20 @@ export interface ReadCacheOptions {
   /** When the copy is written: after the screen has its data (default: the next turn, setTimeout 0). */
   defer?: (run: () => void) => void;
   /**
-   * Keys that pile up, one per day looked at (board days): only the `keep` most recently loaded of
-   * them are kept per user, the rest are deleted.
+   * Keys that pile up, one per thing looked at (board days, chat threads): of each group only the
+   * `keep` most recently loaded are kept per user, the rest are deleted.
    */
-  rolling?: { matches: (key: string) => boolean; keep: number };
+  rolling?: RollingGroup | RollingGroup[];
   /** The longest copy kept, in characters (default MAX_COPY_CHARS). */
   maxChars?: number;
+}
+
+/** One kind of copy that piles up, capped on its own. */
+export interface RollingGroup {
+  matches: (key: string) => boolean;
+  keep: number;
+  /** Names the stored order (the first group without a name keeps the original `~rolling`). */
+  name?: string;
 }
 
 export interface ReadOptions<T> {
@@ -76,7 +84,9 @@ export function createReadCache({
   maxChars = MAX_COPY_CHARS,
 }: ReadCacheOptions) {
   const cacheKey = (userId: string, key: string) => `${CACHE_PREFIX}${userId}.${key}`;
-  const rollingKey = (userId: string) => `${CACHE_PREFIX}${userId}.~rolling`;
+  const groups: RollingGroup[] = rolling ? (Array.isArray(rolling) ? rolling : [rolling]) : [];
+  const rollingKey = (userId: string, group: RollingGroup) => `${CACHE_PREFIX}${userId}.~rolling${group.name ? `.${group.name}` : ''}`;
+  const groupOf = (key: string): RollingGroup | undefined => groups.find((g) => g.matches(key));
 
   /** The newest copy of each entry that isn't written yet, by storage key. */
   const waiting = new Map<string, Waiting>();
@@ -84,8 +94,9 @@ export function createReadCache({
   let scheduled = false;
   /** Writes run one after another; clear() and settled() wait for the one in progress. */
   let writing: Promise<void> = Promise.resolve();
-  /** Each user's board days, loaded longest ago first (read from storage once). */
+  /** Each user's copies of each group, loaded longest ago first (read from storage once). */
   const days = new Map<string, string[]>();
+  const orderId = (userId: string, group: RollingGroup) => `${groups.indexOf(group)}|${userId}`;
 
   function schedule(): void {
     if (scheduled) return;
@@ -115,7 +126,8 @@ export function createReadCache({
         // Too long to read back: the older copy goes too, so storage stays small.
         if (text === null) await store.deleteItem(storageKey);
         else await store.setItem(storageKey, text);
-        if (text !== null && rolling?.matches(w.key)) await noteDay(w.userId, w.key, w.generation);
+        const group = text !== null ? groupOf(w.key) : undefined;
+        if (group) await noteDay(w.userId, w.key, w.generation, group);
       } catch {
         /* storage full or unavailable — the screen already has its data */
       }
@@ -123,12 +135,12 @@ export function createReadCache({
     }
   }
 
-  async function dayOrder(userId: string, gen: number): Promise<string[]> {
-    const known = days.get(userId);
+  async function dayOrder(userId: string, gen: number, group: RollingGroup): Promise<string[]> {
+    const known = days.get(orderId(userId, group));
     if (known) return known;
     let order: string[] | null = null;
     try {
-      const parsed: unknown = JSON.parse((await store.getItem(rollingKey(userId))) ?? 'null');
+      const parsed: unknown = JSON.parse((await store.getItem(rollingKey(userId, group))) ?? 'null');
       if (Array.isArray(parsed)) order = parsed.filter((k): k is string => typeof k === 'string');
     } catch {
       /* missing or unreadable — rebuilt below */
@@ -137,23 +149,29 @@ export function createReadCache({
       // First time (or from an older version): the days already stored, earliest first.
       const mine = `${CACHE_PREFIX}${userId}.`;
       const keys = store.keys ? await store.keys().catch(() => [] as string[]) : [];
-      order = keys.filter((k) => k.startsWith(mine)).map((k) => k.slice(mine.length)).filter((k) => rolling!.matches(k)).sort();
+      order = keys.filter((k) => k.startsWith(mine)).map((k) => k.slice(mine.length)).filter((k) => group.matches(k)).sort();
     }
     // A sign-out while this was read cleared the cache: don't bring the old order back.
-    if (gen === generation) days.set(userId, order);
+    if (gen === generation) days.set(orderId(userId, group), order);
     return order;
   }
 
-  /** This board day was just stored: it is now the newest; the ones beyond `keep` go. */
-  async function noteDay(userId: string, key: string, gen: number): Promise<void> {
-    const order = await dayOrder(userId, gen);
+  /** This copy (a board day, a chat thread) was just stored: it is now its group's newest; the ones beyond `keep` go. */
+  async function noteDay(userId: string, key: string, gen: number, group: RollingGroup): Promise<void> {
+    const order = await dayOrder(userId, gen, group);
     if (gen !== generation) return;
     const at = order.indexOf(key);
     if (at >= 0) order.splice(at, 1);
     order.push(key);
-    const dropped = order.splice(0, Math.max(0, order.length - rolling!.keep));
+    const dropped = order.splice(0, Math.max(0, order.length - group.keep));
     for (const old of dropped) await store.deleteItem(cacheKey(userId, old)).catch(() => {});
-    await store.setItem(rollingKey(userId), JSON.stringify(order)).catch(() => {});
+    await store.setItem(rollingKey(userId, group), JSON.stringify(order)).catch(() => {});
+  }
+
+  /** Hold this user's newest copy of an entry, to be written after the screen has its data. */
+  function hold(userId: string, key: string, data: unknown, slim?: (data: unknown) => unknown): void {
+    waiting.set(cacheKey(userId, key), { userId, key, envelope: { data, cachedAt: now() }, slim, generation });
+    schedule();
   }
 
   async function read<T>(key: string, fetcher: () => Promise<T>, opts: ReadOptions<T> = {}): Promise<CachedRead<T>> {
@@ -161,16 +179,7 @@ export function createReadCache({
     try {
       const data = await fetcher();
       // Re-check the owner: the user may have signed out while the request was in flight.
-      if (userId && getUserId() === userId) {
-        waiting.set(cacheKey(userId, key), {
-          userId,
-          key,
-          envelope: { data, cachedAt: now() },
-          slim: opts.slim as ((data: unknown) => unknown) | undefined,
-          generation,
-        });
-        schedule();
-      }
+      if (userId && getUserId() === userId) hold(userId, key, data, opts.slim as ((data: unknown) => unknown) | undefined);
       return { data, stale: false };
     } catch (error) {
       if (userId && canFallBack(error)) {
@@ -207,7 +216,16 @@ export function createReadCache({
     await writing;
   }
 
-  return { read, clear, settled };
+  /**
+   * Keep a copy without a fetch: what the screen shows after changes put in place (a chat thread
+   * with the messages that arrived live, 3a). Nothing is kept while signed out.
+   */
+  function keep<T>(key: string, data: T, opts: ReadOptions<T> = {}): void {
+    const userId = getUserId();
+    if (userId) hold(userId, key, data, opts.slim as ((data: unknown) => unknown) | undefined);
+  }
+
+  return { read, keep, clear, settled };
 }
 
 export type ReadCache = ReturnType<typeof createReadCache>;

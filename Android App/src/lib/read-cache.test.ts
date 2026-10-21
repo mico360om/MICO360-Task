@@ -197,3 +197,48 @@ describe('createReadCache: a capped offline copy (1c)', () => {
     expect(await store.keys()).toEqual(['mico360.cache.u1.tasks.p1.2026-10-21', 'mico360.cache.u1.~rolling']);
   });
 });
+
+describe('createReadCache: chat copies (3a)', () => {
+  const isDay = (key: string) => /^tasks\.[^.]+\.\d{4}-\d{2}-\d{2}$/.test(key);
+  const isThread = (key: string) => key.startsWith('chat.thread.');
+  const cached = async (store: ReturnType<typeof createMemoryStore>) =>
+    (await store.keys()).filter((k) => !k.includes('~rolling')).sort();
+
+  it('caps each kind of copy on its own: the most recent chat threads apart from the board days', async () => {
+    const store = createMemoryStore();
+    const cache = createReadCache({
+      store,
+      getUserId: () => 'u1',
+      rolling: [
+        { matches: isDay, keep: 1 },
+        { name: 'chat', matches: isThread, keep: 2 },
+      ],
+    });
+    await cache.read('tasks.p1.2026-10-20', async () => []);
+    await cache.read('chat.thread.a', async () => []);
+    await cache.read('tasks.p1.2026-10-21', async () => []);
+    await cache.read('chat.thread.b', async () => []);
+    await cache.read('chat.thread.c', async () => []);
+    await cache.settled();
+    expect(await cached(store)).toEqual(['mico360.cache.u1.chat.thread.b', 'mico360.cache.u1.chat.thread.c', 'mico360.cache.u1.tasks.p1.2026-10-21']);
+    // The board days keep their order where they always did.
+    expect(JSON.parse((await store.getItem('mico360.cache.u1.~rolling'))!)).toEqual(['tasks.p1.2026-10-21']);
+  });
+
+  it('keep(): a copy without a fetch (what was seen live) answers an offline read, and is stored', async () => {
+    const store = createMemoryStore();
+    const cache = createReadCache({ store, getUserId: () => 'u1' });
+    cache.keep('chat.thread.c1', [{ id: 'm1' }]);
+    expect(await cache.read('chat.thread.c1', offline)).toEqual({ data: [{ id: 'm1' }], stale: true });
+    await cache.settled();
+    expect(await store.getItem('mico360.cache.u1.chat.thread.c1')).toContain('m1');
+  });
+
+  it('keep() keeps nothing while signed out', async () => {
+    const store = createMemoryStore();
+    const cache = createReadCache({ store, getUserId: () => null });
+    cache.keep('chat.thread.c1', [{ id: 'm1' }]);
+    await cache.settled();
+    expect(await store.keys()).toEqual([]);
+  });
+});

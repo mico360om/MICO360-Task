@@ -1,4 +1,5 @@
 import type { ApiTask } from './types';
+import type { RollingGroup } from './read-cache';
 
 /**
  * What the phone keeps offline (read-cache), named and capped. A project's tasks are kept per
@@ -33,4 +34,30 @@ export function withoutOldDone(now: number): (tasks: ApiTask[]) => ApiTask[] {
       const at = Date.parse(t.completedAt);
       return Number.isNaN(at) || at >= since;
     });
+}
+
+// ── Chat (3a) ────────────────────────────────────────────────────────────────
+
+/** Conversations kept offline per person: the most recently opened (older ones are deleted). */
+export const CHAT_THREADS_KEPT = 20;
+
+/** The inbox (conversations, unread) and the people's names, kept whole. */
+export const CHAT_INBOX_COPY = 'chat.conversations';
+export const CHAT_DIRECTORY_COPY = 'chat.directory';
+
+/** A conversation's newest page of messages (chat-thread newestPageCopy). */
+export const chatThreadCopyKey = (conversationId: string): string => `chat.thread.${conversationId}`;
+/** A channel's members (who can be mentioned). */
+export const chatMembersCopyKey = (conversationId: string): string => `chat.members.${conversationId}`;
+
+const CHAT_THREAD = /^chat\.thread\.[^.]+$/;
+const CHAT_MEMBERS = /^chat\.members\.[^.]+$/;
+
+/** The copies that pile up, each capped on its own: board days, chat threads, channel members. */
+export function offlineCopyCaps(): RollingGroup[] {
+  return [
+    { matches: isBoardDayCopy, keep: BOARD_DAYS_KEPT },
+    { name: 'chat', matches: (key) => CHAT_THREAD.test(key), keep: CHAT_THREADS_KEPT },
+    { name: 'chat-members', matches: (key) => CHAT_MEMBERS.test(key), keep: CHAT_THREADS_KEPT },
+  ];
 }

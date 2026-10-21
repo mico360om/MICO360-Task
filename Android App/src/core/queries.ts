@@ -5,7 +5,7 @@ import { meetingWindow } from '../lib/meetings';
 import { refetchAfterMove } from '../lib/task-status';
 import { taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { afterTaskDeleted, afterTaskSaved, moveRefreshes } from '../lib/task-cache';
-import { projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
+import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
 import { newIdempotencyKey } from '../lib/idempotency';
@@ -677,25 +677,43 @@ export function useReportOptions() {
 }
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
+// The inbox, the names and each opened thread's newest messages are kept to read offline (3a).
 export function useDirectory() {
-  const { resources } = useServices();
-  return useQuery({ queryKey: ['chat', 'directory'], queryFn: () => resources.directory() });
+  const { resources, reads } = useServices();
+  return useQuery({ queryKey: ['chat', 'directory'], queryFn: ({ queryKey }) => reads.read(queryKey, CHAT_DIRECTORY_COPY, () => resources.directory()) });
 }
 
 export function useConversations() {
-  const { resources } = useServices();
-  return useQuery({ queryKey: ['chat', 'conversations'], queryFn: () => resources.chat.conversations() });
+  const { resources, reads } = useServices();
+  return useQuery({
+    queryKey: ['chat', 'conversations'],
+    queryFn: ({ queryKey }) => reads.read(queryKey, CHAT_INBOX_COPY, () => resources.chat.conversations()),
+  });
+}
+
+/** A channel's members (user ids), for who can be mentioned; kept offline. Not asked for a direct conversation. */
+export function useConversationMembers(conversationId: string, enabled: boolean) {
+  const { resources, reads } = useServices();
+  return useQuery({
+    queryKey: ['chat', 'members', conversationId],
+    queryFn: ({ queryKey }) => reads.read(queryKey, chatMembersCopyKey(conversationId), () => resources.chat.members(conversationId)),
+    enabled: !!conversationId && enabled,
+  });
 }
 
 /**
  * A conversation's history, a page at a time (3a): the newest page first, older pages as you scroll
- * back (chat-thread). New and sent messages are put into these pages in place (chat-cache).
+ * back (chat-thread). New and sent messages are put into these pages in place (chat-cache). The
+ * newest page is kept offline (the last ones opened, offline-copy); older pages need a connection.
  */
 export function useConversationMessages(conversationId: string) {
-  const { resources } = useServices();
+  const { resources, reads } = useServices();
   return useInfiniteQuery<ApiChatMessage[], Error, ThreadPages, string[], string | undefined>({
     queryKey: threadKey(conversationId),
-    queryFn: ({ pageParam }) => resources.chat.messages(conversationId, pageParam, CHAT_PAGE_SIZE),
+    queryFn: ({ pageParam, queryKey }) =>
+      pageParam
+        ? resources.chat.messages(conversationId, pageParam, CHAT_PAGE_SIZE)
+        : reads.read(queryKey, chatThreadCopyKey(conversationId), () => resources.chat.messages(conversationId, undefined, CHAT_PAGE_SIZE)),
     initialPageParam: undefined,
     getNextPageParam: olderPageCursor,
     enabled: !!conversationId,
