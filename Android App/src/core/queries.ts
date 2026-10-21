@@ -5,6 +5,7 @@ import { meetingWindow } from '../lib/meetings';
 import { refetchAfterMove } from '../lib/task-status';
 import { taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { afterTaskDeleted, afterTaskSaved, moveRefreshes } from '../lib/task-cache';
+import { projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { refresh } from '../lib/refresh';
 import { newIdempotencyKey } from '../lib/idempotency';
 import type { SyncQueue } from '../lib/sync-queue';
@@ -63,7 +64,7 @@ export function useProjectTasks(projectId: string, boardDate?: string) {
   return useQuery({
     queryKey: ['tasks', 'project', projectId, dk],
     queryFn: async () =>
-      (await cache.read(`tasks.${projectId}.${dk}`, () => resources.tasks.list({ projectId, boardDate }))).data,
+      (await cache.read(projectTasksCopyKey(projectId, boardDate), () => resources.tasks.list({ projectId, boardDate }), { slim: withoutOldDone(Date.now()) })).data,
     // Without a project id this would list every task the user can see (and cache it).
     enabled: !!projectId,
   });
@@ -73,7 +74,8 @@ export function useMyTasks() {
   const { resources, cache } = useServices();
   return useQuery({
     queryKey: ['tasks', 'mine'],
-    queryFn: async () => (await cache.read('tasks.mine', () => resources.tasks.mine())).data,
+    // Every task ever assigned comes back; a copy too long to keep leaves out long-finished ones.
+    queryFn: async () => (await cache.read('tasks.mine', () => resources.tasks.mine(), { slim: withoutOldDone(Date.now()) })).data,
   });
 }
 
