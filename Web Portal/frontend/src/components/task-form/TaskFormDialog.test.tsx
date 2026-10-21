@@ -538,6 +538,9 @@ describe('Edit task form', () => {
     renderDialog({ task: { ...TASK, recurrenceRule: { freq: 'WEEKLY', interval: 1 } } });
     await screen.findByRole('button', { name: 'Remove Omar A' });
     expect(screen.getByRole('group', { name: 'Repeat schedule' })).toHaveTextContent(/Repeats every week/);
+    // Says what the server copies to the other copies (title, description, priority), never the dates.
+    const applyTo = screen.getByRole('group', { name: 'Apply changes to' });
+    expect(applyTo).toHaveTextContent('The title, description and priority go to every copy when you choose the series; dates change on this copy only.');
     await pick('Priority', 'High');
     await userEvent.click(screen.getByRole('radio', { name: 'Entire series' }));
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
