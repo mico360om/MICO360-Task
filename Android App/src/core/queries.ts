@@ -124,11 +124,12 @@ export function useTaskTags(taskId: string) {
   return useQuery({ queryKey: ['task', taskId, 'tags'], queryFn: () => resources.tasks.tags(taskId) });
 }
 
+/** A project’s members; kept for an offline start (New task’s assignees, 4a). */
 export function useProjectMembers(projectId: string) {
-  const { resources } = useServices();
+  const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['project', projectId, 'members'],
-    queryFn: () => resources.projects.members(projectId),
+    queryFn: ({ queryKey }) => reads.read(queryKey, `members.${projectId}`, () => resources.projects.members(projectId)),
     enabled: !!projectId,
   });
 }

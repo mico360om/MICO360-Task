@@ -78,6 +78,11 @@ export function openProjectsOf<P extends Pick<FormProject, 'status'>>(projects: 
   return Array.isArray(projects) ? projects.filter((p) => p.status !== 'ARCHIVED') : [];
 }
 
+/** Where this phone keeps the project a person's last new task went to (the website keeps it in the browser). */
+export function lastProjectKey(userId: string): string {
+  return `mico360.newTask.project.${userId}`;
+}
+
 /** The project the form starts in: a fixed one (a board), the page's own, the one used last time, then the first open one. */
 export function startProjectId(o: { fixed?: string | null; preferred?: string | null; last?: string | null; open: readonly { id: string }[] }): string {
   if (o.fixed) return o.fixed;

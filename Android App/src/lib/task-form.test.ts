@@ -8,6 +8,7 @@ import {
   createdWithoutFilesText,
   formColumns,
   isDraftDirty,
+  lastProjectKey,
   leaveWarning,
   newTaskDraft,
   openProjectsOf,
@@ -46,6 +47,11 @@ describe('where a new task goes (the website’s order)', () => {
     expect(startProjectId({ preferred: 'p8', last: 'p3', open })).toBe('p3');
     expect(startProjectId({ last: 'gone', open })).toBe('p1');
     expect(startProjectId({ open: [] })).toBe('');
+  });
+
+  it('remembers the project used last time per person on this phone', () => {
+    expect(lastProjectKey('u1')).toBe('mico360.newTask.project.u1');
+    expect(lastProjectKey('u2')).not.toBe(lastProjectKey('u1'));
   });
 
   it('lists a project’s columns in board order, without the turned-off ones', () => {

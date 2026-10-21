@@ -22,6 +22,11 @@ export type AppStackParamList = {
   Board: { projectId: string; projectName?: string };
   ProjectDetail: { projectId: string; projectName?: string };
   TaskDetail: { taskId: string; title?: string };
+  /**
+   * New task (4a): in a fixed project (a board, a project; with the board’s column and day), or
+   * starting in a project that can be changed (the calendar’s filter), on a day (the calendar’s).
+   */
+  NewTask: { projectId?: string; defaultProjectId?: string; columnId?: string; dueDate?: string; boardDate?: string } | undefined;
   MeetingDetail: { meetingId: string; title?: string };
   /** Schedule a meeting (no id; in a project when given), or edit one. */
   MeetingForm: { meetingId?: string; projectId?: string } | undefined;
