@@ -443,6 +443,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
           readAttachment: deps.readAttachment,
           pictureThumbnail: deps.pictureThumbnail,
+          readProjectImage: deps.readProjectImage,
+          printableProjectImage: deps.printableProjectImage,
         });
       }
       if (deps.memberService) {

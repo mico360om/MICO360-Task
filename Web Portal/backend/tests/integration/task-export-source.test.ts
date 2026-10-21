@@ -35,7 +35,7 @@ beforeEach(async () => {
   const bo = await user(EMAILS[1]!, 'Bo');
   await user(EMAILS[2]!, 'Outsider');
   const project = await prisma.project.create({
-    data: { code: CODE, number: 'PDO-2026-014', name: 'TX Export Project', color: '#1E5A8B', icon: 'rocket', createdById: ada.id, ownerId: ada.id, members: { create: [{ userId: bo.id }] } },
+    data: { code: CODE, number: 'PDO-2026-014', name: 'TX Export Project', color: '#1E5A8B', icon: 'rocket', imageUrl: '/uploads/projects/tx.png', createdById: ada.id, ownerId: ada.id, members: { create: [{ userId: bo.id }] } },
   });
   const column = await prisma.kanbanColumn.create({ data: { projectId: project.id, name: 'Doing', category: 'IN_PROGRESS', position: 0 } });
   const meeting = await prisma.meeting.create({ data: { title: 'TX export weekly sync', organizerId: ada.id, createdById: ada.id, startAt: new Date('2026-09-27T06:00:00Z'), projectId: project.id } });
@@ -62,6 +62,7 @@ describe('Task export source (integration)', () => {
       projectNumber: 'PDO-2026-014',
       projectColor: '#1E5A8B',
       projectIcon: 'rocket',
+      projectImageUrl: '/uploads/projects/tx.png',
       isMilestone: true,
       meeting: { title: 'TX export weekly sync', startAt: new Date('2026-09-27T06:00:00Z') },
     });

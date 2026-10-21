@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
 import { buildXlsx, XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
 import { BRAND, fileSlug } from '../../lib/export-format';
-import { taskPdf, taskSheets, withPictures, type TaskExportSource } from './task-export';
+import { readProjectPicture } from '../../lib/pdf-image';
+import { taskPdf, taskSheets, withPictures, type TaskExportData, type TaskExportSource } from './task-export';
 
 export interface TaskExportRouteDeps {
   guard: AuthGuard;
@@ -16,6 +17,19 @@ export interface TaskExportRouteDeps {
   readAttachment?: (storageKey: string) => Promise<Buffer | null>;
   /** Makes a small picture a PDF can print (a JPEG thumbnail) from a stored one; without it a JPEG or PNG is printed as stored. */
   pictureThumbnail?: (raw: Buffer) => Promise<Buffer | null>;
+  /** Reads the project's uploaded picture ('/uploads/…') for the PDF's badge, as the minutes PDF does. */
+  readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
+  /** Converts a project picture the PDF can't take as stored (WebP, GIF, some PNGs). */
+  printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
+}
+
+/** The task with what only its PDF shows: the project's picture and the task's own pictures. */
+async function forPdf(data: TaskExportData, deps: TaskExportRouteDeps): Promise<TaskExportData> {
+  const [projectImage, withFiles] = await Promise.all([
+    readProjectPicture(data.projectImageUrl, deps.readProjectImage, deps.printableProjectImage),
+    deps.readAttachment ? withPictures(data, { read: deps.readAttachment, thumbnail: deps.pictureThumbnail }) : data,
+  ]);
+  return projectImage ? { ...withFiles, projectImage } : withFiles;
 }
 
 /** GET /tasks/:id/export.xlsx and /tasks/:id/export.pdf — one task as a document, for anyone who can open it. */
@@ -33,7 +47,7 @@ export async function registerTaskExportRoutes(app: FastifyInstance, deps: TaskE
       const body =
         format === 'xlsx'
           ? buildXlsx(taskSheets(data, ctx), { title: `${data.key} · ${data.title}`, brand: BRAND }, ctx.generatedAt)
-          : taskPdf(deps.readAttachment ? await withPictures(data, { read: deps.readAttachment, thumbnail: deps.pictureThumbnail }) : data, ctx);
+          : taskPdf(await forPdf(data, deps), ctx);
       return reply
         .header('Content-Type', format === 'xlsx' ? XLSX_CONTENT_TYPE : 'application/pdf')
         .header('Content-Disposition', `attachment; filename="${file}"`)

@@ -82,6 +82,41 @@ describe('Task export routes', () => {
     expect(readAttachment).not.toHaveBeenCalled();
   });
 
+  it('prints the project’s uploaded picture as its badge, read from where uploads are stored; the workbook reads nothing', async () => {
+    const png = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#aa3322' } }).png().toBuffer();
+    const readProjectImage = vi.fn(async () => png);
+    const app = await makeApp({ task: { ...data, projectImageUrl: '/uploads/projects/rig.png' }, extra: { readProjectImage } });
+    const res = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(readProjectImage).toHaveBeenCalledWith('/uploads/projects/rig.png');
+    expect(pictures(res.rawPayload)).toBe(1);
+
+    readProjectImage.mockClear();
+    expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.xlsx' })).statusCode).toBe(200);
+    expect(readProjectImage).not.toHaveBeenCalled();
+  });
+
+  it('converts a project picture the PDF can’t print as stored (WebP), so the badge still shows it', async () => {
+    const webp = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#aa3322' } }).webp().toBuffer();
+    const jpeg = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#aa3322' } }).jpeg().toBuffer();
+    const printableProjectImage = vi.fn(async () => jpeg);
+    const app = await makeApp({ task: { ...data, projectImageUrl: '/uploads/projects/rig.webp' }, extra: { readProjectImage: async () => webp, printableProjectImage } });
+    const res = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(printableProjectImage).toHaveBeenCalledTimes(1);
+    expect(pictures(res.rawPayload)).toBe(1);
+  });
+
+  it('falls back to the project’s initials when its picture can’t be read', async () => {
+    const readProjectImage = async () => {
+      throw new Error('ENOENT');
+    };
+    const res = await (await makeApp({ task: { ...data, projectImageUrl: '/uploads/projects/gone.png' }, extra: { readProjectImage } })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(pictures(res.rawPayload)).toBe(0);
+    expect(inspectPdf(res.rawPayload).pages.flat()).toContain('RI');
+  });
+
   it('still makes the PDF without file storage: the pictures are listed', async () => {
     const res = await (await makeApp({ task: withFiles })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
     expect(res.statusCode).toBe(200);

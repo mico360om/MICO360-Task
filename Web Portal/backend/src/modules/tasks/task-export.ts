@@ -52,6 +52,10 @@ export interface TaskExportData {
   /** The project's colour (hex) and icon: its badge at the top of the PDF. */
   projectColor: string | null;
   projectIcon: string | null;
+  /** The project's uploaded picture ('/uploads/…'): shown as its badge instead, as on the minutes PDF. */
+  projectImageUrl?: string | null;
+  /** That picture's bytes, read by the PDF route; without them the icon or initials are shown. */
+  projectImage?: Buffer | null;
   /** The column's name. */
   status: string;
   category: string;
@@ -302,9 +306,10 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   const doc = new PdfDocument({ title: `${t.key} · ${t.title}`, runningTitle: `${t.key} · ${t.projectName}`, footerLeft: `MICO360 Tasks · ${generated}`, palette: { brand: BRAND } });
   const width = doc.pageWidth - doc.margin * 2;
 
-  // Header: the project's badge (its icon, else its initials, on its colour), name and number;
-  // then the task's key, its title from its start edge, and who made this PDF when.
+  // Header: the project's badge (its picture, else its icon, else its initials, on its colour), name
+  // and number; then the task's key, its title from its start edge, and who made this PDF when.
   doc.identityHeader({
+    image: t.projectImage ?? null,
     icon: projectIconPaths(t.projectIcon),
     initials: projectInitials(t.projectName),
     color: t.projectColor ? hexToRgb(t.projectColor, brand) : undefined,
@@ -444,7 +449,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
       const t = await prisma.task.findFirst({
         where: { id: taskId, deletedAt: null, project: { is: { deletedAt: null } } },
         include: {
-          project: { select: { name: true, code: true, number: true, color: true, icon: true } },
+          project: { select: { name: true, code: true, number: true, color: true, icon: true, imageUrl: true } },
           column: { select: { name: true, category: true } },
           createdBy: person,
           meeting: { select: { title: true, startAt: true, deletedAt: true } },
@@ -477,6 +482,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         projectNumber: t.project.number,
         projectColor: t.project.color,
         projectIcon: t.project.icon,
+        projectImageUrl: t.project.imageUrl,
         status: t.column.name,
         category: t.column.category,
         priority: t.priority,

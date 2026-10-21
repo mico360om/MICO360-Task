@@ -190,6 +190,30 @@ describe('task PDF pictures', () => {
     expect(read).toEqual(['abc.jpg']);
     expect(res.rawPayload.toString('latin1')).toMatch(/\/Subtype \/Image[\s\S]{0,200}\/Width 40\b|\/Width 40\b[\s\S]{0,200}\/Subtype \/Image/);
   });
+
+  it('prints the project’s uploaded picture as the badge, read the way the minutes PDF reads it', async () => {
+    const sharp = (await import('sharp')).default;
+    const logo = await sharp({ create: { width: 44, height: 44, channels: 3, background: '#aa3322' } }).png().toBuffer();
+    const asked: string[] = [];
+    const task = {
+      key: 'MICO-7', title: 'Inspect the rig', description: null, projectName: 'Rig', projectCode: 'RIG', projectNumber: null, projectColor: null, projectIcon: null,
+      projectImageUrl: '/uploads/projects/rig.png',
+      status: 'To do', category: 'TODO', priority: 'NORMAL', startDate: null, dueDate: null, completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+      progress: 0, estimatedHours: null, actualHours: null, createdBy: 'Aisha', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, isMilestone: false, meeting: null,
+      checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [], attachments: [],
+    };
+    const app = await buildApp({
+      authService,
+      tokenService,
+      taskExportSource: { load: async () => task },
+      readProjectImage: async (url) => { asked.push(url); return logo; },
+    });
+    const token = (await tokenService.issueTokens({ id: 'a1', roles: ['ADMIN'] })).accessToken;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/tasks/t1/export.pdf', headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(200);
+    expect(asked).toEqual(['/uploads/projects/rig.png']);
+    expect(res.rawPayload.toString('latin1')).toMatch(/\/Subtype \/Image[\s\S]{0,200}\/Width 44\b|\/Width 44\b[\s\S]{0,200}\/Subtype \/Image/);
+  });
 });
 
 describe('rate limiting behind a proxy', () => {

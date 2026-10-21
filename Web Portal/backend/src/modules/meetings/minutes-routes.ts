@@ -9,7 +9,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { buildMinutesPdf, resolveMinutesTimeZone, type MinutesData } from './minutes';
 import { resolveBrand } from '../email/brand';
 import { dueDayKey } from '../../lib/due-date';
-import { printableImage } from '../../lib/pdf-image';
+import { readProjectPicture } from '../../lib/pdf-image';
 import { shownMeetingStatus } from './meeting-end';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { draftFromNotes, minutesFacts, normalizeFinalMinutes, type FinalMinutesContent } from './final-minutes';
@@ -129,13 +129,8 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       deps.resolveUserNames([...ids]),
       taskIds.length && deps.resolveTaskKeys ? deps.resolveTaskKeys(taskIds) : Promise.resolve({} as Record<string, string>),
     ]);
-    const storedImage =
-      projectSrc?.imageUrl && deps.readProjectImage ? await deps.readProjectImage(projectSrc.imageUrl).catch(() => null) : null;
     // A picture in a format the PDF can't embed as stored is converted, so the logo still prints.
-    const projectImage =
-      storedImage && !printableImage(storedImage) && deps.printableProjectImage
-        ? await deps.printableProjectImage(storedImage).catch(() => null)
-        : storedImage;
+    const projectImage = await readProjectPicture(projectSrc?.imageUrl, deps.readProjectImage, deps.printableProjectImage);
     const trackedNotes = new Set(actionItems.map((a) => a.sourceNoteId).filter(Boolean));
     const nameOf = (uid: string | null): string | null => (uid ? names.get(uid) ?? null : null);
 

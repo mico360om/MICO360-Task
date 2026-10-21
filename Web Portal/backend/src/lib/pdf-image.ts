@@ -47,6 +47,22 @@ export function printableImage(buf: Buffer): Buffer | null {
   return writePng(width, height, out);
 }
 
+/**
+ * A project's uploaded picture for a PDF badge (the minutes and task PDFs): read from storage and,
+ * when the PDF can't take it as stored (WebP, GIF, some PNGs), converted. Null when there is none or
+ * it can't be read, so the caller draws the project's icon or initials instead.
+ */
+export async function readProjectPicture(
+  imageUrl: string | null | undefined,
+  read: ((imageUrl: string) => Promise<Buffer | null>) | undefined,
+  convert?: (raw: Buffer) => Promise<Buffer | null>,
+): Promise<Buffer | null> {
+  if (!imageUrl || !read) return null;
+  const stored = await read(imageUrl).catch(() => null);
+  if (!stored || printableImage(stored) || !convert) return stored;
+  return convert(stored).catch(() => null);
+}
+
 interface PngInfo {
   width: number;
   height: number;
