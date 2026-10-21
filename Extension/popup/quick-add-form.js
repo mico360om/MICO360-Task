@@ -76,6 +76,7 @@ export function QuickAddForm(ctx) {
     created: null,     // the task once it exists: while its files go up, and when some couldn't ("Done" then starts over)
     held: null,        // { payload, key }: offline with files — "Save without the files" sends it
     pending: null,     // { key, payloadJSON }: an attempt that may have reached the server — the same task sent again reuses its key
+    nextCapture: null, // a right-click capture that came while a task was being created: it fills the next one
     notice: '',
     describe: { reading: false, problem: null, found: null },
   };
@@ -118,9 +119,15 @@ export function QuickAddForm(ctx) {
   const pageNote = el('p', { class: 'qa-hint qa-live', role: 'status' });
   const filesList = el('ul', { class: 'qa-files' });
   const fileInput = el('input', { type: 'file', multiple: 'multiple', class: 'sr-only', 'aria-label': 'Attach files' });
-  const dropText = el('span', { class: 'qa-drop-main' }, 'Drop files here or ', el('span', { class: 'qa-link' }, 'browse'));
+  // A toolbar popup closes as soon as you click or drag in another window, so it never says "drop"
+  // (M1); the small window the right-click menu opens before Chrome 127 does take dropped files.
+  const pasteKeys = isMac() ? '⌘V' : 'Ctrl+V';
+  const dropLabel = () => (ctx.inWindow
+    ? ['Drop files here or ', el('span', { class: 'qa-link' }, 'browse')]
+    : [el('span', { class: 'qa-link' }, 'Choose files'), ' or paste a picture']);
+  const dropText = el('span', { class: 'qa-drop-main' }, dropLabel());
   const dropZone = el('label', { class: 'qa-drop' }, dropText,
-    el('span', { class: 'qa-hint' }, `Or paste a picture (${isMac() ? '⌘V' : 'Ctrl+V'}) · up to ${MAX_UPLOAD_MB} MB each · pictures are made smaller to save space`),
+    el('span', { class: 'qa-hint' }, `${ctx.inWindow ? `Or paste a picture (${pasteKeys})` : `Paste with ${pasteKeys}`} · up to ${MAX_UPLOAD_MB} MB each · pictures are made smaller to save space`),
     fileInput);
   const clearBtn = el('button', { class: 'btn sm ghost hidden', type: 'button', onClick: () => clearForm() }, 'Clear');
   const createBtn = el('button', { class: 'btn primary', type: 'submit', 'aria-keyshortcuts': 'Control+Enter', title: `Create task (${isMac() ? '⌘' : 'Ctrl'}+Enter)` }, 'Create task');
@@ -197,13 +204,13 @@ export function QuickAddForm(ctx) {
   form.addEventListener('dragleave', (e) => {
     if (e.relatedTarget && form.contains(e.relatedTarget)) return;
     form.classList.remove('dragging');
-    mount(dropText, 'Drop files here or ', el('span', { class: 'qa-link' }, 'browse'));
+    mount(dropText, dropLabel());
   });
   form.addEventListener('drop', (e) => {
     if (state.saving || state.created) return;
     e.preventDefault();
     form.classList.remove('dragging');
-    mount(dropText, 'Drop files here or ', el('span', { class: 'qa-link' }, 'browse'));
+    mount(dropText, dropLabel());
     addFiles(Array.from((e.dataTransfer && e.dataTransfer.files) || []));
   });
   const onConnection = (e) => {
@@ -215,6 +222,8 @@ export function QuickAddForm(ctx) {
     window.addEventListener('online', onConnection);
     window.addEventListener('offline', onConnection);
   }
+  // In a window of its own the form stays open: a new right-click capture comes to it (popup.js).
+  if (typeof ctx.onCapture === 'function') ctx.onCapture((capture) => useCapture(capture));
 
   onConnection();
   renderProjects();
@@ -703,6 +712,21 @@ export function QuickAddForm(ctx) {
     announce('The form is cleared.');
   }
 
+  /** What the right-click menu captured while the form was open: added as at the start (nothing typed is replaced). */
+  function useCapture(capture) {
+    if (!capture) return;
+    if (state.saving) {
+      state.nextCapture = capture;
+      return;
+    }
+    if (state.created) resetForm(); // that task exists already: what was picked starts the next one
+    state.fields = mergeCapture(state.fields, capture);
+    syncInputs();
+    changed();
+    titleInput.focus();
+    announce('What you picked on the page is in the form.');
+  }
+
   // ---- "Describe it" ------------------------------------------------------------------------
   async function read() {
     const text = describeText.value.trim();
@@ -764,7 +788,7 @@ export function QuickAddForm(ctx) {
     if (state.created) {
       const task = state.created; // the task exists already: never a second one
       state.created = null;
-      succeed(task);
+      finished(task);
       return;
     }
     const f = fields();
@@ -820,7 +844,7 @@ export function QuickAddForm(ctx) {
           return;
         }
       }
-      succeed(task);
+      finished(task);
     } catch (e) {
       if (forgetSpentKey(e)) state.held = null;
       if (state.held) showHeld(createFailure(e)); // still held, with its key: the offer stays
@@ -857,6 +881,11 @@ export function QuickAddForm(ctx) {
     renderPeople();
     renderProjects();
     renderColumns();
+    if (!on && state.nextCapture) {
+      const capture = state.nextCapture;
+      state.nextCapture = null;
+      useCapture(capture);
+    }
   }
 
   /** Files can't wait offline with the task (as on the web): say so, and offer to save it without them. */
@@ -956,6 +985,16 @@ export function QuickAddForm(ctx) {
     resetForm();
     setBanner('info', message);
     titleInput.focus();
+  }
+
+  /**
+   * The task and its files are all there. In a window of its own (the right-click menu before Chrome
+   * 127) the window then closes — unless something new was picked meanwhile, which fills the form.
+   * (Saved without its files, or kept on this device, the form stays to say so.)
+   */
+  function finished(task) {
+    succeed(task);
+    if (ctx.inWindow && !state.nextCapture) ctx.close();
   }
 
   function succeed(task, extra = '') {

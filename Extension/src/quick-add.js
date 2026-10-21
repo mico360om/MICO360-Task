@@ -16,6 +16,11 @@ export const PRIORITY_NAMES = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGE
 export const DRAFT_KEY = 'mico360.quickAdd.draft';
 export const CAPTURE_KEY = 'mico360.quickAdd.capture';
 export const QUICK_ADD_SESSION_KEYS = [DRAFT_KEY, CAPTURE_KEY];
+/**
+ * Before Chrome 127 the right-click menu opens the form in a small window: its id, so the next
+ * click focuses it instead of opening another. Not personal (not cleared at sign-out with the above).
+ */
+export const QUICK_ADD_WINDOW_KEY = 'mico360.quickAdd.window';
 /** chrome.storage.local, per person (wiped at sign-out): the project used last, and the tasks added here lately. */
 export const LAST_PROJECT_KEY = 'quickAddLastProject';
 export const RECENT_KEY = 'quickAddRecent';

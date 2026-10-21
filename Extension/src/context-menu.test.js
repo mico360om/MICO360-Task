@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMenu, onMenuClick, MENU_ID, MENU_CONTEXTS } from './context-menu.js';
 import { openAppTab } from './open-app.js';
-import { CAPTURE_KEY } from './quick-add.js';
+import { CAPTURE_KEY, QUICK_ADD_WINDOW_KEY } from './quick-add.js';
 import { fakeStorage } from './test-helpers.js';
 
 const EXT = 'chrome-extension://abc/';
@@ -44,6 +44,35 @@ describe('the right-click menu', () => {
       expect(chrome.windows.create).toHaveBeenCalledWith({ url: `${EXT}popup/popup.html?window=1`, type: 'popup', width: 440, height: 640, focused: true });
       expect(chrome.session.data[CAPTURE_KEY].title).toBe('A');
     }
+  });
+
+  it('before Chrome 127, a second click focuses the window already open instead of opening another (M2)', async () => {
+    const chrome = fakeChrome();
+    const click = () => onMenuClick(chrome, { menuItemId: MENU_ID, pageUrl: 'https://a.example/' }, { title: 'A' });
+    expect(await click()).toBe('window');
+    expect(chrome.windows.create).toHaveBeenCalledTimes(1);
+    expect(chrome.session.data[QUICK_ADD_WINDOW_KEY]).toBe(9);
+    expect(await click()).toBe('window');
+    expect(chrome.windows.update).toHaveBeenCalledWith(9, { focused: true });
+    expect(chrome.windows.create).toHaveBeenCalledTimes(1);
+    // Closed since: a new one opens.
+    chrome.windows.update = vi.fn(async () => { throw new Error('No window with id: 9.'); });
+    expect(await click()).toBe('window');
+    expect(chrome.windows.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for the popup straight away — keeping the capture isn’t awaited first — so the click still counts as a user gesture', async () => {
+    let release;
+    const openPopup = vi.fn(async () => {});
+    const chrome = fakeChrome({ openPopup });
+    const set = chrome.storage.session.set;
+    chrome.storage.session.set = vi.fn((obj) => new Promise((r) => { release = () => r(set(obj)); }));
+    const done = onMenuClick(chrome, { menuItemId: MENU_ID, selectionText: 'Check the pump', pageUrl: 'https://a.example/' }, { windowId: 2 });
+    expect(chrome.storage.session.set).toHaveBeenCalledTimes(1);
+    expect(openPopup).toHaveBeenCalledWith({ windowId: 2 });
+    release();
+    expect(await done).toBe('popup');
+    expect(chrome.session.data[CAPTURE_KEY].title).toBe('Check the pump');
   });
 
   it('ignores other menu items', async () => {

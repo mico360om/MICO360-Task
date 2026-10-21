@@ -52,6 +52,16 @@ async function activePage(capture) {
   }
 }
 
+/**
+ * Call `fn` when the right-click menu keeps a new capture. Only in a window of its own (before
+ * Chrome 127): the menu focuses that window instead of opening another, and it stays open.
+ */
+function onNewCapture(fn) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && changes[CAPTURE_KEY] && changes[CAPTURE_KEY].newValue) fn();
+  });
+}
+
 async function shortcut() {
   const all = await chrome.commands.getAll();
   const open = all.find((c) => c.name === '_execute_action');
@@ -70,9 +80,11 @@ async function boot() {
   if (!signed) {
     // A right-click capture stays for a few minutes: signing in and opening the popup again uses it.
     mount(root, SignedOutView(frame));
+    if (inWindow) onNewCapture(() => window.location.reload()); // signed in since? then the form takes it
     return;
   }
   const capture = await takeCapture();
+  let latest = capture;
   const userId = signed.userId;
   const auth = createAuth({
     local,
@@ -107,8 +119,16 @@ async function boot() {
       newKey: () => idempotencyKey || newIdempotencyKey(),
       hold,
     }),
-    currentPage: () => activePage(capture),
+    currentPage: () => activePage(latest),
     capture,
+    // A window of its own takes dropped files, closes once a task is created, and takes new captures
+    // (its "page you are on" is then the one picked last).
+    inWindow,
+    onCapture: inWindow ? (use) => onNewCapture(() => takeCapture().then((c) => {
+      if (!c) return;
+      latest = c;
+      use(c);
+    })) : undefined,
     shortcut,
   };
   mount(root, QuickAddForm(ctx));

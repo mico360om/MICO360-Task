@@ -468,6 +468,15 @@ describe('pictures and files', () => {
     expect(root.querySelectorAll('.qa-files li')).toHaveLength(1);
   });
 
+  it('the toolbar popup says "Choose files or paste a picture" (a drag closes it); a window of its own says "Drop files here" (M1)', async () => {
+    const { root } = await open();
+    expect(root.querySelector('.qa-drop-main').textContent).toBe('Choose files or paste a picture');
+    expect(root.textContent).not.toContain('Drop files');
+    document.body.innerHTML = '';
+    const { root: win } = await open(makeCtx({ ctx: { inWindow: true } }));
+    expect(win.querySelector('.qa-drop-main').textContent).toBe('Drop files here or browse');
+  });
+
   it('go up after the task is created, one by one', async () => {
     const { root, ctx } = await open();
     type($('qa-title'), 'With files');
@@ -626,6 +635,35 @@ describe('"Add this page", the right-click menu and the unsent form', () => {
     byText(root, 'button', 'Create task').click();
     await settle();
     expect(ctx.send.mock.calls[0][1].assigneeIds).toEqual(['u2']);
+  });
+});
+
+describe('in a window of its own (the right-click menu before Chrome 127)', () => {
+  it('closes the window once the task is created; the toolbar popup stays open (M2)', async () => {
+    const { root, ctx } = await open(makeCtx({ ctx: { inWindow: true } }));
+    type($('qa-title'), 'From the window');
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect(ctx.send).toHaveBeenCalledTimes(1);
+    expect(ctx.close).toHaveBeenCalledTimes(1);
+    document.body.innerHTML = '';
+    const popup = await open();
+    type($('qa-title'), 'From the popup');
+    byText(popup.root, 'button', 'Create task').click();
+    await settle();
+    expect(popup.ctx.close).not.toHaveBeenCalled();
+  });
+
+  it('a new right-click while it is open fills the form already there (M2)', async () => {
+    let deliver = null;
+    const ctx = makeCtx({ ctx: { inWindow: true, onCapture: (fn) => { deliver = fn; } } });
+    await open(ctx);
+    type($('qa-desc'), 'My notes');
+    deliver({ title: 'Check the pump', text: 'Check the pump', link: '', page: { title: 'Spec', url: 'https://a.example/spec' } });
+    await settle();
+    expect($('qa-title').value).toBe('Check the pump');
+    expect($('qa-desc').value).toBe('My notes\n\nSpec\nhttps://a.example/spec');
+    expect(ctx.session.data[DRAFT_KEY].fields.title).toBe('Check the pump');
   });
 });
 
