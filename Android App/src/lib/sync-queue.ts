@@ -79,8 +79,6 @@ export interface SyncQueueOptions {
   classifyError?: (error: unknown) => FailureKind;
   /** Server-side failures tolerated before an item is marked failed (default 5). */
   maxAttempts?: number;
-  /** Tries without an answer (timeouts) before an item is marked failed (default 3). */
-  maxTimeouts?: number;
   /**
    * What a change waits behind (write-order replayLane): changes of one lane go in order, and one
    * that gets no answer or a server hiccup holds only its own lane. Default: one lane for all.
@@ -140,7 +138,6 @@ export function createSyncQueue(options: SyncQueueOptions) {
   const { store, perform } = options;
   const classify = options.classifyError ?? classifyReplayError;
   const maxAttempts = Math.max(1, options.maxAttempts ?? 5);
-  const maxTimeouts = Math.max(1, options.maxTimeouts ?? 3);
   const laneOf = (m: QueuedMutation) => options.lane?.(m) ?? '';
   const isTimeout = (e: unknown) => (e as { timedOut?: unknown } | null)?.timedOut === true;
   const now = options.now ?? Date.now;
@@ -175,14 +172,26 @@ export function createSyncQueue(options: SyncQueueOptions) {
     }
     // Items from older builds have no owner. Replaying them could post one user's change as
     // another user, so they are discarded rather than guessed.
-    const items = parsed.filter(isValidItem).map<QueuedMutation>((m) => ({
-      ...m,
-      idempotencyKey: typeof m.idempotencyKey === 'string' && m.idempotencyKey ? m.idempotencyKey : genKey(),
-      attempts: typeof m.attempts === 'number' ? m.attempts : 0,
-      status: m.status === 'failed' ? 'failed' : 'pending',
-    }));
+    let changed = false;
+    const items = parsed.filter(isValidItem).map<QueuedMutation>((m) => {
+      const attempts = typeof m.attempts === 'number' ? m.attempts : 0;
+      const item: QueuedMutation = {
+        ...m,
+        idempotencyKey: typeof m.idempotencyKey === 'string' && m.idempotencyKey ? m.idempotencyKey : genKey(),
+        attempts,
+        status: m.status === 'failed' ? 'failed' : 'pending',
+      };
+      if (item.status !== 'failed' || item.refused) return item;
+      // Kept by an older version (3b review): one it stopped sending for want of an answer waits
+      // again under its key (a change that gets no answer is never failed now); a refusal it kept
+      // without the flag is known as one, so its Retry goes under a new key — unless it was failed
+      // for failing on the server again and again (it may be saved: the key stays).
+      changed = true;
+      if (item.lastError === NO_ANSWER_TEXT) return { ...item, status: 'pending', lastError: undefined };
+      return attempts < maxAttempts ? { ...item, refused: true } : item;
+    });
     queue = items;
-    if (items.length !== parsed.length) await commit(items);
+    if (changed || items.length !== parsed.length) await commit(items);
     else listeners.forEach((l) => l());
     return [...queue];
   }
@@ -232,12 +241,32 @@ export function createSyncQueue(options: SyncQueueOptions) {
       return false;
     };
 
+    /**
+     * The next change to send: the first waiting change of a lane not held — a lane whose first
+     * change got no answer last time goes after the others (3b review), so a stuck note doesn't
+     * make every new message wait out its time-out first. Within a lane the order never changes.
+     */
+    const next = (): QueuedMutation | undefined => {
+      const seen = new Set<string>();
+      let unanswered: QueuedMutation | undefined;
+      for (const x of queue) {
+        if (x.userId !== userId || x.status !== 'pending') continue;
+        const lane = laneOf(x);
+        if (seen.has(lane)) continue;
+        seen.add(lane);
+        if (held.has(lane)) continue;
+        if (!(x.timeouts ?? 0)) return x;
+        unanswered ??= x;
+      }
+      return unanswered;
+    };
+
     for (;;) {
       if (opts.shouldContinue && !opts.shouldContinue()) {
         pausedBy = 'user-changed';
         break;
       }
-      const m = queue.find((x) => x.userId === userId && x.status === 'pending' && !held.has(laneOf(x)));
+      const m = next();
       if (!m) break;
       try {
         const result = await perform(m);
@@ -254,14 +283,11 @@ export function createSyncQueue(options: SyncQueueOptions) {
             pausedBy = 'offline';
             break;
           }
-          // The request went and no answer came in time (2c review): counted, so a change the server
-          // never answers stops holding its lane after a few tries — shown with Retry and Discard.
-          const timeouts = (m.timeouts ?? 0) + 1;
-          if (timeouts >= maxTimeouts) {
-            await fail(m, { timeouts, lastError: NO_ANSWER_TEXT });
-            continue;
-          }
-          await update(m.id, { timeouts });
+          // The request went and no answer came in time. It may be saved, so it is never failed (3b
+          // review): it keeps waiting at the head of its lane — a later change of the same item can't
+          // overtake it with a version it never moved on — and is sent again in every sync until the
+          // server answers. It is counted ("no answer yet, N tries"), and can be discarded (waitingTooLong).
+          await update(m.id, { timeouts: (m.timeouts ?? 0) + 1 });
           if (holdLane(m, 'offline')) break;
           continue;
         }
