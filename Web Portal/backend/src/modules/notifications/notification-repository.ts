@@ -24,7 +24,8 @@ export interface NotificationRepository {
   findById(id: string): Promise<NotificationRecord | null>;
   list(userId: string): Promise<NotificationRecord[]>;
   markRead(id: string): Promise<NotificationRecord>;
-  markAllRead(userId: string): Promise<void>;
+  /** Read every unread one — only those that came in by `upTo` when it is given (what the reader saw). */
+  markAllRead(userId: string, upTo?: Date): Promise<void>;
   unreadCount(userId: string): Promise<number>;
   /** The newest unread notification of this type about this thing, if one is waiting. */
   findUnread(userId: string, type: string, entityType: string, entityId: string): Promise<NotificationRecord | null>;

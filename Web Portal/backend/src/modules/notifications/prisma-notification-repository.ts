@@ -44,8 +44,8 @@ export function createPrismaNotificationRepository(prisma: PrismaClient): Notifi
     async markRead(id) {
       return toRecord(await prisma.notification.update({ where: { id }, data: { readAt: new Date() } }));
     },
-    async markAllRead(userId) {
-      await prisma.notification.updateMany({ where: { userId, readAt: null }, data: { readAt: new Date() } });
+    async markAllRead(userId, upTo) {
+      await prisma.notification.updateMany({ where: { userId, readAt: null, ...(upTo ? { createdAt: { lte: upTo } } : {}) }, data: { readAt: new Date() } });
     },
     async unreadCount(userId) {
       return prisma.notification.count({ where: { userId, readAt: null } });

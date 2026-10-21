@@ -55,3 +55,15 @@ describe('createPushSender (A6.2 push sender)', () => {
     await expect(sender.sendToUser('u1', { title: 'x' })).resolves.toBe(0);
   });
 });
+
+describe('the push names its notification (5c review)', () => {
+  it('puts the notification’s id in the data (older apps ignore it)', async () => {
+    const send = vi.fn(async (_messages: unknown) => {});
+    const sender = createPushSender({ deviceTokens: repoWith(['tokA']), transport: { send } });
+    await sender.sendToUser('u1', { title: 'Assigned', entityType: 'task', entityId: 't9', notificationId: 'n42' });
+    const [message] = send.mock.calls[0]![0] as { data: unknown }[];
+    expect(message!.data).toEqual({ entityType: 'task', entityId: 't9', notificationId: 'n42' });
+    await sender.sendToUser('u1', { title: 'No id' });
+    expect((send.mock.calls[1]![0] as { data: unknown }[])[0]!.data).toEqual({});
+  });
+});

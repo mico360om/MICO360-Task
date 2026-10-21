@@ -13,7 +13,7 @@ import {
 export interface NotificationPush {
   sendToUser(
     userId: string,
-    notification: { title: string; body?: string | null; entityType?: string | null; entityId?: string | null },
+    notification: { title: string; body?: string | null; entityType?: string | null; entityId?: string | null; notificationId?: string | null },
   ): Promise<number>;
 }
 
@@ -80,7 +80,8 @@ export function createNotificationService({ notifications, preferences, push, lo
     // Muted types never reach the phone either — the push goes out only for a stored notification.
     if (push) {
       push
-        .sendToUser(input.userId, { title: input.title, body: input.body ?? null, entityType: input.entityType ?? null, entityId: input.entityId ?? null })
+        // The stored notification's id: a tap on the phone reads exactly this one (5c review).
+        .sendToUser(input.userId, { title: input.title, body: input.body ?? null, entityType: input.entityType ?? null, entityId: input.entityId ?? null, notificationId: record.id })
         .catch((err) => logger?.error('push notification failed', { err, userId: input.userId, type: input.type }));
     }
     return record;
@@ -100,8 +101,9 @@ export function createNotificationService({ notifications, preferences, push, lo
     return notifications.markRead(id);
   }
 
-  async function markAllRead(userId: string): Promise<void> {
-    await notifications.markAllRead(userId);
+  /** Read everything — with `upTo`, only what came in by then (newer ones were never seen). */
+  async function markAllRead(userId: string, upTo?: Date): Promise<void> {
+    await notifications.markAllRead(userId, upTo);
   }
 
   async function getPreferences(userId: string): Promise<NotificationPreferences> {

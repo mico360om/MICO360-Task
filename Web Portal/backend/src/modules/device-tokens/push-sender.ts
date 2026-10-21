@@ -24,6 +24,8 @@ export interface PushNotificationInput {
   body?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  /** The stored notification this push is for: the app reads exactly that one when the push is tapped. */
+  notificationId?: string | null;
 }
 
 export interface PushSenderDeps {
@@ -48,6 +50,7 @@ export function createPushSender({ deviceTokens, transport }: PushSenderDeps) {
       data: {
         ...(notification.entityType ? { entityType: notification.entityType } : {}),
         ...(notification.entityId ? { entityId: notification.entityId } : {}),
+        ...(notification.notificationId ? { notificationId: notification.notificationId } : {}),
       },
     }));
 

@@ -32,7 +32,8 @@ export function useOpenNotification(): {
     void qc.invalidateQueries({ queryKey: UNREAD_COUNT_KEY });
   };
   const markOne = useMutation({ mutationFn: (id: string) => notificationsApi(apiClient).markRead(id), onSuccess: refresh });
-  const markAll = useMutation({ mutationFn: () => notificationsApi(apiClient).markAllRead(), onSuccess: refresh });
+  // Only what the bell and this page show is read: one that arrives meanwhile stays unread (5c review).
+  const markAll = useMutation({ mutationFn: () => notificationsApi(apiClient).markAllRead(newestShown(qc.getQueryData<ApiNotification[]>(NOTIFICATIONS_KEY))), onSuccess: refresh });
   return {
     open: (n) => {
       if (!n.readAt) markOne.mutate(n.id);
@@ -51,4 +52,14 @@ export function useOpenNotification(): {
     markRead: (id) => markOne.mutate(id),
     markAllRead: () => markAll.mutate(),
   };
+}
+
+/** The newest notification's time in the list shown (for "Mark all read" up to it), or undefined. */
+export function newestShown(list: readonly Pick<ApiNotification, 'createdAt'>[] | null | undefined): string | undefined {
+  let best: { t: number; iso: string } | null = null;
+  for (const n of list ?? []) {
+    const t = Date.parse(n.createdAt);
+    if (!Number.isNaN(t) && (!best || t > best.t)) best = { t, iso: n.createdAt };
+  }
+  return best?.iso;
 }
