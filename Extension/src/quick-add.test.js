@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildQuickAddPayload, parseTags, openProjects, startProjectId, projectFromUrl, boardColumns, pickColumn, personName, listNames,
   assigneeNote, removedNotice, withPage, isAddablePage, captureFromContext, mergeCapture, rememberRecent, recentStatus, ownedBy,
-  fileFailure, createFailure, attachFailureMessage, createdMessage, formatSize, TITLE_MAX, DESCRIPTION_MAX,
+  fileFailure, createFailure, attachFailureMessage, createdMessage, createdBeforeMessage, keyIsSpent, formatSize, TITLE_MAX, DESCRIPTION_MAX,
 } from './quick-add.js';
 
 describe('buildQuickAddPayload', () => {
@@ -281,6 +281,20 @@ describe('what the person is told', () => {
   it('files that could not be attached after the task was created', () => {
     expect(attachFailureMessage([{ name: 'a.png', reason: 'That file is too large to upload.' }])).toBe('The task was created, but a.png wasn’t attached: That file is too large to upload.');
     expect(attachFailureMessage([{ name: 'a.png', reason: 'x' }, { name: 'b.pdf', reason: 'y' }])).toBe('The task was created, but these files weren’t attached: a.png (x); b.pdf (y). Add them from the task.');
+  });
+
+  it('a task created before the popup closed: it exists — add its files from it', () => {
+    expect(createdBeforeMessage({ key: 'OPS-12', title: 'Fix it', withFiles: true })).toBe('OPS-12 “Fix it” was created; add its files from the task.');
+    expect(createdBeforeMessage({ key: 'OPS-12', title: 'Fix it', withFiles: false })).toBe('Created OPS-12 “Fix it”.');
+  });
+
+  it('a key is spent only when the server answered for good (it replays that answer for the key)', () => {
+    expect(keyIsSpent(api(400, 'Only active members of this project can be assigned.'))).toBe(true);
+    expect(keyIsSpent(api(403))).toBe(true);
+    expect(keyIsSpent(Object.assign(api(409, 'Still being processed.'), { code: 'IDEMPOTENCY_IN_PROGRESS' }))).toBe(false);
+    expect(keyIsSpent(api(500))).toBe(false);
+    expect(keyIsSpent(new TypeError('Failed to fetch'))).toBe(false);
+    expect(keyIsSpent({ userMessage: 'Your change could not be saved on this device. Please try again.' })).toBe(false);
   });
 
   it('a created task, and file sizes', () => {

@@ -24,7 +24,8 @@ import {
   TITLE_MAX, DESCRIPTION_MAX, PRIORITIES, PRIORITY_NAMES, DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY,
   buildQuickAddPayload, openProjects, startProjectId, projectFromUrl, boardColumns, pickColumn, personName, assigneeNote,
   removedNotice, isAddablePage, withPage, mergeCapture, ownedBy, rememberRecent, recentStatus, fileFailure, createFailure,
-  attachFailureMessage, createdMessage, formatSize, OFFLINE_FILES_MESSAGE, QUEUED_MESSAGE, QUEUED_WITHOUT_FILES_MESSAGE,
+  attachFailureMessage, createdMessage, createdBeforeMessage, keyIsSpent, formatSize, OFFLINE_FILES_MESSAGE, QUEUED_MESSAGE,
+  QUEUED_WITHOUT_FILES_MESSAGE,
 } from '../src/quick-add.js';
 
 const BLANK = { title: '', description: '', priority: 'NORMAL', dueDate: '', projectId: '', columnId: '', assigneeIds: [], rule: null };
@@ -72,8 +73,9 @@ export function QuickAddForm(ctx) {
     members: undefined, // undefined while loading, null when unknown (offline), else the team
     files: [],
     saving: false,
-    created: null,     // the task, when some of its files couldn't be attached ("Done" then starts over)
+    created: null,     // the task once it exists: while its files go up, and when some couldn't ("Done" then starts over)
     held: null,        // { payload, key }: offline with files — "Save without the files" sends it
+    pending: null,     // { key, payloadJSON }: an attempt that may have reached the server — the same task sent again reuses its key
     notice: '',
     describe: { reading: false, problem: null, found: null },
   };
@@ -226,11 +228,15 @@ export function QuickAddForm(ctx) {
   async function init() {
     // The form not sent last time (only this person's), then what the right-click menu captured.
     let restored = false;
+    let createdBefore = null; // the popup closed after the task was created (while its files went up)
     try {
       const draft = ownedBy(((await ctx.session.get(DRAFT_KEY)) || {})[DRAFT_KEY], ctx.me.id);
-      if (draft && draft.fields) {
+      if (draft && draft.createdTask && typeof draft.createdTask === 'object') {
+        createdBefore = draft.createdTask;
+      } else if (draft && draft.fields) {
         state.fields = { ...BLANK, ...draft.fields, assigneeIds: Array.isArray(draft.fields.assigneeIds) ? [...draft.fields.assigneeIds] : [] };
         state.placeChosen = !!draft.placeChosen;
+        if (typeof draft.pendingKey === 'string' && typeof draft.payloadJSON === 'string') state.pending = { key: draft.pendingKey, payloadJSON: draft.payloadJSON };
         restored = true;
       }
     } catch {
@@ -240,8 +246,14 @@ export function QuickAddForm(ctx) {
     syncInputs();
     // The form is on the page by now (it is returned first, then drawn): start typing the title.
     if (!document.activeElement || document.activeElement === document.body) titleInput.focus();
-    if (restored) announce('Your unsent task is back.');
-    if (restored || ctx.capture) saveDraft();
+    if (createdBefore) {
+      // Never the form again (that would make a second task): the task exists — say so, once.
+      const id = createdBefore.id;
+      setBanner('success', createdBeforeMessage(createdBefore), id ? { label: 'Open it', onClick: () => openFull(ctx, `#/task/${encodeURIComponent(id)}`) } : undefined);
+    } else if (restored) {
+      announce('Your unsent task is back.');
+    }
+    if (restored || createdBefore || ctx.capture) saveDraft();
 
     let lastId = null;
     try {
@@ -581,10 +593,23 @@ export function QuickAddForm(ctx) {
     renderActions();
   }
 
-  /** Keep the form not sent yet (memory only), for when the popup opens again. */
+  /**
+   * Keep the form not sent yet (memory only), for when the popup opens again — with the key of an
+   * attempt that may have reached the server. Once the task exists, only the task is kept: the
+   * popup can close while its files go up, and must not then offer the form again.
+   * `draftWrite` settles when this write is done.
+   */
   function saveDraft() {
-    const value = isDirty() ? { userId: ctx.me.id, fields: { ...fields(), assigneeIds: [...fields().assigneeIds] }, placeChosen: state.placeChosen } : null;
+    let value = null;
+    if (state.created) {
+      const t = state.created;
+      value = { userId: ctx.me.id, createdTask: { id: t.id || '', key: t.key || '', title: t.title || '', withFiles: state.files.length > 0 } };
+    } else if (isDirty()) {
+      value = { userId: ctx.me.id, fields: { ...fields(), assigneeIds: [...fields().assigneeIds] }, placeChosen: state.placeChosen };
+      if (state.pending) Object.assign(value, { pendingKey: state.pending.key, payloadJSON: state.pending.payloadJSON });
+    }
     draftWrite = draftWrite.then(() => (value ? ctx.session.set({ [DRAFT_KEY]: value }) : ctx.session.remove(DRAFT_KEY))).catch(() => { /* best effort */ });
+    return draftWrite;
   }
 
   function setTitleError(message) {
@@ -640,6 +665,7 @@ export function QuickAddForm(ctx) {
     state.files = [];
     state.created = null;
     state.held = null;
+    state.pending = null;
     state.notice = '';
     state.describe = { reading: false, problem: null, found: null };
     describeText.value = '';
@@ -737,9 +763,14 @@ export function QuickAddForm(ctx) {
       return;
     }
     const payload = buildQuickAddPayload(f);
+    const payloadJSON = JSON.stringify(payload);
     const withFiles = state.files.length > 0;
-    // One key per attempt: the offline queue reuses it, so a create that did reach the server is never duplicated.
-    const key = ctx.newKey();
+    // One key per task, not per click: the offline queue reuses it, and so does sending the same task
+    // again (held, timed out, or the popup closed mid-send), so a create that did reach the server
+    // is answered with that task instead of making a second one. `changed()` lets go of a held one.
+    const key = state.held ? state.held.key
+      : state.pending && state.pending.payloadJSON === payloadJSON ? state.pending.key
+        : ctx.newKey();
     if (withFiles && !ctx.isOnline()) {
       hold(payload, key);
       return;
@@ -747,6 +778,9 @@ export function QuickAddForm(ctx) {
     setSaving(true);
     setBanner(null);
     try {
+      // Kept with the form before it goes: if the popup closes now, the next try uses the same key.
+      state.pending = { key, payloadJSON };
+      await saveDraft();
       const r = await ctx.send('task.create', payload, { idempotencyKey: key, hold: withFiles });
       if (r.held) {
         hold(payload, key);
@@ -757,21 +791,42 @@ export function QuickAddForm(ctx) {
         return;
       }
       const task = r.data || {};
+      await exists(task);
       await remember(task, payload);
       if (withFiles) {
         const failed = await uploadAll(task);
         if (failed.length) {
-          state.created = task;
           setBanner('error', attachFailureMessage(failed));
           return;
         }
       }
       succeed(task);
     } catch (e) {
-      setBanner('error', createFailure(e));
+      if (forgetSpentKey(e)) state.held = null;
+      if (state.held) showHeld(createFailure(e)); // still held, with its key: the offer stays
+      else setBanner('error', createFailure(e));
     } finally {
       setSaving(false);
     }
+  }
+
+  /** The task exists: from now on only it is kept (reopened, the popup says so — never a second one). */
+  async function exists(task) {
+    state.pending = null;
+    state.created = task;
+    await saveDraft();
+  }
+
+  /**
+   * The server answered this attempt for good (it keeps that answer for the key, as for a created
+   * task): the same key would only replay it, so the next try is a fresh one. A request that may not
+   * have arrived, or that is still being processed (409), keeps its key.
+   */
+  function forgetSpentKey(e) {
+    if (!keyIsSpent(e)) return false;
+    state.pending = null;
+    saveDraft();
+    return true;
   }
 
   /** While a task is being created nothing about it can change; afterwards every control is back. */
@@ -787,7 +842,11 @@ export function QuickAddForm(ctx) {
   /** Files can't wait offline with the task (as on the web): say so, and offer to save it without them. */
   function hold(payload, key) {
     state.held = { payload, key };
-    setBanner('error', OFFLINE_FILES_MESSAGE, { label: 'Save without the files', onClick: () => saveWithoutFiles() });
+    showHeld(OFFLINE_FILES_MESSAGE);
+  }
+
+  function showHeld(text) {
+    setBanner('error', text, { label: 'Save without the files', onClick: () => saveWithoutFiles() });
   }
 
   async function saveWithoutFiles() {
@@ -796,17 +855,27 @@ export function QuickAddForm(ctx) {
     setSaving(true);
     try {
       // The same key as the attempt with files: if that one did reach the server, this can't make a second task.
+      state.pending = { key: held.key, payloadJSON: JSON.stringify(held.payload) };
+      await saveDraft();
       const r = await ctx.send('task.create', held.payload, { idempotencyKey: held.key, hold: false });
+      state.held = null;
       if (r.queued) {
         await queued(r.item, held.payload, QUEUED_WITHOUT_FILES_MESSAGE);
       } else {
+        await exists(r.data || {});
         await remember(r.data || {}, held.payload);
         succeed(r.data || {}, ' Its files weren’t attached — add them from the task.');
       }
     } catch (e) {
-      setBanner('error', createFailure(e));
+      // Still held, with its key (a retry or "Save without the files" can't make a second task) —
+      // unless the server answered for good: then the next try is a fresh one.
+      if (forgetSpentKey(e)) {
+        state.held = null;
+        setBanner('error', createFailure(e));
+      } else {
+        showHeld(createFailure(e));
+      }
     } finally {
-      state.held = null;
       setSaving(false);
     }
   }

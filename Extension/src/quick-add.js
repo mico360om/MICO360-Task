@@ -291,6 +291,25 @@ export function createdMessage(task) {
   return `Created ${task && task.key ? `${task.key} ` : ''}“${(task && task.title) || ''}”.`;
 }
 
+/**
+ * The popup closed after the task was created (`{ key, title, withFiles }`, kept in place of the
+ * form): reopened, it says the task exists — and, when it had files, to add them from the task.
+ */
+export function createdBeforeMessage(task) {
+  if (!task || !task.withFiles) return createdMessage(task);
+  return `${task.key ? `${task.key} ` : ''}“${task.title || ''}” was created; add its files from the task.`;
+}
+
+/**
+ * Whether the server answered a create for good (4xx; not 409 "still being processed"). It keeps
+ * that answer for the Idempotency-Key, so sending again with the same key would only replay it.
+ * Anything else (no answer, a QueueError, a 5xx, which releases the key) may have reached it: keep it.
+ */
+export function keyIsSpent(err) {
+  if (!reached(err) || err.status >= 500) return false;
+  return !(err.status === 409 && err.code === 'IDEMPOTENCY_IN_PROGRESS');
+}
+
 /** The server can't be reached and files can't wait offline (as on the web): say so, never drop them silently. */
 export const OFFLINE_FILES_MESSAGE = 'You’re offline, and files can’t be attached offline. Try again when you’re connected, or save the task now without its files.';
 export const QUEUED_MESSAGE = 'Saved on this device — the task will be created when the connection is back.';

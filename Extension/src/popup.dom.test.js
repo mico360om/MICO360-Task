@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QuickAddForm, SignedOutView } from '../popup/quick-add-form.js';
 import { DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY, QUEUED_MESSAGE, QUEUED_WITHOUT_FILES_MESSAGE, OFFLINE_FILES_MESSAGE } from './quick-add.js';
-import { ApiError } from './errors.js';
+import { ApiError, QueueError } from './errors.js';
 import { fakeStorage } from './test-helpers.js';
 
 const settle = async () => {
@@ -232,6 +232,131 @@ describe('creating the task', () => {
     expect(ctx.send).toHaveBeenCalledTimes(1);
     release({ queued: false, data: { id: 't1', key: 'OPS-1', title: 'Once' } });
     await settle();
+  });
+});
+
+describe('a task is never created twice (I1, I2)', () => {
+  /** A newKey that hands out a different key on every call, so a thrown-away key shows. */
+  const keys = (prefix) => {
+    let n = 0;
+    return () => `${prefix}-${(n += 1)}`;
+  };
+  const keyOf = (ctx, call) => ctx.send.mock.calls[call][2].idempotencyKey;
+  const photo = () => new File(['jpg'], 'site.jpg', { type: 'image/jpeg' });
+
+  it('the key is kept with the form before it is sent; reopened after the popup closed mid-send, the same task goes with the same key (I1 B)', async () => {
+    let kept;
+    const first = makeCtx({ ctx: { newKey: keys('first') } });
+    first.send = vi.fn(() => {
+      kept = first.session.data[DRAFT_KEY];
+      return new Promise(() => {}); // the popup closes while it is on its way
+    });
+    const { root } = await open(first);
+    type($('qa-title'), 'Sent as the popup closed');
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect(kept).toMatchObject({ pendingKey: 'first-1', payloadJSON: JSON.stringify(first.send.mock.calls[0][1]) });
+    root.remove();
+
+    const again = makeCtx({ session: first.session.data, ctx: { newKey: keys('again') } });
+    await open(again);
+    expect($('qa-title').value).toBe('Sent as the popup closed');
+    byText(document.body, 'button', 'Create task').click();
+    await settle();
+    expect(keyOf(again, 0)).toBe('first-1');
+    // …and the server's answer (its replay of the task) ends it as usual.
+    expect(again.session.data[DRAFT_KEY]).toBeUndefined();
+  });
+
+  it('a changed task is a new one: it gets a new key', async () => {
+    const ctx = makeCtx({ ctx: { newKey: keys('k') } });
+    ctx.send = vi.fn(async () => { throw new QueueError(); }); // not sent, and not kept: try again
+    const { root } = await open(ctx);
+    type($('qa-title'), 'Same');
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect([keyOf(ctx, 0), keyOf(ctx, 1)]).toEqual(['k-1', 'k-1']); // the first may have reached the server
+    type($('qa-title'), 'Changed');
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect(keyOf(ctx, 2)).toBe('k-2');
+  });
+
+  it('after the server refused it, trying again is a fresh attempt (the server keeps its answer for a key)', async () => {
+    const ctx = makeCtx({ ctx: { newKey: keys('k') } });
+    ctx.send = vi.fn(async () => { throw new ApiError(400, 'Only active members of this project can be assigned.'); });
+    const { root } = await open(ctx);
+    type($('qa-title'), 'Refused');
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect([keyOf(ctx, 0), keyOf(ctx, 1)]).toEqual(['k-1', 'k-2']);
+  });
+
+  it('once the task exists the kept form becomes the task: reopened during the upload, the popup says so and never makes it again (I1 A)', async () => {
+    let atUpload;
+    const first = makeCtx({ ctx: { newKey: keys('first') } });
+    first.api.attachments.upload = vi.fn(() => {
+      atUpload = first.session.data[DRAFT_KEY];
+      return new Promise(() => {}); // a 6 MB photo; a click on the page closes the popup
+    });
+    const { root } = await open(first);
+    type($('qa-title'), 'With a big photo');
+    paste($('qa-title'), [photo()]);
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect(atUpload).toMatchObject({ userId: 'me', createdTask: { id: 't9', key: 'OPS-12', title: 'With a big photo' } });
+    expect(atUpload.fields).toBeUndefined();
+    root.remove();
+
+    const again = makeCtx({ session: first.session.data, local: first.local.data, ctx: { newKey: keys('again') } });
+    const { root: reopened } = await open(again);
+    expect($('qa-title').value).toBe('');
+    const banner = reopened.querySelector('.qa-banner');
+    expect(banner.textContent).toContain('OPS-12 “With a big photo” was created; add its files from the task.');
+    expect(reopened.textContent).not.toContain('unsent');
+    expect(reopened.querySelector('.qa-recent').textContent).toContain('OPS-12');
+    byText(banner, 'button', 'Open it').click();
+    await settle();
+    expect(again.openApp).toHaveBeenCalledWith('#/task/t9');
+    expect(again.send).not.toHaveBeenCalled();
+    expect(again.session.data[DRAFT_KEY]).toBeUndefined(); // said once
+  });
+
+  it('a held task sent again keeps its key (I2 a)', async () => {
+    const ctx = makeCtx({ ctx: { newKey: keys('k') } });
+    ctx.send = vi.fn(async (kind, payload, opts) => ({ queued: false, held: true, item: { idempotencyKey: opts.idempotencyKey } })); // timed out
+    const { root } = await open(ctx);
+    type($('qa-title'), 'Held');
+    paste($('qa-title'), [photo()]);
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect([keyOf(ctx, 0), keyOf(ctx, 1)]).toEqual(['k-1', 'k-1']);
+  });
+
+  it('a 409 "still being processed" after "Save without the files" keeps the key and the offer (I2 b)', async () => {
+    const ctx = makeCtx({ ctx: { newKey: keys('k') } });
+    ctx.send = vi.fn(async () => { throw new ApiError(409, 'The original request is still being processed. Retry shortly.', 'IDEMPOTENCY_IN_PROGRESS'); });
+    online = false;
+    const { root } = await open(ctx);
+    type($('qa-title'), 'Held offline');
+    paste($('qa-title'), [photo()]);
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect(ctx.send).not.toHaveBeenCalled();
+    online = true;
+    byText(root, 'button', 'Save without the files').click();
+    await settle();
+    expect(root.querySelector('[role="alert"]').textContent).toContain('still being processed');
+    byText(root, 'button', 'Create task').click();
+    await settle();
+    expect([keyOf(ctx, 0), keyOf(ctx, 1)]).toEqual(['k-1', 'k-1']);
+    expect(byText(root, 'button', 'Save without the files')).toBeTruthy();
   });
 });
 
