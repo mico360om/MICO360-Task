@@ -70,6 +70,8 @@ export function DateSettings() {
             }}
             placeholder="Company default"
             disabled={loading}
+            // Every zone can be reached by scrolling, not only by typing (6a review).
+            limit={null}
           />
           {own ? <Button title="Use the company time zone" variant="ghost" onPress={() => change({ timeZone: null })} disabled={save.isPending} /> : null}
         </View>

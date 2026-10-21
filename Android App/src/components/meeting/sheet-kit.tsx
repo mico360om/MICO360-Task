@@ -5,6 +5,7 @@ import { useColors } from '../../core/theme';
 import { KeyboardAwareScrollView } from '../KeyboardAware';
 import { Button, TextField } from '../ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { PICKER_LIMIT, moreRowsText, pickerRows } from '../../lib/picker-rows';
 
 /**
  * The pieces the meeting's sheets are made of (2b): a bottom sheet whose fields scroll above the
@@ -229,6 +230,7 @@ export function InlinePicker({
   placeholder,
   emptyText = 'Nothing to choose from.',
   disabled,
+  limit = PICKER_LIMIT,
 }: {
   label: string;
   options: PickOption[];
@@ -237,13 +239,15 @@ export function InlinePicker({
   placeholder: string;
   emptyText?: string;
   disabled?: boolean;
+  /** The most rows shown at once (null: all of them, e.g. the time zones); the rest are found by typing. */
+  limit?: number | null;
 }) {
   const s = useSheetStyles();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const chosen = options.find((o) => o.value === value);
-  const needle = q.trim().toLowerCase();
-  const shown = (needle ? options.filter((o) => `${o.label} ${o.hint ?? ''}`.toLowerCase().includes(needle)) : options).slice(0, 60);
+  const { shown, hidden } = pickerRows(options, q, limit);
+  const more = moreRowsText(hidden);
   return (
     <View style={s.group}>
       <FieldLabel>{label}</FieldLabel>
@@ -287,6 +291,11 @@ export function InlinePicker({
               {o.value === value ? <Text style={s.chipTextOn}>✓</Text> : null}
             </Pressable>
           ))}
+          {more ? (
+            <Text style={s.cardHint} accessibilityLiveRegion="polite">
+              {more}
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </View>
