@@ -44,7 +44,7 @@ import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
 import { usePullRefresh } from '../components/meeting/live';
 import { MonthGrid, type DayMarks } from '../components/calendar/MonthGrid';
 import { CalendarTaskRow } from '../components/calendar/CalendarTaskRow';
-import { GoToDateSheet, MoveDaySheet, NewTaskOnDay, TaskInfoSheet } from '../components/calendar/CalendarSheets';
+import { GoToDateSheet, MoveDaySheet, TaskInfoSheet } from '../components/calendar/CalendarSheets';
 import { CalendarFiltersSheet } from '../components/calendar/CalendarFiltersSheet';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
@@ -140,11 +140,17 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   const period = periodLabel(view, cursor, weekStart);
   const canCreate = canCreateIn(projects);
   const addDay = createDay(view, cursor, chosen);
+  // "Add a task on this day": the full New task form (the website's), due that day, starting in the
+  // project the calendar is filtered to (still changeable).
+  const filterProject = newTaskProject(filters.projectId, projects);
+  const createOn = useCallback(
+    (day: string) => navigation.navigate('NewTask', { dueDate: day, ...(filterProject ? { defaultProjectId: filterProject } : {}) }),
+    [navigation, filterProject],
+  );
 
   // ── Sheets and the notice at the bottom ──
   const [moving, setMoving] = useState<CalItem | null>(null);
   const [info, setInfo] = useState<CalItem | null>(null);
-  const [createOn, setCreateOn] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [goTo, setGoTo] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -267,7 +273,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
         </Text>
         {section.day && canCreate ? (
           <Pressable
-            onPress={() => setCreateOn(section.day!)}
+            onPress={() => createOn(section.day!)}
             accessibilityRole="button"
             accessibilityLabel={`Add a task on ${dayLabel(section.day)}`}
             hitSlop={6}
@@ -278,7 +284,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
         ) : null}
       </View>
     ),
-    [styles, canCreate],
+    [styles, canCreate, createOn],
   );
 
   const note = offlineNote(saved);
@@ -419,7 +425,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
       {canCreate ? (
         <Pressable
           style={({ pressed }) => [styles.fab, { bottom: spacing.lg + insets.bottom }, pressed && styles.pressed]}
-          onPress={() => setCreateOn(addDay)}
+          onPress={() => createOn(addDay)}
           accessibilityRole="button"
           accessibilityLabel={`Add a task on ${dayLabel(addDay)}`}
         >
@@ -453,7 +459,6 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
         }}
         onClose={() => setInfo(null)}
       />
-      <NewTaskOnDay day={createOn} presetProjectId={newTaskProject(filters.projectId, projects)} projects={projects} onClose={() => setCreateOn(null)} />
       <GoToDateSheet
         visible={goTo}
         current={cursor}

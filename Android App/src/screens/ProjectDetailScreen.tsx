@@ -99,6 +99,8 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
           <Button title="Open board" onPress={() => navigation.navigate('Board', { projectId, projectName: project.name })} style={styles.action} />
           <Button title="Project chat" variant="secondary" onPress={() => void openChat()} loading={openingChat} style={styles.action} />
         </View>
+        {/* New task in this project (4a, the website's project page). */}
+        <Button title="New task" variant="secondary" onPress={() => navigation.navigate('NewTask', { projectId })} style={{ marginTop: spacing.sm }} />
         {chatError ? <Text style={styles.error} accessibilityRole="alert">{chatError}</Text> : null}
       </Card>
 

@@ -52,7 +52,7 @@ describe('editing a rule', () => {
     expect(editor).toMatch(/pickFreq\(rule, f\)/);
     expect(editor).toMatch(/pickFreq\(rule, 'NONE'\)/);
     expect(editor).not.toMatch(/withFreq\(/);
-    for (const user of ['../components/task-detail/DetailsCard.tsx', '../components/QuickAddTaskSheet.tsx', '../screens/MeetingFormScreen.tsx']) {
+    for (const user of ['../components/task-detail/DetailsCard.tsx', '../screens/NewTaskScreen.tsx', '../screens/MeetingFormScreen.tsx']) {
       expect(src(user), user).toMatch(/<RecurrenceEditor\b/);
     }
   });

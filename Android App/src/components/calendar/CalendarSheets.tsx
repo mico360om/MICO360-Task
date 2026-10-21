@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { useProjectColumns } from '../../core/queries';
-import { Sheet, SheetButtons, CardChoice, ActionRowButton, SheetMessage } from '../meeting/sheet-kit';
-import { QuickAddTaskSheet } from '../QuickAddTaskSheet';
+import { Sheet, SheetButtons, CardChoice, SheetMessage } from '../meeting/sheet-kit';
 import { MonthGrid } from './MonthGrid';
 import { dayLabel, fullDayLabel, shiftMonth, type WeekStart } from '../../lib/calendar';
 import { PRIORITY_LABEL, STATUS_LABEL, type CalItem } from '../../lib/calendar-model';
@@ -229,43 +227,6 @@ export function GoToDateSheet({
       <DayPicker value={day} onChange={setDay} today={today} weekStart={weekStart} quick={[{ label: 'Today', day: today }]} ringed={current} ringedWord="shown now" hint="Picks this day" />
     </Sheet>
   );
-}
-
-type ProjectChoice = { id: string; name: string; status: string };
-
-/**
- * "Add a task on this day": in the project the calendar is filtered to, or — without one — the
- * project you pick first (open projects only); then the app's New task sheet, due on that day.
- */
-export function NewTaskOnDay({
-  day,
-  presetProjectId,
-  projects,
-  onClose,
-}: {
-  day: string | null;
-  presetProjectId: string | null;
-  projects: ProjectChoice[];
-  onClose: () => void;
-}) {
-  const s = useStyles();
-  const [picked, setPicked] = useState<string | null>(null);
-  useEffect(() => setPicked(null), [day]);
-  const projectId = presetProjectId ?? picked;
-  const columnsQ = useProjectColumns(day && projectId ? projectId : '');
-  const open = useMemo(() => projects.filter((p) => p.status !== 'ARCHIVED' && p.status !== 'COMPLETED').sort((a, b) => a.name.localeCompare(b.name)), [projects]);
-  if (!day) return null;
-  if (!projectId) {
-    return (
-      <Sheet visible title={`Add a task on ${dayLabel(day)}`} subtitle="Which project is it for?" onClose={onClose} footer={<SheetButtons onCancel={onClose} />}>
-        {open.length === 0 ? <Text style={s.note}>None of your projects is open for new tasks.</Text> : null}
-        {open.map((p) => (
-          <ActionRowButton key={p.id} label={p.name} hint={`Adds a task to ${p.name}`} onPress={() => setPicked(p.id)} />
-        ))}
-      </Sheet>
-    );
-  }
-  return <QuickAddTaskSheet visible onClose={onClose} projectId={projectId} columns={columnsQ.data ?? []} defaultDueDate={day} />;
 }
 
 const makeStyles = (c: Palette) =>

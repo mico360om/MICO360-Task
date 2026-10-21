@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   OVERDUE_PREVIEW,
@@ -100,13 +100,18 @@ describe('the calendar remembers its view and filters while the app is open, per
   });
 });
 
-describe('the New task sheet the calendar opens (components/QuickAddTaskSheet)', () => {
+describe('the New task form the calendar opens (screens/NewTaskScreen, 4a)', () => {
   const src = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
-  it('starts on the calendar’s day, and a task made there refreshes the calendar (as a replayed one does)', () => {
-    const sheet = src('../components/QuickAddTaskSheet.tsx');
-    expect(sheet).toMatch(/defaultDueDate\?: string/);
-    expect(sheet).toMatch(/if \(visible && defaultDueDate\) setDueDate\(defaultDueDate\)/);
-    expect(sheet).toMatch(/refresh\(qc, createdTaskRefreshes\(projectId\)\)/);
+  it('is the full form, due on the calendar’s day, in the filtered project; a task made there refreshes the calendar (as a replayed one does)', () => {
+    const calendar = src('../screens/CalendarScreen.tsx');
+    expect(calendar).toMatch(/navigation\.navigate\('NewTask', \{ dueDate: day, \.\.\.\(filterProject \? \{ defaultProjectId: filterProject \} : \{\}\) \}\)/);
+    // The website has no quick add any more: the old sheet is gone.
+    expect(existsSync(resolve(__dirname, '../components/QuickAddTaskSheet.tsx'))).toBe(false);
+    expect(src('../components/calendar/CalendarSheets.tsx')).not.toMatch(/QuickAddTaskSheet|NewTaskOnDay/);
+    const form = src('../screens/NewTaskScreen.tsx');
+    expect(form).toMatch(/dueDate: params\.dueDate/);
+    expect(form).toMatch(/refresh\(qc, createdTaskRefreshes\(projectId\)\)/);
+    expect(src('./task-cache.ts')).toMatch(/\{ queryKey: \['tasks', 'calendar'\] \}/);
     expect(src('./perform-mutation.ts')).toMatch(/return createdTaskRefreshes\(p\.projectId\)/);
   });
 });

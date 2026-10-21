@@ -1,38 +1,7 @@
-import type { Priority, RecurrenceRule } from './types';
-
-export interface QuickAddForm {
-  title: string;
-  projectId: string;
-  columnId: string;
-  priority?: Priority;
-  dueDate?: string | null;
-  description?: string;
-  estimatedHours?: number | null;
-  tags?: string[];
-  assigneeIds?: string[];
-  /** Per-date boards: the board day the task is created on (YYYY-MM-DD). */
-  boardDate?: string;
-  /** Set when the task repeats. */
-  recurrenceRule?: RecurrenceRule | null;
-}
-
-export interface CreateTaskInput {
-  title: string;
-  projectId: string;
-  columnId: string;
-  priority: Priority;
-  dueDate?: string | null;
-  description?: string;
-  estimatedHours?: number;
-  tags?: string[];
-  assigneeIds?: string[];
-  boardDate?: string;
-  recurrenceRule?: RecurrenceRule;
-}
-
-export type BuildResult = { ok: true; value: CreateTaskInput } | { ok: false; error: string };
-
 /**
+ * Tag names typed in one box (a task’s tags, on its details). The old Quick add sheet’s other rules went
+ * with it in 4a: New task is the website’s form now (lib/task-form).
+ *
  * Tag separators: ASCII comma, the Arabic comma "،" (what Arabic keyboards type), semicolons
  * (ASCII and Arabic "؛") and new lines (ARB-04).
  */
@@ -54,40 +23,4 @@ export function parseTags(input: string): string[] {
     out.push(name);
   }
   return out;
-}
-
-/** Clean an array of tag names the same way (used when a caller already has an array). */
-function cleanTags(tags: string[]): string[] {
-  return parseTags(tags.join(','));
-}
-
-/** Validate + shape the Quick Add form into a task-create payload (A4.3). */
-export function buildCreateTaskInput(form: QuickAddForm): BuildResult {
-  const title = form.title.trim();
-  if (!title) return { ok: false, error: 'A task title is required.' };
-  if (!form.projectId) return { ok: false, error: 'Pick a project.' };
-  if (!form.columnId) return { ok: false, error: 'Pick a column.' };
-
-  const value: CreateTaskInput = {
-    title,
-    projectId: form.projectId,
-    columnId: form.columnId,
-    priority: form.priority ?? 'NORMAL',
-  };
-  if (form.dueDate) value.dueDate = form.dueDate;
-  if (form.description && form.description.trim()) value.description = form.description.trim();
-  if (typeof form.estimatedHours === 'number' && Number.isFinite(form.estimatedHours) && form.estimatedHours > 0) {
-    value.estimatedHours = form.estimatedHours;
-  }
-  if (form.tags && form.tags.length > 0) {
-    const tags = cleanTags(form.tags);
-    if (tags.length > 0) value.tags = tags;
-  }
-  if (form.assigneeIds && form.assigneeIds.length > 0) {
-    const ids = [...new Set(form.assigneeIds.filter((id) => id && id.trim()))];
-    if (ids.length > 0) value.assigneeIds = ids;
-  }
-  if (form.boardDate) value.boardDate = form.boardDate;
-  if (form.recurrenceRule) value.recurrenceRule = form.recurrenceRule;
-  return { ok: true, value };
 }

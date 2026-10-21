@@ -114,6 +114,15 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
             ))
         )}
       </ScrollView>
+      {/* New task (4a): the full form, in the project used last time (changeable). */}
+      <Pressable
+        style={({ pressed }) => [styles.fab, pressed && { opacity: 0.8 }]}
+        onPress={() => navigation.navigate('NewTask')}
+        accessibilityRole="button"
+        accessibilityLabel="New task"
+      >
+        <Text style={styles.fabPlus}>＋</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -121,7 +130,8 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
-    scroll: { padding: spacing.lg, gap: spacing.md },
+    // Room under the last task for the New task button.
+    scroll: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl * 3 },
     section: { gap: spacing.sm },
     filterBar: { gap: spacing.sm },
     searchInput: { marginBottom: 0 },
@@ -138,4 +148,6 @@ const makeStyles = (c: Palette) =>
     chipTextOn: { color: c.brand },
     reset: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
     resetText: { fontSize: fontSize.xs, color: c.brand, fontWeight: '700' },
+    fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
+    fabPlus: { color: c.onBrand, fontSize: 28, fontWeight: '700', lineHeight: 32 },
   });

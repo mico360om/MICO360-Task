@@ -11,7 +11,6 @@ import { appTimeZone } from '../lib/due-date';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { TaskRow } from '../components/TaskRow';
 import { Loader, EmptyState, ErrorNote } from '../components/ui';
-import { QuickAddTaskSheet } from '../components/QuickAddTaskSheet';
 import { MoveTaskSheet } from '../components/MoveTaskSheet';
 import type { ApiTask } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
@@ -36,7 +35,6 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
     if (navigation.canGoBack()) navigation.goBack();
     else navigation.navigate('Tabs', { screen: 'Projects' });
   });
-  const [adding, setAdding] = useState(false);
   // Long-press a card → "Move to…" (MOB: quick status change from the board).
   const [moving, setMoving] = useState<ApiTask | null>(null);
   const move = useMoveTask(projectId);
@@ -64,6 +62,9 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
     () => composeBoard(columnsQ.data ?? [], tasksQ.data ?? []),
     [columnsQ.data, tasksQ.data],
   );
+
+  /** New task in this project (its board): in the column chosen (the first one by default), on the day shown. */
+  const addTask = (columnId?: string) => navigation.navigate('NewTask', { projectId, boardDate, ...(columnId ? { columnId } : {}) });
 
   if (columnsQ.isLoading) return <Loader />;
 
@@ -128,10 +129,29 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
                   {column.name}
                 </Text>
                 <Text style={styles.count}>{tasks.length}</Text>
+                {/* The website's "+" on every column: a new task starts in this column. */}
+                <Pressable
+                  onPress={() => addTask(column.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add a task to ${column.name}`}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.colAdd, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.colAddText}>＋</Text>
+                </Pressable>
               </View>
               <ScrollView contentContainerStyle={styles.columnBody} showsVerticalScrollIndicator={false}>
                 {tasks.length === 0 ? (
-                  <Text style={styles.emptyCol}>No tasks</Text>
+                  // The empty column is itself the way to start its first task (the website's).
+                  <Pressable
+                    onPress={() => addTask(column.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`No tasks in ${column.name}. Add a task`}
+                    style={({ pressed }) => [styles.emptyAdd, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={styles.emptyCol}>No tasks</Text>
+                    <Text style={styles.emptyAddText}>＋ Add a task</Text>
+                  </Pressable>
                 ) : (
                   tasks.map((t) => (
                     <TaskRow
@@ -150,22 +170,15 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
 
       <Pressable
         style={[styles.fab, { bottom: spacing.lg + insets.bottom }]}
-        onPress={() => setAdding(true)}
+        onPress={() => addTask()}
         accessibilityRole="button"
-        accessibilityLabel="Add task"
+        accessibilityLabel="New task"
       >
         <Text style={styles.fabPlus}>＋</Text>
       </Pressable>
 
       <MoveTaskSheet task={moving} columns={columnsQ.data ?? []} onMove={moveTo} onClose={() => setMoving(null)} />
 
-      <QuickAddTaskSheet
-        visible={adding}
-        onClose={() => setAdding(false)}
-        projectId={projectId}
-        columns={columnsQ.data ?? []}
-        boardDate={boardDate}
-      />
     </View>
   );
 }
@@ -230,6 +243,10 @@ const makeStyles = (c: Palette) =>
     count: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink2 },
     columnBody: { gap: spacing.sm, paddingBottom: spacing.sm },
     emptyCol: { color: c.ink3, fontSize: fontSize.sm, padding: spacing.sm },
+    emptyAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.md, paddingVertical: spacing.lg, minHeight: 88 },
+    emptyAddText: { color: c.brand, fontSize: fontSize.sm, fontWeight: '700' },
+    colAdd: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+    colAddText: { color: c.ink2, fontSize: fontSize.lg, fontWeight: '700' },
     fab: {
       position: 'absolute',
       right: spacing.lg,
