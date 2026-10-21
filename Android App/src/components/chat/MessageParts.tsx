@@ -128,6 +128,7 @@ export const MessageBubble = memo(function MessageBubble({
   const upload = m.upload;
   const outbox = m.outbox;
   const quote = m.replyTo;
+  const filesOnly = !deleted && !text.trim() && !quote && (files.length > 0 || !!upload);
   const quoteText = quote ? (quote.deleted ? 'This message was deleted.' : quote.body.replace(/\s+/g, ' ')) : '';
   const state = outbox
     ? outbox.state === 'sending'
@@ -181,7 +182,7 @@ export const MessageBubble = memo(function MessageBubble({
         <View style={[s.bubble, s.tombstone, { borderColor: c.line }]} accessible accessibilityLabel={said}>
           <Text style={s.tombstoneText}>This message was deleted.</Text>
         </View>
-      ) : (
+      ) : filesOnly ? null : (
         <View style={[s.bubble, bubbleTone, (outbox || upload) && !failed ? s.pending : null, failed ? { borderColor: c.danger, borderWidth: 2 } : null]}>
           {quote ? (
             <Pressable
@@ -260,6 +261,23 @@ export const MessageBubble = memo(function MessageBubble({
             ) : null}
           </View>
         </View>
+      ) : null}
+
+      {filesOnly ? (
+        // A file without words: no empty bubble, just its time (and ticks) beside the file — as on the website.
+        <Pressable
+          onLongPress={anyAction ? () => handlers.onActions(m) : undefined}
+          delayLongPress={350}
+          style={[s.meta, s.metaAlone, mine ? s.alignEnd : null]}
+          accessible
+          accessibilityLabel={said}
+          accessibilityHint={anyAction ? 'Long press for reactions, reply and more.' : undefined}
+          accessibilityActions={a11yActions}
+          onAccessibilityAction={anyAction ? onA11y : undefined}
+        >
+          <Text style={[s.metaText, { color: c.ink2 }]}>{time}</Text>
+          {receipt?.ticks ? <Text style={[s.metaText, { color: receipt.label.startsWith('Read') || receipt.label.startsWith('Seen') ? c.info : c.ink2 }]}>{receipt.ticks}</Text> : null}
+        </Pressable>
       ) : null}
 
       {!deleted && (m.reactions ?? []).length ? (
@@ -505,6 +523,7 @@ const makeStyles = (c: Palette) =>
     body: { fontSize: fontSize.md, lineHeight: 21 },
     meta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
     metaText: { fontSize: 11 },
+    metaAlone: { minHeight: 24, paddingHorizontal: spacing.xs },
     files: { gap: spacing.xs, maxWidth: '85%' },
     alignEnd: { alignSelf: 'flex-end' },
     textEnd: { textAlign: 'right' },
