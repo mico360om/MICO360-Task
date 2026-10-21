@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect } from 'vitest';
 import { crc32, deflateSync } from 'node:zlib';
+import sharp from 'sharp';
 import { buildMinutesPdf, resolveMinutesTimeZone, DEFAULT_COMPANY_TIMEZONE, type MinutesData } from './minutes';
 import { inspectPdf } from '../../lib/pdf-inspect';
 
@@ -318,6 +319,20 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(contents[0]).not.toMatch(/\/I\d+ Do/);
     expect(pages[0]).toContain('FC');
     expect(contents[0]).toMatch(/0\.117\d* 0\.352\d* 0\.545\d* scn/); // #1E5A8B tile
+  });
+
+  it('never makes a broken PDF from a project picture it can’t print (interlaced, damaged): it shows the icon or the initials', async () => {
+    // An interlaced PNG (pdfkit would unpack it after the file is written) and a JPEG pdfkit can't read.
+    const interlaced = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#aa3322' } }).png({ progressive: true }).toBuffer();
+    const damaged = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.alloc(14), Buffer.from([0xff, 0xd9])]);
+    for (const [name, image] of [['interlaced PNG', interlaced], ['damaged JPEG', damaged]] as const) {
+      const initials = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image } })); // throws on a broken file
+      expect(initials.pages[0], name).toContain('FC');
+      expect(initials.contents[0], name).not.toMatch(/\/I\d+ Do/);
+      const icon = inspectPdf(buildMinutesPdf({ ...data, project: { ...project, image, icon: 'rocket' } }));
+      expect(icon.pages[0], name).not.toContain('FC');
+      expect(icon.contents[0], name).toMatch(/1 1 1 SCN\nS\n/);
+    }
   });
 
   it('draws the project’s icon on its colour when it has an icon and no picture, as the app shows it', () => {

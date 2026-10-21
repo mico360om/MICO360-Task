@@ -133,6 +133,15 @@ describe('pdf-text: wrapping and measuring', () => {
     expect(lines.map((l) => l.text).join('')).toBe('x'.repeat(400));
   });
 
+  it('breaks a long link after its slashes and punctuation, not inside a word, keeping every character', () => {
+    const url = 'https://drive.example.com/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/contracts/2026/vendor-onboarding/signed-copies?usp=sharing&resourcekey=0-abcdefghijklmnop';
+    const lines = seg(url, 260);
+    expect(lines.length).toBeGreaterThan(2);
+    expect(lines.map((l) => l.text).join('')).toBe(url);
+    for (const l of lines) expect(l.width).toBeLessThanOrEqual(260.01);
+    for (const l of lines.slice(0, -1)) expect(l.text, l.text).toMatch(/[/?&=._#-]$/);
+  });
+
   it('keeps blank lines between paragraphs', () => {
     expect(seg('one\n\ntwo').map((l) => l.text)).toEqual(['one', '', 'two']);
   });

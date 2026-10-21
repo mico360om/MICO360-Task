@@ -1168,6 +1168,9 @@ async function main(): Promise<void> {
     reportService,
     // Task exports (Excel / PDF) read the task with its lists in one go.
     taskExportSource: createPrismaTaskExportSource(prisma, companyTz),
+    // The task PDF shows the task's pictures: read back from where attachments are stored, made small.
+    readAttachment: async (storageKey: string) => (attachmentStorage.read ? attachmentStorage.read(storageKey) : null),
+    pictureThumbnail: imageShrinker.toThumbnail,
     // Names shown in report exports: the filtered project and team member, and who generated it.
     reportNames: {
       async project(id) {

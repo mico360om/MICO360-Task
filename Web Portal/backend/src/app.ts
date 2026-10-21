@@ -148,6 +148,10 @@ export interface AppDeps extends AuthRouteDeps {
   reportService?: ReportService;
   /** Reads a task with everything its Excel / PDF export shows. */
   taskExportSource?: TaskExportSource;
+  /** Reads an attached file's stored bytes by its storage key, so a task's PDF shows its pictures. */
+  readAttachment?: (storageKey: string) => Promise<Buffer | null>;
+  /** Makes a small picture a PDF can print (a JPEG thumbnail) from a stored one: a task PDF's pictures. */
+  pictureThumbnail?: (raw: Buffer) => Promise<Buffer | null>;
   /** Names for report exports (project, team member, author). */
   reportNames?: import('./modules/reports/report-routes').ReportNames;
   searchService?: SearchService;
@@ -437,8 +441,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           source: deps.taskExportSource,
           canViewTask,
+          // The same meeting check as the task's details (GET /tasks/:id).
+          canViewMeeting: deps.taskMeeting?.canView ?? canViewMeeting,
           userName: deps.reportNames ? (id) => deps.reportNames!.user(id) : undefined,
           timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
+          readAttachment: deps.readAttachment,
+          pictureThumbnail: deps.pictureThumbnail,
+          readProjectImage: deps.readProjectImage,
+          printableProjectImage: deps.printableProjectImage,
         });
       }
       if (deps.memberService) {

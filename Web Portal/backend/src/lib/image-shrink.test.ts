@@ -180,3 +180,50 @@ describe('toPrintable (a picture for a PDF)', () => {
     expect(await shrinker.toPrintable(await logo().webp().toBuffer())).toBeNull();
   });
 });
+
+describe('toThumbnail (a small picture for a document, such as a task’s attached photos)', () => {
+  it('makes any picture a small, upright JPEG on white that a PDF can print as it is', async () => {
+    const shrinker = createImageShrinker(quiet());
+    const big = await photo(3000, 2000).jpeg({ quality: 95 }).toBuffer();
+    const out = (await shrinker.toThumbnail(big))!;
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('jpeg');
+    expect([meta.width, meta.height]).toEqual([600, 400]);
+    expect(out.length).toBeLessThan(big.length / 10);
+    expect(printableImage(out)).toBe(out);
+    // WebP, GIF and see-through PNG pictures too.
+    const seeThrough = sharp({ create: { width: 300, height: 200, channels: 4, background: { r: 30, g: 90, b: 139, alpha: 0.4 } } });
+    for (const input of [await seeThrough.clone().webp().toBuffer(), await seeThrough.clone().gif().toBuffer(), await seeThrough.clone().png().toBuffer()]) {
+      const t = await sharp((await shrinker.toThumbnail(input))!).metadata();
+      expect([t.format, t.width, t.height, t.hasAlpha]).toEqual(['jpeg', 300, 200, false]);
+    }
+  });
+
+  it('returns nothing for a file that isn’t a picture, or when the picture library can’t load', async () => {
+    expect(await createImageShrinker(quiet()).toThumbnail(Buffer.from('not a picture'))).toBeNull();
+    const broken = createImageShrinker({ ...quiet(), load: async () => { throw new Error('missing libvips'); } });
+    expect(await broken.toThumbnail(await photo(40, 30).jpeg().toBuffer())).toBeNull();
+  });
+});
+
+describe('pictures for documents get a time limit', () => {
+  it('stops working on a picture for a PDF after a few seconds, so a crafted one can’t keep the server busy', async () => {
+    // A stand-in picture library that notes each step it is asked for.
+    const steps: Array<[string, unknown[]]> = [];
+    const pipeline: object = new Proxy(
+      {},
+      {
+        get: (_target, name) =>
+          name === 'then' ? undefined : name === 'toBuffer' ? async () => Buffer.from('made') : (...args: unknown[]) => (steps.push([String(name), args]), pipeline),
+      },
+    );
+    const library = Object.assign(() => pipeline, { concurrency: () => 1, cache: () => undefined });
+    const shrinker = createImageShrinker({ ...quiet(), load: async () => library as never });
+    await shrinker.toThumbnail(Buffer.from('picture'));
+    await shrinker.toPrintable(Buffer.from('picture'));
+    expect(steps.filter(([name]) => name === 'timeout')).toEqual([
+      ['timeout', [{ seconds: 10 }]],
+      ['timeout', [{ seconds: 10 }]],
+    ]);
+  });
+});
