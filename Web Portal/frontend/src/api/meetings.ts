@@ -252,9 +252,13 @@ export interface NewMeetingInput {
   endAt?: string | null;
   timeZone?: string | null;
   recurrenceRule?: RecurrenceRule | null;
+  /** People invited from the new-meeting form, saved with the meeting (all or nothing). */
+  attendees?: Array<{ userId?: string; externalName?: string; externalEmail?: string; role?: AttendeeRole }>;
+  /** The new-meeting form's agenda, saved with the meeting. */
+  agendaItems?: Array<{ title: string; ownerId?: string | null; expectedMinutes?: number | null }>;
 }
 
-export type MeetingPatch = Partial<Omit<NewMeetingInput, 'startAt'>> & { startAt?: string };
+export type MeetingPatch = Partial<Omit<NewMeetingInput, 'startAt' | 'attendees' | 'agendaItems'>> & { startAt?: string };
 
 export interface NewAttendeeInput {
   userId?: string | null;

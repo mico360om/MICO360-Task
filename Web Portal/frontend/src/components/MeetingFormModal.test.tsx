@@ -4,12 +4,17 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { MeetingFormModal } from './MeetingFormModal';
 import type { Meeting } from '../api/meetings';
+import { useAuthStore } from '../stores/auth-store';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
 let calls: { url: string; method: string; body?: Record<string, unknown> }[];
+const directory = [
+  { id: 'u1', username: 'khalid', firstName: 'Khalid', lastName: 'Al Amri', avatarUrl: null },
+  { id: 'u2', username: 'sara', firstName: 'Sara', lastName: 'Al Balushi', avatarUrl: null },
+];
 
 beforeEach(() => {
   calls = [];
@@ -18,6 +23,7 @@ beforeEach(() => {
     const method = init?.method ?? 'GET';
     calls.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'MICO360', companyName: 'MICO', serverTime: new Date().toISOString() } });
+    if (u.endsWith('/users/directory')) return json({ data: directory });
     if (u.endsWith('/meetings') && method === 'POST') return json({ data: { id: 'm-new' } }, 201);
     if (u.includes('/meetings/') && method === 'PUT') return json({ data: { id: 'm1' } });
     if (u.endsWith('/meetings/m3') && method === 'GET') return json({ data: { ...baseMeeting, id: 'm3', recurrenceParentId: 'm1', series: { id: 'm1', rule: { freq: 'WEEKLY', interval: 1, weekdays: [4] }, timeZone: 'Asia/Muscat' } } });
@@ -259,5 +265,61 @@ describe('MeetingFormModal', () => {
     renderModal();
     expect(screen.getByLabelText(/title/i)).toHaveAttribute('dir', 'auto');
     expect(screen.getByLabelText(/description/i)).toHaveAttribute('dir', 'auto');
+  });
+});
+
+describe('MeetingFormModal: people and agenda in a new meeting', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'k@mico.om', username: 'khalid', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
+  });
+
+  async function fillBasics() {
+    await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText(/title/i), 'Pump station review');
+    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-26T10:00' } });
+    fireEvent.change(screen.getByLabelText(/ends/i), { target: { value: '2026-10-26T11:30' } });
+  }
+  const posted = () => calls.find((c) => c.url.endsWith('/meetings') && c.method === 'POST')?.body;
+
+  it('saves one POST /meetings with the people and the agenda', async () => {
+    renderModal();
+    await fillBasics();
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a team member' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Sara Al Balushi/ }));
+    await userEvent.type(screen.getByLabelText('Guest email'), 'sami.k@contractor.om');
+    await userEvent.click(screen.getByRole('button', { name: 'Add guest' }));
+    await userEvent.type(screen.getByLabelText('New agenda item'), 'Pump test results{Enter}');
+    await userEvent.selectOptions(screen.getByLabelText('Lead for item 1'), 'u2');
+    fireEvent.change(screen.getByLabelText('Minutes for item 1'), { target: { value: '20' } });
+    expect(screen.getByText('Total 20 of 90 minutes')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /schedule meeting/i }));
+    await waitFor(() => expect(posted()).toBeDefined());
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+    expect(posted()!.attendees).toEqual([{ userId: 'u2' }, { externalEmail: 'sami.k@contractor.om', externalName: 'sami.k' }]);
+    expect(posted()!.agendaItems).toEqual([{ title: 'Pump test results', ownerId: 'u2', expectedMinutes: 20 }]);
+  });
+
+  it('the organizer may lead an item; removing a person clears the items they lead', async () => {
+    renderModal();
+    await fillBasics();
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a team member' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Sara Al Balushi/ }));
+    await userEvent.type(screen.getByLabelText('New agenda item'), 'Intro{Enter}');
+    await userEvent.type(screen.getByLabelText('New agenda item'), 'Pump test{Enter}');
+    await userEvent.selectOptions(screen.getByLabelText('Lead for item 1'), 'u1');
+    await userEvent.selectOptions(screen.getByLabelText('Lead for item 2'), 'u2');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Sara Al Balushi' }));
+    expect(screen.getByLabelText('Lead for item 2')).toHaveValue('');
+    await userEvent.click(screen.getByRole('button', { name: /schedule meeting/i }));
+    await waitFor(() => expect(posted()).toBeDefined());
+    expect(posted()!.attendees).toBeUndefined();
+    expect(posted()!.agendaItems).toEqual([{ title: 'Intro', ownerId: 'u1', expectedMinutes: null }, { title: 'Pump test', ownerId: null, expectedMinutes: null }]);
+  });
+
+  it('the edit form shows neither section', () => {
+    renderModal(baseMeeting);
+    expect(screen.queryByRole('group', { name: 'People' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Agenda' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('New agenda item')).not.toBeInTheDocument();
   });
 });

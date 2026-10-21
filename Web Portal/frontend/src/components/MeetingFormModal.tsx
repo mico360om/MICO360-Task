@@ -18,6 +18,10 @@ import { ModalPortal } from './ui/ModalPortal';
 import { projectOption } from './project-option';
 import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } from './RecurrenceEditor';
 import { SeriesScopeChoice } from './meeting/series-scope';
+import { PeopleField, type MeetingPerson } from './meeting-form/PeopleField';
+import { AgendaField, type AgendaDraft } from './meeting-form/AgendaField';
+import { usersApi } from '../api/users';
+import { useAuthStore } from '../stores/auth-store';
 
 export interface MeetingFormModalProps {
   /** When provided, the modal edits this meeting; otherwise it creates a new one. */
@@ -64,6 +68,10 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const [projectId, setProjectId] = useState(meeting?.projectId ?? defaultProjectId ?? '');
   const [status, setStatus] = useState<MeetingStatus>(meeting?.status ?? 'SCHEDULED');
   const [description, setDescription] = useState(meeting?.description ?? '');
+  // A new meeting's people and agenda (an existing meeting's are on its page).
+  const [people, setPeople] = useState<MeetingPerson[]>([]);
+  const [agenda, setAgenda] = useState<AgendaDraft[]>([]);
+  const organizerId = useAuthStore((s) => s.user?.id ?? null);
   const [error, setError] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -118,6 +126,23 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const untilProblem = !seriesId || ruleChanged ? repeatProblem(rule, rule ? firstMeetingDay(startDay, rule) : startDay) : null;
   const summary = rule ? (startIso ? meetingRepeatText(rule, startIso, timeZone) : recurrenceSummary(rule)) : '';
 
+  // The meeting's length (an hour when no end is set), and who may lead an agenda item: the
+  // organizer and the team members invited.
+  const endIso = fromLocalInputValue(end, timeZone);
+  const lengthMinutes = startIso && endIso && endIso > startIso ? Math.round((Date.parse(endIso) - Date.parse(startIso)) / 60_000) : 60;
+  const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory(), enabled: !editing });
+  const me = (Array.isArray(dirQ.data) ? dirQ.data : []).find((u) => u.id === organizerId);
+  const leads = [
+    ...(organizerId ? [{ id: organizerId, name: me ? `${`${me.firstName} ${me.lastName}`.trim() || me.username} (you)` : 'You' }] : []),
+    ...people.flatMap((p) => (p.kind === 'user' ? [{ id: p.id, name: p.name }] : [])),
+  ];
+  const changePeople = (next: MeetingPerson[]) => {
+    setPeople(next);
+    // Someone taken off the list no longer leads their agenda items.
+    const still = new Set([organizerId, ...next.flatMap((p) => (p.kind === 'user' ? [p.id] : []))]);
+    setAgenda((items) => items.map((i) => (i.ownerId && !still.has(i.ownerId) ? { ...i, ownerId: null } : i)));
+  };
+
   const saveMut = useMutation({
     mutationFn: (as: SeriesScope) => {
       const startAt = fromLocalInputValue(start, timeZone);
@@ -156,6 +181,12 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
       }
       // A new meeting or a one-off given a repeat takes the rule; one meeting of a series keeps the series' repeat.
       if (!seriesId && rule) payload.recurrenceRule = rule;
+      if (!editing) {
+        // Saved with the meeting in the same request, so nothing is half-created.
+        if (people.length) payload.attendees = people.map((p) => (p.kind === 'user' ? { userId: p.id } : { externalEmail: p.email, externalName: p.name }));
+        const items = agenda.filter((i) => i.title.trim());
+        if (items.length) payload.agendaItems = items.map((i) => ({ title: i.title.trim(), ownerId: i.ownerId, expectedMinutes: i.minutes }));
+      }
       return editing ? meetingsApi(apiClient).update(meeting!.id, payload, 'one') : meetingsApi(apiClient).create(payload);
     },
     onSuccess: (saved) => {
@@ -326,6 +357,12 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 <FieldLabel htmlFor="mf-desc">Description</FieldLabel>
                 <textarea id="mf-desc" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional agenda summary" className={fieldClass(false)} />
               </div>
+              {!editing ? (
+                <>
+                  <PeopleField value={people} onChange={changePeople} organizerId={organizerId} />
+                  <AgendaField value={agenda} onChange={setAgenda} leads={leads} minutes={lengthMinutes} />
+                </>
+              ) : null}
             </div>
             <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
               <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">
