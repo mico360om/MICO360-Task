@@ -403,9 +403,9 @@ export interface DescribedMeeting {
   location: string | null;
   onlineLink: string | null;
   people: {
-    found: Array<{ id: string; name: string }>;
+    found: Array<{ id: string; name: string; username: string }>;
     /** A name that fits more than one person: they choose. */
-    choices: Array<{ said: string; options: Array<{ id: string; name: string }> }>;
+    choices: Array<{ said: string; options: Array<{ id: string; name: string; username: string }> }>;
     notFound: string[];
   };
   guests: Array<{ email: string; name: string }>;
@@ -455,7 +455,7 @@ function matchPeople(value: unknown, people: Array<MeetingCandidate & { name: st
     const sameName = people.filter((p) => [p.firstName, p.lastName, p.username, p.name].some((x) => normalise(x) === n)).map((p) => p.id);
     const options = [...new Set([...ids, ...(sameName.length > 1 ? sameName : [])])]
       .sort((a, b) => order.get(a)! - order.get(b)!)
-      .map((id) => ({ id, name: people[order.get(id)!]!.name }));
+      .map((id) => ({ id, name: people[order.get(id)!]!.name, username: people[order.get(id)!]!.username }));
     if (options.length === 1) {
       if (!out.found.some((f) => f.id === options[0]!.id)) out.found.push(options[0]!);
     } else if (options.length > 1) out.choices.push({ said, options });

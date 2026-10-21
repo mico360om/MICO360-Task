@@ -238,9 +238,9 @@ export interface AiMeetingDraft {
   location: string | null;
   onlineLink: string | null;
   people: {
-    found: Array<{ id: string; name: string }>;
+    found: Array<{ id: string; name: string; username?: string }>;
     /** A name more than one person goes by: the person chooses. */
-    choices: Array<{ said: string; options: Array<{ id: string; name: string }> }>;
+    choices: Array<{ said: string; options: Array<{ id: string; name: string; username?: string }> }>;
     notFound: string[];
   };
   guests: Array<{ email: string; name: string }>;

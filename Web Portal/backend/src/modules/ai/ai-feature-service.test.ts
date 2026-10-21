@@ -364,7 +364,7 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
   it('matches names to people, by the ids the model gives, checked against active users', async () => {
     const { svc, prompts } = meetingAi({ title: 'Budget', people: [{ said: 'Sara', ids: ['u2'] }, { said: 'Ali', ids: ['u3'] }] });
     const out = await svc.parseMeeting({ text: 'budget with Sara and Ali tomorrow', today: '2026-10-21' }, me);
-    expect(out.people).toEqual({ found: [{ id: 'u2', name: 'Sara Al Balushi' }, { id: 'u3', name: 'Ali Hassan' }], choices: [], notFound: [] });
+    expect(out.people).toEqual({ found: [{ id: 'u2', name: 'Sara Al Balushi', username: 'sara' }, { id: 'u3', name: 'Ali Hassan', username: 'ali.h' }], choices: [], notFound: [] });
     // People are listed for the model as id | name | username, nothing else.
     expect(prompts[0]).toContain('u2 | Sara Al Balushi | sara');
     expect(prompts[0]).toContain('PUMP');
@@ -374,14 +374,14 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
     for (const ids of [['u4', 'u5'], ['u4']]) {
       const { svc } = meetingAi({ title: 'Pump test', people: [{ said: 'Omar', ids }] });
       const out = await svc.parseMeeting({ text: 'pump test with Omar', today: '2026-10-21' }, me);
-      expect(out.people, ids.join()).toEqual({ found: [], choices: [{ said: 'Omar', options: [{ id: 'u4', name: 'Omar Al Rawahi' }, { id: 'u5', name: 'Omar Said' }] }], notFound: [] });
+      expect(out.people, ids.join()).toEqual({ found: [], choices: [{ said: 'Omar', options: [{ id: 'u4', name: 'Omar Al Rawahi', username: 'omar.r' }, { id: 'u5', name: 'Omar Said', username: 'osaid' }] }], notFound: [] });
     }
   });
 
   it('lists a name nobody has as not found, and never an id outside the list', async () => {
     const { svc } = meetingAi({ title: 'Review', people: [{ said: 'Zainab', ids: [] }, { said: 'Khalid', ids: ['u99'] }, { said: 'Sara', ids: ['u2', 'u99'] }] });
     const out = await svc.parseMeeting({ text: 'review with Zainab, Khalid and Sara', today: '2026-10-21' }, me);
-    expect(out.people).toEqual({ found: [{ id: 'u2', name: 'Sara Al Balushi' }], choices: [], notFound: ['Zainab', 'Khalid'] });
+    expect(out.people).toEqual({ found: [{ id: 'u2', name: 'Sara Al Balushi', username: 'sara' }], choices: [], notFound: ['Zainab', 'Khalid'] });
   });
 
   it('turns emails into guests named from before the @', async () => {

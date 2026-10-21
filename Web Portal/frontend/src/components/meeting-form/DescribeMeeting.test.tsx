@@ -106,6 +106,22 @@ describe('Describe the meeting', () => {
     expect(onApply.mock.calls[0]![0].people).toEqual([{ kind: 'user', id: 'u5', name: 'Omar Said' }]);
   });
 
+  it('people with the same name are told apart by their username', async () => {
+    const { onApply } = renderIt({
+      answer: draft({
+        people: { found: [], choices: [{ said: 'سارة', options: [{ id: 'u6', name: 'سارة Al Balushi', username: 'sara_6c14bb' }, { id: 'u7', name: 'سارة Al Balushi', username: 'sara_817ab4' }] }], notFound: [] },
+        guests: [],
+        agenda: [],
+      }),
+    });
+    const found = await describeIt('review with سارة');
+    const which = within(found).getByRole('radiogroup', { name: 'Which سارة?' });
+    await userEvent.click(within(which).getByRole('radio', { name: /@sara_817ab4/ }));
+    expect(within(which).getByRole('radio', { name: /@sara_6c14bb/ })).not.toBeChecked();
+    await userEvent.click(within(found).getByRole('button', { name: 'Use selected details' }));
+    expect(onApply.mock.calls[0]![0].people).toEqual([{ kind: 'user', id: 'u7', name: 'سارة Al Balushi' }]);
+  });
+
   it('editing offers no people or agenda', async () => {
     renderIt({ withPeopleAndAgenda: false });
     const found = await describeIt();

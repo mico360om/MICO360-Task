@@ -27,7 +27,7 @@ type Field = 'title' | 'description' | 'start' | 'minutes' | 'rule' | 'projectId
 type Suggestion =
   | { kind: 'field'; key: string; field: Field; label: string; shown: string; value: unknown; replaces: string | null; checked: boolean }
   | { kind: 'person'; key: string; label: 'Person' | 'Guest'; shown: string; person: MeetingPerson; checked: boolean }
-  | { kind: 'choice'; key: string; said: string; options: Array<{ id: string; name: string }>; chosen: string | null }
+  | { kind: 'choice'; key: string; said: string; options: Array<{ id: string; name: string; username?: string }>; chosen: string | null }
   | { kind: 'agenda'; key: string; shown: string; checked: boolean };
 
 const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -210,6 +210,7 @@ export function DescribeMeeting({
                               className="h-4 w-4 accent-brand"
                             />
                             <bdi>{o.name}</bdi>
+                            {'username' in o && o.username ? <span dir="ltr" className="text-xs text-ink-3">@{o.username}</span> : null}
                           </label>
                         ))}
                       </div>
