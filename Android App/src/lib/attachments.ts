@@ -23,6 +23,26 @@ export function attachmentHref(apiBase: string, url: string): string {
   return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
+/**
+ * The address of a picture stored on this server ('/uploads/…' on the API server's origin), or
+ * null for anything else: a profile photo or a project picture is never loaded from another
+ * address (it would tell that address who looked, and when — 6a review).
+ */
+export function serverUploadHref(apiBase: string, url: string | null | undefined): string | null {
+  if (!url || !url.startsWith('/uploads/') || url.split('/').includes('..')) return null;
+  return attachmentHref(apiBase, url);
+}
+
+/**
+ * Is this one of the copies the file picker made in the app's cache (deleted once used, and on
+ * sign-out)? Never anything else: a person's own files are never touched.
+ */
+export function isPickedCopy(uri: string, cacheDirectory: string | null | undefined): boolean {
+  if (!cacheDirectory) return false;
+  const dir = `${cacheDirectory.replace(/\/+$/, '')}/DocumentPicker/`;
+  return uri.startsWith(dir) && !uri.slice(dir.length).split('/').includes('..');
+}
+
 /** "532 B", "12.4 KB", "3.1 MB". */
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '';

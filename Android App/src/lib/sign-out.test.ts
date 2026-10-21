@@ -174,3 +174,12 @@ describe('createSignOut — fingerprint sign-in survives a sign-out', () => {
     }
   });
 });
+
+describe('sign-out leaves nothing of the person behind (6a review)', () => {
+  it('deletes the copies the file picker made (a photo picked for a profile or a project)', async () => {
+    const clearPickedFiles = vi.fn(async () => {});
+    const { signOut } = setup({ clearPickedFiles });
+    await signOut.signOut('expired');
+    expect(clearPickedFiles).toHaveBeenCalledTimes(1);
+  });
+});

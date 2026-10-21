@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Alert, AccessibilityInfo, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
+import { pickedFiles } from '../adapters/files';
 import { useDirectory, useProject, useProjects } from '../core/queries';
 import { useCodeCheck, useSaveProject } from '../core/project-queries';
 import { useSession } from '../core/providers';
@@ -94,6 +95,14 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   const key = useRef(newIdempotencyKey());
   const nameRef = useRef<TextInput>(null);
   const codeRef = useRef<TextInput>(null);
+  // The picker's copy of the chosen picture: deleted when the form closes (sent or not — 6a review).
+  const pickedUri = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      void pickedFiles.remove(pickedUri.current);
+    },
+    [],
+  );
 
   const codeQ = useCodeCheck(draft.code, !editing);
   const check = !editing && codeQ.data && codeQ.data.code === draft.code ? codeQ.data : null;
@@ -162,8 +171,12 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
     const problem = pictureProblem(asset);
     if (problem) {
       setPictureIssue(problem);
+      void pickedFiles.remove(asset.uri);
       return;
     }
+    // The picker's copy of an earlier pick isn't needed any more.
+    void pickedFiles.remove(pickedUri.current);
+    pickedUri.current = asset.uri;
     setPicture((cur) => pictureChoiceFor({ kind: 'new', part: picturePart(asset) }, cur, saved?.imageUrl));
     AccessibilityInfo.announceForAccessibility(`${asset.name ?? 'The picture'} will be the project’s picture when you save.`);
   }

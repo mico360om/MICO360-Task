@@ -6,6 +6,7 @@ import { useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useDirectory } from '../core/queries';
 import { useAvatar } from '../core/account-queries';
+import { pickedFiles } from '../adapters/files';
 import { Card, SectionTitle, Muted, Badge, Button, ErrorNote } from '../components/ui';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { ChangePasswordCard } from '../components/account/ChangePasswordCard';
@@ -15,6 +16,7 @@ import {
   accountRoleLabel,
   avatarHref,
   avatarPart,
+  avatarProblem,
   fullNameOf,
   initialsOf,
   myDataFileName,
@@ -60,9 +62,18 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
     }
     const asset = picked.canceled ? null : picked.assets?.[0];
     if (!asset) return;
+    // Checked here first, so a photo the server would refuse isn't uploaded for nothing (6a review).
+    const problem = avatarProblem(asset);
+    if (problem) {
+      setPhotoProblem(problem);
+      void pickedFiles.remove(asset.uri);
+      return;
+    }
     upload.mutate(avatarPart(asset), {
       onSuccess: () => AccessibilityInfo.announceForAccessibility('Photo updated.'),
       onError: (e) => setPhotoProblem(photoUploadProblem(e)),
+      // The picker's copy isn't kept on the phone once it has been sent.
+      onSettled: () => void pickedFiles.remove(asset.uri),
     });
   }
 

@@ -6,7 +6,7 @@
  * (frontend lib/project-icons.tsx); a test keeps them equal. The phone has no vector drawing, so
  * each icon is drawn as a matching symbol on the project's colour. Pure TypeScript.
  */
-import { attachmentHref } from './attachments';
+import { serverUploadHref } from './attachments';
 import type { Tone } from './tone';
 
 /** The icons a project may use, in the server's order (it refuses any other name). */
@@ -146,8 +146,7 @@ export function suggestCode(name: string): string {
 
 /** Where to load a project's picture from: only a file stored on this server ('/uploads/…'). */
 export function projectPictureHref(apiBase: string, imageUrl: string | null | undefined): string | null {
-  if (!imageUrl || !imageUrl.startsWith('/uploads/')) return null;
-  return attachmentHref(apiBase, imageUrl);
+  return serverUploadHref(apiBase, imageUrl);
 }
 
 /** What a project's tile shows: its picture (falling back to the rest if it doesn't load), its icon or its initials, on its colour. */

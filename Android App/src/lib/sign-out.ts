@@ -31,6 +31,8 @@ export interface SignOutDeps {
   deactivatePush: () => Promise<unknown>;
   /** Delete the exported files (reports, tasks) kept on the phone. */
   clearExports: () => Promise<unknown>;
+  /** Delete the copies the file picker made (pictures picked for a profile or a project — 6a review). */
+  clearPickedFiles?: () => Promise<unknown>;
   /** Upper bound for each network step, so signing out offline is not blocked (default 5 s). */
   networkTimeoutMs?: number;
   /** Diagnostics hook for a step that failed (the sign-out still completes). */
@@ -111,6 +113,7 @@ export function createSignOut(deps: SignOutDeps) {
     await step('queries', () => deps.clearQueryCache());
     await step('read-cache', () => deps.clearReadCache());
     await step('exports', () => deps.clearExports());
+    if (deps.clearPickedFiles) await step('picked-files', () => deps.clearPickedFiles!());
     if (reason === 'user' && userId) await step('queue', () => deps.clearQueuedChanges(userId));
   }
 

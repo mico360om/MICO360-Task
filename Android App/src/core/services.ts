@@ -30,7 +30,7 @@ import { authApi } from '../lib/auth';
 import { secureStore, biometricSecureStore } from '../adapters/secure-store';
 import { asyncStore } from '../adapters/async-storage';
 import { getPushToken, deactivatePush } from '../adapters/push';
-import { exportFiles } from '../adapters/files';
+import { exportFiles, pickedFiles } from '../adapters/files';
 import { isBiometricAvailable, authenticateBiometric } from '../adapters/biometric';
 
 export interface Services {
@@ -232,6 +232,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
       await push.forget();
     },
     clearExports: () => exportFiles.clearAll(),
+    clearPickedFiles: () => pickedFiles.clearAll(),
   });
 
   const exporter = createExporter({
