@@ -34,6 +34,28 @@ export function messageTime(iso, now = new Date()) {
   return `${date}, ${clock}`;
 }
 
+/**
+ * Bring a message's node up to date in place (`fresh` is the message drawn anew): only the parts
+ * that differ change, so the log a screen reader follows doesn't hear the whole message again — a
+ * message being sent becomes the sent one, a reaction is added — and focus inside it can stay. The
+ * buttons kept are the same message's (they act by its clientId).
+ */
+export function updateMessageNode(node, fresh) {
+  for (const { name } of [...node.attributes]) if (!fresh.hasAttribute(name)) node.removeAttribute(name);
+  for (const { name, value } of [...fresh.attributes]) if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+  const was = [...node.childNodes];
+  const now = [...fresh.childNodes];
+  now.forEach((b, i) => {
+    const a = was[i];
+    if (!a) node.append(b);
+    else if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) node.replaceChild(b, a);
+    else if (a.nodeType === 3) { if (a.data !== b.data) a.data = b.data; }
+    else if (a.nodeType === 1 && !a.isEqualNode(b)) updateMessageNode(a, b);
+  });
+  for (const a of was.slice(now.length)) a.remove();
+  return node;
+}
+
 /** What decides whether a message's node must be drawn again. */
 export function messageSignature(m) {
   return JSON.stringify([
@@ -90,7 +112,8 @@ export function messageNode(m, opts) {
   const files = deleted ? [] : m.attachments || [];
   const pendingFiles = deleted ? [] : m.pendingFiles || [];
   const state = m.pending === true ? 'saved on this device, not sent yet' : m.pending === 'sending' ? 'sending…' : null;
-  return el('div', { class: `msg${mine ? ' mine' : ''}${m.pending === 'failed' ? ' failed' : ''}`, dataset: { messageId: m.id } },
+  // tabindex -1: focus can be put on it (Retry keeps focus on its message), though Tab skips it.
+  return el('div', { class: `msg${mine ? ' mine' : ''}${m.pending === 'failed' ? ' failed' : ''}`, tabindex: '-1', dataset: { messageId: m.id } },
     el('div', { class: 'mh' },
       el('span', { class: 'author', dir: 'auto' }, mine ? 'You' : opts.nameOf(m.userId)),
       el('time', { class: 'time', datetime: m.createdAt, title: fullTime(m.createdAt) }, messageTime(m.createdAt)),

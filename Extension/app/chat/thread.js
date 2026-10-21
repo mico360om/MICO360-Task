@@ -22,7 +22,8 @@
  */
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
 import { writeErrorMessage } from '../components.js';
-import { messageNode, messageSignature } from './message.js';
+import { ApiError } from '../../src/errors.js';
+import { messageNode, messageSignature, updateMessageNode } from './message.js';
 import {
   mergeMessages, hasOlderPage, validateAttachment, placeholderFor, MAX_MESSAGE_LENGTH, CHAT_POLL_MS, NO_PREFS,
 } from '../../src/chat.js';
@@ -60,7 +61,9 @@ export function ChatThread(ctx, conversationId) {
   let summary = null;      // this conversation's inbox summary (its kind, people and own settings)
   let problem = '';
   let unseen = 0;
-  let nodes = new Map();   // message id → its node
+  let nodes = new Map();   // a message's key (its clientId, else its id) → its node
+  let gone = false;
+  let focusWant = null;    // a message to give focus to after the next draw (its key)        // the conversation can't be read (not found, or no access): not read again
   let timer = null;
   let polling = null;
 
@@ -129,6 +132,8 @@ export function ChatThread(ctx, conversationId) {
   /** The first read. `quiet`: tried again on its own (a later read) — no spinner, and on failure the message stays. */
   async function load({ quiet = false } = {}) {
     if (!quiet) mount(list, Loader());
+    // The first page goes into the log at once: screen readers wait for it rather than read each.
+    log.setAttribute('aria-busy', 'true');
     if (!quiet) await restoreDrafts();
     try {
       const [m, d] = await Promise.all([ctx.api.chat.messages(conversationId), call(ctx.api.directory)]);
@@ -142,12 +147,36 @@ export function ChatThread(ctx, conversationId) {
       nodes = new Map();
       render();
       toBottom();
-      markRead();
-    } catch {
+      if (seen()) markRead();
+    } catch (e) {
+      if (isGone(e)) {
+        showGone(e);
+        return;
+      }
       if (!quiet) mount(list, ErrorState('Could not load chat.', () => load()));
+    } finally {
+      if (!loadingOlder) log.removeAttribute('aria-busy');
     }
     void loadSummary();
     schedule();
+  }
+
+  /** The server says the conversation isn't there, or isn't this person's (not a passing problem). */
+  function isGone(e) {
+    return e instanceof ApiError && (e.status === 404 || e.status === 403);
+  }
+
+  /** In the web's words; no message box, and it isn't read again. */
+  function showGone(e) {
+    gone = true;
+    clearTimeout(timer);
+    const text = e.status === 404 ? 'This conversation couldn’t be found. It may have been removed.'
+      : writeErrorMessage(e, 'You don’t have access to this conversation.');
+    mount(list, el('div', { class: 'errbar', role: 'alert' }, el('span', {}, text),
+      el('button', { class: 'btn sm', type: 'button', onClick: () => ctx.navigate('#/chat') }, '← Back to Chat')));
+    composer.remove();
+    hint.remove();
+    newBtn.remove();
   }
 
   /** The conversation's name and own settings, from the inbox (best effort: the header waits for them). */
@@ -166,13 +195,24 @@ export function ChatThread(ctx, conversationId) {
   }
 
   async function tick() {
-    if (!root.isConnected) return; // the screen is gone: stop
-    if (document.visibilityState !== 'hidden') await poll();
-    if (root.isConnected) schedule();
+    if (!root.isConnected || gone) return; // the screen is gone, or the conversation: stop
+    if (seen()) await poll();
+    if (root.isConnected && !gone) schedule();
+  }
+
+  /** Under the task panel or another dialog, the page behind is inert: not being read. */
+  function covered() {
+    return !!root.closest('[inert]');
+  }
+
+  /** On screen: the tab in front and nothing over the conversation. */
+  function seen() {
+    return document.visibilityState !== 'hidden' && !covered();
   }
 
   /** Read the newest page again and add what is new; older pages already loaded stay. */
   function poll() {
+    if (gone) return Promise.resolve();
     if (!loaded) return load({ quiet: true }); // the first read failed: try it again, as a later read
     if (polling) return polling;
     polling = (async () => {
@@ -190,10 +230,11 @@ export function ChatThread(ctx, conversationId) {
         if (arrived.length) {
           if (follow) toBottom();
           else { unseen += arrived.length; renderNew(); }
-          if (document.visibilityState !== 'hidden') markRead();
+          if (seen()) markRead();
         }
-      } catch {
-        /* offline: what is shown stays */
+      } catch (e) {
+        if (isGone(e)) showGone(e);
+        /* else offline: what is shown stays */
       } finally {
         polling = null;
       }
@@ -300,6 +341,11 @@ export function ChatThread(ctx, conversationId) {
     return Array.isArray(v) ? v : [];
   }
 
+  /** A message's lasting identity: its clientId (the same while sending, kept and sent), else its id. */
+  function keyOf(m) {
+    return m.clientId ? `c:${m.clientId}` : `i:${m.id}`;
+  }
+
   /** Messages from the server (not ones waiting on this device). */
   function serverRows(list_) {
     return list_.filter((x) => !x.pending);
@@ -334,22 +380,27 @@ export function ChatThread(ctx, conversationId) {
     let at = list.firstChild;
     for (const m of all) {
       const sig = messageSignature(m);
-      let node = nodes.get(m.id);
-      if (!node || node.dataset.sig !== sig) {
+      const key = keyOf(m);
+      let node = nodes.get(key);
+      if (!node || node.dataset.sig !== sig || node.dataset.messageId !== m.id) {
         const fresh = messageNode(m, opts);
         fresh.dataset.sig = sig;
-        if (node) {
-          if (at === node) at = fresh;
-          node.replaceWith(fresh);
-        }
-        node = fresh;
+        // One entry per message: the one being sent becomes the sent one in place (read once).
+        if (node) updateMessageNode(node, fresh);
+        else node = fresh;
       }
       if (node === at) at = at.nextSibling;
       else list.insertBefore(node, at);
-      next.set(m.id, node);
+      next.set(key, node);
     }
-    for (const [id, node] of nodes) if (!next.has(id)) node.remove();
+    for (const [key, node] of nodes) if (!next.has(key)) node.remove();
     nodes = next;
+    if (focusWant) {
+      const node = nodes.get(focusWant);
+      focusWant = null;
+      const a = document.activeElement;
+      if (node && (!a || a === document.body || !a.isConnected)) node.focus();
+    }
     renderOlder();
     if (summary) box.setAttribute('placeholder', placeholderFor(kind(), title()));
   }
@@ -604,6 +655,12 @@ export function ChatThread(ctx, conversationId) {
     const p = findOutgoing(m);
     if (!p) return;
     p.key = newIdempotencyKey();
+    // Its Retry button goes while it is sent again: focus stays on the message.
+    const node = nodes.get(keyOf(m));
+    if (node && node.contains(document.activeElement)) {
+      node.focus();
+      focusWant = keyOf(m);
+    }
     deliver(p);
   }
 
