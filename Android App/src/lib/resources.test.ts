@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resourcesApi, AI_DESCRIPTION_MAX, AI_MINUTES_TIMEOUT_MS, AI_TIMEOUT_MS } from './resources';
+import { resourcesApi, AI_DESCRIPTION_MAX, AI_MINUTES_TIMEOUT_MS, AI_TIMEOUT_MS, SEND_TIMEOUT_MS } from './resources';
 import type { ApiClient } from './api-client';
 
 /** A fake client that records every call and returns a benign envelope. */
@@ -382,7 +382,7 @@ describe('resourcesApi.meetings: running a meeting (2b)', () => {
     await api.previewInvites('m1');
     await api.sendInvites('m1');
     await api.sendInvites('m1', { onlyNew: true });
-    await api.sendInvites('m1', { resend: true });
+    await api.sendInvites('m1', { resend: true }, { idempotencyKey: 'inv-1' });
     expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
       ['POST', '/meetings/m1/attendees', { userId: 'u2', role: 'OPTIONAL' }],
       ['POST', '/meetings/m1/attendees', { externalName: 'Sara', externalEmail: 'sara@client.com', role: 'REQUIRED' }],
@@ -393,6 +393,10 @@ describe('resourcesApi.meetings: running a meeting (2b)', () => {
       ['POST', '/meetings/m1/invites', { onlyNew: true }],
       ['POST', '/meetings/m1/invites', { resend: true }],
     ]);
+    // Sending emails one by one can take a while: a longer wait, and a key so a retry isn't a second send.
+    expect(SEND_TIMEOUT_MS).toBe(120_000);
+    expect(calls[5]!.opts?.timeoutMs).toBe(SEND_TIMEOUT_MS);
+    expect(calls[7]!.opts).toEqual({ timeoutMs: SEND_TIMEOUT_MS, headers: { 'Idempotency-Key': 'inv-1' } });
   });
 
   it('adds, edits, reorders, ticks off and removes agenda items', async () => {
@@ -470,12 +474,14 @@ describe('resourcesApi.meetings: running a meeting (2b)', () => {
     const api = resourcesApi(client).meetings;
     await api.previewMinutes('m1');
     await api.sendMinutes('m1');
-    await api.sendMinutes('m1', ['a@b.co']);
+    await api.sendMinutes('m1', ['a@b.co'], { idempotencyKey: 'min-1' });
     expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
       ['GET', '/meetings/m1/minutes/preview', undefined],
       ['POST', '/meetings/m1/minutes/send', {}],
       ['POST', '/meetings/m1/minutes/send', { recipients: ['a@b.co'] }],
     ]);
+    expect(calls[1]!.opts?.timeoutMs).toBe(SEND_TIMEOUT_MS);
+    expect(calls[2]!.opts).toEqual({ timeoutMs: SEND_TIMEOUT_MS, headers: { 'Idempotency-Key': 'min-1' } });
     expect(api.minutesPdfPath('m 1')).toBe('/meetings/m%201/minutes.pdf');
   });
 });

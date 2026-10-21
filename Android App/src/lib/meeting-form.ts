@@ -324,9 +324,24 @@ export function saveRequest(f: {
   return Object.keys(changes).length ? { kind: 'update', patch: changes, scope: 'series' } : { kind: 'none' };
 }
 
+/**
+ * Whether a new meeting's next try keeps this try's idempotency key: yes while the server may still
+ * have the first (no answer came, or it is still being saved) — a repeat then can't schedule it
+ * twice; no after a refusal, which the server keeps under its key (a fixed form is a new try).
+ */
+export function keepsSaveKey(e: unknown): boolean {
+  return isNetworkError(e) || (e instanceof ApiError && e.code === 'IDEMPOTENCY_IN_PROGRESS');
+}
+
 /** Why a save was refused, in the website's words; offline, that nothing was saved. */
 export function saveFailureText(e: unknown, editing: boolean): string {
+  if (isNetworkError(e) && (e as { timedOut?: unknown }).timedOut === true) {
+    return editing
+      ? 'The server took too long to answer — your changes may already be saved. Pull down on the meeting to check.'
+      : 'The server took too long to answer — the meeting may already be saved. Tap again to finish: it won’t be scheduled twice.';
+  }
   if (isNetworkError(e)) return 'You’re offline — this needs a connection. Nothing was saved; try again when you’re online.';
+  if (e instanceof ApiError && e.code === 'IDEMPOTENCY_IN_PROGRESS') return 'The meeting is still being saved — try again in a moment.';
   if (e instanceof ApiError && e.status === 403) return editing ? 'You don’t have permission to change this meeting.' : 'You don’t have access to that project.';
   if (e instanceof ApiError && e.status === 400 && e.message && !/^Request failed/.test(e.message)) return e.message;
   return editing ? 'Couldn’t save changes. Check the title, times and link.' : 'Couldn’t create the meeting. Check the title, times and link.';

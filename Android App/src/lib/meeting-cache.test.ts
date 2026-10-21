@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { QueryClient } from '@tanstack/react-query';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { ApiError, NetworkError } from './api-client';
 import { afterMeetingDeleted, afterMeetingSaved, afterPartChanged, answerFailed, answerScope, dropRow, patchRow, putRow } from './meeting-cache';
 import type { ApiMeeting, ApiMeetingAttendee } from './types';
@@ -171,6 +171,26 @@ describe('after my own change to a meeting (the server’s answer shows at once;
     // A whole series changed: the other meetings of it are out of date too.
     afterMeetingSaved(qc, meetingRow('m1'), { scope: 'series' });
     expect(state(qc, ['meeting', 'm2'])).toBe(true);
+  });
+
+  it('a series change answered with another meeting (the new schedule had no place for this one) loads the edited one again at once', async () => {
+    const qc = seeded();
+    const queryFn = vi.fn(async () => meetingRow('m1'));
+    const stop = new QueryObserver(qc, { queryKey: ['meeting', 'm1'], queryFn, staleTime: 60_000 }).subscribe(() => {});
+    await new Promise((r) => setTimeout(r, 0));
+    const before = queryFn.mock.calls.length;
+    afterMeetingSaved(qc, meetingRow('m3', { title: 'Next of the series' }), { scope: 'series', editedId: 'm1' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryFn.mock.calls.length).toBe(before + 1);
+    expect(qc.getQueryData<ApiMeeting>(['meeting', 'm3'])?.title).toBe('Next of the series');
+    stop();
+  });
+
+  it('a meeting moved to another project refreshes both projects’ meetings', () => {
+    const qc = seeded();
+    afterMeetingSaved(qc, meetingRow('m1', { projectId: 'p2' }), {});
+    expect(state(qc, ['project', 'p1', 'meetings'])).toBe(true);
+    expect(state(qc, ['project', 'p2', 'meetings'])).toBe(true);
   });
 
   it('a new meeting (or a copy) is there to open at once', () => {

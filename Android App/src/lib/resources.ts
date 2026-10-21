@@ -105,6 +105,12 @@ export const AI_DESCRIPTION_MAX = 4000;
  */
 export const AI_MINUTES_TIMEOUT_MS = 190_000;
 
+/**
+ * How long sending invitations or the minutes may take: the server emails each person in turn (the
+ * minutes with their PDF), which can outlast an ordinary request on a big meeting.
+ */
+export const SEND_TIMEOUT_MS = 120_000;
+
 /** A description cut to the AI's limit, never in the middle of an emoji (a surrogate pair). */
 function aiDescription(description: string | undefined): string | undefined {
   if (description === undefined || description.length <= AI_DESCRIPTION_MAX) return description;
@@ -274,9 +280,12 @@ export function resourcesApi(client: ApiClient) {
       removeAttendee: (id: string, attendeeId: string) => client.del<void>(`${meeting(id)}/attendees/${encodeURIComponent(attendeeId)}`),
       /** Who an invitation would go to, and anything to fix first (sends nothing). */
       previewInvites: (id: string) => data(client.get<Envelope<InvitePreview>>(`${meeting(id)}/invites/preview`)),
-      /** Calendar invitations: to everyone; only to people not invited yet; or everyone again (`resend`). */
-      sendInvites: (id: string, opts: { onlyNew?: boolean; resend?: boolean } = {}) =>
-        data(client.post<Envelope<SendReport>>(`${meeting(id)}/invites`, opts)),
+      /**
+       * Calendar invitations: to everyone; only to people not invited yet; or everyone again (`resend`).
+       * A try that got no answer is sent again with its key, so the server answers it instead of sending twice.
+       */
+      sendInvites: (id: string, opts: { onlyNew?: boolean; resend?: boolean } = {}, write?: WriteOptions) =>
+        data(client.post<Envelope<SendReport>>(`${meeting(id)}/invites`, opts, { timeoutMs: SEND_TIMEOUT_MS, ...idempotencyHeaders(write?.idempotencyKey) })),
 
       addAgendaItem: (id: string, input: AgendaItemInput, opts?: WriteOptions) =>
         data(client.post<Envelope<ApiAgendaItem>>(`${meeting(id)}/agenda`, input, idempotencyHeaders(opts?.idempotencyKey))),
@@ -319,8 +328,13 @@ export function resourcesApi(client: ApiClient) {
       /** The minutes email as it would be sent, and to whom (sends nothing). */
       previewMinutes: (id: string) => data(client.get<Envelope<MinutesPreview>>(`${meeting(id)}/minutes/preview`)),
       /** Email the minutes PDF — to everyone, or to the chosen people's addresses. */
-      sendMinutes: (id: string, recipients?: string[]) =>
-        data(client.post<Envelope<SendReport>>(`${meeting(id)}/minutes/send`, recipients ? { recipients } : {})),
+      sendMinutes: (id: string, recipients?: string[], write?: WriteOptions) =>
+        data(
+          client.post<Envelope<SendReport>>(`${meeting(id)}/minutes/send`, recipients ? { recipients } : {}, {
+            timeoutMs: SEND_TIMEOUT_MS,
+            ...idempotencyHeaders(write?.idempotencyKey),
+          }),
+        ),
       /** The minutes PDF's address (downloaded with the session by the exporter). */
       minutesPdfPath: (id: string) => `${meeting(id)}/minutes.pdf`,
     },

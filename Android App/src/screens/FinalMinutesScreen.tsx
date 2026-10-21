@@ -31,7 +31,6 @@ export function FinalMinutesScreen({ route, navigation }: AppScreenProps<'FinalM
   const [problem, setProblem] = useState<{ text: string; offerNotes?: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const started = useRef(false);
-  const leaving = useRef(false);
   const busy = m.draft.isPending || m.save.isPending || m.approve.isPending || m.reopen.isPending;
 
   useEffect(() => {
@@ -79,7 +78,7 @@ export function FinalMinutesScreen({ route, navigation }: AppScreenProps<'FinalM
   useEffect(
     () =>
       navigation.addListener('beforeRemove', (e) => {
-        if (!changed || leaving.current) return;
+        if (!changed) return;
         e.preventDefault();
         Alert.alert('Discard your changes?', 'The minutes in the editor aren’t saved.', [
           { text: 'Keep editing', style: 'cancel' },
@@ -112,11 +111,7 @@ export function FinalMinutesScreen({ route, navigation }: AppScreenProps<'FinalM
       return;
     }
     m.approve.mutate(content, {
-      onSuccess: () => {
-        leaving.current = true;
-        setChanged(false);
-        navigation.goBack();
-      },
+      onSuccess: (next) => settled(next, 'The Final MOM is approved. The minutes PDF and the minutes email now open with it.'),
       onError: (e) => setProblem({ text: minutesSaveFailure(e, 'Couldn’t mark the minutes as final.') }),
     });
   };

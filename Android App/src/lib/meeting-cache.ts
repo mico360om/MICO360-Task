@@ -61,10 +61,18 @@ export function afterPartChanged(qc: QueryClient, meetingId: string, part: Meeti
  * meetings and My Action Items (which name it) load again. A change to a whole series puts every
  * meeting's details out of date (fetched when next shown).
  */
-export function afterMeetingSaved(qc: QueryClient, saved: ApiMeeting, opts: { scope?: SeriesScope }): void {
+export function afterMeetingSaved(qc: QueryClient, saved: ApiMeeting, opts: { scope?: SeriesScope; editedId?: string }): void {
+  // Moved to another project: the old project's meetings change too (read before the new copy goes in).
+  const oldProject = qc.getQueryData<ApiMeeting>(['meeting', saved.id])?.projectId;
   qc.setQueryData<ApiMeeting>(['meeting', saved.id], (old) => (old ? { ...old, ...saved } : saved));
   const targets: Refresh[] = [LISTS, { projectMeetingsOf: saved.id }, { ...MY_ITEMS, later: true }];
-  if (opts.scope === 'series') targets.push({ queryKey: ['meeting'], later: true });
+  if (oldProject && oldProject !== saved.projectId) targets.push({ queryKey: ['project', oldProject, 'meetings'], exact: true });
+  if (opts.scope === 'series') {
+    targets.push({ queryKey: ['meeting'], later: true });
+    // The server may answer with the series' next meeting (the new schedule had no place for the one
+    // edited): the edited one is loaded again now, so its screen shows what became of it.
+    if (opts.editedId && opts.editedId !== saved.id) targets.push({ queryKey: ['meeting', opts.editedId], exact: true });
+  }
   refresh(qc, targets);
 }
 

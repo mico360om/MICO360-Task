@@ -48,7 +48,7 @@ export function useSaveMeeting() {
       v.request.kind === 'create'
         ? resources.meetings.create(v.request.input, { idempotencyKey: v.idempotencyKey })
         : resources.meetings.update(v.id!, v.request.patch, v.request.scope),
-    onSuccess: (saved, v) => afterMeetingSaved(qc, saved, { scope: v.request.kind === 'update' ? v.request.scope : undefined }),
+    onSuccess: (saved, v) => afterMeetingSaved(qc, saved, { scope: v.request.kind === 'update' ? v.request.scope : undefined, editedId: v.id }),
   });
 }
 
@@ -96,9 +96,13 @@ export function useAttendeeMutations(meetingId: string) {
   });
   /** Attendance on the day: shown at once, and kept on this phone when offline. */
   const attendance = useMutation({
+    scope: { id: `attendance:${meetingId}` },
     mutationFn: ({ attendeeId, attendance: value }: { attendeeId: string; attendance: AttendanceStatus }) =>
       resources.meetings.updateAttendee(meetingId, attendeeId, { attendance: value }),
-    onMutate: ({ attendeeId, attendance: value }) => ({ before: patchRow<ApiMeetingAttendee>(qc, key, attendeeId, { attendance: value }) }),
+    onMutate: async ({ attendeeId, attendance: value }) => {
+      await qc.cancelQueries({ queryKey: key, exact: true });
+      return { before: patchRow<ApiMeetingAttendee>(qc, key, attendeeId, { attendance: value }) };
+    },
     onSuccess: (row) => {
       if (row?.id) putRow(qc, key, row);
     },
@@ -129,9 +133,9 @@ export function useSendInvites(meeting: Pick<ApiMeeting, 'id' | 'status'>) {
   const { resources } = useServices();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (opts: { onlyNew?: boolean; resend?: boolean }) => {
+    mutationFn: async ({ opts, idempotencyKey }: Keyed<{ opts: { onlyNew?: boolean; resend?: boolean } }>) => {
       if (meeting.status === 'DRAFT') afterMeetingSaved(qc, await resources.meetings.update(meeting.id, { status: 'SCHEDULED' }), {});
-      return resources.meetings.sendInvites(meeting.id, opts);
+      return resources.meetings.sendInvites(meeting.id, opts, { idempotencyKey });
     },
     // Who was invited, and when invitations went out, changed.
     onSettled: () => refresh(qc, [{ queryKey: ['meeting', meeting.id], exact: true }, { queryKey: part(meeting.id, 'attendees'), exact: true }, { queryKey: ['meetings'], later: true }]),
@@ -154,8 +158,12 @@ export function useAgendaMutations(meetingId: string) {
   });
   /** Covered or not: shown at once, and kept on this phone when offline. */
   const covered = useMutation({
+    scope: { id: `agenda:${meetingId}` },
     mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) => resources.meetings.updateAgendaItem(meetingId, itemId, { completed }),
-    onMutate: ({ itemId, completed }) => ({ before: patchRow<ApiAgendaItem>(qc, key, itemId, { completed }) }),
+    onMutate: async ({ itemId, completed }) => {
+      await qc.cancelQueries({ queryKey: key, exact: true });
+      return { before: patchRow<ApiAgendaItem>(qc, key, itemId, { completed }) };
+    },
     onSuccess: (row) => putRow(qc, key, row),
     onError: async (err, v, ctx) => {
       if (isNetworkError(err)) return queueOnOffline(queue, currentUserId(), err, 'meeting.agenda.covered', { meetingId, itemId: v.itemId, completed: v.completed });
@@ -259,8 +267,12 @@ export function useActionItemMutations(meetingId: string) {
   });
   /** A change (its status, owner, due day, priority…): shown at once, and kept on this phone when offline. */
   const update = useMutation({
+    scope: { id: `action-items:${meetingId}` },
     mutationFn: ({ itemId, patch }: { itemId: string; patch: ActionItemPatch }) => resources.meetings.updateActionItem(itemId, patch),
-    onMutate: ({ itemId, patch }) => ({ before: patchRow<ApiActionItem>(qc, key, itemId, patch as Partial<ApiActionItem>) }),
+    onMutate: async ({ itemId, patch }) => {
+      await qc.cancelQueries({ queryKey: key, exact: true });
+      return { before: patchRow<ApiActionItem>(qc, key, itemId, patch as Partial<ApiActionItem>) };
+    },
     onSuccess: (row) => {
       // The reply carries no task key: keep the one shown.
       const shown = qc.getQueryData<ApiActionItem[]>(key)?.find((i) => i.id === row.id);
@@ -312,5 +324,7 @@ export function useMinutesPreview(meetingId: string, enabled: boolean) {
 
 export function useSendMinutes(meetingId: string) {
   const { resources } = useServices();
-  return useMutation({ mutationFn: (recipients: string[] | undefined) => resources.meetings.sendMinutes(meetingId, recipients) });
+  return useMutation({
+    mutationFn: ({ recipients, idempotencyKey }: Keyed<{ recipients: string[] | undefined }>) => resources.meetings.sendMinutes(meetingId, recipients, { idempotencyKey }),
+  });
 }

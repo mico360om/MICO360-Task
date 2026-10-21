@@ -279,8 +279,8 @@ export function AgendaItemSheet({
       <TextField label="Planned minutes" value={minutes} onChangeText={setMinutes} placeholder="min" keyboardType="number-pad" maxLength={3} />
       {item ? (
         <>
-          <ActionRowButton label="Move up" onPress={() => move(-1)} busy={reorder.isPending} hint={index <= 0 ? 'It is already first' : undefined} />
-          <ActionRowButton label="Move down" onPress={() => move(1)} busy={reorder.isPending} hint={index >= items.length - 1 ? 'It is already last' : undefined} />
+          <ActionRowButton label="Move up" onPress={() => move(-1)} busy={reorder.isPending} disabled={index <= 0} hint={index <= 0 ? 'It is already first' : undefined} />
+          <ActionRowButton label="Move down" onPress={() => move(1)} busy={reorder.isPending} disabled={index >= items.length - 1} hint={index >= items.length - 1 ? 'It is already last' : undefined} />
           <ActionRowButton label="Remove from the agenda" danger onPress={confirmRemove} busy={remove.isPending} />
         </>
       ) : null}
@@ -524,7 +524,19 @@ export function ActionItemSheet({
     if (!d.ok) return setError(d.error);
     const dueDate = dueDayToIso(d.value);
     if (!item) {
-      add.mutate(keyed({ input: { description: description.trim(), assigneeId: assigneeId || null, dueDate, priority } }), { onSuccess: onClose, onError: failedOrQueued('Couldn’t add the action item.') });
+      add.mutate(keyed({ input: { description: description.trim(), assigneeId: assigneeId || null, dueDate, priority } }), {
+        onSuccess: onClose,
+        onError: (e) => {
+          failedOrQueued('Couldn’t add the action item.')(e);
+          // Kept on this phone: the form empties, so another tap can't add it twice.
+          if (isNetworkError(e)) {
+            setDescription('');
+            setAssigneeId('');
+            setDue('');
+            setPriority('NORMAL');
+          }
+        },
+      });
       return;
     }
     // Only what changed is sent.

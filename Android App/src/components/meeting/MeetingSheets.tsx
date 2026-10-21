@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useInvitePreview, useMinutesPreview, useSendInvites, useSendMinutes } from '../../core/meeting-mutations';
 import { ActionRowButton, CardChoice, CheckRow, Sheet, SheetButtons, SheetMessage, useSheetStyles } from './sheet-kit';
-import { inviteChoice, inviteFailure, inviteRequest, minutesChoice, sendSummary } from '../../lib/meeting-invites';
+import { inviteChoice, inviteFailure, inviteRequest, keepsSendKey, minutesChoice, sendFailure, sendSummary } from '../../lib/meeting-invites';
+import { newIdempotencyKey } from '../../lib/idempotency';
 import { meetingFailure, type ConfirmDialog, type MenuItem } from '../../lib/meeting-flow';
 import { meetingWhen } from '../../lib/meeting-detail';
 import { spacing, fontSize, radius } from '../../lib/theme';
@@ -67,6 +68,15 @@ export function ConfirmScopeSheet({
   );
 }
 
+/** The idempotency key of the next send, and a way to start a new one. */
+function useSendKey(visible: boolean) {
+  const key = useRef(newIdempotencyKey());
+  useEffect(() => {
+    if (visible) key.current = newIdempotencyKey();
+  }, [visible]);
+  return { current: () => key.current, renew: () => (key.current = newIdempotencyKey()) };
+}
+
 /** What happened to each email of a send. */
 function SendResults({ report, what }: { report: SendReport; what: string }) {
   const c = useColors();
@@ -114,6 +124,7 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
   const c = useColors();
   const previewQ = useInvitePreview(meeting.id, visible);
   const send = useSendInvites(meeting);
+  const sendKey = useSendKey(visible);
   const [mode, setMode] = useState<'new' | 'all' | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -131,8 +142,10 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
   const onSend = () => {
     if (!choice) return;
     setError(null);
-    send.mutate(inviteRequest(choice), {
+    send.mutate({ opts: inviteRequest(choice), idempotencyKey: sendKey.current() }, {
+      onSuccess: () => sendKey.renew(),
       onError: (e) => {
+        if (!keepsSendKey(e)) sendKey.renew();
         const f = inviteFailure(e);
         setError(f.text);
         if (f.reload) void previewQ.refetch();
@@ -174,7 +187,10 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
             <CardChoice<'new' | 'all'>
               legend={`Invitations already went out on ${meetingWhen({ startAt: choice.sentBefore, endAt: null }).day}. Send to:`}
               value={choice.effective}
-              onChange={setMode}
+              onChange={(m) => {
+                setMode(m);
+                sendKey.renew();
+              }}
               options={[
                 { value: 'new', label: `Only people not invited yet (${choice.fresh.length})`, hint: 'The others already have it.', disabled: choice.fresh.length === 0 },
                 { value: 'all', label: `Everyone again (${preview.recipients.length})`, hint: 'An updated invitation for everyone.' },
@@ -197,19 +213,55 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
  * Email the minutes PDF: the email as it will arrive (its subject, attachment and words) and who
  * gets it — anyone can be left out before sending. Needs a connection.
  */
-export function MinutesEmailSheet({ meeting, visible, onClose, onDownload, downloading }: { meeting: ApiMeeting; visible: boolean; onClose: () => void; onDownload: () => void; downloading: boolean }) {
+export function MinutesEmailSheet({
+  meeting,
+  visible,
+  onClose,
+  onDownload,
+  downloading,
+}: {
+  meeting: ApiMeeting;
+  visible: boolean;
+  onClose: () => void;
+  /** Opens the minutes PDF to check; resolves with why it couldn't, or null. */
+  onDownload: () => Promise<string | null>;
+  downloading: boolean;
+}) {
   const c = useColors();
   const previewQ = useMinutesPreview(meeting.id, visible);
   const send = useSendMinutes(meeting.id);
-  const [left, setLeft] = useState<Set<string>>(new Set());
+  const sendKey = useSendKey(visible);
+  const [left, setLeftState] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  // Someone left out or put back: a new send.
+  const setLeft = (next: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    setLeftState(next);
+    sendKey.renew();
+  };
   useEffect(() => {
     if (!visible) {
-      setLeft(new Set());
+      setLeftState(new Set());
+      setError(null);
+      setDownloadError(null);
       send.reset();
     }
   }, [visible]);
   const preview = previewQ.data;
   const choice = preview ? minutesChoice(preview, left) : null;
+  const onSend = () => {
+    setError(null);
+    send.mutate(
+      { recipients: choice?.recipients, idempotencyKey: sendKey.current() },
+      {
+        onSuccess: () => sendKey.renew(),
+        onError: (e) => {
+          if (!keepsSendKey(e)) sendKey.renew();
+          setError(sendFailure(e, 'Couldn’t email the minutes.'));
+        },
+      },
+    );
+  };
   const toggle = (email: string) =>
     setLeft((prev) => {
       const next = new Set(prev);
@@ -228,7 +280,7 @@ export function MinutesEmailSheet({ meeting, visible, onClose, onDownload, downl
         send.isSuccess ? (
           <SheetButtons cancel="Done" onCancel={onClose} />
         ) : (
-          <SheetButtons onCancel={onClose} confirm={choice?.sendLabel ?? 'Send'} onConfirm={() => send.mutate(choice?.recipients)} busy={send.isPending} disabled={!choice?.canSend} />
+          <SheetButtons onCancel={onClose} confirm={choice?.sendLabel ?? 'Send'} onConfirm={onSend} busy={send.isPending} disabled={!choice?.canSend} />
         )
       }
     >
@@ -247,7 +299,16 @@ export function MinutesEmailSheet({ meeting, visible, onClose, onDownload, downl
           <Text style={[styles.name, { color: c.ink }]}>{preview.subject}</Text>
           <Text style={[styles.small, { color: c.ink3 }]}>Attached</Text>
           <Text style={[styles.name, { color: c.ink }]}>{preview.attachmentName}</Text>
-          <ActionRowButton label="Download to check" onPress={onDownload} busy={downloading} hint="Opens the minutes PDF to share or save" />
+          <ActionRowButton
+            label="Download to check"
+            onPress={() => {
+              setDownloadError(null);
+              void onDownload().then(setDownloadError);
+            }}
+            busy={downloading}
+            hint="Opens the minutes PDF to share or save"
+          />
+          <SheetMessage text={downloadError} />
           {preview.text ? (
             <View style={[styles.preview, { borderColor: c.line, backgroundColor: c.ground }]}>
               <Text style={[styles.small, { color: c.ink2 }]} numberOfLines={14}>
@@ -266,7 +327,7 @@ export function MinutesEmailSheet({ meeting, visible, onClose, onDownload, downl
             <CheckRow key={r.email} label={`${r.name} — ${r.email}`} checked={!left.has(r.email)} onChange={() => toggle(r.email)} />
           ))}
           {preview.missingEmail.length ? <SheetMessage text={`No email address: ${preview.missingEmail.map((x) => x.name).join(', ')}.`} tone="info" /> : null}
-          <SheetMessage text={send.isError ? meetingFailure(send.error, 'Couldn’t email the minutes.') : null} />
+          <SheetMessage text={error} />
         </>
       )}
     </Sheet>

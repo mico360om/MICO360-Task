@@ -17,6 +17,7 @@ import {
   firstMeetingDay,
   firstMeetingNote,
   fromWallClock,
+  keepsSaveKey,
   meetingRepeatText,
   meetingRule,
   newMeetingDraft,
@@ -143,11 +144,15 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
         onSuccess: (meeting) => {
           saved.current = true;
           setAskScope(null);
-          if (editing) navigation.goBack();
+          // A series change can land on the series' next meeting (the new schedule had no place for
+          // the one edited): that one opens.
+          if (editing && meeting.id === opened?.id) navigation.goBack();
           else navigation.replace('MeetingDetail', { meetingId: meeting.id, title: meeting.title });
         },
         onError: (e) => {
           setAskScope(null);
+          // A refusal is kept under its key by the server: the next try (once fixed) is a new one.
+          if (!keepsSaveKey(e)) key.current = newIdempotencyKey();
           setError({ field: null, message: saveFailureText(e, editing) });
         },
       },
@@ -168,6 +173,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           <View style={s.grow}>
             <TextField
               accessibilityLabel="Start date"
+              required
               value={draft.startDay}
               onChangeText={(startDay) => set({ startDay })}
               placeholder="YYYY-MM-DD"
@@ -179,6 +185,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           <View style={s.time}>
             <TextField
               accessibilityLabel="Start time"
+              required
               value={draft.startTime}
               onChangeText={(startTime) => set({ startTime })}
               onBlur={() => {

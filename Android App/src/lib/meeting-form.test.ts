@@ -5,6 +5,7 @@ import { ApiError, NetworkError } from './api-client';
 import {
   checkMeetingDraft,
   draftFromMeeting,
+  keepsSaveKey,
   firstMeetingDay,
   firstMeetingNote,
   fromWallClock,
@@ -259,5 +260,15 @@ describe('what saving sends', () => {
     expect(saveFailureText(new ApiError(500, 'ERROR', 'Request failed (500)'), true)).toBe('Couldn’t save changes. Check the title, times and link.');
     expect(saveFailureText(new ApiError(500, 'ERROR', 'Request failed (500)'), false)).toBe('Couldn’t create the meeting. Check the title, times and link.');
     expect(saveFailureText(new NetworkError('offline'), false)).toBe('You’re offline — this needs a connection. Nothing was saved; try again when you’re online.');
+    expect(saveFailureText(new NetworkError('slow', { timedOut: true }), false)).toBe('The server took too long to answer — the meeting may already be saved. Tap again to finish: it won’t be scheduled twice.');
+    expect(saveFailureText(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x'), false)).toBe('The meeting is still being saved — try again in a moment.');
+  });
+
+  it('keeps the same try’s key only while the server may still have it (no answer, or still saving)', () => {
+    expect(keepsSaveKey(new NetworkError('offline'))).toBe(true);
+    expect(keepsSaveKey(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x'))).toBe(true);
+    // The server keeps a refusal under its key: a fixed form must be sent as a new try.
+    expect(keepsSaveKey(new ApiError(403, 'FORBIDDEN', 'x'))).toBe(false);
+    expect(keepsSaveKey(new ApiError(400, 'VALIDATION', 'x'))).toBe(false);
   });
 });

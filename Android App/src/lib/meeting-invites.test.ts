@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApiError } from './api-client';
-import { inviteChoice, inviteFailure, inviteRequest, minutesChoice, people, sendSummary } from './meeting-invites';
+import { ApiError, NetworkError } from './api-client';
+import { inviteChoice, inviteFailure, inviteRequest, keepsSendKey, minutesChoice, people, sendFailure, sendSummary } from './meeting-invites';
 import type { InvitePreview, MinutesPreview, Recipient } from './types';
 
 const r = (email: string, alreadyInvited = false): Recipient => ({ name: email.split('@')[0]!, email, kind: 'member', attendeeIds: [email], alreadyInvited });
@@ -42,6 +42,18 @@ describe('sending invitations', () => {
     expect(inviteFailure(new ApiError(403, 'FORBIDDEN', 'x'))).toEqual({ text: 'Couldn’t send the invitations. You don’t have permission to do that.', reload: false });
     expect(people(1)).toBe('1 person');
     expect(people(0)).toBe('0 people');
+  });
+});
+
+describe('a send that got no answer', () => {
+  it('may still be going: tapping again (with the same key) reports it instead of sending twice', () => {
+    expect(sendFailure(new NetworkError('slow', { timedOut: true }), 'Couldn’t email the minutes.')).toBe(
+      'The server took too long to answer — it may still be sending. Tap Send again to see what happened: nobody gets it twice.',
+    );
+    expect(sendFailure(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x'), 'Couldn’t email the minutes.')).toBe('Still sending — try again in a moment.');
+    expect(sendFailure(new ApiError(403, 'FORBIDDEN', 'x'), 'Couldn’t email the minutes.')).toBe('Couldn’t email the minutes. You don’t have permission to do that.');
+    expect(inviteFailure(new NetworkError('slow', { timedOut: true })).text).toMatch(/^The server took too long/);
+    expect([keepsSendKey(new NetworkError('x')), keepsSendKey(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x')), keepsSendKey(new ApiError(400, 'VALIDATION', 'x'))]).toEqual([true, true, false]);
   });
 });
 

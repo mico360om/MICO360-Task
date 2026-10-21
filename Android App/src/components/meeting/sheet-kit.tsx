@@ -294,17 +294,17 @@ export function InlinePicker({
 }
 
 /** A button-like row in a sheet's list of actions. */
-export function ActionRowButton({ label, onPress, danger, busy, hint }: { label: string; onPress: () => void; danger?: boolean; busy?: boolean; hint?: string }) {
+export function ActionRowButton({ label, onPress, danger, busy, hint, disabled }: { label: string; onPress: () => void; danger?: boolean; busy?: boolean; hint?: string; disabled?: boolean }) {
   const s = useSheetStyles();
   return (
     <Pressable
       onPress={onPress}
-      disabled={busy}
+      disabled={busy || disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
-      accessibilityState={{ busy: !!busy }}
-      style={({ pressed }) => [s.option, pressed && s.pressed]}
+      accessibilityState={{ busy: !!busy, disabled: !!disabled }}
+      style={({ pressed }) => [s.option, pressed && s.pressed, disabled && s.disabled]}
     >
       <Text style={[s.optionText, danger && s.danger]}>{label}</Text>
       {busy ? <ActivityIndicator size="small" /> : null}

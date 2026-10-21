@@ -165,16 +165,22 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
       onSuccess: (saved) => say(statusNotice(saved.status)),
       onError: (e) => say(meetingFailure(e, 'Couldn’t change the meeting’s status.'), true),
     });
-  const exportPdf = async () => {
-    if (!meeting || downloading) return;
+  /** Download the minutes PDF and open the share sheet; resolves with why it couldn't, or null. */
+  const downloadPdf = async (): Promise<string | null> => {
+    if (!meeting || downloading) return null;
     setDownloading(true);
     try {
       await exporter.exportFile(resources.meetings.minutesPdfPath(meeting.id), minutesFileName(meeting.title, minutesQ.data?.status === 'FINAL'), 'Minutes of the meeting');
+      return null;
     } catch (e) {
-      say(isNetworkError(e) ? 'The minutes PDF needs a connection — check your connection and try again.' : meetingFailure(e, 'Couldn’t export the minutes.'), true);
+      return isNetworkError(e) ? 'The minutes PDF needs a connection — check your connection and try again.' : meetingFailure(e, 'Couldn’t export the minutes.');
     } finally {
       setDownloading(false);
     }
+  };
+  const exportPdf = async () => {
+    const problem = await downloadPdf();
+    if (problem) say(problem, true);
   };
   const duplicate = () =>
     lifecycle.duplicate.mutate(keyed({}), {
@@ -230,16 +236,19 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
         onError: (e) => setScopeError(meetingFailure(e, scope === 'series' ? 'Couldn’t cancel the meetings.' : 'Couldn’t cancel the meeting.')),
       });
     } else if (sheet.kind === 'delete') {
+      closing.current = true;
       lifecycle.remove.mutate(scope, {
         onSuccess: () => {
-          closing.current = true;
           setSheet(null);
           if (navigation.canGoBack()) navigation.goBack();
           else navigation.navigate('Tabs', { screen: 'Meetings' });
           // Its data goes once its screen has closed (so it doesn't say "not found" on the way out).
           InteractionManager.runAfterInteractions(() => afterMeetingDeleted(qc, meetingId, scope));
         },
-        onError: (e) => setScopeError(meetingFailure(e, scope === 'series' ? 'Couldn’t delete the meetings.' : 'Couldn’t delete the meeting.')),
+        onError: (e) => {
+          closing.current = false;
+          setScopeError(meetingFailure(e, scope === 'series' ? 'Couldn’t delete the meetings.' : 'Couldn’t delete the meeting.'));
+        },
       });
     }
   };
@@ -282,7 +291,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   const primaryBusy = lifecycle.setStatus.isPending || lifecycle.duplicate.isPending || (primary === 'export-minutes' && downloading);
 
   const titleAction = (section: Section): { label: string; a11y: string; onPress: () => void } | null => {
-    if (!meeting || meeting.status === 'CANCELLED') return null;
+    if (!meeting) return null;
     switch (section) {
       case 'agenda':
         return canEdit ? { label: '＋ Add', a11y: 'Add an agenda item', onPress: () => setSheet({ kind: 'agenda', item: null }) } : null;
@@ -409,7 +418,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   // Deleted, or no longer yours to see: say so, even when a list's copy of it is still here.
   const problem = meetingQ.isError ? meetingLoadProblem(meetingQ.error) : null;
   if (!meeting || (problem && !problem.canRetry)) {
-    if (closing.current) return null;
+    if (closing.current) return <Loader />;
     if (!meeting && meetingQ.isLoading) return <Loader />;
     if (!problem) return <Loader />;
     return (
@@ -428,7 +437,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
           onPress={() => setNotice(null)}
           accessibilityRole="button"
           accessibilityLabel={`${notice.text} Dismiss`}
-          accessibilityLiveRegion="polite"
+          accessibilityLiveRegion={notice.error ? 'assertive' : 'polite'}
           style={[styles.notice, notice.error ? styles.noticeError : styles.noticeOk]}
         >
           <Text style={[styles.noticeText, notice.error ? styles.noticeTextError : styles.noticeTextOk]}>{notice.text}</Text>
@@ -484,7 +493,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
         onClose={close}
       />
       {canEdit ? <InviteSheet meeting={meeting} visible={sheet?.kind === 'invite'} onClose={close} /> : null}
-      {canEdit ? <MinutesEmailSheet meeting={meeting} visible={sheet?.kind === 'minutesEmail'} onClose={close} onDownload={() => void exportPdf()} downloading={downloading} /> : null}
+      {canEdit ? <MinutesEmailSheet meeting={meeting} visible={sheet?.kind === 'minutesEmail'} onClose={close} onDownload={downloadPdf} downloading={downloading} /> : null}
       {canEdit ? <AddPersonSheet meetingId={meetingId} attendees={peopleQ.data ?? []} directory={directory} visible={sheet?.kind === 'addPerson'} onClose={close} /> : null}
       {personSheet ? <PersonSheet meeting={meeting} attendee={personSheet} nameOf={nameOf} canEdit={canEdit} myId={myId} onClose={close} /> : null}
       {canEdit ? (
