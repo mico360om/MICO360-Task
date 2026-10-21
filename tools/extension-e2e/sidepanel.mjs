@@ -178,6 +178,51 @@ try {
     await press('Escape');
     await sleep(1500);
   }
+
+  // Keyboard focus is never hidden under the sticky header or the form's sticky "Create task" bar
+  // (WCAG 2.4.11), in a short side panel: 360 × 420, with enough due today for Today to scroll.
+  for (let i = 0; i < 6; i += 1) made.push((await make(`Ext panel more ${i} ${stamp}`, today)).id);
+  await send('Emulation.setDeviceMetricsOverride', { width: 360, height: 420, deviceScaleFactor: 1, mobile: false }, sessionId);
+  await sleep(400);
+  const where = () => evaluate(`(() => {
+    const a = document.activeElement;
+    if (!a || a === document.body) return { what: 'body', hidden: false };
+    const head = document.querySelector('.panel-top').getBoundingClientRect();
+    const barEl = a.closest('.qa-actions') ? null : document.querySelector('.qa-in-panel .qa-actions');
+    const bar = barEl && barEl.getBoundingClientRect();
+    const r = a.getBoundingClientRect();
+    const underHead = !a.closest('.panel-top') && r.top < head.bottom - 0.5;
+    const underBar = !!bar && bar.height > 0 && r.bottom > bar.top + 0.5 && r.top < bar.bottom;
+    return { what: (a.getAttribute('aria-label') || a.id || a.textContent.trim()).slice(0, 36), top: Math.round(r.top), bottom: Math.round(r.bottom),
+      head: Math.round(head.bottom), bar: bar ? Math.round(bar.top) : null, hidden: underHead || underBar, inTabs: !!a.closest('.panel-tabs'), create: a.textContent.trim() === 'Create task' };
+  })()`);
+  /** Press Tab (or Shift+Tab) until `stop(where)`; the places where focus was hidden. */
+  const walk = async (shift, stop, max = 40) => {
+    const hidden = [];
+    for (let i = 0; i < max; i += 1) {
+      await press('Tab', { shift });
+      await sleep(150);
+      const w = await where();
+      if (w.hidden) hidden.push(w);
+      if (stop(w)) return { hidden, reached: true };
+    }
+    return { hidden, reached: false };
+  };
+  await evaluate('location.hash = "#/"; true');
+  await sleep(3000);
+  await evaluate(`(() => { const all = [...document.querySelectorAll('.task-row, .mark-done')]; all[all.length - 1].focus(); return true; })()`);
+  await sleep(300);
+  const upToday = await walk(true, (w) => w.inTabs);
+  const tall = await evaluate('document.documentElement.scrollHeight > innerHeight + 100');
+  ck('at 360 × 420: Shift+Tab up Today never leaves focus hidden under the panel’s header', tall && upToday.reached && upToday.hidden.length === 0, JSON.stringify({ tall, ...upToday }).slice(0, 400));
+  await evaluate('location.hash = "#/add"; true');
+  await sleep(3000);
+  await evaluate(`document.getElementById('qa-title').focus(); true`);
+  const downForm = await walk(false, (w) => w.create);
+  ck('…Tab down the new-task form never leaves focus hidden under its “Create task” bar', downForm.reached && downForm.hidden.length === 0, JSON.stringify(downForm).slice(0, 400));
+  const upForm = await walk(true, (w) => w.inTabs);
+  ck('…and Shift+Tab back up it never leaves focus hidden under the header', upForm.reached && upForm.hidden.length === 0, JSON.stringify(upForm).slice(0, 400));
+  await shot('06-focus-360x420.png');
   ck('no script errors in the side panel page', panel.errors.length === 0, panel.errors.join(' | ').slice(0, 300));
 
   // "Open MICO360 Tasks": the full app page (a new tab when none is open).
