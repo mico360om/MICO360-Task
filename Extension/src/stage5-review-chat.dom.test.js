@@ -316,7 +316,7 @@ describe('#8 the inbox catches up once a menu or the people picker closes, howev
       root.querySelector('[role="menuitem"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
       root.querySelector('[data-focus-key="dm"]').focus(); // where Tab took focus
     }],
-    ['a click elsewhere', (root) => {
+    ['a click elsewhere', () => {
       document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
       document.activeElement.blur();
     }],

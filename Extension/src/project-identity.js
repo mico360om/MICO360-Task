@@ -5,6 +5,7 @@
  * names are the ones the server accepts (backend/src/modules/projects/project-icons.ts).
  * src/project-identity.test.js runs this copy and the web's over the same inputs. Pure (no DOM).
  */
+import { isUploadPath } from './file-kind.js';
 
 /** 24×24 outline paths for each icon (a copy of the web's). */
 export const PROJECT_ICON_PATHS = Object.freeze({
@@ -64,7 +65,7 @@ export function projectColor(project) {
  * extension signs in to). Nothing else is ever loaded: no other site, data: or blob: address.
  */
 export function isServerUpload(url) {
-  return typeof url === 'string' && url.startsWith('/uploads/') && !url.includes('..') && !url.includes('\\');
+  return isUploadPath(url); // the same rule as every attachment (src/file-kind.js), encoded ".." too
 }
 
 /** White or near-black, whichever reads better on the colour. */

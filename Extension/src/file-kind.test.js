@@ -25,6 +25,17 @@ describe('attachments: what sort of file, and where it is', () => {
     expect(attachmentUrl('https://task.mico360.com/api/v1', '//elsewhere.example/x.png')).toBeNull();
     expect(attachmentUrl('https://task.mico360.com/api/v1', '')).toBeNull();
   });
+
+  it('only the server’s stored files, under /uploads/ — never another page of the server (review fix #13)', () => {
+    const api = 'https://task.mico360.com/api/v1';
+    for (const path of [
+      '/api/v1/auth/logout', '/admin/users', '/uploadsx/a.png', '/uploads', '/uploads/../api/v1/me',
+      '/uploads/a/../../admin', '/uploads/%2e%2e/admin', '/uploads/%2E%2E/admin', '/uploads/a\\..\\b', '/uploads/a.png?x=/../',
+    ]) {
+      expect(attachmentUrl(api, path), path).toBeNull();
+    }
+    expect(attachmentUrl(api, '/uploads/2026/10/a.png')).toBe('https://task.mico360.com/uploads/2026/10/a.png');
+  });
 });
 
 // The web app owns these rules (Web Portal/frontend/src/lib/file-kind.ts, shared with the Android
