@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createApi, ApiError } from './api.js';
-import { DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from './auth.js';
+import { DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, AI_TIMEOUT_MS } from './auth.js';
 import { createReadCache } from './read-cache.js';
 import { fakeStorage } from './test-helpers.js';
 
@@ -109,5 +109,61 @@ describe('api.download', () => {
     const api = createApi({ auth, cache: noCache });
     await expect(api.download('/reports/export.xlsx')).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
     await expect(api.download('/reports/export.xlsx')).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('quick capture calls (Stage 2)', () => {
+  it('reads a project’s team through the offline cache (people a new task can be assigned to)', async () => {
+    const store = fakeStorage();
+    const auth = fakeAuth(() => json({ data: [{ id: 'u1', firstName: 'Mariam', lastName: 'Al Hinai', username: 'mariam' }] }));
+    const api = createApi({ auth, cache: createReadCache(store) });
+    expect((await api.projects.members('p1')).data).toEqual([{ id: 'u1', firstName: 'Mariam', lastName: 'Al Hinai', username: 'mariam' }]);
+    expect(auth.authedFetch).toHaveBeenCalledWith('/projects/p1/members', undefined);
+    expect(store.data['cache:members:p1'].data).toHaveLength(1);
+  });
+
+  it('uploads a file to a task as multipart form data, with a longer wait, and returns the attachment', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const file = new File(['png-bytes'], 'Pasted image 2026-10-21 10.00.00.png', { type: 'image/png' });
+    const auth = fakeAuth(() => json({ data: { id: 'a1', filename: file.name } }, 201));
+    const api = createApi({ auth, cache: noCache });
+    expect(await api.attachments.upload('t1', file)).toEqual({ id: 'a1', filename: file.name });
+    const [path, init] = auth.authedFetch.mock.calls[0];
+    expect(path).toBe('/tasks/t1/attachments');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeInstanceOf(FormData);
+    const sent = init.body.get('file');
+    expect(sent.name).toBe(file.name);
+    expect(sent.type).toBe('image/png');
+    expect(timeout).toHaveBeenCalledWith(UPLOAD_TIMEOUT_MS);
+    timeout.mockRestore();
+  });
+
+  it('a refused upload throws the server’s answer (e.g. 413 too large)', async () => {
+    const auth = fakeAuth(() => json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'File too large' } }, 413));
+    const api = createApi({ auth, cache: noCache });
+    await expect(api.attachments.upload('t1', new File(['x'], 'big.zip'))).rejects.toMatchObject({ status: 413 });
+  });
+
+  it('"Describe it" asks POST /ai/parse-task with the company’s today, and waits for the AI', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const draft = { title: 'Send the site report', dueDate: '2026-10-26', priority: 'HIGH', recurrence: null, project: null };
+    const auth = fakeAuth(() => json({ data: draft }));
+    const api = createApi({ auth, cache: noCache });
+    expect(await api.ai.parseTask('Send the site report on Monday, urgent-ish', '2026-10-21')).toEqual(draft);
+    const [path, init] = auth.authedFetch.mock.calls[0];
+    expect(path).toBe('/ai/parse-task');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ text: 'Send the site report on Monday, urgent-ish', today: '2026-10-21' });
+    expect(timeout).toHaveBeenCalledWith(AI_TIMEOUT_MS);
+    expect(AI_TIMEOUT_MS).toBeGreaterThanOrEqual(120000);
+    timeout.mockRestore();
+  });
+
+  it('"Describe it" without AI set up rejects with the server’s own message', async () => {
+    const message = 'AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.';
+    const auth = fakeAuth(() => json({ error: { code: 'VALIDATION_ERROR', message } }, 400));
+    const api = createApi({ auth, cache: noCache });
+    await expect(api.ai.parseTask('anything', '2026-10-21')).rejects.toMatchObject({ status: 400, serverMessage: message });
   });
 });

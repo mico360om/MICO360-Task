@@ -1,0 +1,97 @@
+/* The toolbar popup. Colours, fields and buttons come from ../app/app.css (light and dark themes);
+   this file only lays out the narrow form. Chrome sizes a popup to its page, up to 800 × 600. */
+html, body { height: auto; }
+body { width: 400px; max-width: 100%; background: var(--surface); }
+body.in-window { width: auto; }
+.qa { display: flex; flex-direction: column; min-height: 0; }
+
+.qa-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; background: var(--surface); }
+.qa-brand { margin: 0; font-weight: 800; font-size: 15px; flex: 1; letter-spacing: -.01em; }
+.qa-brand .m { color: var(--brand); }
+.qa-offbar { background: var(--warning-soft); color: var(--warning); font-size: 12px; font-weight: 600; padding: 6px 14px; }
+
+.qa-form { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px; }
+.qa-form.dragging { outline: 2px dashed color-mix(in srgb, var(--brand) 55%, transparent); outline-offset: -6px; background: color-mix(in srgb, var(--brand) 4%, var(--surface)); }
+.qa-form .field { padding: 7px 10px; }
+.qa-form textarea.field { resize: vertical; line-height: 1.45; }
+.qa-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.qa-row > div { min-width: 0; }
+.qa-row select.field { text-overflow: ellipsis; }
+.qa-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.qa-label-row .lbl { margin-bottom: 5px; }
+.qa .lbl { display: block; font-size: 12px; font-weight: 700; margin: 0 0 5px; }
+.qa-req { color: var(--danger); }
+.qa-opt { font-weight: 400; color: var(--ink2); }
+.qa-hint { font-size: 11.5px; color: var(--ink2); margin: 4px 0 0; }
+/* An empty status line takes no room but stays on the page, so what it says next is read out. */
+.qa-hint:empty { margin: 0; }
+.qa-field-err { font-size: 12px; font-weight: 600; color: var(--danger); margin: 4px 0 0; }
+
+.qa-banner { display: flex; align-items: center; gap: 10px; border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; }
+.qa-banner span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.qa-banner.error { background: var(--danger-soft); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
+.qa-banner.info { background: var(--info-soft); color: var(--info); }
+.qa-banner.success { background: var(--success-soft); color: var(--success); }
+.qa-banner .btn { flex: none; }
+
+.qa-describe { border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line)); background: color-mix(in srgb, var(--brand) 4%, var(--surface)); border-radius: 12px; padding: 10px 12px; }
+.qa-describe-label { display: block; font-size: 13px; font-weight: 700; color: var(--brand); }
+.qa-describe .field { margin-top: 6px; }
+.qa-describe-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.qa-describe-row .qa-hint { margin: 0; }
+.qa-problem { margin: 8px 0 0; background: var(--danger-soft); color: var(--danger); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; font-weight: 600; }
+.qa-suggest { margin-top: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.qa-suggest-head { margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ink2); }
+.qa-suggest ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.qa-suggest-item { display: flex; align-items: flex-start; gap: 8px; padding: 4px 2px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.qa-suggest-item input { margin-top: 3px; accent-color: var(--brand); width: 15px; height: 15px; flex: none; }
+.qa-suggest-item bdi { overflow-wrap: anywhere; }
+.qa-replaces { display: block; font-size: 11.5px; color: var(--ink2); }
+.qa-suggest-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+
+.qa-repeat:empty { display: none; }
+.qa-repeat-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; background: var(--ground); border-radius: 8px; padding: 6px 10px; }
+.qa-repeat-line .linkbtn { margin-left: auto; }
+
+.qa-people-row { display: flex; gap: 8px; align-items: center; }
+.qa-people-row select { flex: 1; min-width: 0; }
+.qa-people-row .btn { flex: none; min-height: 34px; }
+.qa-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; padding: 0; }
+.qa-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; border: 1px solid var(--line); background: var(--ground); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 12.5px; }
+.qa-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-chip-x { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: none; background: transparent; border-radius: 999px; color: var(--ink2); cursor: pointer; font-size: 11px; }
+.qa-chip-x:hover { background: var(--danger-soft); color: var(--danger); }
+
+.qa-files { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.qa-files:empty { display: none; }
+.qa-file { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; }
+.qa-thumb { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; flex: none; display: grid; place-items: center; background: var(--ground); font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: var(--ink2); }
+.qa-file-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.qa-file-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-file-body .qa-hint { margin: 0; }
+.qa-file-err { font-size: 11.5px; color: var(--danger); font-weight: 600; }
+.qa-drop { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; padding: 9px 10px; cursor: pointer; }
+.qa-drop:hover, .qa-drop:focus-within { border-color: var(--brand); }
+.qa-drop:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.qa-drop-main { font-size: 12.5px; font-weight: 600; color: var(--ink2); }
+.qa-drop .qa-hint { margin: 0; }
+.qa-link { color: var(--brand); }
+
+.qa-actions { display: flex; align-items: center; gap: 8px; position: sticky; bottom: 0; background: var(--surface); padding-top: 8px; border-top: 1px solid var(--line2); }
+.qa-actions .sp { flex: 1; }
+.qa-actions .btn.primary { min-width: 140px; min-height: 38px; }
+
+.qa-recent { padding: 0 14px 10px; }
+.qa-recent:empty { display: none; }
+.qa-recent-head { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink3); font-weight: 700; margin: 4px 0 6px; }
+.qa-recent ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.qa-recent-row { display: block; width: 100%; text-align: left; font: inherit; font-size: 13px; color: var(--ink); background: var(--surface2); border: 1px solid var(--line2); border-radius: 8px; padding: 6px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.qa-recent-row { cursor: pointer; }
+button.qa-recent-row:hover { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
+.qa-recent-row .qa-hint, .qa-recent-row .qa-file-err { display: inline; margin: 0; }
+.qa-key { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink3); }
+.qa-foot { padding: 8px 14px 12px; font-size: 11.5px; color: var(--ink3); border-top: 1px solid var(--line2); }
+.qa-foot:empty { display: none; }
+
+.qa-signedout { padding: 22px 18px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.qa-signedout p { margin: 0; color: var(--ink2); }

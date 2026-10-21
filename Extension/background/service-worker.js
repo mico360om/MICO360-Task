@@ -1,14 +1,15 @@
 import { resolveBases } from '../src/config.js';
-import { shouldNotify, notificationText, unreadBaseline, findAppContext, setToolbarBadge, NOTIFICATION_ID } from '../src/notify.js';
+import { shouldNotify, notificationText, unreadBaseline, setToolbarBadge, NOTIFICATION_ID } from '../src/notify.js';
 import { flushQueue, makePerformMutation, FLUSH_MESSAGE } from '../src/queue.js';
 import { createAuth } from '../src/auth.js';
 import { ensureSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { rememberTask } from '../src/task-writes.js';
+import { openAppTab } from '../src/open-app.js';
+import { createMenu, onMenuClick } from '../src/context-menu.js';
 
 const local = chrome.storage.local;
 const sessionStore = chrome.storage.session;
-const APP_PATH = 'app/app.html';
 /** The offline copies the app reads; a replayed task edit keeps its task's copy at the new version (H1). */
 const cache = createReadCache(local);
 
@@ -71,24 +72,9 @@ async function poll() {
   }
 }
 
-/**
- * The extension UI is a full-page tab (no popup). Focus an open one (found via
- * runtime.getContexts, so no "tabs" permission is needed — EXT-07) or open a new tab.
- */
-async function openApp(hash = '') {
-  const base = chrome.runtime.getURL(APP_PATH);
-  try {
-    const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'] });
-    const found = findAppContext(contexts, base);
-    if (found) {
-      await chrome.tabs.update(found.tabId, { active: true, ...(hash ? { url: base + hash } : {}) });
-      if (typeof found.windowId === 'number' && found.windowId >= 0) await chrome.windows?.update(found.windowId, { focused: true });
-      return;
-    }
-  } catch {
-    /* the tab closed meanwhile — just open a new one */
-  }
-  await chrome.tabs.create({ url: base + hash });
+/** The full app in a tab: an open one is focused (src/open-app.js), else a new one opens. */
+function openApp(hash = '') {
+  return openAppTab(chrome, hash);
 }
 
 /** The polling alarm can be lost when the browser restarts; make sure it exists (EXT-06). */
@@ -101,7 +87,8 @@ async function ensurePollAlarm() {
   }
 }
 
-chrome.action.onClicked.addListener(() => void openApp());
+// The toolbar button opens the quick-capture popup (action.default_popup), as does the keyboard
+// shortcut (commands._execute_action); its "Open MICO360 Tasks" button opens the full app.
 
 chrome.notifications?.onClicked.addListener((id) => {
   if (id !== NOTIFICATION_ID) return;
@@ -109,7 +96,14 @@ chrome.notifications?.onClicked.addListener((id) => {
   void openApp('#/notifications');
 });
 
+// The right-click menu's "Add to MICO360 Tasks" (a selection, a link or the page) opens the popup
+// with what was clicked. Chrome keeps the menu item; it is made again on install and update.
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  void onMenuClick(chrome, info, tab).catch(() => { /* the popup couldn't open: nothing to undo */ });
+});
+
 chrome.runtime.onInstalled.addListener(() => {
+  void createMenu(chrome).catch(() => { /* no menus API */ });
   void ensurePollAlarm();
   void poll();
 });

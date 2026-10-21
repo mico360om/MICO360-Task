@@ -88,6 +88,13 @@ describe('requestHeaders (EXT-02)', () => {
     expect(requestHeaders({ method: 'PUT' })).toEqual({});
     expect(requestHeaders({ method: 'POST', body: '{}' }, 't')).toEqual({ 'Content-Type': 'application/json', Authorization: 'Bearer t' });
   });
+
+  it('leaves a file upload (FormData) to the browser, which adds the multipart boundary', () => {
+    const form = new FormData();
+    form.append('file', new Blob(['x']), 'a.txt');
+    expect(requestHeaders({ method: 'POST', body: form }, 't')).toEqual({ Authorization: 'Bearer t' });
+    expect(requestHeaders({ method: 'POST', body: new Blob(['x']) })).toEqual({});
+  });
 });
 
 describe('authedFetch', () => {
@@ -101,6 +108,26 @@ describe('authedFetch', () => {
     expect(del).toEqual({ Authorization: 'Bearer good' });
     expect(del['Content-Type']).toBeUndefined();
     expect(post['Content-Type']).toBe('application/json');
+  });
+
+  it('sends an upload’s FormData as it is, with the session and no JSON content type, also after a renewal', async () => {
+    const { local, session } = signedIn({ accessToken: 'old' });
+    const form = new FormData();
+    form.append('file', new Blob(['png']), 'shot.png');
+    const fetchImpl = vi.fn(async (url, init) => {
+      if (url.endsWith('/auth/refresh')) return jsonRes({ data: { accessToken: 'new', refreshToken: 'r2', user: { id: 'u1' } } });
+      return init.headers.Authorization === 'Bearer old' ? jsonRes({}, 401) : jsonRes({ data: { id: 'a1' } }, 201);
+    });
+    const auth = createAuth({ local, session, apiBase: API, fetchImpl });
+    const res = await auth.authedFetch('/tasks/t1/attachments', { method: 'POST', body: form });
+    expect(res.status).toBe(201);
+    const sends = fetchImpl.mock.calls.filter((c) => c[0].endsWith('/attachments'));
+    expect(sends).toHaveLength(2);
+    for (const [, init] of sends) {
+      expect(init.body).toBe(form);
+      expect(init.headers['Content-Type']).toBeUndefined();
+    }
+    expect(sends[1][1].headers.Authorization).toBe('Bearer new');
   });
 
   it('refreshes + retries once on a 401 and stores the rotated pair', async () => {

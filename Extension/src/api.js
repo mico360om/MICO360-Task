@@ -1,7 +1,7 @@
 import { ApiError, UnexpectedReplyError } from './errors.js';
 import { sanitizeMessages, sanitizeSummaries } from './chat.js';
 import { fileNameFromDisposition } from './reports.js';
-import { timeoutSignal, DOWNLOAD_TIMEOUT_MS } from './auth.js';
+import { timeoutSignal, DOWNLOAD_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, AI_TIMEOUT_MS } from './auth.js';
 import { applyPending } from './pending-overlay.js';
 
 export { ApiError };
@@ -116,6 +116,31 @@ export function createApi({ auth, cache, pending }) {
       get: (id) => get(`project:${id}`, `/projects/${id}`),
       columns: (id) => get(`columns:${id}`, `/projects/${id}/columns`),
       progress: (id) => get(`progress:${id}`, `/projects/${id}/progress`),
+      /** The project's team: the people a task in it can be assigned to. */
+      members: (id) => get(`members:${id}`, `/projects/${id}/members`),
+    },
+    attachments: {
+      /**
+       * Attach one file to a task (multipart, field `file`, as the web does). Online only: a file is
+       * never kept for later. The server shrinks pictures and refuses files over its limit (413).
+       */
+      upload: (taskId, file) => {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        return raw(`/tasks/${taskId}/attachments`, { method: 'POST', body: form, signal: timeoutSignal(UPLOAD_TIMEOUT_MS) });
+      },
+    },
+    ai: {
+      /**
+       * "Describe it": a sentence becomes suggested task details (`{ title, description, dueDate,
+       * priority, recurrence, project }`). `today` is the company's calendar day, so "tomorrow" means
+       * the same day it does on the web. Without AI set up the server answers 400 with its own message.
+       */
+      parseTask: (text, today) => raw('/ai/parse-task', {
+        method: 'POST',
+        body: JSON.stringify({ text, ...(today ? { today } : {}) }),
+        signal: timeoutSignal(AI_TIMEOUT_MS),
+      }),
     },
     tasks: {
       mine: () => get('tasks:mine', '/tasks/mine'),

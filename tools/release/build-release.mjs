@@ -421,7 +421,8 @@ function buildExtension() {
   const stage = path.join(STAGE, 'extension');
   clean(stage);
   fs.copyFileSync(path.join(EXTENSION, 'manifest.json'), path.join(stage, 'manifest.json'));
-  for (const dir of ['app', 'background', 'icons', 'src']) {
+  // Every folder with code, pages or images (Extension/src/manifest.test.js checks the pages need no other).
+  for (const dir of ['app', 'background', 'icons', 'popup', 'src']) {
     copy(path.join(EXTENSION, dir), path.join(stage, dir), (f) => !/\.test\.js$|\/test-helpers\.js$/.test(f));
   }
   // Every relative import must resolve inside the package (tests and helpers are left out).
@@ -433,10 +434,18 @@ function buildExtension() {
       if (!fs.existsSync(target)) throw new Error(`${f} imports ${m[1]}, which is not in the package`);
     }
   }
+  // …and every script and style a page loads (the popup uses the app's stylesheet too).
+  for (const f of fs.readdirSync(stage, { recursive: true }).map(String).filter((x) => x.endsWith('.html'))) {
+    const text = fs.readFileSync(path.join(stage, f), 'utf8');
+    for (const m of text.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="([^"]+)"/g)) {
+      if (!fs.existsSync(path.resolve(path.dirname(path.join(stage, f)), m[1]))) throw new Error(`${f} loads ${m[1]}, which is not in the package`);
+    }
+  }
   for (const icon of Object.values(manifest.icons)) {
     if (!fs.existsSync(path.join(stage, icon))) throw new Error(`Missing icon ${icon}`);
   }
   if (!fs.existsSync(path.join(stage, manifest.background.service_worker))) throw new Error('Missing service worker');
+  if (manifest.action?.default_popup && !fs.existsSync(path.join(stage, manifest.action.default_popup))) throw new Error('Missing toolbar popup');
   fs.mkdirSync(TARGET.extension, { recursive: true });
   const zip = path.join(TARGET.extension, `MICO360-Tasks-Chrome-Extension-${manifest.version}.zip`);
   zipDir(stage, zip);

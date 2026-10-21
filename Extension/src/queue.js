@@ -434,13 +434,17 @@ const QUEUE_ON_STATUS = new Set([401, 408, 429, 502, 503, 504]);
  * waiting change keeps failing. One whose own send just failed waits for the next alarm or reconnect,
  * so a run of quick changes during an outage doesn't spend the first one's tries.
  * `onTask(task)` receives the server's task after an edit or move sent now (its new version).
+ * `hold: true` never queues: when the server can't be reached it resolves `{ queued: false, held:
+ * true, item }` instead (a new task with files, which can't wait offline, as on the web). Sending
+ * `item` again with its `idempotencyKey` (`newKey`) can't create it twice.
  */
-export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId, newKey = newIdempotencyKey, onTask }) {
+export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId, newKey = newIdempotencyKey, onTask, hold = false }) {
   const item = { kind, payload, userId, idempotencyKey: newKey() };
   const req = mutationRequest(item);
   if (!req) throw new Error(`unknown mutation: ${kind}`);
 
   async function queueIt() {
+    if (hold) return { queued: false, held: true, item };
     try {
       return { queued: true, item: await enqueue(storage, item) };
     } catch (e) {
@@ -448,7 +452,7 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
     }
   }
 
-  if (userId && VERSIONED_KINDS.has(kind)) {
+  if (userId && VERSIONED_KINDS.has(kind) && !hold) {
     let behind = null;
     try {
       behind = await enqueueBehindTaskWrites(storage, item);

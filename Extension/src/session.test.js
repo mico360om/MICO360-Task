@@ -57,6 +57,15 @@ describe('signOut (XP-01)', () => {
     for (const k of USER_KEYS) expect(local.data[k]).toBeUndefined();
   });
 
+  it('also wipes quick capture: the project used last, the recent tasks, and an unsent popup form', async () => {
+    const { local, session } = busyDevice({ quickAddLastProject: { userId: 'u1', projectId: 'p1' }, quickAddRecent: { userId: 'u1', items: [{ id: 't1', title: 'Payroll' }] } });
+    await session.set({ 'mico360.quickAdd.draft': { userId: 'u1', fields: { title: 'Half typed' } }, 'mico360.quickAdd.capture': { title: 'Selected text' } });
+    await signOut({ local, session, fetchImpl: async () => jsonRes({}) });
+    expect(local.data.quickAddLastProject).toBeUndefined();
+    expect(local.data.quickAddRecent).toBeUndefined();
+    expect(session.data).toEqual({});
+  });
+
   it('clearUserData also removes a pre-upgrade access token left in local storage', async () => {
     const { local, session } = busyDevice({ accessToken: 'legacy' });
     await clearUserData({ local, session });
