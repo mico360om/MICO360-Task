@@ -1,6 +1,7 @@
 import type { ApiConversationSummary, ApiDirectoryUser } from './types';
 import type { MentionPerson } from './mentions';
 import { ApiError, isNetworkError } from './api-client';
+import { isSafeId } from './ids';
 
 /**
  * Chat helpers kept free of React (3a): read state, the Chat tab's number, titles and who can be
@@ -11,10 +12,13 @@ import { ApiError, isNetworkError } from './api-client';
 
 // ── 3a: read state, the badge, titles and who can be mentioned ──────────────────
 
-/** The Chat tab's number: unread messages, without muted conversations or the one open on screen. */
+/**
+ * The Chat tab's number: unread messages, without muted conversations (their rows say Muted),
+ * archived ones (shelved apart, as on the website — 3a review) or the one open on screen.
+ */
 export function chatBadgeCount(inbox: ApiConversationSummary[] | undefined, { viewing }: { viewing: string | null }): number {
   if (!Array.isArray(inbox)) return 0;
-  return inbox.reduce((sum, s) => (s.prefs?.muted || s.conversation.id === viewing ? sum : sum + (s.unread || 0)), 0);
+  return inbox.reduce((sum, s) => (s.prefs?.muted || s.prefs?.archived || s.conversation.id === viewing ? sum : sum + (s.unread || 0)), 0);
 }
 
 /** The inbox right after this conversation was read: its unread is 0 (the same list when it already was). */
@@ -106,4 +110,22 @@ export function openChannelError(error: unknown, name: string): string {
 export function threadLoadError(error: unknown): string {
   if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.message && !/^Request failed/.test(error.message)) return error.message;
   return 'Couldn’t load this conversation. Check your connection and try again.';
+}
+
+/**
+ * A conversation that can't be opened at all (3a review), as the website shows it — with no message
+ * box: the server refused it (403: removed from the channel's project) or it is gone (404), or its id
+ * isn't an id (a link). No connection or a server problem is not a refusal: messages can wait.
+ */
+export function threadRefusal(error: unknown, conversationId?: string): { title: string; message: string } | null {
+  const title = 'This conversation couldn’t be opened';
+  const gone = 'This conversation couldn’t be found. It may have been removed.';
+  if (conversationId !== undefined && !isSafeId(conversationId)) return { title, message: gone };
+  if (!(error instanceof ApiError)) return null;
+  if (error.status === 404) return { title, message: gone };
+  if (error.status === 403) {
+    const said = error.message && !/^Request failed/.test(error.message) ? error.message : 'You don’t have access to this conversation.';
+    return { title, message: said };
+  }
+  return null;
 }

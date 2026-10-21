@@ -11,6 +11,13 @@ export const NEAR_NEWEST_PX = 120;
 export const FAR_FROM_NEWEST_PX = 600;
 
 export const isNearNewest = (offsetY: number): boolean => offsetY <= NEAR_NEWEST_PX;
+
+/**
+ * The thread list's maintainVisibleContentPosition (3a review): scrolled up reading, a new message
+ * (at index 0, the inverted list's newest end) doesn't push the text up a row; within NEAR_NEWEST_PX
+ * of the newest the list keeps following new messages. (Check on a device: RN 0.74 Android.)
+ */
+export const KEEP_READING_POSITION = { minIndexForVisible: 0, autoscrollToTopThreshold: NEAR_NEWEST_PX } as const;
 export const isFarFromNewest = (offsetY: number): boolean => offsetY > FAR_FROM_NEWEST_PX;
 
 /**

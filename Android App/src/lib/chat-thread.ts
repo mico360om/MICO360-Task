@@ -95,6 +95,16 @@ export function patchThreadMessage(
   return found ? { ...data, pages: next } : data;
 }
 
+/**
+ * A thread left, trimmed to its newest page (3a review): every refetch (back in the app, back
+ * online, a socket reconnect) reads each loaded page in turn, so a thread scrolled far back would
+ * cost one request per page every time. Coming back, older pages load again as you scroll.
+ */
+export function newestPageOnly(data: ThreadPages | undefined): ThreadPages | undefined {
+  if (!isPages(data) || data.pages.length <= 1) return data;
+  return { pages: [data.pages[0]!], pageParams: [data.pageParams[0]] };
+}
+
 /** What the phone keeps to read offline: the newest page, at most a page of the newest messages. */
 export function newestPageCopy(data: ThreadPages | undefined): ApiChatMessage[] {
   if (!isPages(data)) return [];

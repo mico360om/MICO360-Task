@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useConversationMembers, useConversationMessages, useConversations, useDirectory, useProjects } from '../core/queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
@@ -24,10 +25,12 @@ import { useChatOutbox, useOnline, useReadWhileOpen } from '../core/chat';
 import { Loader, ErrorNote, NoticeNote } from '../components/ui';
 import { MentionSuggestions, MentionText, useMentionInput } from '../components/Mentions';
 import type { MentionPerson } from '../lib/mentions';
-import { chatMemberIds, conversationTitle, mentionPeopleFor, threadLoadError } from '../lib/chat';
+import { chatMemberIds, conversationTitle, mentionPeopleFor, threadLoadError, threadRefusal } from '../lib/chat';
 import { CHAT_MAX_LENGTH, connectionNote, outboxLabel, type OutboxEntry } from '../lib/chat-outbox';
-import { threadItems, threadMessages, type ThreadItem } from '../lib/chat-thread';
-import { afterNewest, isFarFromNewest, isNearNewest, newMessagesLabel } from '../lib/chat-scroll';
+import { newestPageOnly, threadItems, threadMessages, type ThreadItem, type ThreadPages } from '../lib/chat-thread';
+import { threadKey } from '../lib/chat-cache';
+import { isSafeId } from '../lib/ids';
+import { afterNewest, isFarFromNewest, isNearNewest, KEEP_READING_POSITION, newMessagesLabel } from '../lib/chat-scroll';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiChatMessage, ApiDirectoryUser } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
@@ -159,12 +162,18 @@ const OutboxRow = memo(function OutboxRow({
  * and shows where it stands (chat-outbox). The conversation is read while it is open.
  */
 export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThread'>) {
-  const { conversationId, title: titleHint } = route.params;
+  const { conversationId: asked, title: titleHint } = route.params;
+  // An id that isn't an id (a link) is never asked for (3a review): the screen says it can't be opened.
+  const conversationId = isSafeId(asked) ? asked : '';
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const focused = useIsFocused();
+  const isFocused = useIsFocused();
   const online = useOnline();
+  const qc = useQueryClient();
   const messagesQ = useConversationMessages(conversationId);
+  // Refused (removed from the project) or gone: no message box, as on the website (3a review).
+  const refusal = threadRefusal(messagesQ.isError && !messagesQ.data ? messagesQ.error : null, asked);
+  const focused = isFocused && !refusal;
   const inboxQ = useConversations();
   const projectsQ = useProjects();
   const dirQ = useDirectory();
@@ -206,6 +215,19 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   const newestId = items[0]?.key;
 
   useReadWhileOpen({ conversationId, unread: summary?.unread ?? 0, newestId: loaded[0]?.id, focused });
+
+  // Left (another screen on top, or closed): only the newest page is kept, so a refetch doesn't
+  // read every page scrolled back through (3a review).
+  useEffect(() => {
+    if (isFocused || !conversationId) return;
+    qc.setQueryData<ThreadPages>(threadKey(conversationId), (d) => newestPageOnly(d));
+  }, [isFocused, conversationId, qc]);
+  useEffect(
+    () => () => {
+      if (conversationId) qc.setQueryData<ThreadPages>(threadKey(conversationId), (d) => newestPageOnly(d));
+    },
+    [conversationId, qc],
+  );
 
   // ── Scrolling: follow the newest only when at the newest, else count on a pill ──
   const listRef = useRef<FlatList<ThreadItem>>(null);
@@ -286,6 +308,25 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
 
   if (messagesQ.isLoading) return <Loader />;
 
+  // Can't be opened at all: what the website says, and no message box (3a review).
+  if (refusal) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['bottom']}>
+        <View style={styles.refused}>
+          <Text style={styles.refusedTitle} accessibilityRole="header">
+            {refusal.title}
+          </Text>
+          <Text style={styles.refusedText} accessibilityRole="alert">
+            {refusal.message}
+          </Text>
+          <Pressable style={styles.olderBtn} onPress={() => navigation.goBack()} accessibilityRole="button">
+            <Text style={styles.olderBtnText}>Back to conversations</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const remaining = CHAT_MAX_LENGTH - draft.length;
   const note = connectionNote({ online, waiting: outbox.waiting });
   const loadFailed = messagesQ.isError && !messagesQ.data;
@@ -311,7 +352,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
         <Text style={styles.olderBtnText}>Load older messages</Text>
       </Pressable>
     </View>
-  ) : items.length > 0 ? (
+  ) : items.length > 0 && !loadFailed ? (
     <Text style={styles.beginning}>This is the beginning of the conversation.</Text>
   ) : null;
 
@@ -340,6 +381,8 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
             <FlatList
               ref={listRef}
               inverted
+              // Scrolled up reading, a new message doesn't move the text (3a review; check on a device).
+              maintainVisibleContentPosition={KEEP_READING_POSITION}
               data={items}
               keyExtractor={(i) => i.key}
               renderItem={renderItem}
@@ -463,6 +506,9 @@ const makeStyles = (c: Palette) =>
     },
     olderBtnText: { color: c.brand, fontWeight: '700', fontSize: fontSize.sm },
     beginning: { textAlign: 'center', fontSize: fontSize.xs, color: c.ink2, paddingVertical: spacing.sm },
+    refused: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
+    refusedTitle: { fontSize: fontSize.md, fontWeight: '700', color: c.ink, textAlign: 'center' },
+    refusedText: { fontSize: fontSize.sm, color: c.danger, textAlign: 'center' },
     pill: {
       position: 'absolute', bottom: spacing.md, alignSelf: 'center', minHeight: 44, justifyContent: 'center',
       backgroundColor: c.brand, borderRadius: radius.pill, paddingHorizontal: spacing.lg,

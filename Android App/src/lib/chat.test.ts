@@ -43,6 +43,11 @@ describe('chatBadgeCount (the Chat tab’s number)', () => {
   it('is 0 with nothing loaded', () => {
     expect(chatBadgeCount(undefined, { viewing: null })).toBe(0);
   });
+  // 3a review fix 12: archived conversations are shelved apart, as on the website — not counted.
+  it('leaves out archived conversations too', () => {
+    const inbox = [summary('c1', { unread: 2, prefs: { favorite: false, archived: true, muted: false } }), channel('c2', 'p1', { unread: 3 })];
+    expect(chatBadgeCount(inbox, { viewing: null })).toBe(3);
+  });
 });
 
 describe('withConversationRead (the inbox right after a conversation was read)', () => {
@@ -124,7 +129,7 @@ describe('shouldMarkRead (messages arriving while the thread is open are read)',
   });
 });
 
-import { chatTabBadge, chatTabLabel, openChannelError, threadLoadError } from './chat';
+import { chatTabBadge, chatTabLabel, openChannelError, threadLoadError, threadRefusal } from './chat';
 import { ApiError as ChatApiError, NetworkError as ChatNetworkError } from './api-client';
 
 describe('chatTabBadge / chatTabLabel (the Chat tab)', () => {
@@ -156,5 +161,30 @@ describe('threadLoadError (a conversation that didn’t load)', () => {
     expect(threadLoadError(new ChatApiError(403, 'FORBIDDEN', 'You do not have access to this conversation.'))).toBe('You do not have access to this conversation.');
     expect(threadLoadError(new ChatNetworkError('offline'))).toBe('Couldn’t load this conversation. Check your connection and try again.');
     expect(threadLoadError(new ChatApiError(500, 'ERROR', 'Request failed (500)'))).toBe('Couldn’t load this conversation. Check your connection and try again.');
+  });
+});
+
+// 3a review fix 10: a conversation the server refuses (removed from the channel's project, or
+// gone) offers no message box, as on the website.
+describe('threadRefusal (a conversation that can’t be opened at all)', () => {
+  it('names a refusal (403) or a conversation that is gone (404), in the website’s words', () => {
+    expect(threadRefusal(new ChatApiError(403, 'FORBIDDEN', 'You do not have access to this conversation.'))).toEqual({
+      title: 'This conversation couldn’t be opened',
+      message: 'You do not have access to this conversation.',
+    });
+    expect(threadRefusal(new ChatApiError(404, 'NOT_FOUND', 'Conversation not found.'))).toEqual({
+      title: 'This conversation couldn’t be opened',
+      message: 'This conversation couldn’t be found. It may have been removed.',
+    });
+    expect(threadRefusal(new ChatApiError(403, 'FORBIDDEN', 'Request failed (403)'))?.message).toBe('You don’t have access to this conversation.');
+  });
+  it('is none for no connection or a server problem (the message box stays: it can wait to be sent)', () => {
+    expect(threadRefusal(new ChatNetworkError('offline'))).toBeNull();
+    expect(threadRefusal(new ChatApiError(500, 'ERROR', 'Request failed (500)'))).toBeNull();
+    expect(threadRefusal(null)).toBeNull();
+  });
+  it('is none for an id that isn’t an id? No — that is refused before asking (3a review fix 8)', () => {
+    expect(threadRefusal(null, '../../x')).toEqual({ title: 'This conversation couldn’t be opened', message: 'This conversation couldn’t be found. It may have been removed.' });
+    expect(threadRefusal(null, 'c1')).toBeNull();
   });
 });

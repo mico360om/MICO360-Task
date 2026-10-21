@@ -3,6 +3,7 @@ import {
   CHAT_PAGE_SIZE,
   completeMessage,
   newestPageCopy,
+  newestPageOnly,
   olderPageCursor,
   patchThreadMessage,
   threadItems,
@@ -28,6 +29,19 @@ const msg = (id: string, at: string, over: Partial<ApiChatMessage> = {}): ApiCha
 const pages = (...ps: ApiChatMessage[][]): ThreadPages => ({ pages: ps, pageParams: ps.map((_, i) => (i === 0 ? undefined : `cursor-${i}`)) });
 const fullPage = (from: number): ApiChatMessage[] =>
   Array.from({ length: CHAT_PAGE_SIZE }, (_, i) => msg(`m${from + i}`, String(i).padStart(2, '0')));
+
+// 3a review fix 5: every refetch reads every loaded page in turn; a thread left keeps only its newest page.
+describe('newestPageOnly (a thread left is trimmed to its newest page)', () => {
+  it('keeps the newest page and its place, and drops the older ones', () => {
+    const data = pages([msg('c', '03')], [msg('b', '02')], [msg('a', '01')]);
+    expect(newestPageOnly(data)).toEqual({ pages: [[msg('c', '03')]], pageParams: [undefined] });
+  });
+  it('leaves a one-page thread, or none, as it is', () => {
+    const one = pages([msg('a', '01')]);
+    expect(newestPageOnly(one)).toBe(one);
+    expect(newestPageOnly(undefined)).toBeUndefined();
+  });
+});
 
 describe('olderPageCursor (paging back through history, as the server pages it)', () => {
   it('asks for the page before the oldest message of a full page (before = its createdAt)', () => {

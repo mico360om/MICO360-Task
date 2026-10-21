@@ -1,7 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { afterNewest, isFarFromNewest, isNearNewest, newMessagesLabel } from './chat-scroll';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { afterNewest, isFarFromNewest, isNearNewest, KEEP_READING_POSITION, NEAR_NEWEST_PX, newMessagesLabel } from './chat-scroll';
 
 const item = (id: string, userId = 'u2') => ({ id, userId });
+
+// 3a review fix 4: scrolled up reading, a new message must not move the text under the eyes.
+describe('the reading position while scrolled up', () => {
+  it('stays put as new messages come in; near the newest the list still follows them', () => {
+    expect(KEEP_READING_POSITION).toEqual({ minIndexForVisible: 0, autoscrollToTopThreshold: NEAR_NEWEST_PX });
+    const screen = readFileSync(resolve(__dirname, '../screens/ChatThreadScreen.tsx'), 'utf8');
+    expect(screen).toContain('maintainVisibleContentPosition={KEEP_READING_POSITION}');
+  });
+});
 
 describe('isNearNewest / isFarFromNewest (the inverted list: offset 0 is the newest message)', () => {
   it('counts a finger’s scroll from the newest as still at the newest', () => {

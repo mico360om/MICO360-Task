@@ -67,6 +67,7 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
         <Text style={styles.section}>Channels</Text>
         {(projectsQ.data ?? []).map((p) => {
           const unread = channelUnread(p.id);
+          const muted = !!inbox.find((s) => s.conversation.kind === 'PROJECT' && s.conversation.projectId === p.id)?.prefs?.muted;
           return (
             <Pressable
               key={p.id}
@@ -74,12 +75,14 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
               onPress={() => openChannel(p.id, p.name)}
               disabled={opening !== null}
               accessibilityRole="button"
-              accessibilityLabel={`${p.name} channel${unread ? `, ${unread} unread` : ''}`}
+              accessibilityLabel={`${p.name} channel${muted ? ', muted' : ''}${unread ? `, ${unread} unread` : ''}`}
               accessibilityState={{ busy: opening === p.id, disabled: opening !== null }}
             >
               <View style={[styles.hashTile, { backgroundColor: c.brand }]}><Text style={styles.hashText}>#</Text></View>
               <Text style={[styles.rowTitle, unread ? styles.bold : null]} numberOfLines={1}>{p.name}</Text>
-              {unread ? <View style={styles.badge}><Text style={styles.badgeText}>{unread}</Text></View> : null}
+              {/* Muted: said, and its count in grey — it isn't in the Chat tab's number (as on the website). */}
+              {muted ? <Text style={styles.muted}>🔕 Muted</Text> : null}
+              {unread ? <View style={[styles.badge, muted && styles.badgeMuted]}><Text style={[styles.badgeText, muted && styles.badgeTextMuted]}>{unread}</Text></View> : null}
             </Pressable>
           );
         })}
@@ -90,19 +93,21 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
         ) : (
           dms.map((s) => {
             const title = dmTitle(s.participants);
+            const muted = !!s.prefs?.muted;
             return (
               <Pressable
                 key={s.conversation.id}
                 style={styles.row}
                 onPress={() => openDm(s.conversation.id, title)}
                 accessibilityRole="button"
-                accessibilityLabel={`${title}${s.unread ? `, ${s.unread} unread` : ''}`}
+                accessibilityLabel={`${title}${muted ? ', muted' : ''}${s.unread ? `, ${s.unread} unread` : ''}`}
               >
                 <View style={[styles.hashTile, { backgroundColor: c.brandWash }]}>
                   <Text style={[styles.hashText, { color: c.brand }]}>{title.slice(0, 1).toUpperCase()}</Text>
                 </View>
                 <Text style={[styles.rowTitle, s.unread ? styles.bold : null]} numberOfLines={1}>{title}</Text>
-                {s.unread ? <View style={styles.badge}><Text style={styles.badgeText}>{s.unread}</Text></View> : null}
+                {muted ? <Text style={styles.muted}>🔕 Muted</Text> : null}
+                {s.unread ? <View style={[styles.badge, muted && styles.badgeMuted]}><Text style={[styles.badgeText, muted && styles.badgeTextMuted]}>{s.unread}</Text></View> : null}
               </Pressable>
             );
           })
@@ -127,5 +132,8 @@ const makeStyles = (c: Palette) =>
     bold: { fontWeight: '700' },
     badge: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
     badgeText: { color: c.onBrand, fontSize: fontSize.xs, fontWeight: '700' },
+    badgeMuted: { backgroundColor: c.line },
+    badgeTextMuted: { color: c.ink },
+    muted: { fontSize: fontSize.xs, color: c.ink2 },
     empty: { fontSize: fontSize.sm, color: c.ink2 },
   });
