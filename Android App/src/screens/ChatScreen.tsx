@@ -222,6 +222,8 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
           placeholderTextColor={c.ink3}
           accessibilityLabel="Search conversations"
           autoCorrect={false}
+          // The server searches up to 200 characters.
+          maxLength={200}
           returnKeyType="search"
           onSubmitEditing={() => query.trim().length >= CHAT_SEARCH_MIN && setMessageSearch(true)}
         />
@@ -286,6 +288,7 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
         visible={menuFor !== null}
         title={menuFor ? `Options for ${menuFor.title}` : ''}
         prefs={menuFor ? inbox.find((s) => s.conversation.id === menuFor.conversationId)?.prefs ?? menuFor.prefs : { favorite: false, archived: false, muted: false }}
+        busy={prefs.busy}
         error={prefs.error}
         onChange={(patch) => menuFor && changePrefs(menuFor, patch)}
         onClose={() => {

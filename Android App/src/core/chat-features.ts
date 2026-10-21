@@ -8,6 +8,7 @@ import { CHAT_DELETE, CHAT_EDIT, CHAT_REACT } from '../lib/chat-actions';
 import { needsDeliveryAck } from '../lib/chat-model';
 import { applyReaction } from '../lib/chat-realtime';
 import { threadKey } from '../lib/chat-cache';
+import { createSerialRunner } from '../lib/chat-jump';
 import type { UploadEntry } from '../lib/chat-timeline';
 import { directWith, fileProblem, prefsFailure, startDirectError, uploadFailure, withPrefs } from '../lib/chat-ui';
 import { newIdempotencyKey } from '../lib/idempotency';
@@ -66,8 +67,14 @@ export function useConversationPrefs() {
   const { resources } = useServices();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  // One change at a time: a quick double tap can't toggle a setting back.
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const change = useCallback(
     async (target: PrefsTarget, patch: Partial<ConversationPrefs>): Promise<boolean> => {
+      if (busyRef.current) return false;
+      busyRef.current = true;
+      setBusy(true);
       setError(null);
       try {
         const id = target.conversationId ?? (target.projectId ? (await resources.chat.openProjectChannel(target.projectId)).conversation.id : null);
@@ -81,11 +88,14 @@ export function useConversationPrefs() {
         refresh(qc, [{ queryKey: INBOX }]);
         setError(prefsFailure(e));
         return false;
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
       }
     },
     [resources, qc],
   );
-  return { change, error, clearError: () => setError(null) };
+  return { change, busy, error, clearError: () => setError(null) };
 }
 
 /**
@@ -188,15 +198,17 @@ export function useChatUploads(conversationId: string) {
   const { resources, chat } = useServices();
   const online = useOnline();
   const [uploads, setUploads] = useState<UploadEntry[]>([]);
-  const chain = useRef<Promise<void>>(Promise.resolve());
+  // One after another; a file discarded while it waits its turn is never sent (chat-jump).
+  const runner = useRef(createSerialRunner()).current;
   const seq = useRef(0);
 
   const update = useCallback((key: string, patch: Partial<UploadEntry>) => setUploads((list) => list.map((u) => (u.key === key ? { ...u, ...patch } : u))), []);
 
   const run = useCallback(
     (entry: UploadEntry) => {
-      chain.current = chain.current.then(async () => {
-        update(entry.key, { state: 'sending', error: undefined, progress: 0 });
+      // Shown as being sent at once (no Retry or Discard offered twice while it waits its turn).
+      update(entry.key, { state: 'sending', error: undefined, progress: 0 });
+      return runner.run(entry.key, async () => {
         try {
           const saved = await resources.chat.uploadAttachment(
             conversationId,
@@ -210,9 +222,8 @@ export function useChatUploads(conversationId: string) {
           update(entry.key, { state: 'failed', error: uploadFailure(e) });
         }
       });
-      return chain.current;
     },
-    [resources, chat, conversationId, update],
+    [resources, chat, conversationId, update, runner],
   );
 
   /** Send these files (the first with the caption); what couldn't be sent, and why. */
@@ -250,7 +261,13 @@ export function useChatUploads(conversationId: string) {
     },
     [uploads, run],
   );
-  const discard = useCallback((key: string) => setUploads((list) => list.filter((u) => u.key !== key)), []);
+  const discard = useCallback(
+    (key: string) => {
+      runner.cancel(key);
+      setUploads((list) => list.filter((u) => u.key !== key));
+    },
+    [runner],
+  );
 
   return { uploads, send, retry, discard };
 }

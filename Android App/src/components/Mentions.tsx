@@ -95,15 +95,20 @@ export function MentionSuggestions({
   );
 }
 
-/** Text with @mentions of real people marked in the brand colour. */
-export function MentionText({ body, people, style }: { body: string; people: MentionPerson[]; style?: StyleProp<TextStyle> }) {
+/**
+ * Text with @mentions of real people marked in the brand colour — or, on a brand-coloured bubble
+ * (my own chat message, `onBrand`), in the bubble's text colour, bold, on a darker shade, as the
+ * website does.
+ */
+export function MentionText({ body, people, style, onBrand }: { body: string; people: MentionPerson[]; style?: StyleProp<TextStyle>; onBrand?: boolean }) {
   const c = useColors();
   const tokens = useMemo(() => tokenizeMentions(body, people.map((p) => p.username)), [body, people]);
+  const mark: TextStyle = onBrand ? { color: c.onBrand, fontWeight: '700', backgroundColor: 'rgba(0,0,0,0.2)' } : { color: c.brand, fontWeight: '600' };
   return (
     <Text style={style}>
       {tokens.map((t, i) =>
         t.type === 'mention' ? (
-          <Text key={i} style={{ color: c.brand, fontWeight: '600' }}>
+          <Text key={i} style={mark}>
             {t.value}
           </Text>
         ) : (

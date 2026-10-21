@@ -53,24 +53,32 @@ export function UnreadLine() {
   );
 }
 
-/** Words with mentions marked and web addresses that open in the browser. */
-function Body({ text, people, mine, style }: { text: string; people: MentionPerson[]; mine: boolean; style: object }) {
+/**
+ * Words with mentions marked and web addresses that open in the browser. A long press on a link
+ * still offers the message's actions; TalkBack opens links from the message's actions (messageLinks).
+ */
+function Body({ text, people, mine, style, onLongPress }: { text: string; people: MentionPerson[]; mine: boolean; style: object; onLongPress?: () => void }) {
   const { c } = useChatStyles();
   const parts = linkParts(text);
-  if (parts.length === 1 && !parts[0]!.url) return <MentionText style={style} body={text} people={people} />;
+  if (parts.length === 1 && !parts[0]!.url) return <MentionText style={style} body={text} people={people} onBrand={mine} />;
   return (
     <Text style={style}>
       {parts.map((p, i) =>
         p.url ? (
-          <Text key={i} style={{ color: mine ? c.onBrand : c.brand, textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(p.url!)} accessibilityRole="link">
+          <Text key={i} style={{ color: mine ? c.onBrand : c.brand, textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(p.url!)} onLongPress={onLongPress}>
             {p.text}
           </Text>
         ) : (
-          <MentionText key={i} body={p.text} people={people} />
+          <MentionText key={i} body={p.text} people={people} onBrand={mine} />
         ),
       )}
     </Text>
   );
+}
+
+/** The web addresses in a message, each once (opened from TalkBack's actions and the actions sheet). */
+export function messageLinks(text: string): string[] {
+  return [...new Set(linkParts(text).flatMap((p) => (p.url ? [p.url] : [])))];
 }
 
 export interface BubbleHandlers {
@@ -156,15 +164,27 @@ export const MessageBubble = memo(function MessageBubble({
   ]
     .filter(Boolean)
     .join('. ');
+  // The message's web addresses: TalkBack opens each from its actions (a link inside the message
+  // isn't a focus stop of its own).
+  const links = deleted ? [] : messageLinks(text);
   const a11yActions = [
     ...(actions.react ? [{ name: 'react', label: 'React' }] : []),
     ...(actions.reply ? [{ name: 'reply', label: 'Reply' }] : []),
     ...(actions.copy ? [{ name: 'copy', label: 'Copy text' }] : []),
     ...(actions.edit ? [{ name: 'edit', label: 'Edit' }] : []),
     ...(actions.remove ? [{ name: 'delete', label: 'Delete' }] : []),
+    ...links.map((url, i) => ({ name: `link-${i}`, label: `Open link ${url.replace(/^https?:\/\//, '').slice(0, 40)}` })),
   ];
   const anyAction = a11yActions.length > 0;
-  const onA11y = (e: AccessibilityActionEvent) => handlers.onAction(m, e.nativeEvent.actionName as 'react' | 'reply' | 'copy' | 'edit' | 'delete');
+  const onA11y = (e: AccessibilityActionEvent) => {
+    const name = e.nativeEvent.actionName;
+    if (name.startsWith('link-')) {
+      const url = links[Number(name.slice(5))];
+      if (url) void Linking.openURL(url);
+      return;
+    }
+    handlers.onAction(m, name as 'react' | 'reply' | 'copy' | 'edit' | 'delete');
+  };
 
   const bubbleTone = mine ? { backgroundColor: c.brand, borderColor: c.brand } : { backgroundColor: c.surface, borderColor: c.line };
   const ink = mine ? c.onBrand : c.ink;
@@ -208,7 +228,7 @@ export const MessageBubble = memo(function MessageBubble({
             accessibilityActions={a11yActions}
             onAccessibilityAction={anyAction ? onA11y : undefined}
           >
-            {text ? <Body text={text} people={people} mine={mine} style={[s.body, { color: ink }]} /> : null}
+            {text ? <Body text={text} people={people} mine={mine} style={[s.body, { color: ink }]} onLongPress={anyAction ? () => handlers.onActions(m) : undefined} /> : null}
             <View style={s.meta}>
               {m.editedAt ? <Text style={[s.metaText, { color: quiet }]}>Edited ·</Text> : null}
               <Text style={[s.metaText, { color: quiet }]}>{time}</Text>
@@ -372,12 +392,15 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
 export function MessageActionsSheet({
   visible,
   actions,
+  links = [],
   onReact,
   onAction,
   onClose,
 }: {
   visible: boolean;
   actions: MessageActionSet | null;
+  /** The message's web addresses, each with an "Open link" row. */
+  links?: string[];
   onReact: (emoji: string) => void;
   onAction: (action: 'reply' | 'copy' | 'edit' | 'delete') => void;
   onClose: () => void;
@@ -410,6 +433,16 @@ export function MessageActionsSheet({
         </>
       ) : null}
       {actions?.reply ? <ActionRowButton label="Reply" onPress={() => onAction('reply')} /> : null}
+      {links.map((url) => (
+        <ActionRowButton
+          key={url}
+          label={`Open link: ${url.replace(/^https?:\/\//, '').slice(0, 48)}`}
+          onPress={() => {
+            close();
+            void Linking.openURL(url);
+          }}
+        />
+      ))}
       {actions?.copy ? <ActionRowButton label="Copy text" onPress={() => onAction('copy')} /> : null}
       {actions?.edit ? <ActionRowButton label="Edit" onPress={() => onAction('edit')} /> : null}
       {actions?.remove ? <ActionRowButton label="Delete" danger onPress={() => onAction('delete')} /> : null}

@@ -29,7 +29,7 @@ import { Loader, ErrorNote, NoticeNote } from '../components/ui';
 import { MentionSuggestions, useMentionInput } from '../components/Mentions';
 import { ActionRowButton } from '../components/meeting/sheet-kit';
 import { MembersSheet, PrefsSheet, ThreadSearchSheet } from '../components/chat/ChatSheets';
-import { DayLine, EditMessageSheet, ImageViewer, MessageActionsSheet, MessageBubble, UnreadLine, type BubbleHandlers } from '../components/chat/MessageParts';
+import { DayLine, EditMessageSheet, ImageViewer, MessageActionsSheet, MessageBubble, messageLinks, UnreadLine, type BubbleHandlers } from '../components/chat/MessageParts';
 import { copyText } from '../adapters/clipboard';
 import type { MentionPerson } from '../lib/mentions';
 import { isNetworkError, ApiError } from '../lib/api-client';
@@ -39,6 +39,7 @@ import { NO_PREFS, receiptState } from '../lib/chat-model';
 import { CHAT_MAX_LENGTH, connectionNote } from '../lib/chat-outbox';
 import { newestPageOnly, threadMessages, type ThreadPages } from '../lib/chat-thread';
 import { rowIndexOf, threadRows, unreadAfterOf, type ThreadMessage, type ThreadRow } from '../lib/chat-timeline';
+import { jumpStep } from '../lib/chat-jump';
 import { conversationSubtitle, memberRows, pickedFile, receiptText } from '../lib/chat-ui';
 import { threadKey } from '../lib/chat-cache';
 import { isSafeId } from '../lib/ids';
@@ -244,21 +245,30 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
     jumpPages.current = 0;
   }, [jump]);
   useEffect(() => {
-    if (!jump || messagesQ.isLoading || messagesQ.isFetchingNextPage) return;
+    if (!jump) return;
     const at = rowIndexOf(rows, jump);
-    if (at >= 0) {
+    // Never while the thread is being read (that would cancel it); not again after an older page
+    // couldn't be loaded — say so instead of "isn't in this conversation" (chat-jump).
+    const step = jumpStep({
+      found: at >= 0,
+      fetching: messagesQ.isLoading || messagesQ.isFetching,
+      nextPageError: messagesQ.isFetchNextPageError,
+      hasNextPage: !!messagesQ.hasNextPage,
+      pagesTried: jumpPages.current,
+      maxPages: MAX_JUMP_PAGES,
+    });
+    if (step === 'wait') return;
+    if (step === 'show') {
       listRef.current?.scrollToIndex({ index: at, viewPosition: 0.5, animated: true });
       setHighlight(jump);
       setJump(null);
-      return;
-    }
-    if (messagesQ.hasNextPage && jumpPages.current < MAX_JUMP_PAGES) {
+    } else if (step === 'load') {
       jumpPages.current += 1;
       void messagesQ.fetchNextPage();
-      return;
+    } else {
+      setJump(null);
+      notice(step === 'failed' ? 'Couldn’t load older messages to find it. Check your connection and try again.' : 'That message isn’t in this conversation any more.');
     }
-    setJump(null);
-    notice('That message isn’t in this conversation any more.');
   }, [jump, rows, messagesQ]);
   useEffect(() => {
     if (!highlight) return;
@@ -371,8 +381,11 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
     onRetry: outbox.retry,
     onDiscard: discardEntry,
     onEditUnsent: (queueId, body) => {
+      // Back in the box to change and send again — still as a reply when it was one.
+      const entry = entriesRef.current.find((e) => e.queueId === queueId);
       outbox.discard(queueId);
       setDraft(body);
+      setReply(entry?.replyTo ?? null);
       setTimeout(() => inputRef.current?.focus(), 50);
     },
     onRetryUpload: uploads.retry,
@@ -396,7 +409,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
     [],
   );
 
-  const participants = summary?.participants ?? [];
+  const participants = useMemo(() => summary?.participants ?? [], [summary]);
   const renderItem = useCallback<ListRenderItem<ThreadRow>>(
     ({ item }) => {
       if (item.type === 'day') return <DayLine label={item.label} />;
@@ -662,6 +675,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
       <MessageActionsSheet
         visible={acting !== null}
         actions={actingActions}
+        links={acting && !acting.deletedAt ? messageLinks(acting.body) : []}
         onReact={(emoji) => acting && react(acting, emoji)}
         onAction={(a) => acting && doAction(acting, a)}
         onClose={() => setActing(null)}
@@ -679,6 +693,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
         visible={menuOpen}
         title={title}
         prefs={prefs}
+        busy={prefsM.busy}
         error={prefsM.error}
         extra={
           <>
@@ -723,12 +738,14 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
         failed={membersQ.isError && !membersQ.data}
         onRetry={() => void membersQ.refetch()}
         onMessage={(id, name) => void direct.open(id, name)}
+        opening={direct.opening}
+        error={direct.error}
         onClose={() => {
           setMembersOpen(false);
           direct.clearError();
         }}
       />
-      <ImageViewer attachment={viewing} baseUrl={baseUrl} onClose={() => setViewing(null)} />
+      <ImageViewer key={viewing?.id ?? 'none'} attachment={viewing} baseUrl={baseUrl} onClose={() => setViewing(null)} />
     </SafeAreaView>
   );
 }

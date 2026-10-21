@@ -116,6 +116,8 @@ export function MembersSheet({
   failed,
   onRetry,
   onMessage,
+  opening = null,
+  error = null,
   onClose,
 }: {
   visible: boolean;
@@ -124,6 +126,10 @@ export function MembersSheet({
   failed: boolean;
   onRetry: () => void;
   onMessage: (userId: string, name: string) => void;
+  /** Whose direct conversation is being opened (a new one needs a connection). */
+  opening?: string | null;
+  /** Why it couldn't be opened. */
+  error?: string | null;
   onClose: () => void;
 }) {
   const { c, s } = useStyles();
@@ -155,13 +161,24 @@ export function MembersSheet({
             </Text>
             <Text style={[s.hint, m.online && { color: c.success }]}>{m.presence}</Text>
           </View>
-          {m.me ? null : (
-            <Pressable style={s.iconBtn} onPress={() => onMessage(m.id, m.name)} accessibilityRole="button" accessibilityLabel={`Message ${m.name}`} hitSlop={4}>
+          {m.me ? null : opening === m.id ? (
+            <ActivityIndicator color={c.brand} style={s.iconBtn} />
+          ) : (
+            <Pressable
+              style={s.iconBtn}
+              onPress={() => onMessage(m.id, m.name)}
+              disabled={opening !== null}
+              accessibilityRole="button"
+              accessibilityLabel={`Message ${m.name}`}
+              accessibilityState={{ disabled: opening !== null }}
+              hitSlop={4}
+            >
               <Text style={[s.iconText, { color: c.brand }]}>✉</Text>
             </Pressable>
           )}
         </View>
       ))}
+      <SheetMessage text={error} />
     </Sheet>
   );
 }
@@ -278,7 +295,7 @@ export function ThreadSearchSheet({
   const [q, setQ] = useState('');
   return (
     <Sheet visible={visible} title="Search in conversation" subtitle={title} onClose={onClose} footer={<SheetButtons cancel="Close" onCancel={onClose} />}>
-      <TextField accessibilityLabel="Search this conversation" value={q} onChangeText={setQ} placeholder={`Search in ${title}`} autoCapitalize="none" autoCorrect={false} autoFocus />
+      <TextField accessibilityLabel="Search this conversation" value={q} onChangeText={setQ} placeholder={`Search in ${title}`} autoCapitalize="none" autoCorrect={false} autoFocus maxLength={200} />
       {q.trim() ? <ChatSearchResults q={q} conversationId={conversationId} nameOf={nameOf} onPick={onPick} /> : null}
     </Sheet>
   );
