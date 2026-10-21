@@ -179,7 +179,12 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   const reads = createOfflineReads({ cache, pendingChanges: () => queue.pendingFor(currentUserId()) });
   const queryClient = createQueryClient({ answeredFromCopy: reads.answeredFromCopy });
   // A thread changed in place (a live or sent message) keeps its newest page offline too.
-  const chat = createChatCache({ queryClient, keepCopy: (conversationId, newest) => cache.keep(chatThreadCopyKey(conversationId), newest) });
+  // A message edited or deleted in a thread that isn't open changes its offline copy (3a review).
+  const chat = createChatCache({
+    queryClient,
+    keepCopy: (conversationId, newest) => cache.keep(chatThreadCopyKey(conversationId), newest),
+    reviseCopy: (conversationId, change) => void cache.revise(chatThreadCopyKey(conversationId), change),
+  });
 
   const sync = createSyncController({
     queue,

@@ -241,4 +241,23 @@ describe('createReadCache: chat copies (3a)', () => {
     await cache.settled();
     expect(await store.keys()).toEqual([]);
   });
+
+  // 3a review fix 9: a message deleted or edited while its thread isn't open isn't kept as it was.
+  it('revise(): changes a stored copy — written or still waiting — and leaves a missing one missing', async () => {
+    const store = createMemoryStore();
+    const cache = createReadCache({ store, getUserId: () => 'u1' });
+    cache.keep('chat.thread.c1', [{ id: 'm1', body: 'secret' }]);
+    await cache.settled();
+    await cache.revise<{ id: string; body: string }[]>('chat.thread.c1', (list) => list.map((m) => ({ ...m, body: '' })));
+    expect(await cache.read('chat.thread.c1', offline)).toEqual({ data: [{ id: 'm1', body: '' }], stale: true });
+    await cache.settled();
+    expect(await store.getItem('mico360.cache.u1.chat.thread.c1')).not.toContain('secret');
+    // A copy not written yet is changed too.
+    cache.keep('chat.thread.c2', [{ id: 'm2', body: 'old' }]);
+    await cache.revise<{ id: string; body: string }[]>('chat.thread.c2', (list) => list.map((m) => ({ ...m, body: 'new' })));
+    expect(await cache.read('chat.thread.c2', offline)).toEqual({ data: [{ id: 'm2', body: 'new' }], stale: true });
+    await cache.revise('chat.thread.none', () => ['x']);
+    await cache.settled();
+    expect(await store.getItem('mico360.cache.u1.chat.thread.none')).toBeNull();
+  });
 });

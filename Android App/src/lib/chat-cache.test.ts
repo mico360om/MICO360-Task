@@ -106,6 +106,78 @@ describe('the offline copy of a thread (3a): what was seen is readable offline, 
   });
 });
 
+describe('a message put in while its thread is being fetched again survives that fetch (3a review fix 1)', () => {
+  /** A refetch of the thread's two pages, answered with what the server held before; page 1 waits for `release`. */
+  function staleRefetch(qc: QueryClient) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const done = qc.fetchInfiniteQuery<ApiChatMessage[], Error, ThreadPages, string[], string | undefined>({
+      queryKey: threadKey('c1'),
+      queryFn: async ({ pageParam }) => {
+        if (!pageParam) return [msg('a', '01')];
+        await gate;
+        return [msg('old', '00')];
+      },
+      initialPageParam: undefined,
+      getNextPageParam: (_last: ApiChatMessage[], all: ApiChatMessage[][]) => (all.length === 1 ? 'older' : undefined),
+      staleTime: 0,
+    });
+    return { done, release };
+  }
+
+  it('the person’s own sent messages stay when a refetch read before them lands after them', async () => {
+    const qc = client();
+    qc.setQueryData<ThreadPages>(threadKey('c1'), { pages: [[msg('a', '01')], [msg('old', '00')]], pageParams: [undefined, 'older'] });
+    const cache = createChatCache({ queryClient: qc });
+    const { done, release } = staleRefetch(qc);
+    await new Promise((r) => setTimeout(r, 0));
+    // #2 and #3 are sent (their copies put in) while the refetch reads the older page.
+    cache.afterSent(sent({ conversationId: 'c1', body: 'two', clientId: 'k2' }), msg('two', '05', { clientId: 'k2' }));
+    cache.put('c1', msg('three', '06'));
+    release();
+    await done;
+    expect(shown(qc, 'c1')).toEqual(['three', 'two', 'a', 'old']);
+  });
+
+  it('an edit or deletion made meanwhile stays too; a later fetch is taken as it is', async () => {
+    const qc = client();
+    qc.setQueryData<ThreadPages>(threadKey('c1'), { pages: [[msg('a', '01')], [msg('old', '00')]], pageParams: [undefined, 'older'] });
+    const cache = createChatCache({ queryClient: qc });
+    const { done, release } = staleRefetch(qc);
+    await new Promise((r) => setTimeout(r, 0));
+    cache.patch('c1', 'a', (m) => ({ ...m, body: '', deletedAt: '2026-10-21T08:07:00.000Z' }));
+    release();
+    await done;
+    const data = qc.getQueryData<ThreadPages>(threadKey('c1'));
+    expect(threadMessages(data).find((m) => m.id === 'a')?.deletedAt).toBe('2026-10-21T08:07:00.000Z');
+    // Nothing is replayed on a fetch that started afterwards.
+    const second = staleRefetch(qc);
+    second.release();
+    await second.done;
+    expect(threadMessages(qc.getQueryData<ThreadPages>(threadKey('c1'))).find((m) => m.id === 'a')?.deletedAt).toBeNull();
+  });
+});
+
+describe('an edit or deletion for a thread that isn’t loaded (3a review fix 9)', () => {
+  it('changes the thread’s offline copy, so the retracted words don’t stay on the phone', () => {
+    const qc = client();
+    const revised: Array<{ cid: string; result: ApiChatMessage[] }> = [];
+    const copy = [msg('a', '01', { body: 'secret' }), msg('b', '02')];
+    const cache = createChatCache({ queryClient: qc, reviseCopy: (cid, change) => revised.push({ cid, result: change(copy) }) });
+    cache.patch('c1', 'a', (m) => ({ ...m, body: '', deletedAt: '2026-10-21T09:00:00.000Z' }));
+    expect(revised).toHaveLength(1);
+    expect(revised[0]!.cid).toBe('c1');
+    expect(revised[0]!.result.map((m) => [m.id, m.body])).toEqual([
+      ['a', ''],
+      ['b', 'b'],
+    ]);
+    // A loaded thread is changed in place (its copy is kept from it).
+    seed(qc, 'c2', [msg('x', '01')]);
+    cache.patch('c2', 'x', (m) => ({ ...m, body: 'edited' }));
+    expect(revised).toHaveLength(1);
+  });
+});
+
 describe('my message arriving live while it still waits on the phone (3a)', () => {
   it('shows once: the live copy takes the waiting one’s place by its client id, and the send’s answer adds nothing', async () => {
     const { outboxFor } = await import('./chat-outbox');

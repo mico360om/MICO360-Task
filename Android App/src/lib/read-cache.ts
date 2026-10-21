@@ -225,7 +225,34 @@ export function createReadCache({
     if (userId) hold(userId, key, data, opts.slim as ((data: unknown) => unknown) | undefined);
   }
 
-  return { read, keep, clear, settled };
+  /**
+   * Change a kept copy in place — the newest waiting to be written, else the stored one — without a
+   * fetch (3a review: a chat message deleted or edited while its thread isn't open must not stay on
+   * the phone as it was). A copy that isn't there stays missing; nothing is changed while signed out.
+   */
+  async function revise<T>(key: string, change: (data: T) => T): Promise<void> {
+    const userId = getUserId();
+    if (!userId) return;
+    const gen = generation;
+    const unwritten = waiting.get(cacheKey(userId, key));
+    if (unwritten && unwritten.generation === gen) {
+      hold(userId, key, change(unwritten.envelope.data as T), unwritten.slim);
+      return;
+    }
+    const raw = await store.getItem(cacheKey(userId, key)).catch(() => null);
+    if (!raw || gen !== generation || getUserId() !== userId) return;
+    let data: T;
+    try {
+      data = (JSON.parse(raw) as CacheEnvelope<T>).data;
+    } catch {
+      return;
+    }
+    // A newer copy may have been kept while this one was read: change that one instead.
+    const newer = waiting.get(cacheKey(userId, key));
+    hold(userId, key, change(newer && newer.generation === gen ? (newer.envelope.data as T) : data));
+  }
+
+  return { read, keep, revise, clear, settled };
 }
 
 export type ReadCache = ReturnType<typeof createReadCache>;
