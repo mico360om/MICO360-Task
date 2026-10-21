@@ -30,6 +30,16 @@ export function canReschedule(item: { kind: 'task' | 'projected'; status: CalSta
   return item.kind === 'task' && item.status !== 'done' && !item.projectArchived;
 }
 
+/**
+ * The Move button on a calendar row, where the task can be moved (null where it can't): a visible
+ * way in besides the long-press, which TalkBack users had alone (5a review). A repeating task's
+ * sheet asks whether to move this occurrence or the whole series, and the name says so.
+ */
+export function moveButton(item: Pick<CalItem, 'kind' | 'status' | 'projectArchived' | 'recurring' | 'task'>): { label: string; a11y: string } | null {
+  if (!canReschedule(item)) return null;
+  return { label: 'Move', a11y: `Move ${item.task.key} to another day${item.recurring ? ': this occurrence or the whole series' : ''}` };
+}
+
 /** Why an item can't be moved (null when it can). */
 export function moveBlockReason(item: Pick<CalItem, 'kind' | 'status' | 'projectArchived'>): string | null {
   if (item.kind === 'projected') return 'This copy isn’t a task yet, so it can’t be moved. Open the current copy to change the series.';

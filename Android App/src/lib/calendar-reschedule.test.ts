@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import {
   canReschedule,
   moveBlockReason,
+  moveButton,
   moveFailedText,
   movedText,
   needsSeriesChoice,
@@ -167,5 +168,22 @@ describe.skipIf(!existsSync(webMove))('the same as the website', () => {
         for (const projectArchived of [false, true]) expect(canReschedule({ kind, status, projectArchived })).toBe(web.canReschedule!({ kind, status, projectArchived }));
       }
     }
+  });
+});
+
+describe('the visible Move button on a calendar row (5a review: moving can be found without a long-press)', () => {
+  it('shows on a task that can be moved, named for TalkBack after the task', () => {
+    expect(moveButton(item({}))).toEqual({ label: 'Move', a11y: 'Move MICO-1 to another day' });
+    expect(moveButton(item({ status: 'overdue' }))).toEqual({ label: 'Move', a11y: 'Move MICO-1 to another day' });
+  });
+
+  it('a repeating task’s button says the move can be this occurrence or the whole series', () => {
+    expect(moveButton(item({ recurring: true }))).toEqual({ label: 'Move', a11y: 'Move MICO-1 to another day: this occurrence or the whole series' });
+  });
+
+  it('isn’t shown where a move isn’t possible (a repeat not created yet, a finished task, an archived project)', () => {
+    expect(moveButton(item({ kind: 'projected' }))).toBeNull();
+    expect(moveButton(item({ status: 'done' }))).toBeNull();
+    expect(moveButton(item({ projectArchived: true }))).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import { useColors } from '../../core/theme';
 import { STATUS_LABEL, itemMeta, itemName, type CalItem, type CalStatus } from '../../lib/calendar-model';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { statusColor } from './MonthGrid';
+import { moveButton } from '../../lib/calendar-reschedule';
 
 /** Each status's sign (with its words beside it — colour is never the only sign). */
 const STATUS_ICON: Record<CalStatus, string> = {
@@ -18,7 +19,8 @@ const STATUS_ICON: Record<CalStatus, string> = {
 /**
  * A task on the calendar: its status (sign and words), up to two lines of its title, its key (or
  * "Not created yet"), project and people, the project's colour on its edge, and a dashed outline
- * for a repeat not created yet. Tap opens it; a long press (or TalkBack's action) moves it.
+ * for a repeat not created yet. Tap opens it; its Move button, a long press or TalkBack's action
+ * moves it (5a review: the button makes moving findable without a long-press).
  */
 export function CalendarTaskRow({
   item,
@@ -40,7 +42,8 @@ export function CalendarTaskRow({
   const projected = item.kind === 'projected';
   const meta = itemMeta(item, projectName);
   const tone = statusColor(c, item.status);
-  const actionLabel = movable ? 'Move to another day' : 'Why it can’t be moved';
+  const move = movable ? moveButton(item) : null;
+  const actionLabel = move ? move.a11y : 'Why it can’t be moved';
   return (
     <Pressable
       onPress={onPress}
@@ -48,7 +51,7 @@ export function CalendarTaskRow({
       delayLongPress={350}
       accessibilityRole="button"
       accessibilityLabel={`${itemName(item)}. ${meta}`}
-      accessibilityHint={projected ? 'Explains this copy, and opens the current one' : movable ? 'Opens the task. Long-press to move it to another day' : 'Opens the task'}
+      accessibilityHint={projected ? 'Explains this copy, and opens the current one' : move ? 'Opens the task. Move it to another day from the actions' : 'Opens the task'}
       accessibilityActions={[{ name: 'longpress', label: actionLabel }]}
       onAccessibilityAction={(e) => {
         if (e.nativeEvent.actionName === 'longpress') onLongPress();
@@ -72,6 +75,12 @@ export function CalendarTaskRow({
         <Text style={s.repeat} importantForAccessibility="no">
           🔁
         </Text>
+      ) : null}
+      {move ? (
+        // TalkBack reaches it as the row's action (named the same); the button is for sight.
+        <Pressable onPress={onLongPress} hitSlop={6} accessibilityLabel={move.a11y} style={({ pressed }) => [s.move, pressed && s.pressed]}>
+          <Text style={s.moveText}>{move.label}</Text>
+        </Pressable>
       ) : null}
     </Pressable>
   );
@@ -105,4 +114,6 @@ const makeStyles = (c: Palette) =>
     meta: { fontSize: fontSize.xs, color: c.ink2 },
     status: { fontWeight: '700' },
     repeat: { fontSize: fontSize.sm, color: c.ink2 },
+    move: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand },
+    moveText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
   });
