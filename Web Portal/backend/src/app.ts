@@ -140,6 +140,8 @@ export interface AppDeps extends AuthRouteDeps {
   meetingFreeTimes?: import('./modules/meetings/meeting-routes').FreeTimesDeps;
   /** Is this an existing, active user? Checks the people sent with a new meeting. */
   isActiveUser?: (userId: string) => Promise<boolean>;
+  /** Draft agenda's project tasks and last meeting's leftovers, gathered with the person's access. */
+  meetingAgendaSources?: import('./modules/ai/ai-feature-routes').AgendaSourcesFor;
   /** The two morning task emails: "Send me a test now" and the admins' delivery log. */
   dailyEmails?: Omit<DailyEmailRouteDeps, 'guard'>;
   deviceTokenService?: DeviceTokenService;
@@ -628,7 +630,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerAiRoutes(api, { aiConfigService: deps.aiConfigService, guard });
       }
       if (deps.aiFeatureService) {
-        await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard });
+        await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard, agendaSources: deps.meetingAgendaSources, userNames: deps.resolveUserNames });
       }
       if (deps.emailWebhookService) {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });

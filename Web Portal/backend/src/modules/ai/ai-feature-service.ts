@@ -236,6 +236,76 @@ export function createAiFeatureService({
     };
   }
 
+  /**
+   * Propose a meeting's agenda from what was typed, the project's open tasks and the last meeting's
+   * leftovers. Each item gets a lead from the invited people (anyone else is dropped) and minutes,
+   * scaled so the items fit the meeting's length.
+   */
+  async function draftAgenda(input: DraftAgendaInput, requester?: AiRequester): Promise<DraftedAgendaItem[]> {
+    const lines = [
+      `Meeting: ${input.title}`,
+      input.description?.trim() ? `Description: ${input.description.trim()}` : '',
+      input.text?.trim() ? `What the organizer wrote: ${input.text.trim()}` : '',
+      `Length: ${input.minutes} minutes`,
+      input.people.length ? `People (id | name), one per line:\n${input.people.map((p) => `${p.id} | ${p.name}`).join('\n')}` : 'People: none listed',
+      input.tasks.length ? `Open project tasks (key | title | why):\n${input.tasks.map((t) => `${t.key} | ${t.title} | ${t.reason}`).join('\n')}` : '',
+      input.leftovers.length ? `Left open by the last meeting:\n${input.leftovers.map((l) => `${l.kind === 'action' ? 'Action item' : 'Agenda item'}: ${l.title}`).join('\n')}` : '',
+    ].filter(Boolean);
+    const text = await run(
+      [
+        'You plan business meetings. Propose up to 12 agenda items for the meeting below, drawing on what the organizer wrote, the open project tasks and what the last meeting left open.',
+        'Write in the language the organizer wrote in. Each title is short (under 10 words); never invent names, dates or numbers.',
+        'Reply with ONLY JSON: {"items": [{"title": string, "ownerId": an id from the people list or null, "minutes": number}]}.',
+        'The minutes of all agenda items together must fit the meeting length.',
+      ].join('\n'),
+      lines.join('\n\n'),
+      900,
+      requester,
+      { json: true },
+    );
+    const raw = parseJsonObject(text).items;
+    const invited = new Set(input.people.map((p) => p.id));
+    const items = (Array.isArray(raw) ? raw : [])
+      .map((v) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {}))
+      .map((v) => ({
+        title: typeof v.title === 'string' ? v.title.trim().slice(0, 300) : '',
+        ownerId: typeof v.ownerId === 'string' && invited.has(v.ownerId) ? v.ownerId : null,
+        minutes: typeof v.minutes === 'number' && Number.isFinite(v.minutes) && v.minutes >= 1 ? Math.round(v.minutes) : null,
+      }))
+      .filter((i) => i.title)
+      // At most 12, and no more items than the meeting has minutes (each gets at least one).
+      .slice(0, Math.min(MAX_DRAFT_AGENDA, input.minutes));
+    if (items.length === 0) throw new ValidationError('The AI didn’t suggest an agenda. Try again, or add the items yourself.');
+    const share = Math.max(1, Math.round(input.minutes / items.length));
+    const asked = items.map((i) => i.minutes ?? share);
+    const total = asked.reduce((s, m) => s + m, 0);
+    const scale = total > input.minutes ? input.minutes / total : 1;
+    return items.map((i, n) => ({ title: i.title, ownerId: i.ownerId, minutes: Math.max(1, Math.floor(asked[n]! * scale)) }));
+  }
+
+  /** A short description for a meeting's invitation, from its title, agenda and what was typed. */
+  async function writeMeetingDescription(input: { title: string; agenda?: string[]; text?: string }, requester?: AiRequester): Promise<string> {
+    const text = await run(
+      [
+        'You write the description of a business meeting invitation: 1 to 3 sentences on its purpose and what it covers.',
+        'Write in the language the organizer wrote in (Arabic or English). Use only what is given: never invent names, dates or numbers.',
+        'Reply with ONLY JSON: {"description": string}.',
+      ].join('\n'),
+      [
+        `Meeting: ${input.title}`,
+        input.agenda?.length ? `Agenda:\n${input.agenda.map((a) => `- ${a}`).join('\n')}` : '',
+        input.text?.trim() ? `What the organizer wrote: ${input.text.trim()}` : '',
+      ].filter(Boolean).join('\n\n'),
+      500,
+      requester,
+      { json: true },
+    );
+    const description = parseJsonObject(text).description;
+    const out = typeof description === 'string' ? description.trim().slice(0, 2000) : '';
+    if (!out) throw new ValidationError('The AI didn’t write a description. Try again, or write it yourself.');
+    return out;
+  }
+
   /** A concise 2–3 sentence status summary for a project. */
   async function summarizeProject(input: ProjectSummaryInput, requester?: AiRequester): Promise<string> {
     const { name, stats, sampleTitles } = input;
@@ -296,7 +366,7 @@ export function createAiFeatureService({
     return obj;
   }
 
-  return { breakdownTask, parseTask, parseMeeting, summarizeProject, suggestPriority, draftMinutes };
+  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;
@@ -342,6 +412,26 @@ export interface DescribedMeeting {
   agenda: string[];
 }
 
+/** What Draft agenda works from (the server gathers the tasks and leftovers). */
+export interface DraftAgendaInput {
+  title: string;
+  description?: string;
+  text?: string;
+  /** The meeting's length: the items' minutes are fitted to it. */
+  minutes: number;
+  /** The invited portal users (the organizer included): the only possible leads. */
+  people: Array<{ id: string; name: string }>;
+  tasks: Array<{ key: string; title: string; reason: 'overdue' | 'blocked' | 'due' }>;
+  leftovers: Array<{ title: string; kind: 'action' | 'agenda' }>;
+}
+
+export interface DraftedAgendaItem {
+  title: string;
+  ownerId: string | null;
+  minutes: number;
+}
+
+const MAX_DRAFT_AGENDA = 12;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** At most this many people are listed in the prompt (each one is a line). */
 const MAX_PROMPT_PEOPLE = 300;

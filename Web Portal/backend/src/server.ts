@@ -144,6 +144,8 @@ import { createMeetingService } from './modules/meetings/meeting-service';
 import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
 import { createPrismaMeetingListCounts, createPrismaProjectMeetingsSource } from './modules/meetings/prisma-project-meetings';
 import { createMeetingAccess } from './modules/meetings/meeting-access';
+import { gatherAgendaSources } from './modules/meetings/agenda-sources';
+import { createPrismaAgendaSources } from './modules/meetings/prisma-agenda-sources';
 import { createPrismaAttendeeRepository } from './modules/meetings/prisma-attendee-repository';
 import { createAttendeeService } from './modules/meetings/attendee-service';
 import type { AttendeeRecord } from './modules/meetings/attendee-repository';
@@ -443,6 +445,7 @@ async function main(): Promise<void> {
 
   // Meetings & Meeting Notes module (project-linked and standalone).
   const meetingRepository = createPrismaMeetingRepository(prisma);
+  const agendaSourceStore = createPrismaAgendaSources(prisma);
   const isActiveUser = async (userId: string): Promise<boolean> =>
     (await prisma.user.count({ where: { id: userId, deletedAt: null, status: 'ACTIVE' } })) > 0;
   // Who may change a meeting: organizer, creator, admin — or whoever manages its project
@@ -1180,6 +1183,20 @@ async function main(): Promise<void> {
     meetingSeriesService,
     projectMeetings: { load: createPrismaProjectMeetingsSource(prisma).load, timeZone: companyTz },
     isActiveUser,
+    // Draft agenda: the project's open tasks and the last meeting's leftovers, as far as the person may see.
+    meetingAgendaSources: (requester, input) =>
+      gatherAgendaSources(
+        {
+          store: agendaSourceStore,
+          async canUseProject(user, projectId) {
+            const ids = await meetingAccess.accessibleProjectIds(user.id, user.roles);
+            return !ids || ids.includes(projectId);
+          },
+          canViewMeeting: (userId, roles, meetingId) => meetingAccess.canViewMeeting(userId, roles, meetingId),
+          timeZone: companyTz,
+        },
+        { requester, ...input },
+      ),
     // Schedule meeting's free times: who is busy, inside the company's meeting hours.
     meetingFreeTimes: {
       busy: meetingRepository,

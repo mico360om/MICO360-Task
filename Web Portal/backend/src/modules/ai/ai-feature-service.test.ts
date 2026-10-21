@@ -406,3 +406,77 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
     expect(out.agenda).toEqual(['Scope', 'Timeline', 'x'.repeat(300)]);
   });
 });
+
+describe('AiFeatureService: drafting a meeting’s agenda and description', () => {
+  function answering(answer: unknown) {
+    const prompts: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init!.body));
+      prompts.push(body.messages.map((m: { content: string }) => m.content).join('\n'));
+      const content = typeof answer === 'string' ? answer : JSON.stringify(answer);
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    return { svc: createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl }), prompts };
+  }
+  const me = { userId: 'u1', roles: ['EMPLOYEE'] };
+  const people = [{ id: 'u1', name: 'Khalid Al Amri' }, { id: 'u2', name: 'Sara Al Balushi' }, { id: 'u3', name: 'Ali Hassan' }];
+  const base = { title: 'Pump station review', minutes: 60, people, tasks: [], leftovers: [] };
+
+  it('fits the minutes to the meeting and keeps only invited leads', async () => {
+    const { svc } = answering({
+      items: [
+        { title: 'Pump test results', ownerId: 'u2', minutes: 40 },
+        { title: 'Budget', ownerId: 'u9', minutes: 40 },
+        { title: '  ', ownerId: 'u3', minutes: 10 },
+        { title: 'Next steps', ownerId: 'u3', minutes: 40 },
+      ],
+    });
+    const items = await svc.draftAgenda(base, me);
+    expect(items).toEqual([
+      { title: 'Pump test results', ownerId: 'u2', minutes: 20 },
+      { title: 'Budget', ownerId: null, minutes: 20 },
+      { title: 'Next steps', ownerId: 'u3', minutes: 20 },
+    ]);
+    // Short enough already: kept as given; a missing length gets a fair share.
+    const fits = await answering({ items: [{ title: 'Intro', ownerId: 'u1', minutes: 10 }, { title: 'Open floor', ownerId: null }] }).svc.draftAgenda(base, me);
+    expect(fits.map((i) => i.minutes)).toEqual([10, 30]);
+    // At most 12 items, each at least a minute, never more than the meeting.
+    const many = await answering({ items: Array.from({ length: 20 }, (_, i) => ({ title: `Point ${i + 1}`, minutes: 30 })) }).svc.draftAgenda({ ...base, minutes: 10 }, me);
+    expect(many.length).toBeLessThanOrEqual(10);
+    expect(many.every((i) => i.minutes >= 1)).toBe(true);
+    expect(many.reduce((s, i) => s + i.minutes, 0)).toBeLessThanOrEqual(10);
+  });
+
+  it('draws on open tasks and the previous meeting’s leftovers', async () => {
+    const { svc, prompts } = answering({ items: [{ title: 'Valve fix', ownerId: 'u2', minutes: 15 }] });
+    await svc.draftAgenda(
+      {
+        ...base,
+        description: 'Monthly check of the pump station',
+        text: 'review with Sara about the valve',
+        tasks: [{ key: 'PUMP-1', title: 'Fix the valve', reason: 'blocked' }],
+        leftovers: [{ title: 'Order spare seals', kind: 'action' }],
+      },
+      me,
+    );
+    for (const s of ['Pump station review', 'Monthly check of the pump station', 'review with Sara about the valve', 'PUMP-1', 'Fix the valve', 'blocked', 'Order spare seals', 'u2 | Sara Al Balushi', '60 minutes']) {
+      expect(prompts[0], s).toContain(s);
+    }
+  });
+
+  it('says so when the model gives no agenda', async () => {
+    await expect(answering({ items: [] }).svc.draftAgenda(base, me)).rejects.toBeInstanceOf(ValidationError);
+    await expect(answering('no idea').svc.draftAgenda(base, me)).rejects.toThrow(/agenda/i);
+  });
+
+  it('writes a description and refuses an empty answer', async () => {
+    const { svc, prompts } = answering({ description: '  Monthly review of the pump station: test results, budget and next steps.  ' });
+    expect(await svc.writeMeetingDescription({ title: 'Pump station review', agenda: ['Pump test results', 'Budget'], text: 'monthly pump review' }, me)).toBe(
+      'Monthly review of the pump station: test results, budget and next steps.',
+    );
+    expect(prompts[0]).toContain('Pump test results');
+    expect(prompts[0]).toMatch(/language/i);
+    await expect(answering({ description: '' }).svc.writeMeetingDescription({ title: 'X' }, me)).rejects.toBeInstanceOf(ValidationError);
+    expect((await answering({ description: 'y'.repeat(3000) }).svc.writeMeetingDescription({ title: 'X' }, me)).length).toBe(2000);
+  });
+});

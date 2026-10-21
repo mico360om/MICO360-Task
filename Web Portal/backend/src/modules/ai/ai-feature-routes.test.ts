@@ -80,3 +80,47 @@ describe('AI meeting routes', () => {
     await app.close();
   });
 });
+
+describe('AI agenda and description routes', () => {
+  async function agendaApp() {
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const prompt = JSON.parse(String(init!.body)).messages.map((m: { content: string }) => m.content).join('\n');
+      const content = prompt.includes('agenda items')
+        ? JSON.stringify({ items: [{ title: 'Valve fix', ownerId: 'u2', minutes: 20 }] })
+        : JSON.stringify({ description: 'A short review.' });
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const aiFeatureService = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl });
+    const asked: unknown[] = [];
+    const meetingAgendaSources = async (requester: unknown, input: unknown) => {
+      asked.push({ requester, input });
+      return { tasks: [{ key: 'PUMP-1', title: 'Fix the valve', reason: 'blocked' as const }], leftovers: [] };
+    };
+    const resolveUserNames = async (ids: string[]) => new Map(ids.filter((i) => i !== 'gone').map((i) => [i, i.toUpperCase()]));
+    const app = await buildApp({ authService, tokenService, aiFeatureService, meetingAgendaSources, resolveUserNames });
+    const headers = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'u1', roles: ['EMPLOYEE'] })).accessToken}` };
+    return { app, headers, asked };
+  }
+  const draft = { title: 'Pump review', startAt: '2026-10-26T06:00:00Z', minutes: 60, projectId: 'p1', peopleIds: ['u1', 'u2', 'gone'] };
+
+  it('drafts an agenda from the sources gathered for the signed-in person', async () => {
+    const { app, headers, asked } = await agendaApp();
+    const res = await app.inject({ method: 'POST', url: '/api/v1/ai/draft-agenda', headers, payload: { ...draft, meetingId: 'm5' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.items).toEqual([{ title: 'Valve fix', ownerId: 'u2', minutes: 20 }]);
+    expect(asked).toEqual([{ requester: { userId: 'u1', roles: ['EMPLOYEE'] }, input: { projectId: 'p1', startAt: new Date('2026-10-26T06:00:00Z'), meetingId: 'm5' } }]);
+    await app.close();
+  });
+
+  it('bounds the agenda and description input', async () => {
+    const { app, headers } = await agendaApp();
+    const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url: `/api/v1/ai/${url}`, headers, payload: payload as never });
+    expect((await post('draft-agenda', { ...draft, peopleIds: Array.from({ length: 101 }, (_, i) => `u${i}`) })).statusCode).toBe(400);
+    expect((await post('draft-agenda', { ...draft, minutes: 721 })).statusCode).toBe(400);
+    expect((await post('write-meeting-description', { title: 'X', agenda: Array.from({ length: 31 }, () => 'a') })).statusCode).toBe(400);
+    const ok = await post('write-meeting-description', { title: 'Pump review', agenda: ['Valve fix'] });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data).toEqual({ description: 'A short review.' });
+    await app.close();
+  });
+});
