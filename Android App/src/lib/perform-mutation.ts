@@ -2,6 +2,8 @@ import { ApiError, isNetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
 import { taskHoldsEdit } from './task-writes';
+import { editRefreshes } from './task-cache';
+import type { Refresh } from './refresh';
 import type { ApiTask } from './types';
 
 /**
@@ -89,6 +91,47 @@ export async function performMutation(resources: ResourcesApi, m: QueuedMutation
     }
     default:
       throw new ApiError(422, 'UNKNOWN_MUTATION', `Unknown queued mutation: ${m.kind}`);
+  }
+}
+
+/**
+ * What to refresh once a queued change was replayed (or finally refused): what that change touched,
+ * instead of every query in the app. A refused change refreshes the same, so an optimistic change
+ * on screen (a card moved offline) goes back to what the server holds. A kind it doesn't know
+ * refreshes everything, as before.
+ */
+export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>): Refresh[] {
+  const p = (m.payload ?? {}) as { id?: unknown; projectId?: unknown; patch?: unknown; conversationId?: unknown };
+  const id = typeof p.id === 'string' ? p.id : '';
+  const part = (name?: string): Refresh => ({ queryKey: name ? ['task', id, name] : ['task', id], exact: true });
+  const checklist = (): Refresh[] => [part('checklist'), part(), part('activity'), { listsHolding: id }];
+  switch (m.kind) {
+    case 'task.create':
+      if (typeof p.projectId !== 'string') return [{ queryKey: ['tasks'] }];
+      return [{ queryKey: ['tasks', 'project', p.projectId] }, { queryKey: ['tasks', 'mine'] }, { queryKey: ['project', p.projectId, 'progress'], exact: true }];
+    case 'task.move':
+      return [part(), part('activity'), { listsHolding: id }, { progressFor: id }];
+    case 'task.update':
+      // The task itself first, then what the edit changed (its activity, the lists showing it…).
+      return [part(), ...editRefreshes(id, typeof p.patch === 'object' && p.patch ? p.patch : {})];
+    case 'task.assign':
+    case 'task.unassign':
+      return [part('assignees'), part('activity'), { queryKey: ['tasks', 'mine'] }, { listsHolding: id }];
+    case 'checklist.add':
+      return checklist();
+    case 'checklist.update':
+      // Queued by a version that didn't note the task: every task's (only the ones on screen refetch).
+      return id ? checklist() : [{ queryKey: ['task'] }, { queryKey: ['tasks'] }];
+    case 'comment.add':
+      return [part('comments'), part('activity'), { listsHolding: id }];
+    case 'notification.read':
+      return [{ queryKey: ['notifications'] }];
+    case 'chat.send':
+      return typeof p.conversationId === 'string'
+        ? [{ queryKey: ['chat', 'messages', p.conversationId] }, { queryKey: ['chat', 'conversations'] }]
+        : [{ queryKey: ['chat'] }];
+    default:
+      return [{ queryKey: [] }];
   }
 }
 

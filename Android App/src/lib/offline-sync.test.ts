@@ -47,7 +47,7 @@ describe('offline read cache + write queue + reconnect sync (integration)', () =
 
     // 4. Reconnect → the controller flushes and replays the write to the API; the queue drains.
     const result = await controller.trigger();
-    expect(result).toEqual({ synced: 1, failed: [], remaining: 0 });
+    expect(result).toEqual({ synced: 1, done: [expect.objectContaining({ kind: 'task.update' })], failed: [], remaining: 0 });
     expect(update).toHaveBeenCalledWith('t1', { title: 'B' });
     expect(queue.pending()).toHaveLength(0);
   });
@@ -78,7 +78,8 @@ describe('offline read cache + write queue + reconnect sync (integration)', () =
     await queue.enqueue('task.move', { id: 't1', columnId: 'c2' }, { userId: 'u1' });
     await queue.enqueue('task.update', { id: 't1', patch: { title: 'B', expectedVersion: 5 } }, { userId: 'u1' });
     const result = await queue.flush('u1');
-    expect(result).toEqual({ synced: 3, failed: [], remaining: 0 });
+    expect(result).toMatchObject({ synced: 3, failed: [], remaining: 0 });
+    expect(result.done.map((m) => m.kind)).toEqual(['task.update', 'task.move', 'task.update']);
     expect(tasks.update).toHaveBeenLastCalledWith('t1', { title: 'B', expectedVersion: 7 });
   });
 

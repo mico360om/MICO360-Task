@@ -32,6 +32,8 @@ export type FailureKind = 'offline' | 'unauthorized' | 'transient' | 'permanent'
 
 export interface FlushResult {
   synced: number;
+  /** The items replayed during this flush, in order (so the app refreshes what they touched). */
+  done: QueuedMutation[];
   /** Items that moved to `failed` during this flush (permanent rejection or retry cap reached). */
   failed: QueuedMutation[];
   /** Items still pending for this user. */
@@ -177,6 +179,7 @@ export function createSyncQueue(options: SyncQueueOptions) {
 
   async function flush(userId: string, opts: { shouldContinue?: () => boolean } = {}): Promise<FlushResult> {
     let synced = 0;
+    const done: QueuedMutation[] = [];
     const failed: QueuedMutation[] = [];
     let pausedBy: FlushResult['pausedBy'];
 
@@ -193,6 +196,7 @@ export function createSyncQueue(options: SyncQueueOptions) {
         const rebase = options.rebase;
         await commit(rebase ? rest.map((x) => (x.userId === m.userId && x.status === 'pending' ? rebase(m, result, x) : x)) : rest);
         synced += 1;
+        done.push(m);
       } catch (error) {
         const kind = classify(error);
         if (kind === 'offline') {
@@ -223,7 +227,7 @@ export function createSyncQueue(options: SyncQueueOptions) {
       }
     }
 
-    return { synced, failed, remaining: pendingFor(userId).length, ...(pausedBy ? { pausedBy } : {}) };
+    return { synced, done, failed, remaining: pendingFor(userId).length, ...(pausedBy ? { pausedBy } : {}) };
   }
 
   function pendingFor(userId: string | null | undefined): QueuedMutation[] {

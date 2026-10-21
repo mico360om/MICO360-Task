@@ -16,7 +16,7 @@ const m = (id: string, userId = 'u1'): QueuedMutation => ({
 type FlushFn = (userId: string, opts?: { shouldContinue?: () => boolean }) => Promise<FlushResult>;
 
 function fakeQueue(items: QueuedMutation[], flushImpl?: FlushFn) {
-  const fallback: FlushFn = async () => ({ synced: items.length, failed: [], remaining: 0 });
+  const fallback: FlushFn = async () => ({ synced: items.length, done: items, failed: [], remaining: 0 });
   return {
     pendingFor: (userId: string | null | undefined) => items.filter((x) => x.userId === userId),
     flush: vi.fn<FlushFn>(flushImpl ?? fallback),
@@ -31,7 +31,7 @@ describe('createSyncController (A8 sync-on-reconnect)', () => {
     const res = await controller.trigger();
     expect(queue.flush).toHaveBeenCalledOnce();
     expect(queue.flush.mock.calls[0]![0]).toBe('u1');
-    expect(res).toEqual({ synced: 1, failed: [], remaining: 0 });
+    expect(res).toEqual({ synced: 1, done: [m('1')], failed: [], remaining: 0 });
     expect(onFlushed).toHaveBeenCalledOnce();
   });
 
@@ -54,7 +54,7 @@ describe('createSyncController (A8 sync-on-reconnect)', () => {
     const gate = new Promise<void>((r) => (release = r));
     const queue = fakeQueue([m('1')], async () => {
       await gate;
-      return { synced: 1, failed: [], remaining: 0 };
+      return { synced: 1, done: [m('1')], failed: [], remaining: 0 };
     });
     const controller = createSyncController({ queue, getUserId: () => 'u1' });
     const first = controller.trigger();
@@ -69,7 +69,7 @@ describe('createSyncController (A8 sync-on-reconnect)', () => {
 
   it('asks the queue to stop if the user changes mid-flush', async () => {
     let user: string | null = 'u1';
-    const queue = fakeQueue([m('1')], async () => ({ synced: 0, failed: [], remaining: 1 }));
+    const queue = fakeQueue([m('1')], async () => ({ synced: 0, done: [], failed: [], remaining: 1 }));
     const controller = createSyncController({ queue, getUserId: () => user });
     await controller.trigger();
     const { shouldContinue } = queue.flush.mock.calls[0]![1] as { shouldContinue: () => boolean };

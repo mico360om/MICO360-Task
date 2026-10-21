@@ -4,6 +4,8 @@ import { ApiError, isNetworkError } from '../lib/api-client';
 import { meetingWindow } from '../lib/meetings';
 import { refetchAfterMove } from '../lib/task-status';
 import { taskWrites, withExpectedVersion } from '../lib/task-writes';
+import { afterTaskDeleted, afterTaskSaved, moveRefreshes } from '../lib/task-cache';
+import { refresh } from '../lib/refresh';
 import { newIdempotencyKey } from '../lib/idempotency';
 import type { SyncQueue } from '../lib/sync-queue';
 import type { ApiTask } from '../lib/types';
@@ -146,7 +148,8 @@ export function useChecklistMutations(taskId: string) {
   const update = useMutation({
     mutationFn: ({ itemId, patch }: { itemId: string; patch: { done?: boolean; text?: string } }) => resources.tasks.updateChecklistItem(itemId, patch),
     onSuccess: invalidate,
-    onError: (err, { itemId, patch }) => queueOnOffline(queue, currentUserId(), err, 'checklist.update', { itemId, patch }),
+    // The task's id goes along so the replay refreshes that task's checklist only.
+    onError: (err, { itemId, patch }) => queueOnOffline(queue, currentUserId(), err, 'checklist.update', { id: taskId, itemId, patch }),
   });
   const remove = useMutation({ mutationFn: (itemId: string) => resources.tasks.removeChecklistItem(itemId), onSuccess: invalidate });
   /** Save a new order (every item id, first to last). Needs a connection. */
@@ -261,11 +264,8 @@ export function useDeleteTask(taskId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (scope?: 'series') => resources.tasks.remove(taskId, scope),
-    onSuccess: () => {
-      qc.removeQueries({ queryKey: ['task', taskId] });
-      void qc.invalidateQueries({ queryKey: ['tasks'] });
-      void qc.invalidateQueries({ queryKey: ['project'] });
-    },
+    // Its data goes; the lists that held it and its project's figures are fetched again.
+    onSuccess: (_data, scope) => afterTaskDeleted(qc, taskId, scope),
   });
 }
 
@@ -382,8 +382,9 @@ export function useUnreadCount() {
 /**
  * Move a task to another column (MOB-04). The board caches one task list per board date
  * (`['tasks','project',projectId,<date>]`), so the optimistic move and the refresh address the
- * whole `['tasks','project',projectId]` prefix — plus the task's own detail, "My tasks" and the
- * project progress — instead of one key the board never reads.
+ * whole `['tasks','project',projectId]` prefix — plus the task's own detail and activity, "My
+ * tasks" when it holds the task, and the project progress (moveRefreshes) — instead of one key the
+ * board never reads.
  */
 export function useMoveTask(projectId: string) {
   const { resources, queue, currentUserId } = useServices();
@@ -422,10 +423,7 @@ export function useMoveTask(projectId: string) {
       // Offline, the move is queued: reloading now would read the cache from before the move and put
       // the card back. The sync after reconnecting refreshes the board.
       if (!refetchAfterMove(err)) return;
-      void qc.invalidateQueries({ queryKey: boardPrefix });
-      void qc.invalidateQueries({ queryKey: ['task', vars.id], exact: true });
-      void qc.invalidateQueries({ queryKey: ['tasks', 'mine'] });
-      void qc.invalidateQueries({ queryKey: ['project', projectId, 'progress'] });
+      refresh(qc, moveRefreshes(vars.id, projectId));
     },
   });
 }
@@ -451,11 +449,9 @@ export function useUpdateTask(taskId: string) {
         taskWrites.note(taskId, updated?.version);
         return updated;
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['task', taskId] });
-      void qc.invalidateQueries({ queryKey: ['tasks'] });
-      void qc.invalidateQueries({ queryKey: ['project'] });
-    },
+    // The details show the saved task at once; only what the edit changed is fetched again (its
+    // activity, the lists that show it, and the progress figures after a new due date).
+    onSuccess: (saved, patch) => afterTaskSaved(qc, taskId, saved, patch),
     onError: (err, patch) => queueOnOffline(queue, currentUserId(), err, 'task.update', { id: taskId, patch: sentEdits.get(patch) ?? patch }),
   });
 }

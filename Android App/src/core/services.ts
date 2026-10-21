@@ -13,7 +13,8 @@ import type { AppEnv } from '../lib/app-env';
 import { resourcesApi } from '../lib/resources';
 import { createReadCache } from '../lib/read-cache';
 import { createSyncQueue, type QueuedMutation } from '../lib/sync-queue';
-import { performMutation } from '../lib/perform-mutation';
+import { performMutation, refreshesAfterReplay } from '../lib/perform-mutation';
+import { refresh } from '../lib/refresh';
 import { rebaseQueuedVersion } from '../lib/task-writes';
 import { createSyncController } from '../lib/sync-controller';
 import { createPushRegistrar } from '../lib/push-registrar';
@@ -160,10 +161,9 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   const sync = createSyncController({
     queue,
     getUserId: currentUserId,
-    // Replayed changes are now on the server: refresh whatever is on screen.
-    onFlushed: () => {
-      void queryClient.invalidateQueries();
-    },
+    // Replayed changes are now on the server (and refused ones never will be): refresh what they
+    // touched, not every query in the app.
+    onFlushed: (result) => refresh(queryClient, [...result.done, ...result.failed].flatMap(refreshesAfterReplay)),
   });
   triggerSync = () => {
     if (!sync.isFlushing() && queue.pendingFor(currentUserId()).length > 0) void sync.trigger();

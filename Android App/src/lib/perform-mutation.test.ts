@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { performMutation, describeMutation } from './perform-mutation';
+import { performMutation, describeMutation, refreshesAfterReplay } from './perform-mutation';
 import { ApiError, NetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
@@ -134,5 +134,68 @@ describe('performMutation — a replayed edit that the server had already saved'
     r.tasks.update.mockRejectedValueOnce(new ApiError(400, 'VALIDATION', 'Invalid input.'));
     await expect(performMutation(r, edit)).rejects.toBeInstanceOf(ApiError);
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe('refreshesAfterReplay (what a replayed change refreshes, instead of everything)', () => {
+  const task = (id: string) => [{ queryKey: ['task', id], exact: true }, { queryKey: ['task', id, 'activity'], exact: true }, { listsHolding: id }];
+
+  it('a new task: its project’s lists, My Tasks and the project’s progress', () => {
+    expect(refreshesAfterReplay(mut('task.create', { projectId: 'p1', title: 'x', columnId: 'c1' }))).toEqual([
+      { queryKey: ['tasks', 'project', 'p1'] },
+      { queryKey: ['tasks', 'mine'] },
+      { queryKey: ['project', 'p1', 'progress'], exact: true },
+    ]);
+  });
+
+  it('a move: the task, its activity, the lists holding it and its project’s progress', () => {
+    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2' }))).toEqual([...task('t1'), { progressFor: 't1' }]);
+  });
+
+  it('an edit: what the edit changed', () => {
+    expect(refreshesAfterReplay(mut('task.update', { id: 't1', patch: { title: 'x', expectedVersion: 2 } }))).toEqual(task('t1'));
+    expect(refreshesAfterReplay(mut('task.update', { id: 't1', patch: { dueDate: null } }))).toContainEqual({ progressFor: 't1' });
+  });
+
+  it('people, checklist and comments: that part of the task, plus the lists showing it', () => {
+    expect(refreshesAfterReplay(mut('task.assign', { id: 't1', userIds: ['u2'] }))).toEqual([
+      { queryKey: ['task', 't1', 'assignees'], exact: true },
+      { queryKey: ['task', 't1', 'activity'], exact: true },
+      { queryKey: ['tasks', 'mine'] },
+      { listsHolding: 't1' },
+    ]);
+    expect(refreshesAfterReplay(mut('checklist.add', { id: 't1', text: 'x' }))).toEqual([
+      { queryKey: ['task', 't1', 'checklist'], exact: true },
+      { queryKey: ['task', 't1'], exact: true },
+      { queryKey: ['task', 't1', 'activity'], exact: true },
+      { listsHolding: 't1' },
+    ]);
+    expect(refreshesAfterReplay(mut('comment.add', { id: 't1', body: 'x' }))).toEqual([
+      { queryKey: ['task', 't1', 'comments'], exact: true },
+      { queryKey: ['task', 't1', 'activity'], exact: true },
+      { listsHolding: 't1' },
+    ]);
+  });
+
+  it('a subtask change saved by an older version, without its task: every open checklist', () => {
+    expect(refreshesAfterReplay(mut('checklist.update', { itemId: 'i1', patch: { done: true } }))).toEqual([
+      { queryKey: ['task'] },
+      { queryKey: ['tasks'] },
+    ]);
+    expect(refreshesAfterReplay(mut('checklist.update', { id: 't1', itemId: 'i1', patch: { done: true } }))).toEqual(
+      refreshesAfterReplay(mut('checklist.add', { id: 't1', text: 'x' })),
+    );
+  });
+
+  it('notifications and chat messages', () => {
+    expect(refreshesAfterReplay(mut('notification.read', { id: 'n1' }))).toEqual([{ queryKey: ['notifications'] }]);
+    expect(refreshesAfterReplay(mut('chat.send', { conversationId: 'c1', body: 'hi' }))).toEqual([
+      { queryKey: ['chat', 'messages', 'c1'] },
+      { queryKey: ['chat', 'conversations'] },
+    ]);
+  });
+
+  it('anything it doesn’t know: everything, as before', () => {
+    expect(refreshesAfterReplay(mut('something.new', {}))).toEqual([{ queryKey: [] }]);
   });
 });

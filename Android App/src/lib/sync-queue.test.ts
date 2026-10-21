@@ -57,7 +57,7 @@ describe('createSyncQueue (offline mutation queue, A8 / XP-02 / XP-06)', () => {
     await q.enqueue('a', 1, A);
     await q.enqueue('b', 2, A);
     const res = await q.flush('userA');
-    expect(res).toEqual({ synced: 2, failed: [], remaining: 0 });
+    expect(res).toEqual({ synced: 2, done: [expect.objectContaining({ kind: 'a' }), expect.objectContaining({ kind: 'b' })], failed: [], remaining: 0 });
     expect(perform.mock.calls.map((c) => c[0].kind)).toEqual(['a', 'b']);
     expect(q.pending()).toHaveLength(0);
   });
@@ -84,7 +84,7 @@ describe('createSyncQueue (offline mutation queue, A8 / XP-02 / XP-06)', () => {
     await q.enqueue('b', 2, A);
     await q.enqueue('c', 3, A);
     const res = await q.flush('userA');
-    expect(res).toEqual({ synced: 1, failed: [], remaining: 2, pausedBy: 'offline' });
+    expect(res).toEqual({ synced: 1, done: [expect.objectContaining({ kind: 'a' })], failed: [], remaining: 2, pausedBy: 'offline' });
     expect(q.pending().map((m) => [m.kind, m.attempts])).toEqual([
       ['b', 0],
       ['c', 0],
@@ -249,7 +249,7 @@ describe('createSyncQueue (offline mutation queue, A8 / XP-02 / XP-06)', () => {
     const o = opts();
     const q = createSyncQueue(o);
     const res = await q.flush('userA');
-    expect(res).toEqual({ synced: 0, failed: [], remaining: 0 });
+    expect(res).toEqual({ synced: 0, done: [], failed: [], remaining: 0 });
     expect(o.perform).not.toHaveBeenCalled();
   });
 
