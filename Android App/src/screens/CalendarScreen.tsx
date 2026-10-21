@@ -79,7 +79,12 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
               </Text>
               <View style={{ gap: spacing.sm }}>
                 {day.meetings.map((m) => (
-                  <MeetingRow key={`m:${m.id}`} meeting={m} timeZone={timeZone} />
+                  <MeetingRow
+                    key={`m:${m.id}`}
+                    meeting={m}
+                    timeZone={timeZone}
+                    onPress={() => navigation.navigate('MeetingDetail', { meetingId: m.id, title: m.title })}
+                  />
                 ))}
                 {day.tasks.map((t) => (
                   <TaskRow

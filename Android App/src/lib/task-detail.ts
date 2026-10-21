@@ -53,26 +53,23 @@ export function dueState(
 }
 
 /**
- * The line naming the meeting a task was created from: its title and day (company time) with a link to
- * the meeting's page on the site, or — for someone not part of the meeting — just a mention.
+ * The line naming the meeting a task was created from: its title and day (company time) and the
+ * meeting to open in the app, or — for someone not part of the meeting — just a mention.
  */
 export function meetingLine(
   meeting: ApiTaskMeeting | null | undefined,
-  apiBase: string,
   locale?: string,
   timeZone: string = appTimeZone(),
-): { text: string; href: string | null } | null {
+): { text: string; meetingId: string | null } | null {
   if (!meeting) return null;
-  if (!meeting.canView || !meeting.title) return { text: 'From a meeting you’re not part of', href: null };
+  if (!meeting.canView || !meeting.title) return { text: 'From a meeting you’re not part of', meetingId: null };
   const start = meeting.startAt ? new Date(meeting.startAt) : null;
   const day = start && !Number.isNaN(start.getTime())
     ? new Intl.DateTimeFormat(locale, { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(start)
     : '';
-  // The site is served from the API server's origin.
-  const origin = apiBase.replace(/\/api\/v\d+\/?$/, '').replace(/\/+$/, '');
   return {
     text: day ? `From meeting: ${meeting.title} · ${day}` : `From meeting: ${meeting.title}`,
-    href: `${origin}/meetings/${encodeURIComponent(meeting.id)}`,
+    meetingId: meeting.id,
   };
 }
 

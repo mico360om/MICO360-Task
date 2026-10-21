@@ -191,14 +191,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
     }
   }
 
-  /** The meeting the task came from opens on the website (the app has no meetings screen). */
-  async function openMeeting(href: string) {
-    try {
-      await Linking.openURL(href);
-    } catch {
-      Alert.alert('Couldn’t open the meeting', 'Open it from Meetings on the website.');
-    }
-  }
+  /** The meeting the task came from opens in the app. */
+  const openMeeting = (meetingId: string) => navigation.navigate('MeetingDetail', { meetingId, title: task?.meeting?.title ?? undefined });
 
   async function openFile(a: ApiAttachment) {
     try {
@@ -348,8 +342,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           onToggleWatch={() => watch.toggle.mutateAsync().catch((e) => Alert.alert('Couldn’t change watching', failureText(e, 'Please try again.')))}
           onExport={(format) => void exportTask(format)}
           exporting={exporting}
-          meeting={meetingLine(task.meeting, baseUrl)}
-          onOpenMeeting={(href) => void openMeeting(href)}
+          meeting={meetingLine(task.meeting)}
+          onOpenMeeting={openMeeting}
         />
         {wide ? (
           <View style={styles.columns}>

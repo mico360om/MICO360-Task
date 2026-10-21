@@ -98,27 +98,25 @@ describe('taskLoadProblem', () => {
 });
 
 describe('meetingLine', () => {
-  const api = 'https://task.mico360.com/api/v1';
-
-  it('names the meeting a task was created from and links to its page on the site', () => {
-    expect(meetingLine({ id: 'm 1', title: 'Weekly review', startAt: '2026-10-12T05:00:00.000Z', canView: true }, api, 'en-US', 'Asia/Muscat')).toEqual({
+  it('names the meeting a task was created from, and the meeting to open in the app', () => {
+    expect(meetingLine({ id: 'm 1', title: 'Weekly review', startAt: '2026-10-12T05:00:00.000Z', canView: true }, 'en-US', 'Asia/Muscat')).toEqual({
       text: 'From meeting: Weekly review · Mon, Oct 12',
-      href: 'https://task.mico360.com/meetings/m%201',
+      meetingId: 'm 1',
     });
   });
 
   it('uses the meeting’s day in the company time zone', () => {
     // 22:30 UTC on the 11th is already the 12th in Muscat.
-    expect(meetingLine({ id: 'm1', title: 'Late call', startAt: '2026-10-11T22:30:00.000Z', canView: true }, api, 'en-US', 'Asia/Muscat')?.text).toBe('From meeting: Late call · Mon, Oct 12');
+    expect(meetingLine({ id: 'm1', title: 'Late call', startAt: '2026-10-11T22:30:00.000Z', canView: true }, 'en-US', 'Asia/Muscat')?.text).toBe('From meeting: Late call · Mon, Oct 12');
   });
 
-  it('only mentions a meeting the person may not see, without a link', () => {
-    expect(meetingLine({ id: 'm1', title: null, startAt: null, canView: false }, api)).toEqual({ text: 'From a meeting you’re not part of', href: null });
+  it('only mentions a meeting the person may not see, with nothing to open', () => {
+    expect(meetingLine({ id: 'm1', title: null, startAt: null, canView: false })).toEqual({ text: 'From a meeting you’re not part of', meetingId: null });
   });
 
   it('has nothing for a task made anywhere else, or whose meeting is gone', () => {
-    expect(meetingLine(undefined, api)).toBeNull();
-    expect(meetingLine(null, api)).toBeNull();
+    expect(meetingLine(undefined)).toBeNull();
+    expect(meetingLine(null)).toBeNull();
   });
 });
 

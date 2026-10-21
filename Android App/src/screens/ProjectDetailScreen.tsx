@@ -18,8 +18,8 @@ import type { AppScreenProps } from '../navigation/types';
 
 /**
  * Project details (A5.1): what the project is, how far along it is, its milestones, the deadlines
- * coming up, its meetings (read-only — they're run in the web portal) and who is on the team — with
- * shortcuts to its board and its chat channel.
+ * coming up, its meetings (each opens in the app; they're run on the website) and who is on the team —
+ * with shortcuts to its board and its chat channel.
  */
 export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'ProjectDetail'>) {
   const { projectId } = route.params;
@@ -177,7 +177,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
           ) : !meetingsQ.data ? (
             <Loader />
           ) : (
-            <ProjectMeetings overview={meetingsQ.data} styles={styles} />
+            <ProjectMeetings overview={meetingsQ.data} styles={styles} onOpen={(meetingId, title) => navigation.navigate('MeetingDetail', { meetingId, title: title ?? undefined })} />
           )}
         </Card>
       )}
@@ -220,8 +220,32 @@ function dayLabel(date: string): string {
   return new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-/** The project's meetings: counts, the next few, its repeating series, open action items and decisions. */
-function ProjectMeetings({ overview, styles }: { overview: ApiProjectMeetingsOverview; styles: ReturnType<typeof makeStyles> }) {
+/** A line of the meetings card; it opens its meeting when it has one. */
+function MeetingLine({ onPress, styles, children, label }: { onPress?: () => void; styles: ReturnType<typeof makeStyles>; children: React.ReactNode; label?: string }) {
+  if (!onPress) {
+    return (
+      <View style={styles.line} accessible>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityHint="Opens the meeting" style={({ pressed }) => [styles.line, pressed && styles.pressed]}>
+      {children}
+    </Pressable>
+  );
+}
+
+/** The project's meetings: counts, the next few, its repeating series, open action items and decisions — each opens its meeting. */
+function ProjectMeetings({
+  overview,
+  styles,
+  onOpen,
+}: {
+  overview: ApiProjectMeetingsOverview;
+  styles: ReturnType<typeof makeStyles>;
+  onOpen: (meetingId: string, title?: string | null) => void;
+}) {
   const next = overview.meetings
     .filter((m) => m.phase === 'upcoming' || m.phase === 'ongoing')
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))
@@ -230,7 +254,7 @@ function ProjectMeetings({ overview, styles }: { overview: ApiProjectMeetingsOve
   const decisions = overview.decisions.slice(0, 3);
   const { stats } = overview;
   if (overview.meetings.length === 0 && overview.actionItems.length === 0) {
-    return <Text style={styles.meta}>No meetings for this project yet. Meetings are planned in the web portal.</Text>;
+    return <Text style={styles.meta}>No meetings for this project yet. Meetings are planned on the website.</Text>;
   }
   return (
     <View style={styles.list}>
@@ -245,24 +269,25 @@ function ProjectMeetings({ overview, styles }: { overview: ApiProjectMeetingsOve
       {next.length === 0 ? (
         <Text style={styles.meta}>No meetings coming up.</Text>
       ) : (
-        next.map((m) => <MeetingRow key={m.id} meeting={m} showDate={dayLabel(meetingDayKey(m))} />)
+        next.map((m) => <MeetingRow key={m.id} meeting={m} showDate={dayLabel(meetingDayKey(m))} onPress={() => onOpen(m.id, m.title)} />)
       )}
 
       {overview.series.length > 0 ? (
         <>
           <Text style={styles.subhead} accessibilityRole="header">Repeating meetings</Text>
-          {overview.series.map((s) => (
-            <View key={s.id} style={styles.line} accessible>
-              <Text style={styles.flag} importantForAccessibility="no">🔁</Text>
-              <View style={styles.lineText}>
-                <Text style={styles.lineTitle} numberOfLines={2}>{s.title}</Text>
-                <Text style={styles.lineSub}>
-                  {recurrenceSummary(s.rule)}
-                  {s.nextStartAt ? ` · next ${dayLabel(meetingDayKey({ startAt: s.nextStartAt }))}` : ' · nothing coming up'}
-                </Text>
-              </View>
-            </View>
-          ))}
+          {overview.series.map((s) => {
+            const when = `${recurrenceSummary(s.rule)}${s.nextStartAt ? ` · next ${dayLabel(meetingDayKey({ startAt: s.nextStartAt }))}` : ' · nothing coming up'}`;
+            const nextId = s.nextMeetingId;
+            return (
+              <MeetingLine key={s.id} styles={styles} onPress={nextId ? () => onOpen(nextId, s.title) : undefined} label={`${s.title}, ${when}`}>
+                <Text style={styles.flag} importantForAccessibility="no">🔁</Text>
+                <View style={styles.lineText}>
+                  <Text style={styles.lineTitle} numberOfLines={2}>{s.title}</Text>
+                  <Text style={styles.lineSub}>{when}</Text>
+                </View>
+              </MeetingLine>
+            );
+          })}
         </>
       ) : null}
 
@@ -271,19 +296,19 @@ function ProjectMeetings({ overview, styles }: { overview: ApiProjectMeetingsOve
           <Text style={styles.subhead} accessibilityRole="header">
             Open action items{stats.overdueActionItems > 0 ? ` · ${stats.overdueActionItems} overdue` : ''}
           </Text>
-          {actions.map((a) => (
-            <View key={a.id} style={styles.line} accessible>
-              <Text style={styles.flag} importantForAccessibility="no">☐</Text>
-              <View style={styles.lineText}>
-                <Text style={styles.lineTitle} numberOfLines={3}>{a.description}</Text>
-                <Text style={[styles.lineSub, a.overdue && styles.overdue]}>
-                  {[a.assignee?.name ?? 'Unassigned', a.dueDate ? `${a.overdue ? 'overdue, was due' : 'due'} ${formatDueDay(a.dueDate)}` : null, a.meetingTitle]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </Text>
-              </View>
-            </View>
-          ))}
+          {actions.map((a) => {
+            const sub = [a.assignee?.name ?? 'Unassigned', a.dueDate ? `${a.overdue ? 'overdue, was due' : 'due'} ${formatDueDay(a.dueDate)}` : null, a.meetingTitle].filter(Boolean).join(' · ');
+            const meetingId = a.meetingId;
+            return (
+              <MeetingLine key={a.id} styles={styles} onPress={meetingId ? () => onOpen(meetingId, a.meetingTitle) : undefined} label={`${a.description}, ${sub}`}>
+                <Text style={styles.flag} importantForAccessibility="no">☐</Text>
+                <View style={styles.lineText}>
+                  <Text style={styles.lineTitle} numberOfLines={3}>{a.description}</Text>
+                  <Text style={[styles.lineSub, a.overdue && styles.overdue]}>{sub}</Text>
+                </View>
+              </MeetingLine>
+            );
+          })}
           {stats.openActionItems > actions.length ? <Text style={styles.meta}>+ {stats.openActionItems - actions.length} more</Text> : null}
         </>
       ) : null}
@@ -292,13 +317,13 @@ function ProjectMeetings({ overview, styles }: { overview: ApiProjectMeetingsOve
         <>
           <Text style={styles.subhead} accessibilityRole="header">Recent decisions</Text>
           {decisions.map((d) => (
-            <View key={d.id} style={styles.line} accessible>
+            <MeetingLine key={d.id} styles={styles} onPress={() => onOpen(d.meetingId, d.meetingTitle)} label={[d.text, d.meetingTitle].filter(Boolean).join(', ')}>
               <Text style={styles.flag} importantForAccessibility="no">✔</Text>
               <View style={styles.lineText}>
                 <Text style={styles.lineTitle}>{d.text}</Text>
                 {d.meetingTitle ? <Text style={styles.lineSub}>{d.meetingTitle}</Text> : null}
               </View>
-            </View>
+            </MeetingLine>
           ))}
         </>
       ) : null}

@@ -16,7 +16,7 @@ const TITLE_MAX = 191;
 /**
  * The top of the task: reference, status, priority and due date at a glance, the title (edited in
  * place), and a "⋯" menu for the secondary actions (watching, exporting). A task made from a meeting
- * names that meeting, with a link to it.
+ * names that meeting; tapping it opens the meeting in the app.
  */
 export function HeaderCard({
   task,
@@ -42,9 +42,10 @@ export function HeaderCard({
   onToggleWatch: () => void;
   onExport: (format: 'xlsx' | 'pdf') => void;
   exporting: 'xlsx' | 'pdf' | null;
-  /** The meeting the task was created from (see meetingLine); href is null when the viewer isn't part of it. */
-  meeting?: { text: string; href: string | null } | null;
-  onOpenMeeting?: (href: string) => void;
+  /** The meeting the task was created from (see meetingLine); meetingId is null when the viewer isn't part of it. */
+  meeting?: { text: string; meetingId: string | null } | null;
+  /** Opens that meeting in the app. */
+  onOpenMeeting?: (meetingId: string) => void;
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
@@ -125,15 +126,15 @@ export function HeaderCard({
         <Text style={s.recurrence}>🔁 Part of a repeating series</Text>
       ) : null}
       {task.isMilestone ? <Text style={s.recurrence}>🏁 Milestone</Text> : null}
-      {meeting?.href ? (
+      {meeting?.meetingId ? (
         <Pressable
-          accessibilityRole="link"
+          accessibilityRole="button"
           accessibilityLabel={meeting.text}
-          accessibilityHint="Opens the meeting on the website"
-          onPress={() => onOpenMeeting?.(meeting.href!)}
+          accessibilityHint="Opens the meeting"
+          onPress={() => onOpenMeeting?.(meeting.meetingId!)}
           style={({ pressed }) => [s.meetingLink, pressed && { opacity: 0.6 }]}
         >
-          <Text style={s.meetingText}>📅 {meeting.text} ↗</Text>
+          <Text style={s.meetingText}>📅 {meeting.text} ›</Text>
         </Pressable>
       ) : meeting ? (
         <Text style={s.meetingMuted}>📅 {meeting.text}</Text>

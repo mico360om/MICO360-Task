@@ -65,6 +65,19 @@ export function safeMeetingHref(link: string | null | undefined): string | null 
   return `${scheme}://${m[2] !== undefined ? `${m[2]}@` : ''}${host}${port}${path}`;
 }
 
+/**
+ * What TalkBack reads for a meeting in a list (the calendar, a project): its day and time, title,
+ * place, and whether it repeats or was cancelled. Tapping it opens the meeting, where its notes are.
+ */
+export function meetingRowLabel(
+  m: Pick<ApiMeeting, 'title' | 'status' | 'startAt' | 'endAt' | 'location' | 'onlineLink' | 'recurrenceRule' | 'recurrenceParentId'>,
+  opts: { showDate?: string; timeZone?: string } = {},
+): string {
+  return ['Meeting', opts.showDate, meetingTime(m, opts.timeZone), m.title, meetingPlace(m), isRepeating(m) ? 'repeats' : null, m.status === 'CANCELLED' ? 'cancelled' : null]
+    .filter(Boolean)
+    .join(', ');
+}
+
 /** The meeting's online link to open — web (http/https) links only, else null (safeMeetingHref). */
 export function joinLink(m: Pick<ApiMeeting, 'onlineLink'>): string | null {
   return safeMeetingHref(m.onlineLink);

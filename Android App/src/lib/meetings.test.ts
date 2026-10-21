@@ -1,8 +1,36 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildAgenda, clockTime, isRepeating, joinLink, meetingPlace, meetingTime, meetingWindow, meetingDayKey, safeMeetingHref } from './meetings';
+import { buildAgenda, clockTime, isRepeating, joinLink, meetingPlace, meetingRowLabel, meetingTime, meetingWindow, meetingDayKey, safeMeetingHref } from './meetings';
 import type { ApiMeeting, ApiTask } from './types';
+
+describe('meetingRowLabel (a meeting in the calendar or on a project: it opens the meeting)', () => {
+  const m = (patch: Partial<ApiMeeting> = {}): ApiMeeting => ({
+    id: 'a',
+    title: 'Weekly review',
+    description: null,
+    status: 'SCHEDULED',
+    projectId: 'p1',
+    organizerId: 'u1',
+    location: 'Room 2',
+    onlineLink: null,
+    startAt: '2026-10-20T06:00:00.000Z',
+    endAt: '2026-10-20T07:00:00.000Z',
+    timeZone: 'Asia/Muscat',
+    recurrenceRule: null,
+    recurrenceParentId: null,
+    ...patch,
+  });
+
+  it('reads the day, time, title, place, and whether it repeats or was cancelled', () => {
+    expect(meetingRowLabel(m(), { showDate: 'Tue, Oct 20', timeZone: 'Asia/Muscat' })).toBe('Meeting, Tue, Oct 20, 10:00 – 11:00, Weekly review, Room 2');
+    expect(meetingRowLabel(m({ status: 'CANCELLED', recurrenceParentId: 'r1', location: null }), { timeZone: 'Asia/Muscat' })).toBe('Meeting, 10:00 – 11:00, Weekly review, repeats, cancelled');
+  });
+
+  it('never says there are no notes: a meeting without a description may well have notes', () => {
+    expect(meetingRowLabel(m({ description: null }), { timeZone: 'Asia/Muscat' })).not.toMatch(/notes/i);
+  });
+});
 
 const meeting = (id: string, patch: Partial<ApiMeeting> = {}): ApiMeeting => ({
   id,
