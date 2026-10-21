@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterTaskDeleted, afterTaskSaved, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
+import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
 import { refresh } from './refresh';
 import type { ApiTask } from './types';
 
@@ -207,5 +207,26 @@ describe('afterTaskSaved when the task’s details were never loaded (5a review:
     await loading.catch(() => {});
     expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
     expect(qc.getQueryState(['task', 't1'])?.isInvalidated).toBe(true);
+  });
+});
+
+describe('assignmentRefreshes (5a review: an assignment change reaches the calendar)', () => {
+  it('refreshes the task’s people and activity, My Tasks and every list holding it — the calendar’s ranges too', () => {
+    const qc = seeded();
+    const RANGE = ['tasks', 'calendar', '2026-09-27', '2026-10-31'];
+    qc.setQueryData(RANGE, { from: '2026-09-27', to: '2026-10-31', timeZone: 'Asia/Muscat', tasks: [t('t1')], occurrences: [], series: [] });
+    refresh(qc, assignmentRefreshes('t1'));
+    expect(refreshedKeys(qc)).toEqual(
+      expect.arrayContaining(['["task","t1","assignees"]', '["task","t1","activity"]', '["tasks","mine"]', JSON.stringify(RANGE), '["tasks","project","p1","2026-10-21"]']),
+    );
+    expect(refreshedKeys(qc)).not.toContain('["task","t1","comments"]');
+  });
+});
+
+describe('assignmentRefreshes and the replay of a kept assignment', () => {
+  it('refresh the same (a change made online and one replayed later must not drift apart)', async () => {
+    const { refreshesAfterReplay } = await import('./perform-mutation');
+    expect(refreshesAfterReplay({ kind: 'task.assign', payload: { id: 't1', userIds: ['u2'] } })).toEqual(assignmentRefreshes('t1'));
+    expect(refreshesAfterReplay({ kind: 'task.unassign', payload: { id: 't1', userId: 'u2' } })).toEqual(assignmentRefreshes('t1'));
   });
 });

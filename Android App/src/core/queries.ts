@@ -3,7 +3,7 @@ import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { refetchAfterMove } from '../lib/task-status';
 import { taskWrites, withExpectedVersion } from '../lib/task-writes';
-import { afterTaskDeleted, afterTaskSaved, moveRefreshes } from '../lib/task-cache';
+import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, moveRefreshes } from '../lib/task-cache';
 import { projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
@@ -147,9 +147,8 @@ export function useAssignUsers(taskId: string) {
       sendInOrder(writeOrder(services), { kind: 'task.assign', payload: { id: taskId, userIds }, idempotencyKey }, () =>
         resources.tasks.assign(taskId, userIds, { idempotencyKey }),
       ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['task', taskId, 'assignees'] });
-    },
+    // As the replay does: My Tasks and the lists holding it (the calendar's too) follow (5a review).
+    onSuccess: () => refresh(qc, assignmentRefreshes(taskId)),
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'task.assign', { id: taskId, userIds: v.userIds }, v.idempotencyKey),
   });
 }
@@ -162,9 +161,7 @@ export function useUnassignUser(taskId: string) {
     scope: assigneesScope(taskId),
     mutationFn: (userId: string) =>
       sendInOrder(writeOrder(services), { kind: 'task.unassign', payload: { id: taskId, userId } }, () => resources.tasks.unassign(taskId, userId)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['task', taskId, 'assignees'] });
-    },
+    onSuccess: () => refresh(qc, assignmentRefreshes(taskId)),
     onError: (err, userId) => queueOnOffline(queue, currentUserId(), err, 'task.unassign', { id: taskId, userId }),
   });
 }

@@ -39,6 +39,20 @@ export function createdTaskRefreshes(projectId: string): Refresh[] {
 }
 
 /**
+ * What a change to a task's people refreshes (made live, or replayed after being kept offline): its
+ * assignees and activity, My Tasks (it may join or leave yours) and every list holding it — the
+ * calendar's ranges too, which show whose task it is (5a review).
+ */
+export function assignmentRefreshes(taskId: string): Refresh[] {
+  return [
+    { queryKey: ['task', taskId, 'assignees'], exact: true },
+    { queryKey: ['task', taskId, 'activity'], exact: true },
+    { queryKey: ['tasks', 'mine'] },
+    { listsHolding: taskId },
+  ];
+}
+
+/**
  * What a move refreshes once the server answered: the task, its activity (the timeline notes the
  * move), its project's board days (finishing a repeating task adds its next copy to a later day —
  * only the day on screen is fetched again), the other lists holding it (My Tasks when it's yours),
