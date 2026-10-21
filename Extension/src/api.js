@@ -1,5 +1,5 @@
 import { ApiError, UnexpectedReplyError } from './errors.js';
-import { sanitizeMessages, sanitizeSummaries } from './chat.js';
+import { sanitizeMessages, sanitizeSummaries, CHAT_PAGE_SIZE } from './chat.js';
 import { fileNameFromDisposition } from './reports.js';
 import { timeoutSignal, DOWNLOAD_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, AI_TIMEOUT_MS } from './auth.js';
 import { applyPending } from './pending-overlay.js';
@@ -175,13 +175,37 @@ export function createApi({ auth, cache, pending }) {
     notifications: {
       list: () => get('notifications', '/notifications'),
       unreadCount: () => get('unread', '/notifications/unread-count'),
+      /** Muted kinds, the reminder time and the morning emails (kept to show offline). */
+      preferences: () => get('notification-prefs', '/notifications/preferences'),
+      /** Saves what is sent (the whole muted list with the reminder time); the server keeps the rest. */
+      setPreferences: (prefs) => raw('/notifications/preferences', { method: 'PUT', body: JSON.stringify(prefs ?? {}) }),
     },
     directory: () => get('directory', '/users/directory'),
     chat: {
       conversations: () => get('conversations', '/conversations', sanitizeSummaries),
       openProjectChannel: (projectId) => raw(`/projects/${projectId}/chat`),
+      /** The newest page of a conversation (kept for offline, with messages waiting to be sent on top). */
       messages: (conversationId) => get(`messages:${conversationId}`, `/conversations/${conversationId}/messages`, sanitizeMessages),
+      /** The page just older than `before` (the oldest loaded message's time): read fresh, never kept. */
+      older: async (conversationId, before) => sanitizeMessages(await raw(`/conversations/${conversationId}/messages${qs({ before, limit: CHAT_PAGE_SIZE })}`)),
       markRead: (conversationId) => post(`/conversations/${conversationId}/read`),
+      /** This device has received the conversation's messages (the sender sees "Delivered"). */
+      markDelivered: (conversationId) => post(`/conversations/${conversationId}/delivered`),
+      /** Open (or start) the direct conversation with someone. */
+      startDirect: (userId) => post('/conversations/direct', { userId }),
+      /** Favorite, archived or muted — for the signed-in person only. */
+      setPrefs: (conversationId, prefs) => raw(`/conversations/${conversationId}/prefs`, { method: 'PUT', body: JSON.stringify(prefs ?? {}) }),
+      /**
+       * Send a file as a message, with an optional caption. Online only (a file is never kept for
+       * later). The clientId comes first, so a retry gets the first copy back instead of a second.
+       */
+      upload: (conversationId, file, { clientId, body } = {}) => {
+        const form = new FormData();
+        if (clientId) form.append('clientId', clientId);
+        if (body) form.append('body', body);
+        form.append('file', file, file.name);
+        return raw(`/conversations/${conversationId}/attachments`, { method: 'POST', body: form, signal: timeoutSignal(UPLOAD_TIMEOUT_MS) });
+      },
     },
   };
 }

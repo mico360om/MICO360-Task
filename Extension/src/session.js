@@ -5,7 +5,8 @@
  * Storage keys tied to a user (all in chrome.storage.local unless noted):
  *   accessToken (chrome.storage.session), refreshToken, sessionUserId, sessionApiBase, sessionUser,
  *   syncQueue, cache:*, cacheOwner, lastUnread, lastUnreadUser, lastSync, quickAddLastProject,
- *   quickAddRecent, and the popup's unsent form and right-click capture (chrome.storage.session).
+ *   quickAddRecent, desktopAlerts (what the desktop alerts may say), and the popup's unsent form,
+ *   right-click capture and what the last desktop alert was about (chrome.storage.session).
  * Settings (apiBase, appBase, theme) and the company time zone are not user data and are kept.
  */
 import { createTokenStore, requestHeaders, timeoutSignal } from './auth.js';
@@ -14,8 +15,9 @@ import { decodeJwtSub } from './jwt.js';
 import { assignOwnerlessItems } from './queue.js';
 import { CACHE_PREFIX } from './read-cache.js';
 import { LAST_PROJECT_KEY, RECENT_KEY, QUICK_ADD_SESSION_KEYS } from './quick-add.js';
+import { DESKTOP_ALERTS_KEY, ALERT_TARGET_KEY } from './notify.js';
 
-export const USER_DATA_KEYS = ['syncQueue', 'cacheOwner', 'lastUnread', 'lastUnreadUser', 'lastSync', LAST_PROJECT_KEY, RECENT_KEY];
+export const USER_DATA_KEYS = ['syncQueue', 'cacheOwner', 'lastUnread', 'lastUnreadUser', 'lastSync', LAST_PROJECT_KEY, RECENT_KEY, DESKTOP_ALERTS_KEY];
 
 /** Delete every cached API response (`cache:*`). */
 export async function clearCache(local) {
@@ -28,8 +30,9 @@ export async function clearCache(local) {
 export async function clearUserData({ local, session }) {
   await createTokenStore({ local, session }).clear();
   await local.remove(USER_DATA_KEYS);
-  // The popup's unsent form and what the right-click menu captured for it (memory only).
-  await session.remove(QUICK_ADD_SESSION_KEYS);
+  // The popup's unsent form, what the right-click menu captured for it, and what the last desktop
+  // alert was about (memory only).
+  await session.remove([...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY]);
   await clearCache(local);
 }
 

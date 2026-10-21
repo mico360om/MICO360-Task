@@ -21,6 +21,86 @@ export function notificationText(count) {
   return count === 1 ? 'You have 1 new notification' : `You have ${count} new notifications`;
 }
 
+// ---- Stage 5: notification preferences and what the desktop alert says ----------------------
+
+/** The kinds of notification someone can switch off, worded as on the web's Settings page. */
+export const NOTIFICATION_TYPES = Object.freeze([
+  { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
+  { type: 'TASK_STATUS', label: 'Status changes', desc: 'When one of your tasks moves column' },
+  { type: 'TASK_COMMENT', label: 'Comments', desc: 'New comments on tasks you’re on' },
+  { type: 'MENTION', label: 'Mentions', desc: 'When someone @mentions you' },
+  { type: 'TASK_DUE_SOON', label: 'Due soon', desc: 'A reminder shortly before a task is due' },
+  { type: 'TASK_OVERDUE', label: 'Overdue', desc: 'When one of your tasks becomes overdue' },
+]);
+
+/** "Remind me before due" (minutes before a task's due time); null = the workspace default. */
+export const REMINDER_OPTIONS = Object.freeze([
+  { label: 'Default (1 day)', value: null },
+  { label: 'At due time', value: 0 },
+  { label: '1 hour before', value: 60 },
+  { label: '4 hours before', value: 240 },
+  { label: '1 day before', value: 1440 },
+  { label: '2 days before', value: 2880 },
+  { label: '1 week before', value: 10080 },
+]);
+
+/** The morning emails until someone chooses otherwise (the server's defaults). */
+export const DEFAULT_DAILY_EMAILS = Object.freeze({ pending: true, completed: true, time: '06:00' });
+
+/**
+ * This device's desktop alerts (chrome.storage.local): whether there are any, and whether one may
+ * say what the newest notification is about — off until chosen, since anyone near the screen can
+ * read it. Cleared on sign-out (session.js USER_DATA_KEYS), so the next person starts private.
+ */
+export const DESKTOP_ALERTS_KEY = 'desktopAlerts';
+const ALERT_DEFAULTS = Object.freeze({ on: true, details: false });
+
+export async function readAlertSettings(local) {
+  try {
+    const saved = ((await local.get(DESKTOP_ALERTS_KEY)) || {})[DESKTOP_ALERTS_KEY];
+    return {
+      on: saved && typeof saved.on === 'boolean' ? saved.on : ALERT_DEFAULTS.on,
+      details: saved && typeof saved.details === 'boolean' ? saved.details : ALERT_DEFAULTS.details,
+    };
+  } catch {
+    return { ...ALERT_DEFAULTS };
+  }
+}
+
+export async function saveAlertSettings(local, patch) {
+  const next = { ...(await readAlertSettings(local)), ...patch };
+  await local.set({ [DESKTOP_ALERTS_KEY]: next });
+  return next;
+}
+
+/** What the last desktop alert was about (chrome.storage.session), so a click can open it. */
+export const ALERT_TARGET_KEY = 'mico360.alertTarget';
+
+/** The newest notification not read yet, or null. */
+export function newestUnread(list) {
+  if (!Array.isArray(list)) return null;
+  let best = null;
+  for (const n of list) {
+    if (!n || n.readAt) continue;
+    if (!best || String(n.createdAt) > String(best.createdAt)) best = n;
+  }
+  return best;
+}
+
+/**
+ * The desktop alert for `fresh` new notifications: how many (never the total unread), or — when it
+ * may say (`details`) and the newest is known — that one's title and words, with how many more.
+ */
+export function alertContent({ fresh, newest, details }) {
+  if (!details || !newest) return { title: 'MICO360 Tasks', message: notificationText(fresh) };
+  const more = Math.max(0, fresh - 1);
+  return {
+    title: newest.title || 'MICO360 Tasks',
+    message: newest.body || 'Click to open it.', // Chrome needs words in every alert
+    contextMessage: more ? `And ${more} more new notification${more === 1 ? '' : 's'}` : 'MICO360 Tasks',
+  };
+}
+
 /**
  * Find an open tab showing the extension app among `chrome.runtime.getContexts()` results, so the
  * toolbar button can focus it without the "tabs" permission (EXT-07). Returns the context or null.
