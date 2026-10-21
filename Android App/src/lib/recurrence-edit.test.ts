@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { RecurrenceRule } from './recurrence';
 import {
-  isRecurring, inSeries, withFreq, withInterval, toggleWeekday, withMonthlyMode, withNth,
+  isRecurring, inSeries, withFreq, pickFreq, withInterval, toggleWeekday, withMonthlyMode, withNth,
   withEnds, withCreateNext, togglePaused, nthWeekdayOf, isEarlierCopy, repeatDraftDone,
 } from './recurrence-edit';
 
@@ -27,6 +29,32 @@ describe('editing a rule', () => {
     expect(withFreq({ freq: 'MONTHLY', interval: 2, dayOfMonth: 5, count: 3, createNext: 'ON_SCHEDULE' }, 'WEEKLY'))
       .toEqual({ freq: 'WEEKLY', interval: 2, count: 3, createNext: 'ON_SCHEDULE' });
     expect(withFreq({ freq: 'DAILY', interval: 1 }, 'NONE')).toBeNull();
+  });
+
+  it('tapping the repeat already chosen changes nothing: its days stay, and nothing is saved', () => {
+    // As on the website: "Picking the same repeat again keeps its days".
+    const weekly: RecurrenceRule = { freq: 'WEEKLY', interval: 1, weekdays: [1, 3], count: 6 };
+    const monthly: RecurrenceRule = { freq: 'MONTHLY', interval: 1, nthWeekday: { week: 2, day: 2 } };
+    const onDay: RecurrenceRule = { freq: 'QUARTERLY', interval: 1, dayOfMonth: 15 };
+    expect(pickFreq(weekly, 'WEEKLY')).toBeUndefined();
+    expect(pickFreq(monthly, 'MONTHLY')).toBeUndefined();
+    expect(pickFreq(onDay, 'QUARTERLY')).toBeUndefined();
+    expect(pickFreq(null, 'NONE')).toBeUndefined();
+    // Another one is a change, as before.
+    expect(pickFreq(weekly, 'MONTHLY')).toEqual({ freq: 'MONTHLY', interval: 1, count: 6 });
+    expect(pickFreq(weekly, 'NONE')).toBeNull();
+    expect(pickFreq(null, 'DAILY')).toEqual({ freq: 'DAILY', interval: 1 });
+  });
+
+  it('both repeat editors — a task’s and a meeting’s — are the one editor, whose chips go through pickFreq', () => {
+    const src = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
+    const editor = src('../components/RecurrenceEditor.tsx');
+    expect(editor).toMatch(/pickFreq\(rule, f\)/);
+    expect(editor).toMatch(/pickFreq\(rule, 'NONE'\)/);
+    expect(editor).not.toMatch(/withFreq\(/);
+    for (const user of ['../components/task-detail/DetailsCard.tsx', '../components/QuickAddTaskSheet.tsx', '../screens/MeetingFormScreen.tsx']) {
+      expect(src(user), user).toMatch(/<RecurrenceEditor\b/);
+    }
   });
 
   it('sets the interval (at least 1) and toggles weekdays in order', () => {

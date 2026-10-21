@@ -49,6 +49,17 @@ export function withFreq(rule: RecurrenceRule | null, freq: string): RecurrenceR
   return next;
 }
 
+/**
+ * The repeat after a frequency chip is tapped ('NONE' = No repeat) — undefined when it is the one
+ * already chosen: nothing changes, so its days stay and nothing is saved (for a meeting series it
+ * would count as a new repeat and rebuild the series). The website does the same ("Picking the same
+ * repeat again keeps its days"). Both editors — a task's and a meeting's — use it.
+ */
+export function pickFreq(rule: RecurrenceRule | null, freq: string): RecurrenceRule | null | undefined {
+  if ((rule?.freq ?? 'NONE') === freq) return undefined;
+  return withFreq(rule, freq);
+}
+
 export function withInterval(rule: RecurrenceRule, n: number | string): RecurrenceRule {
   const v = Number(n);
   return { ...rule, interval: Number.isInteger(v) && v >= 1 ? v : 1 };

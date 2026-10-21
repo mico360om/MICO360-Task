@@ -98,6 +98,60 @@ describe('times in company time (the meeting form)', () => {
   });
 });
 
+describe('company time on a phone whose Intl is missing a piece (Hermes)', () => {
+  // 09:30 in company time, and the instant it is — whole hours, half hours and 45 minutes ahead of
+  // UTC, with Chatham's daylight saving (+13:45 in October, +12:45 in July).
+  const cases: [zone: string, day: string, iso: string][] = [
+    ['Asia/Muscat', '2026-10-22', '2026-10-22T05:30:00.000Z'],
+    ['Asia/Kolkata', '2026-10-22', '2026-10-22T04:00:00.000Z'],
+    ['Asia/Tehran', '2026-10-22', '2026-10-22T06:00:00.000Z'],
+    ['Pacific/Chatham', '2026-10-22', '2026-10-21T19:45:00.000Z'],
+    ['Pacific/Chatham', '2026-07-15', '2026-07-14T20:45:00.000Z'],
+    ['Europe/London', '2026-10-26', '2026-10-26T09:30:00.000Z'],
+  ];
+  const roundTrips = () => {
+    for (const [zone, day, iso] of cases) {
+      expect(fromWallClock(day, '09:30', zone), `${zone} ${day}`).toBe(iso);
+      expect(toWallClock(iso, zone), `${zone} ${iso}`).toEqual({ day, time: '09:30' });
+    }
+  };
+  const proto = Intl.DateTimeFormat.prototype as unknown as Record<string, unknown>;
+  /** Run with formatToParts replaced (undefined = missing), then put it back. */
+  const withParts = (replacement: unknown, run: () => void) => {
+    const original = proto.formatToParts;
+    Object.defineProperty(proto, 'formatToParts', { value: replacement, configurable: true, writable: true });
+    try {
+      run();
+    } finally {
+      Object.defineProperty(proto, 'formatToParts', { value: original, configurable: true, writable: true });
+    }
+  };
+
+  it('reads and writes 09:30 right with formatToParts', () => roundTrips());
+
+  it('still does when formatToParts is missing', () => withParts(undefined, roundTrips));
+
+  it('still does when formatToParts throws', () =>
+    withParts(() => {
+      throw new RangeError('hourCycle is not supported');
+    }, roundTrips));
+
+  it('still does when formatToParts leaves out a part or gives nonsense — never a wrong time', () => {
+    withParts(() => [{ type: 'year', value: '2026' }, { type: 'month', value: '10' }, { type: 'day', value: '22' }], roundTrips);
+    withParts(() => [{ type: 'literal', value: 'x' }], roundTrips);
+    withParts(
+      () => ['year', 'month', 'day', 'hour', 'minute', 'second'].map((type) => ({ type, value: type === 'year' ? '1970' : '07' })),
+      roundTrips,
+    );
+  });
+
+  it('opens a new meeting’s form without formatToParts, and words the first meeting’s day without it', () =>
+    withParts(undefined, () => {
+      expect(newMeetingDraft('Asia/Kolkata', new Date('2026-10-22T04:00:00.000Z'))).toMatchObject({ startDay: '2026-10-22', startTime: '10:00' });
+      expect(firstMeetingNote('2026-10-22', { freq: 'WEEKLY', interval: 1, weekdays: [1] })).toBe('The first meeting will be on Mon 26 Oct, the first day this repeat gives.');
+    }));
+});
+
 describe('online links', () => {
   it('adds https:// when none was typed, and refuses what isn’t a web link', () => {
     expect(normalizeMeetingLink('meet.google.com/abc-defg')).toBe('https://meet.google.com/abc-defg');

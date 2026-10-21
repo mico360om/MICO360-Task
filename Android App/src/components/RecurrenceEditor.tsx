@@ -5,7 +5,7 @@ import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { RecurrenceRule } from '../lib/types';
 import { recurrenceSummary, upcomingDates, WEEK_OF_MONTH, WEEKDAY_NAMES } from '../lib/recurrence-summary';
 import {
-  FREQS, FREQ_LABEL, UNIT_LABEL, DAY_NAMES, withFreq, withInterval, toggleWeekday, withMonthlyMode, withNth, withDayOfMonth,
+  FREQS, FREQ_LABEL, UNIT_LABEL, DAY_NAMES, pickFreq, withInterval, toggleWeekday, withMonthlyMode, withNth, withDayOfMonth,
   withEnds, endsMode, withCreateNext, togglePaused,
 } from '../lib/recurrence-edit';
 import { parseDueDateInput } from '../lib/form-input';
@@ -48,6 +48,10 @@ export function RecurrenceEditor({
   const set = (next: RecurrenceRule | null) => {
     if (!disabled) onChange(next);
   };
+  /** A frequency chip: the one already chosen changes nothing (its days stay, nothing is saved). */
+  const pick = (next: RecurrenceRule | null | undefined) => {
+    if (next !== undefined) set(next);
+  };
 
   function chip(key: string, label: string, active: boolean, onPress: () => void, a11y?: string) {
     return (
@@ -85,8 +89,8 @@ export function RecurrenceEditor({
   return (
     <View style={styles.wrap}>
       <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Repeat">
-        {chip('NONE', 'No repeat', !rule, () => set(null), 'Does not repeat')}
-        {FREQS.map((f) => chip(f, FREQ_LABEL[f], rule?.freq === f, () => set(withFreq(rule, f)), `Repeat ${FREQ_LABEL[f].toLowerCase()}`))}
+        {chip('NONE', 'No repeat', !rule, () => pick(pickFreq(rule, 'NONE')), 'Does not repeat')}
+        {FREQS.map((f) => chip(f, FREQ_LABEL[f], rule?.freq === f, () => pick(pickFreq(rule, f)), `Repeat ${FREQ_LABEL[f].toLowerCase()}`))}
       </View>
 
       {rule ? (

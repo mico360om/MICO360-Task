@@ -23,21 +23,53 @@ export interface WallClock {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** How far `timeZone` is ahead of UTC at `instant`, in ms. */
-function zoneOffsetMs(instant: number, timeZone: string): number {
-  const parts = dateFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(new Date(instant));
-  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
-  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
-  return asUtc - Math.floor(instant / 1000) * 1000;
+/** No zone is more than 14 hours from UTC, and none is a part of a minute off. */
+const saneOffset = (ms: number | null): ms is number => ms !== null && Number.isFinite(ms) && Math.abs(ms) <= 14 * 3_600_000 && ms % 60_000 === 0;
+
+/** The offset from the zone's wall clock in parts (formatToParts) — null if it is missing, throws or makes no sense. */
+function offsetFromParts(instant: number, timeZone: string): number | null {
+  try {
+    const f = dateFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if (typeof f.formatToParts !== 'function') return null;
+    const parts = f.formatToParts(new Date(instant));
+    if (!Array.isArray(parts)) return null;
+    const [y, mo, d, h, mi, s] = ['year', 'month', 'day', 'hour', 'minute', 'second'].map((type) => {
+      const v = parts.find((p) => p?.type === type)?.value;
+      return typeof v === 'string' && /^\d{1,4}$/.test(v) ? Number(v) : NaN;
+    }) as [number, number, number, number, number, number];
+    if ([y, mo, d, h, mi, s].some(Number.isNaN)) return null;
+    const ms = Date.UTC(y, mo - 1, d, h % 24, mi, s) - Math.floor(instant / 1000) * 1000;
+    return saneOffset(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The offset from the two plain format() calls the app already shows dates with on every phone:
+ * the day as zonedDayKey reads it (en-CA) and the time as clockTime reads it (en-GB, 24-hour).
+ */
+function offsetFromFormat(instant: number, timeZone: string): number | null {
+  try {
+    const at = new Date(instant);
+    const day = /(\d{4})-(\d{2})-(\d{2})/.exec(dateFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at));
+    const time = /(\d{1,2}):(\d{2})/.exec(dateFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone }).format(at));
+    if (!day || !time) return null;
+    const ms = Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3]), Number(time[1]) % 24, Number(time[2])) - Math.floor(instant / 60_000) * 60_000;
+    return saneOffset(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How far `timeZone` is ahead of UTC at `instant`, in ms — or null when this phone can't tell
+ * (never a guess: a wrong offset would book the meeting at the wrong time without a word).
+ * formatToParts is tried first; if this phone's Intl lacks it, throws, or leaves out a part, the
+ * day and time are read from format() instead.
+ */
+function zoneOffsetMs(instant: number, timeZone: string): number | null {
+  return offsetFromParts(instant, timeZone) ?? offsetFromFormat(instant, timeZone);
 }
 
 /** An instant as the day and time on the zone's wall clock (null for none or a bad date). */
@@ -45,7 +77,9 @@ export function toWallClock(iso: string | null | undefined, timeZone: string): W
   if (!iso) return null;
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return null;
-  const s = new Date(t + zoneOffsetMs(t, timeZone));
+  const offset = zoneOffsetMs(t, timeZone);
+  if (offset === null) return null;
+  const s = new Date(t + offset);
   return { day: `${s.getUTCFullYear()}-${pad(s.getUTCMonth() + 1)}-${pad(s.getUTCDate())}`, time: `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}` };
 }
 
@@ -58,9 +92,11 @@ export function fromWallClock(day: string, time: string, timeZone: string): stri
   const wall = Date.UTC(y, mo - 1, da, h, mi);
   if (Number.isNaN(wall) || new Date(Date.UTC(y, mo - 1, da)).toISOString().slice(0, 10) !== day || h > 23 || mi > 59) return null;
   // Two passes settle the offset across a clock change.
-  let instant = wall - zoneOffsetMs(wall, timeZone);
-  instant = wall - zoneOffsetMs(instant, timeZone);
-  return new Date(instant).toISOString();
+  const first = zoneOffsetMs(wall, timeZone);
+  if (first === null) return null;
+  const second = zoneOffsetMs(wall - first, timeZone);
+  if (second === null) return null;
+  return new Date(wall - second).toISOString();
 }
 
 /** A time typed as HH:MM ("9:30" and "9" too; Arabic digits allowed). Blank → '' (none). */
@@ -121,11 +157,13 @@ export function repeatProblem(rule: RecurrenceRule | null, firstDay: string): st
   return null;
 }
 
-/** "Mon 26 Oct" for a 'YYYY-MM-DD' day (the website's words). */
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "Mon 26 Oct" for a 'YYYY-MM-DD' day (the website's words), without Intl. */
 function dayLabel(key: string): string {
-  const parts = dateFormat('en-US', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).formatToParts(new Date(`${key}T12:00:00.000Z`));
-  const part = (type: string) => parts.find((p) => p.type === type)?.value;
-  return ['weekday', 'day', 'month'].map(part).filter(Boolean).join(' ');
+  const d = new Date(`${key}T12:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return key;
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
 /** When the chosen day isn't one of the repeat's days, where the first meeting goes instead. */
@@ -195,11 +233,12 @@ export interface MeetingDraft {
 
 /** A new meeting: the next whole hour, no end, scheduled — in the project given, if any. */
 export function newMeetingDraft(timeZone: string, now: Date = new Date(), projectId?: string | null): MeetingDraft {
-  const start = toWallClock(new Date(now.getTime() + 60 * 60_000).toISOString(), timeZone)!;
+  // (A phone that can't tell company time leaves the start for the person to type.)
+  const start = toWallClock(new Date(now.getTime() + 60 * 60_000).toISOString(), timeZone);
   return {
     title: '',
-    startDay: start.day,
-    startTime: `${start.time.slice(0, 2)}:00`,
+    startDay: start?.day ?? '',
+    startTime: start ? `${start.time.slice(0, 2)}:00` : '',
     endDay: '',
     endTime: '',
     location: '',
