@@ -72,7 +72,7 @@ export function QuickAddTaskSheet({
     setTitle('');
     setDescription('');
     setPriority('NORMAL');
-    setDueDate('');
+    setDueDate(defaultDueDate ?? '');
     setEstimate('');
     setTags('');
     setAssignToMe(false);

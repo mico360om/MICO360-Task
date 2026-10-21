@@ -159,17 +159,16 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   );
 
   // ── Moving a task: shown at once, saved through the task-edit path, undoable ──
-  const { mutate: reschedule } = rescheduleM;
+  // Each move's own promise says how it went (TanStack calls a mutate()'s callbacks for the latest
+  // one only, so a second move — or Undo — made before the first answered would swallow its notice).
+  const { mutateAsync: reschedule } = rescheduleM;
   const undoMove = useCallback(
     (original: CalendarTask, fromDay: string, toDay: string, version: number | undefined) => {
       setToast(null);
       const { patch, version: read } = splitVersion(planUndo(original, fromDay, version));
-      reschedule(
-        { taskId: original.id, patch, readVersion: read },
-        {
-          onSuccess: () => say({ tone: 'moved', text: undoneText(original, fromDay) }),
-          onError: (err) => say(isNetworkError(err) ? { tone: 'info', text: queuedMoveText(original, fromDay) } : { tone: 'error', text: moveFailedText(original, toDay, err) }),
-        },
+      reschedule({ taskId: original.id, patch, readVersion: read }).then(
+        () => say({ tone: 'moved', text: undoneText(original, fromDay) }),
+        (err: unknown) => say(isNetworkError(err) ? { tone: 'info', text: queuedMoveText(original, fromDay) } : { tone: 'error', text: moveFailedText(original, toDay, err) }),
       );
     },
     [reschedule, say],
@@ -181,12 +180,9 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
       const original = item.task;
       const fromDay = item.date;
       const { patch, version } = splitVersion(planMove(original, fromDay, toDay, scope));
-      reschedule(
-        { taskId: original.id, patch, readVersion: version },
-        {
-          onSuccess: (saved) => say({ tone: 'moved', text: movedText(original, toDay, scope), undo: () => undoMove(original, fromDay, toDay, saved?.version) }),
-          onError: (err) => say(isNetworkError(err) ? { tone: 'info', text: queuedMoveText(original, toDay) } : { tone: 'error', text: moveFailedText(original, fromDay, err) }),
-        },
+      reschedule({ taskId: original.id, patch, readVersion: version }).then(
+        (saved) => say({ tone: 'moved', text: movedText(original, toDay, scope), undo: () => undoMove(original, fromDay, toDay, saved?.version) }),
+        (err: unknown) => say(isNetworkError(err) ? { tone: 'info', text: queuedMoveText(original, toDay) } : { tone: 'error', text: moveFailedText(original, fromDay, err) }),
       );
     },
     [reschedule, say, undoMove],
@@ -351,7 +347,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
                 <Pressable
                   key={v}
                   // From the month, the week and the agenda open at the day chosen in it.
-                  onPress={() => go(view === 'month' && v !== 'month' ? { view: v, date: chosen === today ? place.date : chosen } : { view: v })}
+                  onPress={() => go(view === 'month' && v !== 'month' ? { view: v, date: chosen === today ? null : chosen } : { view: v })}
                   accessibilityRole="radio"
                   accessibilityLabel={`${label} view`}
                   accessibilityState={{ selected: on, checked: on }}
@@ -413,11 +409,9 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
         </Pressable>
       ) : null}
 
+      {/* Announced once, when it is shown (say). */}
       {toast ? (
-        <View
-          style={[styles.toast, toast.tone === 'error' && styles.toastError, { bottom: spacing.lg + insets.bottom + 64 }]}
-          accessibilityLiveRegion={toast.tone === 'error' ? 'assertive' : 'polite'}
-        >
+        <View style={[styles.toast, toast.tone === 'error' && styles.toastError, { bottom: spacing.lg + insets.bottom + 64 }]}>
           <Text style={styles.toastText}>{toast.text}</Text>
           {toast.undo ? (
             <Pressable onPress={toast.undo} accessibilityRole="button" accessibilityLabel="Undo the move" style={({ pressed }) => [styles.toastButton, pressed && styles.pressed]}>

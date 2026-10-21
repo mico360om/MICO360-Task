@@ -60,7 +60,7 @@ export function slimRange(now: number): (range: CalendarRange) => CalendarRange 
 }
 
 export interface DuePatch {
-  /** 'YYYY-MM-DD' (a calendar day, stored as that day's UTC midnight), or null for none. */
+  /** 'YYYY-MM-DD' (a calendar day, stored as that day's UTC midnight), a whole ISO instant, or null for none. */
   dueDate?: string | null;
   recurrenceRule?: RecurrenceRule | null;
 }
@@ -71,7 +71,8 @@ export function movedInList<T extends Pick<ApiTask, 'id' | 'dueDate'> & { recurr
   return list.map((t) => {
     if (t.id !== taskId) return t;
     const next = { ...t };
-    if ('dueDate' in patch) next.dueDate = patch.dueDate ? `${patch.dueDate}T00:00:00.000Z` : null;
+    // A day is stored as its UTC midnight; a whole instant (putting a timed due date back) as it is.
+    if ('dueDate' in patch) next.dueDate = patch.dueDate ? (patch.dueDate.length === 10 ? `${patch.dueDate}T00:00:00.000Z` : patch.dueDate) : null;
     if ('recurrenceRule' in patch) next.recurrenceRule = patch.recurrenceRule ?? null;
     return next;
   });

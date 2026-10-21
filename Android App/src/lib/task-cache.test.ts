@@ -119,6 +119,12 @@ describe('editRefreshes', () => {
     expect(editRefreshes('t1', { columnId: 'c2' })).toContainEqual({ progressFor: 't1' });
     expect(editRefreshes('t1', { priority: 'HIGH' })).not.toContainEqual({ progressFor: 't1' });
   });
+
+  it('a new due day or repeat refreshes every calendar range: the task may now be on a day of one that didn’t hold it (5a)', () => {
+    expect(editRefreshes('t1', { dueDate: '2026-10-21' })).toContainEqual({ queryKey: ['tasks', 'calendar'] });
+    expect(editRefreshes('t1', { recurrenceRule: null })).toContainEqual({ queryKey: ['tasks', 'calendar'] });
+    expect(editRefreshes('t1', { title: 'x' })).not.toContainEqual({ queryKey: ['tasks', 'calendar'] });
+  });
 });
 
 describe('createdTaskRefreshes', () => {

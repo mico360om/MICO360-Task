@@ -6,7 +6,7 @@ import { sendInOrder } from '../lib/write-order';
 import { noteTaskFailure } from '../lib/meeting-parts';
 import { inviteTry, minutesTry, pendingKeys, sendKept, tryName } from '../lib/pending-keys';
 import { refresh } from '../lib/refresh';
-import { afterMeetingSaved, afterPartChanged, dropRow, patchRow, putRow } from '../lib/meeting-cache';
+import { afterMeetingSaved, afterPartChanged, dropRow, noteTaskRefreshes, patchRow, putRow } from '../lib/meeting-cache';
 import type { SaveRequest } from '../lib/meeting-form';
 import type {
   ActionItemInput,
@@ -267,8 +267,8 @@ export function useNoteToTask(meetingId: string) {
       if (res?.note) putRow<ApiMeetingNote>(qc, part(meetingId, 'notes'), res.note);
       if (res?.actionItem) putRow<ApiActionItem>(qc, part(meetingId, 'action-items'), { ...res.actionItem, taskKey: res.task.key });
       afterPartChanged(qc, meetingId, res?.actionItem ? 'action-items' : 'notes');
-      // The new task: its board, and My Tasks (when it is mine) — fetched when next shown.
-      if (res?.task) refresh(qc, [{ queryKey: ['tasks', 'project', res.task.projectId], later: true }, { queryKey: ['tasks', 'mine'], later: true }, { queryKey: ['project', res.task.projectId, 'progress'], later: true }]);
+      // The new task: its board, My Tasks (when it is mine) and the calendar — fetched when next shown.
+      if (res?.task) refresh(qc, noteTaskRefreshes(res.task.projectId));
     },
     // The note already has a task (another try, or the website): the notes and action items load
     // again, so the note shows its task and its Task button goes.

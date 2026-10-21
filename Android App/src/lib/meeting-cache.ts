@@ -102,6 +102,19 @@ export function afterMeetingDeleted(qc: QueryClient, meetingId: string, scope: S
 }
 
 /**
+ * A task made from a meeting note: its board, My Tasks (when it is mine), its project's progress
+ * and the calendar's ranges (5a) — marked out of date and fetched when next shown.
+ */
+export function noteTaskRefreshes(projectId: string): Refresh[] {
+  return [
+    { queryKey: ['tasks', 'project', projectId], later: true },
+    { queryKey: ['tasks', 'mine'], later: true },
+    { queryKey: ['project', projectId, 'progress'], later: true },
+    { queryKey: ['tasks', 'calendar'], later: true },
+  ];
+}
+
+/**
  * One meeting's answers to the invitation go one after another (TanStack's mutation scope): a quick
  * second tap waits for the first instead of racing it, so the last tap is the answer kept.
  */

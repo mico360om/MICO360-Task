@@ -135,3 +135,11 @@ describe('a move shown at once in every calendar answer that is cached', () => {
     expect(movedInCached(other, 'b', { dueDate: '2026-10-14' })).toBe(other);
   });
 });
+
+describe('putting a task back as it was', () => {
+  it('takes a whole instant as it is (a due date with a time), a day as that day', () => {
+    const list = [task({ id: 'b', dueDate: '2026-10-20T00:00:00.000Z' })];
+    expect(movedInList(list, 'b', { dueDate: '2026-10-12T09:30:00.000Z' })[0]!.dueDate).toBe('2026-10-12T09:30:00.000Z');
+    expect(movedInList(list, 'b', { dueDate: null })[0]!.dueDate).toBeNull();
+  });
+});

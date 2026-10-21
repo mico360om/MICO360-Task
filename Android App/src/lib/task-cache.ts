@@ -11,6 +11,8 @@ import { refresh, type Refresh } from './refresh';
 export function editRefreshes(taskId: string, patch: object): Refresh[] {
   const targets: Refresh[] = [{ queryKey: ['task', taskId, 'activity'], exact: true }, { listsHolding: taskId }];
   if ('dueDate' in patch || 'columnId' in patch) targets.push({ progressFor: taskId });
+  // A new day or repeat may put the task (or its copies to come) on a calendar range that didn't hold it (5a).
+  if ('dueDate' in patch || 'recurrenceRule' in patch) targets.push({ queryKey: ['tasks', 'calendar'] });
   if ((patch as { scope?: unknown }).scope === 'series') targets.push({ queryKey: ['tasks'] }, { taskDetails: 'all' });
   return targets;
 }
