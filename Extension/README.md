@@ -22,6 +22,29 @@ due date, "Assign me" or people from the project's team, and the description, wi
 - The form not sent yet is kept while the browser is open (a popup closes when you click outside
   it), and **Recently added** lists the last five tasks added here.
 
+## The side panel
+
+Chrome's side panel shows the app in short beside any page (`app/panel.html`, the same app,
+session, offline copies and sync queue; built for 320–400 px). Open it with the side-panel button
+in the popup's header or in the app's top bar, or a keyboard command you choose at
+`chrome://extensions/shortcuts` ("Open the side panel" — no key is set for you). The toolbar
+button still opens the popup.
+
+- **Today**: what is overdue and due today for you, and what you finished today, by the company's
+  calendar day (the rules of My Tasks and the web), with **Mark done**.
+- **My Tasks**: the full list with its search, filters, sort and **Mark done**.
+- **Add a task**: the popup's New task form (offline it waits in the queue with its own key, as in
+  the popup). It keeps what you typed while the panel is open and when it opens again; there is no
+  "Add this page" here, because Chrome lets the extension read the page only from the popup or the
+  right-click menu.
+- A task opens its panel inside the side panel (full width); a page the side panel doesn't show (a
+  board, a meeting, Settings) opens in the full app page, and **Open MICO360 Tasks** opens it too.
+- No live connection: the lists read themselves again every minute while the side panel is shown,
+  and when it is shown again. Signing out in the app or popup signs the side panel out too; it asks
+  you to sign in through the full app.
+- The `sidePanel` permission shows no install warning (Chrome's own list is checked by
+  `tools/extension-e2e/sidepanel.mjs`).
+
 ## Screens
 
 Dashboard · My Tasks · Projects · Board (Kanban) · Task detail · Calendar · Chat · Notifications ·
@@ -91,16 +114,17 @@ one-minute background check), `notifications` (the desktop alert when something 
 copies already have it: without it, an app tab left open for days can fill Chrome's 10 MB with
 offline copies, and the next renewal of the sign-in could not be saved). The offline copies are
 still capped at 200 (`src/read-cache.js`), and when storage is full they make room for changes
-waiting to sync, never the other way round. `contextMenus` (the right-click item) and `activeTab`
-(the page the popup is opened on, for "Add this page") show no install warning; there is no
-content script.
+waiting to sync, never the other way round. `contextMenus` (the right-click item), `activeTab`
+(the page the popup is opened on, for "Add this page") and `sidePanel` (the side panel) show no
+install warning; there is no content script.
 
 ## Structure
 
 ```
 app/            full-page app (app.html, app.js router+shell, app.css, dom.js, components.js, theme.js,
                 dialog.js modal dialogs + focus, menu.js menu buttons, new-task-dialog.js,
-                notification-settings.js)
+                notification-settings.js); panel.html + panel-shell.js: the same app in Chrome's
+                side panel (Today = screens/today.js, My Tasks, Add a task)
 app/screens/    one module per screen (export function XScreen(ctx))
 app/chat/       the chat inbox, a conversation and one message
 src/            shared logic: api.js, read-cache.js, router.js, queue.js, auth.js, config.js, chat.js,
@@ -137,7 +161,9 @@ install (no Web Store). There is no "newer version" banner.
 - `npm run test:e2e` runs the browser checks in `tools/extension-e2e/` — headless Chrome loads this
   folder unpacked and drives it against a local server (default `http://localhost:4000`, which must
   allow `chrome-extension://*` in `CORS_ORIGINS`): sign-in, board and keyboard, the drawer dialog,
-  versions, edit conflicts, repeating tasks, reports and exports, the quick-capture popup, and
-  the board, My Tasks and Projects (`lists.mjs`).
-  Settings are at the top of
-  `tools/extension-e2e/lib.mjs`.
+  versions, edit conflicts, repeating tasks, reports and exports, the quick-capture popup, the
+  board, My Tasks and Projects (`lists.mjs`), chat, search, the calendar and meetings
+  (`stage6.mjs`), and the side panel (`sidepanel.mjs`: its page at 400, 360 and 320 px — Today, Mark
+  done, a task's panel, My Tasks, Add a task, pages it doesn't show, reading again — then Chrome's
+  real side panel opened by a click on the app's and the popup's buttons, the install warnings, and
+  sign-out). Settings are at the top of `tools/extension-e2e/lib.mjs`.

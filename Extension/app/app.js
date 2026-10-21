@@ -3,7 +3,7 @@ import { createAuth, readSessionUser, publicUser } from '../src/auth.js';
 import { ensureSession, signOut as endSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { createApi } from '../src/api.js';
-import { flushQueue, queueStats, makePerformMutation, sendOrQueue, pendingItems, FLUSH_MESSAGE } from '../src/queue.js';
+import { flushQueue, queueStats, makePerformMutation, sendOrQueue, pendingItems, newIdempotencyKey, FLUSH_MESSAGE } from '../src/queue.js';
 import { rememberTask } from '../src/task-writes.js';
 import { setToolbarBadge, clearDesktopAlert } from '../src/notify.js';
 import { el, clear, mount, saveFile } from './dom.js';
@@ -15,6 +15,10 @@ import { svgIcon } from './components.js';
 import { openSearch, searchShortcut } from './search.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
 import { createChatDrafts } from '../src/chat-drafts.js';
+import { openAppTab } from '../src/open-app.js';
+import { canOpenSidePanel, openSidePanel, panelShows, PANEL_LIVE_ROUTES } from '../src/side-panel.js';
+import { PanelShell } from './panel-shell.js';
+import { QuickAddForm, SignedOutView } from '../popup/quick-add-form.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -30,6 +34,15 @@ import { ReportsScreen } from './screens/reports.js';
 import { SearchScreen } from './screens/search.js';
 import { MeetingsScreen } from './screens/meetings.js';
 import { MeetingScreen } from './screens/meeting.js';
+import { TodayScreen } from './screens/today.js';
+
+/**
+ * Chrome's side panel (Stage 7) is this app in short: app/panel.html says so (`data-layout`). It
+ * shows Today, My Tasks and Add a task, with a task's panel over them; any other page opens in the
+ * full app page. The same session, offline copies, queue and rules as the app tab.
+ */
+const PANEL = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'panel';
+const SIDE_PANEL_ICON = ['M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z', 'M15 4v16'];
 
 const storage = chrome.storage.local;
 // The access token lives in memory-only session storage (EXT-07), never on disk.
@@ -66,6 +79,15 @@ const ROUTES = [
   { name: 'settings', pattern: '/settings', title: 'Settings', screen: SettingsScreen },
   { name: 'task', pattern: '/task/:taskId', title: 'Task', overlay: true, screen: TaskDetail },
 ];
+
+/** The side panel's screens (src/side-panel.js panelShows). "Add a task" is one form kept while the panel is open. */
+const PANEL_ROUTES = [
+  { name: 'today', pattern: '/', title: 'Today', screen: TodayScreen },
+  { name: 'my-tasks', pattern: '/my-tasks', title: 'My Tasks', screen: MyTasksScreen },
+  { name: 'add', pattern: '/add', title: 'Add a task', screen: (ctx) => ctx.panelAddForm() },
+  { name: 'task', pattern: '/task/:taskId', title: 'Task', overlay: true, screen: TaskDetail },
+];
+const SHOWN_ROUTES = PANEL ? PANEL_ROUTES : ROUTES;
 
 /** 'login' or 'app' — what this tab is showing, so storage changes from elsewhere can resync it. */
 let mode = null;
@@ -115,6 +137,13 @@ async function boot() {
   const session = await ensureSession({ local: storage, session: sessionStore, apiBase });
   if (!session) {
     mode = 'login';
+    if (PANEL) {
+      // The side panel signs in through the full app (one place for the server and the password);
+      // it shows itself again once someone has signed in there.
+      const frame = { openApp: (hash) => openAppTab(chrome, hash), close: () => {}, inPanel: true };
+      mount(root, SignedOutView(frame, takeNotice() || 'Sign in to MICO360 Tasks to see your tasks here.'));
+      return;
+    }
     mount(root, LoginScreen({ apiBase, appBase, storage, session: sessionStore, notice: takeNotice(), onAuthed: () => reloadWithNotice('') }));
     return;
   }
@@ -227,7 +256,39 @@ class App {
       afterMutation: () => this.refreshMeta(),
       requestSync: () => this.sync(),
       signOut: () => this.signOut(),
+      // The side panel's "Add a task" (one form, kept while the panel is open).
+      panelAddForm: () => this.panelAddForm(),
     };
+  }
+
+  /**
+   * The side panel's new-task form: the popup's (QuickAddForm) with the app's online-first write —
+   * sent now, or kept in the queue with the task's own Idempotency-Key; a task with files is never
+   * queued. Built once and kept while the panel is open, so moving between its tabs keeps what was
+   * typed and the files picked (what was typed is also kept for when the panel opens again).
+   * "Open it" and recent tasks open the task's panel here; other pages open in the full app page.
+   */
+  panelAddForm() {
+    if (this.addForm) return this.addForm;
+    const app = this;
+    this.addForm = QuickAddForm({
+      api: this.api,
+      me: this.me,
+      local: this.storage,
+      session: sessionStore,
+      appBase: this.appBase,
+      apiBase: this.apiBase,
+      get timeZone() { return app.timeZone; },
+      isOnline: () => this.state.online,
+      newKey: newIdempotencyKey,
+      send: (kind, payload, opts) => this.write(kind, payload, opts),
+      inPanel: true,
+      capture: null,
+      currentPage: async () => null,
+      openApp: (hash) => { if (hash) window.location.hash = hash; else return openAppTab(chrome, ''); },
+      close: () => {},
+    });
+    return this.addForm;
   }
 
   /**
@@ -266,7 +327,7 @@ class App {
     // (such as the next copy of a recurring task) appear.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') return;
-      const matched = matchRoute(ROUTES, parseHash(window.location.hash).path);
+      const matched = matchRoute(SHOWN_ROUTES, parseHash(window.location.hash).path);
       if (refreshOnReturn(matched && matched.route, Boolean(this.overlay))) this.refresh();
     });
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -279,7 +340,18 @@ class App {
     this.refreshMeta();
     this.sync();
     this.refreshTimeZone();
-    setInterval(() => this.refreshMeta(), 60000);
+    setInterval(() => {
+      this.refreshMeta();
+      // The side panel stays open beside your work, so its list reads itself again with the counts
+      // every minute while it is on screen (no live connection), in place — never under a dialog.
+      if (PANEL && document.visibilityState === 'visible' && PANEL_LIVE_ROUTES.has(this.routeName())) this.refresh();
+    }, 60000);
+    // The window this tab is in, so "Open the side panel" opens it straight from the click.
+    if (!PANEL && canOpenSidePanel(chrome)) {
+      const where = () => chrome.windows.getCurrent().then((w) => { this.windowId = w && w.id; }, () => {});
+      void where();
+      window.addEventListener('focus', () => { void where(); }); // the tab may have moved to another window
+    }
     // No "newer version" banner: most releases change only the website, so a newer server doesn't
     // mean a newer extension file. Settings → About shows both versions and how to update.
   }
@@ -308,6 +380,7 @@ class App {
     if (!profile || profile.id !== this.me.id) return;
     const before = (this.me.roles || []).join(',');
     applyProfile(this.me, profile);
+    if (PANEL) return; // the side panel shows no name and no admin pages
     this.renderUser();
     if ((this.me.roles || []).join(',') !== before) {
       this.renderNav();
@@ -332,7 +405,24 @@ class App {
     );
   }
 
+  /** The side panel's frame (app/panel-shell.js): its header, tabs, offline bar and live region. */
+  renderPanelShell() {
+    const shell = PanelShell({ onOpenApp: () => { void openAppTab(chrome, ''); } });
+    this.panelShell = shell;
+    this.titleEl = shell.titleEl;
+    this.connEl = shell.connEl;
+    this.offbar = shell.offbar;
+    this.content = shell.content;
+    this.live = shell.live;
+    mount(this.root, shell.node);
+    this.renderStatus();
+  }
+
   renderShell() {
+    if (PANEL) {
+      this.renderPanelShell();
+      return;
+    }
     this.navEl = el('nav', { class: 'nav' });
     this.userEl = el('div', { class: 'side-user' });
     this.renderNav();
@@ -353,8 +443,15 @@ class App {
     this.offbar = el('div', { class: 'offbar hidden' }, 'Offline — showing saved data. Changes will sync when you reconnect.');
     this.content = el('div', { class: 'content' });
     this.live = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
+    // Stage 7: Today, My Tasks and Add a task in Chrome's side panel, beside any page.
+    const panelBtn = canOpenSidePanel(chrome)
+      ? el('button', {
+        class: 'btn sm top-panel', type: 'button', 'aria-label': 'Open the side panel', title: 'Show your tasks beside the page you are on',
+        onClick: () => { void openSidePanel(chrome, this.windowId); },
+      }, svgIcon(SIDE_PANEL_ICON, 15, 2))
+      : null;
     const main = el('main', { class: 'main' },
-      el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), searchBtn, this.connEl),
+      el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), panelBtn, searchBtn, this.connEl),
       this.offbar,
       this.content,
       this.live,
@@ -377,7 +474,11 @@ class App {
     this.offbar.classList.toggle('hidden', online);
   }
 
-  setActiveNav(path) {
+  setActiveNav(path, title) {
+    if (PANEL) {
+      this.panelShell.setActive(path, title);
+      return;
+    }
     if (path.startsWith('/meeting/')) path = '/meetings'; // a meeting's page is under Meetings
     for (const a of this.root.querySelectorAll('.navlink')) {
       const p = a.dataset.path;
@@ -415,7 +516,7 @@ class App {
 
   /** The name of the route shown under any drawer (e.g. 'notifications'). */
   routeName() {
-    const matched = matchRoute(ROUTES, parseHash(this.contentBase || window.location.hash).path);
+    const matched = matchRoute(SHOWN_ROUTES, parseHash(this.contentBase || window.location.hash).path);
     return matched ? matched.route.name : null;
   }
 
@@ -482,7 +583,17 @@ class App {
 
   route() {
     const { path, query } = parseHash(window.location.hash);
-    const matched = matchRoute(ROUTES, path) || { route: ROUTES[0], params: {} };
+    if (PANEL) {
+      // A page the side panel doesn't show (a board, a meeting, Settings…) opens in the full app
+      // page; the side panel stays on what it showed (a task's panel stays open).
+      const elsewhere = !matchRoute(PANEL_ROUTES, path) && matchRoute(ROUTES, path);
+      if (elsewhere && !panelShows(elsewhere.route.name)) {
+        void openAppTab(chrome, window.location.hash);
+        window.history.replaceState(null, '', this.shownHash || '#/');
+        return;
+      }
+    }
+    const matched = matchRoute(SHOWN_ROUTES, path) || { route: SHOWN_ROUTES[0], params: {} };
     const { route, params } = matched;
 
     if (route.overlay) {
@@ -494,6 +605,7 @@ class App {
       this.closeOverlay();
       this.overlay = route.screen(this.ctx(params, query), () => this.closeOverlay(true));
       document.body.append(this.overlay);
+      this.shownHash = window.location.hash;
       // A modal dialog: focus moves in and stays in, the page behind is inert, Escape closes it.
       this.releaseModal = showModal(this.overlay, { onEscape: () => this.closeOverlay(true) });
       return;
@@ -502,8 +614,9 @@ class App {
     this.opener = null;
     this.closeOverlay();
     this.contentBase = window.location.hash || '#/';
+    this.shownHash = this.contentBase;
     this.titleEl.textContent = route.title;
-    this.setActiveNav(path);
+    this.setActiveNav(path, route.title);
     clear(this.content);
     try {
       const node = route.screen(this.ctx(params, query));
@@ -513,6 +626,15 @@ class App {
     }
     // Back from the drawer: focus the card or row that opened it once the screen has drawn it again.
     if (opener) returnFocus(this.content, opener);
+    else if (PANEL && route.name === 'add') this.focusAddForm();
+  }
+
+  /** The side panel's "Add a task" tab was chosen: start in the title, as the popup does. */
+  focusAddForm() {
+    const a = document.activeElement;
+    if (a && a !== document.body && !a.closest('.panel-tabs')) return;
+    const title = this.content.querySelector('#qa-title');
+    if (title) title.focus();
   }
 
   closeOverlay(navigateBack) {

@@ -686,3 +686,51 @@ a.td-file-name:hover { color: var(--brand); text-decoration: underline; }
   .mt-cards { grid-template-columns: 1fr; }
   .mt-upnext-actions { width: 100%; }
 }
+
+/* ---- Stage 7: the side panel (app/panel.html) — built for 320–400 px ---- */
+.panel-app { display: flex; flex-direction: column; min-height: 100vh; background: var(--ground); }
+.panel-top { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.panel-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 8px 12px 2px; }
+.panel-brand { font-weight: 800; font-size: 15px; letter-spacing: -.01em; }
+.panel-brand .m { color: var(--brand); }
+.panel-conn { font-size: 11.5px; margin-right: auto; }
+.panel-open { white-space: nowrap; }
+.panel-tabs { display: flex; padding: 0 6px; }
+.panel-tab { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 40px; padding: 6px 4px; text-align: center; font-weight: 700; font-size: 13px; color: var(--ink2); border-bottom: 2px solid transparent; }
+.panel-tab:hover { color: var(--ink); }
+.panel-tab[aria-current="page"] { color: var(--brand); border-bottom-color: var(--brand); }
+.panel-tab:focus-visible { outline-offset: -2px; }
+.panel-app .offbar { padding: 6px 12px; }
+.panel-main { flex: 1; min-width: 0; }
+.panel-content { padding: 12px; max-width: none; }
+.today-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.today-date { margin: 0; font-size: 14px; font-weight: 700; }
+.panel-content .qa-in-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.panel-content .qa-in-panel .qa-form { padding: 12px; }
+.panel-content .qa-in-panel .qa-actions { bottom: 0; }
+.panel-app .state { padding: 24px 12px; text-align: center; }
+/* The app's own button that opens the side panel (beside Search). */
+.top-panel { display: inline-flex; align-items: center; color: var(--ink2); padding: 6px 9px; }
+.qa-panel-btn { display: inline-grid; place-items: center; }
+
+/* Narrow (the side panel, or any window under 400 px — the 400 px toolbar popup keeps its own layout):
+   the lists, the task's panel and the new-task form fit. */
+@media (max-width: 399.98px) {
+  .content { padding: 12px; }
+  .toolbar { gap: 6px; }
+  .toolbar .field[type="search"] { flex: 1 1 100% !important; min-width: 0 !important; }
+  .mt-select { min-width: 0; flex: 1 1 120px; max-width: none; }
+  .mt-sort { flex: 1 1 140px; }
+  .mt-sort .mt-select { flex: 1; }
+  .task-row { padding: 9px 10px; gap: 9px; }
+  .task-row-wrap { gap: 6px; }
+  .task-row-wrap .mark-done { padding: 6px 8px; }
+  /* The task's panel: its key and Close on the first line, Watch and the downloads under them. */
+  .drawer-head { padding: 10px 12px; gap: 6px 8px; flex-wrap: wrap; }
+  .drawer-head h2 { flex: 1 0 auto; white-space: nowrap; }
+  .drawer-head > .iconbtn { order: 1; }
+  .drawer-head > .export-box { order: 2; flex: 1 1 100%; justify-content: flex-start; }
+  .drawer-body { padding: 12px; }
+  .td-row > * { max-width: 100%; }
+  .td-select, .td-date { max-width: 100%; }
+}

@@ -19,6 +19,7 @@ import { applyStoredTheme } from '../app/theme.js';
 import { el, mount } from '../app/dom.js';
 import { QuickAddForm, SignedOutView } from './quick-add-form.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
+import { canOpenSidePanel, openSidePanel } from '../src/side-panel.js';
 
 const local = chrome.storage.local;
 // The access token lives in memory-only session storage (EXT-07), never on disk.
@@ -87,6 +88,16 @@ async function boot() {
   const capture = await takeCapture();
   let latest = capture;
   const userId = signed.userId;
+  // The window this popup is on, so its side panel can open straight from the click (Stage 7). Not
+  // in the small window before Chrome 127: that kind of window has no side panel.
+  let windowId = null;
+  if (!inWindow && canOpenSidePanel(chrome)) {
+    try {
+      windowId = (await chrome.windows.getCurrent()).id;
+    } catch {
+      windowId = null;
+    }
+  }
   const auth = createAuth({
     local,
     session: sessionStore,
@@ -131,6 +142,10 @@ async function boot() {
       use(c);
     })) : undefined,
     shortcut,
+    // "Open the side panel": asked at once (in the click), then the popup closes once it is open.
+    openPanel: typeof windowId === 'number'
+      ? () => { void openSidePanel(chrome, windowId).then((opened) => { if (opened) window.close(); }); }
+      : undefined,
   };
   mount(root, QuickAddForm(ctx));
   // The company's time zone decides "today" for "Describe it"; keep it for next time (as the app does).

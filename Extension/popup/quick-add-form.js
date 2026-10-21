@@ -15,14 +15,14 @@
  * Built with el() (no HTML strings); the context comes from popup.js (or a test).
  */
 import { el, mount } from '../app/dom.js';
-import { ProjectAvatar } from '../app/components.js';
+import { ProjectAvatar, svgIcon } from '../app/components.js';
 import { todayKey } from '../src/due-date.js';
 import { getQueue } from '../src/queue.js';
 import { messageFor } from '../src/errors.js';
 import { pastedFiles, isTypingTarget } from '../src/clipboard-files.js';
 import { suggestionsFrom, chosenPatch, toggleSuggestion, describeFailure, scheduleText } from '../src/describe-task.js';
 import {
-  TITLE_MAX, DESCRIPTION_MAX, PRIORITIES, PRIORITY_NAMES, DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY,
+  TITLE_MAX, DESCRIPTION_MAX, PRIORITIES, PRIORITY_NAMES, DRAFT_KEY, PANEL_DRAFT_KEY, LAST_PROJECT_KEY, RECENT_KEY,
   buildQuickAddPayload, openProjects, startProjectId, projectFromUrl, boardColumns, pickColumn, personName, assigneeNote,
   removedNotice, isAddablePage, withPage, mergeCapture, ownedBy, rememberRecent, recentStatus, fileFailure, createFailure,
   attachFailureMessage, createdMessage, createdBeforeMessage, restoredMessage, keyIsSpent, formatSize, OFFLINE_FILES_MESSAGE,
@@ -34,17 +34,28 @@ const BLANK = { title: '', description: '', priority: 'NORMAL', dueDate: '', pro
 const MAX_UPLOAD_MB = 10;
 const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '');
 
+/** A side panel beside a page (decorative: the button says what it does). */
+const PANEL_ICON = ['M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z', 'M15 4v16'];
+
+/** Open the full app (or, in the side panel, the task's panel there): a popup then closes; the side panel stays. */
 async function openFull(ctx, hash = '') {
   try {
     await ctx.openApp(hash);
   } finally {
-    ctx.close();
+    if (!ctx.inPanel) ctx.close();
   }
 }
 
+/**
+ * The popup's header: the name, "Open the side panel" (Stage 7, where Chrome can open it from here)
+ * and "Open MICO360 Tasks". `ctx.openPanel()` is called straight from the click (Chrome needs that).
+ */
 function header(ctx, { withOpen = true } = {}) {
   return el('header', { class: 'qa-head' },
     el('h1', { class: 'qa-brand' }, el('span', { class: 'm' }, 'MICO'), '360 Tasks'),
+    withOpen && typeof ctx.openPanel === 'function'
+      ? el('button', { class: 'iconbtn sm qa-panel-btn', type: 'button', 'aria-label': 'Open the side panel', title: 'Show your tasks beside the page you are on', onClick: () => ctx.openPanel() }, svgIcon(PANEL_ICON, 17))
+      : null,
     withOpen ? el('button', { class: 'btn sm', type: 'button', title: 'Open the full app in a tab', onClick: () => openFull(ctx) }, 'Open MICO360 Tasks') : null,
   );
 }
@@ -71,6 +82,11 @@ export function SignedOutView(ctx, message) {
  */
 export function QuickAddForm(ctx) {
   const place = ctx.place && ctx.place.project && ctx.place.project.id ? ctx.place : null;
+  // In the side panel (Stage 7): no header of its own (the panel has one), no "Add this page" (Chrome
+  // lets the extension read the page only from the popup or the right-click menu), no shortcut tip,
+  // and a kept draft of its own.
+  const inPanel = !place && !!ctx.inPanel;
+  const draftKey = inPanel ? PANEL_DRAFT_KEY : DRAFT_KEY;
   // ---- State --------------------------------------------------------------------------------
   const state = {
     fields: { ...BLANK, assigneeIds: [] },
@@ -168,7 +184,7 @@ export function QuickAddForm(ctx) {
     el('div', {},
       el('div', { class: 'qa-label-row' },
         el('label', { class: 'lbl', for: 'qa-desc' }, 'Description ', el('span', { class: 'qa-opt' }, '(optional)')),
-        place ? null : el('button', { class: 'linkbtn', type: 'button', title: 'Put this page’s title and address into the description', onClick: () => addPage() }, 'Add this page')),
+        place || inPanel ? null : el('button', { class: 'linkbtn', type: 'button', title: 'Put this page’s title and address into the description', onClick: () => addPage() }, 'Add this page')),
       descInput, pageNote),
     el('div', {}, el('span', { class: 'lbl' }, 'Attachments ', el('span', { class: 'qa-opt' }, '(optional)')), filesList, dropZone),
     el('div', { class: 'qa-actions' }, clearBtn, el('span', { class: 'sp' }), createBtn),
@@ -180,7 +196,7 @@ export function QuickAddForm(ctx) {
         el('h2', { class: 'qa-brand', id: 'qa-dialog-title' }, 'New task'),
         el('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: () => requestClose() }, el('span', { 'aria-hidden': 'true' }, '✕'))),
       offbar, form, announcer)
-    : el('div', { class: 'qa' }, header(ctx), offbar, form, recentBox, footer, announcer);
+    : el('div', { class: `qa${inPanel ? ' qa-in-panel' : ''}` }, inPanel ? null : header(ctx), offbar, form, recentBox, footer, announcer);
   root.requestClose = () => requestClose();
 
   // ---- Events -------------------------------------------------------------------------------
@@ -309,7 +325,7 @@ export function QuickAddForm(ctx) {
     let restored = null; // { files, maybeSent }: how the form not sent last time comes back
     let createdBefore = null; // the popup closed after the task was created (while its files went up)
     try {
-      const draft = ownedBy(((await ctx.session.get(DRAFT_KEY)) || {})[DRAFT_KEY], ctx.me.id);
+      const draft = ownedBy(((await ctx.session.get(draftKey)) || {})[draftKey], ctx.me.id);
       if (draft && draft.createdTask && typeof draft.createdTask === 'object') {
         createdBefore = draft.createdTask;
       } else if (draft && draft.fields) {
@@ -356,6 +372,7 @@ export function QuickAddForm(ctx) {
     // A form brought back may name people who have left its project's team since (M3): take them off.
     await loadProjects({ currentId, lastId, prune: !!restored });
     renderRecent();
+    if (inPanel || typeof ctx.shortcut !== 'function') return; // the tip is about the popup
     try {
       const sc = await ctx.shortcut();
       mount(footer, sc ? `Open this from any page with ${sc}.` : 'Tip: give this a keyboard shortcut at chrome://extensions/shortcuts.');
@@ -704,7 +721,7 @@ export function QuickAddForm(ctx) {
       };
       if (state.pending) Object.assign(value, { pendingKey: state.pending.key, payloadJSON: state.pending.payloadJSON });
     }
-    draftWrite = draftWrite.then(() => (value ? ctx.session.set({ [DRAFT_KEY]: value }) : ctx.session.remove(DRAFT_KEY))).catch(() => { /* best effort */ });
+    draftWrite = draftWrite.then(() => (value ? ctx.session.set({ [draftKey]: value }) : ctx.session.remove(draftKey))).catch(() => { /* best effort */ });
     return draftWrite;
   }
 
