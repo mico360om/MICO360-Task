@@ -68,6 +68,9 @@ function onRule(wall: Date, rule: RecurrenceRule): boolean {
   return true;
 }
 
+/** Does a local date (a wall-clock date) fall on the rule's days? (Free-time suggestions keep a repeat's days.) */
+export const fallsOnRule = onRule;
+
 /** `start` when it falls on the rule's days, else the rule's next date after it (same local time). */
 export function alignToRule(start: Date, rule: RecurrenceRule, timeZone: string): Date {
   const wall = wallOf(start, timeZone);
