@@ -84,6 +84,18 @@ export function withMovedTask<R extends CalendarRange>(range: R, taskId: string,
   return tasks === range.tasks && series === range.series ? range : { ...range, tasks, series };
 }
 
+/**
+ * A move shown at once in a cached calendar answer, whatever it holds: a range, or a list of tasks
+ * (the overdue ones). Anything else is left as it is.
+ */
+export function movedInCached(data: unknown, taskId: string, patch: DuePatch): unknown {
+  if (Array.isArray(data)) return movedInList(data as CalendarTask[], taskId, patch);
+  if (data && typeof data === 'object' && Array.isArray((data as CalendarRange).tasks) && Array.isArray((data as CalendarRange).series)) {
+    return withMovedTask(data as CalendarRange, taskId, patch);
+  }
+  return data;
+}
+
 /** The due-day part of a queued task edit, or null when it doesn't change the day or the repeat. */
 function duePart(m: Pick<QueuedMutation, 'kind' | 'payload'>): { id: string; patch: DuePatch } | null {
   if (m.kind !== 'task.update') return null;

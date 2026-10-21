@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   OVERDUE_PREVIEW,
   agendaDays,
+  calendarSections,
   canCreateIn,
   chosenDay,
   createDay,
@@ -11,7 +14,8 @@ import {
   offlineNote,
   timeZoneNote,
 } from './calendar-screen';
-import { DEFAULT_FILTERS } from './calendar-model';
+import { DEFAULT_FILTERS, buildItems, groupByDay, type CalendarTask } from './calendar-model';
+import type { CalMeeting } from './calendar-meetings';
 
 const projects = [
   { id: 'p1', name: 'Tower A', status: 'ACTIVE' },
@@ -91,5 +95,55 @@ describe('the calendar remembers its view and filters while the app is open, per
     expect(memory.get('u1')).toEqual({ view: 'agenda', date: '2026-11-01', filters: { ...DEFAULT_FILTERS, mine: true } });
     expect(memory.get('u2')).toEqual({ view: 'month', date: null, filters: DEFAULT_FILTERS });
     expect(memory.get(null)).toEqual({ view: 'month', date: null, filters: DEFAULT_FILTERS });
+  });
+});
+
+describe('the New task sheet the calendar opens (components/QuickAddTaskSheet)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
+  it('starts on the calendar’s day, and a task made there refreshes the calendar (as a replayed one does)', () => {
+    const sheet = src('../components/QuickAddTaskSheet.tsx');
+    expect(sheet).toMatch(/defaultDueDate\?: string/);
+    expect(sheet).toMatch(/if \(visible && defaultDueDate\) setDueDate\(defaultDueDate\)/);
+    expect(sheet).toMatch(/refresh\(qc, createdTaskRefreshes\(projectId\)\)/);
+    expect(src('./perform-mutation.ts')).toMatch(/return createdTaskRefreshes\(p\.projectId\)/);
+  });
+});
+
+describe('the list under the calendar', () => {
+  const ctx = { today: '2026-10-10', timeZone: 'Asia/Muscat', projectStatus: () => 'ACTIVE' };
+  const t = (id: string, dueDate: string, over: Partial<CalendarTask> = {}): CalendarTask => ({
+    id, key: id.toUpperCase(), title: id, description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0, priority: 'NORMAL',
+    startDate: null, dueDate, estimatedHours: null, progress: 0, completedAt: null, ...over,
+  });
+  const items = buildItems({ tasks: [t('a', '2026-10-10T00:00:00.000Z'), t('b', '2026-10-12T00:00:00.000Z'), t('c', '2026-10-02T00:00:00.000Z')], occurrences: [], series: [] }, ctx);
+  const byDay = groupByDay(items);
+  const meetingsByDay = new Map([['2026-10-12', [{ key: 'mtg:m1', id: 'm1' } as CalMeeting]]]);
+  const overdue = buildItems({ tasks: Array.from({ length: 10 }, (_, i) => t(`o${i}`, '2026-10-01T00:00:00.000Z')), occurrences: [], series: [] }, ctx);
+  const base = { from: '2026-10-01', to: '2026-10-31', today: '2026-10-10', chosen: '2026-10-12', weekStart: 0 as const, byDay, meetingsByDay, overdue: [], showEarlier: false, allOverdue: false, filtered: false };
+  const shape = (s: ReturnType<typeof calendarSections>) => s.sections.map((x) => [x.key, x.title, x.today, x.data.map((r) => r.key)]);
+
+  it('the month: the chosen day, meetings first', () => {
+    expect(shape(calendarSections({ ...base, view: 'month' }))).toEqual([['day:2026-10-12', 'Monday 12 October', false, ['mtg:m1', 'b']]]);
+    const empty = calendarSections({ ...base, view: 'month', chosen: '2026-10-11', filtered: true });
+    expect(empty.sections[0]!.data).toEqual([{ key: 'empty:2026-10-11', type: 'empty', text: 'Nothing due with these filters.' }]);
+  });
+
+  it('the week: all seven days, each saying when nothing is due', () => {
+    const week = calendarSections({ ...base, view: 'week', from: '2026-10-04', to: '2026-10-10' });
+    expect(week.sections.map((s) => s.day)).toEqual(['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10']);
+    expect(week.sections[6]).toMatchObject({ title: 'Saturday 10 October', today: true });
+    expect(week.sections[0]!.data[0]).toMatchObject({ type: 'empty', text: 'Nothing due.' });
+  });
+
+  it('the agenda: overdue first (eight, then “Show all”), then the days from today; earlier days behind a button', () => {
+    const agenda = calendarSections({ ...base, view: 'agenda', overdue });
+    expect(agenda.sections.map((s) => s.key)).toEqual(['overdue', 'day:2026-10-10', 'day:2026-10-12']);
+    expect(agenda.sections[0]!.title).toBe('Overdue · 10');
+    expect(agenda.sections[0]!.data.map((r) => r.type)).toEqual([...Array(8).fill('task'), 'more']);
+    expect(agenda.sections[0]!.data.at(-1)).toMatchObject({ type: 'more', text: 'Show all 10 overdue tasks' });
+    expect(agenda.earlier).toBe(1);
+    expect(calendarSections({ ...base, view: 'agenda', overdue, allOverdue: true }).sections[0]!.data.at(-1)).toMatchObject({ type: 'more', text: 'Show fewer' });
+    expect(calendarSections({ ...base, view: 'agenda', showEarlier: true }).sections.map((s) => s.day)).toEqual(['2026-10-02', '2026-10-10', '2026-10-12']);
+    expect(calendarSections({ ...base, view: 'agenda', byDay: new Map(), meetingsByDay: new Map() }).sections).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterTaskDeleted, afterTaskSaved, editRefreshes, moveRefreshes } from './task-cache';
+import { afterTaskDeleted, afterTaskSaved, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
 import { refresh } from './refresh';
 import type { ApiTask } from './types';
 
@@ -118,6 +118,17 @@ describe('editRefreshes', () => {
     expect(editRefreshes('t1', { dueDate: null })).toContainEqual({ progressFor: 't1' });
     expect(editRefreshes('t1', { columnId: 'c2' })).toContainEqual({ progressFor: 't1' });
     expect(editRefreshes('t1', { priority: 'HIGH' })).not.toContainEqual({ progressFor: 't1' });
+  });
+});
+
+describe('createdTaskRefreshes', () => {
+  it('a new task: its project’s board days, My Tasks, the project’s progress and the calendar’s ranges (5a)', () => {
+    expect(createdTaskRefreshes('p1')).toEqual([
+      { queryKey: ['tasks', 'project', 'p1'] },
+      { queryKey: ['tasks', 'mine'] },
+      { queryKey: ['project', 'p1', 'progress'], exact: true },
+      { queryKey: ['tasks', 'calendar'] },
+    ]);
   });
 });
 

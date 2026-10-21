@@ -4,6 +4,7 @@ import {
   fitRange,
   listWithPendingDueDates,
   meetingsInRange,
+  movedInCached,
   movedInList,
   rangeView,
   slimRange,
@@ -120,5 +121,17 @@ describe('what the calendar shows for a range', () => {
     expect(listWithPendingDueDates(list, [])).toBe(list);
     expect(movedInList(list, 'b', { dueDate: '2026-10-22' })[0]!.dueDate).toBe('2026-10-22T00:00:00.000Z');
     expect(movedInList(list, 'x', { dueDate: '2026-10-22' })).toBe(list);
+  });
+});
+
+describe('a move shown at once in every calendar answer that is cached', () => {
+  it('a range, the overdue list, and anything else left alone', () => {
+    const saved = range();
+    expect(movedInCached(saved, 'b', { dueDate: '2026-10-14' })).toEqual(withMovedTask(saved, 'b', { dueDate: '2026-10-14' }));
+    const list = [task({ id: 'b' })];
+    expect((movedInCached(list, 'b', { dueDate: '2026-10-14' }) as CalendarTask[])[0]!.dueDate).toBe('2026-10-14T00:00:00.000Z');
+    expect(movedInCached(undefined, 'b', { dueDate: '2026-10-14' })).toBeUndefined();
+    const other = { hello: 'world' };
+    expect(movedInCached(other, 'b', { dueDate: '2026-10-14' })).toBe(other);
   });
 });

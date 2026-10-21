@@ -1,7 +1,6 @@
 import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
-import { meetingWindow } from '../lib/meetings';
 import { refetchAfterMove } from '../lib/task-status';
 import { taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { afterTaskDeleted, afterTaskSaved, moveRefreshes } from '../lib/task-cache';
@@ -361,19 +360,7 @@ export function useProjectProgress(projectId: string) {
   });
 }
 
-// ── Meetings: the calendar and a project (reads) ─────────────────────────────
-/** The meetings the calendar shows (a week back, two months ahead), kept for an offline start. */
-export function useCalendarMeetings() {
-  const { resources, reads } = useServices();
-  return useQuery({
-    queryKey: ['meetings', 'calendar'],
-    queryFn: ({ queryKey }) => {
-      const w = meetingWindow();
-      return reads.read(queryKey, 'meetings.calendar', () => resources.meetings.range(w.from, w.to));
-    },
-  });
-}
-
+// ── Meetings: a project (reads); the calendar's are in core/calendar-queries (5a) ──
 /** A project's meetings, decisions and action items; null from a server without them (404). */
 export function useProjectMeetings(projectId: string) {
   const { resources } = useServices();

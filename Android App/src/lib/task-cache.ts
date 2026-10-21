@@ -23,6 +23,20 @@ export function editRefreshes(taskId: string, patch: object): Refresh[] {
 export const MY_ACTION_ITEMS: Refresh = { queryKey: ['action-items', 'mine'], later: true };
 
 /**
+ * What a new task refreshes (made live, or replayed after being kept offline): its project's board
+ * days, My Tasks, the project's progress and the calendar's ranges (5a) — a task made on a day of
+ * the calendar shows there.
+ */
+export function createdTaskRefreshes(projectId: string): Refresh[] {
+  return [
+    { queryKey: ['tasks', 'project', projectId] },
+    { queryKey: ['tasks', 'mine'] },
+    { queryKey: ['project', projectId, 'progress'], exact: true },
+    { queryKey: ['tasks', 'calendar'] },
+  ];
+}
+
+/**
  * What a move refreshes once the server answered: the task, its activity (the timeline notes the
  * move), its project's board days (finishing a repeating task adds its next copy to a later day —
  * only the day on screen is fetched again), the other lists holding it (My Tasks when it's yours),

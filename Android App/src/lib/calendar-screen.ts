@@ -3,8 +3,9 @@
  * agenda's days, where a new task goes, what the screen says, and the view and filters it keeps
  * while the app is open.
  */
-import { DEFAULT_FILTERS, type CalendarFilters } from './calendar-model';
-import { rangeLabel, type CalendarView } from './calendar';
+import { DEFAULT_FILTERS, type CalendarFilters, type CalItem } from './calendar-model';
+import type { CalMeeting } from './calendar-meetings';
+import { dayLabel, rangeLabel, shiftDayKey, type CalendarView, type WeekStart } from './calendar';
 
 /** Overdue tasks listed before "Show all" in the agenda (the website's number). */
 export const OVERDUE_PREVIEW = 8;
@@ -34,6 +35,70 @@ export function agendaDays(keys: Iterable<string>, opts: { from: string; to: str
   const earlier = hasToday ? days.filter((d) => d < opts.today) : [];
   const listed = hasToday && !opts.showEarlier ? days.filter((d) => d >= opts.today) : days;
   return { earlier, listed };
+}
+
+export type CalendarRow =
+  | { key: string; type: 'meeting'; meeting: CalMeeting }
+  | { key: string; type: 'task'; item: CalItem }
+  | { key: string; type: 'empty'; text: string }
+  | { key: string; type: 'more'; text: string };
+
+export interface CalendarSection {
+  key: string;
+  /** The day the section is (none for Overdue). */
+  day?: string;
+  title: string;
+  today: boolean;
+  data: CalendarRow[];
+}
+
+export interface SectionInput {
+  view: CalendarView;
+  from: string;
+  to: string;
+  today: string;
+  /** The month's chosen day. */
+  chosen: string;
+  weekStart: WeekStart;
+  byDay: Map<string, CalItem[]>;
+  meetingsByDay: Map<string, CalMeeting[]>;
+  /** The agenda's overdue tasks (already filtered). */
+  overdue: CalItem[];
+  showEarlier: boolean;
+  allOverdue: boolean;
+  filtered: boolean;
+}
+
+/**
+ * What the list under the calendar shows: the month's chosen day; the week's seven days; or the
+ * agenda — overdue work first (eight, then "Show all"), then the days with something on them from
+ * today (`earlier` counts the days before it, behind a button). Each day lists its meetings first.
+ */
+export function calendarSections(p: SectionInput): { sections: CalendarSection[]; earlier: number } {
+  const day = (d: string): CalendarSection => {
+    const rows: CalendarRow[] = [
+      ...(p.meetingsByDay.get(d) ?? []).map((m): CalendarRow => ({ key: m.key, type: 'meeting', meeting: m })),
+      ...(p.byDay.get(d) ?? []).map((item): CalendarRow => ({ key: item.key, type: 'task', item })),
+    ];
+    if (rows.length === 0) rows.push({ key: `empty:${d}`, type: 'empty', text: p.filtered ? 'Nothing due with these filters.' : 'Nothing due.' });
+    return { key: `day:${d}`, day: d, title: dayLabel(d, { weekday: 'long', day: true, month: 'long' }), today: d === p.today, data: rows };
+  };
+  if (p.view === 'month') return { sections: [day(p.chosen)], earlier: 0 };
+  if (p.view === 'week') {
+    const days: string[] = [];
+    for (let d = p.from; d <= p.to && days.length < 7; d = shiftDayKey(d, 1)) days.push(d);
+    return { sections: days.map(day), earlier: 0 };
+  }
+  const { earlier, listed } = agendaDays([...p.byDay.keys(), ...p.meetingsByDay.keys()], { from: p.from, to: p.to, today: p.today, showEarlier: p.showEarlier });
+  const sections: CalendarSection[] = [];
+  if (p.overdue.length > 0) {
+    const shown = p.allOverdue ? p.overdue : p.overdue.slice(0, OVERDUE_PREVIEW);
+    const rows: CalendarRow[] = shown.map((item) => ({ key: `overdue:${item.key}`, type: 'task', item }));
+    if (p.overdue.length > OVERDUE_PREVIEW) rows.push({ key: 'more-overdue', type: 'more', text: p.allOverdue ? 'Show fewer' : `Show all ${p.overdue.length} overdue tasks` });
+    sections.push({ key: 'overdue', title: `Overdue · ${p.overdue.length}`, today: false, data: rows });
+  }
+  sections.push(...listed.map(day));
+  return { sections, earlier: earlier.length };
 }
 
 type ProjectLike = { id: string; status: string };
