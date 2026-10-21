@@ -18,6 +18,29 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Every page's footer has "Get the apps": download the Android app or the Chrome extension straight
   from the site. The extension comes with each website release, so it always matches the site (hover
   over the link for how to install it); a download the site doesn't have isn't shown.
+- The Chrome extension adds a task from any page: the toolbar button opens a quick form (also
+  Ctrl+Shift+K, and "Add to MICO360 Tasks" when you right-click selected text or a page). "Add this
+  page" fills in the page's title and link, "Describe it" fills the form from a sentence, and pictures
+  and files are attached once the task is made. Without a connection the task is kept and sent later
+  (files need a connection); a form you didn't send comes back, with your recent tasks below it.
+- The Chrome extension's task panel matches the website's: files with a preview (attach, drop or
+  paste, and delete), tags, assignees, watching, threaded comments with replies, editing, deleting and
+  @mentions, the task's history, milestone and start date, the meeting it came from, changes to a
+  whole repeating series, and deleting one copy or the whole series. Changes made offline are sent in
+  the order you made them.
+
+### Improvements
+- A meeting's page shows the Final MOM as soon as someone else saves, approves or reopens it.
+
+### Bug fixes
+- Deleting a task that someone else already deleted now says it wasn't found, for everyone, instead
+  of "You do not have permission"; "no permission" now only means you really can't delete it.
+- The Chrome extension: changing a task's tags while offline no longer removes tags someone else added
+  or removed in the meantime, and Retry in Settings can no longer let an older failed change undo a
+  newer one (Settings says why and offers Discard instead).
+- The Chrome extension: a file dropped anywhere on an open task is attached to it, and a file dropped
+  anywhere else no longer opens in the tab and loses what you were typing.
+- The Chrome extension: a click right after editing a task's title lands where you clicked.
 
 ## [1.6.0] - 2026-10-21
 
