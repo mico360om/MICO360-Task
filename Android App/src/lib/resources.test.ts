@@ -529,3 +529,16 @@ describe('resourcesApi: meeting AI and free times (2c)', () => {
     expect(sent[0]).toMatchObject({ path: '/meetings/free-times', body });
   });
 });
+
+describe('resourcesApi.calendar (5a)', () => {
+  it('asks for one range of days, and for the overdue tasks', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client);
+    await api.calendar.range('2026-09-27', '2026-10-31');
+    await api.calendar.overdue();
+    expect(calls).toEqual([
+      { method: 'GET', path: '/calendar?from=2026-09-27&to=2026-10-31' },
+      { method: 'GET', path: '/tasks?overdue=true' },
+    ]);
+  });
+});

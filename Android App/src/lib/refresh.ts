@@ -14,8 +14,8 @@ export interface KeyRefresh {
 /**
  * Something to refresh after a change:
  * - a query key (KeyRefresh);
- * - `listsHolding`: every cached task list (board days, a project's tasks, My Tasks, a search)
- *   that holds this task, and no other;
+ * - `listsHolding`: every cached task list (board days, a project's tasks, My Tasks, a search, a
+ *   calendar range) that holds this task, and no other;
  * - `progressFor`: the progress figures of this task's project (every project's, when the task
  *   isn't in the cache);
  * - `taskDetails`: every task's own details, without their parts (a change to a whole series);
@@ -35,6 +35,9 @@ export type Refresh =
 type Task = { id?: unknown; projectId?: unknown };
 
 const holds = (data: unknown, taskId: string): boolean => Array.isArray(data) && data.some((t) => (t as Task | null)?.id === taskId);
+/** A calendar range (GET /calendar, 5a) holds a task due in it, or one whose repeats it shows. */
+const rangeHolds = (data: unknown, taskId: string): boolean =>
+  !!data && typeof data === 'object' && (holds((data as { tasks?: unknown }).tasks, taskId) || holds((data as { series?: unknown }).series, taskId));
 
 /** The project a cached task belongs to: from its details, or from a list that holds it. */
 function projectOf(qc: QueryClient, taskId: string): string | undefined {
@@ -74,7 +77,7 @@ function meetingKnown(qc: QueryClient, meetingId: string): boolean {
 
 function matcher(qc: QueryClient, target: Refresh): (q: Query) => boolean {
   if ('listsHolding' in target) {
-    return (q) => q.queryKey[0] === 'tasks' && holds(q.state.data, target.listsHolding);
+    return (q) => q.queryKey[0] === 'tasks' && (holds(q.state.data, target.listsHolding) || rangeHolds(q.state.data, target.listsHolding));
   }
   if ('progressFor' in target) {
     const projectId = projectOf(qc, target.progressFor);

@@ -59,6 +59,8 @@ import type {
   FreeTimesReply,
 } from './types';
 import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
+import type { CalendarRange } from './calendar-data';
+import type { CalendarTask } from './calendar-model';
 
 export interface TaskListParams {
   projectId?: string;
@@ -400,6 +402,11 @@ export function resourcesApi(client: ApiClient) {
       register: (token: string, platform: DevicePlatform = 'ANDROID') =>
         client.post<void>('/device-tokens', { token, platform }),
       unregister: (token: string) => client.del<void>(`/device-tokens/${encodeURIComponent(token)}`),
+    },
+    /** The calendar (5a): one range of days ('YYYY-MM-DD', at most 101) and the tasks already overdue. */
+    calendar: {
+      range: (from: string, to: string) => data(client.get<Envelope<CalendarRange>>(`/calendar${queryString({ from, to })}`)),
+      overdue: () => data(client.get<Envelope<CalendarTask[]>>('/tasks?overdue=true')),
     },
     /** Reports (administrators): the same figures as the web portal, scoped by project / team member. */
     reports: {

@@ -152,7 +152,13 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
   switch (m.kind) {
     case 'task.create':
       if (typeof p.projectId !== 'string') return [{ queryKey: ['tasks'] }];
-      return [{ queryKey: ['tasks', 'project', p.projectId] }, { queryKey: ['tasks', 'mine'] }, { queryKey: ['project', p.projectId, 'progress'], exact: true }];
+      // The calendar's ranges too (5a): a task made on a day of the calendar shows there.
+      return [
+        { queryKey: ['tasks', 'project', p.projectId] },
+        { queryKey: ['tasks', 'mine'] },
+        { queryKey: ['project', p.projectId, 'progress'], exact: true },
+        { queryKey: ['tasks', 'calendar'] },
+      ];
     case 'task.move':
       // Queued with its project: what the move refreshes online, its project's board days included
       // (finishing a repeating task adds its next copy to a later day). Older items name no project.
