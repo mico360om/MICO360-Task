@@ -95,7 +95,6 @@ export function splitVersion(payload: MovePayload): { patch: Omit<MovePayload, '
 
 /** Why a move was refused, in a few words (the server's own reason where it gave one). */
 function reasonOf(err: unknown): string {
-  if (err instanceof ApiError && err.code === 'VERSION_CONFLICT') return 'someone else changed it; pull down to reload';
   if (err instanceof ApiError && err.message && !/^Request failed/.test(err.message)) return err.message.replace(/\.$/, '');
   if (isNetworkError(err)) return 'the server couldn’t be reached';
   return 'the server had a problem';
@@ -110,11 +109,19 @@ export function undoneText(task: Pick<CalendarTask, 'key'>, from: string): strin
   return `${task.key} is back on ${dayLabel(from)}.`;
 }
 
+/** A move that is kept on this phone to be sent later (the one place for that wording). */
 export function queuedMoveText(task: Pick<CalendarTask, 'key'>, to: string): string {
   return `Saved on this phone — ${task.key} moves to ${dayLabel(to)} when you’re online.`;
 }
 
+/**
+ * A refused move. The app loads the server's copy at once, so a change by someone else — maybe to
+ * another day — is what shows next: that one names no day and asks for no reload (5a review).
+ */
 export function moveFailedText(task: Pick<CalendarTask, 'key'>, from: string, err: unknown): string {
+  if (err instanceof ApiError && err.code === 'VERSION_CONFLICT') {
+    return `Couldn’t move ${task.key} — it was changed by someone else. Their changes are shown now; try again if you still need to.`;
+  }
   return `Couldn’t move ${task.key} — ${reasonOf(err)}. It’s back on ${dayLabel(from)}.`;
 }
 

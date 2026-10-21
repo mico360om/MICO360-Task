@@ -102,7 +102,10 @@ describe('what the screen says', () => {
   it('when the move is kept on the phone, or refused', () => {
     expect(queuedMoveText(task({}), '2026-10-13')).toBe('Saved on this phone — MICO-1 moves to Tue 13 Oct when you’re online.');
     expect(moveFailedText(task({}), '2026-10-12', new ApiError(400, 'VALIDATION', 'The due date is not valid.'))).toBe('Couldn’t move MICO-1 — The due date is not valid. It’s back on Mon 12 Oct.');
-    expect(moveFailedText(task({}), '2026-10-12', new ApiError(409, 'VERSION_CONFLICT', 'Changed'))).toBe('Couldn’t move MICO-1 — someone else changed it; pull down to reload. It’s back on Mon 12 Oct.');
+    // The app loads their change by itself, which may be on another day: no "pull down", no day (5a review).
+    expect(moveFailedText(task({}), '2026-10-12', new ApiError(409, 'VERSION_CONFLICT', 'This task was changed by someone else. Reload and try again.'))).toBe(
+      'Couldn’t move MICO-1 — it was changed by someone else. Their changes are shown now; try again if you still need to.',
+    );
     expect(moveFailedText(task({}), '2026-10-12', new ApiError(500, 'HTTP_500', 'Request failed (500)'))).toBe('Couldn’t move MICO-1 — the server had a problem. It’s back on Mon 12 Oct.');
     expect(moveFailedText(task({}), '2026-10-12', new NetworkError('offline'))).toBe('Couldn’t move MICO-1 — the server couldn’t be reached. It’s back on Mon 12 Oct.');
   });
