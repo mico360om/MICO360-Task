@@ -11,6 +11,7 @@ import { BRAND, formatDateTime, formatDay, priorityLabel, wallClock } from '../.
 import { dueDayKey, isOverdue } from '../../lib/due-date';
 import { projectIconPaths, projectInitials } from '../projects/project-icons';
 import { projectAudienceIds } from './prisma-assignee-repository';
+import { buildTimeline } from '../activity/activity-feed';
 import { mentionTokens } from './mentions';
 import { recurrenceSummary } from './recurrence-summary';
 import type { RecurrenceRule } from './recurrence';
@@ -116,30 +117,18 @@ export interface TaskExportSource {
   load(taskId: string): Promise<TaskExportData | null>;
 }
 
-const humanize = (s: string): string => {
-  const t = s.replace(/[._]+/g, ' ').trim().toLowerCase();
-  return t.charAt(0).toUpperCase() + t.slice(1);
-};
-
-/** A stored activity entry as a sentence ("Moved from To do to In progress"). */
+/**
+ * One stored activity entry in the website's words ("Changed priority from Normal to High", "Ticked
+ * off “Order the parts”", "Moved this task: To do → In progress"), one line per change: the web
+ * app's own wording (a copy of its activity-feed module), starting with a capital as it follows
+ * the "Who" column.
+ */
 export function describeActivity(action: string, meta: unknown): string {
-  const m = (meta && typeof meta === 'object' ? meta : {}) as Record<string, unknown>;
-  const str = (k: string) => (typeof m[k] === 'string' && m[k] ? (m[k] as string) : null);
-  const fromTo = str('from') && str('to') ? ` (${str('from')} → ${str('to')})` : '';
-  switch (action) {
-    case 'CREATED':
-      return m.recurring ? 'Created the task (next copy of a repeating task)' : 'Created the task';
-    case 'ASSIGNED':
-      return str('assignee') ? `Assigned ${str('assignee')}` : 'Assigned a teammate';
-    case 'MOVED':
-      return str('from') && str('to') ? `Moved from ${str('from')} to ${str('to')}` : 'Moved the task';
-    case 'COMPLETED':
-      return `Completed${fromTo}`;
-    case 'REOPENED':
-      return `Reopened${fromTo}`;
-    default:
-      return humanize(action);
-  }
+  const details = meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : null;
+  const [item] = buildTimeline([{ id: 'entry', action, actorName: '', meta: details }]);
+  if (!item) return 'Updated this task'; // an edit that changed nothing it can name
+  const text = item.text.charAt(0).toUpperCase() + item.text.slice(1);
+  return item.path && item.path.length > 1 ? `${text}: ${item.path.join(' → ')}` : text;
 }
 
 /** 48213 → '47.1 KB'. */

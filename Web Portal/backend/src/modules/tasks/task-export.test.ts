@@ -71,13 +71,43 @@ const linesOf = (pdf: Buffer): DrawnLine[] => inspectPdf(pdf).lines.flat();
 const textOf = (pdf: Buffer): string[] => inspectPdf(pdf).pages.flat();
 const count = (list: string[], t: string) => list.filter((x) => x === t).length;
 
-describe('describeActivity', () => {
-  it('turns stored actions into sentences', () => {
-    expect(describeActivity('CREATED', { recurring: true })).toBe('Created the task (next copy of a repeating task)');
-    expect(describeActivity('ASSIGNED', { assignee: 'Omar Ahmed' })).toBe('Assigned Omar Ahmed');
-    expect(describeActivity('MOVED', { from: 'To do', to: 'In progress' })).toBe('Moved from To do to In progress');
-    expect(describeActivity('COMPLETED', { from: 'Review', to: 'Done' })).toBe('Completed (Review → Done)');
-    expect(describeActivity('REOPENED', { from: 'Done', to: 'To do' })).toBe('Reopened (Done → To do)');
+describe('describeActivity (the website’s activity wording)', () => {
+  it('says what happened to the task, with the statuses it moved through', () => {
+    expect(describeActivity('CREATED', { title: 'x', recurring: true })).toBe('Created this task');
+    expect(describeActivity('MOVED', { from: 'To do', to: 'In progress' })).toBe('Moved this task: To do → In progress');
+    expect(describeActivity('COMPLETED', { from: 'Review', to: 'Done' })).toBe('Completed this task: Review → Done');
+    expect(describeActivity('REOPENED', { from: 'Done', to: 'To do' })).toBe('Reopened this task: Done → To do');
+  });
+
+  it('names the people assigned and taken off', () => {
+    expect(describeActivity('ASSIGNED', { assigneeId: 'u2', assignee: 'Omar Ahmed' })).toBe('Assigned Omar Ahmed');
+    expect(describeActivity('UNASSIGNED', { assigneeId: 'u2', assignee: 'Omar Ahmed' })).toBe('Unassigned Omar Ahmed');
+    expect(describeActivity('UNASSIGNED', null)).toBe('Removed an assignee');
+  });
+
+  it('says what an edit changed, from what to what', () => {
+    expect(describeActivity('UPDATED', { changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }] })).toBe('Changed priority from Normal to High');
+    expect(describeActivity('UPDATED', { changes: [{ field: 'dueDate', from: null, to: '2026-10-12' }, { field: 'title', from: 'Old', to: 'New name' }] })).toBe(
+      'Set the due date to 12 Oct 2026 and renamed it to “New name”',
+    );
+    expect(describeActivity('UPDATED', { changes: [{ field: 'description' }] })).toBe('Edited the description');
+    expect(describeActivity('UPDATED', null)).toBe('Updated this task');
+  });
+
+  it('names the checklist step, the file and the comment', () => {
+    expect(describeActivity('CHECKLIST_ADDED', { text: 'Order the parts' })).toBe('Added the step “Order the parts”');
+    expect(describeActivity('CHECKLIST_DONE', { text: 'Order the parts' })).toBe('Ticked off “Order the parts”');
+    expect(describeActivity('CHECKLIST_REOPENED', { text: 'Order the parts' })).toBe('Unticked “Order the parts”');
+    expect(describeActivity('CHECKLIST_RENAMED', { from: 'Order parts', to: 'Order the parts' })).toBe('Renamed the step “Order parts” to “Order the parts”');
+    expect(describeActivity('CHECKLIST_REMOVED', { text: 'Order the parts' })).toBe('Removed the step “Order the parts”');
+    expect(describeActivity('CHECKLIST_REORDERED', { count: 3 })).toBe('Reordered the checklist');
+    expect(describeActivity('ATTACHED', { filename: 'site.jpg' })).toBe('Attached site.jpg');
+    expect(describeActivity('ATTACHMENT_REMOVED', { filename: 'site.jpg' })).toBe('Removed the file site.jpg');
+    expect(describeActivity('COMMENTED', { commentId: 'c1' })).toBe('Commented');
+    expect(describeActivity('comment.added', null)).toBe('Left a comment');
+  });
+
+  it('words anything else from its name', () => {
     expect(describeActivity('task.something_else', null)).toBe('Task something else');
   });
 });
@@ -101,7 +131,7 @@ describe('taskSheets', () => {
     expect(sheets[2]!.rows[0]).toEqual([{ date: '2026-09-29 12:20' }, 'Omar Ahmed', 'Figures attached. أرقام سبتمبر جاهزة.']);
     expect(sheets[3]!.rows[0]).toEqual(['sales-sep.xlsx', '47.1 KB', 'Omar Ahmed', { date: '2026-09-29 12:15' }]);
     expect(sheets[4]!.rows[0]).toEqual(['Blocked by', 'MICO-40', 'Close the books', 'Done']);
-    expect(sheets[5]!.rows.map((r) => r[2])).toEqual(['Created the task', 'Assigned Omar Ahmed', 'Moved from To do to In progress']);
+    expect(sheets[5]!.rows.map((r) => r[2])).toEqual(['Created this task', 'Assigned Omar Ahmed', 'Moved this task: To do → In progress']);
   });
 });
 
@@ -370,6 +400,20 @@ describe('taskPdf: dependencies and activity', () => {
   it('says when one side is empty, and when there are none at all', () => {
     expect(textOf(taskPdf(task({ blocks: [] }), ctx))).toContain('No other task waits for this one.');
     expect(textOf(taskPdf(task({ blockedBy: [], blocks: [] }), ctx))).toContain('No dependencies.');
+  });
+
+  it('says each change as the website’s activity does, one line per change', () => {
+    const at = (m: number) => new Date(Date.UTC(2026, 8, 30, 10, m));
+    const activity = [
+      { at: at(0), who: 'Omar Ahmed', action: 'CHECKLIST_DONE', meta: { text: 'Collect figures' } },
+      { at: at(1), who: 'Omar Ahmed', action: 'CHECKLIST_DONE', meta: { text: 'Write the summary' } },
+      { at: at(2), who: 'Aisha Khan', action: 'UPDATED', meta: { changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }] } },
+      { at: at(3), who: 'Aisha Khan', action: 'ATTACHED', meta: { filename: 'sales-sep.xlsx' } },
+    ];
+    const text = textOf(taskPdf(task({ activity }), ctx));
+    const lines = ['Attached sales-sep.xlsx', 'Changed priority from Normal to High', 'Ticked off “Write the summary”', 'Ticked off “Collect figures”'];
+    for (const line of lines) expect(text, line).toContain(line);
+    expect(lines.map((l) => text.indexOf(l))).toEqual(lines.map((l) => text.indexOf(l)).sort((a, b) => a - b)); // newest first
   });
 
   it('shows the latest 50 changes, newest first, and says how many earlier ones are not shown', () => {
