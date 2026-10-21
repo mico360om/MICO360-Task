@@ -190,7 +190,7 @@ class App {
       openExternal: (url) => { window.open(url, '_blank', 'noopener'); },
       reload: () => window.location.reload(),
       saveFile,
-      write: (kind, payload) => this.write(kind, payload),
+      write: (kind, payload, opts) => this.write(kind, payload, opts),
       afterMutation: () => this.refreshMeta(),
       requestSync: () => this.sync(),
       signOut: () => this.signOut(),
@@ -202,14 +202,18 @@ class App {
    * reply keeps its offline copy at the new version (H1). A change queued behind others while online
    * (one edit of a task at a time) is synced straight away, unless a waiting change keeps failing. One
    * whose own send failed waits for the next alarm or reconnect: trying it again at once would only
-   * spend one of its tries.
+   * spend one of its tries. The new-task form (a board's "Add a task") gives its task's own key
+   * (`idempotencyKey`, so trying again can't make a second task) and `hold` (a task with files is
+   * never queued: the form offers to save it without them).
    */
-  async write(kind, payload) {
+  async write(kind, payload, { idempotencyKey, hold = false } = {}) {
     const r = await sendOrQueue({ kind, payload }, {
       doFetch: (path, init) => this.auth.authedFetch(path, init),
       storage: this.storage,
       userId: this.me.id,
       onTask: (t) => rememberTask(this.cache, t),
+      ...(idempotencyKey ? { newKey: () => idempotencyKey } : {}),
+      hold,
     });
     if (r.syncNow && this.state.online) void this.sync();
     return r;
