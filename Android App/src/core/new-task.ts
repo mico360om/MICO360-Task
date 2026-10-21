@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
-import { writeOrder } from './queries';
+import { owned } from './queries';
 import { asyncStore } from '../adapters/async-storage';
 import { uploadPart } from '../lib/attachments';
 import { sendInOrder } from '../lib/write-order';
@@ -52,17 +52,20 @@ export function useLastProject(): [string | null | undefined, (projectId: string
 export function useSendNewTask(): (req: { input: NewTaskInput; key: string; files: readonly NewTaskFile[]; onFile: (key: string, patch: Partial<NewTaskFile>) => void }) => Promise<NewTaskOutcome> {
   const services = useServices();
   return useMemo(() => {
-    const { resources } = services;
-    return ({ input, key, files, onFile }) =>
-      sendNewTask(
+    return ({ input, key, files, onFile }) => {
+      // The person creating it, now: the task and each of its files go as them only — a switch of
+      // person while it sends stops the rest (SESSION_CHANGED), never sends it as the next person.
+      const w = owned(services);
+      return sendNewTask(
         {
           // Kept on this phone when it gets no answer, and sent later under the same key (never twice).
-          createKept: (body, k) => sendInOrder(writeOrder(services), { kind: 'task.create', payload: body, idempotencyKey: k }, () => resources.tasks.create(body, { idempotencyKey: k })),
-          createLive: (body, k) => resources.tasks.create(body, { idempotencyKey: k }),
-          upload: (taskId, f, onProgress) => resources.tasks.uploadAttachment(taskId, uploadPart({ uri: f.uri, name: f.name, mimeType: f.mimeType }), onProgress),
+          createKept: (body, k) => sendInOrder(w.order, { kind: 'task.create', payload: body, idempotencyKey: k }, () => w.resources.tasks.create(body, { idempotencyKey: k })),
+          createLive: (body, k) => w.resources.tasks.create(body, { idempotencyKey: k }),
+          upload: (taskId, f, onProgress) => w.resources.tasks.uploadAttachment(taskId, uploadPart({ uri: f.uri, name: f.name, mimeType: f.mimeType }), onProgress),
           onFile,
         },
         { input, key, files },
       );
+    };
   }, [services]);
 }

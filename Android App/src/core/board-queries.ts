@@ -1,8 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
+import { owned } from './queries';
 import { itemLanes } from '../lib/item-lanes';
 import { columnActionError, columnSwapSteps } from '../lib/board-columns';
+import type { ResourcesApi } from '../lib/resources';
 import type { ApiColumn, ColumnCategory } from '../lib/types';
 
 /**
@@ -13,16 +15,18 @@ import type { ApiColumn, ColumnCategory } from '../lib/types';
  * connection, as on the website.
  */
 export function useColumnActions(projectId: string) {
-  const { resources } = useServices();
+  const services = useServices();
   const qc = useQueryClient();
   const reload = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['columns', projectId] });
     void qc.invalidateQueries({ queryKey: ['tasks', 'project', projectId] });
   }, [qc, projectId]);
   const run = useCallback(
-    async (lane: string, fn: () => Promise<unknown>): Promise<string | null> => {
+    async (lane: string, fn: (r: ResourcesApi) => Promise<unknown>): Promise<string | null> => {
+      // Whose change it is, now — not when its lane frees (4b review #1).
+      const w = owned(services);
       try {
-        await itemLanes.run(lane, fn);
+        await itemLanes.run(lane, () => fn(w.resources));
         return null;
       } catch (e) {
         return columnActionError(e);
@@ -30,23 +34,23 @@ export function useColumnActions(projectId: string) {
         reload();
       }
     },
-    [reload],
+    [reload, services],
   );
   return useMemo(() => {
     const all = `columns:${projectId}`;
     const one = (id: string) => `column:${id}`;
     return {
-      add: (name: string) => run(all, () => resources.columns.add(projectId, { name: name.trim() })),
-      rename: (id: string, name: string) => run(one(id), () => resources.columns.update(id, { name: name.trim() })),
-      recolour: (id: string, color: string) => run(one(id), () => resources.columns.update(id, { color })),
-      setCategory: (id: string, category: ColumnCategory) => run(one(id), () => resources.columns.update(id, { category })),
-      setEnabled: (id: string, enabled: boolean) => run(one(id), () => resources.columns.update(id, { enabled })),
-      remove: (id: string) => run(one(id), () => resources.columns.remove(id)),
+      add: (name: string) => run(all, (r) => r.columns.add(projectId, { name: name.trim() })),
+      rename: (id: string, name: string) => run(one(id), (r) => r.columns.update(id, { name: name.trim() })),
+      recolour: (id: string, color: string) => run(one(id), (r) => r.columns.update(id, { color })),
+      setCategory: (id: string, category: ColumnCategory) => run(one(id), (r) => r.columns.update(id, { category })),
+      setEnabled: (id: string, enabled: boolean) => run(one(id), (r) => r.columns.update(id, { enabled })),
+      remove: (id: string) => run(one(id), (r) => r.columns.remove(id)),
       /** Up or down one: three changes in order through a free place (the server keeps places unique). */
       move: (columns: ApiColumn[], id: string, dir: 'up' | 'down') =>
-        run(all, async () => {
-          for (const step of columnSwapSteps(columns, id, dir)) await resources.columns.update(step.id, { position: step.position });
+        run(all, async (r) => {
+          for (const step of columnSwapSteps(columns, id, dir)) await r.columns.update(step.id, { position: step.position });
         }),
     };
-  }, [projectId, resources, run]);
+  }, [projectId, run]);
 }

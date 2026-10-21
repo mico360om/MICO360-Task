@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
@@ -7,12 +8,14 @@ import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, moveRefreshes } 
 import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
+import { resourcesApi } from '../lib/resources';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { withoutOldMeetings } from '../lib/meeting-list';
 import { withAnswer } from '../lib/meeting-detail';
 import { findMeeting } from '../lib/meeting-screen';
 import { answerFailed, answerScope } from '../lib/meeting-cache';
-import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
+import { queueOnOffline, sendInOrder } from '../lib/write-order';
+import { ownedWrite, type OwnedWrite } from '../lib/owned-write';
 import { pendingKeys, settleShownAgenda, settleShownAttendees } from '../lib/pending-keys';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { withOrder } from '../lib/board-move';
@@ -36,12 +39,14 @@ export function keyed<T extends object>(vars: T): Keyed<T> {
 export { queueOnOffline };
 
 /**
- * How this app's writes to an existing item are put in order (lib/write-order): kept behind an
- * older change to the same item still waiting on this phone, and kept here at once when they get
- * no answer.
+ * A change, as the person making it now (lib/owned-write — 4b review #1): its write order (kept
+ * behind an older change to the same item still waiting on this phone, and kept here at once when it
+ * gets no answer — for that person only) and the server as that person. Called when the change is
+ * made, before it waits in a lane: a change that waits past a switch of person is never sent with
+ * the new person's session, nor kept for them.
  */
-export function writeOrder(s: Pick<Services, 'queue' | 'currentUserId' | 'sync'>): WriteOrderDeps {
-  return { queue: s.queue, userId: s.currentUserId, sync: () => void s.sync.trigger() };
+export function owned(s: Pick<Services, 'queue' | 'currentUserId' | 'sync' | 'api' | 'resources'>): OwnedWrite {
+  return ownedWrite(s);
 }
 
 /** List queries read through the offline cache so a cold start (offline) still shows the last data (offline-reads). */
@@ -142,19 +147,22 @@ export function useTaskAssignees(taskId: string) {
   return useQuery({ queryKey: ['task', taskId, 'assignees'], queryFn: () => resources.tasks.assignees(taskId) });
 }
 
-/** A task's assignment changes go one after another (both hooks share it), so they reach the server in order. */
-const assigneesScope = (taskId: string) => ({ id: `assignees:${taskId}` });
-
+/**
+ * A task's assignment changes go one after another, in the task's people lane (both hooks share it:
+ * write-order's 'assignees:<task>'), so they reach the server in order. Each is made as the person
+ * making it (owned): a TanStack scope would run a waiting one later as whoever is signed in then.
+ */
 export function useAssignUsers(taskId: string) {
   const services = useServices();
-  const { resources, queue, currentUserId } = services;
+  const { queue, currentUserId } = services;
   const qc = useQueryClient();
   return useMutation({
-    scope: assigneesScope(taskId),
-    mutationFn: ({ userIds, idempotencyKey }: Keyed<{ userIds: string[] }>) =>
-      sendInOrder(writeOrder(services), { kind: 'task.assign', payload: { id: taskId, userIds }, idempotencyKey }, () =>
-        resources.tasks.assign(taskId, userIds, { idempotencyKey }),
-      ),
+    mutationFn: ({ userIds, idempotencyKey }: Keyed<{ userIds: string[] }>) => {
+      const w = owned(services);
+      return sendItemWrite(itemLanes, w.order, { kind: 'task.assign', payload: { id: taskId, userIds }, idempotencyKey }, () =>
+        w.resources.tasks.assign(taskId, userIds, { idempotencyKey }),
+      );
+    },
     // As the replay does: My Tasks and the lists holding it (the calendar's too) follow (5a review).
     onSuccess: () => refresh(qc, assignmentRefreshes(taskId)),
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'task.assign', { id: taskId, userIds: v.userIds }, v.idempotencyKey),
@@ -163,12 +171,13 @@ export function useAssignUsers(taskId: string) {
 
 export function useUnassignUser(taskId: string) {
   const services = useServices();
-  const { resources, queue, currentUserId } = services;
+  const { queue, currentUserId } = services;
   const qc = useQueryClient();
   return useMutation({
-    scope: assigneesScope(taskId),
-    mutationFn: (userId: string) =>
-      sendInOrder(writeOrder(services), { kind: 'task.unassign', payload: { id: taskId, userId } }, () => resources.tasks.unassign(taskId, userId)),
+    mutationFn: (userId: string) => {
+      const w = owned(services);
+      return sendItemWrite(itemLanes, w.order, { kind: 'task.unassign', payload: { id: taskId, userId } }, () => w.resources.tasks.unassign(taskId, userId));
+    },
     onSuccess: () => refresh(qc, assignmentRefreshes(taskId)),
     onError: (err, userId) => queueOnOffline(queue, currentUserId(), err, 'task.unassign', { id: taskId, userId }),
   });
@@ -190,15 +199,17 @@ export function useChecklistMutations(taskId: string) {
     void qc.invalidateQueries({ queryKey: ['task', taskId], exact: true }); // progress follows the checklist
   };
   const add = useMutation({
-    mutationFn: ({ text, idempotencyKey }: Keyed<{ text: string }>) => resources.tasks.addChecklistItem(taskId, text, { idempotencyKey }),
+    mutationFn: ({ text, idempotencyKey }: Keyed<{ text: string }>) => owned(services).run((r) => r.tasks.addChecklistItem(taskId, text, { idempotencyKey })),
     onSuccess: invalidate,
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'checklist.add', { id: taskId, text: v.text }, v.idempotencyKey),
   });
   const update = useMutation({
     // One subtask's changes go one after another, so they reach the server in order; another
     // subtask's go at once (item-lanes).
-    mutationFn: ({ itemId, patch }: { itemId: string; patch: { done?: boolean; text?: string } }) =>
-      sendItemWrite(itemLanes, writeOrder(services), { kind: 'checklist.update', payload: { id: taskId, itemId, patch } }, () => resources.tasks.updateChecklistItem(itemId, patch)),
+    mutationFn: ({ itemId, patch }: { itemId: string; patch: { done?: boolean; text?: string } }) => {
+      const w = owned(services);
+      return sendItemWrite(itemLanes, w.order, { kind: 'checklist.update', payload: { id: taskId, itemId, patch } }, () => w.resources.tasks.updateChecklistItem(itemId, patch));
+    },
     onSuccess: invalidate,
     // The task's id goes along so the replay refreshes that task's checklist only.
     onError: (err, { itemId, patch }) => queueOnOffline(queue, currentUserId(), err, 'checklist.update', { id: taskId, itemId, patch }),
@@ -222,14 +233,15 @@ export function useTaskMentionable(taskId: string) {
 }
 
 export function useCommentMutations(taskId: string) {
-  const { resources, queue, currentUserId } = useServices();
+  const services = useServices();
+  const { resources, queue, currentUserId } = services;
   const qc = useQueryClient();
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['task', taskId, 'comments'] });
     void qc.invalidateQueries({ queryKey: ['task', taskId, 'activity'] });
   };
   const add = useMutation({
-    mutationFn: ({ body, idempotencyKey }: Keyed<{ body: string }>) => resources.tasks.addComment(taskId, body, undefined, { idempotencyKey }),
+    mutationFn: ({ body, idempotencyKey }: Keyed<{ body: string }>) => owned(services).run((r) => r.tasks.addComment(taskId, body, undefined, { idempotencyKey })),
     onSuccess: invalidate,
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'comment.add', { id: taskId, body: v.body }, v.idempotencyKey),
   });
@@ -464,12 +476,15 @@ export function useFinalMinutes(meetingId: string) {
  * answers go one after another (answerScope). Needs a connection.
  */
 export function useRespondToMeeting(meetingId: string) {
-  const { resources } = useServices();
+  const services = useServices();
   const qc = useQueryClient();
   const key = ['meeting', meetingId, 'attendees'];
-  return useMutation({
+  const m = useMutation({
     scope: answerScope(meetingId),
-    mutationFn: ({ attendeeId, response }: { attendeeId: string; response: InvitationResponse }) => resources.meetings.respond(meetingId, attendeeId, response),
+    // A scope runs a waiting answer later: it is sent as the person who gave it, captured when it
+    // was given (below), never as whoever is signed in by then (4b review #1).
+    mutationFn: ({ attendeeId, response, owner }: { attendeeId: string; response: InvitationResponse; owner: string | null }) =>
+      (owner ? resourcesApi(services.api.forUser(owner)) : services.resources).meetings.respond(meetingId, attendeeId, response),
     onMutate: async ({ attendeeId, response }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       const list = qc.getQueryData<ApiMeetingAttendee[]>(key);
@@ -483,6 +498,12 @@ export function useRespondToMeeting(meetingId: string) {
       else refresh(qc, [{ queryKey: key, exact: true }]);
     },
   });
+  const { mutate: send } = m;
+  const mutate = useCallback(
+    (v: { attendeeId: string; response: InvitationResponse }, opts?: Parameters<typeof send>[1]) => send({ ...v, owner: services.currentUserId() }, opts),
+    [send, services],
+  );
+  return { ...m, mutate };
 }
 
 /** Everything assigned to me across meetings — what is still to do, or all of it — kept for an offline start. */
@@ -544,12 +565,14 @@ export function useUnreadCount() {
  * and its new column's kind, so a move kept offline shows under that status (4c).
  */
 export function sendTaskMove(
-  services: Pick<Services, 'resources' | 'queue' | 'currentUserId' | 'sync'>,
+  services: Pick<Services, 'resources' | 'queue' | 'currentUserId' | 'sync' | 'api'>,
   v: { id: string; columnId: string; position?: number; projectId: string; at?: number; category?: string | null },
 ) {
+  // Whose move it is, now — not when its lane frees (4b review #1).
+  const w = owned(services);
   return taskWrites.run(v.id, () =>
-    sendInOrder(writeOrder(services), { kind: 'task.move', payload: taskMovePayload(v) }, async () => {
-      const moved = await services.resources.tasks.move(v.id, v.columnId, v.position);
+    sendInOrder(w.order, { kind: 'task.move', payload: taskMovePayload(v) }, async () => {
+      const moved = await w.resources.tasks.move(v.id, v.columnId, v.position);
       taskWrites.note(v.id, moved?.version);
       return moved;
     }),
@@ -609,12 +632,14 @@ export function useMoveTask(projectId: string) {
  * it doesn't go (it needs a connection, as on the website — lib/board-writes).
  */
 export function useReorderColumn(projectId: string) {
-  const { resources } = useServices();
+  const services = useServices();
   const qc = useQueryClient();
   const boardPrefix = ['tasks', 'project', projectId];
   return useMutation({
-    mutationFn: ({ columnId, orderedIds }: { columnId: string; orderedIds: string[] }) =>
-      itemLanes.run(`column-order:${columnId}`, () => resources.tasks.reorder(columnId, orderedIds)),
+    mutationFn: ({ columnId, orderedIds }: { columnId: string; orderedIds: string[] }) => {
+      const w = owned(services);
+      return itemLanes.run(`column-order:${columnId}`, () => w.resources.tasks.reorder(columnId, orderedIds));
+    },
     onMutate: async ({ columnId, orderedIds }) => {
       await qc.cancelQueries({ queryKey: boardPrefix });
       const boards = qc.getQueriesData<ApiTask[]>({ queryKey: boardPrefix });
@@ -640,22 +665,25 @@ const sentEdits = new WeakMap<object, object>();
  */
 export function useUpdateTask(taskId: string) {
   const services = useServices();
-  const { resources, queue, currentUserId } = services;
+  const { queue, currentUserId } = services;
   const qc = useQueryClient();
   return useMutation({
     // In the task's lane, the edit waits behind an older change of the task still on this phone
     // (it then follows the version that one makes), and is kept here when it gets no answer.
-    mutationFn: (patch: Partial<ApiTask> & { scope?: 'one' | 'series' }) =>
-      taskWrites.run(taskId, async () => {
+    mutationFn: (patch: Partial<ApiTask> & { scope?: 'one' | 'series' }) => {
+      // Whose edit it is, now — not when its lane frees (4b review #1).
+      const w = owned(services);
+      return taskWrites.run(taskId, async () => {
         const loaded = qc.getQueryData<ApiTask>(['task', taskId])?.version;
         const body = withExpectedVersion(patch, taskWrites.expectedVersion(taskId, loaded));
         sentEdits.set(patch, body);
-        return sendInOrder(writeOrder(services), { kind: 'task.update', payload: { id: taskId, patch: body } }, async () => {
-          const updated = await resources.tasks.update(taskId, body);
+        return sendInOrder(w.order, { kind: 'task.update', payload: { id: taskId, patch: body } }, async () => {
+          const updated = await w.resources.tasks.update(taskId, body);
           taskWrites.note(taskId, updated?.version);
           return updated;
         });
-      }),
+      });
+    },
     // The details show the saved task at once; only what the edit changed is fetched again (its
     // activity, the lists that show it, and the progress figures after a new due date).
     onSuccess: (saved, patch) => afterTaskSaved(qc, taskId, saved, patch),
@@ -664,10 +692,11 @@ export function useUpdateTask(taskId: string) {
 }
 
 export function useMarkNotificationRead() {
-  const { resources, queue, currentUserId } = useServices();
+  const services = useServices();
+  const { queue, currentUserId } = services;
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => resources.notifications.markRead(id),
+    mutationFn: (id: string) => owned(services).run((r) => r.notifications.markRead(id)),
     // Invalidates the list AND the unread badge (both live under ['notifications']).
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['notifications'] });

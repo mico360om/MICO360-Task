@@ -9,6 +9,7 @@ import { dateZones, setDateZones } from '../lib/due-date';
 import { listWithPendingDueDates, meetingsInRange, rangeView, slimRange } from '../lib/calendar-data';
 import { meetingRange } from '../lib/calendar-meetings';
 import { CALENDAR_KEY, rescheduleOptions } from '../lib/calendar-move';
+import { resourcesApi } from '../lib/resources';
 
 /**
  * The calendar's reads and its one write (5a). Its ranges and overdue list live under
@@ -124,11 +125,15 @@ export function useDateSettingsLoad() {
 
 /** Move a task to another day, through the app's task-edit path (lib/calendar-move). */
 export function useRescheduleTask() {
-  const { resources, queue, currentUserId, sync } = useServices();
+  const { resources, api, queue, currentUserId, sync } = useServices();
   const qc = useQueryClient();
   const options = useMemo(
-    () => rescheduleOptions({ update: (id, body) => resources.tasks.update(id, body), queue, userId: currentUserId, sync: () => void sync.trigger() }, qc),
-    [resources, queue, currentUserId, sync, qc],
+    () =>
+      rescheduleOptions(
+        { update: (id, body, owner) => (owner ? resourcesApi(api.forUser(owner)) : resources).tasks.update(id, body), queue, userId: currentUserId, sync: () => void sync.trigger() },
+        qc,
+      ),
+    [resources, api, queue, currentUserId, sync, qc],
   );
   return useMutation(options);
 }

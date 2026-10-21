@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
-import { useConversations, writeOrder } from './queries';
+import { owned, useConversations } from './queries';
 import { useOnline } from './chat';
 import { isNetworkError } from '../lib/api-client';
 import { CHAT_DELETE, CHAT_EDIT, CHAT_REACT } from '../lib/chat-actions';
@@ -138,25 +138,28 @@ export function useStartDirect(go: (conversationId: string, name: string) => voi
  */
 export function useChatMessageActions(conversationId: string) {
   const services = useServices();
-  const { resources, chat } = services;
+  const { chat } = services;
   const myId = useUserId() ?? '';
   const qc = useQueryClient();
 
   const edit = useCallback(
     async (messageId: string, body: string): Promise<void> => {
       const text = body.trim();
-      const saved = await sendItemWrite(itemLanes, writeOrder(services), { kind: CHAT_EDIT, payload: { conversationId, messageId, body: text } }, () => resources.chat.edit(messageId, text));
+      // Whose change it is, now — not when its lane frees (4b review #1).
+      const w = owned(services);
+      const saved = await sendItemWrite(itemLanes, w.order, { kind: CHAT_EDIT, payload: { conversationId, messageId, body: text } }, () => w.resources.chat.edit(messageId, text));
       chat.patch(conversationId, messageId, (x) => ({ ...x, body: saved?.body ?? text, editedAt: saved?.editedAt ?? new Date().toISOString() }));
     },
-    [services, resources, chat, conversationId],
+    [services, chat, conversationId],
   );
 
   const remove = useCallback(
     async (messageId: string): Promise<void> => {
-      await sendItemWrite(itemLanes, writeOrder(services), { kind: CHAT_DELETE, payload: { conversationId, messageId } }, () => resources.chat.remove(messageId));
+      const w = owned(services);
+      await sendItemWrite(itemLanes, w.order, { kind: CHAT_DELETE, payload: { conversationId, messageId } }, () => w.resources.chat.remove(messageId));
       chat.patch(conversationId, messageId, (x) => ({ ...x, body: '', deletedAt: x.deletedAt ?? new Date().toISOString(), attachments: [], reactions: [] }));
     },
-    [services, resources, chat, conversationId],
+    [services, chat, conversationId],
   );
 
   /** Add my reaction, or take it back when it is there already. */
@@ -164,9 +167,10 @@ export function useChatMessageActions(conversationId: string) {
     async (m: Pick<ApiChatMessage, 'id' | 'reactions'>, emoji: string): Promise<void> => {
       const add = !(m.reactions ?? []).find((r) => r.emoji === emoji)?.userIds.includes(myId);
       chat.patch(conversationId, m.id, (x) => ({ ...x, reactions: applyReaction(x.reactions ?? [], emoji, myId, add) }));
+      const w = owned(services);
       try {
-        await sendItemWrite(itemLanes, writeOrder(services), { kind: CHAT_REACT, payload: { conversationId, messageId: m.id, emoji, add } }, () =>
-          add ? resources.chat.addReaction(m.id, emoji) : resources.chat.removeReaction(m.id, emoji),
+        await sendItemWrite(itemLanes, w.order, { kind: CHAT_REACT, payload: { conversationId, messageId: m.id, emoji, add } }, () =>
+          add ? w.resources.chat.addReaction(m.id, emoji) : w.resources.chat.removeReaction(m.id, emoji),
         );
       } catch (e) {
         // Refused: the thread is read again as the server has it. Kept (offline): it stays shown.
@@ -174,7 +178,7 @@ export function useChatMessageActions(conversationId: string) {
         throw e;
       }
     },
-    [services, resources, chat, conversationId, myId, qc],
+    [services, chat, conversationId, myId, qc],
   );
 
   return { edit, remove, react };

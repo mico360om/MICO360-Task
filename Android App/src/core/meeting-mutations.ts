@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { queueOnOffline, writeOrder, type Keyed } from './queries';
+import { owned, queueOnOffline, type Keyed } from './queries';
 import { isNetworkError } from '../lib/api-client';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { noteTaskFailure } from '../lib/meeting-parts';
@@ -113,10 +113,13 @@ export function useAttendeeMutations(meetingId: string) {
    */
   const attendance = useMutation({
     // In the person's own lane: one person's changes in order, another's at once (item-lanes).
-    mutationFn: ({ attendeeId, attendance: value }: { attendeeId: string; attendance: AttendanceStatus }) =>
-      sendItemWrite(itemLanes, writeOrder(services), { kind: 'meeting.attendance', payload: { meetingId, attendeeId, attendance: value } }, () =>
-        resources.meetings.updateAttendee(meetingId, attendeeId, { attendance: value }),
-      ),
+    mutationFn: ({ attendeeId, attendance: value }: { attendeeId: string; attendance: AttendanceStatus }) => {
+      // Whose change it is, now — not when its lane frees (4b review #1).
+      const w = owned(services);
+      return sendItemWrite(itemLanes, w.order, { kind: 'meeting.attendance', payload: { meetingId, attendeeId, attendance: value } }, () =>
+        w.resources.meetings.updateAttendee(meetingId, attendeeId, { attendance: value }),
+      );
+    },
     onMutate: async ({ attendeeId, attendance: value }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       return { before: patchRow<ApiMeetingAttendee>(qc, key, attendeeId, { attendance: value }) };
@@ -186,10 +189,12 @@ export function useAgendaMutations(meetingId: string) {
   /** Covered or not: shown at once, kept on this phone when offline, and sent in the order tapped (write-order). */
   const covered = useMutation({
     // In the item's own lane: ticking several items quickly sends them all at once (item-lanes).
-    mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) =>
-      sendItemWrite(itemLanes, writeOrder(services), { kind: 'meeting.agenda.covered', payload: { meetingId, itemId, completed } }, () =>
-        resources.meetings.updateAgendaItem(meetingId, itemId, { completed }),
-      ),
+    mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) => {
+      const w = owned(services);
+      return sendItemWrite(itemLanes, w.order, { kind: 'meeting.agenda.covered', payload: { meetingId, itemId, completed } }, () =>
+        w.resources.meetings.updateAgendaItem(meetingId, itemId, { completed }),
+      );
+    },
     onMutate: async ({ itemId, completed }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       return { before: patchRow<ApiAgendaItem>(qc, key, itemId, { completed }) };
@@ -230,13 +235,14 @@ export function useAgendaMutations(meetingId: string) {
 // ── Live notes ──────────────────────────────────────────────────────────────
 
 export function useNoteMutations(meetingId: string) {
-  const { resources, queue, currentUserId } = useServices();
+  const services = useServices();
+  const { resources, queue, currentUserId } = services;
   const qc = useQueryClient();
   const key = part(meetingId, 'notes');
   const changed = () => afterPartChanged(qc, meetingId, 'notes');
   /** A new note; offline it is kept on this phone and sent later (the same key, so never twice). */
   const add = useMutation({
-    mutationFn: ({ input, idempotencyKey }: Keyed<{ input: NoteInput }>) => resources.meetings.addNote(meetingId, input, { idempotencyKey }),
+    mutationFn: ({ input, idempotencyKey }: Keyed<{ input: NoteInput }>) => owned(services).run((r) => r.meetings.addNote(meetingId, input, { idempotencyKey })),
     onSuccess: (row) => {
       putRow(qc, key, row);
       changed();
@@ -301,7 +307,7 @@ export function useActionItemMutations(meetingId: string) {
   const changed = () => afterPartChanged(qc, meetingId, 'action-items');
   /** A new action item; offline it is kept on this phone and sent later. */
   const add = useMutation({
-    mutationFn: ({ input, idempotencyKey }: Keyed<{ input: ActionItemInput }>) => resources.meetings.addActionItem(meetingId, input, { idempotencyKey }),
+    mutationFn: ({ input, idempotencyKey }: Keyed<{ input: ActionItemInput }>) => owned(services).run((r) => r.meetings.addActionItem(meetingId, input, { idempotencyKey })),
     onSuccess: (row) => {
       putRow(qc, key, row);
       changed();
@@ -311,8 +317,10 @@ export function useActionItemMutations(meetingId: string) {
   /** A change (its status, owner, due day, priority…): shown at once, kept on this phone when offline, sent in order (write-order). */
   const update = useMutation({
     // In the item's own lane: one item's changes in order, another's at once (item-lanes).
-    mutationFn: ({ itemId, patch }: { itemId: string; patch: ActionItemPatch }) =>
-      sendItemWrite(itemLanes, writeOrder(services), { kind: 'meeting.action.update', payload: { meetingId, id: itemId, patch } }, () => resources.meetings.updateActionItem(itemId, patch)),
+    mutationFn: ({ itemId, patch }: { itemId: string; patch: ActionItemPatch }) => {
+      const w = owned(services);
+      return sendItemWrite(itemLanes, w.order, { kind: 'meeting.action.update', payload: { meetingId, id: itemId, patch } }, () => w.resources.meetings.updateActionItem(itemId, patch));
+    },
     onMutate: async ({ itemId, patch }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       return { before: patchRow<ApiActionItem>(qc, key, itemId, patch as Partial<ApiActionItem>) };

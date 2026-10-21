@@ -21,8 +21,8 @@ export interface RescheduleVars {
 }
 
 export interface RescheduleDeps {
-  /** PUT /tasks/:id (resources.tasks.update). */
-  update: (id: string, body: { dueDate: string; recurrenceRule?: RecurrenceRule; expectedVersion?: number }) => Promise<ApiTask | undefined>;
+  /** PUT /tasks/:id (resources.tasks.update), as `owner` only — the person who made the move (4b review #1). */
+  update: (id: string, body: { dueDate: string; recurrenceRule?: RecurrenceRule; expectedVersion?: number }, owner: string | null) => Promise<ApiTask | undefined>;
   queue: WriteOrderDeps['queue'];
   /** The signed-in user. */
   userId: () => string | null;
@@ -58,25 +58,28 @@ function taskIn(data: unknown, taskId: string): CalendarTask | undefined {
  */
 export function rescheduleOptions(deps: RescheduleDeps, qc: QueryClient): MutationOptions<ApiTask | undefined, unknown, RescheduleVars, Context> {
   const writes = deps.writes ?? appTaskWrites;
-  const order: WriteOrderDeps = { queue: deps.queue, userId: deps.userId, sync: deps.sync };
   /** What each move was sent as (with its expectedVersion), so a move made offline is kept the same. */
   const sentMoves = new WeakMap<object, object>();
   /** Each task's newest move made here (what the calendar shows): an older one's outcome mustn't hide it. */
   const newestMove = new Map<string, RescheduleVars>();
   return {
-    mutationFn: (v) =>
-      writes.run(v.taskId, async () => {
+    mutationFn: (v) => {
+      // Whose move it is, now — not when the task's lane frees (4b review #1): sent and kept as them only.
+      const owner = deps.userId();
+      const order: WriteOrderDeps = { queue: deps.queue, userId: () => owner, holder: deps.userId, sync: deps.sync };
+      return writes.run(v.taskId, async () => {
         // Against the version the calendar read (its rule is the calendar's copy) or this phone's own
         // newer write — never a newer one from the details, which could carry a colleague's change
         // the move would overwrite unseen (5a review).
         const body = withExpectedVersion(v.patch, writes.expectedVersion(v.taskId, v.readVersion));
         sentMoves.set(v, body);
         return sendInOrder(order, { kind: 'task.update', payload: { id: v.taskId, patch: body } }, async () => {
-          const updated = await deps.update(v.taskId, body);
+          const updated = await deps.update(v.taskId, body, owner);
           writes.note(v.taskId, updated?.version);
           return updated;
         });
-      }),
+      });
+    },
     onMutate: async (v) => {
       // A reload landing after the move would show it undone, so it is called off — but not a first
       // load: called off, it would stay empty with nothing loading it again.

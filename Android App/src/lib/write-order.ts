@@ -1,4 +1,4 @@
-import { NetworkError, isNetworkError } from './api-client';
+import { NetworkError, isNetworkError, sessionChangedError } from './api-client';
 import type { QueuedMutation, SyncQueue } from './sync-queue';
 
 /**
@@ -20,10 +20,31 @@ import type { QueuedMutation, SyncQueue } from './sync-queue';
 
 export interface WriteOrderDeps {
   queue: Pick<SyncQueue, 'pendingFor' | 'failedFor' | 'enqueue' | 'discard'>;
-  /** The signed-in user (whose queue is checked and written to). */
+  /**
+   * Who the change is made by (whose queue is checked and written to). Captured when the change is
+   * made (lib/owned-write) — a change waiting in its lane is never anyone else's (4b review #1).
+   */
   userId: () => string | null;
+  /**
+   * Who is signed in now (default: `userId`). A change made by someone who isn't signed in any more
+   * is neither sent nor kept on this phone.
+   */
+  holder?: () => string | null;
   /** Ask for a sync now: a change kept behind an older one goes as soon as that one has. */
   sync?: () => void;
+}
+
+const OWNER = Symbol.for('mico360.writeOwner');
+
+/** Mark a failed write with the person who made it, so no one else's offline path keeps it (4b review #1). */
+export function tagOwner<E>(e: E, owner: string | null): E {
+  if (e && typeof e === 'object' && !(OWNER in (e as object))) (e as Record<symbol, unknown>)[OWNER] = owner;
+  return e;
+}
+
+/** The person a failed write was made by, when it says (undefined: it doesn't). */
+export function ownerOf(e: unknown): string | null | undefined {
+  return e && typeof e === 'object' && OWNER in e ? ((e as Record<symbol, unknown>)[OWNER] as string | null) : undefined;
 }
 
 /** One write as it would be queued. */
@@ -171,6 +192,10 @@ export function isKeptOnPhone(error: unknown): boolean {
  */
 export async function sendInOrder<T>(deps: WriteOrderDeps, write: Write, send: () => Promise<T>): Promise<T> {
   const userId = deps.userId();
+  const signedIn = deps.holder ?? deps.userId;
+  // Made by someone who isn't signed in any more (it waited in its lane past a switch of person):
+  // never sent with the new person's session, never kept for anyone (4b review #1).
+  if (userId && signedIn() !== userId) throw tagOwner(sessionChangedError(), userId);
   const target = writeTarget(write.kind, write.payload);
   const keep = (answerLost = false) => deps.queue.enqueue(write.kind, write.payload, { userId: userId!, idempotencyKey: write.idempotencyKey, ...(answerLost ? { answerLost } : {}) });
   if (userId && target && deps.queue.pendingFor(userId).some((m) => writeTarget(m.kind, m.payload) === target)) {
@@ -186,11 +211,11 @@ export async function sendInOrder<T>(deps: WriteOrderDeps, write: Write, send: (
       // Kept for the person who made it, and only while they are still signed in: sign-out dropped
       // their changes, and one that came back now would replay at the next sign-in (2c review).
       // One whose try got no answer may be saved: it starts out waiting before its next try (4a review).
-      if (deps.userId() === userId) await keep((e as { timedOut?: unknown }).timedOut === true);
+      if (signedIn() === userId) await keep((e as { timedOut?: unknown }).timedOut === true);
       // Either way nothing more is kept (the screen's offline path would keep it for whoever is in).
       (e as Record<symbol, unknown>)[KEPT] = true;
     }
-    throw e;
+    throw tagOwner(e, userId);
   }
   if (userId && target) {
     for (const m of deps.queue.failedFor(userId)) if (supersedes(write, m)) await deps.queue.discard(m.id);
@@ -214,6 +239,9 @@ export async function queueOnOffline(
   idempotencyKey?: string,
 ): Promise<void> {
   if (!userId || !isNetworkError(err) || isKeptOnPhone(err)) return;
+  // Made by someone else (the person signed in before): never kept for this one (4b review #1).
+  const owner = ownerOf(err);
+  if (owner !== undefined && owner !== userId) return;
   const answerLost = (err as { timedOut?: unknown }).timedOut === true;
   await queue.enqueue(kind, payload, { userId, idempotencyKey, ...(answerLost ? { answerLost } : {}) });
 }

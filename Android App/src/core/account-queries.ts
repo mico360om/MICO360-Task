@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { AccessibilityInfo } from 'react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
+import { owned } from './queries';
 import { CALENDAR_KEY, CALENDAR_MEETINGS_KEY, DATE_PREFERENCES_KEY } from './calendar-queries';
 import { asyncStore } from '../adapters/async-storage';
 import { withAvatar, withDirectoryUser, type ApiAccountUser } from '../lib/account';
@@ -74,11 +75,15 @@ export function usePasswordChange() {
  * save fails. Saves go one at a time, in the order they were made.
  */
 export function useSavePreferences() {
-  const { resources } = useServices();
+  const services = useServices();
   const qc = useQueryClient();
   return useMutation({
-    // One save after another, in the order they were made (the app's item lanes, as every other write).
-    mutationFn: (body: PreferencesUpdate) => itemLanes.run(PREFS_LANE, () => resources.preferences.save(body)),
+    // One save after another, in the order they were made (the app's item lanes, as every other write),
+    // each as the person who made it — not whoever is signed in when its lane frees (4b review #1).
+    mutationFn: (body: PreferencesUpdate) => {
+      const w = owned(services);
+      return itemLanes.run(PREFS_LANE, () => w.resources.preferences.save(body));
+    },
     onMutate: async (body) => {
       await qc.cancelQueries({ queryKey: PREFS_KEY });
       const previous = qc.getQueryData<NotificationPreferences>(PREFS_KEY);
@@ -106,10 +111,13 @@ export function useSendDailyEmailTest() {
  * website's settings are loaded), and the calendar's days are fetched again.
  */
 export function useSaveDatePreferences() {
-  const { resources } = useServices();
+  const services = useServices();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: Partial<DatePreferences>) => itemLanes.run(DATE_PREFS_LANE, () => resources.settings.setDatePreferences(patch)),
+    mutationFn: (patch: Partial<DatePreferences>) => {
+      const w = owned(services);
+      return itemLanes.run(DATE_PREFS_LANE, () => w.resources.settings.setDatePreferences(patch));
+    },
     onMutate: async (patch) => {
       await qc.cancelQueries({ queryKey: DATE_PREFERENCES_KEY });
       const previous = qc.getQueryData<DatePreferences>(DATE_PREFERENCES_KEY);
