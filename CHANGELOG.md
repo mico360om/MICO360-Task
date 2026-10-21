@@ -67,6 +67,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - The Meetings list keeps today's and recent meetings when many repeating meetings lie ahead: it now
   holds every meeting still to come and the 500 most recent ones (before, only the 500 latest-starting
   meetings were listed, so weeks of repeats could push today's out).
+- Links from the website and its emails — including the password-reset link — open in the Android app
+  again: the website now names the app's current signing key (since app 1.1.0 only the old, retired
+  key was listed, so Android wouldn't hand the links to the app).
 
 ## [1.7.0] - 2026-10-21
 
