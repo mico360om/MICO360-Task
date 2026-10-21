@@ -299,6 +299,24 @@ describe('the task drawer is a modal dialog', () => {
     expect(app.hasAttribute('inert')).toBe(false);
   });
 
+  it('a click into another field right after editing the title lands there: the redraw waits for the click’s focus change', async () => {
+    const { dialog, ctx } = await openDrawer();
+    const title = dialog.querySelector('input[aria-label="Task title"]');
+    const description = dialog.querySelector('textarea[aria-label="Description"]');
+    title.focus();
+    title.value = 'Report v2';
+    // As Chrome does on a click: the title loses focus first (it saves, and redraws)…
+    title.blur();
+    await Promise.resolve();
+    await Promise.resolve();
+    // …and only then does focus move to what was clicked. Nothing must have pulled it back meanwhile.
+    expect(active()).not.toBe(dialog.querySelector('input[aria-label="Task title"]'));
+    description.focus();
+    await settle();
+    expect(active()).toBe(description);
+    expect(ctx.write).toHaveBeenCalledWith('task.update', { id: 't1', patch: { title: 'Report v2' }, expectedVersion: 3 });
+  });
+
   it('Tab between a date’s own parts (day, month, year) keeps focus on the date when typing it saves and redraws', async () => {
     const draw = () => [
       Object.assign(document.createElement('input'), { type: 'date' }),

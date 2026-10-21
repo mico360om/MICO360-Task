@@ -36,7 +36,8 @@ function findAgain(panel, d) {
  * takes focus; everything else on the page becomes inert (no focus, hidden from screen readers);
  * Tab and Shift+Tab wrap around inside it; Escape blurs the field being typed in (so it saves) and
  * calls `onEscape`. When part of the dialog is redrawn under the focused control, focus goes to the
- * same control again (or the dialog itself), so it never falls out. Returns `release()`.
+ * same control again (or the dialog itself), so it never falls out — unless a click or Tab was
+ * already taking it somewhere else in the dialog. Returns `release()`.
  */
 export function showModal(node, { onEscape } = {}) {
   const doc = node.ownerDocument;
@@ -97,12 +98,26 @@ export function showModal(node, { onEscape } = {}) {
     }
   }
 
-  const observer = new MutationObserver(() => {
+  const inPlace = () => {
     const a = doc.activeElement;
-    if (a && a !== doc.body && a.isConnected) return; // focus is where it should be
-    const again = findAgain(panel, heading) || findAgain(panel, last);
-    heading = null;
-    (again || panel).focus();
+    return !!a && a !== doc.body && a.isConnected;
+  };
+  let looking = false; // a check of where focus went is due
+  let released = false;
+
+  // Focus fell out with a redraw. What caused it — a click into another field, or Tab — may still be
+  // moving focus on (the browser finishes that after the field that lost focus has saved and drawn
+  // itself again), so look once it has; only then, if focus is still nowhere, put it back.
+  const observer = new MutationObserver(() => {
+    if (looking || inPlace()) return; // focus is where it should be
+    looking = true;
+    setTimeout(() => {
+      looking = false;
+      if (released || inPlace()) return;
+      const again = findAgain(panel, heading) || findAgain(panel, last);
+      heading = null;
+      (again || panel).focus();
+    }, 0);
   });
 
   doc.addEventListener('keydown', onKeyDown);
@@ -111,6 +126,7 @@ export function showModal(node, { onEscape } = {}) {
   panel.focus();
 
   return function release() {
+    released = true;
     doc.removeEventListener('keydown', onKeyDown);
     doc.removeEventListener('focusin', onFocusIn);
     observer.disconnect();
