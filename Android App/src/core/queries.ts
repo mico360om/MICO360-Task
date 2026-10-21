@@ -447,8 +447,9 @@ export function useMoveTask(projectId: string) {
     },
     onError: async (err, vars, ctx) => {
       if (isNetworkError(err)) {
-        // Offline — keep the optimistic move and replay it on reconnect.
-        await queueOnOffline(queue, currentUserId(), err, 'task.move', vars);
+        // Offline — keep the optimistic move and replay it on reconnect. Its project goes with it, so
+        // the replay refreshes that project's board days (refreshesAfterReplay).
+        await queueOnOffline(queue, currentUserId(), err, 'task.move', { ...vars, projectId });
         return;
       }
       // The server rejected the move — roll back to the pre-move state.

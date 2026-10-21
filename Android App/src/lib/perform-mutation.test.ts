@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { performMutation, describeMutation, refreshesAfterReplay } from './perform-mutation';
 import { ApiError, NetworkError } from './api-client';
+import { moveRefreshes } from './task-cache';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
 
@@ -150,6 +151,14 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
 
   it('a move: the task, its activity, the lists holding it and its project’s progress', () => {
     expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2' }))).toEqual([...task('t1'), { progressFor: 't1' }]);
+  });
+
+  it('a move queued with its project: what the same move made online refreshes, its project’s board days too', () => {
+    // Finishing a repeating task adds its next copy to a later board day, which doesn't hold the task.
+    const replayed = refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: 'p1' }));
+    expect(replayed).toContainEqual({ queryKey: ['tasks', 'project', 'p1'] });
+    expect(replayed).toEqual(moveRefreshes('t1', 'p1'));
+    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: '' }))).toEqual([...task('t1'), { progressFor: 't1' }]);
   });
 
   it('an edit: what the edit changed', () => {
