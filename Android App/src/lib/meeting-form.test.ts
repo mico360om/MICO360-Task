@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ApiError, NetworkError } from './api-client';
 import {
+  afterSaveFailure,
+  LOCKED_FORM_NOTE,
   checkMeetingDraft,
   draftFromMeeting,
   keepsSaveKey,
@@ -313,9 +315,27 @@ describe('what saving sends', () => {
     expect(saveFailureText(new ApiError(400, 'VALIDATION', 'The repeat needs at least one day.'), false)).toBe('The repeat needs at least one day.');
     expect(saveFailureText(new ApiError(500, 'ERROR', 'Request failed (500)'), true)).toBe('Couldn’t save changes. Check the title, times and link.');
     expect(saveFailureText(new ApiError(500, 'ERROR', 'Request failed (500)'), false)).toBe('Couldn’t create the meeting. Check the title, times and link.');
-    expect(saveFailureText(new NetworkError('offline'), false)).toBe('You’re offline — this needs a connection. Nothing was saved; try again when you’re online.');
+    expect(saveFailureText(new NetworkError('offline'), true)).toBe('You’re offline — this needs a connection. Nothing was saved; try again when you’re online.');
     expect(saveFailureText(new NetworkError('slow', { timedOut: true }), false)).toBe('The server took too long to answer — the meeting may already be saved. Tap again to finish: it won’t be scheduled twice.');
     expect(saveFailureText(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x'), false)).toBe('The meeting is still being saved — try again in a moment.');
+  });
+
+  it('locks a new meeting’s form while its try may be on the server, so nothing typed is lost', () => {
+    // The server matches the key, not what is sent: a corrected retry would bring back the first
+    // meeting and drop the correction. So the form can't change until a definite answer.
+    const slow = afterSaveFailure(new NetworkError('slow', { timedOut: true }), false);
+    expect(slow).toMatchObject({ keepKey: true, lock: true });
+    expect(afterSaveFailure(new NetworkError('offline'), false)).toEqual({
+      keepKey: true,
+      lock: true,
+      message: 'You’re offline — this needs a connection. Tap “Schedule meeting” again when you’re online: it won’t be scheduled twice.',
+    });
+    expect(afterSaveFailure(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x'), false)).toMatchObject({ keepKey: true, lock: true });
+    expect(LOCKED_FORM_NOTE).toBe('Until it is saved, this form can’t be changed — if the first try reached the server, a change made now would be lost. You can change the meeting once it is saved.');
+    // A refusal is a definite answer: a new key, and the form can be fixed.
+    expect(afterSaveFailure(new ApiError(400, 'VALIDATION', 'The repeat needs at least one day.'), false)).toEqual({ keepKey: false, lock: false, message: 'The repeat needs at least one day.' });
+    // Changes to a meeting are sent whole each time (no key): nothing to lock.
+    expect(afterSaveFailure(new NetworkError('slow', { timedOut: true }), true)).toMatchObject({ lock: false });
   });
 
   it('keeps the same try’s key only while the server may still have it (no answer, or still saving)', () => {

@@ -379,9 +379,31 @@ export function saveFailureText(e: unknown, editing: boolean): string {
       ? 'The server took too long to answer — your changes may already be saved. Pull down on the meeting to check.'
       : 'The server took too long to answer — the meeting may already be saved. Tap again to finish: it won’t be scheduled twice.';
   }
-  if (isNetworkError(e)) return 'You’re offline — this needs a connection. Nothing was saved; try again when you’re online.';
+  if (isNetworkError(e)) {
+    // A new meeting's try may still have reached the server: the retry goes under the same key.
+    return editing
+      ? 'You’re offline — this needs a connection. Nothing was saved; try again when you’re online.'
+      : 'You’re offline — this needs a connection. Tap “Schedule meeting” again when you’re online: it won’t be scheduled twice.';
+  }
   if (e instanceof ApiError && e.code === 'IDEMPOTENCY_IN_PROGRESS') return 'The meeting is still being saved — try again in a moment.';
   if (e instanceof ApiError && e.status === 403) return editing ? 'You don’t have permission to change this meeting.' : 'You don’t have access to that project.';
   if (e instanceof ApiError && e.status === 400 && e.message && !/^Request failed/.test(e.message)) return e.message;
   return editing ? 'Couldn’t save changes. Check the title, times and link.' : 'Couldn’t create the meeting. Check the title, times and link.';
+}
+
+/** Said under a locked form (afterSaveFailure). */
+export const LOCKED_FORM_NOTE = 'Until it is saved, this form can’t be changed — if the first try reached the server, a change made now would be lost. You can change the meeting once it is saved.';
+
+/**
+ * What a failed save leaves (2b review). A new meeting whose try got no answer (or is still being
+ * saved) keeps its key, so the next tap can't schedule it twice — and because the server matches
+ * that key and not what is sent, a corrected retry would bring back the first meeting and silently
+ * drop the correction. So the form is locked until a definite answer: nothing typed is ever lost
+ * (the people and agenda of a new meeting included), and it can be changed once saved. A refusal
+ * is a definite answer: a new key, and the form unlocks to be fixed. Changes to an existing meeting
+ * are sent whole each time, so they never lock.
+ */
+export function afterSaveFailure(e: unknown, editing: boolean): { keepKey: boolean; lock: boolean; message: string } {
+  const keepKey = keepsSaveKey(e);
+  return { keepKey, lock: !editing && keepKey, message: saveFailureText(e, editing) };
 }

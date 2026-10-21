@@ -12,12 +12,13 @@ import { appTimeZone } from '../lib/due-date';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { meetingLoadProblem } from '../lib/meeting-detail';
 import {
+  afterSaveFailure,
   checkMeetingDraft,
   draftFromMeeting,
   firstMeetingDay,
   firstMeetingNote,
   fromWallClock,
-  keepsSaveKey,
+  LOCKED_FORM_NOTE,
   meetingRepeatText,
   meetingRule,
   newMeetingDraft,
@@ -79,12 +80,16 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
   const [touched, setTouched] = useState(false);
   const [error, setError] = useState<{ field: DraftField | null; message: string } | null>(null);
   const [askScope, setAskScope] = useState<SeriesScope | null>(null);
+  // A new meeting whose try may be on the server: the form can't change until a definite answer
+  // (afterSaveFailure) — the retry goes under the same key, which the server matches, not the form.
+  const [locked, setLocked] = useState(false);
   const projectsQ = useProjects();
   const save = useSaveMeeting();
   const key = useRef(newIdempotencyKey());
   const saved = useRef(false);
 
   const set = (patch: Partial<MeetingDraft>) => {
+    if (locked) return;
     setDraft((d) => ({ ...d, ...patch }));
     setTouched(true);
     if (error) setError(null);
@@ -104,12 +109,19 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
       navigation.addListener('beforeRemove', (e) => {
         if (!touched || saved.current) return;
         e.preventDefault();
+        if (locked) {
+          Alert.alert('Leave without finishing?', 'The meeting may already be scheduled — check Meetings before scheduling it again.', [
+            { text: 'Stay', style: 'cancel' },
+            { text: 'Leave', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+          ]);
+          return;
+        }
         Alert.alert('Discard your changes?', editing ? 'Your changes to this meeting aren’t saved.' : 'This meeting isn’t scheduled yet.', [
           { text: 'Keep editing', style: 'cancel' },
           { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
         ]);
       }),
-    [navigation, touched, editing],
+    [navigation, touched, editing, locked],
   );
 
   const projects = useMemo(
@@ -127,7 +139,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
       setError({ field: check.field, message: check.message });
       return;
     }
-    if (check.link && check.link !== draft.onlineLink.trim()) setDraft((d) => ({ ...d, onlineLink: check.link! })); // show what will be saved
+    if (check.link && check.link !== draft.onlineLink.trim() && !locked) setDraft((d) => ({ ...d, onlineLink: check.link! })); // show what will be saved
     if (editing && seriesId && !scope) {
       setAskScope(scopeChoice(ruleChanged).scope);
       return;
@@ -151,9 +163,12 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
         },
         onError: (e) => {
           setAskScope(null);
-          // A refusal is kept under its key by the server: the next try (once fixed) is a new one.
-          if (!keepsSaveKey(e)) key.current = newIdempotencyKey();
-          setError({ field: null, message: saveFailureText(e, editing) });
+          // A refusal is kept under its key by the server: the next try (once fixed) is a new one,
+          // and the form can be fixed. With no answer yet, the key stays and the form is locked.
+          const f = afterSaveFailure(e, editing);
+          if (!f.keepKey) key.current = newIdempotencyKey();
+          setLocked(f.lock);
+          setError({ field: null, message: f.message });
         },
       },
     );
@@ -166,12 +181,18 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
     <SafeAreaView style={s.safe} edges={['bottom']}>
       <KeyboardAwareScrollView contentContainerStyle={s.body}>
         {error && !error.field ? <ErrorNote message={error.message} /> : null}
-        <TextField label="Title" required value={draft.title} onChangeText={(title) => set({ title })} placeholder="Weekly project sync" error={fieldError('title')} autoFocus={!editing} maxLength={191} />
+        {locked ? (
+          <Text style={s.lockNote} accessibilityLiveRegion="polite">
+            🔒 {LOCKED_FORM_NOTE}
+          </Text>
+        ) : null}
+        <TextField editable={!locked} label="Title" required value={draft.title} onChangeText={(title) => set({ title })} placeholder="Weekly project sync" error={fieldError('title')} autoFocus={!editing} maxLength={191} />
 
         <FieldLabel>Starts *</FieldLabel>
         <View style={s.row}>
           <View style={s.grow}>
             <TextField
+              editable={!locked}
               accessibilityLabel="Start date"
               required
               value={draft.startDay}
@@ -184,6 +205,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           </View>
           <View style={s.time}>
             <TextField
+              editable={!locked}
               accessibilityLabel="Start time"
               required
               value={draft.startTime}
@@ -202,6 +224,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
         <View style={s.row}>
           <View style={s.time}>
             <TextField
+              editable={!locked}
               accessibilityLabel="End time"
               value={draft.endTime}
               onChangeText={(endTime) => set({ endTime })}
@@ -217,6 +240,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           </View>
           <View style={s.grow}>
             <TextField
+              editable={!locked}
               accessibilityLabel="End date, if it isn’t the start date"
               value={draft.endDay}
               onChangeText={(endDay) => set({ endDay })}
@@ -232,7 +256,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           <FieldLabel>Repeat</FieldLabel>
           {seriesId ? <Text style={s.hint}>This meeting is part of a repeating series.</Text> : null}
           {draft.rule ? <Text style={s.summary}>🔁 {summary}</Text> : null}
-          <RecurrenceEditor kind="meeting" value={draft.rule} onChange={(rule) => set({ rule })} dueDate={startKey || null} />
+          <RecurrenceEditor kind="meeting" disabled={locked} value={draft.rule} onChange={(rule) => set({ rule })} dueDate={startKey || null} />
           {untilProblem ? (
             <Text style={s.problem} accessibilityRole="alert">
               {untilProblem}
@@ -247,11 +271,12 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           ) : null}
         </View>
 
-        <InlinePicker label="Project" options={projects} value={draft.projectId} onChange={(projectId) => set({ projectId })} placeholder="No project (standalone)" />
+        <InlinePicker label="Project" disabled={locked} options={projects} value={draft.projectId} onChange={(projectId) => set({ projectId })} placeholder="No project (standalone)" />
         <Text style={s.hint}>Optional — leave blank for a standalone meeting.</Text>
 
-        <TextField label="Location" value={draft.location} onChangeText={(location) => set({ location })} placeholder="Room 2 / Office" />
+        <TextField editable={!locked} label="Location" value={draft.location} onChangeText={(location) => set({ location })} placeholder="Room 2 / Office" />
         <TextField
+          editable={!locked}
           label="Online link"
           value={draft.onlineLink}
           onChangeText={(onlineLink) => set({ onlineLink })}
@@ -266,9 +291,9 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           error={fieldError('link')}
         />
 
-        <ChipChoice<MeetingStatus> label="Status" options={statusOptions(editing)} value={draft.status} onChange={(status) => set({ status })} />
+        <ChipChoice<MeetingStatus> disabled={locked} label="Status" options={statusOptions(editing)} value={draft.status} onChange={(status) => set({ status })} />
 
-        <TextField label="Description" value={draft.description} onChangeText={(description) => set({ description })} placeholder="Optional agenda summary" multiline numberOfLines={3} style={s.multiline} />
+        <TextField editable={!locked} label="Description" value={draft.description} onChangeText={(description) => set({ description })} placeholder="Optional agenda summary" multiline numberOfLines={3} style={s.multiline} />
       </KeyboardAwareScrollView>
       <View style={s.footer}>
         <Button title="Cancel" variant="ghost" onPress={() => navigation.goBack()} disabled={save.isPending} style={s.grow} />
@@ -314,6 +339,7 @@ const makeStyles = (c: Palette) =>
     summary: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
     note: { fontSize: fontSize.xs, fontWeight: '600', color: c.ink },
     problem: { fontSize: fontSize.xs, fontWeight: '700', color: c.danger },
+    lockNote: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
     multiline: { minHeight: 76, paddingTop: spacing.sm, textAlignVertical: 'top' },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },
   });
