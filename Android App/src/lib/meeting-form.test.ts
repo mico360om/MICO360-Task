@@ -4,7 +4,10 @@ import { resolve } from 'node:path';
 import { ApiError, NetworkError } from './api-client';
 import {
   afterSaveFailure,
+  companyTimeProblem,
+  leaveWarning,
   LOCKED_FORM_NOTE,
+  START_OVER,
   checkMeetingDraft,
   draftFromMeeting,
   keepsSaveKey,
@@ -163,6 +166,37 @@ describe('company time on a phone whose Intl is missing a piece (Hermes)', () =>
       expect(newMeetingDraft('Asia/Kolkata', new Date('2026-10-22T04:00:00.000Z'))).toMatchObject({ startDay: '2026-10-22', startTime: '10:00' });
       expect(firstMeetingNote('2026-10-22', { freq: 'WEEKLY', interval: 1, weekdays: [1] })).toBe('The first meeting will be on Mon 26 Oct, the first day this repeat gives.');
     }));
+});
+
+describe('a phone that can’t work out company time (2c review fix 7)', () => {
+  // A zone this phone's Intl doesn't know (an old Android) — it can't tell the offset at all.
+  const ZONE = 'Mars/Olympus_Mons';
+
+  it('says why, instead of “Choose when the meeting starts.” after the person typed a time', () => {
+    expect(companyTimeProblem(ZONE)).toBe('This phone can’t work out company time (Mars/Olympus Mons), so it can’t set the meeting’s times. Set them on the website.');
+    expect(companyTimeProblem(TZ)).toBeNull();
+    const typed = { ...newMeetingDraft(ZONE), title: 'Sync', startDay: '2026-10-22', startTime: '09:00' };
+    expect(checkMeetingDraft(typed, { timeZone: ZONE, seriesId: null })).toEqual({ ok: false, field: 'start', message: companyTimeProblem(ZONE) });
+  });
+
+  it('still saves an edit that leaves the times alone — without sending them', () => {
+    const opened = meeting();
+    const d = draftFromMeeting(opened, ZONE);
+    expect(d).toMatchObject({ startDay: '', startTime: '', endTime: '' });
+    const r = checkMeetingDraft({ ...d, location: 'Room 4' }, { timeZone: ZONE, seriesId: null, keepTimes: true });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.payload).not.toHaveProperty('startAt');
+    expect(r.payload).not.toHaveProperty('endAt');
+    expect(r.payload).not.toHaveProperty('timeZone');
+    expect(r.payload).toMatchObject({ title: 'Weekly sync', location: 'Room 4' });
+    const req = saveRequest({ payload: r.payload, meeting: opened, scope: 'one', ruleChanged: false, rule: null, timeZone: ZONE });
+    expect(req).toEqual({ kind: 'update', patch: r.payload, scope: 'one' });
+    // A whole series' change sends no time change either.
+    const series = meeting({ recurrenceRule: weekly });
+    const s = saveRequest({ payload: r.payload, meeting: series, scope: 'series', ruleChanged: false, rule: weekly, timeZone: ZONE });
+    expect(s).toEqual({ kind: 'update', patch: { location: 'Room 4' }, scope: 'series' });
+  });
 });
 
 describe('online links', () => {
@@ -339,14 +373,58 @@ describe('what saving sends', () => {
     expect(afterSaveFailure(new NetworkError('offline'), false)).toEqual({
       keepKey: true,
       lock: true,
+      refresh: true,
       message: 'You’re offline — this needs a connection. Tap “Schedule meeting” again when you’re online: it won’t be scheduled twice.',
     });
     expect(afterSaveFailure(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x'), false)).toMatchObject({ keepKey: true, lock: true });
     expect(LOCKED_FORM_NOTE).toBe('Until it is saved, this form can’t be changed — if the first try reached the server, a change made now would be lost. You can change the meeting once it is saved.');
     // A refusal is a definite answer: a new key, and the form can be fixed.
-    expect(afterSaveFailure(new ApiError(400, 'VALIDATION', 'The repeat needs at least one day.'), false)).toEqual({ keepKey: false, lock: false, message: 'The repeat needs at least one day.' });
+    expect(afterSaveFailure(new ApiError(400, 'VALIDATION', 'The repeat needs at least one day.'), false)).toEqual({ keepKey: false, lock: false, refresh: false, message: 'The repeat needs at least one day.' });
     // Changes to a meeting are sent whole each time (no key): nothing to lock.
     expect(afterSaveFailure(new NetworkError('slow', { timedOut: true }), true)).toMatchObject({ lock: false });
+  });
+
+  it('points a refusal of a guest’s address at People, and of an agenda item at the agenda (2c review fix 6)', () => {
+    const refused = (fieldErrors: Record<string, string[]>) => new ApiError(400, 'VALIDATION', 'Invalid input.', { formErrors: [], fieldErrors });
+    expect(afterSaveFailure(refused({ attendees: ['Invalid email'] }), false)).toEqual({
+      keepKey: false,
+      lock: false,
+      refresh: false,
+      field: 'people',
+      message: 'One of the guests’ email addresses wasn’t accepted. Check the addresses under People.',
+    });
+    expect(afterSaveFailure(refused({ agendaItems: ['Too long'] }), false)).toMatchObject({ field: 'agenda', message: 'One of the agenda items wasn’t accepted. Check the agenda.' });
+    // Anything else keeps the form-wide message.
+    expect(afterSaveFailure(refused({ title: ['Required'] }), false)).toMatchObject({ message: 'Invalid input.' });
+    expect(afterSaveFailure(refused({ title: ['Required'] }), false).field).toBeUndefined();
+  });
+
+  it('a kept try refreshes the meetings lists: the meeting may be there already (2c review fix 5)', () => {
+    expect(afterSaveFailure(new NetworkError('slow', { timedOut: true }), false).refresh).toBe(true);
+    expect(afterSaveFailure(new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'x'), false).refresh).toBe(true);
+    expect(afterSaveFailure(new ApiError(400, 'VALIDATION', 'No.'), false).refresh).toBe(false);
+  });
+
+  it('leaving says what is true: a save on its way may still be saving; a locked form may be scheduled already', () => {
+    expect(leaveWarning({ editing: false, saving: true, locked: false })).toEqual({
+      title: 'Leave while saving?',
+      message: 'The meeting may still be saving. Check Meetings before scheduling it again.',
+      stay: 'Stay',
+      leave: 'Leave',
+    });
+    expect(leaveWarning({ editing: true, saving: true, locked: false }).message).toBe('Your changes may still be saving. Check the meeting before changing it again.');
+    expect(leaveWarning({ editing: false, saving: false, locked: true })).toMatchObject({ title: 'Leave without finishing?', message: 'The meeting may already be scheduled — check Meetings before scheduling it again.' });
+    expect(leaveWarning({ editing: false, saving: false, locked: false })).toMatchObject({ title: 'Discard your changes?', message: 'This meeting isn’t scheduled yet.', leave: 'Discard' });
+    expect(leaveWarning({ editing: true, saving: false, locked: false }).message).toBe('Your changes to this meeting aren’t saved.');
+  });
+
+  it('“Start over” warns before it gives up the kept try', () => {
+    expect(START_OVER).toEqual({
+      label: 'Start over',
+      title: 'Start over?',
+      message: 'If the first try reached the server, the meeting may already be scheduled — check Meetings first, or you may schedule it twice. Starting over lets you change the form and schedule it as a new meeting.',
+      confirm: 'Start over',
+    });
   });
 
   it('keeps the same try’s key only while the server may still have it (no answer, or still saving)', () => {

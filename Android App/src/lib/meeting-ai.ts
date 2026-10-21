@@ -7,6 +7,7 @@
  * meeting's page), reviewed before anything is added. Pure, so it is tested here.
  */
 import { ApiError, isNetworkError } from './api-client';
+import { isServerEmail } from './email';
 import { normalizeDigits, parseDueDateInput } from './form-input';
 import { fromWallClock, meetingRepeatText, parseTimeInput, toWallClock, type MeetingDraft } from './meeting-form';
 import { meetingWhen } from './meeting-detail';
@@ -42,8 +43,6 @@ export type MeetingPerson = { kind: 'user'; id: string; name: string; role: Atte
 
 export const personKey = (p: MeetingPerson): string => (p.kind === 'user' ? `u:${p.id}` : `e:${p.email.toLowerCase()}`);
 
-/** An address the server takes: no spaces, one @, and a domain of dot-separated parts (none empty). */
-const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 /** The server's limits for a new meeting's people and agenda (more can be added on its page). */
 export const PEOPLE_MAX = 100;
@@ -74,7 +73,8 @@ export const AGENDA_FULL = 'Up to 50 agenda items can be added here — add more
 /** A guest by email, named from the part before the @ unless a name is given. */
 export function addGuest(people: MeetingPerson[], email: string, name: string): { ok: true; people: MeetingPerson[] } | { ok: false; error: string } {
   const e = email.trim();
-  if (!EMAIL_RE.test(e)) return { ok: false, error: 'Enter a valid email address, for example name@company.com.' };
+  // The server's own check (email): an address it would refuse is never let through.
+  if (!isServerEmail(e)) return { ok: false, error: 'Enter a valid email address, for example name@company.com.' };
   if (people.some((p) => p.kind === 'guest' && p.email.toLowerCase() === e.toLowerCase())) return { ok: false, error: 'That guest is already invited.' };
   if (people.length >= PEOPLE_MAX) return { ok: false, error: PEOPLE_FULL };
   return { ok: true, people: [...people, { kind: 'guest', email: e, name: (name.trim() || e.split('@')[0]!).slice(0, GUEST_NAME_MAX), role: 'REQUIRED' }] };
@@ -333,7 +333,7 @@ export function describeSuggestions(
     for (const p of d.people?.found ?? []) offer({ kind: 'user', id: p.id, name: p.name, role: 'REQUIRED' }, 'Person', p.name);
     (d.people?.choices ?? []).forEach((c, i) => out.push({ kind: 'choice', key: `choice-${i}`, said: c.said, options: c.options, chosen: null }));
     for (const g of d.guests ?? []) {
-      if (!EMAIL_RE.test(g.email ?? '')) continue;
+      if (!isServerEmail(g.email ?? '')) continue;
       const name = (g.name?.trim() || g.email.split('@')[0]!).slice(0, GUEST_NAME_MAX);
       offer({ kind: 'guest', email: g.email, name, role: 'REQUIRED' }, 'Guest', `${name} (${g.email})`);
     }

@@ -83,6 +83,15 @@ export function toWallClock(iso: string | null | undefined, timeZone: string): W
   return { day: `${s.getUTCFullYear()}-${pad(s.getUTCMonth() + 1)}-${pad(s.getUTCDate())}`, time: `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}` };
 }
 
+/**
+ * Why this phone can't set meeting times, or null (2c review): its Intl can't work out the company
+ * zone's offset (an old Android that doesn't know the zone) — never a guess, so the times stay blank.
+ */
+export function companyTimeProblem(timeZone: string, now: number = Date.now()): string | null {
+  if (zoneOffsetMs(now, timeZone) !== null) return null;
+  return `This phone can’t work out company time (${timeZone.replace(/_/g, ' ')}), so it can’t set the meeting’s times. Set them on the website.`;
+}
+
 /** A day and time on the zone's wall clock as an ISO instant (null when either is missing or bad). */
 export function fromWallClock(day: string, time: string, timeZone: string): string | null {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
@@ -269,49 +278,60 @@ export function draftFromMeeting(m: ApiMeeting, timeZone: string): MeetingDraft 
   };
 }
 
-export type DraftField = 'title' | 'start' | 'end' | 'link' | 'repeat';
+export type DraftField = 'title' | 'start' | 'end' | 'link' | 'repeat' | 'people' | 'agenda';
 
-export type DraftCheck = { ok: true; payload: MeetingInput; link: string | null } | { ok: false; field: DraftField; message: string };
+/** What the form sends: a meeting's fields — without its times when an edit leaves them alone (keepTimes). */
+export type MeetingFields = Omit<MeetingInput, 'startAt'> & { startAt?: string };
+
+export type DraftCheck = { ok: true; payload: MeetingFields; link: string | null } | { ok: false; field: DraftField; message: string };
 
 /**
  * The form checked as the website checks it, and what would be sent: trimmed words, the times in
  * company time with that zone, empty fields as none. A new meeting (or a one-off given a repeat)
  * takes the repeat; one meeting of a series keeps the series' (changed with scope = series).
+ *
+ * `keepTimes`: an edit whose times weren't touched on a phone that can't work out company time
+ * (companyTimeProblem) — the times aren't checked or sent, so the rest can still be changed.
  */
-export function checkMeetingDraft(d: MeetingDraft, opts: { timeZone: string; seriesId: string | null; ruleChanged?: boolean }): DraftCheck {
+export function checkMeetingDraft(d: MeetingDraft, opts: { timeZone: string; seriesId: string | null; ruleChanged?: boolean; keepTimes?: boolean }): DraftCheck {
   const fail = (field: DraftField, message: string): DraftCheck => ({ ok: false, field, message });
   const title = d.title.trim();
   if (!title) return fail('title', 'A meeting title is required.');
 
-  const startDay = parseDueDateInput(d.startDay);
-  if (!startDay.ok) return fail('start', startDay.error);
-  const startTime = parseTimeInput(d.startTime);
-  if (!startTime.ok) return fail('start', startTime.error);
-  const startAt = startDay.value && startTime.value ? fromWallClock(startDay.value, startTime.value, opts.timeZone) : null;
-  if (!startAt) return fail('start', 'Choose when the meeting starts.');
+  let times: { startAt: string; endAt: string | null; timeZone: string } | null = null;
+  let startKey = '';
+  if (!opts.keepTimes) {
+    const startDay = parseDueDateInput(d.startDay);
+    if (!startDay.ok) return fail('start', startDay.error);
+    const startTime = parseTimeInput(d.startTime);
+    if (!startTime.ok) return fail('start', startTime.error);
+    const startAt = startDay.value && startTime.value ? fromWallClock(startDay.value, startTime.value, opts.timeZone) : null;
+    // Typed, but this phone can't turn it into company time: say why (2c review).
+    if (!startAt && startDay.value && startTime.value) return fail('start', companyTimeProblem(opts.timeZone) ?? 'Choose when the meeting starts.');
+    if (!startAt) return fail('start', 'Choose when the meeting starts.');
 
-  const endDay = parseDueDateInput(d.endDay);
-  if (!endDay.ok) return fail('end', endDay.error);
-  const endTime = parseTimeInput(d.endTime);
-  if (!endTime.ok) return fail('end', endTime.error);
-  if (endDay.value && !endTime.value) return fail('end', 'Add the end time, or clear the end date.');
-  const endAt = endTime.value ? fromWallClock(endDay.value || startDay.value!, endTime.value, opts.timeZone) : null;
-  if (endAt && endAt <= startAt) return fail('end', endAt < startAt ? 'The end time can’t be before the start time.' : 'The end time must be after the start time.');
+    const endDay = parseDueDateInput(d.endDay);
+    if (!endDay.ok) return fail('end', endDay.error);
+    const endTime = parseTimeInput(d.endTime);
+    if (!endTime.ok) return fail('end', endTime.error);
+    if (endDay.value && !endTime.value) return fail('end', 'Add the end time, or clear the end date.');
+    const endAt = endTime.value ? fromWallClock(endDay.value || startDay.value!, endTime.value, opts.timeZone) : null;
+    if (endAt && endAt <= startAt) return fail('end', endAt < startAt ? 'The end time can’t be before the start time.' : 'The end time must be after the start time.');
+    times = { startAt, endAt, timeZone: opts.timeZone };
+    startKey = startDay.value!;
+  }
 
   const link = normalizeMeetingLink(d.onlineLink);
   if (link === undefined) return fail('link', 'Enter a web link that starts with https:// (for example https://meet.google.com/abc-defg-hij).');
 
   // A new repeat is checked against the day its first meeting will really be on.
-  if (d.rule && (!opts.seriesId || opts.ruleChanged)) {
-    const day = startDay.value!;
-    if (repeatProblem(d.rule, firstMeetingDay(day, d.rule))) return fail('repeat', 'Check the repeat schedule below.');
+  if (d.rule && startKey && (!opts.seriesId || opts.ruleChanged)) {
+    if (repeatProblem(d.rule, firstMeetingDay(startKey, d.rule))) return fail('repeat', 'Check the repeat schedule below.');
   }
 
-  const payload: MeetingInput = {
+  const payload: MeetingFields = {
     title,
-    startAt,
-    endAt,
-    timeZone: opts.timeZone,
+    ...(times ?? {}),
     location: d.location.trim() || null,
     onlineLink: link,
     projectId: d.projectId || null,
@@ -334,7 +354,7 @@ export type SaveRequest =
  * other details.
  */
 export function saveRequest(f: {
-  payload: MeetingInput;
+  payload: MeetingFields;
   /** The meeting as the form opened it; null for a new one. */
   meeting: ApiMeeting | null;
   scope: SeriesScope;
@@ -343,7 +363,8 @@ export function saveRequest(f: {
   timeZone: string;
 }): SaveRequest {
   const was = f.meeting;
-  if (!was) return { kind: 'create', input: f.payload };
+  // A new meeting always has its times (keepTimes is only for an edit).
+  if (!was) return { kind: 'create', input: { ...f.payload, startAt: f.payload.startAt ?? '' } };
   if (f.scope !== 'series' || !seriesIdOf(was)) return { kind: 'update', patch: f.payload, scope: 'one' };
   const p = f.payload;
   const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').trim() === (b ?? '').trim();
@@ -353,7 +374,8 @@ export function saveRequest(f: {
   };
   const changes: MeetingPatch = {};
   if (!same(p.title, was.title)) changes.title = p.title;
-  if (clock(p.startAt) !== clock(was.startAt) || clock(p.endAt) !== clock(was.endAt)) Object.assign(changes, { startAt: p.startAt, endAt: p.endAt, timeZone: f.timeZone });
+  // Times left out (keepTimes) are no change.
+  if (p.startAt !== undefined && (clock(p.startAt) !== clock(was.startAt) || clock(p.endAt) !== clock(was.endAt))) Object.assign(changes, { startAt: p.startAt, endAt: p.endAt, timeZone: f.timeZone });
   if (!same(p.location, was.location)) changes.location = p.location;
   if (!same(p.onlineLink, was.onlineLink)) changes.onlineLink = p.onlineLink;
   if ((p.projectId ?? null) !== (was.projectId ?? null)) changes.projectId = p.projectId;
@@ -403,10 +425,51 @@ export const LOCKED_FORM_NOTE = 'Until it is saved, this form can’t be changed
  * is a definite answer: a new key, and the form unlocks to be fixed. Changes to an existing meeting
  * are sent whole each time, so they never lock.
  */
-export function afterSaveFailure(e: unknown, editing: boolean): { keepKey: boolean; lock: boolean; message: string } {
+export function afterSaveFailure(e: unknown, editing: boolean): { keepKey: boolean; lock: boolean; refresh: boolean; field?: DraftField; message: string } {
   const keepKey = keepsSaveKey(e);
-  return { keepKey, lock: !editing && keepKey, message: saveFailureText(e, editing) };
+  // The try may be on the server: the meetings lists are fetched again, so it shows if it is (2c review).
+  const base = { keepKey, lock: !editing && keepKey, refresh: keepKey };
+  const refusedPart = validationPart(e);
+  if (refusedPart === 'people') return { ...base, field: 'people', message: 'One of the guests’ email addresses wasn’t accepted. Check the addresses under People.' };
+  if (refusedPart === 'agenda') return { ...base, field: 'agenda', message: 'One of the agenda items wasn’t accepted. Check the agenda.' };
+  return { ...base, message: saveFailureText(e, editing) };
 }
+
+/** Which part of a new meeting a VALIDATION refusal names (zod's flattened field errors): its people or its agenda. */
+function validationPart(e: unknown): 'people' | 'agenda' | null {
+  if (!(e instanceof ApiError) || e.status !== 400) return null;
+  const fields = (e.details as { fieldErrors?: Record<string, unknown> } | null | undefined)?.fieldErrors;
+  if (!fields || typeof fields !== 'object') return null;
+  if ('attendees' in fields) return 'people';
+  if ('agendaItems' in fields) return 'agenda';
+  return null;
+}
+
+/** What Back asks before leaving the form (2c review): a save on its way may still be saving. */
+export function leaveWarning({ editing, saving, locked }: { editing: boolean; saving: boolean; locked: boolean }): { title: string; message: string; stay: string; leave: string } {
+  if (saving) {
+    return {
+      title: 'Leave while saving?',
+      message: editing ? 'Your changes may still be saving. Check the meeting before changing it again.' : 'The meeting may still be saving. Check Meetings before scheduling it again.',
+      stay: 'Stay',
+      leave: 'Leave',
+    };
+  }
+  if (locked) return { title: 'Leave without finishing?', message: 'The meeting may already be scheduled — check Meetings before scheduling it again.', stay: 'Stay', leave: 'Leave' };
+  return { title: 'Discard your changes?', message: editing ? 'Your changes to this meeting aren’t saved.' : 'This meeting isn’t scheduled yet.', stay: 'Keep editing', leave: 'Discard' };
+}
+
+/**
+ * A locked form's way out (2c review): plainly offline, or a reservation the server holds as "still
+ * saving", the lock could last a long while. Starting over gives up the kept try (a new key) and
+ * unlocks the form — after a warning, since the first try may have been saved.
+ */
+export const START_OVER = {
+  label: 'Start over',
+  title: 'Start over?',
+  message: 'If the first try reached the server, the meeting may already be scheduled — check Meetings first, or you may schedule it twice. Starting over lets you change the form and schedule it as a new meeting.',
+  confirm: 'Start over',
+} as const;
 
 /**
  * The form's times shown again in the company zone, as the website does when the zone arrives after

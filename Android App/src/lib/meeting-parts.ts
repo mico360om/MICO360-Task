@@ -4,6 +4,7 @@
  * attendee-routes, action-item-routes); the words are the website's. Pure, so it is tested here.
  */
 import { ApiError } from './api-client';
+import { isServerEmail } from './email';
 import { normalizeDigits, type Parsed } from './form-input';
 import { keptTryText } from './pending-keys';
 import { meetingFailure } from './meeting-flow';
@@ -88,7 +89,6 @@ export function canTickAgendaItem(item: Pick<ApiAgendaItem, 'ownerId'>, v: Viewe
 /** Attendance on the day, in the website's order. */
 export const ATTENDANCE_CHOICES: AttendanceStatus[] = ['INVITED', 'PRESENT', 'LATE', 'ABSENT', 'EXCUSED'];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** The team members not on the meeting yet. */
 export function addablePeople(directory: ApiDirectoryUser[], attendees: Pick<ApiMeetingAttendee, 'userId'>[]): ApiDirectoryUser[] {
@@ -100,7 +100,8 @@ export function addablePeople(directory: ApiDirectoryUser[], attendees: Pick<Api
 export function guestProblem(name: string, email: string, attendees: Pick<ApiMeetingAttendee, 'externalEmail'>[]): string | null {
   const mail = email.trim().toLowerCase();
   if (!name.trim()) return 'Enter the guest’s name.';
-  if (mail && !EMAIL_RE.test(mail)) return 'Enter a valid email address for the guest (for example name@company.com), or leave it blank.';
+  // The server's own check (email): zod's .email() and at most 320 characters.
+  if (mail && !isServerEmail(mail)) return 'Enter a valid email address for the guest (for example name@company.com), or leave it blank.';
   if (mail && attendees.some((a) => a.externalEmail?.toLowerCase() === mail)) return 'That guest is already on the list.';
   return null;
 }

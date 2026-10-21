@@ -44,7 +44,7 @@ export function AgendaDraftReview({
         const lead = leadName(item.ownerId);
         return (
           <View key={`${i}-${item.title}`}>
-            <CheckRow label={`${item.title} — ${lead ?? 'No lead'} · ${item.minutes} min`} checked={!!ticked[i]} onChange={() => setTicked((t) => t.map((x, j) => (j === i ? !x : x)))} disabled={busy} />
+            <CheckRow label={`${item.title} — ${lead ?? 'No lead'}${item.minutes > 0 ? ` · ${item.minutes} min` : ''}`} checked={!!ticked[i]} onChange={() => setTicked((t) => t.map((x, j) => (j === i ? !x : x)))} disabled={busy} />
           </View>
         );
       })}

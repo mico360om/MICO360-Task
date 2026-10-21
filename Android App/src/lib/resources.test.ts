@@ -372,6 +372,19 @@ describe('resourcesApi.meetings: running a meeting (2b)', () => {
     expect(calls[5]!.opts?.headers).toEqual({ 'Idempotency-Key': 'k2' });
   });
 
+  it('gives a big create — people, an agenda or a repeat (up to 26 meetings) — the longer wait (2c review fix 5)', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    const base = { title: 'Sync', startAt: '2026-10-22T06:00:00.000Z', timeZone: 'Asia/Muscat' };
+    await api.create(base, { idempotencyKey: 'k1' });
+    await api.create({ ...base, attendees: [{ userId: 'u2' }] }, { idempotencyKey: 'k2' });
+    await api.create({ ...base, agendaItems: [{ title: 'Budget' }] });
+    await api.create({ ...base, recurrenceRule: { freq: 'WEEKLY', interval: 1 } as never });
+    await api.create({ ...base, attendees: [], agendaItems: [], recurrenceRule: null });
+    expect(calls.map((c) => c.opts?.timeoutMs)).toEqual([undefined, SEND_TIMEOUT_MS, SEND_TIMEOUT_MS, SEND_TIMEOUT_MS, undefined]);
+    expect(calls[1]!.opts).toEqual({ timeoutMs: SEND_TIMEOUT_MS, headers: { 'Idempotency-Key': 'k2' } });
+  });
+
   it('adds, changes and removes people; previews and sends the invitations', async () => {
     const { client, calls } = recordingClient();
     const api = resourcesApi(client).meetings;
@@ -515,6 +528,15 @@ describe('resourcesApi: meeting AI and free times (2c)', () => {
     expect(agenda.sent[0]).toMatchObject({ path: '/ai/draft-agenda', body: input, opts: { timeoutMs: AI_TIMEOUT_MS } });
     // An answer without items (an older server) is no agenda, not a crash.
     expect(await recorder({}).api.ai.draftAgenda(input)).toEqual([]);
+    // 2c review fix 9: each item is checked on its own — a bad one is left out, never a crash.
+    const odd = recorder({
+      items: [null, 'Budget', { title: 42 }, { title: '   ' }, { title: ' Risks ', ownerId: 7, minutes: 'ten' }, { title: 'Plan', ownerId: 'u2', minutes: 15.6 }, { title: 'Wrap-up', minutes: -5 }],
+    });
+    expect(await odd.api.ai.draftAgenda(input)).toEqual([
+      { title: 'Risks', ownerId: null, minutes: 0 },
+      { title: 'Plan', ownerId: 'u2', minutes: 16 },
+      { title: 'Wrap-up', ownerId: null, minutes: 0 },
+    ]);
 
     const words = recorder({ description: 'Plans for the week.' });
     expect(await words.api.ai.writeMeetingDescription({ title: 'Weekly sync', agenda: ['Budget'], text: 'weekly sync' })).toBe('Plans for the week.');

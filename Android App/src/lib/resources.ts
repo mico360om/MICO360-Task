@@ -119,6 +119,27 @@ export const AI_MINUTES_TIMEOUT_MS = 190_000;
  */
 export const SEND_TIMEOUT_MS = 120_000;
 
+/**
+ * The AI's drafted agenda, checked item by item (2c review): one that isn't an item with a title is
+ * left out (never a crash in the review list); a lead that isn't an id is none; minutes are whole,
+ * and none (0) when missing or not a positive number.
+ */
+export function readDraftedAgenda(raw: unknown): AiAgendaItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AiAgendaItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const { title, ownerId, minutes } = item as Record<string, unknown>;
+    if (typeof title !== 'string' || !title.trim()) continue;
+    out.push({
+      title: title.trim(),
+      ownerId: typeof ownerId === 'string' && ownerId ? ownerId : null,
+      minutes: typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0,
+    });
+  }
+  return out;
+}
+
 /** A description cut to the AI's limit, never in the middle of an emoji (a surrogate pair). */
 function aiDescription(description: string | undefined): string | undefined {
   if (description === undefined || description.length <= AI_DESCRIPTION_MAX) return description;
@@ -272,7 +293,17 @@ export function resourcesApi(client: ApiClient) {
         data(client.get<Envelope<ApiActionItem[]>>(`/me/action-items${queryString({ openOnly: filter.openOnly ? 'true' : undefined })}`)),
 
       // ── Running a meeting (2b) ──
-      create: (input: MeetingInput, opts?: WriteOptions) => data(client.post<Envelope<ApiMeeting>>('/meetings', input, idempotencyHeaders(opts?.idempotencyKey))),
+      /**
+       * Schedule a meeting. One with people, an agenda or a repeat (a series is up to 26 meetings,
+       * each with its people) can take the server a while: it gets the longer wait (2c review).
+       */
+      create: (input: MeetingInput, opts?: WriteOptions) =>
+        data(
+          client.post<Envelope<ApiMeeting>>('/meetings', input, {
+            ...(input.attendees?.length || input.agendaItems?.length || input.recurrenceRule ? { timeoutMs: SEND_TIMEOUT_MS } : {}),
+            ...idempotencyHeaders(opts?.idempotencyKey),
+          }),
+        ),
       /** `series`: every upcoming meeting of the meeting's series gets the change. */
       update: (id: string, patch: MeetingPatch, scope: SeriesScope = 'one') => data(client.put<Envelope<ApiMeeting>>(`${meeting(id)}${seriesQuery(scope)}`, patch)),
       cancel: (id: string, scope: SeriesScope = 'one') => data(client.post<Envelope<ApiMeeting>>(`${meeting(id)}/cancel${seriesQuery(scope)}`)),
@@ -372,7 +403,7 @@ export function resourcesApi(client: ApiClient) {
         ),
       /** Propose a meeting's agenda (the server adds the project's open tasks and the last meeting's leftovers). */
       draftAgenda: (input: AiDraftAgendaInput) =>
-        data(client.post<Envelope<{ items?: AiAgendaItem[] }>>('/ai/draft-agenda', input, { timeoutMs: AI_TIMEOUT_MS })).then((r) => (Array.isArray(r?.items) ? r.items : [])),
+        data(client.post<Envelope<{ items?: unknown }>>('/ai/draft-agenda', input, { timeoutMs: AI_TIMEOUT_MS })).then((r) => readDraftedAgenda(r?.items)),
       /** A short description for the meeting's invitation. */
       writeMeetingDescription: (input: { title: string; agenda?: string[]; text?: string }) =>
         data(client.post<Envelope<{ description?: string }>>('/ai/write-meeting-description', input, { timeoutMs: AI_TIMEOUT_MS })).then((r) => r?.description ?? ''),

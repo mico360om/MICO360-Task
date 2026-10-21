@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { useDirectory, useMeeting, useMeetingAttendees, useProjects } from '../core/queries';
+import { refresh } from '../lib/refresh';
 import { useSaveMeeting } from '../core/meeting-mutations';
 import { useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
@@ -19,6 +21,9 @@ import { newIdempotencyKey } from '../lib/idempotency';
 import { meetingLoadProblem } from '../lib/meeting-detail';
 import {
   afterSaveFailure,
+  companyTimeProblem,
+  leaveWarning,
+  START_OVER,
   checkMeetingDraft,
   draftFromMeeting,
   firstMeetingDay,
@@ -122,8 +127,17 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
   const attendeesQ = useMeetingAttendees(editing ? opened!.id : '');
   const organizerId = useUserId();
   const save = useSaveMeeting();
+  const qc = useQueryClient();
   const key = useRef(newIdempotencyKey());
   const saved = useRef(false);
+  // A phone that can't work out company time: its times stay blank, and an edit that leaves them
+  // alone doesn't send them (2c review).
+  const zoneProblem = companyTimeProblem(timeZone);
+  const openedTimes = useMemo(() => (opened ? draftFromMeeting(opened, timeZone) : null), [opened, timeZone]);
+  /** The meetings lists (and the project's) are fetched again: a try that may be saved shows if it is. */
+  const refreshLists = useCallback(() => {
+    refresh(qc, [{ queryKey: ['meetings'] }, ...(draft.projectId ? [{ queryKey: ['project', draft.projectId, 'meetings'] }] : [])]);
+  }, [qc, draft.projectId]);
   // Times typed, picked or filled in are the person's own: a zone arriving later doesn't move them,
   // and Describe's suggestions don't start ticked over them.
   const timesTouched = useRef(false);
@@ -216,26 +230,45 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
     if (error) setError(null);
   };
 
-  // Leaving with changes not saved asks first.
+  // Leaving with changes not saved asks first — and says a save on its way may still be saving.
+  const saving = save.isPending;
   useEffect(
     () =>
       navigation.addListener('beforeRemove', (e) => {
         if (!touched || saved.current) return;
         e.preventDefault();
-        if (locked) {
-          Alert.alert('Leave without finishing?', 'The meeting may already be scheduled — check Meetings before scheduling it again.', [
-            { text: 'Stay', style: 'cancel' },
-            { text: 'Leave', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
-          ]);
-          return;
-        }
-        Alert.alert('Discard your changes?', editing ? 'Your changes to this meeting aren’t saved.' : 'This meeting isn’t scheduled yet.', [
-          { text: 'Keep editing', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+        const w = leaveWarning({ editing, saving, locked });
+        Alert.alert(w.title, w.message, [
+          { text: w.stay, style: 'cancel' },
+          {
+            text: w.leave,
+            style: 'destructive',
+            onPress: () => {
+              // The meeting may be saved after all: the lists show it if it is (2c review).
+              if (saving || locked) refreshLists();
+              navigation.dispatch(e.data.action);
+            },
+          },
         ]);
       }),
-    [navigation, touched, editing, locked],
+    [navigation, touched, editing, locked, saving, refreshLists],
   );
+
+  /** A locked form's way out: give up the kept try (a new key) and unlock, after a warning (2c review). */
+  const startOver = () =>
+    Alert.alert(START_OVER.title, START_OVER.message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: START_OVER.confirm,
+        style: 'destructive',
+        onPress: () => {
+          key.current = newIdempotencyKey();
+          setLocked(false);
+          setError(null);
+          refreshLists();
+        },
+      },
+    ]);
 
   const projects = useMemo(
     () => [
@@ -247,7 +280,9 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
 
   function submit(scope: SeriesScope | null) {
     setError(null);
-    const check = checkMeetingDraft(draft, { timeZone, seriesId, ruleChanged });
+    // On a phone that can't work out company time, an edit that leaves the times alone keeps them.
+    const timesUntouched = !!openedTimes && (['startDay', 'startTime', 'endDay', 'endTime'] as const).every((f) => draft[f] === openedTimes[f]);
+    const check = checkMeetingDraft(draft, { timeZone, seriesId, ruleChanged, keepTimes: editing && !!zoneProblem && timesUntouched });
     if (!check.ok) {
       setError({ field: check.field, message: check.message });
       return;
@@ -283,7 +318,10 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
           const f = afterSaveFailure(e, editing);
           if (!f.keepKey) key.current = newIdempotencyKey();
           setLocked(f.lock);
-          setError({ field: null, message: f.message });
+          // The try may be saved: the lists are fetched again, so it shows there if it is.
+          if (f.refresh) refreshLists();
+          // A refused guest address or agenda item is pointed at People or the agenda.
+          setError({ field: f.field ?? null, message: f.message });
         },
       },
     );
@@ -296,10 +334,18 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
     <SafeAreaView style={s.safe} edges={['bottom']}>
       <KeyboardAwareScrollView contentContainerStyle={s.body}>
         {error && !error.field ? <ErrorNote message={error.message} /> : null}
-        {locked ? (
+        {zoneProblem ? (
           <Text style={s.lockNote} accessibilityLiveRegion="polite">
-            🔒 {LOCKED_FORM_NOTE}
+            {editing ? `${zoneProblem} You can still change the other details here.` : zoneProblem}
           </Text>
+        ) : null}
+        {locked ? (
+          <View style={s.lockNote}>
+            <Text style={s.lockText} accessibilityLiveRegion="polite">
+              🔒 {LOCKED_FORM_NOTE}
+            </Text>
+            <Button title={START_OVER.label} variant="ghost" onPress={startOver} disabled={save.isPending} accessibilityLabel="Start over: unlock the form. The meeting may already be scheduled — check Meetings first." />
+          </View>
         ) : null}
         <DescribeMeeting timeZone={timeZone} withPeopleAndAgenda={!editing} suggest={suggest} onApply={applyFound} onSentence={setSentence} disabled={locked} />
         <TextField editable={!locked} label="Title" required value={draft.title} onChangeText={(title) => set({ title })} placeholder="Weekly project sync" error={fieldError('title')} maxLength={191} />
@@ -415,7 +461,17 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
 
         {!editing ? (
           <>
+            {fieldError('people') ? (
+              <Text style={s.problem} accessibilityRole="alert">
+                {fieldError('people')}
+              </Text>
+            ) : null}
             <PeopleField people={people} onChange={changePeople} directory={directory} organizerId={organizerId} disabled={locked} />
+            {fieldError('agenda') ? (
+              <Text style={s.problem} accessibilityRole="alert">
+                {fieldError('agenda')}
+              </Text>
+            ) : null}
             <AgendaField
               agenda={agenda}
               onChange={changeAgenda}
@@ -471,7 +527,8 @@ const makeStyles = (c: Palette) =>
     summary: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
     note: { fontSize: fontSize.xs, fontWeight: '600', color: c.ink },
     problem: { fontSize: fontSize.xs, fontWeight: '700', color: c.danger },
-    lockNote: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
+    lockNote: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
+    lockText: { fontSize: fontSize.sm, color: c.ink2 },
     multiline: { minHeight: 76, paddingTop: spacing.sm, textAlignVertical: 'top' },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },
   });
