@@ -55,8 +55,12 @@ describe('refreshOnReturn', () => {
     for (const r of [{ name: 'chat' }, { name: 'chat-thread' }, { name: 'notifications' }]) expect(refreshOnReturn(r, false)).toBe(true);
   });
 
+  it('Stage 6: the meetings list and a meeting’s page read themselves again (an answer given elsewhere shows)', () => {
+    for (const r of [{ name: 'meetings' }, { name: 'meeting' }]) expect(refreshOnReturn(r, false)).toBe(true);
+  });
+
   it('leaves screens with typing in progress alone, and never reloads under an open task drawer', () => {
-    for (const r of [{ name: 'my-tasks' }, { name: 'settings' }, { name: 'reports' }]) expect(refreshOnReturn(r, false)).toBe(false);
+    for (const r of [{ name: 'my-tasks' }, { name: 'settings' }, { name: 'reports' }, { name: 'search' }]) expect(refreshOnReturn(r, false)).toBe(false);
     expect(refreshOnReturn({ name: 'board' }, true)).toBe(false);
     expect(refreshOnReturn(null, false)).toBe(false);
   });

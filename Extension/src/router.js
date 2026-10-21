@@ -55,7 +55,7 @@ export function href(path, query) {
  * Screens reloaded when the app tab is shown again (no typing in progress to lose). Chat and
  * Notifications read themselves again in place (Stage 5), so a message being typed stays.
  */
-const REFRESH_ON_RETURN = new Set(['board', 'dashboard', 'calendar', 'chat', 'chat-thread', 'notifications']);
+const REFRESH_ON_RETURN = new Set(['board', 'dashboard', 'calendar', 'chat', 'chat-thread', 'notifications', 'meetings', 'meeting']);
 
 /**
  * Whether to reload the current screen when the user comes back to the app tab — the extension has

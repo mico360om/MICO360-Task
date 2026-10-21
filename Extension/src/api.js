@@ -172,6 +172,29 @@ export function createApi({ auth, cache, pending }) {
     },
     /** The workspace's shared list of tags (suggested while tagging a task). */
     tags: () => get('tags', '/tags'),
+    /**
+     * Search tasks, projects, people and meetings (`{ tasks, projects, users, meetings }`), as the
+     * web's Ctrl+K. Always asked fresh: answers for every word typed aren't kept on the device.
+     */
+    search: (q) => raw(`/search${qs({ q })}`),
+    /**
+     * The calendar for the days `from`–`to` ('YYYY-MM-DD', at most 101): tasks due in them in the
+     * projects you can see, and the days repeating ones will be copied to (`occurrences`, `series`).
+     */
+    calendar: (from, to) => get(`calendar:${from}:${to}`, `/calendar${qs({ from, to })}`),
+    /** Your own date settings: `{ timeZone, weekStart }` (null = the company's zone, Sunday). */
+    preferences: () => get('prefs', '/users/me/preferences'),
+    meetings: {
+      /** Meetings you can see; `from`/`to` (ISO instants): those starting in that span; `mine`: you organize. */
+      list: ({ from, to, mine } = {}) => {
+        const query = qs({ from, to, mine: mine ? 'true' : undefined });
+        return get(`meetings:${query}`, `/meetings${query}`);
+      },
+      get: (id) => get(`meeting:${id}`, `/meetings/${encodeURIComponent(id)}`),
+      /** Who is on it, with each one's answer (yours waiting to sync on top). */
+      attendees: (id) => get(`meeting-attendees:${id}`, `/meetings/${encodeURIComponent(id)}/attendees`),
+      agenda: (id) => get(`meeting-agenda:${id}`, `/meetings/${encodeURIComponent(id)}/agenda`),
+    },
     notifications: {
       list: () => get('notifications', '/notifications'),
       unreadCount: () => get('unread', '/notifications/unread-count'),

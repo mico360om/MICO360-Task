@@ -15,6 +15,7 @@
       "description": "Add a task"
     }
   },
+  "omnibox": { "keyword": "mico" },
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"

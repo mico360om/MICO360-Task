@@ -10,7 +10,9 @@ import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
-import { showModal, returnFocus, createRouteHold } from './dialog.js';
+import { showModal, returnFocus, createRouteHold, modalOpen } from './dialog.js';
+import { svgIcon } from './components.js';
+import { openSearch, isSearchShortcut } from './search.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
 import { createChatDrafts } from '../src/chat-drafts.js';
 
@@ -25,17 +27,23 @@ import { NotificationsScreen } from './screens/notifications.js';
 import { ChatScreen } from './screens/chat.js';
 import { SettingsScreen } from './screens/settings.js';
 import { ReportsScreen } from './screens/reports.js';
+import { SearchScreen } from './screens/search.js';
+import { MeetingsScreen } from './screens/meetings.js';
+import { MeetingScreen } from './screens/meeting.js';
 
 const storage = chrome.storage.local;
 // The access token lives in memory-only session storage (EXT-07), never on disk.
 const sessionStore = chrome.storage.session;
 const NOTICE_KEY = 'mico360.loginNotice';
+const MAC = /Mac/i.test((typeof navigator !== 'undefined' && navigator.platform) || '');
+const SEARCH_ICON = ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'm21 21-4.3-4.3'];
 
 const NAV = [
   { path: '/', icon: '🏠', label: 'Dashboard' },
   { path: '/my-tasks', icon: '✓', label: 'My Tasks' },
   { path: '/projects', icon: '🗂', label: 'Projects' },
   { path: '/calendar', icon: '📅', label: 'Calendar' },
+  { path: '/meetings', icon: '👥', label: 'Meetings' },
   { path: '/chat', icon: '💬', label: 'Chat' },
   { path: '/notifications', icon: '🔔', label: 'Notifications', badge: true },
   { path: '/reports', icon: '📊', label: 'Reports', adminOnly: true },
@@ -48,6 +56,9 @@ const ROUTES = [
   { name: 'projects', pattern: '/projects', title: 'Projects', screen: ProjectsScreen },
   { name: 'board', pattern: '/board/:projectId', title: 'Board', screen: BoardScreen },
   { name: 'calendar', pattern: '/calendar', title: 'Calendar', screen: CalendarScreen },
+  { name: 'meetings', pattern: '/meetings', title: 'Meetings', screen: MeetingsScreen },
+  { name: 'meeting', pattern: '/meeting/:meetingId', title: 'Meeting', screen: MeetingScreen },
+  { name: 'search', pattern: '/search', title: 'Search', screen: SearchScreen },
   { name: 'chat', pattern: '/chat', title: 'Chat', screen: ChatScreen },
   { name: 'chat-thread', pattern: '/chat/:conversationId', title: 'Chat', screen: ChatScreen },
   { name: 'notifications', pattern: '/notifications', title: 'Notifications', screen: NotificationsScreen },
@@ -197,6 +208,12 @@ class App {
       query: query || {},
       isOnline: () => this.state.online,
       navigate: (hash) => { window.location.hash = hash; },
+      // Keep the screen's place in the address without drawing it again (the calendar's view and
+      // day); the task drawer closes back to it.
+      replaceHash: (hash) => {
+        window.history.replaceState(null, '', hash);
+        this.contentBase = hash;
+      },
       openTask: (id) => { window.location.hash = `#/task/${id}`; },
       // A page of the website (e.g. a meeting a notification is about) in a new tab.
       openExternal: (url) => { window.open(url, '_blank', 'noopener'); },
@@ -238,6 +255,11 @@ class App {
   start() {
     this.renderShell();
     window.addEventListener('hashchange', () => this.hold.run(() => this.route()));
+    // Ctrl+K (⌘K) searches, as on the website — not over another dialog (the task panel).
+    document.addEventListener('keydown', (e) => {
+      if (!isSearchShortcut(e) || e.defaultPrevented) return;
+      if (this.showSearch()) e.preventDefault();
+    });
     window.addEventListener('online', () => { this.state.online = true; this.renderStatus(); this.sync(); });
     window.addEventListener('offline', () => { this.state.online = false; this.renderStatus(); });
     // No live connection: coming back to the tab reloads task screens, so changes made elsewhere
@@ -323,11 +345,16 @@ class App {
     );
     this.titleEl = el('h1', {}, 'Dashboard');
     this.connEl = el('span', { class: 'conn' });
+    const searchBtn = el('button', {
+      class: 'btn sm top-search', type: 'button', 'aria-label': 'Search', 'aria-keyshortcuts': 'Control+K Meta+K',
+      title: `Search tasks, projects, people and meetings (${MAC ? '⌘K' : 'Ctrl+K'})`, onClick: () => this.showSearch(),
+    }, svgIcon(SEARCH_ICON, 15, 2), el('span', { class: 'top-search-label', 'aria-hidden': 'true' }, 'Search'),
+    el('kbd', { class: 'top-search-kbd', 'aria-hidden': 'true' }, MAC ? '⌘K' : 'Ctrl K'));
     this.offbar = el('div', { class: 'offbar hidden' }, 'Offline — showing saved data. Changes will sync when you reconnect.');
     this.content = el('div', { class: 'content' });
     this.live = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
     const main = el('main', { class: 'main' },
-      el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), this.connEl),
+      el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), searchBtn, this.connEl),
       this.offbar,
       this.content,
       this.live,
@@ -351,6 +378,7 @@ class App {
   }
 
   setActiveNav(path) {
+    if (path.startsWith('/meeting/')) path = '/meetings'; // a meeting's page is under Meetings
     for (const a of this.root.querySelectorAll('.navlink')) {
       const p = a.dataset.path;
       const active = p === '/' ? path === '/' : path.startsWith(p);
@@ -424,6 +452,13 @@ class App {
     await endSession({ local: this.storage, session: sessionStore, notifications: chrome.notifications });
     try { await chrome.action.setBadgeText({ text: '' }); } catch { /* ignore */ }
     reloadWithNotice('');
+  }
+
+  /** The search dialog (Ctrl+K, or the Search button). Not over another dialog. Resolves whether it opened. */
+  showSearch() {
+    if (modalOpen(document)) return false;
+    openSearch(this.ctx({}, {}));
+    return true;
   }
 
   /** Say `text` to screen readers (the app's polite live region, which outlives any screen). */

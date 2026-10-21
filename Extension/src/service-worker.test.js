@@ -24,6 +24,7 @@ const chrome = {
   action: { onClicked: event('actionClicked'), setBadgeText: vi.fn(), setBadgeBackgroundColor: vi.fn(), openPopup: vi.fn(async () => {}) },
   alarms: { get: vi.fn(async () => ({ name: 'poll' })), create: vi.fn(), onAlarm: event('alarm') },
   notifications: { onClicked: event('notificationClicked'), clear: vi.fn(), create: vi.fn() },
+  omnibox: { onInputStarted: event('omniStarted'), onInputChanged: event('omniChanged'), onInputEntered: event('omniEntered'), setDefaultSuggestion: vi.fn() },
   contextMenus: { removeAll: vi.fn(async () => {}), create: vi.fn(), onClicked: event('menuClicked') },
   tabs: { create: vi.fn(async () => ({})), update: vi.fn(async () => ({})) },
   windows: { create: vi.fn(async () => ({})), update: vi.fn(async () => {}) },
@@ -70,5 +71,30 @@ describe('background worker: a session that ended (review fix #6)', () => {
     listeners.alarm[0]({ name: 'poll' });
     await settle();
     expect(chrome.notifications.clear).toHaveBeenCalledWith(NOTIFICATION_ID);
+  });
+});
+
+describe('background worker: “mico” in the address bar (Stage 6)', () => {
+  it('listens to the address bar', () => {
+    expect(listeners.omniChanged).toHaveLength(1);
+    expect(listeners.omniEntered).toHaveLength(1);
+  });
+
+  it('signed out: suggests nothing, and says to sign in', async () => {
+    const suggest = vi.fn();
+    listeners.omniChanged[0]('rig', suggest);
+    await settle();
+    expect(suggest).toHaveBeenCalledWith([]);
+    expect(chrome.omnibox.setDefaultSuggestion).toHaveBeenLastCalledWith({ description: 'Sign in to MICO360 Tasks to search it from here' });
+  });
+
+  it('Enter opens the app at the Search screen with the words (or at a chosen suggestion)', async () => {
+    chrome.tabs.create.mockClear();
+    listeners.omniEntered[0]('rig valves', 'currentTab');
+    await settle();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'chrome-extension://ext/app/app.html#/search?q=rig%20valves' });
+    listeners.omniEntered[0]('task:t1', 'currentTab');
+    await settle();
+    expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'chrome-extension://ext/app/app.html#/task/t1' });
   });
 });

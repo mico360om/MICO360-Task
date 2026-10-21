@@ -8,6 +8,9 @@ import { rememberTask } from '../src/task-writes.js';
 import { openAppTab } from '../src/open-app.js';
 import { createMenu, onMenuClick } from '../src/context-menu.js';
 import { pollNotifications, openAlert } from '../src/background-poll.js';
+import { readSessionUser } from '../src/auth.js';
+import { searchable } from '../src/search.js';
+import { omniboxSuggestions, omniboxTarget, defaultSuggestion } from '../src/omnibox.js';
 
 const local = chrome.storage.local;
 const sessionStore = chrome.storage.session;
@@ -98,6 +101,59 @@ async function alertClicked() {
 function openApp(hash = '') {
   return openAppTab(chrome, hash);
 }
+
+// ---- "mico" in the address bar (Stage 6) ----------------------------------------------------
+
+let omniAsked = 0; // the newest words typed: an older answer arriving late is dropped
+
+/** Whether the signed-in person is an admin (admin pages are suggested only to them). */
+async function isAdmin() {
+  try {
+    const u = await readSessionUser(local);
+    return !!(u && Array.isArray(u.roles) && u.roles.includes('ADMIN'));
+  } catch {
+    return false;
+  }
+}
+
+/** Suggestions for the words typed after "mico": pages, and what GET /search finds. */
+async function omniboxSuggest(text, suggest) {
+  const mine = (omniAsked += 1);
+  let ctx = null;
+  try { ctx = await signedIn(); } catch { ctx = null; }
+  try { chrome.omnibox.setDefaultSuggestion({ description: defaultSuggestion(!!ctx) }); } catch { /* older Chrome */ }
+  if (!ctx) {
+    suggest([]);
+    return;
+  }
+  let results = null;
+  if (searchable(text)) {
+    try {
+      const res = await ctx.auth.authedFetch(`/search?q=${encodeURIComponent(text.trim())}`);
+      const json = res && res.ok ? await res.json() : null;
+      results = json && typeof json === 'object' ? json.data : null;
+    } catch {
+      results = null; // offline: the pages still show
+    }
+  }
+  if (mine !== omniAsked) return;
+  suggest(omniboxSuggestions(results, text, { isAdmin: await isAdmin() }));
+}
+
+/** Enter: a chosen suggestion opens here (or a page on the website); words open the Search screen. */
+async function omniboxOpen(text) {
+  const { appBase } = resolveBases(await local.get(['apiBase', 'appBase']));
+  const target = omniboxTarget(text, { appBase, isAdmin: await isAdmin() });
+  if (target.url) await chrome.tabs.create({ url: target.url });
+  else await openApp(target.hash);
+}
+
+chrome.omnibox?.onInputChanged.addListener((text, suggest) => {
+  void omniboxSuggest(text, suggest).catch(() => suggest([]));
+});
+chrome.omnibox?.onInputEntered.addListener((text) => {
+  void omniboxOpen(text).catch(() => openApp('#/'));
+});
 
 /** The polling alarm can be lost when the browser restarts; make sure it exists (EXT-06). */
 async function ensurePollAlarm() {

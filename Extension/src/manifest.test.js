@@ -63,6 +63,13 @@ describe('manifest.json', () => {
     expect(manifest.permissions).not.toContain('scripting');
   });
 
+  it('Stage 6: “mico” in the address bar is a manifest key, not a permission — no install warning, no new access', () => {
+    expect(manifest.omnibox).toEqual({ keyword: 'mico' });
+    expect(manifest.permissions).not.toContain('search');
+    expect(manifest.permissions).not.toContain('tabs');
+    expect(manifest.host_permissions).toEqual(['https://task.mico360.com/*']);
+  });
+
   it('the toolbar button opens the quick-capture popup, and a keyboard shortcut opens it too', () => {
     expect(manifest.action.default_popup).toBe('popup/popup.html');
     expect(existsSync(resolve(ext, manifest.action.default_popup))).toBe(true);

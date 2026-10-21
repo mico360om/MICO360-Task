@@ -272,6 +272,21 @@ function overMessages(conversationId, list, items) {
   return { data: rows, applied };
 }
 
+/** A meeting's people with your answer waiting to sync on your row (the latest one wins). */
+function overMeetingPeople(meetingId, list, items) {
+  let rows = list;
+  let applied = 0;
+  for (const item of items) {
+    const p = item.payload || {};
+    if (item.kind !== 'meeting.respond' || p.meetingId !== meetingId || !rows.some((a) => a && a.id === p.attendeeId)) continue;
+    rows = rows.map((a) => (a && a.id === p.attendeeId
+      ? { ...a, response: p.response, respondedAt: p.response === 'PENDING' ? null : atIso(item), pending: true }
+      : a));
+    applied += 1;
+  }
+  return { data: rows, applied };
+}
+
 export function applyPending(key, data, items) {
   const waiting = (items || []).filter((i) => i && i.status !== 'failed');
   const none = { data, applied: 0 };
@@ -286,6 +301,7 @@ export function applyPending(key, data, items) {
   if (key.startsWith('watch:')) return typeof data === 'object' && !Array.isArray(data) ? overWatch(after('watch:'), data, waiting) : none;
   if (key.startsWith('watchers:')) return Array.isArray(data) ? overWatchers(after('watchers:'), data, waiting) : none;
   if (key.startsWith('messages:')) return Array.isArray(data) ? overMessages(after('messages:'), data, waiting) : none;
+  if (key.startsWith('meeting-attendees:')) return Array.isArray(data) ? overMeetingPeople(after('meeting-attendees:'), data, waiting) : none;
   if (key === 'notifications') return Array.isArray(data) ? overNotifications(data, waiting) : none;
   if (key === 'unread') return typeof data === 'object' ? overUnread(data, waiting) : none;
   return none;

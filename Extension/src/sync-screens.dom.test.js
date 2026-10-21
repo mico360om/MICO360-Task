@@ -272,7 +272,8 @@ describe('NotificationsScreen (M7)', () => {
     expect(ctx.navigate).toHaveBeenCalledWith('#/chat/cv1');
     [...root.querySelectorAll('.nrow')][2].click();
     await settle();
-    expect(ctx.openExternal).toHaveBeenCalledWith('https://task.mico360.com/meetings/m1');
+    expect(ctx.navigate).toHaveBeenCalledWith('#/meeting/m1'); // its page here (Stage 6)
+    expect(ctx.openExternal).not.toHaveBeenCalled();
     expect(ctx.write).toHaveBeenCalledTimes(2); // n3 was already read
   });
 
