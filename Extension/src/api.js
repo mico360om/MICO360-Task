@@ -163,7 +163,15 @@ export function createApi({ auth, cache, pending }) {
       assignees: (id) => get(`assignees:${id}`, `/tasks/${id}/assignees`),
       checklist: (id) => get(`checklist:${id}`, `/tasks/${id}/checklist`),
       comments: (id) => get(`comments:${id}`, `/tasks/${id}/comments`),
+      // The task drawer (Stage 3): its files, timeline, watching, and who an @mention can reach.
+      attachments: (id) => get(`attachments:${id}`, `/tasks/${id}/attachments`),
+      activity: (id) => get(`activity:${id}`, `/tasks/${id}/activity`),
+      watch: (id) => get(`watch:${id}`, `/tasks/${id}/watch`),
+      watchers: (id) => get(`watchers:${id}`, `/tasks/${id}/watchers`),
+      mentionable: (id) => get(`mentionable:${id}`, `/tasks/${id}/mentionable`),
     },
+    /** The workspace's shared list of tags (suggested while tagging a task). */
+    tags: () => get('tags', '/tags'),
     notifications: {
       list: () => get('notifications', '/notifications'),
       unreadCount: () => get('unread', '/notifications/unread-count'),

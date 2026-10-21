@@ -13,12 +13,16 @@
  *    `failed` and shown in Settings (retry / discard). A 401 pauses the queue instead of dropping;
  *  - task edits carry the version they were made against (H1). A task's edits and moves go one at a
  *    time: a new one waits behind the task's queued ones, and each replay moves this device's later
- *    edits of that task on to the version it made (src/task-writes.js).
+ *    edits of that task on to the version it made (src/task-writes.js). Its tags, people, watching
+ *    and a comment's edits keep their order the same way, and a delete waits behind the task's changes;
+ *  - a delete that finds nothing to delete (the server's 404) is done, not failed.
  */
 import { withLock } from './locks.js';
 import { ApiError, QueueError } from './errors.js';
 import { pruneCache, MAX_CACHE_ENTRIES } from './read-cache.js';
-import { VERSIONED_KINDS, taskIdOf, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE } from './task-writes.js';
+import {
+  VERSIONED_KINDS, ORDERED_KINDS, DELETE_KINDS, taskIdOf, mustFollow, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE,
+} from './task-writes.js';
 
 const KEY = 'syncQueue';
 export const QUEUE_LOCK = 'mico360:sync-queue';
@@ -107,24 +111,26 @@ export async function pendingItems(storage, userId) {
   return (await readQueue(storage)).filter((i) => i.userId === userId && i.status !== 'failed');
 }
 
-/** This person's queued (not failed) edits and moves of one task. */
-const waitingTaskWrites = (q, userId, taskId) =>
-  q.filter((i) => i.userId === userId && i.status !== 'failed' && VERSIONED_KINDS.has(i.kind) && taskIdOf(i) === taskId);
+/** This person's queued (not failed) changes that `item` must follow (task-writes.js `mustFollow`). */
+const waitingTaskWrites = (q, item) =>
+  q.filter((i) => i.userId === item.userId && i.status !== 'failed' && mustFollow(item, i));
 
 /**
- * Queue a task edit or move behind this person's queued edits and moves of the same task, so they
- * reach the server one at a time and in order (H1). A queued edit continues their versions: it is
+ * Queue a task change behind this person's queued changes it must follow (task-writes.js), so they
+ * reach the server one at a time and in order: an edit or move behind the task's edits and moves
+ * (H1), a list of tags, people or watching behind the same, a comment's edit behind that comment's,
+ * a task's delete behind everything of that task. A queued edit continues their versions: it is
  * made against the newest version they expect (never an older one), which each replay moves on.
- * Resolves `{ item, syncNow }`, or null when nothing of that task is waiting (send it now). `syncNow`
+ * Resolves `{ item, syncNow }`, or null when nothing it follows is waiting (send it now). `syncNow`
  * is false while one of this person's waiting changes has already failed a try: syncing at once
  * would only spend another of its tries, so the next alarm or reconnect sends them.
  */
 async function enqueueBehindTaskWrites(storage, item) {
   const taskId = taskIdOf(item);
-  if (!item.userId || !taskId || !VERSIONED_KINDS.has(item.kind)) return null;
+  if (!item.userId || !taskId || !ORDERED_KINDS.has(item.kind)) return null;
   const { value } = await withLock(QUEUE_LOCK, async () => {
     const q = await readQueue(storage);
-    const waiting = waitingTaskWrites(q, item.userId, taskId);
+    const waiting = waitingTaskWrites(q, item);
     if (!waiting.length) return null;
     let payload = item.payload;
     if (item.kind === 'task.update') {
@@ -204,7 +210,24 @@ export function mutationRequest(item) {
     case 'task.unassign':
       return { path: `/tasks/${p.id}/assignees/${p.userId}`, init: { method: 'DELETE' } };
     case 'comment.add':
-      return post(`/tasks/${p.id}/comments`, { body: p.body });
+      // A reply names the comment it answers.
+      return post(`/tasks/${p.id}/comments`, { body: p.body, ...(p.parentId ? { parentId: p.parentId } : {}) });
+    case 'comment.update':
+      return { path: `/comments/${encodeURIComponent(p.commentId)}`, init: { method: 'PUT', body: JSON.stringify({ body: p.body }) } };
+    case 'comment.delete':
+      return { path: `/comments/${encodeURIComponent(p.commentId)}`, init: { method: 'DELETE' } };
+    case 'task.tags':
+      // The task's whole list of tag names (the server finds or makes each one).
+      return { path: `/tasks/${p.id}/tags`, init: { method: 'PUT', body: JSON.stringify({ tags: p.tags || [] }) } };
+    case 'task.watch':
+      return post(`/tasks/${p.id}/watch`, {});
+    case 'task.unwatch':
+      return { path: `/tasks/${p.id}/watch`, init: { method: 'DELETE' } };
+    case 'attachment.delete':
+      return { path: `/attachments/${encodeURIComponent(p.attachmentId)}`, init: { method: 'DELETE' } };
+    case 'task.delete':
+      // One copy, or (`scope: 'series'`) every copy of a repeating series.
+      return { path: `/tasks/${p.id}${p.scope === 'series' ? '?scope=series' : ''}`, init: { method: 'DELETE' } };
     case 'checklist.add':
       return post(`/tasks/${p.id}/checklist`, { text: p.text });
     case 'checklist.update':
@@ -231,7 +254,14 @@ export function describeMutation(item) {
     case 'task.update': return 'Edit a task';
     case 'task.assign': return 'Assign a task';
     case 'task.unassign': return 'Unassign a task';
-    case 'comment.add': return 'Comment on a task';
+    case 'comment.add': return p.parentId ? 'Reply to a comment' : 'Comment on a task';
+    case 'comment.update': return 'Edit a comment';
+    case 'comment.delete': return 'Delete a comment';
+    case 'task.tags': return 'Change a task’s tags';
+    case 'task.watch': return 'Watch a task';
+    case 'task.unwatch': return 'Stop watching a task';
+    case 'attachment.delete': return `Delete the file “${p.filename || 'a file'}”`;
+    case 'task.delete': return p.scope === 'series' ? 'Delete a repeating series' : 'Delete a task';
     case 'checklist.add': return `Checklist item “${p.text || ''}”`;
     case 'checklist.update': return 'Tick a checklist item';
     case 'notification.read': return 'Mark a notification read';
@@ -339,6 +369,14 @@ async function settleConflict(item, doFetch, onTask, code) {
 }
 
 /**
+ * A delete the server answers "not found" (its own 404, not a proxy's page): the thing is already
+ * gone — deleted by someone else, or by this change's first try — so the delete has done its job.
+ */
+function alreadyGone(kind, status, code) {
+  return DELETE_KINDS.has(kind) && status === 404 && code === 'NOT_FOUND';
+}
+
+/**
  * Build the `perform(item)` used to replay one queued mutation. `doFetch(path, init)` is the
  * caller's authenticated fetch, so the replay logic lives in ONE place for every surface. It
  * resolves with the server's answer (for an edit or move: the task, at its new version), which
@@ -352,6 +390,7 @@ export function makePerformMutation(doFetch, { onTask } = {}) {
     if (!res.ok) {
       const { code, message } = await errorInfo(res);
       if (item.kind === 'task.update' && isVersionConflict({ status: res.status, code })) return settleConflict(item, doFetch, onTask, code);
+      if (alreadyGone(item.kind, res.status, code)) return undefined;
       throw replayError(message || `${item.kind} failed (${res.status})`, { status: res.status, code, outcome: outcomeForStatus(res.status, code) });
     }
     const reply = await readReply(res);
@@ -452,12 +491,12 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
     }
   }
 
-  if (userId && VERSIONED_KINDS.has(kind) && !hold) {
+  if (userId && ORDERED_KINDS.has(kind) && !hold) {
     let behind = null;
     try {
       behind = await enqueueBehindTaskWrites(storage, item);
     } catch {
-      behind = null; // the queue can't be read: send it now (the server's version check still guards it)
+      behind = null; // the queue can't be read: send it now (the server's version check still guards edits)
     }
     if (behind) return { queued: true, item: behind.item, syncNow: behind.syncNow };
   }
@@ -476,5 +515,6 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
   }
   if (QUEUE_ON_STATUS.has(res.status)) return queueIt();
   const { code, message, details } = await errorInfo(res);
+  if (alreadyGone(kind, res.status, code)) return { queued: false, data: undefined };
   throw new ApiError(res.status, message, code, details);
 }
