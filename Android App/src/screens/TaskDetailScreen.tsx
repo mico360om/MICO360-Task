@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, RefreshControl, Alert, Linking, useWindowDimens
 import * as DocumentPicker from 'expo-document-picker';
 import { pickedFiles } from '../adapters/picked-files';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
+import { useTaskRealtime } from '../core/useTaskRealtime';
 import {
   keyed,
   useTask,
@@ -110,6 +112,24 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const queued = useMyQueuedChanges();
   const { baseUrl, exporter, resources } = useServices();
   const session = useSession();
+
+  // Live (4d): the task followed on its project's socket while this screen is in view — a change
+  // made elsewhere shows at once, a deletion or a removal from the project is told.
+  const focused = useIsFocused();
+  const deleting = useRef(false);
+  useTaskRealtime(focused ? taskId : undefined, task?.projectId, {
+    linkedIds,
+    onDeleted: () => {
+      // This screen's own Delete leaves by itself.
+      if (deleting.current) return;
+      Alert.alert('Task deleted', 'This task was deleted.');
+      if (navigation.canGoBack()) navigation.goBack();
+    },
+    onRemoved: () => {
+      Alert.alert('No longer available', 'You were removed from this project.');
+      if (navigation.canGoBack()) navigation.goBack();
+    },
+  });
 
   const [scope, setScope] = useState<'one' | 'series'>('one');
   const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
@@ -221,11 +241,16 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   }
 
   function confirmDelete() {
-    const run = (scopeChoice?: 'series') =>
-      deleteTask.mutateAsync(scopeChoice).then(
+    const run = (scopeChoice?: 'series') => {
+      deleting.current = true;
+      return deleteTask.mutateAsync(scopeChoice).then(
         () => navigation.goBack(),
-        (e) => Alert.alert('Couldn’t delete the task', failureText(e, 'Please try again.')),
+        (e) => {
+          deleting.current = false;
+          Alert.alert('Couldn’t delete the task', failureText(e, 'Please try again.'));
+        },
       );
+    };
     if (series) {
       Alert.alert('Delete this recurring task?', 'Delete just this occurrence, or the entire series?', [
         { text: 'Cancel', style: 'cancel' },
