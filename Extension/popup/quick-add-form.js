@@ -275,6 +275,7 @@ export function QuickAddForm(ctx) {
     state.fields.projectId = place.project.id;
     state.fields.columnId = place.columnId || '';
     state.initial = { ...BLANK, projectId: place.project.id };
+    syncInputs(); // the fields show what will be sent (Normal priority, …)
     renderProjects();
     await loadPlace();
   }

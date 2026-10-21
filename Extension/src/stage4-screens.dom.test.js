@@ -204,6 +204,7 @@ describe('Board: add a task in any column with the new-task form', () => {
     expect(dialog.querySelector('#qa-project').textContent).toBe('Ops'); // shown, not changeable
     expect(dialog.querySelector('select#qa-project')).toBeNull();
     expect(dialog.querySelector('#qa-column').value).toBe('c2');
+    expect(dialog.querySelector('#qa-priority').value).toBe('NORMAL'); // the fields show what will be sent
     expect(document.activeElement).toBe(dialog.querySelector('#qa-title'));
     expect(byText(dialog, 'button', 'Add this page')).toBeUndefined();
     expect(byText(dialog, 'button', 'Open MICO360 Tasks')).toBeUndefined();

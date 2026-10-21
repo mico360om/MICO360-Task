@@ -27,6 +27,14 @@ due date, "Assign me" or people from the project's team, and the description, wi
 Dashboard · My Tasks · Projects · Board (Kanban) · Task detail · Calendar · Chat · Notifications ·
 Settings — a sidebar + hash-routed single-page app under `app/`.
 
+- **Projects** show each project's picture (its image, else its icon or initials on its colour),
+  code and own number, status in words, and **Open dashboard on the web**.
+- **Board** cards show what the web's do: the due day ("Overdue" in company time), subtasks,
+  comments, files, people, milestone and a blocked column. **Add a task to …** on any column (or
+  **New task**) opens the New task form there, on the board's day.
+- **My Tasks** can be filtered by project and sorted (due date, priority, progress, title), and
+  **Mark done** moves a task to its project's Done column.
+
 ## Offline
 
 - **App shell** always loads (it's packaged locally).
@@ -77,11 +85,12 @@ content script.
 
 ```
 app/            full-page app (app.html, app.js router+shell, app.css, dom.js, components.js, theme.js,
-                dialog.js modal dialogs + focus, menu.js menu buttons)
+                dialog.js modal dialogs + focus, menu.js menu buttons, new-task-dialog.js)
 app/screens/    one module per screen (export function XScreen(ctx))
 src/            shared logic: api.js, read-cache.js, router.js, queue.js, auth.js, config.js, chat.js,
-                version.js, …
-popup/          the toolbar popup: popup.html/js/css and quick-add-form.js (the New task form)
+                version.js, project-identity.js, task-cards.js, …
+popup/          the toolbar popup: popup.html/js/css and quick-add-form.js/.css (the New task form,
+                also the board's New task dialog)
 background/     service-worker.js (right-click menu, badge count, background queue flush)
 ```
 
@@ -90,6 +99,8 @@ background/     service-worker.js (right-click menu, badge count, background que
 Board cards are buttons: Tab to one, Enter or Space opens it, and its "⋯" button ("Move to…") lists
 the other columns (arrows to choose, Enter to move, Escape to close). The task drawer is a modal
 dialog: focus moves into it and stays there, Escape closes it, and focus goes back to the card.
+The board's New task dialog works the same way (Ctrl+Enter creates the task; Escape asks before
+discarding what was typed), and focus goes back to the button that opened it.
 
 ## Versions and updates
 
@@ -108,6 +119,7 @@ install (no Web Store). There is no "newer version" banner.
 - `npm run test:e2e` runs the browser checks in `tools/extension-e2e/` — headless Chrome loads this
   folder unpacked and drives it against a local server (default `http://localhost:4000`, which must
   allow `chrome-extension://*` in `CORS_ORIGINS`): sign-in, board and keyboard, the drawer dialog,
-  versions, edit conflicts, repeating tasks, reports and exports, and the quick-capture popup.
+  versions, edit conflicts, repeating tasks, reports and exports, the quick-capture popup, and
+  the board, My Tasks and Projects (`lists.mjs`).
   Settings are at the top of
   `tools/extension-e2e/lib.mjs`.
