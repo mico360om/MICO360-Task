@@ -31,6 +31,9 @@ import {
   userFullName,
   userPatch,
   usersLoadProblem,
+  userActions,
+  StatusAfterSaveError,
+  type UserApi,
   type ApiAdminUser,
 } from './users-admin';
 
@@ -287,5 +290,83 @@ describe.skipIf(!existsSync(resolve(web, 'pages/UsersPage.tsx')))('in the websit
 
   it('the statuses', () => {
     for (const s of USER_STATUSES) expect(page).toContain(`<option value="${s}">${statusLabel(s)}</option>`);
+  });
+});
+
+describe('sending user changes (userActions)', () => {
+  const omar = user();
+  const calls: string[] = [];
+  const api = (over: Partial<UserApi> = {}): UserApi => ({
+    create: async (body, key) => {
+      calls.push(`create ${body.username} ${key}`);
+      return user({ id: 'new', username: body.username });
+    },
+    update: async (id, patch) => {
+      calls.push(`update ${id} ${JSON.stringify(patch)}`);
+      return user({ ...omar, ...patch });
+    },
+    setStatus: async (id, status) => {
+      calls.push(`status ${id} ${status}`);
+      return user({ ...omar, status });
+    },
+    remove: async (id) => {
+      calls.push(`remove ${id}`);
+    },
+    unlock: async (id) => {
+      calls.push(`unlock ${id}`);
+    },
+    resetPassword: async (id) => {
+      calls.push(`password ${id}`);
+    },
+    ...over,
+  });
+  const online = () => true;
+
+  it('sends nothing while the phone knows it is offline', async () => {
+    calls.length = 0;
+    const a = userActions({ api: api(), isOnline: () => false });
+    await expect(a.create({ firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co', password: 'Temp1234', role: 'EMPLOYEE' }, 'k1')).rejects.toBeInstanceOf(UserChangeNotSent);
+    await expect(a.save(omar, editFormOf(omar), false)).rejects.toBeInstanceOf(UserChangeNotSent);
+    await expect(a.setStatus(omar, 'INACTIVE')).rejects.toBeInstanceOf(UserChangeNotSent);
+    await expect(a.unlock(omar)).rejects.toBeInstanceOf(UserChangeNotSent);
+    await expect(a.remove(omar)).rejects.toBeInstanceOf(UserChangeNotSent);
+    await expect(a.resetPassword(omar, 'Fake-pass-1')).rejects.toBeInstanceOf(UserChangeNotSent);
+    expect(calls).toEqual([]);
+  });
+
+  it('creates with the try’s own key, so a second try after a lost answer makes no second account', async () => {
+    calls.length = 0;
+    await userActions({ api: api(), isOnline: online }).create({ firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co', password: 'Temp1234', role: 'ADMIN' }, 'key-1');
+    expect(calls).toEqual(['create ab key-1']);
+  });
+
+  it('saves the details, then the status only when it changed (never your own)', async () => {
+    calls.length = 0;
+    const a = userActions({ api: api(), isOnline: online });
+    await a.save(omar, { ...editFormOf(omar), firstName: 'Omar K' }, false);
+    expect(calls).toEqual([`update u1 ${JSON.stringify({ firstName: 'Omar K', lastName: 'Ahmed', username: 'omar', email: 'omar@mico360.com', roleNames: ['EMPLOYEE'] })}`]);
+    calls.length = 0;
+    const saved = await a.save(omar, { ...editFormOf(omar), status: 'SUSPENDED' }, false);
+    expect(calls.map((c) => c.split(' ')[0])).toEqual(['update', 'status']);
+    expect(saved.status).toBe('SUSPENDED');
+    calls.length = 0;
+    await a.save(omar, { ...editFormOf(omar), status: 'SUSPENDED' }, true);
+    expect(calls.map((c) => c.split(' ')[0])).toEqual(['update']);
+  });
+
+  it('a status refused after the details were saved says the details are saved', async () => {
+    const last = refused(409, 'LAST_ADMIN', 'This is the last active administrator. Make someone else an administrator first.');
+    const a = userActions({ api: api({ setStatus: async () => Promise.reject(last) }), isOnline: online });
+    const err = await a.save(omar, { ...editFormOf(omar), status: 'INACTIVE' }, false).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StatusAfterSaveError);
+    expect((err as StatusAfterSaveError).saved.id).toBe('u1');
+    expect(statusAfterSaveText((err as StatusAfterSaveError).inner)).toContain('This is the last active administrator.');
+  });
+
+  it('deleting someone already gone counts as deleted', async () => {
+    const a = userActions({ api: api({ remove: async () => Promise.reject(refused(404, 'NOT_FOUND', 'User not found.')) }), isOnline: online });
+    await expect(a.remove(omar)).resolves.toBeUndefined();
+    const b = userActions({ api: api({ remove: async () => Promise.reject(refused(409, 'LAST_ADMIN', 'x')) }), isOnline: online });
+    await expect(b.remove(omar)).rejects.toBeInstanceOf(ApiError);
   });
 });

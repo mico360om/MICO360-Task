@@ -333,6 +333,7 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
             </Text>
             <Muted>Connected to</Muted>
             <Text style={styles.mono}>{baseUrl}</Text>
+            <Button title="About and version history" variant="secondary" onPress={() => navigation.navigate('About')} style={styles.rowBtn} />
             <View style={[styles.links, styles.divided]}>
               <Pressable onPress={() => openPage('/privacy')} accessibilityRole="link" hitSlop={6}>
                 <Text style={styles.linkText}>Privacy policy</Text>

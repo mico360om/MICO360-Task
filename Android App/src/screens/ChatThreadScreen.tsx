@@ -42,7 +42,8 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   const atLatest = React.useRef(true);
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title });
+    // A website chat link (6b) names no conversation: the screen is "Chat" then.
+    navigation.setOptions({ title: title || 'Chat' });
   }, [navigation, title]);
 
   const nameOf = (userId: string): string => {

@@ -281,3 +281,75 @@ export function resetProblem(error: unknown): string {
   if (isNetworkError(error)) return 'We couldn’t confirm the reset. Check your connection, then reset the password again.';
   return reason(error, `Couldn’t reset the password. ${PASSWORD_RULE_ERROR}`);
 }
+
+// ── Sending the changes ──────────────────────────────────────────────────────
+
+/** The requests (resources.users). */
+export interface UserApi {
+  create(body: ReturnType<typeof newUserBody>, idempotencyKey: string): Promise<ApiAdminUser>;
+  update(id: string, patch: ReturnType<typeof userPatch>): Promise<ApiAdminUser>;
+  setStatus(id: string, status: UserStatus): Promise<ApiAdminUser>;
+  remove(id: string): Promise<void>;
+  unlock(id: string): Promise<unknown>;
+  resetPassword(id: string, password: string): Promise<unknown>;
+}
+
+/** The details were saved; then the status change was refused (or got no answer). */
+export class StatusAfterSaveError extends Error {
+  readonly saved: ApiAdminUser;
+  readonly inner: unknown;
+  constructor(saved: ApiAdminUser, inner: unknown) {
+    super('Saved, but the status was not changed.');
+    this.name = 'StatusAfterSaveError';
+    this.saved = saved;
+    this.inner = inner;
+  }
+}
+
+/**
+ * The changes an administrator makes, as the website sends them: nothing is sent while the phone
+ * knows it is offline (they need a connection, as on the website); a new account carries its try's
+ * key; Save sends the details, then the status if it changed (never your own); a delete answered
+ * "not found" was already done.
+ */
+export function userActions({ api, isOnline }: { api: UserApi; isOnline: () => boolean }) {
+  const online = () => {
+    if (!isOnline()) throw new UserChangeNotSent();
+  };
+  return {
+    async create(form: NewUserForm, idempotencyKey: string): Promise<ApiAdminUser> {
+      online();
+      return api.create(newUserBody(form), idempotencyKey);
+    },
+    async save(user: ApiAdminUser, form: UserEditForm, isSelf: boolean): Promise<ApiAdminUser> {
+      online();
+      const saved = await api.update(user.id, userPatch(form, isSelf));
+      if (isSelf || form.status === user.status) return saved;
+      try {
+        return await api.setStatus(user.id, form.status);
+      } catch (e) {
+        throw new StatusAfterSaveError(saved, e);
+      }
+    },
+    async setStatus(user: ApiAdminUser, status: UserStatus): Promise<ApiAdminUser> {
+      online();
+      return api.setStatus(user.id, status);
+    },
+    async unlock(user: ApiAdminUser): Promise<void> {
+      online();
+      await api.unlock(user.id);
+    },
+    async remove(user: ApiAdminUser): Promise<void> {
+      online();
+      try {
+        await api.remove(user.id);
+      } catch (e) {
+        if (!deletedAlready(e)) throw e;
+      }
+    },
+    async resetPassword(user: ApiAdminUser, password: string): Promise<void> {
+      online();
+      await api.resetPassword(user.id, password);
+    },
+  };
+}

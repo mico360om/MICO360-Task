@@ -14,7 +14,9 @@ import { useColors } from '../core/theme';
 import { spacing, radius, hexToRgba, type Palette } from '../lib/theme';
 import { useDrawerStore } from '../lib/drawer-store';
 import { drawerItemsFor, activeDrawerKey } from '../navigation/drawer-menu';
-import { useSession } from '../core/providers';
+import { useServices, useSession } from '../core/providers';
+import { openWebsitePage } from '../adapters/website';
+import { websiteLinkLabel } from '../lib/website';
 import type { NavAction } from '../navigation/nav-actions';
 import { navigationRef } from '../navigation/ref';
 import { AppText } from './ui';
@@ -36,6 +38,7 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
   const closeDrawer = useDrawerStore((s) => s.closeDrawer);
   const s = makeStyles(c);
   const items = drawerItemsFor(useSession()?.user.roles ?? []);
+  const { baseUrl } = useServices();
 
   // Keep the Modal mounted through the exit animation so the panel slides out instead of snapping.
   const [rendered, setRendered] = useState(open);
@@ -63,7 +66,9 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
 
   const select = (action: NavAction) => {
     closeDrawer();
-    onNavigate(action);
+    // A website page (6b) opens in the browser, on the connected server's website.
+    if (action.type === 'website') openWebsitePage(baseUrl, action.path);
+    else onNavigate(action);
   };
 
   return (
@@ -82,18 +87,25 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
           <ScrollView contentContainerStyle={{ paddingVertical: spacing.sm, paddingBottom: insets.bottom + spacing.md }}>
             {items.map((item) => {
               const active = item.key === activeKey;
+              const website = item.action.type === 'website';
               return (
                 <Pressable
                   key={item.key}
-                  accessibilityRole="button"
+                  accessibilityRole={website ? 'link' : 'button'}
+                  accessibilityLabel={website ? websiteLinkLabel(item.label) : undefined}
                   accessibilityState={{ selected: active }}
                   onPress={() => select(item.action)}
                   style={({ pressed }) => [s.row, active && s.rowActive, pressed && s.rowPressed]}
                 >
                   <AppText variant="body" style={s.icon}>{item.icon}</AppText>
-                  <AppText variant={active ? 'bodyStrong' : 'body'} color={active ? c.brand : c.ink}>
+                  <AppText variant={active ? 'bodyStrong' : 'body'} color={active ? c.brand : c.ink} style={s.label}>
                     {item.label}
                   </AppText>
+                  {website ? (
+                    <AppText variant="body" color={c.ink3} importantForAccessibility="no">
+                      ↗
+                    </AppText>
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -135,5 +147,6 @@ function makeStyles(c: Palette) {
     rowActive: { backgroundColor: c.brandWash },
     rowPressed: { opacity: 0.7 },
     icon: { width: 22, textAlign: 'center' },
+    label: { flex: 1 },
   });
 }

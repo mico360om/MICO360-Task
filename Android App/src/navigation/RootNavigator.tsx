@@ -56,6 +56,11 @@ import { MeetingFormScreen } from '../screens/MeetingFormScreen';
 import { FinalMinutesScreen } from '../screens/FinalMinutesScreen';
 import { ProjectFormScreen } from '../screens/ProjectFormScreen';
 import { ActivityScreen } from '../screens/ActivityScreen';
+import { SearchScreen } from '../screens/SearchScreen';
+import { AboutScreen } from '../screens/AboutScreen';
+import { UsersScreen } from '../screens/UsersScreen';
+import { UserFormScreen } from '../screens/UserFormScreen';
+import { SearchButton } from '../components/SearchButton';
 import { useAlertsCount, useAlertsLive, usePushOpened } from '../core/alerts';
 import { alertsBadge, alertsTabLabel } from '../lib/alerts';
 
@@ -231,6 +236,8 @@ function MainTabs() {
         headerTintColor: colors.onBrand,
         headerTitleStyle: { fontWeight: '700' },
         headerLeft: () => <HamburgerButton />,
+        // Search from every tab, as the website's search box on every page (6b).
+        headerRight: () => <SearchButton />,
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.ink3,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line },
@@ -393,6 +400,14 @@ export function RootNavigator() {
               name="ProjectForm"
               component={ProjectFormScreen}
               options={({ route }) => ({ title: route.params?.projectId ? 'Edit project' : 'New project' })}
+            />
+            <AppStack.Screen name="Search" component={SearchScreen} options={{ title: 'Search' }} />
+            <AppStack.Screen name="About" component={AboutScreen} options={{ title: 'About MICO360 Tasks' }} />
+            <AppStack.Screen name="Users" component={UsersScreen} options={{ title: 'User Management' }} />
+            <AppStack.Screen
+              name="UserForm"
+              component={UserFormScreen}
+              options={({ route }) => ({ title: route.params?.userId ? 'Manage account' : 'New user' })}
             />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />

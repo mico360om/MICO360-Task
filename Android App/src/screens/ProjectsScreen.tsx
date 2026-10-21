@@ -7,6 +7,7 @@ import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Badge } from '../components/ui';
 import { ProjectAvatar } from '../components/ProjectAvatar';
+import { SearchButton } from '../components/SearchButton';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
 import { PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
 import { emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectsSubtitle, statusChangeProblem, type ProjectCardMeta } from '../lib/project-list';
@@ -37,13 +38,17 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      // Search stays in the header next to "+ New" (6b).
       headerRight: admin
         ? () => (
-            <Pressable onPress={() => navigation.navigate('ProjectForm')} accessibilityRole="button" accessibilityLabel="New project" hitSlop={8} style={s.headerButton}>
-              <Text style={s.headerButtonText}>+ New</Text>
-            </Pressable>
+            <View style={s.headerButtons}>
+              <SearchButton />
+              <Pressable onPress={() => navigation.navigate('ProjectForm')} accessibilityRole="button" accessibilityLabel="New project" hitSlop={8} style={s.headerButton}>
+                <Text style={s.headerButtonText}>+ New</Text>
+              </Pressable>
+            </View>
           )
-        : undefined,
+        : () => <SearchButton />,
     });
   }, [navigation, admin, s]);
 
@@ -214,6 +219,7 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.lg, gap: spacing.md },
     head: { gap: spacing.sm },
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
+    headerButtons: { flexDirection: 'row', alignItems: 'center' },
     headerButton: { paddingHorizontal: spacing.lg, minHeight: 44, justifyContent: 'center' },
     headerButtonText: { color: c.onBrand, fontWeight: '800', fontSize: fontSize.md },
     flex: { flex: 1 },

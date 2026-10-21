@@ -65,6 +65,12 @@ import type { CalendarTask } from './calendar-model';
 import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
 import type { SummaryRequest } from './project-dashboard';
 import type { ApiActivityRow } from './activity-page';
+import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-admin';
+import type { SearchResults } from './search';
+import type { DeployedVersion, ReleaseEntry } from './about';
+
+type NewUserBody = ReturnType<typeof newUserBody>;
+type UserPatchBody = ReturnType<typeof userPatch>;
 
 export interface TaskListParams {
   projectId?: string;
@@ -476,6 +482,26 @@ export function resourcesApi(client: ApiClient) {
     },
     /** Minimal people directory (id + name) for chat author names and the DM picker. */
     directory: () => data(client.get<Envelope<ApiDirectoryUser[]>>('/users/directory')),
+    /** User Management (administrators, 6b): the server refuses everyone else. Passwords are only passed on. */
+    users: {
+      list: () => data(client.get<Envelope<ApiAdminUser[]>>('/users')),
+      /** A new account; the try's key means a lost answer never makes two. */
+      create: (body: NewUserBody, idempotencyKey: string) => data(client.post<Envelope<ApiAdminUser>>('/users', body, idempotencyHeaders(idempotencyKey))),
+      update: (id: string, patch: UserPatchBody) => data(client.put<Envelope<ApiAdminUser>>(`/users/${encodeURIComponent(id)}`, patch)),
+      setStatus: (id: string, status: UserStatus) => data(client.patch<Envelope<ApiAdminUser>>(`/users/${encodeURIComponent(id)}/status`, { status })),
+      /** Lift a sign-in lock left by too many failed passwords. */
+      unlock: (id: string) => client.post<unknown>(`/users/${encodeURIComponent(id)}/unlock`),
+      remove: (id: string) => client.del<void>(`/users/${encodeURIComponent(id)}`),
+      /** Set a new password for someone (it also lifts a lock and ends their sessions). */
+      resetPassword: (id: string, password: string) => client.post<unknown>(`/users/${encodeURIComponent(id)}/password`, { password }),
+    },
+    /** Search (6b): tasks, projects, people and meetings you may see. */
+    search: (q: string) => data(client.get<Envelope<SearchResults>>(`/search?q=${encodeURIComponent(q)}`)),
+    /** About (6b): the website's version (administrators get the details) and the version history. */
+    about: {
+      version: () => data(client.get<Envelope<DeployedVersion>>('/version')),
+      releases: () => data(client.get<Envelope<ReleaseEntry[]>>('/releases')),
+    },
     /** Chat: project channels + 1:1 direct messages. */
     chat: {
       conversations: () => data(client.get<Envelope<ApiConversationSummary[]>>('/conversations')),
