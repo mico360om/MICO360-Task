@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNotifications, useMarkNotificationRead } from '../core/queries';
 import { notificationToTarget } from '../lib/deep-link';
-import { alertRoute, targetToAction } from '../navigation/nav-actions';
+import { targetToAction } from '../navigation/nav-actions';
 import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
@@ -20,7 +20,7 @@ import type { TabScreenProps } from '../navigation/types';
 
 /** Does tapping this alert open something besides the alert list? */
 function hasTarget(n: ApiNotification): boolean {
-  return alertRoute(targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId }))) !== null;
+  return notificationToTarget({ entityType: n.entityType, entityId: n.entityId }).screen !== 'Notifications';
 }
 
 /**
@@ -66,12 +66,12 @@ export function NotificationsScreen({ navigation }: TabScreenProps<'Notification
     (n: ApiNotification) => {
       if (!n.readAt) markRead(n);
       void dismissTrayAbout(n.entityType, n.entityId);
-      const route = alertRoute(targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId })));
-      if (route?.name === 'TaskDetail') navigation.navigate('TaskDetail', route.params);
-      else if (route?.name === 'Board') navigation.navigate('Board', route.params);
-      else if (route?.name === 'ProjectDetail') navigation.navigate('ProjectDetail', route.params);
-      else if (route?.name === 'MeetingDetail') navigation.navigate('MeetingDetail', route.params);
-      else if (route?.name === 'Tabs') navigation.navigate('Tabs', route.params);
+      const action = targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId }));
+      if (action.type === 'stack' && action.screen === 'TaskDetail') navigation.navigate('TaskDetail', action.params);
+      else if (action.type === 'stack' && action.screen === 'Board') navigation.navigate('Board', action.params);
+      else if (action.type === 'stack' && action.screen === 'ProjectDetail') navigation.navigate('ProjectDetail', action.params);
+      else if (action.type === 'stack' && action.screen === 'MeetingDetail') navigation.navigate('MeetingDetail', action.params);
+      else if (action.type === 'tab' && action.tab !== 'Notifications') navigation.navigate('Tabs', { screen: action.tab });
     },
     [markRead, navigation],
   );

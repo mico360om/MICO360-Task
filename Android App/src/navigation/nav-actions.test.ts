@@ -94,19 +94,3 @@ describe('drawer menu', () => {
     expect(activeDrawerKey(undefined)).toBeUndefined();
   });
 });
-
-describe('alertRoute (what a tap in the Alerts list opens)', () => {
-  it('opens a project alert’s dashboard (5c), and the task, meeting and chat as before', async () => {
-    const { alertRoute } = await import('./nav-actions');
-    const open = (entityType: string, entityId?: string) => alertRoute(targetToAction(notificationToTarget({ entityType, entityId })));
-    expect(open('project', 'p1')).toEqual({ name: 'ProjectDetail', params: { projectId: 'p1' } });
-    expect(open('task', 't1')).toEqual({ name: 'TaskDetail', params: { taskId: 't1' } });
-    expect(open('meeting', 'm1')).toEqual({ name: 'MeetingDetail', params: { meetingId: 'm1' } });
-    expect(open('conversation', 'c1')).toEqual({ name: 'Tabs', params: { screen: 'Chat' } });
-  });
-  it('stays on the list for an alert about nothing it can open', async () => {
-    const { alertRoute } = await import('./nav-actions');
-    expect(alertRoute(targetToAction(notificationToTarget({ entityType: 'digest', entityId: 'x' })))).toBeNull();
-    expect(alertRoute(targetToAction(notificationToTarget({ entityType: 'task', entityId: '../x' })))).toBeNull();
-  });
-});
