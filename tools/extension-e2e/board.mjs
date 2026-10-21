@@ -28,7 +28,7 @@ try {
   const page = await openApp(browser, { shotsDir: shots });
   const { evaluate, text, shot, press } = page;
   const m = await evaluate('chrome.runtime.getManifest()');
-  ck('it asks for Chrome 116 or later, and not for unlimitedStorage', m.minimum_chrome_version === '116' && !m.permissions.includes('unlimitedStorage'), JSON.stringify(m.permissions));
+  ck('it asks for Chrome 116 or later, and keeps unlimitedStorage (installed copies have it)', m.minimum_chrome_version === '116' && m.permissions.includes('unlimitedStorage'), JSON.stringify(m.permissions));
 
   ck('the app page opens on the sign-in screen', /sign in/i.test(await text()));
   await shot('01-login.png');
@@ -140,17 +140,13 @@ try {
   await browser.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/v1/version*' }] }, page.sessionId);
   await evaluate(`location.hash = '#/'; location.reload(); true`).catch(() => {});
   await sleep(5000);
-  const bar = await evaluate(`document.querySelector('.updatebar')?.innerText ?? ''`);
-  ck('with a newer server the app says so, naming both versions', bar.includes(`A newer version of MICO360 Tasks, 99.0.0, is available (this extension is ${manifest.version}).`), bar || '(no notice)');
-  await shot('06-update-notice.png');
-  await evaluate(`[...document.querySelectorAll('.updatebar button')].find((b) => b.textContent.trim() === 'Dismiss').click(); true`);
-  await sleep(500);
-  const dismissed = await evaluate(`chrome.storage.local.get('dismissedUpdate')`);
-  ck('Dismiss hides it for that version', !(await evaluate(`!!document.querySelector('.updatebar')`)) && dismissed.dismissedUpdate === '99.0.0', JSON.stringify(dismissed));
+  // Most releases change only the website: a newer server never brings up a "newer version" banner.
+  const page1 = await evaluate(`document.body.innerText`);
+  ck('with a newer server the app shows no update banner', !/newer version/i.test(page1), page1.slice(0, 200));
   await evaluate(`location.hash = '#/settings'; true`);
   await sleep(2500);
-  const firstCard = await evaluate(`document.querySelector('.content .card')?.innerText ?? ''`);
-  ck('Settings → About (now first) still says how to update', /^about/i.test(firstCard) && firstCard.includes('A newer version, 99.0.0, is available') && firstCard.includes('chrome://extensions'), firstCard);
+  const about = await evaluate(`[...document.querySelectorAll('.content .card')].find((c) => /^about/i.test(c.innerText))?.innerText ?? ''`);
+  ck('Settings → About names the website’s version and how to update when a new file comes', about.includes('The website runs version 99.0.0.') && about.includes('chrome://extensions') && !/newer version|is available/i.test(about), about);
   await shot('07-settings-about.png');
   fakeNewer = false;
   await browser.send('Fetch.disable', {}, page.sessionId);
