@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { View, Text, StyleSheet, Alert, Pressable, Platform, ToastAndroid, AccessibilityInfo, type TextInput } from 'react-native';
+import { View, Text, StyleSheet, Alert, Pressable, Platform, ToastAndroid, AccessibilityInfo, type ScrollView, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { useQueryClient } from '@tanstack/react-query';
@@ -104,6 +104,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const done = useRef(false);
   const key = useRef(newIdempotencyKey());
   const titleRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const frozen = locked || !!created || saving;
 
   const set = (patch: Partial<TaskDraft>) => {
@@ -318,13 +319,18 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     }
   }
 
+  // A message about the whole form shows at its top: brought into view when it appears.
+  useEffect(() => {
+    if (banner) scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, [banner]);
+
   const uploading = saving && files.some((f) => f.fraction !== undefined);
   const repeatProblem = repeatError ?? untilProblem(draft.rule, draft.dueDate);
   const projectOptions = useMemo(() => openProjects.map((p) => ({ value: p.id, label: p.name, hint: p.code })), [openProjects]);
 
   return (
     <SafeAreaView style={s.safe} edges={['bottom']}>
-      <KeyboardAwareScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView ref={scrollRef} contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
         {banner ? <ErrorNote message={banner} /> : null}
         {noProjects ? (
           <View style={s.note}>
