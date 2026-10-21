@@ -113,8 +113,12 @@ export function ChatInbox(ctx) {
     polling = (async () => {
       try {
         const c = await ctx.api.chat.conversations();
-        conversations = rows(c && c.data);
-        stale = !!(c && c.stale);
+        const next = rows(c && c.data);
+        const nextStale = !!(c && c.stale);
+        // Nothing new: nothing is drawn again (a screen reader keeps its place in the list).
+        if (JSON.stringify(next) === JSON.stringify(conversations) && nextStale === stale) return;
+        conversations = next;
+        stale = nextStale;
         if (busy()) dirty = true;
         else render();
         reportDeliveries();

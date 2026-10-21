@@ -5,7 +5,7 @@
  * its way — whether it is being sent, kept on this device, or wasn't sent (with Retry and Discard).
  * Only this server's own files are linked or shown.
  */
-import { el, timeAgo } from '../dom.js';
+import { el } from '../dom.js';
 import { attachmentUrl, fileKind, KIND_LABEL } from '../../src/file-kind.js';
 import { formatSize, reactionLabel } from '../../src/chat.js';
 
@@ -16,6 +16,23 @@ const fullTime = (iso) => {
     return '';
   }
 };
+
+/**
+ * When a message was sent, as a clock time (as on the web) — "14:05" today, "Yesterday 09:12", else
+ * the date with it. It never goes out of date while the conversation stays open (a message is only
+ * drawn again when it changes).
+ */
+export function messageTime(iso, now = new Date()) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const clock = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return clock;
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return `Yesterday ${clock}`;
+  const date = d.toLocaleDateString([], { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+  return `${date}, ${clock}`;
+}
 
 /** What decides whether a message's node must be drawn again. */
 export function messageSignature(m) {
@@ -76,7 +93,7 @@ export function messageNode(m, opts) {
   return el('div', { class: `msg${mine ? ' mine' : ''}${m.pending === 'failed' ? ' failed' : ''}`, dataset: { messageId: m.id } },
     el('div', { class: 'mh' },
       el('span', { class: 'author', dir: 'auto' }, mine ? 'You' : opts.nameOf(m.userId)),
-      el('time', { class: 'time', datetime: m.createdAt, title: fullTime(m.createdAt) }, timeAgo(m.createdAt)),
+      el('time', { class: 'time', datetime: m.createdAt, title: fullTime(m.createdAt) }, messageTime(m.createdAt)),
       edited ? el('span', { class: 'time' }, '(edited)') : null,
       state ? el('span', { class: 'time' }, `· ${state}`) : null),
     !deleted && m.replyTo ? quote(m.replyTo, opts) : null,

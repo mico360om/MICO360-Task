@@ -188,6 +188,11 @@ describe('the inbox', () => {
     await wait(80);
     await settle();
     expect(byLabel(rowTitled(root, 'Omar Ahmed'), '4 unread')).toBeTruthy();
+    // Nothing new: nothing is drawn again (a screen reader keeps its place).
+    const row = rowTitled(root, 'Omar Ahmed');
+    await root.refresh();
+    await settle();
+    expect(rowTitled(root, 'Omar Ahmed')).toBe(row);
     const calls = conversations.mock.calls.length;
     root.remove(); // gone: it stops
     await wait(80);
@@ -456,5 +461,20 @@ describe('sending', () => {
     byText(failed, 'button', 'Retry').click();
     await settle();
     expect(upload.mock.calls[1][2].clientId).toBe(upload.mock.calls[0][2].clientId);
+  });
+});
+
+describe('a message’s time', () => {
+  it('a clock time today, “Yesterday …”, else the date — fixed, so it never goes out of date', async () => {
+    const { messageTime } = await import('../app/chat/message.js');
+    const now = new Date(2026, 9, 21, 15, 0);
+    const clock = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const today = new Date(2026, 9, 21, 9, 5);
+    const yesterday = new Date(2026, 9, 20, 23, 50);
+    const earlier = new Date(2026, 9, 2, 8, 0);
+    expect(messageTime(today.toISOString(), now)).toBe(clock(today));
+    expect(messageTime(yesterday.toISOString(), now)).toBe(`Yesterday ${clock(yesterday)}`);
+    expect(messageTime(earlier.toISOString(), now)).toBe(`${earlier.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${clock(earlier)}`);
+    expect(messageTime('not a date', now)).toBe('');
   });
 });
