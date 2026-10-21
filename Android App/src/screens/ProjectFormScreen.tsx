@@ -14,6 +14,7 @@ import { ProjectAvatar } from '../components/ProjectAvatar';
 import { IdentityPicker } from '../components/project/IdentityPicker';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { canEditProject } from '../lib/project-team';
+import { ownerOptions } from '../lib/project-identity';
 import {
   CODE_MAX,
   DESCRIPTION_MAX,
@@ -40,7 +41,7 @@ import {
   type PictureChoice,
   type ProjectDraft,
 } from '../lib/project-form';
-import { displayName, type ApiProject } from '../lib/types';
+import type { ApiProject } from '../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 
@@ -123,10 +124,7 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
     if (!frozen) setDraft((d) => ({ ...d, ...patch }));
   };
   const clients = useMemo(() => clientSuggestions(projectsQ.data ?? [], draft.clientName), [projectsQ.data, draft.clientName]);
-  const owners = useMemo(
-    () => [{ value: '', label: 'No owner' }, ...(dirQ.data ?? []).filter((u) => u.active !== false || u.id === draft.ownerId).map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }))],
-    [dirQ.data, draft.ownerId],
-  );
+  const owners = useMemo(() => ownerOptions(dirQ.data ?? [], draft.ownerId), [dirQ.data, draft.ownerId]);
   const look = {
     name: draft.name || 'New project',
     color: draft.color,

@@ -17,7 +17,7 @@ import { TeamTab } from '../components/project/TeamTab';
 import { TaskGroupHeading, TasksTabBar, TasksTabRow, tasksTabItems, type TasksTabItem } from '../components/project/TasksTab';
 import { ApiError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
-import { projectStatusLabel, projectStatusTone } from '../lib/project-identity';
+import { ownerOptions, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
 import { canEditProject, canManageProject } from '../lib/project-team';
 import { ownerChangeProblem } from '../lib/project-list';
 import {
@@ -32,7 +32,7 @@ import {
   withColumnStage,
   type TaskFilter,
 } from '../lib/project-dashboard';
-import { displayName, type ApiTask } from '../lib/types';
+import type { ApiTask } from '../lib/types';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 
@@ -145,7 +145,8 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
     );
   }
 
-  const ownerOptions = [{ value: '', label: 'No owner' }, ...people.map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }))];
+  // Active people only, as in the form (the current owner stays listed — 5b review).
+  const owners = ownerOptions(people, project.ownerId);
   const meta = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName || null, `Owner: ${owner}`].filter(Boolean).join(' · ');
 
   const header = (
@@ -195,7 +196,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
           members={members}
           ownerName={owner}
           ownerControl={
-            canEdit ? <InlinePicker label="Project owner" options={ownerOptions} value={project.ownerId ?? ''} onChange={changeOwner} placeholder="No owner" disabled={ownerMut.isPending} /> : null
+            canEdit ? <InlinePicker label="Project owner" options={owners} value={project.ownerId ?? ''} onChange={changeOwner} placeholder="No owner" disabled={ownerMut.isPending} /> : null
           }
           meetings={meetingsQ.data}
           meetingsLoading={meetingsQ.isLoading}

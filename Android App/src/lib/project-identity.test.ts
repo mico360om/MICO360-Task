@@ -4,6 +4,10 @@ import { resolve } from 'node:path';
 import { transformSync } from 'esbuild';
 import {
   COLOR_NAMES,
+  GLYPH_PLATE,
+  ICON_MIN_ANDROID,
+  iconGlyph,
+  ownerOptions,
   CODE_PATTERN,
   DEFAULT_PROJECT_COLOR,
   HEX_COLOR,
@@ -65,6 +69,7 @@ describe('a project’s look', () => {
     expect(projectLook({ name: 'Rig Inspection', color: '#2E7D53', icon: 'truck', imageUrl: '/uploads/p/1.png' }, API)).toEqual({
       picture: 'https://task.mico360.com/uploads/p/1.png',
       glyph: '🚚',
+      plate: GLYPH_PLATE,
       initials: 'RI',
       background: '#2E7D53',
       foreground: '#ffffff',
@@ -212,5 +217,35 @@ describe.skipIf(!existsSync(webIcons) || !existsSync(webEditor) || !existsSync(w
     const web = (await import(/* @vite-ignore */ webProjects)) as { PROJECT_STATUSES: string[]; projectStatusLabel: (s: string) => string };
     expect([...PROJECT_STATUSES]).toEqual(web.PROJECT_STATUSES);
     for (const s of PROJECT_STATUSES) expect(projectStatusLabel(s)).toBe(web.projectStatusLabel(s));
+  });
+});
+
+describe('icons every phone can draw, readable on every colour (5b review #9)', () => {
+  it('an icon newer than the phone’s Android is drawn as the project’s initials instead (no empty box)', () => {
+    // 🧪 is Unicode 11 (Android 9); the app runs from Android 6 (API 23).
+    expect(iconGlyph('flask', 27)).toBeNull();
+    expect(iconGlyph('flask', 28)).toBe('🧪');
+    expect(iconGlyph('cart', 23)).toBeNull();
+    expect(iconGlyph('cart', 24)).toBe('🛒');
+    expect(iconGlyph('briefcase', 23)).toBe('💼');
+    expect(projectLook({ name: 'Lab Tests', icon: 'flask' }, API, 26)).toMatchObject({ glyph: null, initials: 'LT' });
+    // Every icon is known to some Android version.
+    for (const key of PROJECT_ICON_KEYS) expect(ICON_MIN_ANDROID[key], key).toBeGreaterThanOrEqual(23);
+  });
+
+  it('an icon sits on a light plate, so its own colours read on any project colour', () => {
+    expect(projectLook({ name: 'Rig', icon: 'heart', color: '#9D174D' }, API, 34).plate).toBe(GLYPH_PLATE);
+    expect(projectLook({ name: 'Rig', color: '#9D174D' }, API, 34).plate).toBeNull();
+  });
+
+  it('the owner can be chosen only from active people, on the dashboard as in the form (the current owner stays listed)', () => {
+    const people = [
+      { id: 'u1', username: 'ann', firstName: 'Ann', lastName: 'Lee', active: true },
+      { id: 'u2', username: 'bob', firstName: 'Bob', lastName: 'Ray', active: false },
+      { id: 'u3', username: 'cy', firstName: 'Cy', lastName: 'Do', active: false },
+    ];
+    expect(ownerOptions(people as never, 'u3').map((o) => o.value)).toEqual(['', 'u1', 'u3']);
+    expect(ownerOptions(people as never, '').map((o) => o.value)).toEqual(['', 'u1']);
+    expect(ownerOptions(people as never, '')[1]).toEqual({ value: 'u1', label: 'Ann Lee', hint: '@ann' });
   });
 });

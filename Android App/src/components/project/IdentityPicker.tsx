@@ -3,7 +3,8 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Button, TextField } from '../ui';
 import { SheetMessage } from '../meeting/sheet-kit';
-import { COLOR_NAMES, PROJECT_COLORS, PROJECT_ICON_GLYPH, PROJECT_ICON_KEYS, PROJECT_ICON_LABEL, colorName, customColor, readableOn } from '../../lib/project-identity';
+import { COLOR_NAMES, PROJECT_COLORS, PROJECT_ICON_KEYS, PROJECT_ICON_LABEL, colorName, customColor, iconGlyph, readableOn } from '../../lib/project-identity';
+import { OS_LEVEL } from '../ProjectAvatar';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 
 /**
@@ -117,7 +118,8 @@ export function IdentityPicker({
                   style={({ pressed }) => [s.iconCell, on ? { backgroundColor: color, borderColor: color } : null, pressed && s.pressed]}
                 >
                   <Text allowFontScaling={false} style={[s.iconGlyph, { color: on ? textOn : c.ink2 }]}>
-                    {key ? PROJECT_ICON_GLYPH[key] : 'Aa'}
+                    {/* An icon this phone's Android can't draw is named by its first letters (5b review). */}
+                    {key ? iconGlyph(key, OS_LEVEL) ?? PROJECT_ICON_LABEL[key].slice(0, 2) : 'Aa'}
                   </Text>
                 </Pressable>
               );

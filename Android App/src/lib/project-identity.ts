@@ -8,6 +8,7 @@
  */
 import { serverFileHref } from './attachments';
 import type { Tone } from './tone';
+import { displayName } from './types';
 
 /** The icons a project may use, in the server's order (it refuses any other name). */
 export const PROJECT_ICON_KEYS = [
@@ -54,6 +55,30 @@ export const PROJECT_ICON_GLYPH: Record<ProjectIconKey, string> = {
   leaf: '🍃', bulb: '💡', megaphone: '📣', shield: '🛡️', star: '⭐', truck: '🚚', users: '👥', wrench: '🔧',
   flask: '🧪', book: '📖', camera: '📷', cart: '🛒', plane: '✈️', ship: '🚢', bolt: '⚡', oil: '🛢️',
 };
+
+/**
+ * The oldest Android (API level) whose emoji font draws each icon (5b review). The app runs from
+ * Android 6 (API 23); 🛡️ and 🛢️ (Unicode 7) and 🛒 (Unicode 9) come with Android 7 (API 24), 🧪
+ * (Unicode 11) with Android 9 (API 28). An older phone draws the project's initials instead of an
+ * empty box.
+ */
+export const ICON_MIN_ANDROID: Record<ProjectIconKey, number> = {
+  briefcase: 23, rocket: 23, building: 23, chart: 23, code: 23, cog: 23, globe: 23, heart: 23,
+  leaf: 23, bulb: 23, megaphone: 23, shield: 24, star: 23, truck: 23, users: 23, wrench: 23,
+  flask: 28, book: 23, camera: 23, cart: 24, plane: 23, ship: 23, bolt: 23, oil: 24,
+};
+
+/** The symbol for an icon on this phone (`osLevel`: its Android API level), or null to draw initials. */
+export function iconGlyph(icon: string | null | undefined, osLevel: number): string | null {
+  if (!isProjectIcon(icon)) return null;
+  return osLevel >= ICON_MIN_ANDROID[icon] ? PROJECT_ICON_GLYPH[icon] : null;
+}
+
+/**
+ * The light plate an icon sits on (5b review): an emoji keeps its own colours (a red heart, a grey
+ * gear), so on a project's colour it could all but vanish; on the plate it always reads.
+ */
+export const GLYPH_PLATE = 'rgba(255,255,255,0.9)';
 
 /** The colours on offer, as on the website (each readable with the text colour readableOn picks). */
 export const PROJECT_COLORS = ['#8B1E1E', '#B5432E', '#C2410C', '#B7791F', '#4D7C0F', '#2E7D53', '#0F766E', '#0E7490', '#1E5A8B', '#4338CA', '#7A5AA8', '#9D174D', '#475569', '#1F2937'];
@@ -149,10 +174,26 @@ export function projectPictureHref(apiBase: string, imageUrl: string | null | un
   return serverFileHref(apiBase, imageUrl);
 }
 
+/**
+ * Who can be made a project's owner (5b review): active people only — on the dashboard as in the
+ * form — with the current owner kept in the list even if they are no longer active.
+ */
+export function ownerOptions(
+  people: { id: string; username: string; firstName?: string; lastName?: string; active?: boolean }[],
+  currentOwnerId: string | null | undefined,
+): { value: string; label: string; hint?: string }[] {
+  return [
+    { value: '', label: 'No owner' },
+    ...people.filter((u) => u.active !== false || u.id === currentOwnerId).map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` })),
+  ];
+}
+
 /** What a project's tile shows: its picture (falling back to the rest if it doesn't load), its icon or its initials, on its colour. */
 export interface ProjectLook {
   picture: string | null;
   glyph: string | null;
+  /** The plate behind the icon (GLYPH_PLATE), or null when initials are drawn. */
+  plate: string | null;
   initials: string;
   background: string;
   foreground: string;
@@ -160,11 +201,14 @@ export interface ProjectLook {
   label: string;
 }
 
-export function projectLook(project: { name: string; color?: string | null; icon?: string | null; imageUrl?: string | null }, apiBase: string): ProjectLook {
+/** `osLevel`: the phone's Android API level (an icon it can't draw shows the initials). */
+export function projectLook(project: { name: string; color?: string | null; icon?: string | null; imageUrl?: string | null }, apiBase: string, osLevel = Number.MAX_SAFE_INTEGER): ProjectLook {
   const background = project.color && HEX_COLOR.test(project.color) ? project.color : DEFAULT_PROJECT_COLOR;
+  const glyph = iconGlyph(project.icon, osLevel);
   return {
     picture: projectPictureHref(apiBase, project.imageUrl),
-    glyph: isProjectIcon(project.icon) ? PROJECT_ICON_GLYPH[project.icon] : null,
+    glyph,
+    plate: glyph ? GLYPH_PLATE : null,
     initials: projectInitials(project.name),
     background,
     foreground: readableOn(background),
