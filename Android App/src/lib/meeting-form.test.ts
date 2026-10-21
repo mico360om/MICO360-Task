@@ -22,6 +22,7 @@ import {
   scopeChoice,
   seriesIdOf,
   statusOptions,
+  timesInZone,
   toWallClock,
   type MeetingDraft,
 } from './meeting-form';
@@ -62,6 +63,16 @@ describe('times in company time (the meeting form)', () => {
     // London moves from BST to GMT on 25 Oct 2026.
     expect(fromWallClock('2026-10-24', '09:00', 'Europe/London')).toBe('2026-10-24T08:00:00.000Z');
     expect(fromWallClock('2026-10-26', '09:00', 'Europe/London')).toBe('2026-10-26T09:00:00.000Z');
+  });
+
+  it('shows untouched times again in the company zone when it arrives after the form opened', () => {
+    const now = new Date('2026-10-22T05:20:00.000Z');
+    // Opened before the server's zone was known (Muscat): the next whole hour is 10:00 there.
+    const opened = { ...newMeetingDraft(TZ, now), title: 'Sync', rule: weekly };
+    expect(timesInZone(opened, null, 'Europe/London', now)).toEqual({ ...opened, startDay: '2026-10-22', startTime: '07:00', endDay: '', endTime: '' });
+    // An existing meeting's own times, in the new zone; nothing else changes.
+    const m = meeting();
+    expect(timesInZone({ ...draftFromMeeting(m, TZ), title: 'Edited' }, m, 'Europe/London', now)).toMatchObject({ title: 'Edited', startDay: '2026-10-22', startTime: '07:00', endTime: '08:00' });
   });
 
   it('starts a new meeting at the next whole hour', () => {

@@ -200,6 +200,20 @@ describe('after my own change to a meeting (the server’s answer shows at once;
     expect(state(qc, ['meetings', 'list', 'all'])).toBe(true);
   });
 
+  it('a new meeting saved with its people and agenda (2c): its screen opens with them, and the meeting keeps only its own fields', () => {
+    const qc = seeded();
+    const people = [person('a1', { meetingId: 'm9', userId: 'u3' })];
+    const agenda = [{ id: 'g1', meetingId: 'm9', title: 'Budget', ownerId: 'u3', expectedMinutes: 20, completed: false, position: 0 }];
+    afterMeetingSaved(qc, { ...meetingRow('m9', { title: 'New' }), attendees: people, agendaItems: agenda } as unknown as ApiMeeting, {});
+    const saved = qc.getQueryData<ApiMeeting & { agendaItems?: unknown }>(['meeting', 'm9']);
+    expect(saved?.title).toBe('New');
+    // A list card's `attendees` are names: the reply's attendee rows must not land there.
+    expect(saved?.attendees).toBeUndefined();
+    expect(saved?.agendaItems).toBeUndefined();
+    expect(qc.getQueryData(['meeting', 'm9', 'attendees'])).toEqual(people);
+    expect(qc.getQueryData(['meeting', 'm9', 'agenda'])).toEqual(agenda);
+  });
+
   it('a deleted meeting’s data goes; the lists, its project’s meetings and My Action Items load again', () => {
     const qc = seeded();
     afterMeetingDeleted(qc, 'm1', 'one');

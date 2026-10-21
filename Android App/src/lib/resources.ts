@@ -50,8 +50,13 @@ import type {
   ApiProjectProgress,
   ApiTag,
   ApiTask,
+  AiAgendaItem,
+  AiDraftAgendaInput,
+  AiMeetingDraft,
   DevicePlatform,
   Envelope,
+  FreeTimesInput,
+  FreeTimesReply,
 } from './types';
 import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
 
@@ -98,6 +103,9 @@ export const AI_TIMEOUT_MS = 130_000;
 
 /** The longest description the server's AI helpers accept (a longer one is refused outright). */
 export const AI_DESCRIPTION_MAX = 4000;
+
+/** The longest sentence "Describe the meeting" sends (the server refuses a longer one). */
+export const AI_SENTENCE_MAX = 1000;
 
 /**
  * How long drafting the final minutes with the AI may take: the server gives the model up to three
@@ -337,6 +345,10 @@ export function resourcesApi(client: ApiClient) {
         ),
       /** The minutes PDF's address (downloaded with the session by the exporter). */
       minutesPdfPath: (id: string) => `${meeting(id)}/minutes.pdf`,
+
+      // ── Scheduling help (2c), worked out by the server without AI ──
+      /** Three free times, who clashes with the chosen time, and the chosen day's busy blocks. */
+      freeTimes: (body: FreeTimesInput) => data(client.post<Envelope<FreeTimesReply>>('/meetings/free-times', body)),
     },
     /** AI help — suggestions the user reviews before anything changes (given longer than other requests). */
     ai: {
@@ -352,6 +364,18 @@ export function resourcesApi(client: ApiClient) {
             { timeoutMs: AI_TIMEOUT_MS },
           ),
         ),
+      // ── Meeting AI (2c): suggestions the person reviews before anything changes ──
+      /** Fill the meeting form from a sentence; `today` is the company's day, for "Monday" or "tomorrow". */
+      parseMeeting: (text: string, today?: string) =>
+        data(
+          client.post<Envelope<AiMeetingDraft>>('/ai/parse-meeting', { text: text.trim().slice(0, AI_SENTENCE_MAX), ...(today ? { today } : {}) }, { timeoutMs: AI_TIMEOUT_MS }),
+        ),
+      /** Propose a meeting's agenda (the server adds the project's open tasks and the last meeting's leftovers). */
+      draftAgenda: (input: AiDraftAgendaInput) =>
+        data(client.post<Envelope<{ items?: AiAgendaItem[] }>>('/ai/draft-agenda', input, { timeoutMs: AI_TIMEOUT_MS })).then((r) => (Array.isArray(r?.items) ? r.items : [])),
+      /** A short description for the meeting's invitation. */
+      writeMeetingDescription: (input: { title: string; agenda?: string[]; text?: string }) =>
+        data(client.post<Envelope<{ description?: string }>>('/ai/write-meeting-description', input, { timeoutMs: AI_TIMEOUT_MS })).then((r) => r?.description ?? ''),
     },
     /** Shared tag catalog for suggestions/autocomplete. */
     tagCatalog: () => data(client.get<Envelope<ApiTag[]>>('/tags')),

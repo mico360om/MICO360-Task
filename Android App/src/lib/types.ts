@@ -320,10 +320,79 @@ export interface MeetingInput {
   endAt?: string | null;
   timeZone?: string | null;
   recurrenceRule?: RecurrenceRule | null;
+  /** A new meeting's people, saved with it in the same request (all or nothing) — 2c. */
+  attendees?: Array<{ userId?: string; externalName?: string; externalEmail?: string; role?: AttendeeRole }>;
+  /** A new meeting's agenda, saved with it; a lead must be the organizer or one of its people. */
+  agendaItems?: Array<{ title: string; ownerId?: string | null; expectedMinutes?: number | null }>;
 }
 
-/** A change to a meeting: only what changed is sent. */
-export type MeetingPatch = Partial<MeetingInput>;
+/** A change to a meeting: only what changed is sent (people and agenda are changed on its page). */
+export type MeetingPatch = Partial<Omit<MeetingInput, 'attendees' | 'agendaItems'>>;
+
+// ── Meeting AI and free times (2c), as on the website ───────────────────────
+/** What a sentence fills in on the meeting form (company time); empty where it says nothing. */
+export interface AiMeetingDraft {
+  title: string | null;
+  description: string | null;
+  /** YYYY-MM-DD */
+  date: string | null;
+  /** HH:MM, 24-hour */
+  startTime: string | null;
+  minutes: number | null;
+  recurrence: RecurrenceRule | null;
+  project: { id: string; code: string; number: string | null; name: string } | null;
+  location: string | null;
+  onlineLink: string | null;
+  people: {
+    found: Array<{ id: string; name: string; username?: string }>;
+    /** A name more than one person goes by: the person chooses. */
+    choices: Array<{ said: string; options: Array<{ id: string; name: string; username?: string }> }>;
+    notFound: string[];
+  };
+  guests: Array<{ email: string; name: string }>;
+  agenda: string[];
+}
+
+/** What "Draft agenda" works from. */
+export interface AiDraftAgendaInput {
+  title: string;
+  description?: string;
+  text?: string;
+  projectId?: string | null;
+  startAt: string;
+  minutes: number;
+  /** The invited portal users, the organizer included: the only possible leads. */
+  peopleIds: string[];
+  /** An existing meeting: its series' previous meeting gives the leftovers. */
+  meetingId?: string;
+}
+
+export interface AiAgendaItem {
+  title: string;
+  ownerId: string | null;
+  minutes: number;
+}
+
+export interface FreeTimesInput {
+  /** The invited portal users, the organizer included (guests have no known calendar). */
+  userIds: string[];
+  startAt: string;
+  minutes: number;
+  recurrenceRule?: RecurrenceRule;
+  /** The meeting being edited: its own time isn't a clash. */
+  excludeMeetingId?: string;
+}
+
+export interface FreeTimesReply {
+  /** Up to three start times (ISO) when everyone is free, inside the meeting hours. */
+  suggestions: string[];
+  /** Who already has a meeting at the chosen time (a repeat's first four meetings are checked). */
+  clashes: Array<{ userId: string; name: string; date?: string; start: string; end: string; title: string | null }>;
+  /** The chosen day's busy blocks, per person. A null title is a meeting this person can't see. */
+  day: Array<{ userId: string; name: string; blocks: Array<{ start: string; end: string; title: string | null }> }>;
+  /** The company's meeting hours (System Settings), in company time. */
+  workingHours: { days: number[]; start: string; end: string };
+}
 
 export interface AttendeeInput {
   userId?: string | null;
@@ -590,6 +659,8 @@ export interface ApiDirectoryUser {
   username: string;
   firstName: string;
   lastName: string;
+  /** False for an inactive or suspended account: still named in history, but not offered to invite. */
+  active?: boolean;
 }
 
 /** The success envelope: `{ data: T }`. */

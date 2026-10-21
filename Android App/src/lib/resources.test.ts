@@ -485,3 +485,47 @@ describe('resourcesApi.meetings: running a meeting (2b)', () => {
     expect(api.minutesPdfPath('m 1')).toBe('/meetings/m%201/minutes.pdf');
   });
 });
+
+describe('resourcesApi: meeting AI and free times (2c)', () => {
+  /** Records each POST with its options, answering as the server would. */
+  function recorder(answer: unknown) {
+    const sent: { path: string; body: Record<string, unknown>; opts?: { timeoutMs?: number; headers?: Record<string, string> } }[] = [];
+    const client = {
+      post: (path: string, body: Record<string, unknown>, opts?: { timeoutMs?: number }) => {
+        sent.push({ path, body, opts });
+        return Promise.resolve({ data: answer });
+      },
+    } as unknown as ApiClient;
+    return { sent, api: resourcesApi(client) };
+  }
+
+  it('reads a sentence with today’s company day, giving the AI its longer wait and the server’s 1000-character limit', async () => {
+    const { sent, api } = recorder({ title: 'Site review' });
+    const draft = await api.ai.parseMeeting(`  ${'x'.repeat(1200)}  `, '2026-10-21');
+    expect(draft).toEqual({ title: 'Site review' });
+    expect(sent[0]!.path).toBe('/ai/parse-meeting');
+    expect(sent[0]!.body).toEqual({ text: 'x'.repeat(1000), today: '2026-10-21' });
+    expect(sent[0]!.opts?.timeoutMs).toBe(AI_TIMEOUT_MS);
+  });
+
+  it('drafts an agenda and writes a description, with the AI’s wait', async () => {
+    const agenda = recorder({ items: [{ title: 'Budget', ownerId: 'u1', minutes: 20 }] });
+    const input = { title: 'Weekly sync', startAt: '2026-10-22T06:00:00.000Z', minutes: 60, peopleIds: ['u1'], projectId: 'p1', meetingId: 'm1' };
+    expect(await agenda.api.ai.draftAgenda(input)).toEqual([{ title: 'Budget', ownerId: 'u1', minutes: 20 }]);
+    expect(agenda.sent[0]).toMatchObject({ path: '/ai/draft-agenda', body: input, opts: { timeoutMs: AI_TIMEOUT_MS } });
+    // An answer without items (an older server) is no agenda, not a crash.
+    expect(await recorder({}).api.ai.draftAgenda(input)).toEqual([]);
+
+    const words = recorder({ description: 'Plans for the week.' });
+    expect(await words.api.ai.writeMeetingDescription({ title: 'Weekly sync', agenda: ['Budget'], text: 'weekly sync' })).toBe('Plans for the week.');
+    expect(words.sent[0]).toMatchObject({ path: '/ai/write-meeting-description', body: { title: 'Weekly sync', agenda: ['Budget'], text: 'weekly sync' }, opts: { timeoutMs: AI_TIMEOUT_MS } });
+  });
+
+  it('asks the server for free times (no AI)', async () => {
+    const reply = { suggestions: [], clashes: [], day: [], workingHours: { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' } };
+    const { sent, api } = recorder(reply);
+    const body = { userIds: ['u1', 'u2'], startAt: '2026-10-22T06:00:00.000Z', minutes: 60 };
+    expect(await api.meetings.freeTimes(body)).toEqual(reply);
+    expect(sent[0]).toMatchObject({ path: '/meetings/free-times', body });
+  });
+});

@@ -55,13 +55,26 @@ export function afterPartChanged(qc: QueryClient, meetingId: string, part: Meeti
   refresh(qc, targets);
 }
 
+/** A create's reply without its people and agenda rows — which go into the meeting's own lists. */
+function withoutPartLists(qc: QueryClient, reply: ApiMeeting): ApiMeeting {
+  const { attendees, agendaItems, ...meeting } = reply as Omit<ApiMeeting, 'attendees'> & { attendees?: unknown[]; agendaItems?: unknown[] };
+  const rows = Array.isArray(attendees) && attendees.some((a) => typeof a === 'object' && a !== null);
+  if (!rows && !Array.isArray(agendaItems)) return reply;
+  if (rows) qc.setQueryData(['meeting', reply.id, 'attendees'], attendees);
+  if (Array.isArray(agendaItems)) qc.setQueryData(['meeting', reply.id, 'agenda'], agendaItems);
+  return (rows ? meeting : { ...meeting, attendees }) as ApiMeeting;
+}
+
 /**
  * A meeting saved (the form, a status change, cancelling, a new one or a copy): shown at once —
  * keeping what only its own read gives (its series, `canEdit`) — and the lists, its project's
  * meetings and My Action Items (which name it) load again. A change to a whole series puts every
  * meeting's details out of date (fetched when next shown).
  */
-export function afterMeetingSaved(qc: QueryClient, saved: ApiMeeting, opts: { scope?: SeriesScope; editedId?: string }): void {
+export function afterMeetingSaved(qc: QueryClient, reply: ApiMeeting, opts: { scope?: SeriesScope; editedId?: string }): void {
+  // A new meeting saved with its people and agenda (2c) comes back with both lists: its screen opens
+  // with them, and the meeting keeps only its own fields (a list card's `attendees` are names).
+  const saved = withoutPartLists(qc, reply);
   // Moved to another project: the old project's meetings change too (read before the new copy goes in).
   const oldProject = qc.getQueryData<ApiMeeting>(['meeting', saved.id])?.projectId;
   qc.setQueryData<ApiMeeting>(['meeting', saved.id], (old) => (old ? { ...old, ...saved } : saved));

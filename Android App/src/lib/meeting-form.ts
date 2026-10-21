@@ -407,3 +407,13 @@ export function afterSaveFailure(e: unknown, editing: boolean): { keepKey: boole
   const keepKey = keepsSaveKey(e);
   return { keepKey, lock: !editing && keepKey, message: saveFailureText(e, editing) };
 }
+
+/**
+ * The form's times shown again in the company zone, as the website does when the zone arrives after
+ * the form opened (a cold start): an existing meeting's own times, or a new one's next whole hour.
+ * Only for times not touched yet; every other field stays as it is.
+ */
+export function timesInZone(d: MeetingDraft, meeting: ApiMeeting | null, timeZone: string, now: Date = new Date()): MeetingDraft {
+  const fresh = meeting ? draftFromMeeting(meeting, timeZone) : newMeetingDraft(timeZone, now);
+  return { ...d, startDay: fresh.startDay, startTime: fresh.startTime, endDay: fresh.endDay, endTime: fresh.endTime };
+}
