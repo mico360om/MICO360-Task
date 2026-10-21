@@ -31,6 +31,19 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   and favorite, mute or archive conversations. Pictures, files, the message a reply answers and
   reactions are shown, and the sender sees "Delivered" once your direct messages arrive. What you type
   and messages that weren't sent stay with their conversation.
+- The Chrome extension has search as on the website: Ctrl+K or the Search button finds tasks,
+  projects, people, meetings and pages and opens them in the extension; typing "mico" and a space in
+  Chrome's address bar searches too.
+- The Chrome extension's Calendar shows the month, week or agenda as on the website — your projects'
+  tasks, overdue tasks first in the agenda, the copies repeating tasks will make, and meetings — in
+  your own time zone and week start.
+- The Chrome extension has Meetings: Up next with Join (also on the Dashboard), the coming meetings with
+  your answer, each meeting's page, and Accept, Maybe or Decline (kept on this device while offline).
+  Meeting notifications and "From meeting" open the meeting in the extension.
+
+### Improvements
+- The meetings list tells each person their own answer to every meeting, so the apps don't need a
+  request per meeting to show it.
 
 ### Security
 - The Chrome extension shows project pictures only from your MICO360 server, and uses only proper
