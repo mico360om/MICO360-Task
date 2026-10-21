@@ -4,7 +4,11 @@ import type { MeetingService } from './meeting-service';
 import type { MeetingNotifyService } from './meeting-notify-service';
 import type { MeetingRecord } from './meeting-repository';
 import type { MeetingSeriesService } from './meeting-series-service';
-import { ruleProblem } from './meeting-series';
+import { ruleProblem, seriesStarts } from './meeting-series';
+import { findClashes, suggestTimes, type BusyBlock } from './free-times';
+import type { BusyMeetingsStore } from './meeting-repository';
+import type { WorkingHours } from '../settings/settings-service';
+import { zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { buildProjectMeetingsOverview, type MinutesState, type ProjectMeetingsData } from './project-meetings';
 
 /** Where the project dashboard's meetings come from, and the company zone for "overdue". */
@@ -12,8 +16,6 @@ export interface ProjectMeetingsDeps {
   load(projectId: string, from: Date, to: Date): Promise<ProjectMeetingsData>;
   timeZone: string;
 }
-
-const DAY_MS = 86_400_000;
 import type { AuthGuard } from '../auth/auth-guard';
 import type { Logger } from '../../lib/logger';
 import { onlineLinkField, timeZoneField } from './meeting-validation';
@@ -104,7 +106,28 @@ export interface MeetingRouteDeps {
   series?: MeetingSeriesService;
   /** Enables GET /projects/:id/meetings-overview (the project dashboard's meetings). */
   projectMeetings?: ProjectMeetingsDeps;
+  /** Enables POST /meetings/free-times (suggested times, clashes, the day's busy strip). */
+  freeTimes?: FreeTimesDeps;
 }
+
+export interface FreeTimesDeps {
+  busy: BusyMeetingsStore;
+  workingHours: () => Promise<WorkingHours>;
+  /** Display names for user ids (missing ones fall back to a neutral label). */
+  userNames: (ids: string[]) => Promise<Map<string, string>>;
+  /** Company time zone: working hours and days are in it. */
+  timeZone: string;
+}
+
+const freeTimesBody = z.object({
+  userIds: z.array(z.string().min(1)).min(1).max(50),
+  startAt: z.coerce.date(),
+  minutes: z.number().int().min(5).max(720),
+  recurrenceRule: recurrenceSchema.nullable().optional(),
+  excludeMeetingId: z.string().min(1).optional(),
+});
+
+const DAY_MS = 86_400_000;
 
 export interface MeetingListCounts {
   attendeeCount: number;
@@ -258,6 +281,40 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     }
     return reply.status(201).send({ data: await withSeries({ ...meeting, canEdit: true }) });
   });
+
+  // Free times for a meeting being scheduled: three suggestions (working hours, everyone invited
+  // free, the repeat's days), who clashes with the chosen time, and the chosen day's busy blocks. A
+  // busy meeting's title is shown only to someone who may see that meeting; otherwise "Busy".
+  if (deps.freeTimes) {
+    const ft = deps.freeTimes;
+    app.post('/meetings/free-times', { preHandler: guard.authenticate }, async (req) => {
+      const body = freeTimesBody.parse(req.body);
+      const userIds = [...new Set(body.userIds)];
+      const tz = ft.timeZone;
+      const day = zonedDayKey(body.startAt, tz);
+      const dayStart = zonedStartOfDay(day, tz);
+      const rule = body.recurrenceRule ?? null;
+      // Two weeks of suggestions, and a repeat's first 4 meetings for clashes.
+      const lastStart = rule ? (seriesStarts(body.startAt, rule, tz, new Date(body.startAt.getTime() + 5 * 366 * DAY_MS)).slice(0, 4).at(-1) ?? body.startAt) : body.startAt;
+      const to = new Date(Math.max(dayStart.getTime() + 15 * DAY_MS, lastStart.getTime() + body.minutes * 60_000));
+      const [rows, hours, names] = await Promise.all([ft.busy.busyBetween(userIds, dayStart, to, body.excludeMeetingId), ft.workingHours(), ft.userNames(userIds)]);
+      const visible = new Map<string, boolean>();
+      for (const m of rows) if (!visible.has(m.meetingId)) visible.set(m.meetingId, await canView(req, m.meetingId).catch(() => false));
+      const busy: BusyBlock[] = rows.flatMap((m) => m.userIds.map((userId) => ({ userId, start: m.start, end: m.end, meetingId: m.meetingId, title: visible.get(m.meetingId) ? m.title : null })));
+      const nameOf = (id: string) => names.get(id) ?? 'Someone';
+      const suggestions = suggestTimes({ from: new Date(Math.max(dayStart.getTime(), Date.now())), minutes: body.minutes, busy, hours, timeZone: tz, rule });
+      const clashes = findClashes({ start: body.startAt, minutes: body.minutes, busy, timeZone: tz, rule }).map((c) => ({ ...c, name: nameOf(c.userId) }));
+      const dayEnd = dayStart.getTime() + DAY_MS;
+      const dayBlocks = userIds.map((userId) => ({
+        userId,
+        name: nameOf(userId),
+        blocks: busy
+          .filter((b) => b.userId === userId && b.start.getTime() < dayEnd && b.end.getTime() > dayStart.getTime())
+          .map((b) => ({ start: b.start, end: b.end, title: b.title })),
+      }));
+      return { data: { suggestions, clashes, day: dayBlocks, workingHours: hours } };
+    });
+  }
 
   app.get('/meetings/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };

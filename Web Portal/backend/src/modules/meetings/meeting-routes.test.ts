@@ -324,3 +324,60 @@ describe('Meeting routes — who may change a meeting (SEC-06)', () => {
     expect(await bad({ timeZone: 'Europe/London', onlineLink: 'http://zoom.us/j/1' })).toBe(201);
   });
 });
+
+describe('Meeting free times', () => {
+  const at = (local: string) => new Date(`${local.replace(' ', 'T')}:00+04:00`);
+  async function setup() {
+    let visibleId = '';
+    const busy = {
+      async busyBetween() {
+        return [
+          { meetingId: visibleId, title: 'Pump review', start: at('2026-10-26 10:00'), end: at('2026-10-26 11:00'), userIds: ['u1'] },
+          { meetingId: 'secret', title: 'Board pay talks', start: at('2026-10-26 10:30'), end: at('2026-10-26 11:30'), userIds: ['u2'] },
+        ];
+      },
+    };
+    const app = await makeApp({
+      meetingFreeTimes: {
+        busy,
+        workingHours: async () => ({ days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' }),
+        userNames: async (ids: string[]) => new Map(ids.map((i) => [i, i.toUpperCase()])),
+        timeZone: 'Asia/Muscat',
+      },
+    });
+    const auth = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    // u1 organizes the first one, so may see its title; "secret" is someone else's.
+    visibleId = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: auth, payload: { title: 'Pump review', startAt: '2026-10-26T06:00:00Z' } })).json().data.id;
+    return { app, auth };
+  }
+  const ask = (app: Awaited<ReturnType<typeof makeApp>>, auth: Record<string, string>, payload: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/api/v1/meetings/free-times', headers: auth, payload });
+
+  it('suggests times and names clashes for the invited people', async () => {
+    const { app, auth } = await setup();
+    const res = await ask(app, auth, { userIds: ['u1', 'u2'], startAt: at('2026-10-26 10:00').toISOString(), minutes: 60 });
+    expect(res.statusCode).toBe(200);
+    const d = res.json().data;
+    expect(d.suggestions).toEqual([at('2026-10-26 08:00'), at('2026-10-26 08:30'), at('2026-10-26 09:00')].map((x) => x.toISOString()));
+    expect(d.clashes.map((c: { name: string; date: string }) => `${c.name} ${c.date}`)).toEqual(['U1 2026-10-26', 'U2 2026-10-26']);
+    expect(d.workingHours).toEqual({ days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' });
+  });
+
+  it('hides titles of meetings the requester can’t see', async () => {
+    const { app, auth } = await setup();
+    const d = (await ask(app, auth, { userIds: ['u1', 'u2'], startAt: at('2026-10-26 10:00').toISOString(), minutes: 60 })).json().data;
+    expect(d.clashes.map((c: { title: string | null }) => c.title)).toEqual(['Pump review', null]);
+    expect(d.day).toEqual([
+      { userId: 'u1', name: 'U1', blocks: [{ start: at('2026-10-26 10:00').toISOString(), end: at('2026-10-26 11:00').toISOString(), title: 'Pump review' }] },
+      { userId: 'u2', name: 'U2', blocks: [{ start: at('2026-10-26 10:30').toISOString(), end: at('2026-10-26 11:30').toISOString(), title: null }] },
+    ]);
+    expect(JSON.stringify(d)).not.toContain('Board pay talks');
+  });
+
+  it('refuses more than 50 people, and needs a signed-in person', async () => {
+    const { app, auth } = await setup();
+    const many = Array.from({ length: 51 }, (_, i) => `u${i}`);
+    expect((await ask(app, auth, { userIds: many, startAt: at('2026-10-26 10:00').toISOString(), minutes: 60 })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/meetings/free-times', payload: { userIds: ['u1'], startAt: '2026-10-26T06:00:00Z', minutes: 60 } })).statusCode).toBe(401);
+  });
+});

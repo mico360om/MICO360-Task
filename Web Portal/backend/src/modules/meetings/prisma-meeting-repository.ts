@@ -9,6 +9,7 @@ import type {
   MeetingAccessCore,
   MeetingSeriesStore,
   EndedMeetingSweep,
+  BusyMeetingsStore,
 } from './meeting-repository';
 import { MEETING_DEFAULT_LENGTH_MS } from './meeting-end';
 
@@ -68,7 +69,7 @@ function updateData(patch: UpdateMeetingData): Prisma.MeetingUncheckedUpdateInpu
   };
 }
 
-export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepository & MeetingSeriesStore & EndedMeetingSweep {
+export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepository & MeetingSeriesStore & EndedMeetingSweep & BusyMeetingsStore {
   return {
     async create(data: CreateMeetingData) {
       const row = await prisma.meeting.create({
@@ -165,6 +166,33 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
         take: 200,
       });
       return rows.map(toRecord);
+    },
+
+    async busyBetween(userIds, from, to, excludeMeetingId) {
+      if (userIds.length === 0) return [];
+      const rows = await prisma.meeting.findMany({
+        where: {
+          deletedAt: null,
+          status: { not: 'CANCELLED' },
+          ...(excludeMeetingId ? { id: { not: excludeMeetingId } } : {}),
+          startAt: { lt: to },
+          AND: [
+            // Overlaps the window: ends after it starts (no end: an hour after its start).
+            { OR: [{ endAt: { gt: from } }, { endAt: null, startAt: { gt: new Date(from.getTime() - MEETING_DEFAULT_LENGTH_MS) } }] },
+            { OR: [{ organizerId: { in: userIds } }, { attendees: { some: { userId: { in: userIds } } } }] },
+          ],
+        },
+        select: { id: true, title: true, startAt: true, endAt: true, organizerId: true, attendees: { where: { userId: { in: userIds } }, select: { userId: true } } },
+        orderBy: { startAt: 'asc' },
+        take: 2000,
+      });
+      return rows.map((m) => ({
+        meetingId: m.id,
+        title: m.title,
+        start: m.startAt,
+        end: m.endAt ?? new Date(m.startAt.getTime() + MEETING_DEFAULT_LENGTH_MS),
+        userIds: [...new Set([...(userIds.includes(m.organizerId) ? [m.organizerId] : []), ...m.attendees.map((a) => a.userId).filter((u): u is string => !!u)])],
+      }));
     },
 
     async completeEnded(now) {

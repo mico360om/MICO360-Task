@@ -131,3 +131,12 @@ export interface EndedMeetingSweep {
    */
   completeEnded(now: Date): Promise<string[]>;
 }
+
+/** The meetings that make people busy (free times; only the database store has it). */
+export interface BusyMeetingsStore {
+  /**
+   * Non-cancelled, non-deleted meetings overlapping [from, to) that any of `userIds` organizes or
+   * attends, with which of those people are in each. A meeting without an end lasts an hour.
+   */
+  busyBetween(userIds: string[], from: Date, to: Date, excludeMeetingId?: string): Promise<Array<{ meetingId: string; start: Date; end: Date; title: string; userIds: string[] }>>;
+}
