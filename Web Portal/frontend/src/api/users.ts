@@ -41,6 +41,8 @@ export interface DirectoryUser {
   avatarUrl: string | null;
   /** Last time the user held a live socket (presence: last active / delivered). */
   lastActiveAt?: string | null;
+  /** False for an inactive or suspended account: still named in history, but not offered in pickers. */
+  active?: boolean;
 }
 
 export function usersApi(client: ApiClient) {

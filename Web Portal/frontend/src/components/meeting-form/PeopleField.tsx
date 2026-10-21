@@ -25,7 +25,8 @@ export function PeopleField({ value, onChange, organizerId }: { value: MeetingPe
 
   const chosen = new Set(value.map(personKey));
   const options = directory
-    .filter((u) => u.id !== organizerId && !chosen.has(`u:${u.id}`))
+    // Inactive and suspended accounts can't be invited (an older server sends no flag: offered).
+    .filter((u) => u.id !== organizerId && u.active !== false && !chosen.has(`u:${u.id}`))
     .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
 
   const addUser = (id: string) => {

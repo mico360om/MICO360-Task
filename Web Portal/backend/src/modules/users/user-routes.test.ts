@@ -53,6 +53,21 @@ beforeEach(async () => {
   app = await makeApp();
 });
 
+describe('People directory', () => {
+  it('lists everyone (names stay readable in history) and says who is active, so pickers can leave the rest out', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const sara = (await app.inject({ method: 'POST', url: '/api/v1/users', headers: admin, payload: newUser })).json().data;
+    const omar = (await app.inject({ method: 'POST', url: '/api/v1/users', headers: admin, payload: { ...newUser, email: 'omar@x.co', username: 'omar', firstName: 'Omar' } })).json().data;
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/users/${omar.id}/status`, headers: admin, payload: { status: 'INACTIVE' } })).statusCode).toBe(200);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/users/directory', headers: { authorization: `Bearer ${await tokenFor(sara.id, ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    const byName = Object.fromEntries(res.json().data.map((u: { username: string; active: boolean }) => [u.username, u.active]));
+    expect(byName).toEqual({ sara: true, omar: false });
+    // Still nothing sensitive: no email, phone, roles or status word.
+    expect(Object.keys(res.json().data[0]).sort()).toEqual(['active', 'avatarUrl', 'firstName', 'id', 'lastActiveAt', 'lastName', 'username']);
+  });
+});
+
 describe('User routes (admin only)', () => {
   it('lets an admin create a user (201)', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers: { authorization: `Bearer ${await token(['ADMIN'])}` }, payload: newUser });

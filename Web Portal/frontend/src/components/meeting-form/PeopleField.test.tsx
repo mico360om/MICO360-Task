@@ -9,6 +9,7 @@ const directory = [
   { id: 'u1', username: 'khalid', firstName: 'Khalid', lastName: 'Al Amri', avatarUrl: null },
   { id: 'u2', username: 'sara', firstName: 'Sara', lastName: 'Al Balushi', avatarUrl: null },
   { id: 'u3', username: 'ali.h', firstName: 'Ali', lastName: 'Hassan', avatarUrl: null },
+  { id: 'u9', username: 'layla', firstName: 'Layla', lastName: 'Ahmed', avatarUrl: null, active: false },
 ];
 
 beforeEach(() => {
@@ -40,6 +41,7 @@ describe('New meeting: People', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add a team member' }));
     const list = await screen.findByRole('listbox');
     expect(within(list).queryByRole('option', { name: /Khalid/ })).not.toBeInTheDocument(); // the organizer is already in
+    expect(within(list).queryByRole('option', { name: /Layla/ })).not.toBeInTheDocument(); // an inactive account can't be invited
     await userEvent.click(within(list).getByRole('option', { name: /Sara Al Balushi/ }));
     expect(latest).toEqual([{ kind: 'user', id: 'u2', name: 'Sara Al Balushi' }]);
     expect(screen.getByRole('list', { name: 'People invited' })).toHaveTextContent('Sara Al Balushi');

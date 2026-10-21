@@ -75,7 +75,8 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   app.get('/users/directory', { preHandler: guard.authenticate }, async () => {
     const users = await userService.listUsers();
     return {
-      data: users.map((u) => ({ id: u.id, username: u.username, firstName: u.firstName, lastName: u.lastName, avatarUrl: u.avatarUrl, lastActiveAt: u.lastActiveAt ?? null })),
+      // `active`: inactive and suspended people keep their names in history, but pickers leave them out.
+      data: users.map((u) => ({ id: u.id, username: u.username, firstName: u.firstName, lastName: u.lastName, avatarUrl: u.avatarUrl, lastActiveAt: u.lastActiveAt ?? null, active: u.status === 'ACTIVE' })),
     };
   });
 
