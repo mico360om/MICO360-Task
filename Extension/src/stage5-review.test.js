@@ -98,3 +98,50 @@ describe('#4 a new key on Retry keeps the popup’s recent task linked to its ch
     expect(recentStatus(entry, q)).toBe('waiting');
   });
 });
+
+describe('#3 the next person to sign in starts with their own settings, not the last person’s', async () => {
+  const { startSession, signOut } = await import('./session.js');
+  const { DESKTOP_ALERTS_KEY, ALERT_TARGET_KEY, NOTIFICATION_ID, clearDesktopAlert } = await import('./notify.js');
+  const { LAST_PROJECT_KEY, RECENT_KEY, QUICK_ADD_SESSION_KEYS } = await import('./quick-add.js');
+  const API = 'https://task.mico360.com/api/v1';
+  // A session that expired: the tokens are gone, this person's settings stay on the device.
+  const expired = () => {
+    const local = fakeStorage({
+      cacheOwner: 'u1', [DESKTOP_ALERTS_KEY]: { on: true, details: true },
+      [LAST_PROJECT_KEY]: { userId: 'u1', projectId: 'p1' }, [RECENT_KEY]: { userId: 'u1', items: [{ title: 'A’s task' }] },
+    });
+    const session = fakeStorage(Object.fromEntries([...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY].map((k) => [k, { userId: 'u1' }])));
+    return { local, session };
+  };
+
+  it('someone else signing in: "Say what it’s about" and the rest of the last person’s device settings are gone', async () => {
+    const { local, session } = expired();
+    await startSession({ local, session }, { accessToken: 'a', refreshToken: 'r', userId: 'u2', apiBase: API });
+    expect(local.data[DESKTOP_ALERTS_KEY]).toBeUndefined();
+    expect(local.data[LAST_PROJECT_KEY]).toBeUndefined();
+    expect(local.data[RECENT_KEY]).toBeUndefined();
+    for (const k of [...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY]) expect(session.data[k], k).toBeUndefined();
+  });
+
+  it('the same person signing in again keeps them', async () => {
+    const { local, session } = expired();
+    await startSession({ local, session }, { accessToken: 'a', refreshToken: 'r', userId: 'u1', apiBase: API });
+    expect(local.data[DESKTOP_ALERTS_KEY]).toEqual({ on: true, details: true });
+    expect(local.data[RECENT_KEY]).toBeTruthy();
+  });
+
+  describe('#6 the desktop alert goes when the session does', () => {
+    it('signing out takes the last alert off the screen (it may say what it was about)', async () => {
+      const notifications = { clear: vi.fn() };
+      await signOut({ local: fakeStorage({ refreshToken: 'r', sessionApiBase: API }), session: fakeStorage(), fetchImpl: async () => res(204), notifications });
+      expect(notifications.clear).toHaveBeenCalledWith(NOTIFICATION_ID);
+    });
+
+    it('clearing it never fails a sign-out (no notifications here, or Chrome refuses)', () => {
+      expect(() => clearDesktopAlert(undefined)).not.toThrow();
+      expect(() => clearDesktopAlert({ clear: () => { throw new Error('no'); } })).not.toThrow();
+      const p = { clear: vi.fn(async () => { throw new Error('no'); }) };
+      expect(() => clearDesktopAlert(p)).not.toThrow();
+    });
+  });
+});

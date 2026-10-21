@@ -15,9 +15,18 @@ import { decodeJwtSub } from './jwt.js';
 import { assignOwnerlessItems } from './queue.js';
 import { CACHE_PREFIX } from './read-cache.js';
 import { LAST_PROJECT_KEY, RECENT_KEY, QUICK_ADD_SESSION_KEYS } from './quick-add.js';
-import { DESKTOP_ALERTS_KEY, ALERT_TARGET_KEY } from './notify.js';
+import { DESKTOP_ALERTS_KEY, ALERT_TARGET_KEY, clearDesktopAlert } from './notify.js';
 
 export const USER_DATA_KEYS = ['syncQueue', 'cacheOwner', 'lastUnread', 'lastUnreadUser', 'lastSync', LAST_PROJECT_KEY, RECENT_KEY, DESKTOP_ALERTS_KEY];
+
+/**
+ * One person's own settings and leftovers on this device (not their queue, which keeps its owner on
+ * each change): what the desktop alerts may say, the popup's last project, recent tasks, unsent form
+ * and right-click capture, and what the last alert was about. They go when someone else signs in —
+ * after a session that ended rather than a sign-out, they are still there.
+ */
+const PERSON_LOCAL_KEYS = [DESKTOP_ALERTS_KEY, LAST_PROJECT_KEY, RECENT_KEY];
+const PERSON_SESSION_KEYS = [...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY];
 
 /** Delete every cached API response (`cache:*`). */
 export async function clearCache(local) {
@@ -26,13 +35,17 @@ export async function clearCache(local) {
   if (keys.length) await local.remove(keys);
 }
 
-/** Remove the session and everything cached/queued for it from this device. */
-export async function clearUserData({ local, session }) {
+/**
+ * Remove the session and everything cached/queued for it from this device. `notifications`
+ * (chrome.notifications): the last desktop alert goes too.
+ */
+export async function clearUserData({ local, session, notifications }) {
+  clearDesktopAlert(notifications);
   await createTokenStore({ local, session }).clear();
   await local.remove(USER_DATA_KEYS);
   // The popup's unsent form, what the right-click menu captured for it, and what the last desktop
   // alert was about (memory only).
-  await session.remove([...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY]);
+  await session.remove(PERSON_SESSION_KEYS);
   await clearCache(local);
 }
 
@@ -52,23 +65,30 @@ async function revoke({ refreshToken, apiBase }, fetchImpl) {
  * issued it — never to a newly configured one), then wipe tokens, the offline queue, every cached
  * response and the unread/sync markers so the next person on this device starts clean.
  */
-export async function signOut({ local, session, fetchImpl = (...a) => fetch(...a) }) {
+export async function signOut({ local, session, fetchImpl = (...a) => fetch(...a), notifications }) {
+  clearDesktopAlert(notifications);
   const t = await createTokenStore({ local, session }).get();
   await revoke(t, fetchImpl);
-  await clearUserData({ local, session });
+  await clearUserData({ local, session, notifications });
 }
 
 /**
  * Start a session after a successful POST /auth/login. Cached data belonging to a different user
- * is wiped, and the unread-notification baseline is reset so the first poll doesn't announce every
- * existing unread item as new (EXT-06). The profile in the reply (`user`: email, username, roles) is
- * kept with the session, so the app knows who is signed in even when it starts offline (M12).
+ * is wiped — with that person's own settings on this device (PERSON_*_KEYS: "Say what it's about"
+ * must not carry over to the next person after a session ended) — and the unread-notification
+ * baseline is reset so the first poll doesn't announce every existing unread item as new (EXT-06).
+ * The profile in the reply (`user`: email, username, roles) is kept with the session, so the app
+ * knows who is signed in even when it starts offline (M12).
  */
 export async function startSession({ local, session }, { accessToken, refreshToken, userId, apiBase, user }) {
   const uid = userId || decodeJwtSub(accessToken);
   if (!accessToken || !refreshToken || !uid || !apiBase) throw new Error('Incomplete sign-in response.');
   const { cacheOwner } = (await local.get('cacheOwner')) || {};
-  if (cacheOwner !== uid) await clearCache(local);
+  if (cacheOwner !== uid) {
+    await clearCache(local);
+    await local.remove(PERSON_LOCAL_KEYS);
+    await session.remove(PERSON_SESSION_KEYS);
+  }
   await local.remove(['lastUnread', 'lastUnreadUser', 'lastSync']);
   await local.set({ cacheOwner: uid });
   await createTokenStore({ local, session }).save({ accessToken, refreshToken, userId: uid, apiBase, user });

@@ -1,5 +1,5 @@
 import { resolveBases } from '../src/config.js';
-import { setToolbarBadge, NOTIFICATION_ID } from '../src/notify.js';
+import { setToolbarBadge, clearDesktopAlert, NOTIFICATION_ID } from '../src/notify.js';
 import { flushQueue, makePerformMutation, sendOrQueue, FLUSH_MESSAGE } from '../src/queue.js';
 import { createAuth } from '../src/auth.js';
 import { ensureSession } from '../src/session.js';
@@ -27,8 +27,9 @@ async function signedIn() {
   const s = await ensureSession({ local, session: sessionStore, apiBase });
   if (!s) return null;
   // One shared, locked refresh with the app tab (XP-04). When the server ends the session the
-  // tokens are cleared; open app tabs notice the change and show the sign-in screen.
-  const auth = createAuth({ local, session: sessionStore, apiBase, onExpired: () => setBadge(0) });
+  // tokens are cleared; open app tabs notice the change and show the sign-in screen. The badge and
+  // the last desktop alert go with it.
+  const auth = createAuth({ local, session: sessionStore, apiBase, onExpired: () => sessionEnded() });
   return { ...s, apiBase, auth };
 }
 
@@ -40,10 +41,16 @@ async function flushNow(ctx) {
   return flushQueue(local, perform, { userId: c.userId });
 }
 
+/** Nobody is signed in (any more): no count on the icon, and no alert of theirs left on screen. */
+function sessionEnded() {
+  setBadge(0);
+  clearDesktopAlert(chrome.notifications);
+}
+
 async function poll() {
   const ctx = await signedIn();
   if (!ctx) {
-    setBadge(0);
+    sessionEnded();
     return;
   }
   try {

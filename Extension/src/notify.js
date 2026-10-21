@@ -73,6 +73,19 @@ export async function saveAlertSettings(local, patch) {
   return next;
 }
 
+/**
+ * Take the desktop alert off the screen (sign-out, a session that ended): it may say what the newest
+ * notification was about, and it isn't the next person's. Never fails.
+ */
+export function clearDesktopAlert(notifications) {
+  try {
+    const p = notifications && typeof notifications.clear === 'function' ? notifications.clear(NOTIFICATION_ID) : null;
+    if (p && typeof p.catch === 'function') p.catch(() => { /* gone already */ });
+  } catch {
+    /* no desktop notifications here */
+  }
+}
+
 /** What the last desktop alert was about (chrome.storage.session), so a click can open it. */
 export const ALERT_TARGET_KEY = 'mico360.alertTarget';
 

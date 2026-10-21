@@ -5,7 +5,7 @@ import { createReadCache } from '../src/read-cache.js';
 import { createApi } from '../src/api.js';
 import { flushQueue, queueStats, makePerformMutation, sendOrQueue, pendingItems, FLUSH_MESSAGE } from '../src/queue.js';
 import { rememberTask } from '../src/task-writes.js';
-import { setToolbarBadge } from '../src/notify.js';
+import { setToolbarBadge, clearDesktopAlert } from '../src/notify.js';
 import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
@@ -113,8 +113,12 @@ async function boot() {
     local: storage,
     session: sessionStore,
     apiBase,
-    // XP-04: the server refused the session — go back to sign-in (queued changes are kept).
-    onExpired: () => reloadWithNotice('Your session has ended. Sign in again — changes waiting to sync are kept.'),
+    // XP-04: the server refused the session — go back to sign-in (queued changes are kept). The last
+    // desktop alert goes: it may say what it was about, and the next person may sign in here.
+    onExpired: () => {
+      clearDesktopAlert(chrome.notifications);
+      reloadWithNotice('Your session has ended. Sign in again — changes waiting to sync are kept.');
+    },
   });
   const cache = createReadCache(storage);
   cache.prune().catch(() => { /* best effort */ });
@@ -413,7 +417,7 @@ class App {
 
   async signOut() {
     mode = null; // our own sign-out: don't treat the token removal as a remote sign-out
-    await endSession({ local: this.storage, session: sessionStore });
+    await endSession({ local: this.storage, session: sessionStore, notifications: chrome.notifications });
     try { await chrome.action.setBadgeText({ text: '' }); } catch { /* ignore */ }
     reloadWithNotice('');
   }
