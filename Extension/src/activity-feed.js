@@ -196,6 +196,8 @@ function toItem(kind, entries) {
     case 'blocker': {
       const names = chronological.map(blockerName);
       const verb = newest.action === 'BLOCKER_ADDED' ? 'added' : 'removed';
+      // The server keeps only the other task's id (naming it could reveal a task you can't open).
+      if (names.every((n) => n === 'a task')) return { ...base, text: names.length === 1 ? `${verb} a blocker` : `${verb} ${names.length} blockers` };
       return { ...base, text: names.length === 1 ? `${verb} the blocker ${names[0]}` : `${verb} the blockers ${someOf(names)}` };
     }
     default:

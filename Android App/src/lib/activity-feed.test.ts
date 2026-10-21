@@ -70,6 +70,12 @@ describe('buildTimeline: checklist, comments, files and blockers', () => {
     expect(one('BLOCKER_ADDED', { key: 'MICO-7', title: 'Get approval' })).toMatchObject({ kind: 'blocker', text: 'added the blocker MICO-7 “Get approval”' });
     expect(one('BLOCKER_REMOVED', { key: 'MICO-7', title: 'Get approval' })!.text).toBe('removed the blocker MICO-7 “Get approval”');
   });
+  it('says "a blocker" when only the other task’s id was kept (it may be one you can’t open)', () => {
+    expect(one('BLOCKER_ADDED', { dependsOnTaskId: 't9' })!.text).toBe('added a blocker');
+    expect(one('BLOCKER_REMOVED', { dependsOnTaskId: 't9' })!.text).toBe('removed a blocker');
+    const two = [e('b2', 'BLOCKER_ADDED', 'Omar Ahmed', 1, { dependsOnTaskId: 't8' }), e('b1', 'BLOCKER_ADDED', 'Omar Ahmed', 2, { dependsOnTaskId: 't9' })];
+    expect(buildTimeline(two)).toEqual([expect.objectContaining({ text: 'added 2 blockers' })]);
+  });
   it('folds a run of the same thing into one line, naming a few', () => {
     const steps = ['One', 'Two', 'Three', 'Four', 'Five'].map((text, i) => e(`s${i}`, 'CHECKLIST_ADDED', 'Omar Ahmed', 5 - i, { text })).reverse();
     expect(buildTimeline(steps)).toEqual([expect.objectContaining({ text: 'added 5 steps: “One”, “Two”, “Three” and 2 more', count: 5 })]);
