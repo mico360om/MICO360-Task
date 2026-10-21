@@ -37,6 +37,7 @@ import {
   type RowPlace,
 } from '../components/meeting/MeetingDetailParts';
 import { ActionsSheet, ConfirmScopeSheet, InviteSheet, MinutesEmailSheet } from '../components/meeting/MeetingSheets';
+import { AgendaDraftSheet } from '../components/meeting/AgendaDraftSheet';
 import { ActionItemSheet, AddPersonSheet, AgendaItemSheet, NoteSheet, NoteTaskSheet, PersonSheet } from '../components/meeting/PartSheets';
 import { openJoinLink, useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { isNetworkError } from '../lib/api-client';
@@ -67,7 +68,8 @@ type Sheet =
   | { kind: 'agenda'; item: ApiAgendaItem | null }
   | { kind: 'note'; note: ApiMeetingNote | null }
   | { kind: 'noteTask'; note: ApiMeetingNote }
-  | { kind: 'action'; item: ApiActionItem | null };
+  | { kind: 'action'; item: ApiActionItem | null }
+  | { kind: 'agendaDraft' };
 
 /**
  * One meeting: when, where and Join; your answer to the invitation; what it is about; its agenda,
@@ -360,7 +362,16 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
             : item.section === 'people' && peopleQ.data?.length
               ? responseLine(responseSummary(peopleQ.data))
               : null;
-        return <SectionTitleRow title={item.title} count={item.count} aside={aside} action={titleAction(item.section)} />;
+        return (
+          <SectionTitleRow
+            title={item.title}
+            count={item.count}
+            aside={aside}
+            action={titleAction(item.section)}
+            // Draft agenda (AI): proposed items, reviewed before anything is added.
+            secondary={item.section === 'agenda' && canEdit ? { label: '✨ Draft', a11y: 'Draft agenda with AI', onPress: () => setSheet({ kind: 'agendaDraft' }) } : null}
+          />
+        );
       }
       case 'loading':
         return <StateRow kind="loading" text="" place={place} />;
@@ -544,6 +555,16 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
       {personSheet ? <PersonSheet meeting={meeting} attendee={personSheet} nameOf={nameOf} canEdit={canEdit} myId={myId} onClose={close} /> : null}
       {canEdit ? (
         <AgendaItemSheet meetingId={meetingId} items={agendaQ.data ?? []} item={sheet?.kind === 'agenda' ? sheet.item : null} directory={directory} visible={sheet?.kind === 'agenda'} onClose={close} />
+      ) : null}
+      {canEdit ? (
+        <AgendaDraftSheet
+          meeting={meeting}
+          attendees={peopleQ.data ?? []}
+          nameOf={nameOf}
+          visible={sheet?.kind === 'agendaDraft'}
+          onClose={close}
+          onAdded={(n) => say(n === 1 ? 'Added 1 item to the agenda.' : `Added ${n} items to the agenda.`)}
+        />
       ) : null}
       <NoteSheet meetingId={meetingId} note={sheet?.kind === 'note' ? sheet.note : null} visible={sheet?.kind === 'note'} onClose={close} />
       <NoteTaskSheet meetingId={meetingId} meetingProjectId={meeting.projectId} note={sheet?.kind === 'noteTask' ? sheet.note : null} onClose={close} onOpenTask={openTask} />

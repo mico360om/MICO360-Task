@@ -181,14 +181,22 @@ export function SectionTitleRow({
   count,
   aside,
   action,
+  secondary,
 }: {
   title: string;
   count?: string;
   aside?: string | null;
   /** "＋ Add" for whoever may add to this part. */
   action?: { label: string; a11y: string; onPress: () => void } | null;
+  /** Another action beside it ("✨ Draft" for the agenda). */
+  secondary?: { label: string; a11y: string; onPress: () => void } | null;
 }) {
   const s = useDetailStyles();
+  const button = (a: { label: string; a11y: string; onPress: () => void }) => (
+    <Pressable onPress={a.onPress} accessibilityRole="button" accessibilityLabel={a.a11y} hitSlop={6} style={({ pressed }) => [s.addButton, pressed && s.pressed]}>
+      <Text style={s.addText}>{a.label}</Text>
+    </Pressable>
+  );
   return (
     <SectionRow place={{ first: true }}>
       <View style={s.titleRow}>
@@ -196,10 +204,11 @@ export function SectionTitleRow({
           {title.toUpperCase()}
           {count ? <Text style={s.count}> · {count}</Text> : null}
         </Text>
-        {action ? (
-          <Pressable onPress={action.onPress} accessibilityRole="button" accessibilityLabel={action.a11y} hitSlop={6} style={({ pressed }) => [s.addButton, pressed && s.pressed]}>
-            <Text style={s.addText}>{action.label}</Text>
-          </Pressable>
+        {action || secondary ? (
+          <View style={s.inline}>
+            {secondary ? button(secondary) : null}
+            {action ? button(action) : null}
+          </View>
         ) : null}
       </View>
       {aside ? <Text style={s.small}>{aside}</Text> : null}
