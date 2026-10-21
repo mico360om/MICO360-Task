@@ -28,6 +28,18 @@ beforeEach(() => {
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'MICO360', companyName: 'MICO', serverTime: new Date().toISOString() } });
     if (u.endsWith('/users/directory')) return json({ data: directory });
     if (u.endsWith('/meetings/free-times')) return json({ data: freeReply });
+    if (u.endsWith('/projects') && method === 'GET') return json({ data: [{ id: 'p4', name: 'Pump Station Upgrade', code: 'PUMP', number: 'PDO-2026-020', status: 'ACTIVE' }] });
+    if (u.endsWith('/ai/parse-meeting')) {
+      return json({
+        data: {
+          title: 'Weekly site review', description: null, date: '2026-10-26', startTime: '10:00', minutes: 90, recurrence: null,
+          project: { id: 'p4', code: 'PUMP', number: 'PDO-2026-020', name: 'Pump Station Upgrade' }, location: 'Rig 1 site office', onlineLink: null,
+          people: { found: [{ id: 'u2', name: 'Sara Al Balushi' }], choices: [], notFound: [] }, guests: [], agenda: ['Pump test results'],
+        },
+      });
+    }
+    if (u.endsWith('/ai/draft-agenda')) return json({ data: { items: [{ title: 'Valve fix', ownerId: 'u2', minutes: 20 }, { title: 'Budget', ownerId: null, minutes: 15 }] } });
+    if (u.endsWith('/ai/write-meeting-description')) return json({ data: { description: 'Weekly review of the pump station site.' } });
     if (u.endsWith('/meetings/m1/attendees')) return json({ data: [{ id: 'a1', meetingId: 'm1', userId: 'u2' }, { id: 'a2', meetingId: 'm1', userId: null, externalName: 'Sami', externalEmail: 'sami@contractor.om' }] });
     if (u.endsWith('/meetings') && method === 'POST') return json({ data: { id: 'm-new' } }, 201);
     if (u.includes('/meetings/') && method === 'PUT') return json({ data: { id: 'm1' } });
@@ -347,5 +359,69 @@ describe('MeetingFormModal: people and agenda in a new meeting', () => {
     expect(screen.queryByRole('group', { name: 'People' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Agenda' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('New agenda item')).not.toBeInTheDocument();
+  });
+});
+
+describe('MeetingFormModal: AI help', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'k@mico.om', username: 'khalid', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
+  });
+  const posted = () => calls.find((c) => c.url.endsWith('/meetings') && c.method === 'POST')?.body;
+
+  it('a described meeting fills the form, people and agenda included', async () => {
+    renderModal();
+    await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText('Describe the meeting'), 'weekly site review Monday 10am for 90 minutes with Sara, PUMP');
+    await userEvent.click(screen.getByRole('button', { name: 'Fill meeting details' }));
+    const found = await screen.findByRole('group', { name: 'Suggested details' });
+    await waitFor(() => expect(within(found).getByRole('checkbox', { name: /project: pump/i })).toBeInTheDocument());
+    await userEvent.click(within(found).getByRole('button', { name: 'Use selected details' }));
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Weekly site review');
+    expect(screen.getByLabelText(/starts/i)).toHaveValue('2026-10-26T10:00');
+    expect(screen.getByLabelText(/ends/i)).toHaveValue('2026-10-26T11:30');
+    expect(screen.getByLabelText(/location/i)).toHaveValue('Rig 1 site office');
+    expect(screen.getByRole('list', { name: 'People invited' })).toHaveTextContent('Sara Al Balushi');
+    expect(screen.getByLabelText('Agenda item 1')).toHaveValue('Pump test results');
+    await userEvent.click(screen.getByRole('button', { name: /schedule meeting/i }));
+    await waitFor(() => expect(posted()).toBeDefined());
+    expect(posted()).toMatchObject({ title: 'Weekly site review', projectId: 'p4', location: 'Rig 1 site office', attendees: [{ userId: 'u2' }], agendaItems: [{ title: 'Pump test results', ownerId: null, expectedMinutes: null }] });
+    expect(calls.find((c) => c.url.endsWith('/ai/parse-meeting'))!.body).toMatchObject({ text: 'weekly site review Monday 10am for 90 minutes with Sara, PUMP' });
+  });
+
+  it('Draft agenda in a new meeting adds the ticked items to the list', async () => {
+    renderModal();
+    await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText(/title/i), 'Pump station review');
+    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-26T10:00' } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a team member' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Sara Al Balushi/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Draft agenda' }));
+    const review = await screen.findByRole('group', { name: 'Drafted agenda' });
+    expect(calls.find((c) => c.url.endsWith('/ai/draft-agenda'))!.body).toMatchObject({ title: 'Pump station review', minutes: 60, peopleIds: ['u1', 'u2'] });
+    await userEvent.click(within(review).getByRole('checkbox', { name: /Budget/ }));
+    await userEvent.click(within(review).getByRole('button', { name: 'Add selected' }));
+    expect(screen.getByLabelText('Agenda item 1')).toHaveValue('Valve fix');
+    expect(screen.getByLabelText('Lead for item 1')).toHaveValue('u2');
+    expect(screen.getByLabelText('Minutes for item 1')).toHaveValue(20);
+    expect(screen.queryByLabelText('Agenda item 2')).not.toBeInTheDocument();
+  });
+
+  it('Draft agenda waits for a title', async () => {
+    renderModal();
+    await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Draft agenda' })).toBeDisabled();
+    expect(screen.getByText('Add a title first.')).toBeInTheDocument();
+  });
+
+  it('Write description fills the description only when used, in new and edit forms', async () => {
+    renderModal({ ...baseMeeting, description: 'Our usual weekly sync.' });
+    await userEvent.click(screen.getByRole('button', { name: 'Write description' }));
+    const offer = await screen.findByRole('group', { name: 'Suggested description' });
+    expect(screen.getByLabelText(/description/i, { selector: 'textarea' })).toHaveValue('Our usual weekly sync.');
+    await userEvent.click(within(offer).getByRole('button', { name: 'Use this description' }));
+    expect(screen.getByLabelText(/description/i, { selector: 'textarea' })).toHaveValue('Weekly review of the pump station site.');
+    expect(calls.find((c) => c.url.endsWith('/ai/write-meeting-description'))!.body).toMatchObject({ title: 'Weekly sync' });
+    // Editing also offers Describe, without people or agenda.
+    expect(screen.getByLabelText('Describe the meeting')).toBeInTheDocument();
   });
 });

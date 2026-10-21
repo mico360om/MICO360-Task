@@ -1,6 +1,9 @@
 import { useState, type KeyboardEvent } from 'react';
 import { fieldClass } from '../ui/Field';
 import { Icon } from '../meeting/kit';
+import type { AiAgendaItem } from '../../api/ai';
+import { AgendaDraftReview } from './AgendaDraftReview';
+import { aiMessage } from './ai-message';
 
 /** An agenda item in the new-meeting form, before the meeting is saved. */
 export interface AgendaDraft {
@@ -25,15 +28,37 @@ export function AgendaField({
   onChange,
   leads,
   minutes,
+  onDraft,
+  draftHint = null,
 }: {
   value: AgendaDraft[];
   onChange: (next: AgendaDraft[]) => void;
   leads: Array<{ id: string; name: string }>;
   /** The meeting's length. */
   minutes: number;
+  /** "Draft agenda": the AI's proposal, reviewed before it is added. */
+  onDraft?: () => Promise<AiAgendaItem[]>;
+  /** Why drafting can't start yet (e.g. no title); the button waits. */
+  draftHint?: string | null;
 }) {
   const [title, setTitle] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [drafted, setDrafted] = useState<AiAgendaItem[] | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  async function draft() {
+    if (!onDraft) return;
+    setDrafting(true);
+    setDraftError(null);
+    setDrafted(null);
+    try {
+      setDrafted(await onDraft());
+    } catch (err) {
+      setDraftError(aiMessage(err, 'Couldn’t draft an agenda. Try again, or add the items yourself.'));
+    } finally {
+      setDrafting(false);
+    }
+  }
   const planned = value.reduce((s, i) => s + (i.minutes ?? 0), 0);
   const over = planned > minutes;
 
@@ -105,6 +130,34 @@ export function AgendaField({
         </button>
       </div>
       {problem ? <p role="alert" className="text-xs font-medium text-danger">{problem}</p> : null}
+      {onDraft ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void draft()}
+              disabled={drafting || !!draftHint}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.9L18.5 8.5 13.6 10 12 15l-1.6-5L5.5 8.5 10.4 6.9 12 2z" /></svg>
+              {drafting ? 'Drafting…' : 'Draft agenda'}
+            </button>
+            {draftHint ? <span className="text-xs text-ink-2">{draftHint}</span> : null}
+          </div>
+          {draftError ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{draftError}</p> : null}
+          {drafted ? (
+            <AgendaDraftReview
+              items={drafted}
+              leadName={(id) => leads.find((l) => l.id === id)?.name ?? null}
+              onAdd={(chosen) => {
+                onChange([...value, ...chosen.map((c) => ({ key: newAgendaKey(), title: c.title, ownerId: leads.some((l) => l.id === c.ownerId) ? c.ownerId : null, minutes: c.minutes }))]);
+                setDrafted(null);
+              }}
+              onDismiss={() => setDrafted(null)}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </fieldset>
   );
 }

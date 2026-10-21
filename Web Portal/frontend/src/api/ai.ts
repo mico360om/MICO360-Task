@@ -197,6 +197,14 @@ export function aiApi(client: ApiClient) {
     /** Turn a free-text note into a structured task draft. */
     parseTask: (text: string, today?: string) =>
       client.post<{ data: AiTaskDraft }>('/ai/parse-task', { text, ...(today ? { today } : {}) }).then((r) => r.data),
+    /** Fill the meeting form from a sentence. */
+    parseMeeting: (text: string, today?: string) =>
+      client.post<{ data: AiMeetingDraft }>('/ai/parse-meeting', { text, ...(today ? { today } : {}) }).then((r) => r.data),
+    /** Propose a meeting's agenda (the server adds the project's open tasks and the last meeting's leftovers). */
+    draftAgenda: (input: AiDraftAgendaInput) => client.post<{ data: { items: AiAgendaItem[] } }>('/ai/draft-agenda', input).then((r) => r.data.items),
+    /** A short description for the meeting's invitation. */
+    writeMeetingDescription: (input: { title: string; agenda?: string[]; text?: string }) =>
+      client.post<{ data: { description: string } }>('/ai/write-meeting-description', input).then((r) => r.data.description),
     /** Concise project status summary. */
     summary: (name: string, stats: AiProjectStats, sampleTitles?: string[]) =>
       client.post<{ data: { summary: string } }>('/ai/summary', { name, stats, sampleTitles }).then((r) => r.data.summary),
@@ -215,6 +223,45 @@ export interface AiTaskDraft {
   recurrence?: RecurrenceRule | null;
   /** One of the person's projects, by id; the server never suggests one outside their list. */
   project?: { id: string; code: string; number: string | null; name: string } | null;
+}
+/** What a sentence fills in on the meeting form (company time); empty where it says nothing. */
+export interface AiMeetingDraft {
+  title: string;
+  description: string | null;
+  /** YYYY-MM-DD */
+  date: string | null;
+  /** HH:MM, 24-hour */
+  startTime: string | null;
+  minutes: number | null;
+  recurrence: RecurrenceRule | null;
+  project: { id: string; code: string; number: string | null; name: string } | null;
+  location: string | null;
+  onlineLink: string | null;
+  people: {
+    found: Array<{ id: string; name: string }>;
+    /** A name more than one person goes by: the person chooses. */
+    choices: Array<{ said: string; options: Array<{ id: string; name: string }> }>;
+    notFound: string[];
+  };
+  guests: Array<{ email: string; name: string }>;
+  agenda: string[];
+}
+export interface AiDraftAgendaInput {
+  title: string;
+  description?: string;
+  text?: string;
+  projectId?: string | null;
+  startAt: string;
+  minutes: number;
+  /** The invited portal users, the organizer included: the only possible leads. */
+  peopleIds: string[];
+  /** An existing meeting: its series' previous meeting gives the leftovers. */
+  meetingId?: string;
+}
+export interface AiAgendaItem {
+  title: string;
+  ownerId: string | null;
+  minutes: number;
 }
 export interface AiProjectStats {
   total: number;

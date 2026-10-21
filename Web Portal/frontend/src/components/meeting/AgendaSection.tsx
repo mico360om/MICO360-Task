@@ -10,6 +10,9 @@ import { SaveIndicator, useSaveState } from '../task-drawer/save-state';
 import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, peopleOptions, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
 import { agendaTiming } from '../../lib/meeting-flow';
+import { aiApi, type AiAgendaItem } from '../../api/ai';
+import { AgendaDraftReview } from '../meeting-form/AgendaDraftReview';
+import { aiMessage } from '../meeting-form/ai-message';
 
 const minutesValue = (v: string): number | null => (v.trim() === '' ? null : Math.max(0, Math.round(Number(v))));
 
@@ -21,6 +24,7 @@ export function AgendaSection({
   directory,
   canEdit,
   pollMs,
+  draftFrom,
 }: {
   meetingId: string;
   startAt: string;
@@ -28,8 +32,12 @@ export function AgendaSection({
   directory: DirectoryUser[];
   canEdit: boolean;
   pollMs: number | false;
+  /** What "Draft agenda" works from (the meeting's details and who is invited, the organizer included). */
+  draftFrom?: { title: string; description: string | null; projectId: string | null; peopleIds: string[] };
 }) {
   const qc = useQueryClient();
+  const [drafted, setDrafted] = useState<AiAgendaItem[] | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [minutes, setMinutes] = useState('');
   const [ownerId, setOwnerId] = useState('');
@@ -67,6 +75,39 @@ export function AgendaSection({
     mutationFn: (orderedIds: string[]) => meetingsApi(apiClient).reorderAgenda(meetingId, orderedIds),
     onSuccess: refresh,
     onError: (err) => setOpError(meetingFailure(err, 'Couldn’t reorder the agenda.')),
+  });
+
+  // Draft agenda: the AI proposes items; only the ticked ones are added, after the existing ones.
+  const draftMut = useMutation({
+    mutationFn: () =>
+      aiApi(apiClient).draftAgenda({
+        title: draftFrom!.title,
+        ...(draftFrom!.description?.trim() ? { description: draftFrom!.description.trim() } : {}),
+        projectId: draftFrom!.projectId,
+        startAt,
+        minutes: timing.length ?? 60,
+        peopleIds: draftFrom!.peopleIds,
+        meetingId,
+      }),
+    onMutate: () => {
+      setDraftError(null);
+      setDrafted(null);
+    },
+    onSuccess: setDrafted,
+    onError: (err) => setDraftError(aiMessage(err, 'Couldn’t draft an agenda. Try again, or add the items yourself.')),
+  });
+  const addDraftedMut = useMutation({
+    mutationFn: async (chosen: AiAgendaItem[]) => {
+      for (const item of chosen) await meetingsApi(apiClient).addAgendaItem(meetingId, { title: item.title, ownerId: item.ownerId, expectedMinutes: item.minutes });
+    },
+    onSuccess: () => {
+      setDrafted(null);
+      void refresh();
+    },
+    onError: (err) => {
+      setDraftError(meetingFailure(err, 'Couldn’t add all of the drafted items.'));
+      void refresh();
+    },
   });
 
   function move(index: number, dir: -1 | 1) {
@@ -145,6 +186,30 @@ export function AgendaSection({
           )}
         </ol>
       )}
+
+      {canEdit && draftFrom ? (
+        <div className="mt-3 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => draftMut.mutate()}
+            disabled={draftMut.isPending}
+            className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.9L18.5 8.5 13.6 10 12 15l-1.6-5L5.5 8.5 10.4 6.9 12 2z" /></svg>
+            {draftMut.isPending ? 'Drafting…' : 'Draft agenda'}
+          </button>
+          {draftError ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{draftError}</p> : null}
+          {drafted ? (
+            <AgendaDraftReview
+              items={drafted}
+              leadName={(owner) => userName(directory, owner) || null}
+              onAdd={(chosen) => addDraftedMut.mutate(chosen)}
+              onDismiss={() => setDrafted(null)}
+              busy={addDraftedMut.isPending}
+            />
+          ) : null}
+        </div>
+      ) : null}
 
       {canEdit ? (
         <form onSubmit={submitAdd} className="mt-3 grid grid-cols-[minmax(0,1fr)_5.5rem_auto] gap-2 border-t border-line pt-3">

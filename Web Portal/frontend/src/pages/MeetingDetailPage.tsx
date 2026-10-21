@@ -182,7 +182,21 @@ export function MeetingDetailPage() {
       {/* Phone: one column in reading order. Desktop: the work in the middle, people and facts on the side. */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
-          <AgendaSection meetingId={id} startAt={meeting.startAt} endAt={meeting.endAt} directory={directory} canEdit={canEdit} pollMs={pollMs} />
+          <AgendaSection
+            meetingId={id}
+            startAt={meeting.startAt}
+            endAt={meeting.endAt}
+            directory={directory}
+            canEdit={canEdit}
+            pollMs={pollMs}
+            // Draft agenda: the meeting's details, and its organizer and invited team members as leads.
+            draftFrom={{
+              title: meeting.title,
+              description: meeting.description,
+              projectId: meeting.projectId,
+              peopleIds: [...new Set([meeting.organizerId, ...(Array.isArray(attendeesQ.data) ? attendeesQ.data : []).flatMap((a) => (a.userId ? [a.userId] : []))])],
+            }}
+          />
           <NotesSection meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
           <ActionItemsSection meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
           <FinalMinutesSection meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} />

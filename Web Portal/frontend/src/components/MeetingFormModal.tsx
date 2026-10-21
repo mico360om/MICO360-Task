@@ -19,8 +19,12 @@ import { projectOption } from './project-option';
 import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } from './RecurrenceEditor';
 import { SeriesScopeChoice } from './meeting/series-scope';
 import { PeopleField, type MeetingPerson } from './meeting-form/PeopleField';
-import { AgendaField, type AgendaDraft } from './meeting-form/AgendaField';
+import { AgendaField, newAgendaKey, type AgendaDraft } from './meeting-form/AgendaField';
 import { FreeTimes } from './meeting-form/FreeTimes';
+import { DescribeMeeting, type DescribedMeetingPatch } from './meeting-form/DescribeMeeting';
+import { WriteDescription } from './meeting-form/WriteDescription';
+import { aiApi } from '../api/ai';
+import { todayKey } from '../lib/due-date';
 import { usersApi } from '../api/users';
 import { useAuthStore } from '../stores/auth-store';
 
@@ -73,6 +77,16 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const [people, setPeople] = useState<MeetingPerson[]>([]);
   const [agenda, setAgenda] = useState<AgendaDraft[]>([]);
   const organizerId = useAuthStore((s) => s.user?.id ?? null);
+  // The last sentence given to "Describe the meeting": Draft agenda and Write description use it too.
+  const [sentence, setSentence] = useState('');
+  // What the form opened with, so a suggestion never silently replaces what the person set.
+  const [openedFields] = useState(() => ({
+    title: meeting?.title ?? '',
+    description: meeting?.description ?? '',
+    projectId: meeting?.projectId ?? defaultProjectId ?? '',
+    location: meeting?.location ?? '',
+    onlineLink: meeting?.onlineLink ?? '',
+  }));
   const [error, setError] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -155,6 +169,30 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
     const still = new Set([organizerId, ...next.flatMap((p) => (p.kind === 'user' ? [p.id] : []))]);
     setAgenda((items) => items.map((i) => (i.ownerId && !still.has(i.ownerId) ? { ...i, ownerId: null } : i)));
   };
+
+  const repeatText = (r: RecurrenceRule, from: string | null) => (from ? meetingRepeatText(r, from, timeZone) : recurrenceSummary(r));
+  /** "Use selected details": the ticked suggestions go into the form (people and agenda points are added). */
+  function applyDescribed(patch: DescribedMeetingPatch) {
+    if (patch.title !== undefined) setTitle(patch.title);
+    if (patch.description !== undefined) setDescription(patch.description);
+    if (patch.location !== undefined) setLocation(patch.location);
+    if (patch.onlineLink !== undefined) setOnlineLink(patch.onlineLink);
+    if (patch.projectId !== undefined) setProjectId(patch.projectId);
+    if (patch.rule !== undefined) changeRule(patch.rule);
+    if (patch.start !== undefined || patch.minutes !== undefined) {
+      timesTouched.current = true;
+      const nextStart = patch.start ?? start;
+      setStart(nextStart);
+      // A length given sets the end; otherwise an end already set keeps the meeting's length.
+      const keep = startIso && endIso ? (Date.parse(endIso) - Date.parse(startIso)) / 60_000 : null;
+      const length = patch.minutes ?? keep;
+      const from = fromLocalInputValue(nextStart, timeZone);
+      if (length && from) setEnd(toLocalInputValue(new Date(Date.parse(from) + length * 60_000).toISOString(), timeZone));
+    }
+    if (patch.people?.length) changePeople([...people, ...patch.people]);
+    if (patch.agenda?.length) setAgenda((items) => [...items, ...patch.agenda!.map((t) => ({ key: newAgendaKey(), title: t, ownerId: null, minutes: null }))]);
+  }
+  const openProjects = (Array.isArray(projectsQ.data) ? projectsQ.data : []).map((p) => ({ id: p.id, name: p.name, code: p.code, number: p.number ?? null }));
 
   const saveMut = useMutation({
     mutationFn: (as: SeriesScope) => {
@@ -273,6 +311,20 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
               {error ? (
                 <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
               ) : null}
+              <DescribeMeeting
+                onParse={(text) => {
+                  setSentence(text);
+                  return aiApi(apiClient).parseMeeting(text, todayKey(timeZone));
+                }}
+                current={{ title, description, start, end, rule, projectId, location, onlineLink }}
+                // Untouched times aren't the person's own (the start is the next whole hour).
+                initial={{ ...openedFields, start: timesTouched.current ? '' : start, end: timesTouched.current ? '' : end, rule: seriesRule }}
+                onApply={applyDescribed}
+                withPeopleAndAgenda={!editing}
+                projects={openProjects}
+                people={people}
+                repeatText={repeatText}
+              />
               <div className="flex flex-col gap-1.5">
                 <FieldLabel htmlFor="mf-title" required>Title</FieldLabel>
                 <input id="mf-title" ref={titleRef} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Weekly project sync" className={fieldClass(false)} />
@@ -370,11 +422,40 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
               <div className="flex flex-col gap-1.5">
                 <FieldLabel htmlFor="mf-desc">Description</FieldLabel>
                 <textarea id="mf-desc" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional agenda summary" className={fieldClass(false)} />
+                <WriteDescription
+                  current={description}
+                  disabled={!title.trim()}
+                  onUse={setDescription}
+                  onWrite={() =>
+                    aiApi(apiClient).writeMeetingDescription({
+                      title: title.trim(),
+                      ...(agenda.some((i) => i.title.trim()) ? { agenda: agenda.map((i) => i.title.trim()).filter(Boolean).slice(0, 30) } : {}),
+                      ...(sentence.trim() ? { text: sentence.trim() } : {}),
+                    })
+                  }
+                />
               </div>
               {!editing ? (
                 <>
                   <PeopleField value={people} onChange={changePeople} organizerId={organizerId} />
-                  <AgendaField value={agenda} onChange={setAgenda} leads={leads} minutes={lengthMinutes} />
+                  <AgendaField
+                    value={agenda}
+                    onChange={setAgenda}
+                    leads={leads}
+                    minutes={lengthMinutes}
+                    draftHint={!title.trim() ? 'Add a title first.' : !startIso ? 'Choose when it starts first.' : null}
+                    onDraft={() =>
+                      aiApi(apiClient).draftAgenda({
+                        title: title.trim(),
+                        ...(description.trim() ? { description: description.trim() } : {}),
+                        ...(sentence.trim() ? { text: sentence.trim() } : {}),
+                        projectId: projectId || null,
+                        startAt: startIso!,
+                        minutes: Math.min(720, Math.max(5, lengthMinutes)),
+                        peopleIds: leads.map((l) => l.id),
+                      })
+                    }
+                  />
                 </>
               ) : null}
             </div>
