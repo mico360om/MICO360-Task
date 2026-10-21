@@ -15,6 +15,10 @@
  * the web. Messages go in the order written: one written while an earlier one is kept on this device
  * waits behind it (the queue keeps a conversation's messages in order), and a file first has the
  * kept ones sent — if they can't go yet, it says so, with Retry.
+ *
+ * Nothing typed is lost: what is in the box, and messages the server refused, are kept for this
+ * conversation (src/chat-drafts.js) and come back on return; a kept message the sync gave up on
+ * shows here as not sent, with why, Retry and Discard (as in Settings → Sync).
  */
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
 import { writeErrorMessage } from '../components.js';
@@ -22,7 +26,7 @@ import { messageNode, messageSignature } from './message.js';
 import {
   mergeMessages, hasOlderPage, validateAttachment, placeholderFor, MAX_MESSAGE_LENGTH, CHAT_POLL_MS, NO_PREFS,
 } from '../../src/chat.js';
-import { newIdempotencyKey, getQueue } from '../../src/queue.js';
+import { newIdempotencyKey, getQueue, retryQueued, removeQueued } from '../../src/queue.js';
 import { tempId } from '../../src/pending-overlay.js';
 import { pastedFiles } from '../../src/clipboard-files.js';
 import { hasFiles } from '../../src/file-drop-guard.js';
@@ -46,7 +50,10 @@ export function ChatThread(ctx, conversationId) {
   let olderError = false;
   let loaded = false;
   let outgoing = [];       // messages sent from here that the server hasn't confirmed: { clientId, body, state, error, files, … }
+  let keptFailed = [];     // kept messages the sync gave up on (from the queue): { queueId, clientId, body, error, … }
+  let waiting = new Set(); // clientIds of this conversation's messages still kept, waiting to be sent
   const files = new Map(); // clientId → the File it sends (kept for Retry)
+  const drafts = ctx.chatDrafts || null;
   let chain = Promise.resolve(); // one send at a time, in the order written
   let directory = [];
   let projects = [];
@@ -87,6 +94,7 @@ export function ChatThread(ctx, conversationId) {
       sendText();
     }
   });
+  box.addEventListener('input', () => keepDraft());
   box.addEventListener('paste', (e) => {
     const got = pastedFiles(e.clipboardData, { typing: true });
     if (!got.length) return;
@@ -121,8 +129,10 @@ export function ChatThread(ctx, conversationId) {
   /** The first read. `quiet`: tried again on its own (a later read) — no spinner, and on failure the message stays. */
   async function load({ quiet = false } = {}) {
     if (!quiet) mount(list, Loader());
+    if (!quiet) await restoreDrafts();
     try {
       const [m, d] = await Promise.all([ctx.api.chat.messages(conversationId), call(ctx.api.directory)]);
+      await readKept();
       pages = [rows(m && m.data)];
       directory = rows(d && d.data);
       hasOlder = hasOlderPage(serverRows(pages[0]));
@@ -169,6 +179,7 @@ export function ChatThread(ctx, conversationId) {
       try {
         const m = await ctx.api.chat.messages(conversationId);
         const fresh = rows(m && m.data);
+        await readKept(); // after the read: a message kept meanwhile is still waiting
         const before = new Set(shown().map((x) => x.id));
         pages[0] = mergeNewest(pages[0] || [], fresh);
         if (pages.length === 1) hasOlder = hasOlderPage(serverRows(pages[0]));
@@ -192,13 +203,61 @@ export function ChatThread(ctx, conversationId) {
 
   /**
    * The newest page read again, over the one shown: messages already shown are kept (a message an
-   * older page doesn't hold yet must not fall out) and updated, new ones added; a message that was
-   * waiting on this device is gone once it is sent (the fresh page no longer has it).
+   * older page doesn't hold yet must not fall out) and updated, new ones added. A message that was
+   * waiting on this device is gone once it is sent (the fresh page has the server's copy, by its
+   * clientId) — but stays while it is still waiting: a read that began before it was kept doesn't
+   * have it yet.
    */
   function mergeNewest(old, fresh) {
     const byId = new Map(fresh.map((x) => [x.id, x]));
-    const kept = old.filter((x) => !x.pending && !byId.has(x.id));
+    const confirmed = new Set(fresh.map((x) => x.clientId).filter(Boolean));
+    const kept = old.filter((x) => !byId.has(x.id) && (!x.pending || (waiting.has(x.clientId) && !confirmed.has(x.clientId))));
     return [...kept, ...fresh].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  }
+
+  /** This conversation's messages in the queue: those still waiting, and those the sync gave up on. */
+  async function readKept() {
+    if (!ctx.storage) return;
+    let mine = [];
+    try {
+      mine = (await getQueue(ctx.storage)).filter((i) => i.userId === me && i.kind === 'chat.send' && i.payload && i.payload.conversationId === conversationId);
+    } catch {
+      return;
+    }
+    const clientOf = (i) => i.payload.clientId || i.idempotencyKey;
+    waiting = new Set(mine.filter((i) => i.status !== 'failed').map(clientOf));
+    keptFailed = mine.filter((i) => i.status === 'failed').map((i) => ({
+      queueId: i.id, clientId: clientOf(i), body: i.payload.body || '', state: 'failed', replyTo: null, files: [],
+      createdAt: new Date(typeof i.queuedAt === 'number' ? i.queuedAt : Date.now()).toISOString(),
+      error: String(i.lastError || '').replace(/^\d{3}\s*—\s*/, '') || 'Your message wasn’t sent.',
+    }));
+  }
+
+  /** What was being typed, and the messages the server refused, as they were left. */
+  async function restoreDrafts() {
+    if (!drafts) return;
+    let saved;
+    try {
+      saved = await drafts.get(conversationId);
+    } catch {
+      return;
+    }
+    if (!box.value && saved.draft) box.value = saved.draft;
+    for (const f of saved.failed) {
+      if (outgoing.some((p) => p.clientId === f.clientId)) continue;
+      outgoing.push({ clientId: f.clientId, key: newIdempotencyKey(), body: f.body, createdAt: f.createdAt || new Date().toISOString(), state: 'failed', error: f.error, replyTo: null, files: [] });
+    }
+  }
+
+  function keepDraft() {
+    if (drafts) void drafts.setDraft(conversationId, box.value);
+  }
+
+  /** The messages from here the server refused (text only: a file is never kept), for next time. */
+  function keepFailed() {
+    if (!drafts) return;
+    void drafts.setFailed(conversationId, outgoing.filter((p) => p.state === 'failed' && !files.has(p.clientId))
+      .map((p) => ({ clientId: p.clientId, body: p.body, createdAt: p.createdAt, error: p.error || '' })));
   }
 
   async function loadOlder() {
@@ -247,7 +306,7 @@ export function ChatThread(ctx, conversationId) {
   }
 
   function shown() {
-    return mergeMessages(pages, outgoing.map((p) => ({ ...p, conversationId })), me);
+    return mergeMessages(pages, [...outgoing, ...keptFailed].map((p) => ({ ...p, conversationId })), me);
   }
 
   function nameOf(userId) {
@@ -408,6 +467,7 @@ export function ChatThread(ctx, conversationId) {
     }
     setProblem('');
     box.value = '';
+    keepDraft();
     queueSend({ body: text, files: [] });
   }
 
@@ -428,6 +488,7 @@ export function ChatThread(ctx, conversationId) {
       return;
     }
     box.value = '';
+    keepDraft();
     ok.forEach((file, i) => queueSend({ body: i === 0 ? caption : '', files: [{ name: file.name, size: file.size, type: file.type, progress: 0 }] }, file));
   }
 
@@ -478,6 +539,7 @@ export function ChatThread(ctx, conversationId) {
     } finally {
       if (ctx.afterMutation) ctx.afterMutation();
     }
+    keepFailed();
     render();
   }
 
@@ -519,18 +581,43 @@ export function ChatThread(ctx, conversationId) {
     return outgoing.find((p) => p.clientId === m.clientId) || null;
   }
 
-  /** Send it again: a new try (a new Idempotency-Key — the server keeps its refusal of the last one), the same message. */
-  function retry(m) {
+  function findKept(m) {
+    return keptFailed.find((k) => k.clientId === m.clientId) || null;
+  }
+
+  /**
+   * Send it again: a new try (a new Idempotency-Key — the server keeps its refusal of the last one),
+   * the same message. One kept on this device goes back in line for the sync (as Settings → Sync's Retry).
+   */
+  async function retry(m) {
+    const k = findKept(m);
+    if (k) {
+      await retryQueued(ctx.storage, k.queueId);
+      keptFailed = keptFailed.filter((x) => x !== k);
+      render();
+      if (typeof ctx.requestSync === 'function') {
+        try { await ctx.requestSync(); } catch { /* the next sync sends it */ }
+      }
+      await poll();
+      return;
+    }
     const p = findOutgoing(m);
     if (!p) return;
     p.key = newIdempotencyKey();
     deliver(p);
   }
 
-  function discard(m) {
-    const p = findOutgoing(m);
-    if (!p) return;
-    settle(p);
+  async function discard(m) {
+    const k = findKept(m);
+    if (k) {
+      await removeQueued(ctx.storage, k.queueId);
+      keptFailed = keptFailed.filter((x) => x !== k);
+    } else {
+      const p = findOutgoing(m);
+      if (!p) return;
+      settle(p);
+      keepFailed();
+    }
     render();
     box.focus();
   }

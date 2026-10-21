@@ -145,3 +145,40 @@ describe('#3 the next person to sign in starts with their own settings, not the 
     });
   });
 });
+
+describe('#5 drafts and unsent messages are kept per conversation, for the person who wrote them', async () => {
+  const { createChatDrafts, CHAT_DRAFTS_KEY } = await import('./chat-drafts.js');
+  const { signOut, startSession } = await import('./session.js');
+
+  it('keeps what is typed and the refused messages per conversation, and only for that person', async () => {
+    const area = fakeStorage();
+    const mine = createChatDrafts(area, 'u1');
+    await mine.setDraft('c1', 'Half a thought');
+    await mine.setFailed('c1', [{ clientId: 'x1', body: 'Refused', createdAt: '2026-10-21T09:00:00Z', error: 'No.' }]);
+    await mine.setDraft('c2', 'Other');
+    expect(await mine.get('c1')).toEqual({ draft: 'Half a thought', failed: [{ clientId: 'x1', body: 'Refused', createdAt: '2026-10-21T09:00:00Z', error: 'No.' }] });
+    expect((await mine.get('c2')).draft).toBe('Other');
+    expect(await mine.get('c3')).toEqual({ draft: '', failed: [] });
+    expect(await createChatDrafts(area, 'u2').get('c1')).toEqual({ draft: '', failed: [] }); // someone else signed in here
+    await mine.setDraft('c1', '');
+    expect((await mine.get('c1')).draft).toBe('');
+    expect((await mine.get('c1')).failed).toHaveLength(1);
+  });
+
+  it('quick writes don’t undo each other', async () => {
+    const area = fakeStorage();
+    const d = createChatDrafts(area, 'u1');
+    await Promise.all([d.setDraft('c1', 'a'), d.setDraft('c2', 'b'), d.setFailed('c1', [{ clientId: 'x', body: 'y' }])]);
+    expect(await d.get('c1')).toMatchObject({ draft: 'a', failed: [{ clientId: 'x' }] });
+    expect((await d.get('c2')).draft).toBe('b');
+  });
+
+  it('go with a sign-out, and when someone else signs in after a session ended', async () => {
+    const session = fakeStorage({ [CHAT_DRAFTS_KEY]: { userId: 'u1', conversations: { c1: { draft: 'secret' } } } });
+    await signOut({ local: fakeStorage({ refreshToken: 'r' }), session, fetchImpl: async () => res(204) });
+    expect(session.data[CHAT_DRAFTS_KEY]).toBeUndefined();
+    const s2 = fakeStorage({ [CHAT_DRAFTS_KEY]: { userId: 'u1', conversations: { c1: { draft: 'secret' } } } });
+    await startSession({ local: fakeStorage({ cacheOwner: 'u1' }), session: s2 }, { accessToken: 'a', refreshToken: 'r', userId: 'u2', apiBase: 'https://task.mico360.com/api/v1' });
+    expect(s2.data[CHAT_DRAFTS_KEY]).toBeUndefined();
+  });
+});

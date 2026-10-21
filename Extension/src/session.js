@@ -6,7 +6,8 @@
  *   accessToken (chrome.storage.session), refreshToken, sessionUserId, sessionApiBase, sessionUser,
  *   syncQueue, cache:*, cacheOwner, lastUnread, lastUnreadUser, lastSync, quickAddLastProject,
  *   quickAddRecent, desktopAlerts (what the desktop alerts may say), and the popup's unsent form,
- *   right-click capture and what the last desktop alert was about (chrome.storage.session).
+ *   right-click capture, what the last desktop alert was about and chat text not sent yet
+ *   (chrome.storage.session).
  * Settings (apiBase, appBase, theme) and the company time zone are not user data and are kept.
  */
 import { createTokenStore, requestHeaders, timeoutSignal } from './auth.js';
@@ -16,17 +17,18 @@ import { assignOwnerlessItems } from './queue.js';
 import { CACHE_PREFIX } from './read-cache.js';
 import { LAST_PROJECT_KEY, RECENT_KEY, QUICK_ADD_SESSION_KEYS } from './quick-add.js';
 import { DESKTOP_ALERTS_KEY, ALERT_TARGET_KEY, clearDesktopAlert } from './notify.js';
+import { CHAT_DRAFTS_KEY } from './chat-drafts.js';
 
 export const USER_DATA_KEYS = ['syncQueue', 'cacheOwner', 'lastUnread', 'lastUnreadUser', 'lastSync', LAST_PROJECT_KEY, RECENT_KEY, DESKTOP_ALERTS_KEY];
 
 /**
  * One person's own settings and leftovers on this device (not their queue, which keeps its owner on
  * each change): what the desktop alerts may say, the popup's last project, recent tasks, unsent form
- * and right-click capture, and what the last alert was about. They go when someone else signs in —
- * after a session that ended rather than a sign-out, they are still there.
+ * and right-click capture, what the last alert was about, and chat text not sent yet. They go when
+ * someone else signs in — after a session that ended rather than a sign-out, they are still there.
  */
 const PERSON_LOCAL_KEYS = [DESKTOP_ALERTS_KEY, LAST_PROJECT_KEY, RECENT_KEY];
-const PERSON_SESSION_KEYS = [...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY];
+const PERSON_SESSION_KEYS = [...QUICK_ADD_SESSION_KEYS, ALERT_TARGET_KEY, CHAT_DRAFTS_KEY];
 
 /** Delete every cached API response (`cache:*`). */
 export async function clearCache(local) {
@@ -43,8 +45,8 @@ export async function clearUserData({ local, session, notifications }) {
   clearDesktopAlert(notifications);
   await createTokenStore({ local, session }).clear();
   await local.remove(USER_DATA_KEYS);
-  // The popup's unsent form, what the right-click menu captured for it, and what the last desktop
-  // alert was about (memory only).
+  // The popup's unsent form, what the right-click menu captured for it, what the last desktop alert
+  // was about, and chat text not sent yet (memory only).
   await session.remove(PERSON_SESSION_KEYS);
   await clearCache(local);
 }

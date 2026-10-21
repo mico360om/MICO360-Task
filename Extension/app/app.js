@@ -12,6 +12,7 @@ import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
 import { showModal, returnFocus, createRouteHold } from './dialog.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
+import { createChatDrafts } from '../src/chat-drafts.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -177,6 +178,8 @@ class App {
     // again under it — not on coming back to the tab, nor on a hash change: those wait until it has
     // closed. The task drawer doesn't count (a route change is how it closes).
     this.hold = createRouteHold(document, { except: () => this.overlay });
+    // Chat text not sent yet, per conversation, for this person (memory only; gone on sign-out).
+    this.chatDrafts = createChatDrafts(sessionStore, this.me.id);
   }
 
   ctx(params, query) {
@@ -189,6 +192,7 @@ class App {
       me: this.me,
       manifest: this.manifest,
       timeZone: this.timeZone,
+      chatDrafts: this.chatDrafts,
       params: params || {},
       query: query || {},
       isOnline: () => this.state.online,
