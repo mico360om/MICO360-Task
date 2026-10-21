@@ -84,8 +84,6 @@ export function createApi({ auth, cache, pending }) {
     return applied ? { ...read, data, pending: applied } : read;
   };
   const post = (path, body) => raw(path, { method: 'POST', body: JSON.stringify(body ?? {}) });
-  const put = (path, body) => raw(path, { method: 'PUT', body: JSON.stringify(body ?? {}) });
-  const del = (path) => raw(path, { method: 'DELETE' });
 
   /**
    * A file (an export) with the session: `{ blob, fileName }`, the name as the server sent it (or
@@ -115,7 +113,6 @@ export function createApi({ auth, cache, pending }) {
       list: () => get('projects', '/projects'),
       get: (id) => get(`project:${id}`, `/projects/${id}`),
       columns: (id) => get(`columns:${id}`, `/projects/${id}/columns`),
-      members: (id) => get(`members:${id}`, `/projects/${id}/members`),
       progress: (id) => get(`progress:${id}`, `/projects/${id}/progress`),
     },
     tasks: {
@@ -136,18 +133,13 @@ export function createApi({ auth, cache, pending }) {
         return get(`tasks:${query}`, `/tasks${query}`);
       },
       get: (id) => get(`task:${id}`, `/tasks/${id}`),
-      remove: (id) => del(`/tasks/${id}`),
       assignees: (id) => get(`assignees:${id}`, `/tasks/${id}/assignees`),
       checklist: (id) => get(`checklist:${id}`, `/tasks/${id}/checklist`),
-      removeChecklistItem: (itemId) => del(`/checklist/${itemId}`),
       comments: (id) => get(`comments:${id}`, `/tasks/${id}/comments`),
-      tags: (id) => get(`tags:${id}`, `/tasks/${id}/tags`),
-      setTags: (id, tags) => put(`/tasks/${id}/tags`, { tags }),
     },
     notifications: {
       list: () => get('notifications', '/notifications'),
       unreadCount: () => get('unread', '/notifications/unread-count'),
-      markAllRead: () => post('/notifications/read-all'),
     },
     directory: () => get('directory', '/users/directory'),
     chat: {

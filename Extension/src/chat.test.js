@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  unreadTotal, describeConversations, badgeText, messagePreview, sanitizeMessage, sanitizeMessages, sanitizeSummaries, DELETED_PREVIEW,
+  describeConversations, badgeText, messagePreview, sanitizeMessage, sanitizeMessages, sanitizeSummaries, DELETED_PREVIEW,
 } from './chat.js';
 
 const summary = (over = {}) => ({
@@ -9,16 +9,6 @@ const summary = (over = {}) => ({
   unread: 0,
   lastMessage: null,
   ...over,
-});
-
-describe('unreadTotal', () => {
-  it('sums unread across conversations', () => {
-    expect(unreadTotal([summary({ unread: 3 }), summary({ unread: 2 })])).toBe(5);
-  });
-  it('handles empty / missing input', () => {
-    expect(unreadTotal([])).toBe(0);
-    expect(unreadTotal(undefined)).toBe(0);
-  });
 });
 
 describe('describeConversations', () => {

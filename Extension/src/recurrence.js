@@ -53,11 +53,6 @@ export function isEarlierCopy(task) {
   return Boolean(task && task.recurrenceNextId);
 }
 
-/** Every copy of a series links to it. */
-export function inSeries(task) {
-  return Boolean(task && (task.recurrenceRule || task.recurrenceParentId));
-}
-
 function without(rule, ...keys) {
   const copy = { ...rule };
   for (const k of keys) delete copy[k];
