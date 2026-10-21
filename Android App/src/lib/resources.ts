@@ -12,6 +12,7 @@ import type {
   ApiComment,
   ApiConversation,
   ApiConversationSummary,
+  ConversationPrefs,
   ApiDirectoryUser,
   ApiMember,
   ApiMentionable,
@@ -464,15 +465,43 @@ export function resourcesApi(client: ApiClient) {
             `/conversations/${seg(conversationId)}/messages${queryString({ before, limit: limit ? String(limit) : undefined })}`,
           ),
         ),
-      /** Send. With a client id the server hands a retry the first message back, never a second copy. */
-      send: (conversationId: string, body: string, opts?: WriteOptions & { clientId?: string }) =>
+      /**
+       * Send. With a client id the server hands a retry the first message back, never a second copy;
+       * a reply names the message it answers (3b).
+       */
+      send: (conversationId: string, body: string, opts?: WriteOptions & { clientId?: string; replyToId?: string | null }) =>
         data(
           client.post<Envelope<ApiChatMessage>>(
             `/conversations/${seg(conversationId)}/messages`,
-            opts?.clientId ? { body, clientId: opts.clientId } : { body },
+            { body, ...(opts?.clientId ? { clientId: opts.clientId } : {}), ...(opts?.replyToId ? { replyToId: opts.replyToId } : {}) },
             idempotencyHeaders(opts?.idempotencyKey),
           ),
         ),
+      /**
+       * Send a picture or file, with an optional caption (3b). The fields go before the file, so the
+       * server reads them first; with a client id a retried upload gets the first one back.
+       */
+      uploadAttachment: (
+        conversationId: string,
+        part: { uri: string; name: string; type: string },
+        opts: { body?: string; clientId?: string; replyToId?: string | null; onProgress?: (fraction: number) => void } = {},
+      ) => {
+        const form = new FormData();
+        if (opts.clientId) form.append('clientId', opts.clientId);
+        if (opts.replyToId) form.append('replyToId', opts.replyToId);
+        if (opts.body) form.append('body', opts.body);
+        // React Native sends a { uri, name, type } part as the file's bytes.
+        form.append('file', part as unknown as Blob);
+        return data(client.upload<Envelope<ApiChatMessage>>(`/conversations/${seg(conversationId)}/attachments`, form, opts.onProgress ? { onProgress: opts.onProgress } : undefined));
+      },
+      /** Favorite, archive or mute — for the signed-in person only (3b). */
+      setPrefs: (conversationId: string, prefs: Partial<ConversationPrefs>) =>
+        data(client.put<Envelope<ConversationPrefs>>(`/conversations/${seg(conversationId)}/prefs`, prefs)),
+      /** This phone has received the conversation's messages: the sender sees "Delivered" (3b). */
+      markDelivered: (conversationId: string) => client.post<void>(`/conversations/${seg(conversationId)}/delivered`, {}),
+      /** Messages containing the words — in all of your conversations, or in one (3b). */
+      search: (q: string, conversationId?: string) =>
+        data(client.get<Envelope<ApiChatMessage[]>>(`/chat/search${queryString({ q, conversationId })}`)),
       /** Who is in a conversation (user ids): a channel's project people, or a direct conversation's two. */
       members: (conversationId: string) => data(client.get<Envelope<string[]>>(`/conversations/${seg(conversationId)}/members`)),
       edit: (messageId: string, body: string) => data(client.patch<Envelope<ApiChatMessage>>(`/messages/${seg(messageId)}`, { body })),

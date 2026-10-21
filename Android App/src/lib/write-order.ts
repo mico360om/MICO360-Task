@@ -62,6 +62,11 @@ export function writeTarget(kind: string, payload: unknown): string | null {
       return tagged('attendee', p.attendeeId);
     case 'meeting.action.update':
       return tagged('action', p.id);
+    // A chat message's edits, deletion and reactions (3b), in the order they were made.
+    case 'chat.edit':
+    case 'chat.delete':
+    case 'chat.react':
+      return tagged('chatmsg', p.messageId);
     default:
       return null;
   }
@@ -111,6 +116,12 @@ function fieldsOf(kind: string, payload: unknown): string[] | null {
     case 'checklist.update':
     case 'meeting.action.update':
       return patchKeys();
+    case 'chat.edit':
+      return ['body'];
+    case 'chat.react': {
+      const emoji = (payload as { emoji?: unknown } | null)?.emoji;
+      return typeof emoji === 'string' ? [`reaction:${emoji}`] : null;
+    }
     default:
       return null;
   }

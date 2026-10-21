@@ -606,3 +606,45 @@ describe('resourcesApi.chat: the server contract (3a)', () => {
     expect(calls[0]).toMatchObject({ method: 'GET', path: '/conversations/c1/members' });
   });
 });
+
+describe('resourcesApi.chat: the 3b routes', () => {
+  it('a reply names the message it answers', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).chat.send('c1', 'Yes', { clientId: 'k1', replyToId: 'm9' });
+    expect(calls[0]).toEqual({ method: 'POST', path: '/conversations/c1/messages', body: { body: 'Yes', clientId: 'k1', replyToId: 'm9' } });
+  });
+
+  it('sends a file with its caption, client id and reply — the fields before the file', async () => {
+    const appended: string[] = [];
+    const original = (globalThis as { FormData?: unknown }).FormData;
+    (globalThis as { FormData?: unknown }).FormData = class {
+      append(name: string) {
+        appended.push(name);
+      }
+    };
+    try {
+      const seen: { path: string; hasProgress: boolean }[] = [];
+      const client = { upload: (path: string, _f: FormData, opts?: { onProgress?: unknown }) => (seen.push({ path, hasProgress: !!opts?.onProgress }), Promise.resolve({ data: { id: 'm1' } })) } as unknown as ApiClient;
+      await resourcesApi(client).chat.uploadAttachment('c1', { uri: 'file:///a.png', name: 'a.png', type: 'image/png' }, { body: 'Look', clientId: 'k2', replyToId: 'm9', onProgress: () => {} });
+      expect(appended).toEqual(['clientId', 'replyToId', 'body', 'file']);
+      expect(seen).toEqual([{ path: '/conversations/c1/attachments', hasProgress: true }]);
+    } finally {
+      (globalThis as { FormData?: unknown }).FormData = original;
+    }
+  });
+
+  it('changes my settings for a conversation, says a message arrived, and searches messages', async () => {
+    const { client, calls } = fakeClient();
+    const chat = resourcesApi(client).chat;
+    await chat.setPrefs('c1', { muted: true });
+    await chat.markDelivered('c1');
+    await chat.search('budget plan');
+    await chat.search('budget', 'c1');
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['PUT', '/conversations/c1/prefs', { muted: true }],
+      ['POST', '/conversations/c1/delivered', {}],
+      ['GET', '/chat/search?q=budget%20plan', undefined],
+      ['GET', '/chat/search?q=budget&conversationId=c1', undefined],
+    ]);
+  });
+});

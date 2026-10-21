@@ -88,8 +88,28 @@ export async function performMutation(resources: ResourcesApi, m: QueuedMutation
     case 'chat.send': {
       // The client id (from 3a) lets the server hand a retry the first message back; the server's
       // copy comes back so the thread can show it in place of the one waiting (chat-cache).
-      const p = m.payload as { conversationId: string; body: string; clientId?: unknown };
-      return resources.chat.send(p.conversationId, p.body, typeof p.clientId === 'string' && p.clientId ? { ...write, clientId: p.clientId } : write);
+      // A reply carries the id of the message it answers (3b).
+      const p = m.payload as { conversationId: string; body: string; clientId?: unknown; replyToId?: unknown };
+      return resources.chat.send(p.conversationId, p.body, {
+        ...write,
+        ...(typeof p.clientId === 'string' && p.clientId ? { clientId: p.clientId } : {}),
+        ...(typeof p.replyToId === 'string' && p.replyToId ? { replyToId: p.replyToId } : {}),
+      });
+    }
+    // A message's edit, deletion or reaction made without a connection (3b).
+    case 'chat.edit': {
+      const p = m.payload as { messageId: string; body: string };
+      return resources.chat.edit(p.messageId, p.body);
+    }
+    case 'chat.delete': {
+      const p = m.payload as { messageId: string };
+      await resources.chat.remove(p.messageId);
+      return;
+    }
+    case 'chat.react': {
+      const p = m.payload as { messageId: string; emoji: string; add?: boolean };
+      await (p.add === false ? resources.chat.removeReaction(p.messageId, p.emoji) : resources.chat.addReaction(p.messageId, p.emoji));
+      return;
     }
     // Meetings (2b): what is taken down in a meeting room with a poor connection.
     case 'meeting.note.add': {
@@ -176,9 +196,14 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
     case 'notification.read':
       return [{ queryKey: ['notifications'] }];
     case 'chat.send':
+    case 'chat.edit':
+    case 'chat.delete':
       // The thread already has the server's copy (put in as the reply came, chat-cache); the inbox
       // (last message, unread) is fetched again.
       return [{ queryKey: ['chat', 'conversations'] }];
+    case 'chat.react':
+      // Put in place in the thread (and heard live by everyone else): nothing to fetch.
+      return [];
     case 'meeting.note.add':
     case 'meeting.action.add':
     case 'meeting.action.update':
@@ -230,6 +255,12 @@ export function describeMutation(m: Pick<QueuedMutation, 'kind' | 'payload'>): s
       return 'Mark a notification read';
     case 'chat.send':
       return `Message “${snippet(p.body)}”`;
+    case 'chat.edit':
+      return `Edit a message: “${snippet(p.body)}”`;
+    case 'chat.delete':
+      return 'Delete a message';
+    case 'chat.react':
+      return p.add === false ? `Take back a ${typeof p.emoji === 'string' ? p.emoji : ''} reaction` : `React with ${typeof p.emoji === 'string' ? p.emoji : ''}`;
     case 'meeting.note.add':
       return `Meeting note “${snippet(p.body)}”`;
     case 'meeting.action.add':

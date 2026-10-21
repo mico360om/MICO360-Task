@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { newestPageCopy, patchThreadMessage, upsertThreadMessage, type ThreadPages } from './chat-thread';
+import { applyReaction } from './chat-realtime';
 import type { QueuedMutation } from './sync-queue';
 import type { ApiChatMessage } from './types';
 
@@ -80,10 +81,27 @@ export function createChatCache({ queryClient, keepCopy, reviseCopy }: ChatCache
     change(conversationId, (d) => patchThreadMessage(d, id, fn));
   }
 
-  /** A queued message reached the server: its saved copy takes the waiting one's place. */
-  function afterSent(m: Pick<QueuedMutation, 'kind' | 'payload'>, result: unknown): void {
-    if (m.kind !== 'chat.send' || !isMessage(result)) return;
-    put(result.conversationId, result);
+  /**
+   * A queued chat change reached the server: a message's saved copy takes the waiting one's place;
+   * an edit, deletion or reaction (3b) shows in the thread as the server now has it.
+   */
+  function afterSent(m: Pick<QueuedMutation, 'kind' | 'payload'> & { userId?: string }, result: unknown): void {
+    if (m.kind === 'chat.send') {
+      if (isMessage(result)) put(result.conversationId, result);
+      return;
+    }
+    const p = (m.payload ?? {}) as { conversationId?: unknown; messageId?: unknown; emoji?: unknown; add?: unknown };
+    if (typeof p.conversationId !== 'string' || typeof p.messageId !== 'string') return;
+    const cid = p.conversationId;
+    if (m.kind === 'chat.edit' && isMessage(result)) {
+      patch(cid, p.messageId, (x) => ({ ...x, body: result.body, editedAt: result.editedAt ?? new Date().toISOString() }));
+    } else if (m.kind === 'chat.delete') {
+      patch(cid, p.messageId, (x) => ({ ...x, body: '', deletedAt: x.deletedAt ?? new Date().toISOString(), attachments: [], reactions: [] }));
+    } else if (m.kind === 'chat.react' && typeof p.emoji === 'string' && m.userId) {
+      const emoji = p.emoji;
+      const who = m.userId;
+      patch(cid, p.messageId, (x) => ({ ...x, reactions: applyReaction(x.reactions ?? [], emoji, who, p.add !== false) }));
+    }
   }
 
   return { put, patch, afterSent };

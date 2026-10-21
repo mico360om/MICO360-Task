@@ -50,6 +50,16 @@ describe('enqueueChatMessage (every message is kept on the phone until the serve
     expect(d.queue.pendingFor('u1').map((m) => (m.payload as { body: string }).body)).toEqual(['one', 'two']);
   });
 
+  it('a reply keeps the message it answers: its id is sent, its quote shows meanwhile (3b)', async () => {
+    const d = deps();
+    const quote = { id: 'm9', userId: 'u2', body: 'Can you check?', deleted: false };
+    await enqueueChatMessage(d, 'c1', 'On it', quote);
+    const [m] = d.queue.pendingFor('u1');
+    expect(m!.payload).toEqual({ conversationId: 'c1', body: 'On it', clientId: 'key-1', replyToId: 'm9', replyTo: quote });
+    const [entry] = outboxFor('c1', { pending: d.queue.pendingFor('u1'), failed: [] }, { online: true, confirmed: new Set() });
+    expect(entry!.replyTo).toEqual(quote);
+  });
+
   it('refuses an empty message, one over the server’s limit, and one while signed out', async () => {
     const d = deps();
     expect(await enqueueChatMessage(d, 'c1', '   ')).toEqual({ ok: false, error: 'Type a message first.' });

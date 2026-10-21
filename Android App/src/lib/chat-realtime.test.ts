@@ -18,7 +18,7 @@ const INBOX = { queryKey: ['chat', 'conversations'] };
 
 describe('CHAT_EVENTS', () => {
   it('matches the server/web event names', () => {
-    expect([...CHAT_EVENTS]).toEqual(['chat:message', 'chat:message:edited', 'chat:message:deleted', 'chat:reaction', 'chat:read']);
+    expect([...CHAT_EVENTS]).toEqual(['chat:message', 'chat:message:edited', 'chat:message:deleted', 'chat:reaction', 'chat:read', 'chat:delivered']);
   });
 });
 
@@ -53,9 +53,16 @@ describe('chatEventPlan (a live event changes the thread in place; the history i
     expect(add.refresh).toEqual([]);
   });
 
-  it('reading on another of my devices refreshes the unread numbers; someone else reading changes nothing here', () => {
+  it('reading — mine on another device, or someone else’s — refreshes the list: the unread numbers and the receipts (3b)', () => {
     expect(chatEventPlan('chat:read', { conversationId: 'c1', userId: 'me' }, 'me')).toEqual({ refresh: [INBOX] });
-    expect(chatEventPlan('chat:read', { conversationId: 'c1', userId: 'u2' }, 'me')).toEqual({ refresh: [] });
+    // Someone else read: my messages show "Read" / "Seen by N" (from the list's participants).
+    expect(chatEventPlan('chat:read', { conversationId: 'c1', userId: 'u2' }, 'me')).toEqual({ refresh: [INBOX] });
+  });
+
+  it('their app received my message: the list is fetched again, so it shows "Delivered" (3b)', () => {
+    expect(chatEventPlan('chat:delivered', { conversationId: 'c1', userId: 'u2' }, 'me')).toEqual({ refresh: [INBOX] });
+    // My own phone saying so changes nothing I see.
+    expect(chatEventPlan('chat:delivered', { conversationId: 'c1', userId: 'me' }, 'me')).toEqual({ refresh: [] });
   });
 
   it('an event it can’t read refreshes what it names, as before', () => {

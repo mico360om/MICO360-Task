@@ -158,6 +158,23 @@ describe('a message put in while its thread is being fetched again survives that
   });
 });
 
+describe('an edit, deletion or reaction kept on the phone, once sent (3b)', () => {
+  it('shows in the thread in place: the server’s edit, the tombstone, the reaction', () => {
+    const qc = client();
+    seed(qc, 'c1', [msg('a', '01'), msg('b', '02'), msg('c', '03')]);
+    const cache = createChatCache({ queryClient: qc });
+    const done = (kind: string, payload: unknown) => ({ ...sent(payload, kind), userId: 'u1' });
+    cache.afterSent(done('chat.edit', { conversationId: 'c1', messageId: 'a', body: 'x' }), msg('a', '01', { body: 'edited a', editedAt: '2026-10-21T09:00:00.000Z' }));
+    cache.afterSent(done('chat.delete', { conversationId: 'c1', messageId: 'b' }), undefined);
+    cache.afterSent(done('chat.react', { conversationId: 'c1', messageId: 'c', emoji: '👍', add: true }), undefined);
+    const byId = new Map(threadMessages(qc.getQueryData<ThreadPages>(threadKey('c1'))).map((m) => [m.id, m]));
+    expect(byId.get('a')).toMatchObject({ body: 'edited a', editedAt: '2026-10-21T09:00:00.000Z' });
+    expect(byId.get('b')).toMatchObject({ body: '', reactions: [], attachments: [] });
+    expect(byId.get('b')!.deletedAt).not.toBeNull();
+    expect(byId.get('c')!.reactions).toEqual([{ emoji: '👍', userIds: ['u1'] }]);
+  });
+});
+
 describe('an edit or deletion for a thread that isn’t loaded (3a review fix 9)', () => {
   it('changes the thread’s offline copy, so the retracted words don’t stay on the phone', () => {
     const qc = client();

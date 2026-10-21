@@ -18,6 +18,7 @@ export const CHAT_EVENTS = [
   'chat:message:deleted',
   'chat:reaction',
   'chat:read',
+  'chat:delivered',
 ] as const;
 
 export type ChatEvent = (typeof CHAT_EVENTS)[number];
@@ -85,8 +86,12 @@ export function chatEventPlan(event: ChatEvent, payload: ChatEventPayload | unde
       return { patch: { conversationId, id, change: (x) => ({ ...x, reactions: applyReaction(x.reactions ?? [], emoji, userId, add) }) }, refresh: [] };
     }
     case 'chat:read':
-      // Read receipts are 3b: only my own reading (another device) changes what this phone shows.
-      return { refresh: str(p.userId) === myId ? [INBOX] : [] };
+      // My reading on another device (the unread numbers), or someone else's (my messages' receipts,
+      // from the list's participants — 3b): the list is fetched again.
+      return { refresh: [INBOX] };
+    case 'chat:delivered':
+      // Their app received my messages: "Delivered" (3b). My own phone saying so changes nothing.
+      return { refresh: str(p.userId) === myId ? [] : [INBOX] };
     default:
       return fallback;
   }

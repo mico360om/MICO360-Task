@@ -1,4 +1,5 @@
 import { NO_ANSWER_TEXT, waitingTooLong, type QueuedMutation, type SyncQueue } from './sync-queue';
+import type { ReplyQuote } from './types';
 
 /**
  * The chat outbox (3a): every message is kept on the phone — in the offline queue (sync-queue),
@@ -38,13 +39,18 @@ export interface OutboxEntry {
   reason?: string;
   /** Still waiting, but too long (no answer, or a long wait): it can be discarded, as in the sync list. */
   canDiscard?: true;
+  /** The message it answers (3b). */
+  replyTo?: ReplyQuote | null;
 }
 
 interface ChatSendPayload {
   conversationId?: unknown;
   body?: unknown;
   clientId?: unknown;
+  replyTo?: unknown;
 }
+
+const isQuote = (v: unknown): v is ReplyQuote => !!v && typeof v === 'object' && typeof (v as ReplyQuote).id === 'string' && typeof (v as ReplyQuote).userId === 'string';
 
 const payloadOf = (m: Pick<QueuedMutation, 'payload'>): ChatSendPayload => (m.payload ?? {}) as ChatSendPayload;
 const clientIdOf = (m: Pick<QueuedMutation, 'payload'>): string | null => {
@@ -64,11 +70,15 @@ export interface EnqueueDeps {
   newKey: () => string;
 }
 
-/** Keep a message on the phone and start sending it; or why it can't be sent. */
+/**
+ * Keep a message on the phone and start sending it; or why it can't be sent. A reply keeps the
+ * message it answers: its id goes to the server, its quote shows in the thread meanwhile (3b).
+ */
 export async function enqueueChatMessage(
   deps: EnqueueDeps,
   conversationId: string,
   text: string,
+  replyTo?: ReplyQuote | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const body = text.trim();
   if (!body) return { ok: false, error: 'Type a message first.' };
@@ -78,7 +88,8 @@ export async function enqueueChatMessage(
   const userId = deps.userId();
   if (!userId) return { ok: false, error: 'You’re signed out. Sign in again to send messages.' };
   const key = deps.newKey();
-  await deps.queue.enqueue(CHAT_SEND, { conversationId, body, clientId: key }, { userId, idempotencyKey: key });
+  const reply = replyTo ? { replyToId: replyTo.id, replyTo } : {};
+  await deps.queue.enqueue(CHAT_SEND, { conversationId, body, clientId: key, ...reply }, { userId, idempotencyKey: key });
   deps.sync();
   return { ok: true };
 }
@@ -122,6 +133,7 @@ export function outboxFor(
       createdAt: new Date(m.createdAt).toISOString(),
       state,
       ...(state === 'failed' ? { reason: notSentReason(m) } : {}),
+      ...(isQuote(p.replyTo) ? { replyTo: p.replyTo } : {}),
       // The same rule as the sync list: a message stuck waiting can be discarded (2c review).
       ...(state !== 'failed' && waitingTooLong(m, now) ? { canDiscard: true as const } : {}),
     });
