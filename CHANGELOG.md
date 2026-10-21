@@ -23,16 +23,34 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   title), and "Mark done" finishes a task straight from the list.
 - The Chrome extension's projects show their picture or icon, their number and their status in plain
   words, with "Open dashboard on the web".
+- The Chrome extension's Settings → Notifications lets you choose which notifications you get, when
+  "due soon" reminders come, and your morning emails, as on the website. Desktop alerts can say what
+  the newest notification is about (off until you turn it on), and clicking one opens it.
+- The Chrome extension's chat stays current: an open conversation shows new messages every few
+  seconds, and you can send files and pasted pictures, load older messages, start a direct message,
+  and favorite, mute or archive conversations. Pictures, files, the message a reply answers and
+  reactions are shown, and the sender sees "Delivered" once your direct messages arrive. What you type
+  and messages that weren't sent stay with their conversation.
 
 ### Security
 - The Chrome extension shows project pictures only from your MICO360 server, and uses only proper
-  colour values.
+  colour values; files and pictures in chat are linked only from the server's stored uploads.
+- The Chrome extension: the next person to sign in after a session ends starts clean (the last
+  person's desktop-alert setting, drafts and recent tasks don't carry over), and signing out takes the
+  last desktop alert off the screen.
 
 ### Bug fixes
 - The Chrome extension: a task added from the board's New task form while you switched tabs now
   appears on the board at once; after adding a task from an empty column, focus goes back to that
   column's "Add a task"; "Mark done" keeps keyboard focus while it works and when it can't be done; and
   screen readers hear a project card's status, number and description.
+- The Chrome extension's chat: messages go in the order written, even when an earlier one waits on
+  this device; Retry really sends again after a refusal; a message just saved on this device no longer
+  disappears for a few seconds; a conversation that is gone says so; and it reads well with a screen
+  reader.
+- The Chrome extension: typing the morning-email time saves it once, when you leave the field or press
+  Enter (it used to save 00:00 while you typed), and quick changes to notification preferences save in
+  order.
 
 ## [1.7.0] - 2026-10-21
 
