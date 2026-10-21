@@ -167,6 +167,22 @@ describe('New user, as the website’s dialog', () => {
       unsure: true,
     });
   });
+
+  // 6b review: the server answers 409 IDEMPOTENCY_IN_PROGRESS while the first try (same key) is
+  // still running. That is not "already in use": the account may be made, so the key is kept and
+  // the same try sent again gets the first one's answer — never a second account.
+  it('a try still being created on the server is “still creating”, its key kept — not “already in use”', () => {
+    expect(createUserProblem(refused(409, 'IDEMPOTENCY_IN_PROGRESS', 'The original request is still being processed. Retry shortly.'))).toEqual({
+      field: null,
+      message: 'The account is still being created. Wait a moment, then tap Create user again: it won’t be made twice.',
+      unsure: true,
+    });
+    // Any other conflict is still a name or email in use, and a fixed try is a new one.
+    expect(createUserProblem(refused(409, 'CONFLICT', 'A user with this email or username already exists.'))).toEqual({
+      field: 'username',
+      message: 'That email or username is already in use. Choose a different one.',
+    });
+  });
 });
 
 describe('Edit a user, as the website’s Manage account dialog', () => {

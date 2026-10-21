@@ -166,6 +166,11 @@ export function createUserProblem(error: unknown): { field: NewUserField | null;
   // Sent with its own key: the same try again is answered with the first one's result, never a second account.
   if (isNetworkError(error)) return { field: null, message: 'We couldn’t confirm the account was created. Tap Create user again: it won’t be made twice.', unsure: true };
   if (error instanceof ApiError) {
+    // The first try (same key) is still running on the server (6b review): not a refusal — the key
+    // is kept, so tapping again gets that try's answer.
+    if (error.code === 'IDEMPOTENCY_IN_PROGRESS') {
+      return { field: null, message: 'The account is still being created. Wait a moment, then tap Create user again: it won’t be made twice.', unsure: true };
+    }
     if (error.code === 'WEAK_PASSWORD') return { field: 'password', message: PASSWORD_RULE_ERROR };
     if (error.code === 'DUPLICATE_USER' || error.status === 409) return { field: 'username', message: 'That email or username is already in use. Choose a different one.' };
     const issue = fieldIssue(error);
