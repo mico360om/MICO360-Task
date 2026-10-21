@@ -6,11 +6,11 @@ import {
   barsSummary,
   chartRows,
   chartSummary,
-  dashed,
+  dashedLine,
   gridValues,
   lineSegments,
   niceCeil,
-  sampleIndexes,
+  sampleWithPeaks,
   type Segment,
 } from '../lib/chart';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -73,8 +73,13 @@ const PLOT_HEIGHT = 160;
 /** At most this many points of a line are drawn (the numbers list every day). */
 const MAX_POINTS = 60;
 
-/** A line chart: grid lines with their values, the lines, the first and last day, a key. */
-export function LineChart({ title, labels, lines }: { title: string; labels: string[]; lines: Line[] }) {
+/**
+ * A line chart: the scale's values beside the plot, grid lines, the lines, the first and last day, a
+ * key. The plot is drawn left to right on any phone (an Arabic phone mirrors layouts, not charts);
+ * the values sit in their own column — never under the lines, never above the plot at a large font
+ * (5c review #13). Kept as it is while the screen re-renders with the same lines (typing a date).
+ */
+export const LineChart = React.memo(function LineChart({ title, labels, lines, days }: { title: string; labels: string[]; lines: Line[]; days?: string[] }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const [width, setWidth] = useState(0);
@@ -83,6 +88,8 @@ export function LineChart({ title, labels, lines }: { title: string; labels: str
   const summary = chartSummary(title, labels, series);
 
   const n = Math.max(labels.length, ...lines.map((l) => l.values.length), 0);
+  // The points drawn, each line's highest and lowest kept (a spike the summary names stays in sight).
+  const idx = useMemo(() => sampleWithPeaks(n, MAX_POINTS, lines.map((l) => l.values)), [n, lines]);
   if (n === 0 || !lines.some((l) => l.values.length > 0)) {
     return (
       <Text style={s.noData} accessibilityLabel={summary}>
@@ -91,41 +98,49 @@ export function LineChart({ title, labels, lines }: { title: string; labels: str
     );
   }
   const top = niceCeil(Math.max(1, ...lines.flatMap((l) => l.values)));
-  const idx = sampleIndexes(n, MAX_POINTS);
   const onLayout = (e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width));
   const y = (v: number) => (1 - v / top) * PLOT_HEIGHT;
 
   return (
     <View style={s.lineWrap}>
       <View accessible accessibilityRole="image" accessibilityLabel={summary}>
-        <View style={s.plot} onLayout={onLayout} importantForAccessibility="no-hide-descendants">
-          {gridValues(top).map((v, i) => (
-            <View key={`g${i}`} style={[s.grid, { top: y(v) }]}>
-              <Text style={s.gridLabel}>{v}</Text>
+        <View style={s.plotRow} importantForAccessibility="no-hide-descendants">
+          <View style={s.gutter}>
+            {[...gridValues(top)].reverse().map((v, i) => (
+              <Text key={`v${i}`} style={s.gridLabel} numberOfLines={1}>
+                {v}
+              </Text>
+            ))}
+          </View>
+          <View style={s.flex}>
+            <View style={s.plot} onLayout={onLayout}>
+              {gridValues(top).map((v, i) => (
+                <View key={`g${i}`} style={[s.grid, { top: y(v) }]} />
+              ))}
+              {width > 0
+                ? lines.map((l) => (
+                    <React.Fragment key={l.name}>
+                      {l.area ? <Area values={l.values} idx={idx} width={width} top={top} color={l.color} /> : null}
+                      {pieces(l, idx, width, top).map((seg, i) => (
+                        <View key={i} style={[s.seg, place(seg), { backgroundColor: l.color }]} />
+                      ))}
+                      {!l.dashed && l.values.length > 0 ? (
+                        <View
+                          style={[
+                            s.end,
+                            { backgroundColor: l.color, left: (n <= 1 ? width / 2 : width) - 4, top: y(l.values[l.values.length - 1] ?? 0) - 4 },
+                          ]}
+                        />
+                      ) : null}
+                    </React.Fragment>
+                  ))
+                : null}
             </View>
-          ))}
-          {width > 0
-            ? lines.map((l) => (
-                <React.Fragment key={l.name}>
-                  {l.area ? <Area values={l.values} idx={idx} width={width} top={top} color={l.color} /> : null}
-                  {pieces(l, idx, width, top).map((seg, i) => (
-                    <View key={i} style={[s.seg, place(seg), { backgroundColor: l.color }]} />
-                  ))}
-                  {!l.dashed && l.values.length > 0 ? (
-                    <View
-                      style={[
-                        s.end,
-                        { backgroundColor: l.color, left: (n <= 1 ? width / 2 : width) - 4, top: y(l.values[l.values.length - 1] ?? 0) - 4 },
-                      ]}
-                    />
-                  ) : null}
-                </React.Fragment>
-              ))
-            : null}
-        </View>
-        <View style={s.axis} importantForAccessibility="no-hide-descendants">
-          <Text style={s.axisLabel}>{labels[0]}</Text>
-          {labels.length > 1 ? <Text style={s.axisLabel}>{labels[labels.length - 1]}</Text> : null}
+            <View style={s.axis}>
+              <Text style={s.axisLabel}>{labels[0]}</Text>
+              {labels.length > 1 ? <Text style={s.axisLabel}>{labels[labels.length - 1]}</Text> : null}
+            </View>
+          </View>
         </View>
         <View style={s.legend} importantForAccessibility="no-hide-descendants">
           {lines.map((l) => (
@@ -150,8 +165,8 @@ export function LineChart({ title, labels, lines }: { title: string; labels: str
       </Pressable>
       {showNumbers ? (
         <View style={s.table}>
-          {chartRows(labels, series).map((r) => (
-            <Text key={r.label} style={s.tableRow}>
+          {chartRows(labels, series, days).map((r) => (
+            <Text key={r.key} style={s.tableRow}>
               <Text style={s.tableDay}>{r.label}: </Text>
               {r.text}
             </Text>
@@ -160,12 +175,12 @@ export function LineChart({ title, labels, lines }: { title: string; labels: str
       ) : null}
     </View>
   );
-}
+});
 
-/** A line's pieces: straight, or cut into dashes. */
+/** A line's pieces: straight, or cut into one run of dashes that carries on across the pieces. */
 function pieces(l: Line, idx: number[], width: number, top: number): Segment[] {
   const segs = lineSegments(l.values, idx, { width, height: PLOT_HEIGHT, top, thickness: 2 });
-  return l.dashed ? segs.flatMap((seg) => dashed(seg)) : segs;
+  return l.dashed ? dashedLine(segs) : segs;
 }
 
 /** Where a piece goes: placed by its corner, then turned about its centre. */
@@ -202,9 +217,13 @@ const makeStyles = (c: Palette) =>
     track: { height: 10, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
     fill: { height: '100%', borderRadius: radius.pill },
     lineWrap: { gap: spacing.sm },
-    plot: { height: PLOT_HEIGHT, marginTop: spacing.md, borderBottomWidth: 1, borderBottomColor: c.line },
+    flex: { flex: 1 },
+    // Charts read left to right on every phone (5c review #13).
+    plotRow: { flexDirection: 'row', direction: 'ltr', gap: spacing.xs, marginTop: spacing.md },
+    gutter: { height: PLOT_HEIGHT, justifyContent: 'space-between', alignItems: 'flex-end', minWidth: 24 },
+    plot: { height: PLOT_HEIGHT, borderBottomWidth: 1, borderBottomColor: c.line },
     grid: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: c.line },
-    gridLabel: { position: 'absolute', left: 0, bottom: 2, fontSize: fontSize.xs, color: c.ink2 },
+    gridLabel: { fontSize: fontSize.xs, color: c.ink2, textAlign: 'right' },
     seg: { position: 'absolute', borderRadius: 1 },
     end: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
     axis: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, marginTop: 4 },

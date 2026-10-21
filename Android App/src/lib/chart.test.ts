@@ -13,6 +13,8 @@ import {
   niceCeil,
   sampleIndexes,
   tickIndexes,
+  dashedLine,
+  sampleWithPeaks,
 } from './chart';
 
 describe('chart scale (5c), as the website’s line chart', () => {
@@ -99,8 +101,8 @@ describe('charts in words (5c): TalkBack reads what the lines show', () => {
 
   it('lists the numbers day by day for the table under a chart', () => {
     expect(chartRows(['1 Oct', '2 Oct'], [{ name: 'Remaining', values: [5, 3] }, { name: 'Ideal', values: [5, 0] }])).toEqual([
-      { label: '1 Oct', text: 'Remaining 5, Ideal 5' },
-      { label: '2 Oct', text: 'Remaining 3, Ideal 0' },
+      { key: '0', label: '1 Oct', text: 'Remaining 5, Ideal 5' },
+      { key: '1', label: '2 Oct', text: 'Remaining 3, Ideal 0' },
     ]);
   });
 
@@ -140,5 +142,65 @@ describe.skipIf(![webLine, webBar, webReports].every(existsSync))('the same as t
   it('scales bars to the largest and adds the trend up the same way', () => {
     expect(readFileSync(webBar, 'utf8')).toContain('Math.max(1, ...data.map((d) => d.value))');
     expect(readFileSync(webReports, 'utf8')).toContain('return vals.map((v) => (sum += v));');
+  });
+});
+
+describe('5c review: dashes, peaks, rows and the axis', () => {
+  const total = (segs: { width: number }[]) => segs.reduce((sum, x) => sum + x.width, 0);
+
+  it('a dashed line stays dashed when it is drawn in many short pieces (90 days) — #6', () => {
+    // 60 points across 300 px: pieces about 5 px long, shorter than a dash and its gap.
+    const values = Array.from({ length: 90 }, (_, i) => 90 - i);
+    const segs = lineSegments(values, sampleIndexes(90, 60), { width: 300, height: 160, top: 100 });
+    const drawn = total(dashedLine(segs, 5, 4));
+    expect(drawn / total(segs)).toBeGreaterThan(0.45);
+    expect(drawn / total(segs)).toBeLessThan(0.65);
+  });
+
+  it('the dash carries on from one piece into the next', () => {
+    // Two pieces of 7 in a row: dash 0–5, gap 5–9, dash 9–14 → the second piece draws 2–7.
+    const a = { left: 0, top: 0, width: 7, height: 2, angle: 0 };
+    const b = { left: 7, top: 0, width: 7, height: 2, angle: 0 };
+    const out = dashedLine([a, b], 5, 4);
+    expect(out.map((x) => [Math.round(x.left * 10) / 10, Math.round(x.width * 10) / 10])).toEqual([
+      [0, 5],
+      [9, 5],
+    ]);
+  });
+
+  it('keeps each line’s highest and lowest points when it leaves points out — #13', () => {
+    const values = Array.from({ length: 365 }, (_, i) => (i === 37 ? 50 : i === 200 ? -3 : 1));
+    const idx = sampleWithPeaks(365, 60, [values]);
+    expect(idx).toContain(37);
+    expect(idx).toContain(200);
+    expect(idx[0]).toBe(0);
+    expect(idx[idx.length - 1]).toBe(364);
+    expect([...idx].sort((x, y) => x - y)).toEqual(idx);
+    expect(sampleWithPeaks(5, 60, [[1, 2, 3, 4, 5]])).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('each row of the numbers has its own key, the day’s date — #10', () => {
+    const rows = chartRows(['1 Jan', '1 Jan'], [{ name: 'Overdue', values: [1, 2] }], ['2025-01-01', '2026-01-01']);
+    expect(rows.map((r) => r.key)).toEqual(['2025-01-01', '2026-01-01']);
+    expect(chartRows(['a', 'b'], [{ name: 'X', values: [1, 2] }]).map((r) => r.key)).toEqual(['0', '1']);
+  });
+});
+
+/** The Reports screen and its charts (components): rules from the 5c review that live in the views. */
+describe('5c review: the Reports screen and its charts', () => {
+  const screen = readFileSync(resolve(__dirname, '../screens/ReportsScreen.tsx'), 'utf8');
+  const charts = readFileSync(resolve(__dirname, '../components/charts.tsx'), 'utf8');
+
+  it('the pull-to-refresh spinner shows for a pull only, not for every filter or range change (#12)', () => {
+    expect(screen).not.toMatch(/refreshing=\{summaryQ\.isRefetching \|\| trendQ\.isRefetching\}/);
+    expect(screen).toMatch(/usePullRefresh\(/);
+  });
+
+  it('the plot is drawn left to right on any phone, its values beside it (not under the lines), and kept between keystrokes (#13)', () => {
+    expect(charts).toMatch(/direction: 'ltr'/);
+    expect(charts).toMatch(/export const LineChart = React\.memo\(/);
+    expect(charts).not.toMatch(/gridLabel: \{ position: 'absolute', left: 0/);
+    expect(charts).toMatch(/sampleWithPeaks\(/);
+    expect(charts).toMatch(/dashedLine\(/);
   });
 });

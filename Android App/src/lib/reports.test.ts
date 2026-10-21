@@ -151,7 +151,7 @@ describe('the trend charts (5c), as the website’s', () => {
   });
 
   it('is empty without a trend (it failed to load, or a server without weekly velocity)', () => {
-    expect(trendCharts(null)).toEqual({ labels: [], completion: [], overdue: [], burndown: [], velocity: [] });
+    expect(trendCharts(null)).toEqual({ labels: [], days: [], completion: [], overdue: [], burndown: [], velocity: [] });
     expect(trendCharts({ ...series, velocity: undefined }).velocity).toEqual([]);
   });
 
@@ -205,5 +205,18 @@ describe('task export', () => {
     expect(taskExportPath('t 1', 'pdf')).toBe('/tasks/t%201/export.pdf');
     expect(taskFileName({ key: 'OPS-12', title: 'Inspect the Rig: phase 2!' }, 'xlsx')).toBe('OPS-12-inspect-the-rig-phase-2.xlsx');
     expect(fileSlug('مهمة')).toBe('export');
+  });
+});
+
+describe('days told apart over a range of more than one year (5c review #10)', () => {
+  const point = (date: string) => ({ date, created: 0, completed: 0, overdue: 0, remaining: 0, ideal: 0 });
+  it('adds the year when the range spans two years; each day keeps its date', () => {
+    const t = trendCharts({ from: '2025-12-31', to: '2026-01-01', velocityPerWeek: 0, points: [point('2025-12-31'), point('2026-01-01')], velocity: [] } as never);
+    expect(t.labels).toEqual(['31 Dec 2025', '1 Jan 2026']);
+    expect(t.days).toEqual(['2025-12-31', '2026-01-01']);
+  });
+  it('within one year the days stay short', () => {
+    const t = trendCharts({ from: '2026-01-01', to: '2026-01-02', velocityPerWeek: 0, points: [point('2026-01-01'), point('2026-01-02')], velocity: [] } as never);
+    expect(t.labels).toEqual(['1 Jan', '2 Jan']);
   });
 });

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Modal, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useServices } from '../core/providers';
@@ -7,6 +7,7 @@ import { useColors } from '../core/theme';
 import { Card, SectionTitle, Loader, ErrorNote, NoticeNote, Muted, TextField } from '../components/ui';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { BarChart, LineChart, type Line } from '../components/charts';
+import { usePullRefresh } from '../components/meeting/live';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
 import {
@@ -42,6 +43,7 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
   const filters = { ...scope, ...range };
   const summaryQ = useReportSummary(scope);
   const trendQ = useReportTrend(filters);
+  const pull = usePullRefresh(useCallback(() => Promise.all([summaryQ.refetch(), trendQ.refetch()]), [summaryQ, trendQ]));
   const optionsQ = useReportOptions();
   const [kind, setKind] = useState<ReportKind>('export');
   const [busy, setBusy] = useState<ReportFormat | null>(null);
@@ -98,15 +100,8 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
       <KeyboardAwareScrollView
         contentContainerStyle={s.scroll}
         keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl
-            refreshing={summaryQ.isRefetching || trendQ.isRefetching}
-            onRefresh={() => {
-              void summaryQ.refetch();
-              void trendQ.refetch();
-            }}
-          />
-        }
+        // Its own spinner: a pull shows it, a filter or range change doesn't (5c review #12).
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
       >
         {denied ? (
           <ErrorNote message="Reports are available to administrators." />
@@ -312,6 +307,13 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
 
 /** The trend: the range's figures, then the four charts. */
 function Trend({ q, c, s }: { q: ReturnType<typeof useReportTrend>; c: Palette; s: Styles }) {
+  // The same lines until the trend itself changes: typing a date doesn't draw the charts again (5c review #13).
+  const charts = useMemo(() => trendCharts(q.data), [q.data]);
+  const byKey = useMemo(() => {
+    const color = (tone: LineTone) => ({ done: c.category.DONE, muted: c.ink3, danger: c.danger, brand: c.brand })[tone];
+    const lines = (ls: TrendLine[]): Line[] => ls.map((l) => ({ name: l.name, values: l.values, color: color(l.tone), area: l.area, dashed: l.dashed }));
+    return { completion: lines(charts.completion), overdue: lines(charts.overdue), burndown: lines(charts.burndown) };
+  }, [charts, c]);
   if (q.isError && !q.data) {
     return (
       <ErrorNote
@@ -324,10 +326,6 @@ function Trend({ q, c, s }: { q: ReturnType<typeof useReportTrend>; c: Palette; 
   if (q.isLoading || !q.data) return <Loader />;
   const series: TimeSeries = q.data;
   const t = trendStats(series);
-  const charts = trendCharts(series);
-  const color = (tone: LineTone) => ({ done: c.category.DONE, muted: c.ink3, danger: c.danger, brand: c.brand })[tone];
-  const lines = (ls: TrendLine[]): Line[] => ls.map((l) => ({ name: l.name, values: l.values, color: color(l.tone), area: l.area, dashed: l.dashed }));
-  const byKey = { completion: lines(charts.completion), overdue: lines(charts.overdue), burndown: lines(charts.burndown) };
   return (
     <>
       <View style={s.minis}>
@@ -345,7 +343,7 @@ function Trend({ q, c, s }: { q: ReturnType<typeof useReportTrend>; c: Palette; 
           {chart.key === 'velocity' ? (
             <BarChart title="Tasks completed per week" data={charts.velocity} />
           ) : (
-            <LineChart title={chart.title} labels={charts.labels} lines={byKey[chart.key]} />
+            <LineChart title={chart.title} labels={charts.labels} days={charts.days} lines={byKey[chart.key]} />
           )}
         </View>
       ))}

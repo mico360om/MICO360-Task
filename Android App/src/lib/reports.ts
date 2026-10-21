@@ -276,18 +276,25 @@ export const TREND_CHARTS: readonly { key: 'completion' | 'overdue' | 'burndown'
   { key: 'velocity', title: 'Velocity', about: (v) => `Tasks completed per week (${v}/wk average).` },
 ];
 
-/** The trend's lines and weekly bars: created vs completed added up, overdue, burndown, velocity. */
+/**
+ * The trend's lines and weekly bars: created vs completed added up, overdue, burndown, velocity.
+ * `days` are the dates (the numbers' rows are keyed by them); a range over two years writes each
+ * day with its year, so "1 Jan" and "1 Jan" are told apart (5c review #10).
+ */
 export function trendCharts(series: TimeSeries | null | undefined): {
   labels: string[];
+  days: string[];
   completion: TrendLine[];
   overdue: TrendLine[];
   burndown: TrendLine[];
   velocity: { label: string; value: number }[];
 } {
   const points = series?.points ?? [];
-  if (points.length === 0) return { labels: [], completion: [], overdue: [], burndown: [], velocity: velocityBars(series) };
+  if (points.length === 0) return { labels: [], days: [], completion: [], overdue: [], burndown: [], velocity: velocityBars(series) };
+  const years = points[0]!.date.slice(0, 4) !== points[points.length - 1]!.date.slice(0, 4);
   return {
-    labels: points.map((p) => reportDay(p.date)),
+    labels: points.map((p) => (years ? `${reportDay(p.date)} ${p.date.slice(0, 4)}` : reportDay(p.date))),
+    days: points.map((p) => p.date),
     completion: [
       { name: 'Completed', values: cumulative(points.map((p) => p.completed || 0)), tone: 'done', area: true },
       { name: 'Created', values: cumulative(points.map((p) => p.created || 0)), tone: 'muted' },

@@ -126,13 +126,72 @@ export function chartSummary(title: string, labels: readonly string[], series: r
   return `${title}, ${first} to ${last}. ${lines.join(' ')}`;
 }
 
-/** The numbers under a chart, one row per day: "Remaining 5, Ideal 5". */
-export function chartRows(labels: readonly string[], series: readonly ChartSeries[]): { label: string; text: string }[] {
-  return labels.map((label, i) => ({ label, text: series.map((s) => `${s.name} ${s.values[i] ?? 0}`).join(', ') }));
+/**
+ * The numbers under a chart, one row per day: "Remaining 5, Ideal 5". Each row's key is its day's
+ * date (`keys`), never its label: "1 Jan" can be two days a year apart (5c review #10).
+ */
+export function chartRows(labels: readonly string[], series: readonly ChartSeries[], keys?: readonly string[]): { key: string; label: string; text: string }[] {
+  return labels.map((label, i) => ({ key: keys?.[i] ?? String(i), label, text: series.map((s) => `${s.name} ${s.values[i] ?? 0}`).join(', ') }));
 }
 
 /** A bar chart in words: "Tasks by status: To do 5, Done 3." */
 export function barsSummary(title: string, data: readonly { label: string; value: number }[]): string {
   if (data.length === 0) return `${title}: no data to chart yet.`;
   return `${title}: ${data.map((d) => `${d.label} ${d.value}`).join(', ')}.`;
+}
+
+/**
+ * A line's pieces cut into one run of dashes (`dash` long, `gap` apart): the pattern carries on from
+ * one piece into the next, so a line drawn in many short pieces (a long range) still looks dashed —
+ * cutting each piece on its own restarts a dash on every piece (5c review #6).
+ */
+export function dashedLine(segs: readonly Segment[], dash = 5, gap = 4): Segment[] {
+  const period = dash + gap;
+  const out: Segment[] = [];
+  let phase = 0;
+  for (const seg of segs) {
+    const cos = Math.cos(seg.angle);
+    const sin = Math.sin(seg.angle);
+    const sx = seg.left + seg.width / 2 - (seg.width / 2) * cos;
+    const sy = seg.top + seg.height / 2 - (seg.width / 2) * sin;
+    let s = 0;
+    while (s < seg.width) {
+      const p = (phase + s) % period;
+      if (p < dash) {
+        const len = Math.min(dash - p, seg.width - s);
+        if (len >= 0.5) {
+          const mx = sx + (s + len / 2) * cos;
+          const my = sy + (s + len / 2) * sin;
+          out.push({ left: mx - len / 2, top: my - seg.height / 2, width: len, height: seg.height, angle: seg.angle });
+        }
+        s += len;
+      } else {
+        s += period - p;
+      }
+    }
+    phase = (phase + seg.width) % period;
+  }
+  return out;
+}
+
+/**
+ * The points to draw (sampleIndexes), with each line's highest and lowest kept: leaving them out
+ * would hide a spike the summary still names ("highest 50") — 5c review #13.
+ */
+export function sampleWithPeaks(n: number, max: number, valueLists: readonly (readonly number[])[]): number[] {
+  const out = new Set(sampleIndexes(n, max));
+  if (out.size < n) {
+    for (const values of valueLists) {
+      let hi = -1;
+      let lo = -1;
+      for (let i = 0; i < Math.min(n, values.length); i += 1) {
+        const v = values[i] ?? 0;
+        if (hi < 0 || v > (values[hi] ?? 0)) hi = i;
+        if (lo < 0 || v < (values[lo] ?? 0)) lo = i;
+      }
+      if (hi >= 0) out.add(hi);
+      if (lo >= 0) out.add(lo);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
 }
