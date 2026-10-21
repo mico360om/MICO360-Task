@@ -1,6 +1,6 @@
 import { el, mount, Loader, ErrorState, Empty, timeAgo } from '../dom.js';
 import { writeErrorMessage, SAVED_ON_DEVICE } from '../components.js';
-import { notificationTarget } from '../../src/notify.js';
+import { notificationTarget, newestShown } from '../../src/notify.js';
 
 /**
  * Notifications list. A click marks one read and opens what it is about (a task, a conversation, a
@@ -70,8 +70,10 @@ export function NotificationsScreen(ctx) {
     err = '';
     render();
     try {
-      // Queued like every other change when the server can't be reached (M7).
-      const r = await ctx.write('notification.readAll', {});
+      // Queued like every other change when the server can't be reached (M7). Only up to the newest
+      // one shown (`upTo`, kept for a later replay): one that comes in meanwhile stays unread.
+      const upTo = newestShown(current);
+      const r = await ctx.write('notification.readAll', upTo ? { upTo } : {});
       if (r && r.queued) note = SAVED_ON_DEVICE;
     } catch (e) {
       for (const n of unread) n.readAt = null;
