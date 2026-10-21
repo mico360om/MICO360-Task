@@ -16,14 +16,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
-import { useConversationMessages, useConversations, useDirectory, useProjects } from '../core/queries';
+import { useConversationMembers, useConversationMessages, useConversations, useDirectory, useProjects } from '../core/queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useChatOutbox, useOnline, useReadWhileOpen } from '../core/chat';
 import { Loader, ErrorNote, NoticeNote } from '../components/ui';
 import { MentionSuggestions, MentionText, useMentionInput } from '../components/Mentions';
 import type { MentionPerson } from '../lib/mentions';
-import { conversationTitle, threadLoadError } from '../lib/chat';
+import { chatMemberIds, conversationTitle, mentionPeopleFor, threadLoadError } from '../lib/chat';
 import { CHAT_MAX_LENGTH, connectionNote, outboxLabel, type OutboxEntry } from '../lib/chat-outbox';
 import { threadItems, threadMessages, type ThreadItem } from '../lib/chat-thread';
 import { afterNewest, isFarFromNewest, isNearNewest, newMessagesLabel } from '../lib/chat-scroll';
@@ -167,14 +167,18 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
     },
     [people, myId],
   );
-  // Everyone's @names are marked in messages; who can be offered as a mention is the composer's.
+  // Everyone's @names are marked in messages; only the conversation's members can be mentioned
+  // (the server tells only them): a direct conversation's two people, a channel's project people.
   const mentionPeople = useMemo<MentionPerson[]>(
     () => (dirQ.data ?? []).map((u) => ({ id: u.id, username: u.username, name: `${u.firstName} ${u.lastName}`.trim() })),
     [dirQ.data],
   );
-  const draftMention = useMentionInput(draft, setDraft, mentionPeople);
-
   const summary = useMemo(() => (inboxQ.data ?? []).find((s) => s.conversation.id === conversationId), [inboxQ.data, conversationId]);
+  const membersQ = useConversationMembers(conversationId, summary?.conversation.kind !== 'DIRECT');
+  const memberIds = useMemo(() => chatMemberIds({ summary, members: membersQ.data }), [summary, membersQ.data]);
+  const canMention = useMemo(() => mentionPeopleFor(memberIds, dirQ.data ?? [], myId), [memberIds, dirQ.data, myId]);
+  const draftMention = useMentionInput(draft, setDraft, canMention);
+
   const title = conversationTitle({ summary, projects: projectsQ.data ?? [], nameOf, myId, fallback: titleHint });
   useLayoutEffect(() => {
     navigation.setOptions({ title });
