@@ -39,8 +39,9 @@ export function drawerItemsFor(roles: readonly string[]): DrawerItem[] {
   return DRAWER_ITEMS.filter((i) => !i.adminOnly || roles.includes('ADMIN'));
 }
 
-/** The destination route name an action lands on (a tab name or a stack screen name; a website page's address). */
+/** The destination route name an action lands on (a tab name or a stack screen name; a website page's address; a held link's first screen). */
 export function actionRouteName(action: NavAction): string {
+  if (action.type === 'link') return action.state.routes[0]?.name ?? '';
   return action.type === 'tab' ? action.tab : action.type === 'website' ? action.path : action.screen;
 }
 

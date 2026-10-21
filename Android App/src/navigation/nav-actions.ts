@@ -1,4 +1,5 @@
 import type { LinkTarget } from '../lib/deep-link';
+import type { LinkState } from './linking';
 import type { TabsParamList, AppStackParamList, AuthStackParamList } from './types';
 
 /**
@@ -24,7 +25,9 @@ export type NavAction =
   /** A website page the app doesn't have (6b): whoever offers it opens it in the browser (lib/website). */
   | { type: 'website'; path: string }
   /** A signed-out destination (the password-reset screen opened from the e-mail link). */
-  | { type: 'auth'; screen: 'Reset'; params: NonNullable<AuthStackParamList['Reset']> };
+  | { type: 'auth'; screen: 'Reset'; params: NonNullable<AuthStackParamList['Reset']> }
+  /** A link tapped while signed out (6b review): the screens it opens, as the navigator read them, once someone signs in. */
+  | { type: 'link'; state: LinkState };
 
 /** Turn a resolved deep-link/push target into a navigation action. */
 export function targetToAction(target: LinkTarget): NavAction {

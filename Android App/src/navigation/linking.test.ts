@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { getStateFromPath } from '@react-navigation/core';
-import { LINKING_PREFIXES, MAX_LINK_LENGTH, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
+import { getActionFromState, getStateFromPath } from '@react-navigation/core';
+import { LINKING_PREFIXES, MAX_LINK_LENGTH, holdUntilSignedIn, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import { createPendingAction } from './pending-action';
-import { requiresSession, targetToAction } from './nav-actions';
+import { requiresSession, targetToAction, type NavAction } from './nav-actions';
 
 // React Navigation's config type is invariant on the param list; the pure config is plain data.
 const cfg = linkingConfig as unknown as Parameters<typeof getStateFromPath>[1];
@@ -220,5 +220,48 @@ describe('a crafted long link opens nothing, at once (6b review)', () => {
     expect(normalizeLinkPath('/board/?project=p1')).toBe('/project/p1/board');
     const task = open(`/my-tasks?task=t1&from=${'m'.repeat(MAX_LINK_LENGTH - 30)}`)?.routes[0];
     expect(task).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
+  });
+});
+
+/**
+ * A link tapped while signed out (6b review): the sign-in screen shows, and the link waits there like
+ * a tapped push (RootNavigator's pending action), then opens once someone signs in — not Home.
+ */
+describe('a link tapped while signed out opens after the sign-in (6b review)', () => {
+  const read = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
+  /** RootNavigator's linking: a link read while signed in or out, the held one kept as it is kept there. */
+  function tapped(path: string, signedIn: boolean) {
+    const pending = createPendingAction();
+    const opens = holdUntilSignedIn(read(path), { signedIn, hold: (a) => pending.set(a) });
+    return { opens, held: pending.peek() };
+  }
+  /** What the navigator does with a held link after the sign-in (applyAction), as with a link while the app runs. */
+  const replay = (action: NavAction | null) =>
+    action?.type === 'link' ? getActionFromState(action.state as Parameters<typeof getActionFromState>[0], cfg as Parameters<typeof getActionFromState>[1]) : undefined;
+
+  it('a task, a meeting, a conversation: the sign-in screen shows, and the screen opens once signed in', () => {
+    const task = tapped('/my-tasks?task=t1', false);
+    expect(task.opens).toBeUndefined(); // React Navigation keeps the sign-in screen
+    expect(task.held).toMatchObject({ type: 'link' });
+    expect(requiresSession(task.held!)).toBe(true); // it waits for the sign-in
+    expect(replay(task.held)).toMatchObject({ type: 'NAVIGATE', payload: { name: 'TaskDetail', params: { taskId: 't1' } } });
+    expect(replay(tapped('/meetings/m1', false).held)).toMatchObject({ payload: { name: 'MeetingDetail', params: { meetingId: 'm1' } } });
+    expect(replay(tapped('/chat?conversation=c1', false).held)).toMatchObject({ payload: { name: 'ChatThread', params: { conversationId: 'c1' } } });
+    expect(replay(tapped('notifications', false).held)).toMatchObject({ payload: { name: 'Tabs', params: { screen: 'Notifications' } } });
+  });
+
+  it('the reset link opens at once while signed out (its screen is a signed-out one)', () => {
+    const reset = tapped('reset?token=AbC', false);
+    expect(reset.opens?.routes[0]).toMatchObject({ name: 'Reset', params: { token: 'AbC' } });
+    expect(reset.held).toBeNull();
+  });
+
+  it('signed in, a link opens at once and nothing waits; a link that opens nothing holds nothing', () => {
+    const task = tapped('/my-tasks?task=t1', true);
+    expect(task.opens?.routes[0]).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
+    expect(task.held).toBeNull();
+    expect(tapped('/admin/ai', false)).toEqual({ opens: undefined, held: null });
+    expect(tapped('/my-tasks?task=..%2Fusers', false)).toEqual({ opens: undefined, held: null });
+    expect(tapped(`${'/'.repeat(100_000)}x`, false)).toEqual({ opens: undefined, held: null });
   });
 });

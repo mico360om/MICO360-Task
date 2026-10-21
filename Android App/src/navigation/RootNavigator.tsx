@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { Pressable, Text } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
   NavigationContainer,
   DefaultTheme,
   DarkTheme,
+  getActionFromState,
   getStateFromPath,
   type Theme as NavTheme,
   type LinkingOptions,
@@ -27,7 +28,7 @@ import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
 import { targetToAction, requiresSession, meetingScreenId, taskScreenId, type NavAction } from './nav-actions';
 import { createPendingAction } from './pending-action';
-import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
+import { LINKING_PREFIXES, holdUntilSignedIn, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
 import { TAB_ITEMS, type TabName } from './tabs';
 import { AppDrawer } from '../components/AppDrawer';
@@ -87,25 +88,35 @@ const TAB_ICON = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.icon])) as R
 
 /**
  * URL deep links (A0.3, MOB-09): mico360://task/<id>, mico360://project/<id>,
- * mico360://meeting/<id>, mico360://notifications and the e-mailed
- * https://task.mico360.com/reset?token=… link.
+ * mico360://meeting/<id>, mico360://notifications, the website's addresses (6b) and the e-mailed
+ * https://task.mico360.com/reset?token=… link. A link that needs a signed-in user, tapped while
+ * signed out, waits for the sign-in like a tapped push (holdUntilSignedIn, 6b review).
  */
 // Typed against the app stack (the container ref's param list); the config also names the
 // signed-out auth screens, which React Navigation resolves when that stack is mounted.
-const linking = {
-  prefixes: LINKING_PREFIXES,
-  config: linkingConfig,
-  // The website's addresses (/meetings/<id>, ?task=<id>, …) open the same screens as the app's own
-  // links (normalizeLinkPath, 6b). A link longer than any real one opens nothing: it is dropped
-  // before React Navigation matches it to a screen, so it never keeps the JS thread busy (6b review).
-  // A link never names a screen (?title=…): only the app sets the titles of the screens it opens.
-  getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) =>
-    withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), options)),
-} as unknown as LinkingOptions<AppStackParamList>;
+function createLinking(session: { signedIn: () => boolean; hold: (action: NavAction) => void }): LinkingOptions<AppStackParamList> {
+  return {
+    prefixes: LINKING_PREFIXES,
+    config: linkingConfig,
+    // The website's addresses (/meetings/<id>, ?task=<id>, …) open the same screens as the app's own
+    // links (normalizeLinkPath, 6b). A link longer than any real one opens nothing: it is dropped
+    // before React Navigation matches it to a screen, so it never keeps the JS thread busy (6b review).
+    // A link never names a screen (?title=…): only the app sets the titles of the screens it opens.
+    getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) =>
+      holdUntilSignedIn(withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), options)), { signedIn: session.signedIn(), hold: session.hold }),
+  } as unknown as LinkingOptions<AppStackParamList>;
+}
 
 /** Perform a navigation action against the root container (imperative: push taps, deep links, drawer). */
 function applyAction(action: NavAction): void {
   if (!navigationRef.isReady()) return;
+  if (action.type === 'link') {
+    // As React Navigation opens a link while the app runs: the action its state gives, else that state.
+    const nav = getActionFromState(action.state as Parameters<typeof getActionFromState>[0], linkingConfig as Parameters<typeof getActionFromState>[1]);
+    if (nav) navigationRef.dispatch(nav);
+    else navigationRef.resetRoot(action.state as Parameters<typeof navigationRef.resetRoot>[0]);
+    return;
+  }
   if (action.type === 'tab') {
     navigationRef.navigate('Tabs', { screen: action.tab });
     return;
@@ -297,6 +308,9 @@ export function RootNavigator() {
     const t = setTimeout(flushPending, 0);
     return () => clearTimeout(t);
   }, [signedIn, flushPending]);
+
+  // A link tapped while signed out is kept here too, and opens after the sign-in (6b review).
+  const linking = useMemo(() => createLinking({ signedIn: () => signedInRef.current, hold: (action) => pending.set(action) }), [pending]);
 
   const navTheme: NavTheme = {
     ...(scheme === 'dark' ? DarkTheme : DefaultTheme),

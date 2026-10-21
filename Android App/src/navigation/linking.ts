@@ -14,6 +14,7 @@
  *   listed here and React Navigation resolves whichever stack is mounted.
  */
 import { isSafeId } from '../lib/ids';
+import type { NavAction } from './nav-actions';
 
 export const LINKING_PREFIXES = ['mico360://', 'https://task.mico360.com'];
 
@@ -84,8 +85,9 @@ const TITLE_PARAMS = ['title', 'projectName'];
 /** Params a link fills with an id (they go into API paths). */
 const ID_PARAMS = ['taskId', 'projectId', 'meetingId', 'conversationId'];
 
-interface LinkState {
-  routes: Array<{ params?: object; state?: LinkState }>;
+/** The navigation state a link gives (React Navigation's getStateFromPath), as far as the app reads it. */
+export interface LinkState {
+  routes: Array<{ name: string; params?: object; state?: LinkState }>;
 }
 
 /** Does any route of the state carry an id that isn't an id (3a review)? */
@@ -112,6 +114,23 @@ export function withoutLinkTitles<S extends LinkState | undefined>(state: S): S 
       return { ...r, params, ...(r.state ? { state: withoutLinkTitles(r.state) } : {}) };
     }),
   };
+}
+
+/** The screens someone signed out can open (the auth stack): sign-in, forgot and reset. */
+const SIGNED_OUT_SCREENS: readonly string[] = ['Login', 'Forgot', 'Reset'];
+
+/**
+ * A link while signed out or in: what the navigator opens now (RootNavigator's
+ * linking.getStateFromPath). A link to a screen that needs a signed-in user, tapped while signed
+ * out (6b review), would be dropped by the sign-in screens — so the sign-in screen shows, and the
+ * link is held like a tapped push (`hold`: RootNavigator's pending action) and opens once someone
+ * signs in. Someone who can't open it then sees that screen's own "not found". Signed in, the reset
+ * link, and a link that opens nothing pass straight through.
+ */
+export function holdUntilSignedIn<S extends LinkState | undefined>(state: S, session: { signedIn: boolean; hold: (action: NavAction) => void }): S | undefined {
+  if (!state || session.signedIn || state.routes.every((r) => SIGNED_OUT_SCREENS.includes(r.name))) return state;
+  session.hold({ type: 'link', state });
+  return undefined;
 }
 
 export const linkingConfig = {
