@@ -1,6 +1,6 @@
 {
   "name": "@mico360/backend",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "description": "MICO360 Tasks backend API (Fastify + Prisma + MySQL).",
   "main": "dist/src/server.js",

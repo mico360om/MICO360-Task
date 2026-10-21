@@ -14,6 +14,21 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-21
+
+### Security
+- Pictures attached to tasks, comments and projects are now shrunk by an updated image library (sharp
+  0.35.5 with libvips 8.18.7). It closes known flaws in reading some picture formats (HEIF, SVG and
+  others) that a crafted upload could trigger (GHSA-f88m-g3jw-g9cj, GHSA-rgj7-g3m4-5g8c,
+  GHSA-wq5f-xc86-pv6w).
+- The formatted-notes editor is updated to Tiptap 3, closing a flaw in how it merged HTML attributes
+  (GHSA-cp6q-959q-f8rh).
+- Build tools are updated: Vite 7.3.7 (CVE-2026-112942, -112943, -112944) and postcss-selector-parser
+  7.1.7 (GHSA-rj75-hqrm-r3gf). The website looks exactly the same.
+
+### Bug fixes
+- Typing quickly in a meeting note no longer loses letters.
+
 ## [1.5.1] - 2026-10-21
 
 ### Bug fixes
