@@ -4,7 +4,7 @@ import type { QueuedMutation } from './sync-queue';
 import { taskHoldsEdit } from './task-writes';
 import { editRefreshes, moveRefreshes, MY_ACTION_ITEMS } from './task-cache';
 import type { Refresh } from './refresh';
-import type { ApiTask } from './types';
+import type { ActionItemInput, ActionItemPatch, ApiTask, AttendanceStatus, NoteInput } from './types';
 
 /**
  * Replay a queued task edit. The server de-duplicates only POSTs, so an edit whose first try timed
@@ -89,8 +89,52 @@ export async function performMutation(resources: ResourcesApi, m: QueuedMutation
       await resources.chat.send(p.conversationId, p.body, write);
       return;
     }
+    // Meetings (2b): what is taken down in a meeting room with a poor connection.
+    case 'meeting.note.add': {
+      const { meetingId, ...note } = m.payload as { meetingId: string } & NoteInput;
+      await resources.meetings.addNote(meetingId, note, write);
+      return;
+    }
+    case 'meeting.action.add': {
+      const { meetingId, ...item } = m.payload as { meetingId: string } & ActionItemInput;
+      await resources.meetings.addActionItem(meetingId, item, write);
+      return;
+    }
+    case 'meeting.action.update': {
+      const p = m.payload as { id: string; patch: ActionItemPatch };
+      await resources.meetings.updateActionItem(p.id, p.patch);
+      return;
+    }
+    case 'meeting.agenda.covered': {
+      const p = m.payload as { meetingId: string; itemId: string; completed: boolean };
+      await resources.meetings.updateAgendaItem(p.meetingId, p.itemId, { completed: p.completed });
+      return;
+    }
+    case 'meeting.attendance': {
+      const p = m.payload as { meetingId: string; attendeeId: string; attendance: AttendanceStatus };
+      await resources.meetings.updateAttendee(p.meetingId, p.attendeeId, { attendance: p.attendance });
+      return;
+    }
     default:
       throw new ApiError(422, 'UNKNOWN_MUTATION', `Unknown queued mutation: ${m.kind}`);
+  }
+}
+
+/** A meeting's part once a change to it was replayed; the lists' counts are fetched when next shown. */
+function meetingReplayRefreshes(kind: string, meetingId: string): Refresh[] {
+  const part = (name: string): Refresh => ({ queryKey: ['meeting', meetingId, name], exact: true });
+  const counts: Refresh[] = [{ queryKey: ['meetings'], later: true }, { projectMeetingsOf: meetingId }];
+  const myItems: Refresh = { queryKey: ['action-items', 'mine'] };
+  switch (kind) {
+    case 'meeting.note.add':
+      return [part('notes'), ...counts];
+    case 'meeting.action.add':
+    case 'meeting.action.update':
+      return meetingId ? [part('action-items'), myItems, ...counts] : [myItems];
+    case 'meeting.agenda.covered':
+      return [part('agenda')];
+    default:
+      return [part('attendees')];
   }
 }
 
@@ -133,6 +177,14 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
       return typeof p.conversationId === 'string'
         ? [{ queryKey: ['chat', 'messages', p.conversationId] }, { queryKey: ['chat', 'conversations'] }]
         : [{ queryKey: ['chat'] }];
+    case 'meeting.note.add':
+    case 'meeting.action.add':
+    case 'meeting.action.update':
+    case 'meeting.agenda.covered':
+    case 'meeting.attendance': {
+      const meetingId = (m.payload as { meetingId?: unknown } | null)?.meetingId;
+      return meetingReplayRefreshes(m.kind, typeof meetingId === 'string' ? meetingId : '');
+    }
     default:
       return [{ queryKey: [] }];
   }
@@ -166,6 +218,16 @@ export function describeMutation(m: Pick<QueuedMutation, 'kind' | 'payload'>): s
       return 'Mark a notification read';
     case 'chat.send':
       return `Message “${snippet(p.body)}”`;
+    case 'meeting.note.add':
+      return `Meeting note “${snippet(p.body)}”`;
+    case 'meeting.action.add':
+      return `Action item “${snippet(p.description)}”`;
+    case 'meeting.action.update':
+      return 'Update an action item';
+    case 'meeting.agenda.covered':
+      return p.completed === false ? 'Untick an agenda item' : 'Tick off an agenda item';
+    case 'meeting.attendance':
+      return 'Record attendance';
     default:
       return 'A change';
   }

@@ -100,7 +100,6 @@ describe('meetingDetailRows (one FlatList: long notes and action items stay quic
       'action',
       '# minutes',
       'minutes',
-      'footer',
     ]);
   });
 
@@ -126,9 +125,20 @@ describe('meetingDetailRows (one FlatList: long notes and action items stay quic
     const bySection = (section: string) => rows.filter((r) => 'section' in r && r.section === section && r.kind !== 'title').map((r) => (r.kind === 'empty' ? `empty: ${r.text}` : r.kind));
     expect(bySection('agenda')).toEqual(['loading']);
     expect(bySection('people')).toEqual(['failed']);
-    expect(bySection('notes')).toEqual(['empty: No notes yet.']);
-    expect(bySection('actions')).toEqual(['empty: No action items yet.']);
+    expect(bySection('notes')).toEqual(['empty: No notes yet. Capture discussion, decisions and actions as the meeting unfolds.']);
+    expect(bySection('actions')).toEqual(['empty: No action items yet. Add them here, or turn an action note into a task.']);
     expect(bySection('minutes')).toEqual(['failed']);
+  });
+
+  it('tells whoever runs the meeting what to add to an empty agenda or people list', () => {
+    const empty = { agenda: loaded([]), people: loaded([]) };
+    const text = (rows: DetailRow[], section: string) => rows.find((r) => r.kind === 'empty' && r.section === section)?.kind === 'empty' ? (rows.find((r) => r.kind === 'empty' && r.section === section) as { text: string }).text : null;
+    const theirs = meetingDetailRows(input(empty));
+    expect(text(theirs, 'agenda')).toBe('No agenda yet.');
+    expect(text(theirs, 'people')).toBe('Nobody has been added yet.');
+    const mine = meetingDetailRows(input({ ...empty, canEdit: true }));
+    expect(text(mine, 'agenda')).toBe('No agenda yet. Add the topics you plan to cover, who presents each and for how long.');
+    expect(text(mine, 'people')).toBe('Nobody yet. Add team members or guests.');
   });
 
   it('shows the first people and a “Show all” row, or everyone once asked', () => {

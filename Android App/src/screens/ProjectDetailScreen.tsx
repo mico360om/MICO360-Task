@@ -18,7 +18,7 @@ import type { AppScreenProps } from '../navigation/types';
 
 /**
  * Project details (A5.1): what the project is, how far along it is, its milestones, the deadlines
- * coming up, its meetings (each opens in the app; they're run on the website) and who is on the team —
+ * coming up, its meetings (each opens in the app; "Schedule a meeting" adds one to it) and who is on the team —
  * with shortcuts to its board and its chat channel.
  */
 export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'ProjectDetail'>) {
@@ -179,6 +179,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
           ) : (
             <ProjectMeetings overview={meetingsQ.data} styles={styles} onOpen={(meetingId, title) => navigation.navigate('MeetingDetail', { meetingId, title: title ?? undefined })} />
           )}
+          <Button title="Schedule a meeting" variant="secondary" onPress={() => navigation.navigate('MeetingForm', { projectId })} />
         </Card>
       )}
 
@@ -254,7 +255,7 @@ function ProjectMeetings({
   const decisions = overview.decisions.slice(0, 3);
   const { stats } = overview;
   if (overview.meetings.length === 0 && overview.actionItems.length === 0) {
-    return <Text style={styles.meta}>No meetings for this project yet. Meetings are planned on the website.</Text>;
+    return <Text style={styles.meta}>No meetings for this project yet.</Text>;
   }
   return (
     <View style={styles.list}>

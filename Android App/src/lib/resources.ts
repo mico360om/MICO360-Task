@@ -27,6 +27,24 @@ import type {
   ApiMeetingAttendee,
   ApiMeetingNote,
   InvitationResponse,
+  ActionItemInput,
+  ActionItemPatch,
+  AgendaItemInput,
+  AgendaItemPatch,
+  AttendeeInput,
+  AttendeePatch,
+  FinalMinutesContent,
+  FinalMinutesDraft,
+  InvitePreview,
+  MeetingInput,
+  MeetingPatch,
+  MinutesPreview,
+  NoteInput,
+  NotePatch,
+  NoteTaskInput,
+  NoteTaskResult,
+  SendReport,
+  SeriesScope,
   ApiProject,
   ApiProjectMeetingsOverview,
   ApiProjectProgress,
@@ -81,6 +99,12 @@ export const AI_TIMEOUT_MS = 130_000;
 /** The longest description the server's AI helpers accept (a longer one is refused outright). */
 export const AI_DESCRIPTION_MAX = 4000;
 
+/**
+ * How long drafting the final minutes with the AI may take: the server gives the model up to three
+ * minutes for a whole meeting's agenda, notes and action items, so the phone waits a little longer.
+ */
+export const AI_MINUTES_TIMEOUT_MS = 190_000;
+
 /** A description cut to the AI's limit, never in the middle of an emoji (a surrogate pair). */
 function aiDescription(description: string | undefined): string | undefined {
   if (description === undefined || description.length <= AI_DESCRIPTION_MAX) return description;
@@ -96,6 +120,8 @@ function aiDescription(description: string | undefined): string | undefined {
  */
 export function resourcesApi(client: ApiClient) {
   const data = <T>(p: Promise<Envelope<T>>) => p.then((r) => r.data);
+  const meeting = (id: string) => `/meetings/${encodeURIComponent(id)}`;
+  const seriesQuery = (scope: SeriesScope) => (scope === 'series' ? '?scope=series' : '');
 
   return {
     projects: {
@@ -204,7 +230,10 @@ export function resourcesApi(client: ApiClient) {
     },
     /**
      * Meetings: taking part in them — the list, one meeting and its parts, your answer to the
-     * invitation and your action items. Running them (editing, notes, minutes) is on the website.
+     * invitation and your action items (2a) — and running them (2b): scheduling and editing (one
+     * meeting or its series), people and invitations, the agenda, Live notes and note → task, action
+     * items, the final minutes, the minutes PDF and email, cancelling, duplicating and deleting. The
+     * server decides who may do what (`canEdit`); a refused write is a 403 with its reason.
      */
     meetings: {
       /** The meetings starting in [from, to) (ISO instants) that the user can see. */
@@ -227,6 +256,73 @@ export function resourcesApi(client: ApiClient) {
       /** Everything assigned to me across meetings — only what is still to do, or all of it. */
       myActionItems: (filter: { openOnly?: boolean } = {}) =>
         data(client.get<Envelope<ApiActionItem[]>>(`/me/action-items${queryString({ openOnly: filter.openOnly ? 'true' : undefined })}`)),
+
+      // ── Running a meeting (2b) ──
+      create: (input: MeetingInput, opts?: WriteOptions) => data(client.post<Envelope<ApiMeeting>>('/meetings', input, idempotencyHeaders(opts?.idempotencyKey))),
+      /** `series`: every upcoming meeting of the meeting's series gets the change. */
+      update: (id: string, patch: MeetingPatch, scope: SeriesScope = 'one') => data(client.put<Envelope<ApiMeeting>>(`${meeting(id)}${seriesQuery(scope)}`, patch)),
+      cancel: (id: string, scope: SeriesScope = 'one') => data(client.post<Envelope<ApiMeeting>>(`${meeting(id)}/cancel${seriesQuery(scope)}`)),
+      /** A copy of the meeting's details (not its people, agenda or notes) as a new draft. */
+      duplicate: (id: string, opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiMeeting>>(`${meeting(id)}/duplicate`, undefined, idempotencyHeaders(opts?.idempotencyKey))),
+      remove: (id: string, scope: SeriesScope = 'one') => client.del<void>(`${meeting(id)}${seriesQuery(scope)}`),
+
+      addAttendee: (id: string, input: AttendeeInput, opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiMeetingAttendee>>(`${meeting(id)}/attendees`, input, idempotencyHeaders(opts?.idempotencyKey))),
+      updateAttendee: (id: string, attendeeId: string, patch: AttendeePatch) =>
+        data(client.patch<Envelope<ApiMeetingAttendee>>(`${meeting(id)}/attendees/${encodeURIComponent(attendeeId)}`, patch)),
+      removeAttendee: (id: string, attendeeId: string) => client.del<void>(`${meeting(id)}/attendees/${encodeURIComponent(attendeeId)}`),
+      /** Who an invitation would go to, and anything to fix first (sends nothing). */
+      previewInvites: (id: string) => data(client.get<Envelope<InvitePreview>>(`${meeting(id)}/invites/preview`)),
+      /** Calendar invitations: to everyone; only to people not invited yet; or everyone again (`resend`). */
+      sendInvites: (id: string, opts: { onlyNew?: boolean; resend?: boolean } = {}) =>
+        data(client.post<Envelope<SendReport>>(`${meeting(id)}/invites`, opts)),
+
+      addAgendaItem: (id: string, input: AgendaItemInput, opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiAgendaItem>>(`${meeting(id)}/agenda`, input, idempotencyHeaders(opts?.idempotencyKey))),
+      updateAgendaItem: (id: string, itemId: string, patch: AgendaItemPatch) =>
+        data(client.patch<Envelope<ApiAgendaItem>>(`${meeting(id)}/agenda/${encodeURIComponent(itemId)}`, patch)),
+      removeAgendaItem: (id: string, itemId: string) => client.del<void>(`${meeting(id)}/agenda/${encodeURIComponent(itemId)}`),
+      /** A new order: every item's id, first to last. */
+      reorderAgenda: (id: string, orderedIds: string[]) => data(client.put<Envelope<ApiAgendaItem[]>>(`${meeting(id)}/agenda/reorder`, { orderedIds })),
+
+      addNote: (id: string, input: NoteInput, opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiMeetingNote>>(`${meeting(id)}/notes`, input, idempotencyHeaders(opts?.idempotencyKey))),
+      updateNote: (id: string, noteId: string, patch: NotePatch) =>
+        data(client.patch<Envelope<ApiMeetingNote>>(`${meeting(id)}/notes/${encodeURIComponent(noteId)}`, patch)),
+      removeNote: (id: string, noteId: string) => client.del<void>(`${meeting(id)}/notes/${encodeURIComponent(noteId)}`),
+      /** Undo a delete (the server keeps a deleted note for a while). */
+      restoreNote: (id: string, noteId: string) =>
+        data(client.post<Envelope<ApiMeetingNote>>(`${meeting(id)}/notes/${encodeURIComponent(noteId)}/restore`, {})),
+      /** ⭐ Make a board task from a note; an action note is tracked as an action item too. */
+      noteToTask: (id: string, noteId: string, input: NoteTaskInput, opts?: WriteOptions) =>
+        data(
+          client.post<Envelope<NoteTaskResult>>(`${meeting(id)}/notes/${encodeURIComponent(noteId)}/task`, input, idempotencyHeaders(opts?.idempotencyKey)),
+        ),
+
+      addActionItem: (id: string, input: ActionItemInput, opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiActionItem>>(`${meeting(id)}/action-items`, input, idempotencyHeaders(opts?.idempotencyKey))),
+      updateActionItem: (itemId: string, patch: ActionItemPatch) =>
+        data(client.patch<Envelope<ApiActionItem>>(`/action-items/${encodeURIComponent(itemId)}`, patch)),
+      removeActionItem: (itemId: string) => client.del<void>(`/action-items/${encodeURIComponent(itemId)}`),
+
+      /** A first draft to edit — by the AI from the meeting's facts (slow), or from the notes. Not kept until saved. */
+      draftFinalMinutes: (id: string, source: 'ai' | 'notes') =>
+        data(client.post<Envelope<FinalMinutesDraft>>(`${meeting(id)}/final-minutes/draft`, { source }, { timeoutMs: AI_MINUTES_TIMEOUT_MS })),
+      saveFinalMinutes: (id: string, content: FinalMinutesContent) =>
+        data(client.put<Envelope<ApiFinalMinutes>>(`${meeting(id)}/final-minutes`, { content })),
+      /** Mark them final: with what is on screen, or what was saved. */
+      approveFinalMinutes: (id: string, content?: FinalMinutesContent) =>
+        data(client.post<Envelope<ApiFinalMinutes>>(`${meeting(id)}/final-minutes/approve`, content ? { content } : {})),
+      reopenFinalMinutes: (id: string) => data(client.post<Envelope<ApiFinalMinutes>>(`${meeting(id)}/final-minutes/reopen`, {})),
+
+      /** The minutes email as it would be sent, and to whom (sends nothing). */
+      previewMinutes: (id: string) => data(client.get<Envelope<MinutesPreview>>(`${meeting(id)}/minutes/preview`)),
+      /** Email the minutes PDF — to everyone, or to the chosen people's addresses. */
+      sendMinutes: (id: string, recipients?: string[]) =>
+        data(client.post<Envelope<SendReport>>(`${meeting(id)}/minutes/send`, recipients ? { recipients } : {})),
+      /** The minutes PDF's address (downloaded with the session by the exporter). */
+      minutesPdfPath: (id: string) => `${meeting(id)}/minutes.pdf`,
     },
     /** AI help — suggestions the user reviews before anything changes (given longer than other requests). */
     ai: {

@@ -48,6 +48,8 @@ export function MeetingHeaderCard({
   timeZone,
   now,
   onJoin,
+  primary,
+  onMore,
 }: {
   meeting: ApiMeeting;
   projectName: string | null;
@@ -55,6 +57,10 @@ export function MeetingHeaderCard({
   timeZone: string;
   now: Date;
   onJoin: (href: string) => void;
+  /** The next step for the meeting's status (Send invitations, Start, End, Email minutes…). */
+  primary?: { label: string; onPress: () => void; busy?: boolean } | null;
+  /** The meeting's other actions. */
+  onMore?: (() => void) | null;
 }) {
   const s = useDetailStyles();
   // As on the website: the meeting's own zone, else the company's.
@@ -91,6 +97,12 @@ export function MeetingHeaderCard({
         {fact('👤', `Organizer: ${organizer ?? '—'}`)}
       </View>
       {join ? <Button title="Join online" accessibilityLabel={`Join ${m.title} online`} onPress={() => onJoin(join)} style={s.join} /> : null}
+      {primary || onMore ? (
+        <View style={s.actions}>
+          {primary ? <Button title={primary.label} onPress={primary.onPress} loading={primary.busy} variant={join ? 'secondary' : 'primary'} style={s.flex} /> : null}
+          {onMore ? <Button title="More…" accessibilityLabel="More meeting actions" variant="secondary" onPress={onMore} style={primary ? s.more : s.flex} /> : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -164,7 +176,18 @@ export function SectionRow({ place, children }: { place: RowPlace; children: Rea
   return <View style={[s.row, place.first && s.rowFirst, place.last && s.rowLast]}>{children}</View>;
 }
 
-export function SectionTitleRow({ title, count, aside }: { title: string; count?: string; aside?: string | null }) {
+export function SectionTitleRow({
+  title,
+  count,
+  aside,
+  action,
+}: {
+  title: string;
+  count?: string;
+  aside?: string | null;
+  /** "＋ Add" for whoever may add to this part. */
+  action?: { label: string; a11y: string; onPress: () => void } | null;
+}) {
   const s = useDetailStyles();
   return (
     <SectionRow place={{ first: true }}>
@@ -173,9 +196,25 @@ export function SectionTitleRow({ title, count, aside }: { title: string; count?
           {title.toUpperCase()}
           {count ? <Text style={s.count}> · {count}</Text> : null}
         </Text>
-        {aside ? <Text style={s.small}>{aside}</Text> : null}
+        {action ? (
+          <Pressable onPress={action.onPress} accessibilityRole="button" accessibilityLabel={action.a11y} hitSlop={6} style={({ pressed }) => [s.addButton, pressed && s.pressed]}>
+            <Text style={s.addText}>{action.label}</Text>
+          </Pressable>
+        ) : null}
       </View>
+      {aside ? <Text style={s.small}>{aside}</Text> : null}
     </SectionRow>
+  );
+}
+
+/** A tick box: covered or not (an agenda item). */
+function Tick({ checked, label, onPress }: { checked: boolean; label: string; onPress?: () => void }) {
+  const s = useDetailStyles();
+  if (!onPress) return null;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked }} hitSlop={8} style={s.tickTarget}>
+      <View style={[s.tick, checked && s.tickOn]}>{checked ? <Text style={s.tickMark}>✓</Text> : null}</View>
+    </Pressable>
   );
 }
 
@@ -200,44 +239,114 @@ export function StateRow({ kind, text, onRetry, place }: { kind: 'loading' | 'fa
   );
 }
 
-export function AgendaRow({ item, index, nameOf, place }: { item: ApiAgendaItem; index: number; nameOf: NameOf; place: RowPlace }) {
+export function AgendaRow({
+  item,
+  index,
+  nameOf,
+  place,
+  onToggle,
+  onOpen,
+}: {
+  item: ApiAgendaItem;
+  index: number;
+  nameOf: NameOf;
+  place: RowPlace;
+  /** Tick it off as covered (whoever runs the meeting, or its presenter). */
+  onToggle?: (() => void) | null;
+  /** Edit, move or remove it (whoever runs the meeting). */
+  onOpen?: (() => void) | null;
+}) {
   const s = useDetailStyles();
   const line = agendaItemLine(item, nameOf);
+  const label = `${index + 1}. ${item.title}, ${line}${item.completed ? ', covered' : ''}`;
+  const body = (
+    <View style={[s.inline, s.flex]}>
+      <Text style={s.index}>{index + 1}</Text>
+      <View style={s.flex}>
+        <Text style={[s.itemTitle, item.completed && s.done]}>{item.title}</Text>
+        <Text style={s.small}>{line}</Text>
+      </View>
+      {item.completed ? <Badge label="Covered" tone="success" /> : null}
+    </View>
+  );
   return (
     <SectionRow place={place}>
-      <View style={s.inline} accessible accessibilityLabel={`${index + 1}. ${item.title}, ${line}${item.completed ? ', covered' : ''}`}>
-        <Text style={s.index}>{index + 1}</Text>
-        <View style={s.flex}>
-          <Text style={[s.itemTitle, item.completed && s.done]}>{item.title}</Text>
-          <Text style={s.small}>{line}</Text>
-        </View>
-        {item.completed ? <Badge label="Covered" tone="success" /> : null}
+      <View style={s.inline}>
+        <Tick checked={item.completed} label={`Covered: ${item.title}`} onPress={onToggle ?? undefined} />
+        {onOpen ? (
+          <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={label} accessibilityHint="Edit, move or remove it" style={({ pressed }) => [s.flex, pressed && s.pressed]}>
+            {body}
+          </Pressable>
+        ) : (
+          <View style={s.flex} accessible accessibilityLabel={label}>
+            {body}
+          </View>
+        )}
       </View>
     </SectionRow>
   );
 }
 
-export function PersonRow({ attendee: a, nameOf, myId, showAttendance, place }: { attendee: ApiMeetingAttendee; nameOf: NameOf; myId: string | null; showAttendance: boolean; place: RowPlace }) {
+export function PersonRow({
+  attendee: a,
+  nameOf,
+  myId,
+  showAttendance,
+  place,
+  flags,
+  onOpen,
+}: {
+  attendee: ApiMeetingAttendee;
+  nameOf: NameOf;
+  myId: string | null;
+  showAttendance: boolean;
+  place: RowPlace;
+  /** Not invited yet / no email address (shown to whoever runs the meeting). */
+  flags?: { notInvited: boolean; noEmail: boolean } | null;
+  /** Their role, answer, attendance or removal. */
+  onOpen?: (() => void) | null;
+}) {
   const s = useDetailStyles();
   const name = attendeeName(a, nameOf);
   const response = a.response ?? 'PENDING';
   const own = !!a.userId && a.userId === myId;
-  const parts = [own ? `${name} (you)` : name, a.role === 'OPTIONAL' ? 'optional' : 'required', a.userId ? null : 'guest', responseLabel(response), showAttendance ? `attendance: ${attendanceLabel(a.attendance)}` : null];
+  const parts = [
+    own ? `${name} (you)` : name,
+    a.role === 'OPTIONAL' ? 'optional' : 'required',
+    a.userId ? null : 'guest',
+    responseLabel(response),
+    showAttendance ? `attendance: ${attendanceLabel(a.attendance)}` : null,
+    flags?.notInvited ? 'not invited yet' : null,
+    flags?.noEmail ? 'no email address' : null,
+  ];
+  const body = (
+    <>
+      <Text style={s.itemTitle}>
+        {name}
+        {own ? <Text style={s.small}> (you)</Text> : null}
+      </Text>
+      {a.externalEmail ? <Text style={s.small}>{a.externalEmail}</Text> : null}
+      <View style={s.badges}>
+        <Badge label={a.role === 'OPTIONAL' ? 'Optional' : 'Required'} tone={a.role === 'OPTIONAL' ? 'neutral' : 'info'} />
+        {!a.userId ? <Badge label="Guest" /> : null}
+        <Badge label={responseLabel(response)} tone={responseTone(response)} />
+        {showAttendance ? <Text style={s.small}>Attendance: {attendanceLabel(a.attendance)}</Text> : null}
+        {flags?.notInvited ? <Text style={s.warn}>Not invited yet</Text> : null}
+        {flags?.noEmail ? <Text style={s.small}>No email address</Text> : null}
+      </View>
+    </>
+  );
   return (
     <SectionRow place={place}>
-      <View accessible accessibilityLabel={parts.filter(Boolean).join(', ')}>
-        <Text style={s.itemTitle}>
-          {name}
-          {own ? <Text style={s.small}> (you)</Text> : null}
-        </Text>
-        {a.externalEmail ? <Text style={s.small}>{a.externalEmail}</Text> : null}
-        <View style={s.badges}>
-          <Badge label={a.role === 'OPTIONAL' ? 'Optional' : 'Required'} tone={a.role === 'OPTIONAL' ? 'neutral' : 'info'} />
-          {!a.userId ? <Badge label="Guest" /> : null}
-          <Badge label={responseLabel(response)} tone={responseTone(response)} />
-          {showAttendance ? <Text style={s.small}>Attendance: {attendanceLabel(a.attendance)}</Text> : null}
+      {onOpen ? (
+        <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={parts.filter(Boolean).join(', ')} accessibilityHint="Opens their options" style={({ pressed }) => pressed && s.pressed}>
+          {body}
+        </Pressable>
+      ) : (
+        <View accessible accessibilityLabel={parts.filter(Boolean).join(', ')}>
+          {body}
         </View>
-      </View>
+      )}
     </SectionRow>
   );
 }
@@ -266,6 +375,14 @@ export function NoteFiltersRow({ notes, filter, onFilter, place }: { notes: ApiM
   );
 }
 
+/** What can be done with a note: make it a task, mark it a key point, change its words, delete it. */
+export interface NoteActions {
+  onTask?: (() => void) | null;
+  onStar?: (() => void) | null;
+  onEdit?: (() => void) | null;
+  onDelete?: (() => void) | null;
+}
+
 export function NoteRow({
   note,
   nameOf,
@@ -273,6 +390,7 @@ export function NoteRow({
   taskKey,
   onOpenTask,
   place,
+  actions,
 }: {
   note: ApiMeetingNote;
   nameOf: NameOf;
@@ -280,10 +398,17 @@ export function NoteRow({
   taskKey: string | null;
   onOpenTask: (taskId: string) => void;
   place: RowPlace;
+  actions?: NoteActions;
 }) {
   const c = useColors();
   const s = useDetailStyles();
   const tone = toneStyle(c, noteTypeTone(note.type));
+  const a = actions ?? {};
+  const small = (label: string, a11y: string, onPress: () => void, extra?: object) => (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} hitSlop={4} style={({ pressed }) => [s.noteAction, pressed && s.pressed]} {...extra}>
+      <Text style={s.noteActionText}>{label}</Text>
+    </Pressable>
+  );
   return (
     <SectionRow place={place}>
       <View style={[s.note, { borderLeftColor: tone.fg }, note.highlighted && s.noteKey]}>
@@ -303,6 +428,16 @@ export function NoteRow({
             <Text style={s.taskChipText}>✓ {taskKey ?? 'Task'} ›</Text>
           </Pressable>
         ) : null}
+        {a.onTask || a.onStar || a.onEdit || a.onDelete ? (
+          <View style={s.noteActions}>
+            {a.onTask && !note.taskId ? small(note.type === 'ACTION' ? '✓ Make it a task' : '✓ Task', 'Create task from note', a.onTask) : null}
+            {a.onStar
+              ? small(note.highlighted ? '★ Key point' : '☆ Key point', note.highlighted ? 'Unmark key point' : 'Mark as key point', a.onStar, { accessibilityState: { checked: note.highlighted } })
+              : null}
+            {a.onEdit ? small('✎ Edit', 'Edit note', a.onEdit) : null}
+            {a.onDelete ? small('🗑 Delete', 'Delete note', a.onDelete) : null}
+          </View>
+        ) : null}
       </View>
     </SectionRow>
   );
@@ -314,30 +449,45 @@ export function ActionRow({
   now,
   onOpenTask,
   place,
+  onOpen,
 }: {
   item: ApiActionItem;
   nameOf: NameOf;
   now: Date;
   onOpenTask: (taskId: string) => void;
   place: RowPlace;
+  /** Change it (status, owner, due day, priority) or remove it. */
+  onOpen?: (() => void) | null;
 }) {
   const s = useDetailStyles();
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   const overdue = isActionItemOverdue(item, now);
   const due = actionDueText(item, now);
   const owner = item.assigneeId ? nameOf(item.assigneeId) ?? 'A team member' : 'Unassigned';
+  const label = [item.description, actionStatusLabel(item.status), owner, due, item.sourceNoteId ? 'from a note' : null].filter(Boolean).join(', ');
+  const body = (
+    <>
+      <Text style={[s.itemTitle, done && s.done]}>{item.description}</Text>
+      <View style={s.badges}>
+        <Badge label={actionStatusLabel(item.status)} tone={actionStatusTone(item.status)} />
+        <Text style={s.small}>{owner}</Text>
+        <Text style={[s.small, overdue && s.overdue]}>{due}</Text>
+        {item.sourceNoteId ? <Text style={s.small}>· From a note</Text> : null}
+      </View>
+    </>
+  );
   return (
     <SectionRow place={place}>
       <View style={s.gapXs}>
-        <View accessible accessibilityLabel={[item.description, actionStatusLabel(item.status), owner, due, item.sourceNoteId ? 'from a note' : null].filter(Boolean).join(', ')}>
-          <Text style={[s.itemTitle, done && s.done]}>{item.description}</Text>
-          <View style={s.badges}>
-            <Badge label={actionStatusLabel(item.status)} tone={actionStatusTone(item.status)} />
-            <Text style={s.small}>{owner}</Text>
-            <Text style={[s.small, overdue && s.overdue]}>{due}</Text>
-            {item.sourceNoteId ? <Text style={s.small}>· From a note</Text> : null}
+        {onOpen ? (
+          <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={label} accessibilityHint="Change its status, owner, due date or priority" style={({ pressed }) => pressed && s.pressed}>
+            {body}
+          </Pressable>
+        ) : (
+          <View accessible accessibilityLabel={label}>
+            {body}
           </View>
-        </View>
+        )}
         {item.taskId ? (
           <Pressable
             onPress={() => onOpenTask(item.taskId!)}
@@ -353,11 +503,50 @@ export function ActionRow({
   );
 }
 
-/** The final minutes when they are final; otherwise how far they are. */
-export function MinutesRow({ minutes, timeZone, place }: { minutes: ApiFinalMinutes; timeZone: string; place: RowPlace }) {
+/** What can be done with the final minutes from the meeting's page. */
+export interface MinutesActions {
+  /** Whoever runs the meeting: start a draft, or go on with the saved one. */
+  onDraft?: ((source: 'ai' | 'notes') => void) | null;
+  onContinue?: (() => void) | null;
+  onReopen?: (() => void) | null;
+  reopening?: boolean;
+  /** Everyone, once they are final: the minutes PDF (download or share). */
+  onDownload?: (() => void) | null;
+  downloading?: boolean;
+}
+
+/** The final minutes when they are final; otherwise how far they are (and, to their writer, what to do next). */
+export function MinutesRow({ minutes, timeZone, place, actions }: { minutes: ApiFinalMinutes; timeZone: string; place: RowPlace; actions?: MinutesActions }) {
   const s = useDetailStyles();
   const note = finalMinutesNote(minutes);
   const content = minutes.content;
+  const a = actions ?? {};
+  if (minutes.canEdit && minutes.status !== 'FINAL') {
+    const draft = minutes.status === 'DRAFT';
+    return (
+      <SectionRow place={place}>
+        <View style={s.gapSm}>
+          {draft ? (
+            <View style={s.badges}>
+              <Badge label="Draft" tone="info" />
+              <Text style={s.small}>{minutes.savedAt ? `Saved ${meetingWhen({ startAt: minutes.savedAt, endAt: null }, timeZone).day}, ${meetingWhen({ startAt: minutes.savedAt, endAt: null }, timeZone).time}` : 'Not saved yet'}</Text>
+            </View>
+          ) : (
+            <Text style={s.muted}>
+              The minutes you approve and send: a summary, what was discussed under each agenda item, the decisions, risks and next steps. Start from a draft, edit it, then mark it final.
+            </Text>
+          )}
+          {draft && a.onContinue ? <Button title="Continue editing" onPress={a.onContinue} /> : null}
+          {!draft && a.onDraft ? (
+            <View style={s.actions}>
+              <Button title="Draft with AI" onPress={() => a.onDraft!('ai')} style={s.flex} />
+              <Button title="Start from the notes" variant="secondary" onPress={() => a.onDraft!('notes')} style={s.flex} />
+            </View>
+          ) : null}
+        </View>
+      </SectionRow>
+    );
+  }
   if (note || !content) {
     return (
       <SectionRow place={place}>
@@ -402,6 +591,12 @@ export function MinutesRow({ minutes, timeZone, place }: { minutes: ApiFinalMinu
         {list('Decisions', content.decisions)}
         {list('Risks & open issues', content.risks)}
         {list('Next steps', content.nextSteps)}
+        {a.onDownload || (minutes.canEdit && a.onReopen) ? (
+          <View style={s.actions}>
+            {a.onDownload ? <Button title="Download minutes (PDF)" variant="secondary" onPress={a.onDownload} loading={a.downloading} style={s.flex} /> : null}
+            {minutes.canEdit && a.onReopen ? <Button title="Reopen" variant="ghost" onPress={a.onReopen} loading={a.reopening} style={s.more} /> : null}
+          </View>
+        ) : null}
       </View>
     </SectionRow>
   );
@@ -448,4 +643,16 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.7 },
     gapXs: { gap: spacing.xs },
     gapSm: { gap: spacing.sm },
+    actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
+    more: { minWidth: 110 },
+    addButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.pill, backgroundColor: c.brandWash },
+    addText: { fontSize: fontSize.xs, fontWeight: '800', color: c.brand },
+    warn: { fontSize: fontSize.xs, fontWeight: '700', color: c.warning },
+    tickTarget: { minWidth: 40, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    tick: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
+    tickOn: { borderColor: c.success, backgroundColor: c.success },
+    tickMark: { color: c.onBrand, fontSize: fontSize.sm, fontWeight: '800' },
+    noteActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 2 },
+    noteAction: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface },
+    noteActionText: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2 },
   });

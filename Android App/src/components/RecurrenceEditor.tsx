@@ -17,19 +17,24 @@ import { TextField } from './ui';
  * The repeat editor (daily / weekly / monthly / quarterly / yearly, "every N", weekdays, "the 2nd
  * Tuesday", how it ends, when copies are made, pause). Each change is reported at once; the rule
  * logic lives in lib/recurrence-edit.ts and the dates in lib/recurrence.ts (shared with the API).
+ * For a meeting series (`kind="meeting"`) every meeting is created ahead, so there is no "next
+ * copy" choice and no pause, and it ends after a number of meetings.
  */
 export function RecurrenceEditor({
   value,
   onChange,
   dueDate,
   disabled = false,
+  kind = 'task',
 }: {
   value: RecurrenceRule | null;
   onChange: (rule: RecurrenceRule | null) => void;
   /** The task's due date ('YYYY-MM-DD' or ISO): previews the next dates and suggests "the 2nd Tuesday". */
   dueDate?: string | null;
   disabled?: boolean;
+  kind?: 'task' | 'meeting';
 }) {
+  const meeting = kind === 'meeting';
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const rule = value;
@@ -86,7 +91,8 @@ export function RecurrenceEditor({
 
       {rule ? (
         <>
-          <Text style={styles.summary}>🔁 {recurrenceSummary(rule)}</Text>
+          {/* A meeting's form says how its series repeats, from its first meeting's day and time. */}
+          {meeting ? null : <Text style={styles.summary}>🔁 {recurrenceSummary(rule)}</Text>}
 
           <View style={styles.row}>
             <Text style={styles.label}>Every</Text>
@@ -134,7 +140,7 @@ export function RecurrenceEditor({
                   <Text style={styles.label}>Day</Text>
                   {stepper(
                     'Day of month',
-                    rule.dayOfMonth ? (rule.dayOfMonth === 31 ? 'last day' : String(rule.dayOfMonth)) : 'due day',
+                    rule.dayOfMonth ? (rule.dayOfMonth === 31 ? 'last day' : String(rule.dayOfMonth)) : meeting ? 'its day' : 'due day',
                     () => set(withDayOfMonth(rule, (rule.dayOfMonth ?? 2) - 1)),
                     () => set(withDayOfMonth(rule, Math.min(31, (rule.dayOfMonth ?? 0) + 1))),
                   )}
@@ -146,7 +152,7 @@ export function RecurrenceEditor({
           <Text style={styles.label}>Ends</Text>
           <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Ends">
             {chip('NEVER', 'Never', endsMode(rule) === 'NEVER', () => set(withEnds(rule, 'NEVER')), 'Never ends')}
-            {chip('COUNT', 'After…', endsMode(rule) === 'COUNT', () => set(withEnds(rule, 'COUNT')), 'Ends after a number of copies')}
+            {chip('COUNT', 'After…', endsMode(rule) === 'COUNT', () => set(withEnds(rule, 'COUNT')), meeting ? 'Ends after a number of meetings' : 'Ends after a number of copies')}
             {chip('UNTIL', 'On a date', endsMode(rule) === 'UNTIL', () => {
               setUntilText(dueKey);
               set(withEnds(rule, 'UNTIL', dueKey || null));
@@ -154,7 +160,7 @@ export function RecurrenceEditor({
           </View>
           {endsMode(rule) === 'COUNT' ? (
             <View style={styles.row}>
-              {stepper('Number of copies', `${rule.count} copies`, () => set({ ...rule, count: Math.max(1, (rule.count ?? 1) - 1), until: null }), () => set({ ...rule, count: (rule.count ?? 0) + 1, until: null }))}
+              {stepper(meeting ? 'Number of meetings' : 'Number of copies', `${rule.count} ${meeting ? (rule.count === 1 ? 'meeting' : 'meetings') : 'copies'}`, () => set({ ...rule, count: Math.max(1, (rule.count ?? 1) - 1), until: null }), () => set({ ...rule, count: (rule.count ?? 0) + 1, until: null }))}
             </View>
           ) : null}
           {endsMode(rule) === 'UNTIL' ? (
@@ -181,17 +187,23 @@ export function RecurrenceEditor({
             />
           ) : null}
 
-          <Text style={styles.label}>Create the next copy</Text>
-          <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Create the next copy">
-            {chip('ON_COMPLETE', 'When this one is done', rule.createNext !== 'ON_SCHEDULE', () => set(withCreateNext(rule, 'ON_COMPLETE')))}
-            {chip('ON_SCHEDULE', 'On each date', rule.createNext === 'ON_SCHEDULE', () => set(withCreateNext(rule, 'ON_SCHEDULE')), 'On each date, even if not done')}
-          </View>
+          {meeting ? null : (
+            <>
+              <Text style={styles.label}>Create the next copy</Text>
+              <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Create the next copy">
+                {chip('ON_COMPLETE', 'When this one is done', rule.createNext !== 'ON_SCHEDULE', () => set(withCreateNext(rule, 'ON_COMPLETE')))}
+                {chip('ON_SCHEDULE', 'On each date', rule.createNext === 'ON_SCHEDULE', () => set(withCreateNext(rule, 'ON_SCHEDULE')), 'On each date, even if not done')}
+              </View>
+            </>
+          )}
 
           {preview.length > 0 ? <Text style={styles.preview}>Next: {preview.map((d) => formatDueDay(d) ?? d).join(' · ')}</Text> : null}
 
-          <Pressable onPress={() => set(togglePaused(rule))} disabled={disabled} accessibilityRole="button" style={[styles.chip, styles.pause]}>
-            <Text style={styles.chipText}>{rule.paused ? '▶ Resume series' : '⏸ Pause series'}</Text>
-          </Pressable>
+          {meeting ? null : (
+            <Pressable onPress={() => set(togglePaused(rule))} disabled={disabled} accessibilityRole="button" style={[styles.chip, styles.pause]}>
+              <Text style={styles.chipText}>{rule.paused ? '▶ Resume series' : '⏸ Pause series'}</Text>
+            </Pressable>
+          )}
         </>
       ) : null}
     </View>

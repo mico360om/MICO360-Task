@@ -208,3 +208,54 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
     expect(refreshesAfterReplay(mut('something.new', {}))).toEqual([{ queryKey: [] }]);
   });
 });
+
+describe('meeting changes made offline (2b: notes, action items, the agenda’s ticks, attendance)', () => {
+  function meetingResources() {
+    const meetings = {
+      addNote: vi.fn(async () => ({})),
+      addActionItem: vi.fn(async () => ({})),
+      updateActionItem: vi.fn(async () => ({})),
+      updateAgendaItem: vi.fn(async () => ({})),
+      updateAttendee: vi.fn(async () => ({})),
+    };
+    return { meetings } as unknown as ResourcesApi & { meetings: typeof meetings };
+  }
+
+  it('replays each to the meeting’s own call, with the idempotency key on what it adds', async () => {
+    const r = meetingResources();
+    await performMutation(r, mut('meeting.note.add', { meetingId: 'm1', body: 'Go live in May', format: 'PLAIN', type: 'DECISION', highlighted: true }));
+    expect(r.meetings.addNote).toHaveBeenCalledWith('m1', { body: 'Go live in May', format: 'PLAIN', type: 'DECISION', highlighted: true }, KEY);
+    await performMutation(r, mut('meeting.action.add', { meetingId: 'm1', description: 'Send the plan', assigneeId: null, dueDate: null, priority: 'HIGH' }));
+    expect(r.meetings.addActionItem).toHaveBeenCalledWith('m1', { description: 'Send the plan', assigneeId: null, dueDate: null, priority: 'HIGH' }, KEY);
+    await performMutation(r, mut('meeting.action.update', { meetingId: 'm1', id: 'ai1', patch: { status: 'COMPLETED' } }));
+    expect(r.meetings.updateActionItem).toHaveBeenCalledWith('ai1', { status: 'COMPLETED' });
+    await performMutation(r, mut('meeting.agenda.covered', { meetingId: 'm1', itemId: 'g1', completed: true }));
+    expect(r.meetings.updateAgendaItem).toHaveBeenCalledWith('m1', 'g1', { completed: true });
+    await performMutation(r, mut('meeting.attendance', { meetingId: 'm1', attendeeId: 'a1', attendance: 'LATE' }));
+    expect(r.meetings.updateAttendee).toHaveBeenCalledWith('m1', 'a1', { attendance: 'LATE' });
+  });
+
+  it('refreshes that part of the meeting once replayed (the lists’ counts when next shown)', () => {
+    const counts = [{ queryKey: ['meetings'], later: true }, { projectMeetingsOf: 'm1' }];
+    expect(refreshesAfterReplay(mut('meeting.note.add', { meetingId: 'm1', body: 'x' }))).toEqual([{ queryKey: ['meeting', 'm1', 'notes'], exact: true }, ...counts]);
+    expect(refreshesAfterReplay(mut('meeting.action.add', { meetingId: 'm1', description: 'x' }))).toEqual([
+      { queryKey: ['meeting', 'm1', 'action-items'], exact: true },
+      { queryKey: ['action-items', 'mine'] },
+      ...counts,
+    ]);
+    expect(refreshesAfterReplay(mut('meeting.action.update', { meetingId: 'm1', id: 'ai1', patch: {} }))).toEqual(refreshesAfterReplay(mut('meeting.action.add', { meetingId: 'm1' })));
+    expect(refreshesAfterReplay(mut('meeting.agenda.covered', { meetingId: 'm1', itemId: 'g1', completed: true }))).toEqual([{ queryKey: ['meeting', 'm1', 'agenda'], exact: true }]);
+    expect(refreshesAfterReplay(mut('meeting.attendance', { meetingId: 'm1', attendeeId: 'a1', attendance: 'LATE' }))).toEqual([{ queryKey: ['meeting', 'm1', 'attendees'], exact: true }]);
+    // An action item changed from My Action Items, without a meeting: My Action Items.
+    expect(refreshesAfterReplay(mut('meeting.action.update', { id: 'ai1', patch: {} }))).toEqual([{ queryKey: ['action-items', 'mine'] }]);
+  });
+
+  it('names them in the waiting-to-sync list', () => {
+    expect(describeMutation({ kind: 'meeting.note.add', payload: { body: 'Go live in May' } })).toBe('Meeting note “Go live in May”');
+    expect(describeMutation({ kind: 'meeting.action.add', payload: { description: 'Send the plan' } })).toBe('Action item “Send the plan”');
+    expect(describeMutation({ kind: 'meeting.action.update', payload: {} })).toBe('Update an action item');
+    expect(describeMutation({ kind: 'meeting.agenda.covered', payload: { completed: true } })).toBe('Tick off an agenda item');
+    expect(describeMutation({ kind: 'meeting.agenda.covered', payload: { completed: false } })).toBe('Untick an agenda item');
+    expect(describeMutation({ kind: 'meeting.attendance', payload: {} })).toBe('Record attendance');
+  });
+});

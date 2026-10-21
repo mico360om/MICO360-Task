@@ -55,6 +55,8 @@ export interface DetailInput {
   meeting: ApiMeeting;
   /** You're on the meeting and can still answer the invitation. */
   canRsvp: boolean;
+  /** You run the meeting (the server's `canEdit`): the empty parts say what to add. */
+  canEdit?: boolean;
   agenda: Part<ApiAgendaItem[]>;
   people: Part<ApiMeetingAttendee[]>;
   notes: Part<ApiMeetingNote[]>;
@@ -78,8 +80,7 @@ export type DetailRow =
   | { kind: 'noteFilters'; key: string; section: 'notes' }
   | { kind: 'note'; key: string; section: 'notes'; note: ApiMeetingNote }
   | { kind: 'action'; key: string; section: 'actions'; item: ApiActionItem }
-  | { kind: 'minutes'; key: string; section: 'minutes'; minutes: ApiFinalMinutes }
-  | { kind: 'footer'; key: string };
+  | { kind: 'minutes'; key: string; section: 'minutes'; minutes: ApiFinalMinutes };
 
 /** A part's rows: loading, failed (to retry), empty, or its own rows. */
 function partRows<T>(section: Section, part: Part<T[]>, empty: string, rows: (items: T[]) => DetailRow[]): DetailRow[] {
@@ -100,11 +101,12 @@ export function meetingDetailRows(input: DetailInput): DetailRow[] {
   rows.push({ kind: 'about', key: 'about' });
 
   rows.push(title('agenda', 'Agenda', agenda.data?.length ? String(agenda.data.length) : undefined));
-  rows.push(...partRows('agenda', agenda, 'No agenda yet.', (items) => items.map((item, index) => ({ kind: 'agenda', key: `agenda:${item.id}`, section: 'agenda', item, index }))));
+  const canEdit = input.canEdit === true;
+  rows.push(...partRows('agenda', agenda, canEdit ? 'No agenda yet. Add the topics you plan to cover, who presents each and for how long.' : 'No agenda yet.', (items) => items.map((item, index) => ({ kind: 'agenda', key: `agenda:${item.id}`, section: 'agenda', item, index }))));
 
   rows.push(title('people', 'People', people.data?.length ? String(people.data.length) : undefined));
   rows.push(
-    ...partRows('people', people, 'Nobody has been added yet.', (list) => {
+    ...partRows('people', people, canEdit ? 'Nobody yet. Add team members or guests.' : 'Nobody has been added yet.', (list) => {
       const shown = input.showAllPeople ? list : list.slice(0, PEOPLE_FIRST);
       const out: DetailRow[] = shown.map((attendee) => ({ kind: 'person', key: `person:${attendee.id}`, section: 'people', attendee }));
       if (list.length > PEOPLE_FIRST) out.push({ kind: 'more', key: 'people:more', section: 'people', total: list.length, expanded: input.showAllPeople });
@@ -114,7 +116,7 @@ export function meetingDetailRows(input: DetailInput): DetailRow[] {
 
   rows.push(title('notes', 'Live notes', notes.data?.length ? String(notes.data.length) : undefined));
   rows.push(
-    ...partRows('notes', notes, 'No notes yet.', (list) => {
+    ...partRows('notes', notes, 'No notes yet. Capture discussion, decisions and actions as the meeting unfolds.', (list) => {
       const shown = filterNotes(list, input.noteFilter);
       const out: DetailRow[] = [{ kind: 'noteFilters', key: 'notes:filters', section: 'notes' }];
       if (shown.length === 0) out.push({ kind: 'empty', key: 'notes:empty', section: 'notes', text: 'No notes in this category.' });
@@ -124,12 +126,10 @@ export function meetingDetailRows(input: DetailInput): DetailRow[] {
   );
 
   rows.push(title('actions', 'Action items', actions.data?.length ? `${openActionCount(actions.data)} open of ${actions.data.length}` : undefined));
-  rows.push(...partRows('actions', actions, 'No action items yet.', (items) => items.map((item) => ({ kind: 'action', key: `action:${item.id}`, section: 'actions', item }))));
+  rows.push(...partRows('actions', actions, 'No action items yet. Add them here, or turn an action note into a task.', (items) => items.map((item) => ({ kind: 'action', key: `action:${item.id}`, section: 'actions', item }))));
 
   rows.push(title('minutes', 'Final MOM'));
   if (minutes.data) rows.push({ kind: 'minutes', key: 'minutes', section: 'minutes', minutes: minutes.data });
   else rows.push(minutes.failed ? { kind: 'failed', key: 'minutes:failed', section: 'minutes' } : { kind: 'loading', key: 'minutes:loading', section: 'minutes' });
-
-  rows.push({ kind: 'footer', key: 'footer' });
   return rows;
 }

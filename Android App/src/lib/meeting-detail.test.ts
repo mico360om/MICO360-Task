@@ -194,7 +194,7 @@ describe('minutes', () => {
 
   it('says plainly when the final minutes aren’t there to read yet', () => {
     expect(finalMinutesNote(fm({ status: 'NONE' }))).toBe('The final minutes aren’t ready yet.');
-    expect(finalMinutesNote(fm({ status: 'DRAFT', canEdit: true }))).toBe('The final minutes are being written. They’re finished on the website.');
+    expect(finalMinutesNote(fm({ status: 'DRAFT', canEdit: true }))).toBe('The final minutes are being written.');
     expect(finalMinutesNote(fm({ status: 'FINAL', content: { summary: 'x', discussion: [], decisions: [], risks: [], nextSteps: [] } }))).toBeNull();
     expect(finalMinutesNote(fm({ status: 'FINAL', content: null }))).toBe('The final minutes aren’t ready yet.');
   });

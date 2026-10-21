@@ -1,5 +1,5 @@
 /**
- * Meetings in the app (read-only): which day and time each is in company time, where it is held,
+ * Meetings in the app: which day and time each is in company time, where it is held,
  * whether it repeats, and the calendar's days with their tasks and meetings together.
  */
 import type { ApiMeeting, ApiTask } from './types';

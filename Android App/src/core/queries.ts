@@ -33,7 +33,7 @@ export function keyed<T extends object>(vars: T): Keyed<T> {
  * (XP-02), and reuse the action's idempotency key so a replay of a write the server already saved
  * is de-duplicated (XP-06).
  */
-async function queueOnOffline(
+export async function queueOnOffline(
   queue: SyncQueue,
   userId: string | null,
   err: unknown,
@@ -353,7 +353,7 @@ export function useProjectProgress(projectId: string) {
   });
 }
 
-// ── Meetings (read-only) ─────────────────────────────────────────────────────
+// ── Meetings: the calendar and a project (reads) ─────────────────────────────
 /** The meetings the calendar shows (a week back, two months ahead), kept for an offline start. */
 export function useCalendarMeetings() {
   const { resources, reads } = useServices();

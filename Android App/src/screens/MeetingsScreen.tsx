@@ -41,8 +41,8 @@ const CHIP_CLEARS: Record<FilterChip['key'], Partial<MeetingFilters> & { sort?: 
 /**
  * Meetings (2a): every meeting you can see, as on the website — "Up next" on top, a search, the
  * filters (project, date, status, sort) with their chips, all meetings or the ones you organize, and
- * the groups Today, Next 7 days, Later, Drafts and Past. Each card opens the meeting. Meetings are
- * scheduled and run on the website; here you take part.
+ * the groups Today, Next 7 days, Later, Drafts and Past. Each card opens the meeting; "New meeting"
+ * schedules one (2b).
  */
 export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   const c = useColors();
@@ -113,6 +113,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
 
   const header = (
     <View style={styles.header}>
+      <Button title="＋ New meeting" accessibilityLabel="Schedule a new meeting" onPress={() => navigation.navigate('MeetingForm')} />
       <TextField
         value={filters.q}
         onChangeText={(q) => change({ q })}
@@ -203,7 +204,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   ) : (
     <EmptyState
       title={scope === 'mine' ? 'You haven’t organized any meetings yet' : 'No meetings yet'}
-      subtitle="Meetings are scheduled on the website. The ones you can see show up here."
+      subtitle="Schedule one with “New meeting” — the ones you can see show up here."
     />
   );
 

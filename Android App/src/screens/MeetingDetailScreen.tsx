@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl, type ListRenderItem } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, RefreshControl, Pressable, Alert, InteractionManager, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import {
+  keyed,
   useDirectory,
   useFinalMinutes,
   useMeeting,
@@ -13,7 +15,8 @@ import {
   useProjects,
   useRespondToMeeting,
 } from '../core/queries';
-import { useUserId } from '../core/providers';
+import { useAgendaMutations, useFinalMinutesMutations, useMeetingActions, useNoteMutations } from '../core/meeting-mutations';
+import { useServices, useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote, Button } from '../components/ui';
 import {
@@ -31,27 +34,53 @@ import {
   StateRow,
   type RowPlace,
 } from '../components/meeting/MeetingDetailParts';
+import { ActionsSheet, ConfirmScopeSheet, InviteSheet, MinutesEmailSheet } from '../components/meeting/MeetingSheets';
+import { ActionItemSheet, AddPersonSheet, AgendaItemSheet, NoteSheet, NoteTaskSheet, PersonSheet } from '../components/meeting/PartSheets';
 import { openJoinLink, useMinuteNow, usePullRefresh } from '../components/meeting/live';
+import { isNetworkError } from '../lib/api-client';
 import { appTimeZone } from '../lib/due-date';
+import { afterMeetingDeleted } from '../lib/meeting-cache';
 import { agendaTiming, agendaTimingText, answerAfterTap, canAnswer, meetingLoadProblem, myInvitation, responseLine, responseSummary } from '../lib/meeting-detail';
+import { PRIMARY_LABEL, cancelDialog, deleteDialog, meetingFailure, meetingMenu, minutesFileName, primaryAction, statusNotice, type MenuKey, type PrimaryAction } from '../lib/meeting-flow';
+import { canChangeNoteText, canManageNote, canRemoveActionItem, canTickAgendaItem, personFlags } from '../lib/meeting-parts';
+import { minutesSaveFailure } from '../lib/meeting-minutes';
 import { meetingDetailRows, type DetailRow, type NoteFilter, type Section } from '../lib/meeting-screen';
 import { failureText } from '../lib/task-detail';
-import { displayName, type InvitationResponse } from '../lib/types';
-import { spacing, fontSize, type Palette } from '../lib/theme';
+import { displayName, type ApiActionItem, type ApiAgendaItem, type ApiMeetingNote, type InvitationResponse, type MeetingStatus, type SeriesScope } from '../lib/types';
+import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 
 const WHAT: Record<Section, string> = { agenda: 'the agenda', people: 'the people', notes: 'the notes', actions: 'the action items', minutes: 'the final minutes' };
+const QUEUED = 'Saved on this phone — will sync when you’re online.';
+
+type Sheet =
+  | { kind: 'actions' }
+  | { kind: 'cancel' }
+  | { kind: 'delete' }
+  | { kind: 'invite' }
+  | { kind: 'minutesEmail' }
+  | { kind: 'addPerson' }
+  | { kind: 'person'; attendeeId: string }
+  | { kind: 'agenda'; item: ApiAgendaItem | null }
+  | { kind: 'note'; note: ApiMeetingNote | null }
+  | { kind: 'noteTask'; note: ApiMeetingNote }
+  | { kind: 'action'; item: ApiActionItem | null };
 
 /**
- * One meeting (2a, taking part): when, where and Join; your answer to the invitation; what it is
- * about; its agenda, people and their answers, Live notes, action items and final minutes — all
- * read-only apart from your answer. It stays current through the meeting's live events (one app-wide
- * socket); pull down to load it again. Running the meeting is on the website.
+ * One meeting: when, where and Join; your answer to the invitation; what it is about; its agenda,
+ * people and their answers, Live notes, action items and final minutes (2a) — and, for whoever
+ * runs it (the server's `canEdit`), everything the website does to run it (2b): the next step for
+ * its status (invite, start, end, email the minutes), editing it, people and invitations, the
+ * agenda, the final minutes, the minutes PDF and email, cancelling, copying and deleting. Anyone on
+ * it can add notes and action items, make a note a task, and record their own attendance. It stays
+ * current through the meeting's live events (one app-wide socket); pull down to load it again.
  */
 export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'MeetingDetail'>) {
   const { meetingId } = route.params;
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
+  const qc = useQueryClient();
+  const { exporter, resources } = useServices();
   const myId = useUserId();
   const meetingQ = useMeeting(meetingId);
   const peopleQ = useMeetingAttendees(meetingId);
@@ -62,24 +91,46 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   const projectsQ = useProjects();
   const dirQ = useDirectory();
   const respond = useRespondToMeeting(meetingId);
+  const lifecycle = useMeetingActions(meetingId);
+  const agendaM = useAgendaMutations(meetingId);
+  const notesM = useNoteMutations(meetingId);
+  const minutesM = useFinalMinutesMutations(meetingId);
   const [showAllPeople, setShowAllPeople] = useState(false);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>('ALL');
   const [rsvpError, setRsvpError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [scope, setScope] = useState<SeriesScope>('one');
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [undoNoteId, setUndoNoteId] = useState<string | null>(null);
   const timeZone = appTimeZone();
   // "Under way" and "overdue" move on each minute only while this screen is in view.
   const now = useMinuteNow(useIsFocused());
+  const closing = useRef(false);
 
   const meeting = meetingQ.data;
   useEffect(() => {
     if (meeting?.title && meeting.title !== route.params.title) navigation.setOptions({ title: meeting.title });
   }, [meeting?.title, route.params.title, navigation]);
 
-  const people = useMemo(() => new Map((dirQ.data ?? []).map((u) => [u.id, displayName(u)])), [dirQ.data]);
+  // A deleted note can be brought back for a few seconds.
+  useEffect(() => {
+    if (!undoNoteId) return;
+    const t = setTimeout(() => setUndoNoteId(null), 10_000);
+    return () => clearTimeout(t);
+  }, [undoNoteId]);
+
+  const directory = useMemo(() => dirQ.data ?? [], [dirQ.data]);
+  const people = useMemo(() => new Map(directory.map((u) => [u.id, displayName(u)])), [directory]);
   const nameOf = useCallback((id: string) => people.get(id) ?? null, [people]);
   const projectName = meeting?.projectId ? (projectsQ.data ?? []).find((p) => p.id === meeting.projectId)?.name ?? null : null;
   const mine = myInvitation(peopleQ.data ?? [], myId);
   const taskKeys = useMemo(() => new Map((actionsQ.data ?? []).flatMap((i) => (i.taskId && i.taskKey ? [[i.taskId, i.taskKey] as const] : []))), [actionsQ.data]);
   const openTask = useCallback((taskId: string) => navigation.navigate('TaskDetail', { taskId }), [navigation]);
+  const canEdit = meeting?.canEdit === true;
+  const viewer = { canEdit, myId };
+  const attendanceTime = meeting?.status === 'IN_PROGRESS' || meeting?.status === 'COMPLETED';
 
   const part = <T,>(q: { data?: T; isLoading: boolean; isError: boolean }) => ({ data: q.data, loading: q.isLoading, failed: q.isError && q.data === undefined });
   // A few hundred rows at most, built again on each render (cheap); the list draws only what is on screen.
@@ -87,6 +138,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     ? meetingDetailRows({
         meeting,
         canRsvp: !!mine && canAnswer(meeting),
+        canEdit,
         agenda: part(agendaQ),
         people: part(peopleQ),
         notes: part(notesQ),
@@ -106,6 +158,114 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     );
   };
 
+  // ── Running it ──
+  const say = (text: string, error = false) => setNotice({ text, error });
+  const setStatus = (status: MeetingStatus) =>
+    lifecycle.setStatus.mutate(status, {
+      onSuccess: (saved) => say(statusNotice(saved.status)),
+      onError: (e) => say(meetingFailure(e, 'Couldn’t change the meeting’s status.'), true),
+    });
+  const exportPdf = async () => {
+    if (!meeting || downloading) return;
+    setDownloading(true);
+    try {
+      await exporter.exportFile(resources.meetings.minutesPdfPath(meeting.id), minutesFileName(meeting.title, minutesQ.data?.status === 'FINAL'), 'Minutes of the meeting');
+    } catch (e) {
+      say(isNetworkError(e) ? 'The minutes PDF needs a connection — check your connection and try again.' : meetingFailure(e, 'Couldn’t export the minutes.'), true);
+    } finally {
+      setDownloading(false);
+    }
+  };
+  const duplicate = () =>
+    lifecycle.duplicate.mutate(keyed({}), {
+      onSuccess: (copy) => navigation.navigate('MeetingDetail', { meetingId: copy.id, title: copy.title }),
+      onError: (e) => say(meetingFailure(e, 'Couldn’t duplicate the meeting.'), true),
+    });
+  const run = (key: PrimaryAction | MenuKey) => {
+    setSheet(null);
+    setNotice(null);
+    switch (key) {
+      case 'edit':
+        navigation.navigate('MeetingForm', { meetingId });
+        return;
+      case 'schedule':
+      case 'invite':
+        setSheet({ kind: 'invite' });
+        return;
+      case 'schedule-quietly':
+        setStatus('SCHEDULED');
+        return;
+      case 'start':
+        setStatus('IN_PROGRESS');
+        return;
+      case 'end':
+        setStatus('COMPLETED');
+        return;
+      case 'email-minutes':
+        setSheet({ kind: 'minutesEmail' });
+        return;
+      case 'export-minutes':
+        void exportPdf();
+        return;
+      case 'duplicate':
+        duplicate();
+        return;
+      case 'cancel':
+      case 'delete':
+        setScope('one');
+        setScopeError(null);
+        setSheet({ kind: key });
+        return;
+    }
+  };
+  const confirmScope = () => {
+    if (!meeting || !sheet) return;
+    setScopeError(null);
+    if (sheet.kind === 'cancel') {
+      lifecycle.cancel.mutate(scope, {
+        onSuccess: () => {
+          setSheet(null);
+          say(cancelDialog(meeting, scope).done);
+        },
+        onError: (e) => setScopeError(meetingFailure(e, scope === 'series' ? 'Couldn’t cancel the meetings.' : 'Couldn’t cancel the meeting.')),
+      });
+    } else if (sheet.kind === 'delete') {
+      lifecycle.remove.mutate(scope, {
+        onSuccess: () => {
+          closing.current = true;
+          setSheet(null);
+          if (navigation.canGoBack()) navigation.goBack();
+          else navigation.navigate('Tabs', { screen: 'Meetings' });
+          // Its data goes once its screen has closed (so it doesn't say "not found" on the way out).
+          InteractionManager.runAfterInteractions(() => afterMeetingDeleted(qc, meetingId, scope));
+        },
+        onError: (e) => setScopeError(meetingFailure(e, scope === 'series' ? 'Couldn’t delete the meetings.' : 'Couldn’t delete the meeting.')),
+      });
+    }
+  };
+
+  const toggleCovered = (item: ApiAgendaItem) =>
+    agendaM.covered.mutate({ itemId: item.id, completed: !item.completed }, { onError: (e) => say(isNetworkError(e) ? QUEUED : meetingFailure(e, 'Couldn’t update the agenda item.'), !isNetworkError(e)) });
+  const toggleKey = (note: ApiMeetingNote) => notesM.update.mutate({ noteId: note.id, patch: { highlighted: !note.highlighted } }, { onError: (e) => say(meetingFailure(e, 'Couldn’t change the key point.'), true) });
+  const deleteNote = (note: ApiMeetingNote) =>
+    Alert.alert('Delete this note?', 'You can bring it back for a few seconds after.', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => notesM.remove.mutate(note.id, { onSuccess: () => setUndoNoteId(note.id), onError: (e) => say(meetingFailure(e, 'Couldn’t delete the note.'), true) }),
+      },
+    ]);
+  const restoreNote = () => {
+    if (!undoNoteId) return;
+    notesM.restore.mutate(undoNoteId, { onSuccess: () => setUndoNoteId(null), onError: (e) => say(meetingFailure(e, 'Couldn’t restore the note.'), true) });
+  };
+  const reopenMinutes = () =>
+    minutesM.reopen.mutate(undefined, {
+      onSuccess: () => say('Reopened: the minutes can be changed again. Mark them final when they are ready.'),
+      onError: (e) => say(minutesSaveFailure(e, 'Couldn’t reopen the minutes.'), true),
+    });
+
   const retry: Record<Section, () => void> = {
     agenda: () => void agendaQ.refetch(),
     people: () => void peopleQ.refetch(),
@@ -117,6 +277,26 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     Promise.all([meetingQ.refetch(), agendaQ.refetch(), peopleQ.refetch(), notesQ.refetch(), actionsQ.refetch(), minutesQ.refetch()]),
   );
 
+  const primary = meeting ? primaryAction(meeting, canEdit) : null;
+  const menu = meeting ? meetingMenu(meeting, canEdit) : [];
+  const primaryBusy = lifecycle.setStatus.isPending || lifecycle.duplicate.isPending || (primary === 'export-minutes' && downloading);
+
+  const titleAction = (section: Section): { label: string; a11y: string; onPress: () => void } | null => {
+    if (!meeting || meeting.status === 'CANCELLED') return null;
+    switch (section) {
+      case 'agenda':
+        return canEdit ? { label: '＋ Add', a11y: 'Add an agenda item', onPress: () => setSheet({ kind: 'agenda', item: null }) } : null;
+      case 'people':
+        return canEdit ? { label: '＋ Add', a11y: 'Add people', onPress: () => setSheet({ kind: 'addPerson' }) } : null;
+      case 'notes':
+        return { label: '＋ Note', a11y: 'Add a note', onPress: () => setSheet({ kind: 'note', note: null }) };
+      case 'actions':
+        return { label: '＋ Add', a11y: 'Add an action item', onPress: () => setSheet({ kind: 'action', item: null }) };
+      default:
+        return null;
+    }
+  };
+
   const renderItem: ListRenderItem<DetailRow> = ({ item, index }) => {
     if (!meeting) return null;
     const next = rows[index + 1];
@@ -124,7 +304,18 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     const place: RowPlace = { last: !!section && (!next || !('section' in next) || next.section !== section) };
     switch (item.kind) {
       case 'header':
-        return <MeetingHeaderCard meeting={meeting} projectName={projectName} nameOf={nameOf} timeZone={timeZone} now={now} onJoin={openJoinLink} />;
+        return (
+          <MeetingHeaderCard
+            meeting={meeting}
+            projectName={projectName}
+            nameOf={nameOf}
+            timeZone={timeZone}
+            now={now}
+            onJoin={openJoinLink}
+            primary={primary ? { label: PRIMARY_LABEL[primary], onPress: () => run(primary), busy: primaryBusy } : null}
+            onMore={menu.length ? () => setSheet({ kind: 'actions' }) : null}
+          />
+        );
       case 'rsvp':
         return <RsvpCard response={mine?.response} busy={respond.isPending} error={rsvpError} onAnswer={answer} />;
       case 'about':
@@ -136,7 +327,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
             : item.section === 'people' && peopleQ.data?.length
               ? responseLine(responseSummary(peopleQ.data))
               : null;
-        return <SectionTitleRow title={item.title} count={item.count} aside={aside} />;
+        return <SectionTitleRow title={item.title} count={item.count} aside={aside} action={titleAction(item.section)} />;
       }
       case 'loading':
         return <StateRow kind="loading" text="" place={place} />;
@@ -145,23 +336,71 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
       case 'empty':
         return <StateRow kind="empty" text={item.text} place={place} />;
       case 'agenda':
-        return <AgendaRow item={item.item} index={item.index} nameOf={nameOf} place={place} />;
-      case 'person':
         return (
-          <PersonRow attendee={item.attendee} nameOf={nameOf} myId={myId} showAttendance={meeting.status === 'IN_PROGRESS' || meeting.status === 'COMPLETED'} place={place} />
+          <AgendaRow
+            item={item.item}
+            index={item.index}
+            nameOf={nameOf}
+            place={place}
+            onToggle={canTickAgendaItem(item.item, viewer) ? () => toggleCovered(item.item) : null}
+            onOpen={canEdit ? () => setSheet({ kind: 'agenda', item: item.item }) : null}
+          />
         );
+      case 'person': {
+        const own = !!item.attendee.userId && item.attendee.userId === myId;
+        return (
+          <PersonRow
+            attendee={item.attendee}
+            nameOf={nameOf}
+            myId={myId}
+            showAttendance={attendanceTime}
+            place={place}
+            flags={canEdit ? personFlags(item.attendee, meeting) : null}
+            onOpen={canEdit || (own && attendanceTime) ? () => setSheet({ kind: 'person', attendeeId: item.attendee.id }) : null}
+          />
+        );
+      }
       case 'more':
         return <MoreRow total={item.total} expanded={item.expanded} onToggle={() => setShowAllPeople((v) => !v)} place={place} />;
       case 'noteFilters':
         return <NoteFiltersRow notes={notesQ.data ?? []} filter={noteFilter} onFilter={setNoteFilter} place={place} />;
-      case 'note':
-        return <NoteRow note={item.note} nameOf={nameOf} timeZone={timeZone} taskKey={item.note.taskId ? taskKeys.get(item.note.taskId) ?? null : null} onOpenTask={openTask} place={place} />;
+      case 'note': {
+        const n = item.note;
+        return (
+          <NoteRow
+            note={n}
+            nameOf={nameOf}
+            timeZone={timeZone}
+            taskKey={n.taskId ? taskKeys.get(n.taskId) ?? null : null}
+            onOpenTask={openTask}
+            place={place}
+            actions={{
+              onTask: n.taskId ? null : () => setSheet({ kind: 'noteTask', note: n }),
+              onStar: canManageNote(n, viewer) ? () => toggleKey(n) : null,
+              onEdit: canChangeNoteText(n, myId) ? () => setSheet({ kind: 'note', note: n }) : null,
+              onDelete: canManageNote(n, viewer) ? () => deleteNote(n) : null,
+            }}
+          />
+        );
+      }
       case 'action':
-        return <ActionRow item={item.item} nameOf={nameOf} now={now} onOpenTask={openTask} place={place} />;
+        return <ActionRow item={item.item} nameOf={nameOf} now={now} onOpenTask={openTask} place={place} onOpen={() => setSheet({ kind: 'action', item: item.item })} />;
       case 'minutes':
-        return <MinutesRow minutes={item.minutes} timeZone={timeZone} place={place} />;
-      case 'footer':
-        return meeting.canEdit ? <Text style={styles.footer}>To change this meeting, its agenda, notes or minutes, open it on the website.</Text> : null;
+        return (
+          <MinutesRow
+            minutes={item.minutes}
+            timeZone={timeZone}
+            place={place}
+            actions={{
+              onDraft: canEdit ? (source) => navigation.navigate('FinalMinutes', { meetingId, start: source }) : null,
+              onContinue: canEdit ? () => navigation.navigate('FinalMinutes', { meetingId }) : null,
+              onReopen: canEdit ? reopenMinutes : null,
+              reopening: minutesM.reopen.isPending,
+              onDownload: () => void exportPdf(),
+              downloading,
+            }}
+          />
+        );
       default:
         return null;
     }
@@ -170,6 +409,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   // Deleted, or no longer yours to see: say so, even when a list's copy of it is still here.
   const problem = meetingQ.isError ? meetingLoadProblem(meetingQ.error) : null;
   if (!meeting || (problem && !problem.canRetry)) {
+    if (closing.current) return null;
     if (!meeting && meetingQ.isLoading) return <Loader />;
     if (!problem) return <Loader />;
     return (
@@ -180,6 +420,36 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     );
   }
 
+  const header = (
+    <View style={styles.headerStack}>
+      {meetingQ.isError ? <Text style={styles.stale}>Showing what this phone last loaded — pull down to load it again.</Text> : null}
+      {notice ? (
+        <Pressable
+          onPress={() => setNotice(null)}
+          accessibilityRole="button"
+          accessibilityLabel={`${notice.text} Dismiss`}
+          accessibilityLiveRegion="polite"
+          style={[styles.notice, notice.error ? styles.noticeError : styles.noticeOk]}
+        >
+          <Text style={[styles.noticeText, notice.error ? styles.noticeTextError : styles.noticeTextOk]}>{notice.text}</Text>
+          <Text style={styles.dismiss} importantForAccessibility="no">
+            ✕
+          </Text>
+        </Pressable>
+      ) : null}
+      {undoNoteId ? (
+        <View style={styles.undo} accessibilityLiveRegion="polite">
+          <Text style={styles.undoText}>Note deleted.</Text>
+          <Button title="Undo" variant="ghost" onPress={restoreNote} loading={notesM.restore.isPending} style={styles.undoButton} />
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const personSheet = sheet?.kind === 'person' ? (peopleQ.data ?? []).find((a) => a.id === sheet.attendeeId) ?? null : null;
+  const dialog = sheet?.kind === 'cancel' ? cancelDialog(meeting, scope) : sheet?.kind === 'delete' ? deleteDialog(meeting, scope) : null;
+  const close = () => setSheet(null);
+
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <FlatList
@@ -189,10 +459,47 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
         contentContainerStyle={styles.list}
         initialNumToRender={12}
         windowSize={9}
-        ListHeaderComponent={
-          meetingQ.isError ? <Text style={styles.stale}>Showing what this phone last loaded — pull down to load it again.</Text> : null
-        }
+        ListHeaderComponent={header}
         refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+      />
+
+      <ActionsSheet
+        visible={sheet?.kind === 'actions'}
+        items={menu}
+        onPick={(i) => {
+          // This sheet slides away before the next one (or the share sheet) opens.
+          close();
+          setTimeout(() => run(i.key), 250);
+        }}
+        onClose={close}
+      />
+      <ConfirmScopeSheet
+        visible={!!dialog}
+        dialog={dialog}
+        scope={scope}
+        onScope={setScope}
+        busy={lifecycle.cancel.isPending || lifecycle.remove.isPending}
+        error={scopeError}
+        onConfirm={confirmScope}
+        onClose={close}
+      />
+      {canEdit ? <InviteSheet meeting={meeting} visible={sheet?.kind === 'invite'} onClose={close} /> : null}
+      {canEdit ? <MinutesEmailSheet meeting={meeting} visible={sheet?.kind === 'minutesEmail'} onClose={close} onDownload={() => void exportPdf()} downloading={downloading} /> : null}
+      {canEdit ? <AddPersonSheet meetingId={meetingId} attendees={peopleQ.data ?? []} directory={directory} visible={sheet?.kind === 'addPerson'} onClose={close} /> : null}
+      {personSheet ? <PersonSheet meeting={meeting} attendee={personSheet} nameOf={nameOf} canEdit={canEdit} myId={myId} onClose={close} /> : null}
+      {canEdit ? (
+        <AgendaItemSheet meetingId={meetingId} items={agendaQ.data ?? []} item={sheet?.kind === 'agenda' ? sheet.item : null} directory={directory} visible={sheet?.kind === 'agenda'} onClose={close} />
+      ) : null}
+      <NoteSheet meetingId={meetingId} note={sheet?.kind === 'note' ? sheet.note : null} visible={sheet?.kind === 'note'} onClose={close} />
+      <NoteTaskSheet meetingId={meetingId} meetingProjectId={meeting.projectId} note={sheet?.kind === 'noteTask' ? sheet.note : null} onClose={close} onOpenTask={openTask} />
+      <ActionItemSheet
+        meetingId={meetingId}
+        item={sheet?.kind === 'action' ? sheet.item : null}
+        directory={directory}
+        canRemove={sheet?.kind === 'action' && sheet.item ? canRemoveActionItem(sheet.item, viewer) : false}
+        visible={sheet?.kind === 'action'}
+        onClose={close}
+        onOpenTask={openTask}
       />
     </SafeAreaView>
   );
@@ -203,6 +510,16 @@ const makeStyles = (c: Palette) =>
     safe: { flex: 1, backgroundColor: c.ground },
     list: { padding: spacing.lg },
     problem: { flex: 1, backgroundColor: c.ground, padding: spacing.lg, gap: spacing.md },
+    headerStack: { gap: spacing.sm },
     stale: { fontSize: fontSize.sm, color: c.ink2, marginBottom: spacing.sm },
-    footer: { fontSize: fontSize.xs, color: c.ink3, textAlign: 'center', marginTop: spacing.xs },
+    notice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.sm, minHeight: 44 },
+    noticeOk: { backgroundColor: c.successSoft },
+    noticeError: { backgroundColor: c.dangerSoft },
+    noticeText: { flex: 1, fontSize: fontSize.sm, fontWeight: '600' },
+    noticeTextOk: { color: c.success },
+    noticeTextError: { color: c.danger },
+    dismiss: { fontSize: fontSize.sm, color: c.ink3 },
+    undo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, borderRadius: radius.md, paddingLeft: spacing.md, marginBottom: spacing.sm },
+    undoText: { fontSize: fontSize.sm, color: c.ink2 },
+    undoButton: { minHeight: 44 },
   });

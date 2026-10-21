@@ -1,5 +1,5 @@
 /**
- * Pure helpers behind the meeting screens (read-only, apart from answering your own invitation):
+ * Pure helpers behind the meeting screens (what is shown, and your answer to the invitation):
  * the labels and tones the website uses, your invitation and its answer, the people, agenda,
  * action items and minutes in words. Times are in the zone given (the company's by default).
  */
@@ -213,7 +213,7 @@ export function actionDueText(item: Pick<ApiActionItem, 'dueDate' | 'status'>, n
 /** What to say instead of the final minutes, or null when they are final and can be read. */
 export function finalMinutesNote(fm: Pick<ApiFinalMinutes, 'status' | 'content'>): string | null {
   if (fm.status === 'FINAL' && fm.content) return null;
-  if (fm.status === 'DRAFT') return 'The final minutes are being written. They’re finished on the website.';
+  if (fm.status === 'DRAFT') return 'The final minutes are being written.';
   return 'The final minutes aren’t ready yet.';
 }
 

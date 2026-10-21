@@ -52,6 +52,8 @@ import { ChatThreadScreen } from '../screens/ChatThreadScreen';
 import { MeetingsScreen } from '../screens/MeetingsScreen';
 import { MeetingDetailScreen } from '../screens/MeetingDetailScreen';
 import { MyActionItemsScreen } from '../screens/MyActionItemsScreen';
+import { MeetingFormScreen } from '../screens/MeetingFormScreen';
+import { FinalMinutesScreen } from '../screens/FinalMinutesScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -355,6 +357,12 @@ export function RootNavigator() {
               getId={meetingScreenId}
               options={({ route }) => ({ title: route.params.title ?? 'Meeting' })}
             />
+            <AppStack.Screen
+              name="MeetingForm"
+              component={MeetingFormScreen}
+              options={({ route }) => ({ title: route.params?.meetingId ? 'Edit meeting' : 'Schedule a meeting' })}
+            />
+            <AppStack.Screen name="FinalMinutes" component={FinalMinutesScreen} options={{ title: 'Final MOM' }} />
             <AppStack.Screen name="MyActionItems" component={MyActionItemsScreen} options={{ title: 'My Action Items' }} />
             <AppStack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Calendar' }} />
             <AppStack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />

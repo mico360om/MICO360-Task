@@ -23,6 +23,10 @@ export type AppStackParamList = {
   ProjectDetail: { projectId: string; projectName?: string };
   TaskDetail: { taskId: string; title?: string };
   MeetingDetail: { meetingId: string; title?: string };
+  /** Schedule a meeting (no id; in a project when given), or edit one. */
+  MeetingForm: { meetingId?: string; projectId?: string } | undefined;
+  /** The final minutes (Final MOM) of a meeting; `start` makes a first draft as it opens. */
+  FinalMinutes: { meetingId: string; start?: 'ai' | 'notes' };
   MyActionItems: undefined;
   Calendar: undefined;
   Profile: undefined;

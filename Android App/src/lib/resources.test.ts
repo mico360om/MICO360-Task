@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resourcesApi, AI_DESCRIPTION_MAX, AI_TIMEOUT_MS } from './resources';
+import { resourcesApi, AI_DESCRIPTION_MAX, AI_MINUTES_TIMEOUT_MS, AI_TIMEOUT_MS } from './resources';
 import type { ApiClient } from './api-client';
 
 /** A fake client that records every call and returns a benign envelope. */
@@ -330,5 +330,152 @@ describe('resourcesApi.meetings', () => {
     await api.myActionItems();
     expect(calls[0]).toEqual({ method: 'GET', path: '/me/action-items?openOnly=true' });
     expect(calls[1]).toEqual({ method: 'GET', path: '/me/action-items' });
+  });
+});
+
+describe('resourcesApi.meetings: running a meeting (2b)', () => {
+  /** Records each call with its options (the idempotency key, a longer wait). */
+  function recordingClient() {
+    const calls: { method: string; path: string; body?: unknown; opts?: { headers?: Record<string, string>; timeoutMs?: number } }[] = [];
+    const rec = (method: string) => (path: string, a?: unknown, b?: unknown) => {
+      const [body, opts] = method === 'GET' || method === 'DELETE' ? [undefined, a] : [a, b];
+      calls.push({ method, path, ...(body !== undefined ? { body } : {}), ...(opts ? { opts: opts as never } : {}) });
+      return Promise.resolve(method === 'DELETE' ? undefined : { data: {} });
+    };
+    const client = { get: rec('GET'), post: rec('POST'), put: rec('PUT'), patch: rec('PATCH'), del: rec('DELETE') } as unknown as ApiClient;
+    return { client, calls };
+  }
+
+  it('schedules, edits (one meeting or its series), cancels, duplicates and deletes a meeting', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    await api.create({ title: 'Sync', startAt: '2026-10-22T06:00:00.000Z', timeZone: 'Asia/Muscat' }, { idempotencyKey: 'k1' });
+    await api.update('m 1', { title: 'Weekly sync' });
+    await api.update('m1', { title: 'Weekly sync' }, 'series');
+    await api.cancel('m1');
+    await api.cancel('m1', 'series');
+    await api.duplicate('m1', { idempotencyKey: 'k2' });
+    await api.remove('m1');
+    await api.remove('m1', 'series');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST /meetings',
+      'PUT /meetings/m%201',
+      'PUT /meetings/m1?scope=series',
+      'POST /meetings/m1/cancel',
+      'POST /meetings/m1/cancel?scope=series',
+      'POST /meetings/m1/duplicate',
+      'DELETE /meetings/m1',
+      'DELETE /meetings/m1?scope=series',
+    ]);
+    expect(calls[0]).toMatchObject({ body: { title: 'Sync', startAt: '2026-10-22T06:00:00.000Z', timeZone: 'Asia/Muscat' }, opts: { headers: { 'Idempotency-Key': 'k1' } } });
+    expect(calls[1]!.body).toEqual({ title: 'Weekly sync' });
+    expect(calls[5]!.opts?.headers).toEqual({ 'Idempotency-Key': 'k2' });
+  });
+
+  it('adds, changes and removes people; previews and sends the invitations', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    await api.addAttendee('m1', { userId: 'u2', role: 'OPTIONAL' }, { idempotencyKey: 'k' });
+    await api.addAttendee('m1', { externalName: 'Sara', externalEmail: 'sara@client.com', role: 'REQUIRED' });
+    await api.updateAttendee('m1', 'a1', { attendance: 'PRESENT' });
+    await api.removeAttendee('m1', 'a1');
+    await api.previewInvites('m1');
+    await api.sendInvites('m1');
+    await api.sendInvites('m1', { onlyNew: true });
+    await api.sendInvites('m1', { resend: true });
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['POST', '/meetings/m1/attendees', { userId: 'u2', role: 'OPTIONAL' }],
+      ['POST', '/meetings/m1/attendees', { externalName: 'Sara', externalEmail: 'sara@client.com', role: 'REQUIRED' }],
+      ['PATCH', '/meetings/m1/attendees/a1', { attendance: 'PRESENT' }],
+      ['DELETE', '/meetings/m1/attendees/a1', undefined],
+      ['GET', '/meetings/m1/invites/preview', undefined],
+      ['POST', '/meetings/m1/invites', {}],
+      ['POST', '/meetings/m1/invites', { onlyNew: true }],
+      ['POST', '/meetings/m1/invites', { resend: true }],
+    ]);
+  });
+
+  it('adds, edits, reorders, ticks off and removes agenda items', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    await api.addAgendaItem('m1', { title: 'Budget', ownerId: 'u2', expectedMinutes: 15 });
+    await api.updateAgendaItem('m1', 'g1', { completed: true });
+    await api.reorderAgenda('m1', ['g2', 'g1']);
+    await api.removeAgendaItem('m1', 'g1');
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['POST', '/meetings/m1/agenda', { title: 'Budget', ownerId: 'u2', expectedMinutes: 15 }],
+      ['PATCH', '/meetings/m1/agenda/g1', { completed: true }],
+      ['PUT', '/meetings/m1/agenda/reorder', { orderedIds: ['g2', 'g1'] }],
+      ['DELETE', '/meetings/m1/agenda/g1', undefined],
+    ]);
+  });
+
+  it('adds, edits, removes and restores notes, and makes a task from one', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    await api.addNote('m1', { body: 'Go live in May', format: 'PLAIN', type: 'DECISION', highlighted: true }, { idempotencyKey: 'n1' });
+    await api.updateNote('m1', 'n1', { highlighted: false });
+    await api.removeNote('m1', 'n1');
+    await api.restoreNote('m1', 'n1');
+    await api.noteToTask('m1', 'n1', { title: 'Book the hall', projectId: 'p1', priority: 'HIGH' }, { idempotencyKey: 't1' });
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['POST', '/meetings/m1/notes', { body: 'Go live in May', format: 'PLAIN', type: 'DECISION', highlighted: true }],
+      ['PATCH', '/meetings/m1/notes/n1', { highlighted: false }],
+      ['DELETE', '/meetings/m1/notes/n1', undefined],
+      ['POST', '/meetings/m1/notes/n1/restore', {}],
+      ['POST', '/meetings/m1/notes/n1/task', { title: 'Book the hall', projectId: 'p1', priority: 'HIGH' }],
+    ]);
+    expect(calls[0]!.opts?.headers).toEqual({ 'Idempotency-Key': 'n1' });
+    expect(calls[4]!.opts?.headers).toEqual({ 'Idempotency-Key': 't1' });
+  });
+
+  it('adds, changes and removes action items', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    await api.addActionItem('m1', { description: 'Send the plan', assigneeId: 'u2', dueDate: '2026-10-30T00:00:00.000Z', priority: 'NORMAL' }, { idempotencyKey: 'a' });
+    await api.updateActionItem('ai 1', { status: 'COMPLETED' });
+    await api.removeActionItem('ai1');
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['POST', '/meetings/m1/action-items', { description: 'Send the plan', assigneeId: 'u2', dueDate: '2026-10-30T00:00:00.000Z', priority: 'NORMAL' }],
+      ['PATCH', '/action-items/ai%201', { status: 'COMPLETED' }],
+      ['DELETE', '/action-items/ai1', undefined],
+    ]);
+  });
+
+  it('drafts the final minutes (the AI may take three minutes), saves, approves and reopens them', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    const content = { summary: 'S', discussion: [], decisions: ['D'], risks: [], nextSteps: [] };
+    await api.draftFinalMinutes('m1', 'ai');
+    await api.draftFinalMinutes('m1', 'notes');
+    await api.saveFinalMinutes('m1', content);
+    await api.approveFinalMinutes('m1', content);
+    await api.approveFinalMinutes('m1');
+    await api.reopenFinalMinutes('m1');
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['POST', '/meetings/m1/final-minutes/draft', { source: 'ai' }],
+      ['POST', '/meetings/m1/final-minutes/draft', { source: 'notes' }],
+      ['PUT', '/meetings/m1/final-minutes', { content }],
+      ['POST', '/meetings/m1/final-minutes/approve', { content }],
+      ['POST', '/meetings/m1/final-minutes/approve', {}],
+      ['POST', '/meetings/m1/final-minutes/reopen', {}],
+    ]);
+    expect(AI_MINUTES_TIMEOUT_MS).toBe(190_000);
+    expect(calls[0]!.opts?.timeoutMs).toBe(AI_MINUTES_TIMEOUT_MS);
+    expect(calls[1]!.opts?.timeoutMs).toBe(AI_MINUTES_TIMEOUT_MS);
+  });
+
+  it('previews and emails the minutes (to everyone, or to the people chosen), and names the PDF’s address', async () => {
+    const { client, calls } = recordingClient();
+    const api = resourcesApi(client).meetings;
+    await api.previewMinutes('m1');
+    await api.sendMinutes('m1');
+    await api.sendMinutes('m1', ['a@b.co']);
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['GET', '/meetings/m1/minutes/preview', undefined],
+      ['POST', '/meetings/m1/minutes/send', {}],
+      ['POST', '/meetings/m1/minutes/send', { recipients: ['a@b.co'] }],
+    ]);
+    expect(api.minutesPdfPath('m 1')).toBe('/meetings/m%201/minutes.pdf');
   });
 });

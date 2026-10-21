@@ -161,7 +161,7 @@ export interface ApiProject {
   targetDate?: string | null;
 }
 
-// ── Meetings (the app takes part in them; running them is on the website) ────
+// ── Meetings (taking part in them — 2a — and running them — 2b) ─────────────
 export type MeetingStatus = 'DRAFT' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
 export type MeetingPhase = 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
@@ -195,7 +195,7 @@ export interface ApiMeeting {
   updatedAt?: string;
   /** When calendar invitations were last sent (null = never). */
   invitesSentAt?: string | null;
-  /** May the signed-in person run this meeting (on the website)? Older servers leave it out. */
+  /** May the signed-in person run this meeting (edit it, its people, agenda and minutes)? Older servers leave it out. */
   canEdit?: boolean;
   /** List only: how many people are on it. */
   attendeeCount?: number;
@@ -299,6 +299,142 @@ export interface ApiFinalMinutes {
   approvedBy: { id: string; name: string | null } | null;
   approvedAt: string | null;
   canEdit: boolean;
+}
+
+// ── Running a meeting (2b): what the app sends, and the server's answers ─────
+/** One meeting of a repeating series, or all its upcoming meetings. */
+export type SeriesScope = 'one' | 'series';
+export type AttendeeRole = 'REQUIRED' | 'OPTIONAL';
+
+/** A new meeting (the Schedule form). Times are instants; `timeZone` is the zone they were entered in. */
+export interface MeetingInput {
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  status?: MeetingStatus;
+  projectId?: string | null;
+  organizerId?: string;
+  location?: string | null;
+  onlineLink?: string | null;
+  startAt: string;
+  endAt?: string | null;
+  timeZone?: string | null;
+  recurrenceRule?: RecurrenceRule | null;
+}
+
+/** A change to a meeting: only what changed is sent. */
+export type MeetingPatch = Partial<MeetingInput>;
+
+export interface AttendeeInput {
+  userId?: string | null;
+  externalName?: string | null;
+  externalEmail?: string | null;
+  role?: AttendeeRole;
+}
+
+export interface AttendeePatch {
+  role?: AttendeeRole;
+  attendance?: AttendanceStatus;
+  response?: InvitationResponse;
+}
+
+export interface AgendaItemInput {
+  title: string;
+  ownerId?: string | null;
+  expectedMinutes?: number | null;
+}
+
+export interface AgendaItemPatch extends Partial<AgendaItemInput> {
+  completed?: boolean;
+}
+
+export interface NoteInput {
+  body: string;
+  /** PLAIN from the phone: the app has no formatting editor (the website's notes may be RICH). */
+  format?: 'PLAIN' | 'RICH';
+  type?: MeetingNoteType;
+  agendaItemId?: string | null;
+  highlighted?: boolean;
+}
+
+export type NotePatch = Partial<NoteInput>;
+
+/** ⭐ A board task made from a Live note. */
+export interface NoteTaskInput {
+  title?: string;
+  description?: string | null;
+  projectId?: string | null;
+  columnId?: string | null;
+  priority?: Priority;
+  dueDate?: string | null;
+  assigneeId?: string | null;
+}
+
+export interface NoteTaskResult {
+  task: { id: string; key: string; title: string; projectId: string };
+  note: ApiMeetingNote;
+  /** The task was made, but assigning it failed (e.g. that person can't see the project). */
+  assigneeError?: string;
+  /** An action note is tracked as an action item too, linked to the task. */
+  actionItem?: ApiActionItem;
+  actionItemError?: string;
+}
+
+export interface ActionItemInput {
+  description: string;
+  assigneeId?: string | null;
+  priority?: Priority;
+  /** A calendar day, sent as that day at UTC midnight. */
+  dueDate?: string | null;
+}
+
+export interface ActionItemPatch extends Partial<ActionItemInput> {
+  progress?: number;
+  status?: ActionItemStatus;
+}
+
+export type RecipientKind = 'organizer' | 'member' | 'guest';
+
+/** Someone an invitation or the minutes would go to. */
+export interface Recipient {
+  name: string;
+  email: string;
+  kind: RecipientKind;
+  attendeeIds: string[];
+  alreadyInvited: boolean;
+}
+
+/** Who an invitation would go to, and anything to fix first (nothing is sent). */
+export interface InvitePreview {
+  recipients: Recipient[];
+  missingEmail: { name: string; attendeeId: string }[];
+  /** 'error' blocks sending; 'warning' can be sent anyway. */
+  problems: { level: 'error' | 'warning'; message: string }[];
+  invitesSentAt: string | null;
+}
+
+/** The minutes email as it would be sent, and to whom (nothing is sent). */
+export interface MinutesPreview {
+  subject: string;
+  html: string;
+  text: string;
+  attachmentName: string;
+  recipients: Recipient[];
+  missingEmail: { name: string; attendeeId: string }[];
+}
+
+/** What happened to each email of a send. Older servers answer with the totals only. */
+export interface SendReport {
+  sent: number;
+  failed?: number;
+  recipients?: { name: string; email: string; kind: RecipientKind; ok: boolean; error?: string }[];
+  skipped?: { name: string; reason: string }[];
+}
+
+/** A first draft of the final minutes to edit (not kept until it is saved). */
+export interface FinalMinutesDraft {
+  content: FinalMinutesContent;
+  source: 'ai' | 'notes';
 }
 
 /** One meeting on a project's dashboard. */
