@@ -37,6 +37,14 @@ export type AppStackParamList = {
   ChatThread: { conversationId: string; title: string; kind: 'PROJECT' | 'DIRECT' };
   /** New project (no id) or Edit project — administrators (5b). */
   ProjectForm: { projectId?: string } | undefined;
+  /** Find tasks, projects, people, meetings and pages, as the website's search box (6b). */
+  Search: undefined;
+  /** This app's and the website's versions, and the version history (6b). */
+  About: undefined;
+  /** User Management — administrators (6b). `q` starts the list's search (a person found by Search). */
+  Users: { q?: string } | undefined;
+  /** New user (no id) or Manage account — administrators (6b). */
+  UserForm: { userId?: string } | undefined;
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;

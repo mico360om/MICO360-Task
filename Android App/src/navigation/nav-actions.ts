@@ -18,6 +18,11 @@ export type NavAction =
   | { type: 'stack'; screen: 'Reports' }
   | { type: 'stack'; screen: 'Activity' }
   | { type: 'stack'; screen: 'Settings' }
+  | { type: 'stack'; screen: 'Search' }
+  | { type: 'stack'; screen: 'About' }
+  | { type: 'stack'; screen: 'Users'; params?: AppStackParamList['Users'] }
+  /** A website page the app doesn't have (6b): whoever offers it opens it in the browser (lib/website). */
+  | { type: 'website'; path: string }
   /** A signed-out destination (the password-reset screen opened from the e-mail link). */
   | { type: 'auth'; screen: 'Reset'; params: NonNullable<AuthStackParamList['Reset']> };
 

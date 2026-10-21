@@ -83,7 +83,7 @@ describe('drawer menu', () => {
   it('offers Reports to administrators only (the server checks the role too)', () => {
     expect(drawerItemsFor(['ADMIN']).map((i) => i.key)).toContain('Reports');
     expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).not.toContain('Reports');
-    expect(drawerItemsFor([]).length).toBe(DRAWER_ITEMS.length - 1);
+    expect(drawerItemsFor([]).length).toBe(DRAWER_ITEMS.filter((i) => !i.adminOnly).length);
     expect(activeDrawerKey('Reports')).toBe('Reports');
   });
 
@@ -92,5 +92,35 @@ describe('drawer menu', () => {
     expect(activeDrawerKey('Calendar')).toBe('Calendar');
     expect(activeDrawerKey('SomethingElse')).toBeUndefined();
     expect(activeDrawerKey(undefined)).toBeUndefined();
+  });
+});
+
+describe('the menu’s Search, About and Admin pages (6b)', () => {
+  const keys = (roles: string[]) => drawerItemsFor(roles).map((i) => i.key);
+
+  it('offers Search and About to everyone', () => {
+    expect(keys(['EMPLOYEE'])).toEqual(expect.arrayContaining(['Search', 'About']));
+    expect(DRAWER_ITEMS.find((i) => i.key === 'Search')).toMatchObject({ label: 'Search', action: { type: 'stack', screen: 'Search' } });
+    expect(DRAWER_ITEMS.find((i) => i.key === 'About')).toMatchObject({ label: 'About', action: { type: 'stack', screen: 'About' } });
+    expect(activeDrawerKey('About')).toBe('About');
+  });
+
+  it('gives administrators the website’s Admin menu: User Management in the app, the rest on the website', () => {
+    const admin = drawerItemsFor(['ADMIN']);
+    const at = admin.findIndex((i) => i.key === 'Users');
+    expect(admin.slice(at, at + 4).map((i) => [i.label, i.action])).toEqual([
+      ['User Management', { type: 'stack', screen: 'Users' }],
+      ['AI Management', { type: 'website', path: '/admin/ai' }],
+      ['System Settings', { type: 'website', path: '/admin/settings' }],
+      ['Audit Logs', { type: 'website', path: '/admin/audit' }],
+    ]);
+    expect(keys(['EMPLOYEE'])).not.toEqual(expect.arrayContaining(['Users']));
+    for (const k of ['Users', 'website-ai', 'website-settings', 'website-audit']) expect(keys(['EMPLOYEE'])).not.toContain(k);
+    expect(activeDrawerKey('Users')).toBe('Users');
+    expect(actionRouteName({ type: 'website', path: '/admin/ai' })).toBe('/admin/ai');
+  });
+
+  it('turns a search result or menu choice into the screen it opens', () => {
+    expect(targetToAction({ screen: 'Chat' })).toEqual({ type: 'tab', tab: 'Chat' });
   });
 });

@@ -101,3 +101,73 @@ describe('createPendingAction (WEB-18 — push taps while signed out wait for si
     expect(p.take()).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't2' } });
   });
 });
+
+/**
+ * The website's own addresses (6b): a link from an email, a chat or a page of the website opens the
+ * same thing in the app (Android App Links, app.json), with the same id rule as the app's own links.
+ */
+describe('website addresses open in the app (6b)', () => {
+  const open = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
+  const first = (path: string) => open(path)?.routes[0];
+  const tab = (path: string) => {
+    const r = first(path);
+    return r?.name === 'Tabs' ? r.state?.routes[0]?.name : undefined;
+  };
+
+  it('a task opens wherever the website shows it (?task=<id> on any page, as the emails send it)', () => {
+    expect(first('/my-tasks?task=t1')).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
+    expect(first('/board?project=p1&task=t2')).toMatchObject({ name: 'TaskDetail', params: { taskId: 't2' } });
+    expect(first('/meetings/m1?task=t3')).toMatchObject({ name: 'TaskDetail', params: { taskId: 't3' } });
+    expect(first('/my-tasks?task=t1&title=Pay%20now')?.params).toEqual({ taskId: 't1' });
+    expect(open('/my-tasks?task=..%2Fusers')).toBeUndefined();
+    expect(open('/my-tasks?task=a%20b')).toBeUndefined();
+  });
+
+  it('projects, their boards and meetings', () => {
+    expect(first('/projects/p1')).toMatchObject({ name: 'ProjectDetail', params: { projectId: 'p1' } });
+    expect(first('/projects/p1?tab=team')?.params).toEqual({ projectId: 'p1' });
+    expect(first('/board?project=p1')).toMatchObject({ name: 'Board', params: { projectId: 'p1' } });
+    expect(tab('/board')).toBe('Projects');
+    expect(tab('/projects')).toBe('Projects');
+    expect(first('/meetings/m1')).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm1' } });
+    expect(tab('/meetings')).toBe('Meetings');
+    expect(first('/my-action-items')).toMatchObject({ name: 'MyActionItems' });
+    expect(open('/projects/..%2Fusers')).toBeUndefined();
+    expect(open('/board?project=p%3F1')).toBeUndefined();
+  });
+
+  it('a conversation opens its thread; the chat page the Chat tab', () => {
+    expect(first('/chat?conversation=c1')).toMatchObject({ name: 'ChatThread', params: { conversationId: 'c1' } });
+    expect(tab('/chat')).toBe('Chat');
+    expect(tab('/chat?dm=u2')).toBe('Chat');
+    expect(open('/chat?conversation=..%2Fx')).toBeUndefined();
+  });
+
+  it('the other pages the app has', () => {
+    expect(tab('/dashboard')).toBe('Dashboard');
+    expect(tab('/my-tasks')).toBe('MyTasks');
+    expect(tab('/notifications')).toBe('Notifications');
+    for (const [path, screen] of [
+      ['/calendar', 'Calendar'],
+      ['/activity', 'Activity'],
+      ['/profile', 'Profile'],
+      ['/settings', 'Settings'],
+      ['/reports', 'Reports'],
+      ['/about', 'About'],
+      ['/admin/users', 'Users'],
+    ] as const) {
+      expect(first(path)?.name, path).toBe(screen);
+    }
+  });
+
+  it('the website-only pages open nothing in the app (the browser keeps them)', () => {
+    for (const path of ['/admin/ai', '/admin/settings', '/admin/audit', '/privacy', '/terms', '/downloads/MICO360-Tasks.apk']) expect(open(path), path).toBeUndefined();
+  });
+
+  it('the app’s own links are unchanged', () => {
+    expect(normalizeLinkPath('task/t1')).toBe('task/t1');
+    expect(normalizeLinkPath('project/p1/board')).toBe('project/p1/board');
+    expect(normalizeLinkPath('reset?token=AbC')).toBe('reset?token=AbC');
+    expect(first('home')).toMatchObject({ name: 'Tabs' });
+  });
+});

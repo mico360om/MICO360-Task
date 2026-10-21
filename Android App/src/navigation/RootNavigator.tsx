@@ -112,6 +112,8 @@ function applyAction(action: NavAction): void {
     );
     return;
   }
+  // A website page opens in the browser, from where it is offered (the menu, Search: 6b).
+  if (action.type === 'website') return;
   switch (action.screen) {
     case 'TaskDetail':
       navigationRef.navigate('TaskDetail', action.params);
@@ -142,6 +144,15 @@ function applyAction(action: NavAction): void {
       break;
     case 'Settings':
       navigationRef.navigate('Settings');
+      break;
+    case 'Search':
+      navigationRef.navigate('Search');
+      break;
+    case 'About':
+      navigationRef.navigate('About');
+      break;
+    case 'Users':
+      navigationRef.navigate('Users', action.params);
       break;
   }
 }
