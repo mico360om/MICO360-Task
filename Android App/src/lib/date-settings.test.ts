@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, withDatePatch } from './date-settings';
+import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, unknownZoneNote, usableZone, webZoneName, withDatePatch } from './date-settings';
 
 const prev = { company: 'Asia/Dubai', own: 'Europe/London' };
 
@@ -81,6 +81,44 @@ describe('Settings → Calendar & dates (the website’s DatePreferences)', () =
       { value: 'Pacific/Chatham', label: 'Pacific/Chatham' },
     ]);
     expect(timeZoneChoices({ zones: ['Asia/Muscat'], company: 'Asia/Muscat', own: null, device: 'Asia/Muscat' })).toEqual([{ value: 'Asia/Muscat', label: 'Asia/Muscat', hint: 'company · this phone' }]);
+  });
+
+  it('always offers this phone’s own zone (6a review)', () => {
+    expect(timeZoneChoices({ zones: ['Asia/Muscat'], company: 'Asia/Muscat', own: null, device: 'Pacific/Fiji' })).toEqual([
+      { value: 'Asia/Muscat', label: 'Asia/Muscat', hint: 'company' },
+      { value: 'Pacific/Fiji', label: 'Pacific/Fiji', hint: 'this phone' },
+    ]);
+  });
+
+  it('uses the website’s spelling of a zone, so a zone saved on either one is the same choice (6a review)', () => {
+    expect(['Asia/Kolkata', 'Asia/Ho_Chi_Minh', 'Asia/Kathmandu', 'Asia/Yangon', 'Europe/Kyiv', 'America/Argentina/Buenos_Aires', 'Asia/Muscat'].map(webZoneName)).toEqual([
+      'Asia/Calcutta',
+      'Asia/Saigon',
+      'Asia/Katmandu',
+      'Asia/Rangoon',
+      'Europe/Kiev',
+      'America/Buenos_Aires',
+      'Asia/Muscat',
+    ]);
+    const choices = timeZoneChoices({ zones: ['Asia/Kolkata', 'Europe/Kyiv'], company: 'Asia/Muscat', own: 'Asia/Calcutta', device: 'Europe/Kyiv' });
+    expect(choices).toEqual([
+      { value: 'Asia/Calcutta', label: 'Asia/Calcutta' },
+      { value: 'Asia/Muscat', label: 'Asia/Muscat', hint: 'company' },
+      { value: 'Europe/Kiev', label: 'Europe/Kiev', hint: 'this phone' },
+    ]);
+  });
+
+  it('uses whichever spelling this phone knows, and says plainly when it knows neither', () => {
+    const knowsNewNamesOnly = (tz: unknown) => typeof tz === 'string' && ['Asia/Kolkata', 'Europe/Kyiv', 'Asia/Muscat'].includes(tz);
+    expect(usableZone('Asia/Calcutta', knowsNewNamesOnly)).toBe('Asia/Kolkata');
+    expect(usableZone('Europe/Kyiv', knowsNewNamesOnly)).toBe('Europe/Kyiv');
+    expect(usableZone('Asia/Muscat', knowsNewNamesOnly)).toBe('Asia/Muscat');
+    expect(usableZone('Mars/Olympus', knowsNewNamesOnly)).toBeNull();
+    expect(usableZone(null, knowsNewNamesOnly)).toBeNull();
+    expect(unknownZoneNote('Mars/Olympus', 'Asia/Muscat', knowsNewNamesOnly)).toBe('Your time zone (Mars/Olympus) isn’t known to this phone, so the calendar here uses the company time zone (Asia/Muscat).');
+    expect(unknownZoneNote('Asia/Calcutta', 'Asia/Muscat', knowsNewNamesOnly)).toBeNull();
+    expect(unknownZoneNote(null, 'Asia/Muscat', knowsNewNamesOnly)).toBeNull();
+    expect(nextDateZones(prev, { config: null, prefs: { timeZone: 'Europe/Kiev', weekStart: null } }, knowsNewNamesOnly).own).toBe('Europe/Kyiv');
   });
 });
 
