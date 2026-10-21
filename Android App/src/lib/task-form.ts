@@ -11,7 +11,8 @@
  * Pure, so it is tested here (task-form.test.ts also checks the words against the website).
  */
 import { ApiError, isNetworkError } from './api-client';
-import { uploadErrorMessage } from './attachments';
+import { uploadErrorMessage, uploadMimeType } from './attachments';
+import { validateAttachment } from './chat-model';
 import { isKeptOnPhone, keptOnPhoneText } from './write-order';
 import { recurrenceSummary } from './recurrence-summary';
 import { displayName, type ApiColumn, type ApiDirectoryUser, type ApiMember, type ApiTask, type Priority, type RecurrenceRule } from './types';
@@ -32,7 +33,7 @@ export const NEW_TASK_TEXT = {
   /** Shown while the form is locked after a try with files got no answer. */
   locked:
     'Until the task is created, its details can’t change — if the first try reached the server, a change made now would be lost. You can still take files off, or start over.',
-  filesHint: 'Up to 10 MB each · pictures are made smaller to save space · they are attached once the task is created.',
+  filesHint: 'Up to 10 MB each and 50 MB in all · pictures, PDFs, text, CSV, ZIP and Office files · attached once the task is created.',
   /** A changed form would go under a key whose first try may be saved (5b review): not sent. */
   changedSinceTry: 'Your last try may have created the task, so the changed details weren’t sent. Tap Create task to finish that try, or start over.',
 } as const;
@@ -252,6 +253,38 @@ export interface NewTaskFile {
 }
 
 /** The files the picker gave, added after the ones already there (each with its own key). */
+/** The most a task holds in files (the server's UPLOAD_MAX_TOTAL_BYTES_PER_TASK default). */
+export const TASK_FILES_MAX_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Picked files checked against the server's rules before anything is sent (4a review): each up to
+ * 10 MB, of a kind it takes (validateAttachment, as for chat files), not empty, and 50 MB in all
+ * with what the task holds already (`alreadyBytes`). The ones that pass, and why the rest didn't.
+ * Counted as picked: the server makes pictures smaller only after this check.
+ */
+export function checkTaskFiles<F extends { name: string; size?: number | null; mimeType?: string | null }>(
+  alreadyBytes: number,
+  picked: readonly F[],
+): { ok: F[]; problems: string[]; refused: { file: F; reason: string }[] } {
+  const ok: F[] = [];
+  const problems: string[] = [];
+  const refused: { file: F; reason: string }[] = [];
+  let total = alreadyBytes;
+  for (const f of picked) {
+    const size = typeof f.size === 'number' ? f.size : null;
+    const problem = validateAttachment({ name: f.name, size: size ?? 1, type: uploadMimeType(f.name, f.mimeType) });
+    const reason = problem ?? (size !== null && total + size > TASK_FILES_MAX_BYTES ? `“${f.name}” would take this task past 50 MB of files.` : null);
+    if (reason) {
+      problems.push(reason);
+      refused.push({ file: f, reason });
+      continue;
+    }
+    total += size ?? 0;
+    ok.push(f);
+  }
+  return { ok, problems, refused };
+}
+
 export function withPickedFiles(
   files: NewTaskFile[],
   picked: readonly { uri: string; name: string; mimeType?: string | null; size?: number | null }[],

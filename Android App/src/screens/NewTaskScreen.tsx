@@ -31,6 +31,7 @@ import {
   createdWithoutFilesText,
   DESCRIPTION_MAX,
   formColumns,
+  checkTaskFiles,
   isDraftDirty,
   keptTry,
   keptTryProblem,
@@ -200,8 +201,13 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     try {
       const got = await DocumentPicker.getDocumentAsync({ type: pictures ? 'image/*' : '*/*', multiple: true, copyToCacheDirectory: true });
       if (got.canceled) return;
-      setFiles((f) => withPickedFiles(f, got.assets ?? [], fileSeq.current));
-      setBanner(null);
+      // Checked against the server's rules before the task is created (4a review): one it would
+      // refuse isn't listed — the reason shows — and the picker's copy goes.
+      const listed = files.reduce((sum, f) => sum + (f.size ?? 0), 0);
+      const { ok, problems, refused } = checkTaskFiles(listed, got.assets ?? []);
+      for (const { file } of refused) void pickedFiles.forget(file.uri);
+      setFiles((f) => withPickedFiles(f, ok, fileSeq.current));
+      setBanner(problems.length ? problems.join(' ') : null);
     } catch {
       setBanner('Couldn’t open your files. Please try again.');
     }

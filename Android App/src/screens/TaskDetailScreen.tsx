@@ -40,6 +40,7 @@ import { statusOf } from '../lib/task-status';
 import { inSeries, isEarlierCopy } from '../lib/recurrence-edit';
 import type { MentionPerson } from '../lib/mentions';
 import { attachmentHref, canRemoveAttachment, uploadErrorMessage, uploadPart, type ApiAttachment } from '../lib/attachments';
+import { checkTaskFiles } from '../lib/task-form';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
 import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
@@ -181,7 +182,13 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   async function pickAndUpload() {
     const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
     if (picked.canceled) return;
-    for (const asset of picked.assets ?? []) {
+    // Checked against the server's rules first (4a review): a file it would refuse isn't sent; it
+    // shows with the reason, and the picker's copy goes.
+    const held = (attachmentsQ.data ?? []).reduce((sum, a) => sum + (a.sizeBytes ?? 0), 0);
+    const { ok, refused } = checkTaskFiles(held, picked.assets ?? []);
+    for (const { file } of refused) void pickedFiles.forget(file.uri);
+    if (refused.length) setUploads((u) => [...u, ...refused.map(({ file, reason }) => ({ key: `u${++uploadSeq.current}`, name: file.name, fraction: 0, error: reason }))]);
+    for (const asset of ok) {
       const key = `u${++uploadSeq.current}`;
       setUploads((u) => [...u, { key, name: asset.name, fraction: 0 }]);
       const set = (patchUpload: Partial<UploadView>) => setUploads((u) => u.map((x) => (x.key === key ? { ...x, ...patchUpload } : x)));

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  TASK_FILES_MAX_BYTES,
+  checkTaskFiles,
   keptTry,
   keptTryProblem,
   assignablePeople,
@@ -366,5 +368,38 @@ describe('a New task try whose answer was lost (5b review #4, checked on the 4a 
     const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
     expect(screen).toMatch(/if \(frozen \|\| !columnsQ\.data \|\| columns\.length === 0\) return;/);
     expect(screen).toMatch(/keptTryProblem\(keptBody\.current, check\.input\)/);
+  });
+});
+
+describe('files for a task are checked against the server’s rules before anything is sent (4a review #2)', () => {
+  const MB = 1024 * 1024;
+  const f = (name: string, size: number | null, mimeType: string | null = null) => ({ uri: `file:///c/DocumentPicker/${name}`, name, size, mimeType });
+  it('a file too big, of a kind the server refuses, or empty is turned away with the reason; the rest are added', () => {
+    const r = checkTaskFiles(0, [f('photo.jpg', 12 * MB, 'image/jpeg'), f('clip.mp4', 3 * MB, 'video/mp4'), f('IMG_1.heic', 2 * MB, 'image/heic'), f('empty.txt', 0, 'text/plain'), f('plan.pdf', 2 * MB, 'application/pdf')]);
+    expect(r.ok.map((x) => x.name)).toEqual(['plan.pdf']);
+    expect(r.problems).toEqual([
+      '“photo.jpg” is 12 MB — files can be up to 10 MB.',
+      '“clip.mp4” can’t be sent: only pictures, PDFs, text, CSV, ZIP and Word / Excel / PowerPoint files are allowed.',
+      '“IMG_1.heic” can’t be sent: only pictures, PDFs, text, CSV, ZIP and Word / Excel / PowerPoint files are allowed.',
+      '“empty.txt” is empty.',
+    ]);
+  });
+
+  it('a task holds up to 50 MB of files in all: a file that would go past it isn’t added', () => {
+    const r = checkTaskFiles(45 * MB, [f('a.pdf', 4 * MB, 'application/pdf'), f('b.pdf', 2 * MB, 'application/pdf')]);
+    expect(r.ok.map((x) => x.name)).toEqual(['a.pdf']);
+    expect(r.problems).toEqual(['“b.pdf” would take this task past 50 MB of files.']);
+    expect(TASK_FILES_MAX_BYTES).toBe(50 * MB);
+  });
+
+  it('the hint says the limits as they are (the 10 MB is before the server makes pictures smaller)', () => {
+    expect(NEW_TASK_TEXT.filesHint).toBe('Up to 10 MB each and 50 MB in all · pictures, PDFs, text, CSV, ZIP and Office files · attached once the task is created.');
+  });
+
+  it('task details check files the same way before sending them', () => {
+    const screen = readFileSync(resolve(__dirname, '../screens/TaskDetailScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/checkTaskFiles\(/);
+    const form = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(form).toMatch(/checkTaskFiles\(/);
   });
 });

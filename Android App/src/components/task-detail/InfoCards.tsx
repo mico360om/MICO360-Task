@@ -151,7 +151,7 @@ export function FilesCard({
             {u.error ? <IconButton glyph="×" label={`Dismiss ${u.name}`} onPress={() => onDismissUpload(u.key)} /> : <Text style={s.when}>{Math.round(u.fraction * 100)}%</Text>}
           </View>
           {u.error ? (
-            <Text accessibilityRole="alert" style={s.error}>{`${u.name}: ${u.error}`}</Text>
+            <Text accessibilityRole="alert" style={s.error}>{u.error.includes(`“${u.name}”`) ? u.error : `${u.name}: ${u.error}`}</Text>
           ) : (
             <View style={s.bar} accessibilityLabel={`Uploading ${u.name}`} accessibilityValue={{ min: 0, max: 100, now: Math.round(u.fraction * 100) }}>
               <View style={[s.barFill, { width: `${Math.round(u.fraction * 100)}%` }]} />
