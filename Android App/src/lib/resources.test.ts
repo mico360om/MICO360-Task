@@ -218,15 +218,12 @@ describe('resourcesApi — attachments and notification preferences', () => {
     expect(calls[1]!.body).toBeInstanceOf(FormData);
   });
 
-  it('reads and saves notification preferences', async () => {
+  it('reads notification preferences; no whole-preferences save is left (only what changed is sent, 6a)', async () => {
     const { client, calls } = fakeClient();
     const api = resourcesApi(client);
     await api.notifications.preferences();
-    await api.notifications.setPreferences({ muted: ['MENTION'], reminderLeadMinutes: 60 });
-    expect(calls).toEqual([
-      { method: 'GET', path: '/notifications/preferences' },
-      { method: 'PUT', path: '/notifications/preferences', body: { muted: ['MENTION'], reminderLeadMinutes: 60 } },
-    ]);
+    expect(calls).toEqual([{ method: 'GET', path: '/notifications/preferences' }]);
+    expect('setPreferences' in api.notifications).toBe(false);
   });
 });
 
@@ -645,6 +642,70 @@ describe('resourcesApi.chat: the 3b routes', () => {
       ['POST', '/conversations/c1/delivered', {}],
       ['GET', '/chat/search?q=budget%20plan', undefined],
       ['GET', '/chat/search?q=budget&conversationId=c1', undefined],
+    ]);
+  });
+});
+
+describe('resourcesApi.calendar (5a)', () => {
+  it('asks for one range of days, and for the overdue tasks', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client);
+    await api.calendar.range('2026-09-27', '2026-10-31');
+    await api.calendar.overdue();
+    expect(calls).toEqual([
+      { method: 'GET', path: '/calendar?from=2026-09-27&to=2026-10-31' },
+      { method: 'GET', path: '/tasks?overdue=true' },
+    ]);
+  });
+});
+
+describe('resourcesApi.account and your settings (6a)', () => {
+  it('changes your own password and hands back the fresh session’s tokens', async () => {
+    const calls: { path: string; body?: unknown }[] = [];
+    const client = {
+      post: (path: string, body?: unknown) => {
+        calls.push({ path, body });
+        return Promise.resolve({ data: { accessToken: 'fake-a', refreshToken: 'fake-r' } });
+      },
+    } as unknown as ApiClient;
+    expect(await resourcesApi(client).account.changePassword('old-pass1', 'abcd1234')).toEqual({ accessToken: 'fake-a', refreshToken: 'fake-r' });
+    expect(calls).toEqual([{ path: '/users/me/password', body: { currentPassword: 'old-pass1', newPassword: 'abcd1234' } }]);
+  });
+
+  it('a server that gives no session back is no session (not an error)', async () => {
+    const client = { post: () => Promise.resolve({}) } as unknown as ApiClient;
+    expect(await resourcesApi(client).account.changePassword('old-pass1', 'abcd1234')).toBeNull();
+  });
+
+  it('uploads the profile photo as the multipart "file" part, and removes it', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).account;
+    await api.uploadAvatar({ uri: 'file:///cache/me.jpg', name: 'me.jpg', type: 'image/jpeg' });
+    expect(calls[0]).toMatchObject({ method: 'UPLOAD', path: '/users/me/avatar' });
+    expect(calls[0]!.body).toBeInstanceOf(FormData);
+    const removing = { del: (path: string) => { calls.push({ method: 'DELETE', path }); return Promise.resolve({ data: { id: 'u1', avatarUrl: null } }); } } as unknown as ApiClient;
+    expect(await resourcesApi(removing).account.removeAvatar()).toEqual({ id: 'u1', avatarUrl: null });
+    expect(calls[1]).toEqual({ method: 'DELETE', path: '/users/me/avatar' });
+  });
+
+  it('saves only the date setting that changed', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).settings.setDatePreferences({ weekStart: 6 });
+    await resourcesApi(client).settings.setDatePreferences({ timeZone: null });
+    expect(calls).toEqual([
+      { method: 'PUT', path: '/users/me/preferences', body: { weekStart: 6 } },
+      { method: 'PUT', path: '/users/me/preferences', body: { timeZone: null } },
+    ]);
+  });
+
+  it('saves preferences as given (only the daily email setting that changed), and sends a daily email test', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).preferences;
+    await api.save({ dailyEmails: { time: '07:00' } });
+    await api.sendDailyEmailTest();
+    expect(calls).toEqual([
+      { method: 'PUT', path: '/notifications/preferences', body: { dailyEmails: { time: '07:00' } } },
+      { method: 'POST', path: '/notifications/daily-emails/test', body: undefined },
     ]);
   });
 });

@@ -11,6 +11,8 @@ import { refresh, type Refresh } from './refresh';
 export function editRefreshes(taskId: string, patch: object): Refresh[] {
   const targets: Refresh[] = [{ queryKey: ['task', taskId, 'activity'], exact: true }, { listsHolding: taskId }];
   if ('dueDate' in patch || 'columnId' in patch) targets.push({ progressFor: taskId });
+  // A new day or repeat may put the task (or its copies to come) on a calendar range that didn't hold it (5a).
+  if ('dueDate' in patch || 'recurrenceRule' in patch) targets.push({ queryKey: ['tasks', 'calendar'] });
   if ((patch as { scope?: unknown }).scope === 'series') targets.push({ queryKey: ['tasks'] }, { taskDetails: 'all' });
   return targets;
 }
@@ -21,6 +23,34 @@ export function editRefreshes(taskId: string, patch: object): Refresh[] {
  * server announces one that does (`meeting:action-items`, which fetches them at once).
  */
 export const MY_ACTION_ITEMS: Refresh = { queryKey: ['action-items', 'mine'], later: true };
+
+/**
+ * What a new task refreshes (made live, or replayed after being kept offline): its project's board
+ * days, My Tasks, the project's progress and the calendar's ranges (5a) — a task made on a day of
+ * the calendar shows there.
+ */
+export function createdTaskRefreshes(projectId: string): Refresh[] {
+  return [
+    { queryKey: ['tasks', 'project', projectId] },
+    { queryKey: ['tasks', 'mine'] },
+    { queryKey: ['project', projectId, 'progress'], exact: true },
+    { queryKey: ['tasks', 'calendar'] },
+  ];
+}
+
+/**
+ * What a change to a task's people refreshes (made live, or replayed after being kept offline): its
+ * assignees and activity, My Tasks (it may join or leave yours) and every list holding it — the
+ * calendar's ranges too, which show whose task it is (5a review).
+ */
+export function assignmentRefreshes(taskId: string): Refresh[] {
+  return [
+    { queryKey: ['task', taskId, 'assignees'], exact: true },
+    { queryKey: ['task', taskId, 'activity'], exact: true },
+    { queryKey: ['tasks', 'mine'] },
+    { listsHolding: taskId },
+  ];
+}
 
 /**
  * What a move refreshes once the server answered: the task, its activity (the timeline notes the
@@ -46,14 +76,18 @@ export function moveRefreshes(taskId: string, projectId: string): Refresh[] {
  * fetched again — not the task's other parts, every list and every project. A load of the details
  * still on its way is called off first: it may have been answered before the edit was saved, and
  * landing after the save it would show the edit as undone.
+ *
+ * Details never loaded (an edit from the calendar or a list) are not made from the save's answer:
+ * it lacks what only the details call returns ("From meeting"), and it would count as fresh. They
+ * are left to load in full when opened (a first load on its way is called off and loaded again).
  */
 export function afterTaskSaved(qc: QueryClient, taskId: string, saved: ApiTask | undefined, patch: object): void {
   const targets = editRefreshes(taskId, patch);
-  if (saved?.id === taskId) {
-    // Calling it off puts the details back as they were before that load, at once (TanStack's
-    // revert), so the server's copy is laid over them on the next line.
-    void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
-    qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...saved } : saved));
+  // Calling a load off puts the details back as they were before it, at once (TanStack's revert).
+  void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
+  if (saved?.id === taskId && qc.getQueryData<ApiTask>(['task', taskId]) !== undefined) {
+    // The server's copy is laid over the details shown.
+    qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...saved } : prev));
   } else {
     targets.push({ queryKey: ['task', taskId], exact: true });
   }

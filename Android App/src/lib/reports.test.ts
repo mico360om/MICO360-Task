@@ -35,6 +35,7 @@ describe('report exports', () => {
     expect(mimeTypeFor('a.xlsx')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(mimeTypeFor('a.pdf')).toBe('application/pdf');
     expect(mimeTypeFor('a.csv')).toBe('text/csv');
+    expect(mimeTypeFor('mico360-my-data-2026-10-21.json')).toBe('application/json');
     expect(mimeTypeFor('a.bin')).toBe('application/octet-stream');
   });
 });

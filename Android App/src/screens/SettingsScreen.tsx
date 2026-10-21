@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, Switch, Pressable, StyleSheet, Alert, AppState, Linking } from 'react-native';
+import { View, Text, Switch, Pressable, StyleSheet, Alert, AppState, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useSession, useMyQueuedChanges } from '../core/providers';
 import { useTheme, type ThemeMode } from '../core/theme';
 import { Card, SectionTitle, Button, Muted } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
+import { KeyboardAwareScrollView } from '../components/KeyboardAware';
+import { DailyEmailSettings } from '../components/account/DailyEmailSettings';
+import { DateSettings } from '../components/account/DateSettings';
 import { getPushPermission, openAppSettings, type PushPermission } from '../adapters/push';
-import { useNotificationPreferences, useSaveNotificationPreferences, useServerVersion } from '../core/queries';
-import { NOTIFICATION_TYPES, REMINDER_OPTIONS, isTypeOn, toggleType, withReminderLead } from '../lib/notification-prefs';
+import { useNotificationPreferences, useServerVersion } from '../core/queries';
+import { useSavePreferences } from '../core/account-queries';
+import { NOTIFICATION_TYPES, REMINDER_OPTIONS, hasDailyEmails, isTypeOn, prefsSaveProblem, toggleType, withReminderLead, type PreferencesUpdate } from '../lib/notification-prefs';
 import { sitePageUrl } from '../lib/server-address';
 import { fingerprintSetting } from '../lib/biometric-login';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -33,19 +37,25 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
   const [pushPerm, setPushPerm] = useState<{ status: PushPermission; canAskAgain: boolean } | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const prefsQ = useNotificationPreferences();
-  const savePrefs = useSaveNotificationPreferences();
+  // Sends only what changed; the daily email settings are kept by the server (6a).
+  const savePrefs = useSavePreferences();
   const prefs = prefsQ.data;
   const [prefsErr, setPrefsErr] = useState<string | null>(null);
-  const save = (next: Parameters<typeof savePrefs.mutate>[0]) => {
+  const save = (next: PreferencesUpdate) => {
     setPrefsErr(null);
-    savePrefs.mutate(next, { onError: () => setPrefsErr('Couldn’t save — check your connection and try again.') });
+    savePrefs.mutate(next, { onError: (e) => setPrefsErr(prefsSaveProblem(e)) });
   };
   const openPage = (path: string) => void Linking.openURL(sitePageUrl(baseUrl, path)).catch(() => {});
 
+  // Read again on coming back (a password change on Profile ends fingerprint sign-in).
   useEffect(() => {
-    void biometric.isEnabled().then(setBioOn);
-    void biometricLogin.isArmed().then(setKeyArmed);
-  }, [biometric, biometricLogin]);
+    const read = () => {
+      void biometric.isEnabled().then(setBioOn);
+      void biometricLogin.isArmed().then(setKeyArmed);
+    };
+    read();
+    return navigation.addListener('focus', read);
+  }, [biometric, biometricLogin, navigation]);
 
   // Notification permission — re-read when coming back from the system settings (NTF-01).
   const refreshPushPerm = useCallback(() => {
@@ -164,7 +174,8 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      {/* The daily emails' time stays above the keyboard while typing. */}
+      <KeyboardAwareScrollView contentContainerStyle={styles.scroll}>
         <SyncStatus />
 
         <View style={styles.section}>
@@ -271,6 +282,11 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
           </Card>
         </View>
 
+        {/* Only a server that knows the daily emails (1.5.0 and later) is offered them. */}
+        {prefs && hasDailyEmails(prefs) ? <DailyEmailSettings prefs={prefs} /> : null}
+
+        <DateSettings />
+
         <View style={styles.section}>
           <SectionTitle>Security</SectionTitle>
           <Card>
@@ -294,6 +310,9 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
                 <Button title="Turn fingerprint sign-in back on" variant="secondary" onPress={() => void resumeFingerprintSignIn()} loading={bioBusy} style={styles.rowBtn} />
               </View>
             ) : null}
+            <View style={styles.divided}>
+              <Button title="Change password" variant="secondary" accessibilityLabel="Change password, opens your profile" onPress={() => navigation.navigate('Profile')} />
+            </View>
           </Card>
         </View>
 
@@ -327,7 +346,7 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
         </View>
 
         <Button title="Sign out" variant="secondary" onPress={confirmLogout} loading={signingOut} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

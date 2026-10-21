@@ -27,6 +27,7 @@ import { createBiometricGate } from '../lib/biometric-gate';
 import { createBiometricLogin } from '../lib/biometric-login';
 import { createSignOut } from '../lib/sign-out';
 import { createExporter } from '../lib/exporter';
+import { refusedRefreshOutcome } from '../lib/password-change';
 import { authApi } from '../lib/auth';
 import { secureStore, biometricSecureStore } from '../adapters/secure-store';
 import { asyncStore } from '../adapters/async-storage';
@@ -119,7 +120,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     // A 200 that isn't a real session (a proxy or Wi-Fi page) is never stored: signed in with no
     // user, signing out couldn't drop that person's queued changes.
     const reply = await readRefreshReply(res);
-    if (reply.outcome !== 'ok') return reply.outcome;
+    // Refused because this phone replaced the token meanwhile (a password change here): keep the new session.
+    if (reply.outcome !== 'ok') return refusedRefreshOutcome(reply.outcome, current.refreshToken, signOutApi.isSigningOut() ? null : session.getSession()?.refreshToken);
     const next = reply.session;
 
     // The user signed out (or the session changed) while we waited: never resurrect it, and

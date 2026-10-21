@@ -1,12 +1,10 @@
 /**
- * Meetings in the app: which day and time each is in company time, where it is held,
- * whether it repeats, and the calendar's days with their tasks and meetings together.
+ * Meetings in the app: which day and time each is in company time, where it is held and whether
+ * it repeats. (The calendar's days are in lib/calendar*, 5a.)
  */
-import type { ApiMeeting, ApiTask } from './types';
-import { appTimeZone, dueDayKey, zonedDayKey } from './due-date';
+import type { ApiMeeting } from './types';
+import { appTimeZone, zonedDayKey } from './due-date';
 import { dateFormat } from './intl-cache';
-
-const DAY_MS = 86_400_000;
 
 type Timed = Pick<ApiMeeting, 'startAt' | 'endAt'>;
 
@@ -103,38 +101,4 @@ export function joinLink(m: Pick<ApiMeeting, 'onlineLink'>): string | null {
 /** Part of a repeating series (its first meeting holds the rule; the others point at it). */
 export function isRepeating(m: Pick<ApiMeeting, 'recurrenceRule' | 'recurrenceParentId'>): boolean {
   return !!(m.recurrenceRule || m.recurrenceParentId);
-}
-
-/** The calendar's meetings: a week back and two months ahead of now. */
-export function meetingWindow(now: Date = new Date()): { from: string; to: string } {
-  return { from: new Date(now.getTime() - 7 * DAY_MS).toISOString(), to: new Date(now.getTime() + 60 * DAY_MS).toISOString() };
-}
-
-export interface AgendaDay {
-  /** 'YYYY-MM-DD'. */
-  date: string;
-  tasks: ApiTask[];
-  meetings: ApiMeeting[];
-}
-
-/** The calendar's days: tasks on their due day and meetings on their company-time day, earliest first. */
-export function buildAgenda(tasks: ApiTask[], meetings: ApiMeeting[], timeZone: string = appTimeZone()): AgendaDay[] {
-  const days = new Map<string, AgendaDay>();
-  const dayOf = (date: string) => {
-    let day = days.get(date);
-    if (!day) days.set(date, (day = { date, tasks: [], meetings: [] }));
-    return day;
-  };
-  for (const t of tasks) {
-    const key = dueDayKey(t.dueDate, timeZone);
-    if (key) dayOf(key).tasks.push(t);
-  }
-  for (const m of meetings) dayOf(meetingDayKey(m, timeZone)).meetings.push(m);
-  return [...days.values()]
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-    .map((d) => ({
-      ...d,
-      tasks: d.tasks.sort((a, b) => Date.parse(a.dueDate as string) - Date.parse(b.dueDate as string)),
-      meetings: d.meetings.sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)),
-    }));
 }

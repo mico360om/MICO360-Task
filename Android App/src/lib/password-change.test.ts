@@ -1,0 +1,140 @@
+import { describe, it, expect, vi } from 'vitest';
+import {
+  PASSWORD_RULE_ERROR,
+  PASSWORD_RULE_HINT,
+  checkPasswordChange,
+  createPasswordChange,
+  isStrongPassword,
+  passwordChangeProblem,
+  refusedRefreshOutcome,
+} from './password-change';
+import { ApiError, NetworkError } from './api-client';
+import type { Session } from './types';
+
+describe('password change: the server’s rule, in the website’s words', () => {
+  it('needs 8 characters with a letter and a number (the server’s isStrongPassword)', () => {
+    expect(isStrongPassword('abcd1234')).toBe(true);
+    expect(isStrongPassword('Ab1')).toBe(false);
+    expect(isStrongPassword('abcdefgh')).toBe(false);
+    expect(isStrongPassword('12345678')).toBe(false);
+    expect(PASSWORD_RULE_HINT).toBe('At least 8 characters, with a letter and a number.');
+    expect(PASSWORD_RULE_ERROR).toBe('Use at least 8 characters, including a letter and a number.');
+  });
+
+  it('checks the form before anything is sent, naming the field to fix', () => {
+    expect(checkPasswordChange({ current: '', next: 'abcd1234', confirm: 'abcd1234' })).toEqual({ field: 'current', message: 'Enter your current password.' });
+    expect(checkPasswordChange({ current: 'old-pass1', next: 'short1', confirm: 'short1' })).toEqual({ field: 'next', message: PASSWORD_RULE_ERROR });
+    expect(checkPasswordChange({ current: 'old-pass1', next: 'abcd1234', confirm: 'abcd1235' })).toEqual({ field: 'confirm', message: 'The new passwords don’t match.' });
+    expect(checkPasswordChange({ current: 'old-pass1', next: 'abcd1234', confirm: 'abcd1234' })).toBeNull();
+  });
+
+  it('shows the server’s reason for a wrong current password or a weak new one, on the right field', () => {
+    expect(passwordChangeProblem(new ApiError(400, 'VALIDATION', 'Current password is incorrect.'))).toEqual({ field: 'current', message: 'Current password is incorrect.' });
+    expect(passwordChangeProblem(new ApiError(400, 'WEAK_PASSWORD', 'Password must be at least 8 characters and include a letter and a number.'))).toEqual({
+      field: 'next',
+      message: 'Password must be at least 8 characters and include a letter and a number.',
+    });
+  });
+
+  it('falls back to the website’s message, and says plainly when offline or asked to wait', () => {
+    expect(passwordChangeProblem(new ApiError(400, 'ERROR', 'Request failed (400)'))).toEqual({ field: null, message: 'Couldn’t change your password. Check that your current password is correct.' });
+    expect(passwordChangeProblem(new ApiError(500, 'INTERNAL', 'Something broke'))).toEqual({ field: null, message: 'Couldn’t change your password. Check that your current password is correct.' });
+    expect(passwordChangeProblem(new ApiError(429, 'RATE_LIMITED', 'Too many requests. Please wait a moment and try again.'))).toEqual({
+      field: null,
+      message: 'Too many requests. Please wait a moment and try again.',
+    });
+    expect(passwordChangeProblem(new NetworkError('Network request failed.'))).toEqual({ field: null, message: 'You’re offline — your password can be changed when you’re connected.' });
+  });
+});
+
+const signedIn = (): Session => ({ user: { id: 'u1', email: 'a@x.test', username: 'ada', roles: ['EMPLOYEE'], avatarUrl: null }, accessToken: 'old-access', refreshToken: 'old-refresh' });
+
+function deps(opts: { reply?: { accessToken?: string; refreshToken?: string } | null; armed?: boolean; fail?: unknown } = {}) {
+  const order: string[] = [];
+  let session: Session | null = signedIn();
+  const d = {
+    send: vi.fn(async () => {
+      order.push('send');
+      if (opts.fail) throw opts.fail;
+      return opts.reply === undefined ? { accessToken: 'new-access', refreshToken: 'new-refresh' } : opts.reply;
+    }),
+    session: {
+      getSession: () => session,
+      setSession: vi.fn(async (s: Session) => {
+        order.push('setSession');
+        session = s;
+      }),
+    },
+    registerPush: vi.fn(async () => {
+      order.push(`registerPush:${session?.accessToken}`);
+    }),
+    fingerprint: {
+      isArmed: vi.fn(async () => opts.armed ?? false),
+      disarm: vi.fn(async () => {
+        order.push('disarm');
+      }),
+    },
+  };
+  return { d, order, current: () => session };
+}
+
+describe('password change: what happens to the session afterwards (as on the website)', () => {
+  it('keeps this phone signed in with the fresh tokens the server hands back, and says other devices were signed out', async () => {
+    const { d, current } = deps();
+    const result = await createPasswordChange(d)('old-pass1', 'abcd1234');
+    expect(d.send).toHaveBeenCalledWith('old-pass1', 'abcd1234');
+    expect(current()).toEqual({ ...signedIn(), accessToken: 'new-access', refreshToken: 'new-refresh' });
+    expect(result).toEqual({ keptHere: true, fingerprintStopped: false, message: 'Password changed. Other devices have been signed out; you’re still signed in here.' });
+  });
+
+  it('registers this phone for notifications again with the new session (the server forgets every phone)', async () => {
+    const { d, order } = deps();
+    await createPasswordChange(d)('old-pass1', 'abcd1234');
+    expect(order).toEqual(['send', 'setSession', 'registerPush:new-access']);
+  });
+
+  it('turns the ended fingerprint sign-in off on this phone and says how to turn it back on', async () => {
+    const { d, order } = deps({ armed: true });
+    const result = await createPasswordChange(d)('old-pass1', 'abcd1234');
+    expect(order).toContain('disarm');
+    expect(result.fingerprintStopped).toBe(true);
+    expect(result.message).toBe(
+      'Password changed. Other devices have been signed out; you’re still signed in here. Fingerprint sign-in has stopped on this phone; you can turn it back on in Settings.',
+    );
+  });
+
+  it('when the server hands back no session, says the next sign-in needs the new password', async () => {
+    const { d, current } = deps({ reply: {} });
+    const result = await createPasswordChange(d)('old-pass1', 'abcd1234');
+    expect(d.session.setSession).not.toHaveBeenCalled();
+    expect(d.registerPush).not.toHaveBeenCalled();
+    expect(current()?.refreshToken).toBe('old-refresh');
+    expect(result).toEqual({ keptHere: false, fingerprintStopped: false, message: 'Password changed. You’ll be asked to sign in again with your new password shortly.' });
+  });
+
+  it('a refused change leaves the session, the fingerprint key and notifications as they were', async () => {
+    const { d, current } = deps({ armed: true, fail: new ApiError(400, 'VALIDATION', 'Current password is incorrect.') });
+    await expect(createPasswordChange(d)('wrong-pass1', 'abcd1234')).rejects.toBeInstanceOf(ApiError);
+    expect(current()?.refreshToken).toBe('old-refresh');
+    expect(d.fingerprint.disarm).not.toHaveBeenCalled();
+    expect(d.registerPush).not.toHaveBeenCalled();
+  });
+
+  it('a notification sign-up that fails after the change doesn’t turn the change into an error', async () => {
+    const { d } = deps();
+    d.registerPush.mockRejectedValueOnce(new NetworkError('offline'));
+    await expect(createPasswordChange(d)('old-pass1', 'abcd1234')).resolves.toMatchObject({ keptHere: true });
+  });
+});
+
+describe('a session refresh refused after this phone already holds a new session', () => {
+  it('counts as done when the token it sent was replaced meanwhile (a password change here)', () => {
+    expect(refusedRefreshOutcome('invalid', 'old-refresh', 'new-refresh')).toBe('ok');
+  });
+
+  it('still ends the session when nothing replaced it, or it is gone', () => {
+    expect(refusedRefreshOutcome('invalid', 'old-refresh', 'old-refresh')).toBe('invalid');
+    expect(refusedRefreshOutcome('invalid', 'old-refresh', null)).toBe('invalid');
+    expect(refusedRefreshOutcome('transient', 'old-refresh', 'new-refresh')).toBe('transient');
+  });
+});

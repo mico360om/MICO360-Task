@@ -1,10 +1,9 @@
 import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
-import { meetingWindow } from '../lib/meetings';
 import { refetchAfterMove } from '../lib/task-status';
 import { taskWrites, withExpectedVersion } from '../lib/task-writes';
-import { afterTaskDeleted, afterTaskSaved, moveRefreshes } from '../lib/task-cache';
+import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, moveRefreshes } from '../lib/task-cache';
 import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
@@ -21,7 +20,6 @@ import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-t
 import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
 import type { ApiChatMessage, ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
-import type { NotificationPreferences } from '../lib/notification-prefs';
 import type { ReportFilters } from '../lib/reports';
 
 /** Variables of a creating write, carrying the idempotency key minted for this user action (XP-06). */
@@ -153,9 +151,8 @@ export function useAssignUsers(taskId: string) {
       sendInOrder(writeOrder(services), { kind: 'task.assign', payload: { id: taskId, userIds }, idempotencyKey }, () =>
         resources.tasks.assign(taskId, userIds, { idempotencyKey }),
       ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['task', taskId, 'assignees'] });
-    },
+    // As the replay does: My Tasks and the lists holding it (the calendar's too) follow (5a review).
+    onSuccess: () => refresh(qc, assignmentRefreshes(taskId)),
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'task.assign', { id: taskId, userIds: v.userIds }, v.idempotencyKey),
   });
 }
@@ -168,9 +165,7 @@ export function useUnassignUser(taskId: string) {
     scope: assigneesScope(taskId),
     mutationFn: (userId: string) =>
       sendInOrder(writeOrder(services), { kind: 'task.unassign', payload: { id: taskId, userId } }, () => resources.tasks.unassign(taskId, userId)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['task', taskId, 'assignees'] });
-    },
+    onSuccess: () => refresh(qc, assignmentRefreshes(taskId)),
     onError: (err, userId) => queueOnOffline(queue, currentUserId(), err, 'task.unassign', { id: taskId, userId }),
   });
 }
@@ -328,27 +323,7 @@ export function useNotificationPreferences() {
   return useQuery({ queryKey: ['notifications', 'preferences'], queryFn: () => resources.notifications.preferences() });
 }
 
-/** Save preferences; the switch flips at once and snaps back if the server refuses. */
-export function useSaveNotificationPreferences() {
-  const { resources } = useServices();
-  const qc = useQueryClient();
-  const key = ['notifications', 'preferences'];
-  return useMutation({
-    mutationFn: (prefs: NotificationPreferences) => resources.notifications.setPreferences(prefs),
-    onMutate: async (prefs) => {
-      await qc.cancelQueries({ queryKey: key });
-      const previous = qc.getQueryData<NotificationPreferences>(key);
-      qc.setQueryData(key, prefs);
-      return { previous };
-    },
-    onError: (_err, _prefs, ctx) => {
-      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
-    },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: key });
-    },
-  });
-}
+// Saving them (only what changed) is core/account-queries useSavePreferences (6a).
 
 // ── Project details ──────────────────────────────────────────────────────────
 export function useProject(projectId: string) {
@@ -366,19 +341,7 @@ export function useProjectProgress(projectId: string) {
   });
 }
 
-// ── Meetings: the calendar and a project (reads) ─────────────────────────────
-/** The meetings the calendar shows (a week back, two months ahead), kept for an offline start. */
-export function useCalendarMeetings() {
-  const { resources, reads } = useServices();
-  return useQuery({
-    queryKey: ['meetings', 'calendar'],
-    queryFn: ({ queryKey }) => {
-      const w = meetingWindow();
-      return reads.read(queryKey, 'meetings.calendar', () => resources.meetings.range(w.from, w.to));
-    },
-  });
-}
-
+// ── Meetings: a project (reads); the calendar's are in core/calendar-queries (5a) ──
 /** A project's meetings, decisions and action items; null from a server without them (404). */
 export function useProjectMeetings(projectId: string) {
   const { resources } = useServices();

@@ -178,11 +178,12 @@ describe('performMutation — a replayed edit that the server had already saved'
 describe('refreshesAfterReplay (what a replayed change refreshes, instead of everything)', () => {
   const task = (id: string) => [{ queryKey: ['task', id], exact: true }, { queryKey: ['task', id, 'activity'], exact: true }, { listsHolding: id }];
 
-  it('a new task: its project’s lists, My Tasks and the project’s progress', () => {
+  it('a new task: its project’s lists, My Tasks, the project’s progress and the calendar', () => {
     expect(refreshesAfterReplay(mut('task.create', { projectId: 'p1', title: 'x', columnId: 'c1' }))).toEqual([
       { queryKey: ['tasks', 'project', 'p1'] },
       { queryKey: ['tasks', 'mine'] },
       { queryKey: ['project', 'p1', 'progress'], exact: true },
+      { queryKey: ['tasks', 'calendar'] },
     ]);
   });
 

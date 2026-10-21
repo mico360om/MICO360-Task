@@ -1,8 +1,9 @@
 import type { ApiClient } from './api-client';
 import { idempotencyHeaders } from './idempotency';
 import type { ApiAttachment } from './attachments';
-import type { NotificationPreferences } from './notification-prefs';
+import type { NotificationPreferences, PreferencesUpdate } from './notification-prefs';
 import type { DatePreferences, ServerConfig } from './date-settings';
+import type { ApiAccountUser } from './account';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -60,6 +61,8 @@ import type {
   FreeTimesReply,
 } from './types';
 import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
+import type { CalendarRange } from './calendar-data';
+import type { CalendarTask } from './calendar-model';
 
 export interface TaskListParams {
   projectId?: string;
@@ -422,21 +425,52 @@ export function resourcesApi(client: ApiClient) {
       markRead: (id: string) => data(client.put<Envelope<ApiNotification>>(`/notifications/${seg(id)}/read`)),
       markAllRead: () => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all')),
       // Which notifications you get and when "due soon" reminders arrive (shared with the web app).
+      // Saved through `preferences.save` (6a): only what changed, so the daily emails set on the
+      // website are never sent back over.
       preferences: () => data(client.get<Envelope<NotificationPreferences>>('/notifications/preferences')),
-      setPreferences: (prefs: NotificationPreferences) =>
-        data(client.put<Envelope<NotificationPreferences>>('/notifications/preferences', prefs)),
     },
     /** The server's public settings and your own date settings (shared with the website). */
     settings: {
       config: () => data(client.get<Envelope<ServerConfig>>('/config')),
       datePreferences: () => data(client.get<Envelope<DatePreferences>>('/users/me/preferences')),
+      /** Change your week start or own time zone: only what is named changes (6a). */
+      setDatePreferences: (patch: Partial<DatePreferences>) => data(client.put<Envelope<DatePreferences>>('/users/me/preferences', patch)),
       /** The server's release (signed in): the website and the app share one version number. */
       version: () => data(client.get<Envelope<{ version: string }>>('/version')),
+    },
+    /** Your account (6a): your password and your profile photo. "Download my data" goes through the exporter. */
+    account: {
+      /** Change your own password; every session ends and the fresh one for this phone comes back (null: none). */
+      changePassword: (currentPassword: string, newPassword: string) =>
+        client
+          .post<Envelope<{ accessToken?: string; refreshToken?: string }> | undefined>('/users/me/password', { currentPassword, newPassword })
+          .then((r) => r?.data ?? null),
+      uploadAvatar: (part: { uri: string; name: string; type: string }) => {
+        const form = new FormData();
+        // React Native sends a { uri, name, type } part as the file's bytes.
+        form.append('file', part as unknown as Blob);
+        return data(client.upload<Envelope<ApiAccountUser>>('/users/me/avatar', form));
+      },
+      removeAvatar: () => data(client.del<Envelope<ApiAccountUser>>('/users/me/avatar')),
+    },
+    /**
+     * Your notification preferences with the daily task emails (6a). A save sends only what changed:
+     * the server keeps what it leaves out, so nothing changed on the website meanwhile is lost.
+     */
+    preferences: {
+      save: (body: PreferencesUpdate) => data(client.put<Envelope<NotificationPreferences>>('/notifications/preferences', body)),
+      /** "Send me a test now": your two morning emails at once (an empty one isn't sent). */
+      sendDailyEmailTest: () => data(client.post<Envelope<{ pending: 'sent' | 'empty'; completed: 'sent' | 'empty' }>>('/notifications/daily-emails/test')),
     },
     deviceTokens: {
       register: (token: string, platform: DevicePlatform = 'ANDROID') =>
         client.post<void>('/device-tokens', { token, platform }),
       unregister: (token: string) => client.del<void>(`/device-tokens/${encodeURIComponent(token)}`),
+    },
+    /** The calendar (5a): one range of days ('YYYY-MM-DD', at most 101) and the tasks already overdue. */
+    calendar: {
+      range: (from: string, to: string) => data(client.get<Envelope<CalendarRange>>(`/calendar${queryString({ from, to })}`)),
+      overdue: () => data(client.get<Envelope<CalendarTask[]>>('/tasks?overdue=true')),
     },
     /** Reports (administrators): the same figures as the web portal, scoped by project / team member. */
     reports: {

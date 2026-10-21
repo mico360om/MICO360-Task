@@ -43,6 +43,18 @@ describe('refresh (one pass over the cache, each query at most once)', () => {
     expect(refreshed(qc, ['tasks', 'project', 'p2', 'all'])).toBe(false);
   });
 
+  it('counts a calendar range as a list: it holds a task due in it or one whose repeats it shows (5a)', () => {
+    const qc = client();
+    const range = (tasks: unknown[], series: unknown[] = []) => ({ from: '2026-10-01', to: '2026-10-31', timeZone: 'Asia/Muscat', tasks, occurrences: [], series });
+    qc.setQueryData(['tasks', 'calendar', '2026-09-27', '2026-10-31'], range([task('t1')]));
+    qc.setQueryData(['tasks', 'calendar', '2026-11-01', '2026-11-30'], range([], [task('t1')]));
+    qc.setQueryData(['tasks', 'calendar', '2026-12-01', '2026-12-31'], range([task('t2')]));
+    refresh(qc, [{ listsHolding: 't1' }]);
+    expect(refreshed(qc, ['tasks', 'calendar', '2026-09-27', '2026-10-31'])).toBe(true);
+    expect(refreshed(qc, ['tasks', 'calendar', '2026-11-01', '2026-11-30'])).toBe(true);
+    expect(refreshed(qc, ['tasks', 'calendar', '2026-12-01', '2026-12-31'])).toBe(false);
+  });
+
   it('refreshes the progress of the task’s own project', () => {
     const qc = client();
     qc.setQueryData(['task', 't1'], task('t1', 'p1'));

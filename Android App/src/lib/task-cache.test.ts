@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterTaskDeleted, afterTaskSaved, editRefreshes, moveRefreshes } from './task-cache';
+import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
 import { refresh } from './refresh';
 import type { ApiTask } from './types';
 
@@ -119,6 +119,23 @@ describe('editRefreshes', () => {
     expect(editRefreshes('t1', { columnId: 'c2' })).toContainEqual({ progressFor: 't1' });
     expect(editRefreshes('t1', { priority: 'HIGH' })).not.toContainEqual({ progressFor: 't1' });
   });
+
+  it('a new due day or repeat refreshes every calendar range: the task may now be on a day of one that didn’t hold it (5a)', () => {
+    expect(editRefreshes('t1', { dueDate: '2026-10-21' })).toContainEqual({ queryKey: ['tasks', 'calendar'] });
+    expect(editRefreshes('t1', { recurrenceRule: null })).toContainEqual({ queryKey: ['tasks', 'calendar'] });
+    expect(editRefreshes('t1', { title: 'x' })).not.toContainEqual({ queryKey: ['tasks', 'calendar'] });
+  });
+});
+
+describe('createdTaskRefreshes', () => {
+  it('a new task: its project’s board days, My Tasks, the project’s progress and the calendar’s ranges (5a)', () => {
+    expect(createdTaskRefreshes('p1')).toEqual([
+      { queryKey: ['tasks', 'project', 'p1'] },
+      { queryKey: ['tasks', 'mine'] },
+      { queryKey: ['project', 'p1', 'progress'], exact: true },
+      { queryKey: ['tasks', 'calendar'] },
+    ]);
+  });
 });
 
 describe('moveRefreshes', () => {
@@ -169,5 +186,47 @@ describe('afterTaskDeleted', () => {
       expect.arrayContaining(['["tasks","project","p1","2026-10-20"]', '["tasks","mine"]', '["task","t2"]', '["project","p1","progress"]']),
     );
     expect(refreshedKeys(qc)).not.toContain('["project","p2","progress"]');
+  });
+});
+
+describe('afterTaskSaved when the task’s details were never loaded (5a review: a move from the calendar)', () => {
+  it('doesn’t make the details from the save’s answer — it has no "From meeting" — so they load in full when opened', () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    afterTaskSaved(qc, 't1', { ...t('t1'), dueDate: '2026-10-30', version: 4 }, { dueDate: '2026-10-30' });
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+  });
+
+  it('a first load of the details on its way (it may have been answered before the save) is called off and marked to load again', async () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    let answer!: (task: ApiTask) => void;
+    const loading = qc.fetchQuery({ queryKey: ['task', 't1'], queryFn: () => new Promise<ApiTask>((r) => (answer = r)), staleTime: 0 });
+    afterTaskSaved(qc, 't1', { ...t('t1'), dueDate: '2026-10-30', version: 4 }, { dueDate: '2026-10-30' });
+    answer({ ...t('t1'), version: 3 });
+    await loading.catch(() => {});
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+    expect(qc.getQueryState(['task', 't1'])?.isInvalidated).toBe(true);
+  });
+});
+
+describe('assignmentRefreshes (5a review: an assignment change reaches the calendar)', () => {
+  it('refreshes the task’s people and activity, My Tasks and every list holding it — the calendar’s ranges too', () => {
+    const qc = seeded();
+    const RANGE = ['tasks', 'calendar', '2026-09-27', '2026-10-31'];
+    qc.setQueryData(RANGE, { from: '2026-09-27', to: '2026-10-31', timeZone: 'Asia/Muscat', tasks: [t('t1')], occurrences: [], series: [] });
+    refresh(qc, assignmentRefreshes('t1'));
+    expect(refreshedKeys(qc)).toEqual(
+      expect.arrayContaining(['["task","t1","assignees"]', '["task","t1","activity"]', '["tasks","mine"]', JSON.stringify(RANGE), '["tasks","project","p1","2026-10-21"]']),
+    );
+    expect(refreshedKeys(qc)).not.toContain('["task","t1","comments"]');
+  });
+});
+
+describe('assignmentRefreshes and the replay of a kept assignment', () => {
+  it('refresh the same (a change made online and one replayed later must not drift apart)', async () => {
+    const { refreshesAfterReplay } = await import('./perform-mutation');
+    expect(refreshesAfterReplay({ kind: 'task.assign', payload: { id: 't1', userIds: ['u2'] } })).toEqual(assignmentRefreshes('t1'));
+    expect(refreshesAfterReplay({ kind: 'task.unassign', payload: { id: 't1', userId: 'u2' } })).toEqual(assignmentRefreshes('t1'));
   });
 });

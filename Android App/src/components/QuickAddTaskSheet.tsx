@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, View, Text, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,8 @@ import { Button, TextField, ErrorNote, NoticeNote, SectionTitle } from './ui';
 import { buildCreateTaskInput, parseTags } from '../lib/quick-add';
 import { parseDueDateInput, parseHoursInput } from '../lib/form-input';
 import { newIdempotencyKey } from '../lib/idempotency';
+import { refresh } from '../lib/refresh';
+import { createdTaskRefreshes } from '../lib/task-cache';
 import { spacing, radius, fontSize, categoryColorOf, type Palette } from '../lib/theme';
 import type { ApiColumn, Priority, RecurrenceRule } from '../lib/types';
 import { RecurrenceEditor } from './RecurrenceEditor';
@@ -23,6 +25,7 @@ export function QuickAddTaskSheet({
   projectId,
   columns,
   boardDate,
+  defaultDueDate,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -30,6 +33,8 @@ export function QuickAddTaskSheet({
   columns: ApiColumn[];
   /** Per-date boards: create the task on this day (defaults to today server-side). */
   boardDate?: string;
+  /** The due day ('YYYY-MM-DD') the sheet opens with (the calendar's day; changeable). */
+  defaultDueDate?: string;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -57,12 +62,17 @@ export function QuickAddTaskSheet({
   // Columns may load after the sheet mounts — default to the first one once they arrive.
   const effectiveColumnId = columnId || enabled[0]?.id || '';
 
+  // Opened on a day of the calendar: the due date starts as that day.
+  useEffect(() => {
+    if (visible && defaultDueDate) setDueDate(defaultDueDate);
+  }, [visible, defaultDueDate]);
+
   function reset() {
     setNotice(null); // an earlier "queued offline" notice doesn't come back next time
     setTitle('');
     setDescription('');
     setPriority('NORMAL');
-    setDueDate('');
+    setDueDate(defaultDueDate ?? '');
     setEstimate('');
     setTags('');
     setAssignToMe(false);
@@ -106,9 +116,7 @@ export function QuickAddTaskSheet({
     setNotice(null);
     try {
       await resources.tasks.create(built.value, { idempotencyKey });
-      void qc.invalidateQueries({ queryKey: ['tasks', 'project', projectId] });
-      void qc.invalidateQueries({ queryKey: ['tasks', 'mine'] });
-      void qc.invalidateQueries({ queryKey: ['project', projectId, 'progress'] });
+      refresh(qc, createdTaskRefreshes(projectId));
       reset();
       onClose();
     } catch (e) {

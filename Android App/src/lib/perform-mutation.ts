@@ -2,7 +2,7 @@ import { ApiError, isNetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
 import { markReloaded, taskHoldsEdit } from './task-writes';
-import { editRefreshes, moveRefreshes, MY_ACTION_ITEMS } from './task-cache';
+import { assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, MY_ACTION_ITEMS } from './task-cache';
 import type { Refresh } from './refresh';
 import type { ActionItemInput, ActionItemPatch, ApiTask, AttendanceStatus, NoteInput } from './types';
 
@@ -174,7 +174,7 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
   switch (m.kind) {
     case 'task.create':
       if (typeof p.projectId !== 'string') return [{ queryKey: ['tasks'] }];
-      return [{ queryKey: ['tasks', 'project', p.projectId] }, { queryKey: ['tasks', 'mine'] }, { queryKey: ['project', p.projectId, 'progress'], exact: true }];
+      return createdTaskRefreshes(p.projectId);
     case 'task.move':
       // Queued with its project: what the move refreshes online, its project's board days included
       // (finishing a repeating task adds its next copy to a later day). Older items name no project.
@@ -185,7 +185,8 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
       return [part(), ...editRefreshes(id, typeof p.patch === 'object' && p.patch ? p.patch : {})];
     case 'task.assign':
     case 'task.unassign':
-      return [part('assignees'), part('activity'), { queryKey: ['tasks', 'mine'] }, { listsHolding: id }];
+      // What the change refreshes online too (the calendar's ranges with the lists holding it).
+      return assignmentRefreshes(id);
     case 'checklist.add':
       return checklist();
     case 'checklist.update':

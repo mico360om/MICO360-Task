@@ -5,6 +5,8 @@ export interface AuthUser {
   email: string;
   username: string;
   roles: string[];
+  /** The profile photo's address (sign-in and refresh replies carry it; older sessions may not). */
+  avatarUrl?: string | null;
 }
 
 export interface Session {

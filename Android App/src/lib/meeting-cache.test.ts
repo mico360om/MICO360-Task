@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { ApiError, NetworkError } from './api-client';
-import { afterMeetingDeleted, afterMeetingSaved, afterPartChanged, answerFailed, answerScope, dropRow, patchRow, putRow } from './meeting-cache';
+import { afterMeetingDeleted, afterMeetingSaved, afterPartChanged, answerFailed, answerScope, dropRow, noteTaskRefreshes, patchRow, putRow } from './meeting-cache';
 import type { ApiMeeting, ApiMeetingAttendee } from './types';
 
 const person = (id: string, over: Partial<ApiMeetingAttendee> = {}): ApiMeetingAttendee => ({
@@ -225,5 +225,16 @@ describe('after my own change to a meeting (the server’s answer shows at once;
     expect(state(qc, ['meeting', 'm2'])).toBe(false);
     afterMeetingDeleted(qc, 'm2', 'series');
     expect(state(qc, ['meeting', 'm2'])).toBe('gone');
+  });
+});
+
+describe('a task made from a meeting note', () => {
+  it('marks its board, My Tasks, its project’s progress and the calendar out of date (fetched when next shown)', () => {
+    expect(noteTaskRefreshes('p1')).toEqual([
+      { queryKey: ['tasks', 'project', 'p1'], later: true },
+      { queryKey: ['tasks', 'mine'], later: true },
+      { queryKey: ['project', 'p1', 'progress'], later: true },
+      { queryKey: ['tasks', 'calendar'], later: true },
+    ]);
   });
 });
