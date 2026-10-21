@@ -415,8 +415,7 @@ export function resourcesApi(client: ApiClient) {
       markAllRead: () => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all')),
       // Which notifications you get and when "due soon" reminders arrive (shared with the web app).
       preferences: () => data(client.get<Envelope<NotificationPreferences>>('/notifications/preferences')),
-      setPreferences: (prefs: NotificationPreferences) =>
-        data(client.put<Envelope<NotificationPreferences>>('/notifications/preferences', prefs)),
+      // Saving them: `preferences.save` below sends only what changed (a whole object would wipe the daily emails).
     },
     /** The server's public settings and your own date settings (shared with the website). */
     settings: {

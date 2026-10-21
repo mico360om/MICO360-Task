@@ -192,11 +192,11 @@ describe('resourcesApi — attachments and notification preferences', () => {
     expect(calls[1]!.body).toBeInstanceOf(FormData);
   });
 
-  it('reads and saves notification preferences', async () => {
+  it('reads notification preferences, and saves only what changed', async () => {
     const { client, calls } = fakeClient();
     const api = resourcesApi(client);
     await api.notifications.preferences();
-    await api.notifications.setPreferences({ muted: ['MENTION'], reminderLeadMinutes: 60 });
+    await api.preferences.save({ muted: ['MENTION'], reminderLeadMinutes: 60 });
     expect(calls).toEqual([
       { method: 'GET', path: '/notifications/preferences' },
       { method: 'PUT', path: '/notifications/preferences', body: { muted: ['MENTION'], reminderLeadMinutes: 60 } },

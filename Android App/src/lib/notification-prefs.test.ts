@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   NOTIFICATION_TYPES,
   REMINDER_OPTIONS,
@@ -127,5 +129,14 @@ describe('saving preferences: the screen shows what the server will keep', () =>
     expect(prefsSaveProblem(new ApiError(400, 'VALIDATION', 'Choose a time as HH:MM.'))).toBe('Choose a time as HH:MM.');
     expect(prefsSaveProblem(new ApiError(400, 'ERROR', 'Request failed (400)'))).toBe('Couldn’t save that change. Please try again.');
     expect(prefsSaveProblem(new ApiError(500, 'INTERNAL', 'x'))).toBe('Couldn’t save that change. Please try again.');
+  });
+});
+
+describe('nothing saves the whole preferences object any more (6a review)', () => {
+  it('only the save that sends what changed is left (a whole-object PUT would wipe the daily email settings)', () => {
+    const queries = readFileSync(resolve(__dirname, '../core/queries.ts'), 'utf8');
+    const resources = readFileSync(resolve(__dirname, './resources.ts'), 'utf8');
+    expect(queries).not.toMatch(/useSaveNotificationPreferences/);
+    expect(resources).not.toMatch(/setPreferences:/);
   });
 });

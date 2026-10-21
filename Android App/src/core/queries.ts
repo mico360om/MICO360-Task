@@ -15,7 +15,6 @@ import { answerFailed, answerScope } from '../lib/meeting-cache';
 import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
 import type { Services } from './services';
 import type { ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
-import type { NotificationPreferences } from '../lib/notification-prefs';
 import type { ReportFilters } from '../lib/reports';
 
 /** Variables of a creating write, carrying the idempotency key minted for this user action (XP-06). */
@@ -319,28 +318,7 @@ export function useNotificationPreferences() {
   const { resources } = useServices();
   return useQuery({ queryKey: ['notifications', 'preferences'], queryFn: () => resources.notifications.preferences() });
 }
-
-/** Save preferences; the switch flips at once and snaps back if the server refuses. */
-export function useSaveNotificationPreferences() {
-  const { resources } = useServices();
-  const qc = useQueryClient();
-  const key = ['notifications', 'preferences'];
-  return useMutation({
-    mutationFn: (prefs: NotificationPreferences) => resources.notifications.setPreferences(prefs),
-    onMutate: async (prefs) => {
-      await qc.cancelQueries({ queryKey: key });
-      const previous = qc.getQueryData<NotificationPreferences>(key);
-      qc.setQueryData(key, prefs);
-      return { previous };
-    },
-    onError: (_err, _prefs, ctx) => {
-      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
-    },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: key });
-    },
-  });
-}
+// Saving them: core/account-queries useSavePreferences (only what changed is sent — 6a review).
 
 // ── Project details ──────────────────────────────────────────────────────────
 export function useProject(projectId: string) {
