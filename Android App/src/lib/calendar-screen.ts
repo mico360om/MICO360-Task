@@ -20,6 +20,14 @@ export function chosenDay(cursor: string, today: string, selected: string | null
   return today.slice(0, 7) === month ? today : `${month}-01`;
 }
 
+/**
+ * A day tapped in the month grid: chosen there, or — a day of the month before or after, shown at
+ * the grid's edges — that month opened with the day chosen (5a review: it used to do nothing).
+ */
+export function dayPicked(cursor: string, day: string): { moveTo: string | null; selected: string } {
+  return { moveTo: day.slice(0, 7) === cursor.slice(0, 7) ? null : day, selected: day };
+}
+
 /** The day "+" adds a task on: the chosen day in the month, otherwise the day the calendar shows. */
 export function createDay(view: CalendarView, cursor: string, chosen: string): string {
   return view === 'month' ? chosen : cursor;
@@ -67,6 +75,8 @@ export interface SectionInput {
   showEarlier: boolean;
   allOverdue: boolean;
   filtered: boolean;
+  /** Offline: the days this phone's copy holds (null or absent when the server answered). */
+  saved?: { from: string; to: string; covers: boolean } | null;
 }
 
 /**
@@ -80,7 +90,11 @@ export function calendarSections(p: SectionInput): { sections: CalendarSection[]
       ...(p.meetingsByDay.get(d) ?? []).map((m): CalendarRow => ({ key: m.key, type: 'meeting', meeting: m })),
       ...(p.byDay.get(d) ?? []).map((item): CalendarRow => ({ key: item.key, type: 'task', item })),
     ];
-    if (rows.length === 0) rows.push({ key: `empty:${d}`, type: 'empty', text: p.filtered ? 'Nothing due with these filters.' : 'Nothing due.' });
+    // A day the phone's copy doesn't hold isn't known to be free (5a review).
+    const unsaved = !!p.saved && (d < p.saved.from || d > p.saved.to);
+    if (rows.length === 0) {
+      rows.push({ key: `empty:${d}`, type: 'empty', text: unsaved ? 'Not saved on this phone.' : p.filtered ? 'Nothing due with these filters.' : 'Nothing due.' });
+    }
     return { key: `day:${d}`, day: d, title: dayLabel(d, { weekday: 'long', day: true, month: 'long' }), today: d === p.today, data: rows };
   };
   if (p.view === 'month') return { sections: [day(p.chosen)], earlier: 0 };
@@ -116,9 +130,18 @@ export function newTaskProject(filterProjectId: string, projects: ProjectLike[])
   return p && open(p) ? p.id : null;
 }
 
-/** "Nothing is due in October 2026." (or, filtered, that nothing matches). */
-export function nothingText(period: string, filtered: boolean): string {
-  return filtered ? `No tasks match these filters in ${period}.` : `Nothing is due in ${period}.`;
+/**
+ * "Nothing is due in October 2026." (or, filtered, that nothing matches). Offline with only part of
+ * the period saved, it speaks of the saved days only (5a review).
+ */
+export function nothingText(period: string, filtered: boolean, partlySaved = false): string {
+  const where = partlySaved ? 'the days this phone saved' : period;
+  return filtered ? `No tasks match these filters in ${where}.` : partlySaved ? `Nothing due in ${where}.` : `Nothing is due in ${where}.`;
+}
+
+/** Offline, the meetings come from this phone's copy, which may not hold all of these days (5a review). */
+export function meetingsCopyNote(fromCopy: boolean): string | null {
+  return fromCopy ? 'You’re offline — only the meetings this phone saved are shown.' : null;
 }
 
 /** Offline, which days the phone's copy holds (null when the server answered). */

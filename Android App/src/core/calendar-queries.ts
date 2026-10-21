@@ -68,6 +68,13 @@ export function useCalendarMeetingsIn(from: string, to: string, timeZone: string
   });
 }
 
+/** Offline, did this phone's copy answer the meetings of these days (it may not hold them all)? */
+export function useCalendarMeetingsFromCopy(from: string, to: string, timeZone: string, answered: boolean): boolean {
+  const { reads } = useServices();
+  const span = meetingRange(from, to, timeZone);
+  return answered && reads.answeredFromCopy({ queryHash: hashKey([...CALENDAR_MEETINGS_KEY, span.from, span.to]) });
+}
+
 /** Where your date settings are kept (Settings saves into it: core/account-queries). */
 export { DATE_PREFERENCES_KEY };
 

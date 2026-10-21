@@ -9,6 +9,8 @@ import {
   chosenDay,
   createDay,
   createPlaceMemory,
+  dayPicked,
+  meetingsCopyNote,
   newTaskProject,
   nothingText,
   offlineNote,
@@ -145,5 +147,46 @@ describe('the list under the calendar', () => {
     expect(calendarSections({ ...base, view: 'agenda', overdue, allOverdue: true }).sections[0]!.data.at(-1)).toMatchObject({ type: 'more', text: 'Show fewer' });
     expect(calendarSections({ ...base, view: 'agenda', showEarlier: true }).sections.map((s) => s.day)).toEqual(['2026-10-02', '2026-10-10', '2026-10-12']);
     expect(calendarSections({ ...base, view: 'agenda', byDay: new Map(), meetingsByDay: new Map() }).sections).toEqual([]);
+  });
+});
+
+describe('5a review fixes: the month grid and what the phone has saved', () => {
+  it('a day of the next or last month in the grid opens that month with the day chosen', () => {
+    expect(dayPicked('2026-10-15', '2026-11-02')).toEqual({ moveTo: '2026-11-02', selected: '2026-11-02' });
+    expect(dayPicked('2026-10-15', '2026-09-28')).toEqual({ moveTo: '2026-09-28', selected: '2026-09-28' });
+    // …and that month then shows that day as chosen.
+    expect(chosenDay('2026-11-02', '2026-10-21', '2026-11-02')).toBe('2026-11-02');
+    // A day of the month shown just chooses it.
+    expect(dayPicked('2026-10-15', '2026-10-20')).toEqual({ moveTo: null, selected: '2026-10-20' });
+  });
+
+  const t = (id: string, dueDate: string): CalendarTask => ({
+    id, key: id.toUpperCase(), title: id, description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0, priority: 'NORMAL',
+    startDate: null, dueDate, estimatedHours: null, progress: 0, completedAt: null,
+  });
+  const items = buildItems({ tasks: [t('a', '2026-10-30T00:00:00.000Z')], occurrences: [], series: [] }, { today: '2026-10-21', timeZone: 'Asia/Muscat', projectStatus: () => 'ACTIVE' });
+  const week = {
+    view: 'week' as const, from: '2026-10-25', to: '2026-10-31', today: '2026-10-21', chosen: '2026-10-25', weekStart: 0 as const,
+    byDay: groupByDay(items), meetingsByDay: new Map(), overdue: [], showEarlier: false, allOverdue: false, filtered: false,
+  };
+
+  it('offline, a day outside what this phone saved says so, instead of “Nothing due.”', () => {
+    const saved = { from: '2026-10-28', to: '2026-11-30', covers: false };
+    const s = calendarSections({ ...week, saved });
+    expect(s.sections[0]!.data).toEqual([{ key: 'empty:2026-10-25', type: 'empty', text: 'Not saved on this phone.' }]);
+    expect(s.sections[3]!.data[0]).toMatchObject({ type: 'empty', text: 'Nothing due.' }); // 28 Oct is saved
+    expect(s.sections[5]!.data[0]).toMatchObject({ type: 'task' }); // 30 Oct has its task
+    expect(calendarSections({ ...week, saved: null }).sections[0]!.data[0]).toMatchObject({ text: 'Nothing due.' });
+  });
+
+  it('the “nothing in this period” line doesn’t claim nothing is due when only part of it is saved', () => {
+    expect(nothingText('October 2026', false, true)).toBe('Nothing due in the days this phone saved.');
+    expect(nothingText('October 2026', true, true)).toBe('No tasks match these filters in the days this phone saved.');
+    expect(nothingText('October 2026', false, false)).toBe('Nothing is due in October 2026.');
+  });
+
+  it('meetings from this phone’s copy get a note: some may be missing', () => {
+    expect(meetingsCopyNote(true)).toBe('You’re offline — only the meetings this phone saved are shown.');
+    expect(meetingsCopyNote(false)).toBeNull();
   });
 });

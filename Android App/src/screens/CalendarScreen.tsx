@@ -7,6 +7,7 @@ import { useDirectory, useProjects } from '../core/queries';
 import {
   CALENDAR_KEY,
   CALENDAR_MEETINGS_KEY,
+  useCalendarMeetingsFromCopy,
   useCalendarMeetingsIn,
   useCalendarOverdue,
   useCalendarRange,
@@ -26,6 +27,8 @@ import {
   calendarSections,
   canCreateIn,
   chosenDay,
+  dayPicked,
+  meetingsCopyNote,
   createDay,
   newTaskProject,
   nothingText,
@@ -87,6 +90,12 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   const cursor = place.date ?? today;
   const [selected, setSelected] = useState<string | null>(null);
   const chosen = chosenDay(cursor, today, selected);
+  // A day at the grid's edges (the month before or after) opens its month with it chosen.
+  const pickDay = (day: string) => {
+    const p = dayPicked(cursor, day);
+    if (p.moveTo) go({ date: p.moveTo });
+    setSelected(p.selected);
+  };
   const [showEarlier, setShowEarlier] = useState(false);
   const [allOverdue, setAllOverdue] = useState(false);
   const go = useCallback((patch: Partial<CalendarPlace>) => {
@@ -98,6 +107,9 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   const { from, to } = visibleRange(view, cursor, weekStart);
   const rangeQ = useCalendarRange(from, to, weekKnown);
   const meetingsQ = useCalendarMeetingsIn(from, to, timeZone, weekKnown);
+  const meetingsFromCopy = useCalendarMeetingsFromCopy(from, to, timeZone, meetingsQ.data !== undefined && !meetingsQ.isPlaceholderData);
+  const saved = rangeQ.data?.savedCopy ?? null;
+  const partlySaved = !!saved && !saved.covers;
   const overdueQ = useCalendarOverdue(view === 'agenda');
   const projectsQ = useProjects();
   const dirQ = useDirectory();
@@ -122,8 +134,8 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
 
   const filtered = activeFilterCount(filters) > 0;
   const { sections, earlier } = useMemo(
-    () => calendarSections({ view, from, to, today, chosen, weekStart, byDay, meetingsByDay, overdue, showEarlier, allOverdue, filtered }),
-    [view, from, to, today, chosen, weekStart, byDay, meetingsByDay, overdue, showEarlier, allOverdue, filtered],
+    () => calendarSections({ view, from, to, today, chosen, weekStart, byDay, meetingsByDay, overdue, showEarlier, allOverdue, filtered, saved }),
+    [view, from, to, today, chosen, weekStart, byDay, meetingsByDay, overdue, showEarlier, allOverdue, filtered, saved],
   );
   const period = periodLabel(view, cursor, weekStart);
   const canCreate = canCreateIn(projects);
@@ -269,7 +281,8 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
     [styles, canCreate],
   );
 
-  const note = offlineNote(rangeQ.data?.savedCopy ?? null);
+  const note = offlineNote(saved);
+  const meetingsNote = meetingsCopyNote(meetingsFromCopy);
   const nothing = shown.length === 0 && shownMeetings.length === 0;
   const clearFilters = () => go({ filters: DEFAULT_FILTERS });
   const header = (
@@ -280,12 +293,13 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
         </Text>
       ) : null}
       {meetingsQ.isError && !meetingsQ.data ? <Text style={styles.note}>Meetings aren’t available right now — pull down to try again.</Text> : null}
+      {meetingsNote ? <Text style={styles.note}>{meetingsNote}</Text> : null}
       {view === 'month' ? (
-        <MonthGrid cursor={cursor} weekStart={weekStart} today={today} selected={chosen} onPick={setSelected} marks={marks} label={period} hint="Shows this day’s tasks and meetings below" />
+        <MonthGrid cursor={cursor} weekStart={weekStart} today={today} selected={chosen} onPick={pickDay} marks={marks} label={period} hint="Shows this day’s tasks and meetings below" />
       ) : null}
       {nothing && rangeQ.data && view !== 'agenda' ? (
         <View style={styles.nothingBar}>
-          <Text style={styles.nothingText}>{nothingText(period, filtered)}</Text>
+          <Text style={styles.nothingText}>{nothingText(period, filtered, partlySaved)}</Text>
           {filtered ? <Button title="Clear filters" variant="secondary" onPress={clearFilters} /> : null}
         </View>
       ) : null}
@@ -303,7 +317,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   );
   const emptyAgenda = (
     <View style={styles.emptyAgenda}>
-      <EmptyState title={nothingText(period, filtered)} subtitle={!filtered && canCreate ? 'Use “+” to add a task on a day.' : undefined} />
+      <EmptyState title={nothingText(period, filtered, partlySaved)} subtitle={!filtered && canCreate ? 'Use “+” to add a task on a day.' : undefined} />
       {filtered ? <Button title="Clear filters" variant="secondary" onPress={clearFilters} /> : null}
     </View>
   );
