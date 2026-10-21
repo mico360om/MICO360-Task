@@ -64,7 +64,11 @@ export function FreeTimes({ userIds, startAt, minutes, rule, excludeMeetingId, o
         <button
           type="button"
           disabled={!canAsk}
-          onClick={() => setShowSuggestions(true)}
+          onClick={() => {
+            // Asking (again) checks afresh: someone may have booked a meeting, or the meeting hours changed.
+            if (showSuggestions || q.isStale) void q.refetch();
+            setShowSuggestions(true);
+          }}
           className="min-h-9 rounded-lg border border-line bg-surface px-3 text-sm font-semibold text-brand hover:border-brand/40 disabled:opacity-50"
         >
           Suggest 3 times

@@ -83,6 +83,16 @@ describe('Meeting form: free times', () => {
     expect(rows[1]).toHaveTextContent('Busy');
   });
 
+  it('asking again gets fresh suggestions (meeting hours may have changed)', async () => {
+    reply.suggestions = [at('2026-10-26 08:00'), at('2026-10-26 08:30'), at('2026-10-26 09:00')];
+    renderIt();
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest 3 times' }));
+    expect(within(await screen.findByRole('group', { name: 'Suggested times' })).getAllByRole('button')[0]).toHaveTextContent(/8:00/);
+    reply.suggestions = [at('2026-10-26 13:00'), at('2026-10-26 13:30'), at('2026-10-26 14:00')];
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest 3 times' }));
+    await waitFor(() => expect(within(screen.getByRole('group', { name: 'Suggested times' })).getAllByRole('button')[0]).toHaveTextContent(/13:00/));
+  });
+
   it('says when no free time was found in the next two weeks', async () => {
     renderIt();
     await userEvent.click(screen.getByRole('button', { name: 'Suggest 3 times' }));
