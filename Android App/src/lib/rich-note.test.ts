@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listMarkers, noteWords, parseRichNote } from './rich-note';
+import { isRtlText, listMarkers, noteWords, parseRichNote } from './rich-note';
 
 /**
  * The server keeps a formatted note in one fixed HTML form (Web Portal/backend/src/lib/rich-text.ts
@@ -62,6 +62,17 @@ describe('parseRichNote', () => {
   it('numbers each list from 1, and carries on a level when coming back to it (as the server and website count)', () => {
     const blocks = parseRichNote('<ol><li><p>a</p><ul><li><p>x</p></li></ul></li><li><p>b</p></li></ol><p>then</p><ol><li><p>again</p></li></ol>');
     expect(listMarkers(blocks)).toEqual(['1.', '•', '2.', null, '1.']);
+  });
+});
+
+describe('isRtlText (a list item in Arabic has its bullet on the right)', () => {
+  it('goes by the first letter that has a direction, as Android does', () => {
+    expect(isRtlText('اجتماع الميزانية')).toBe(true);
+    expect(isRtlText('  12. مراجعة')).toBe(true);
+    expect(isRtlText('שלום')).toBe(true);
+    expect(isRtlText('Budget مراجعة')).toBe(false);
+    expect(isRtlText('123 – 456')).toBe(false);
+    expect(isRtlText('')).toBe(false);
   });
 });
 

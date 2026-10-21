@@ -7,6 +7,7 @@
  */
 import type { ApiMeeting, MeetingStatus } from './types';
 import { appTimeZone, zonedDayKey } from './due-date';
+import { dateFormat } from './intl-cache';
 import { clockTime, isRepeating, meetingPlace } from './meetings';
 import { MEETING_STATUS_LABELS, meetingWhen, minutesBadge } from './meeting-detail';
 
@@ -101,9 +102,11 @@ export function filterMeetings(list: ApiMeeting[], f: MeetingFilters, ctx: ListC
   });
 }
 
-const byStart = (a: ApiMeeting, b: ApiMeeting) => a.startAt.localeCompare(b.startAt);
+/** ISO instants sort as text; a plain comparison (localeCompare is slow on the phone). */
+const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const byStart = (a: ApiMeeting, b: ApiMeeting) => compare(a.startAt, b.startAt);
 const byTitle = (a: ApiMeeting, b: ApiMeeting) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
-const byUpdated = (a: ApiMeeting, b: ApiMeeting) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
+const byUpdated = (a: ApiMeeting, b: ApiMeeting) => compare(b.updatedAt ?? '', a.updatedAt ?? '');
 
 const GROUP_LABELS: Record<GroupKey, string> = { today: 'Today', next7: 'Next 7 days', later: 'Later', drafts: 'Drafts', past: 'Past' };
 
@@ -154,7 +157,7 @@ export function nextUpMeeting(list: ApiMeeting[], now: Date): ApiMeeting | null 
   return list.filter((m) => m.status === 'SCHEDULED' && new Date(m.startAt).getTime() > now.getTime()).sort(byStart)[0] ?? null;
 }
 
-const dayWords = (key: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`));
+const dayWords = (key: string, opts: Intl.DateTimeFormatOptions) => dateFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`));
 
 /** When the meeting starts, from now: "Happening now", "in 25 min", "Tomorrow at 10:00", "Tue 20 Oct at 10:00". */
 export function startsLabel(m: Pick<ApiMeeting, 'status' | 'startAt' | 'endAt'>, now: Date, timeZone: string = appTimeZone()): string {

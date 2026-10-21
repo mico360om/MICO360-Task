@@ -1,9 +1,14 @@
 import { matchQuery, type Query, type QueryClient } from '@tanstack/react-query';
 
-/** A query key to refresh, with everything under it unless `exact`. */
+/**
+ * A query key to refresh, with everything under it unless `exact`. `later` only marks it out of
+ * date: it is fetched when next shown (a screen coming back into view, the app back in front, a
+ * pull) instead of at once — for a change that only touches a count on a long list.
+ */
 export interface KeyRefresh {
   queryKey: string[];
   exact?: boolean;
+  later?: boolean;
 }
 
 /**
@@ -73,12 +78,17 @@ function matcher(qc: QueryClient, target: Refresh): (q: Query) => boolean {
 /**
  * Refresh what the targets name, in one pass: each matching query is marked out of date once, and
  * the ones on screen are refetched once — two targets naming the same list never fetch it twice
- * (a second invalidation would cancel the first fetch and start another).
+ * (a second invalidation would cancel the first fetch and start another). A query only `later`
+ * targets name is marked out of date and not fetched now; one any other target names is fetched.
  */
 export function refresh(qc: QueryClient, targets: Refresh[]): void {
   if (targets.length === 0) return;
-  const tests = targets.map((t) => matcher(qc, t));
-  const hits = new Set(qc.getQueryCache().getAll().filter((q) => tests.some((test) => test(q))));
-  if (hits.size === 0) return;
-  void qc.invalidateQueries({ predicate: (q) => hits.has(q) });
+  const isLater = (t: Refresh) => 'queryKey' in t && t.later === true;
+  const now = targets.filter((t) => !isLater(t)).map((t) => matcher(qc, t));
+  const later = targets.filter(isLater).map((t) => matcher(qc, t));
+  const all = qc.getQueryCache().getAll();
+  const hits = new Set(all.filter((q) => now.some((test) => test(q))));
+  const marks = new Set(all.filter((q) => !hits.has(q) && later.some((test) => test(q))));
+  if (hits.size) void qc.invalidateQueries({ predicate: (q) => hits.has(q) });
+  if (marks.size) void qc.invalidateQueries({ predicate: (q) => marks.has(q), refetchType: 'none' });
 }

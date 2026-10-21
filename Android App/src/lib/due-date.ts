@@ -8,6 +8,7 @@
  * "Today" is the date in the company time zone. A task is overdue only once its due day is before
  * today, and completed tasks are never overdue.
  */
+import { dateFormat } from './intl-cache';
 
 /** The default company time zone, until the server and your settings say otherwise. */
 export const COMPANY_TIMEZONE = 'Asia/Muscat';
@@ -70,7 +71,7 @@ function toDate(value: DateInput): Date | null {
 
 /** 'YYYY-MM-DD' of an instant in an IANA time zone. */
 export function zonedDayKey(instant: Date, timeZone: string = appTimeZone()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant);
+  return dateFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant);
 }
 
 /** Today's 'YYYY-MM-DD' in the company time zone. */
@@ -124,5 +125,5 @@ export function isOverdue(
 export function formatDueDay(due: DateInput, locale?: string, timeZone: string = appTimeZone()): string | null {
   const key = dueDayKey(due, timeZone);
   if (!key) return null;
-  return new Intl.DateTimeFormat(locale, { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(`${key}T12:00:00Z`));
+  return dateFormat(locale, { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(`${key}T12:00:00Z`));
 }

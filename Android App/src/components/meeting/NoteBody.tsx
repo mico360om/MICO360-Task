@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Linking, type TextStyle } from 'react-native';
 import { useColors } from '../../core/theme';
 import { spacing, fontSize, type Palette } from '../../lib/theme';
-import { listMarkers, parseRichNote, safeNoteHref, type RichRun } from '../../lib/rich-note';
+import { isRtlText, listMarkers, parseRichNote, safeNoteHref, type RichRun } from '../../lib/rich-note';
 import type { ApiMeetingNote } from '../../lib/types';
 
 /**
@@ -40,7 +40,8 @@ export function NoteBody({ note }: { note: Pick<ApiMeetingNote, 'body' | 'bodyFo
     <View style={s.blocks}>
       {blocks.map((b, i) =>
         b.kind === 'item' ? (
-          <View key={i} style={[s.item, { paddingLeft: b.level * spacing.lg }]}>
+          // An Arabic item has its bullet or number on the right, and is indented from the right.
+          <View key={i} style={[s.item, isRtlText(b.runs.map((r) => r.text).join('')) ? { flexDirection: 'row-reverse', paddingRight: b.level * spacing.lg } : { paddingLeft: b.level * spacing.lg }]}>
             <Text style={[s.text, s.marker]}>{markers[i]}</Text>
             <Text style={[s.text, s.itemText]}>{b.runs.map(run)}</Text>
           </View>

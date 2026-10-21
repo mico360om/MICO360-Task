@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, RefreshControl, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { useDirectory, useMeetings, useMyActionItems, useProjects, type MeetingScope } from '../core/queries';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, TextField, Button } from '../components/ui';
@@ -8,7 +9,7 @@ import { Chip } from '../components/task-detail/kit';
 import { MeetingCard } from '../components/meeting/MeetingCard';
 import { UpNextCard } from '../components/meeting/UpNextCard';
 import { MeetingFiltersSheet } from '../components/meeting/MeetingFiltersSheet';
-import { openJoinLink, useMinuteNow } from '../components/meeting/live';
+import { openJoinLink, useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { appTimeZone } from '../lib/due-date';
 import { isActionItemOverdue } from '../lib/meeting-detail';
 import {
@@ -46,15 +47,21 @@ const CHIP_CLEARS: Record<FilterChip['key'], Partial<MeetingFilters> & { sort?: 
 export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const now = useMinuteNow();
+  // The tab stays mounted elsewhere: out of view, its lists aren't fetched and "now" doesn't tick;
+  // back in view, whatever went out of date meanwhile is fetched.
+  const focused = useIsFocused();
+  const now = useMinuteNow(focused);
   const [scope, setScope] = useState<MeetingScope>('all');
   const [filters, setFilters] = useState<MeetingFilters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<MeetingSort>('date');
   const [sheet, setSheet] = useState(false);
-  const meetingsQ = useMeetings(scope);
+  const meetingsQ = useMeetings(scope, { active: focused });
   const projectsQ = useProjects();
   const dirQ = useDirectory();
-  const itemsQ = useMyActionItems('open');
+  const itemsQ = useMyActionItems('open', { active: focused });
+  const { refetch: refetchMeetings } = meetingsQ;
+  const { refetch: refetchItems } = itemsQ;
+  const pull = usePullRefresh(useCallback(() => Promise.all([refetchMeetings(), refetchItems()]), [refetchMeetings, refetchItems]));
 
   const projects = useMemo(() => [...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [projectsQ.data]);
   const ctx: ListContext = useMemo(() => {
@@ -212,15 +219,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
         keyboardShouldPersistTaps="handled"
         initialNumToRender={10}
         windowSize={7}
-        refreshControl={
-          <RefreshControl
-            refreshing={meetingsQ.isRefetching}
-            onRefresh={() => {
-              void meetingsQ.refetch();
-              void itemsQ.refetch();
-            }}
-          />
-        }
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
       />
       <MeetingFiltersSheet
         visible={sheet}

@@ -4,6 +4,7 @@
  */
 import type { ApiMeeting, ApiTask } from './types';
 import { appTimeZone, dueDayKey, zonedDayKey } from './due-date';
+import { dateFormat } from './intl-cache';
 
 const DAY_MS = 86_400_000;
 
@@ -18,7 +19,7 @@ export function meetingDayKey(m: Pick<ApiMeeting, 'startAt'>, timeZone: string =
 export function clockTime(iso: string, timeZone: string = appTimeZone()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone }).format(d);
+  return dateFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone }).format(d);
 }
 
 /** '10:00 – 11:00' (or just '10:00' without an end), in company time. */

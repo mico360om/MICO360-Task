@@ -4,6 +4,7 @@ import { useColors } from '../../core/theme';
 import { Badge } from '../ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { zonedDayKey } from '../../lib/due-date';
+import { dateFormat } from '../../lib/intl-cache';
 import { isRepeating, meetingPlace } from '../../lib/meetings';
 import { MEETING_STATUS_LABELS, meetingStatusTone, meetingWhen, minutesBadge } from '../../lib/meeting-detail';
 import { isUnderWay, meetingCardLabel, peopleText, type ListContext } from '../../lib/meeting-list';
@@ -16,7 +17,7 @@ export function DateLeaf({ iso, timeZone, tone }: { iso: string; timeZone: strin
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const d = new Date(iso);
-  const part = (o: Intl.DateTimeFormatOptions) => (Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('en-GB', { ...o, timeZone }).format(d));
+  const part = (o: Intl.DateTimeFormatOptions) => (Number.isNaN(d.getTime()) ? '' : dateFormat('en-GB', { ...o, timeZone }).format(d));
   const fg = tone === 'today' ? c.onBrand : tone === 'upcoming' ? c.brand : c.ink3;
   return (
     <View importantForAccessibility="no-hide-descendants" style={[s.leaf, tone === 'today' ? s.leafToday : tone === 'upcoming' ? s.leafUpcoming : s.leafMuted]}>

@@ -384,15 +384,25 @@ export function useProjectMeetings(projectId: string) {
 export type MeetingScope = 'all' | 'mine';
 
 /**
+ * Whether a list screen is in view. A tab stays mounted when you go elsewhere; while it is out of
+ * view its lists aren't fetched (a live event only marks them out of date), and coming back to it
+ * fetches the ones that are.
+ */
+export interface ListActivity {
+  active?: boolean;
+}
+
+/**
  * The Meetings tab's list, kept for an offline start under a fixed name per scope. A list too long
  * to keep whole leaves out meetings older than 90 days.
  */
-export function useMeetings(scope: MeetingScope) {
+export function useMeetings(scope: MeetingScope, { active = true }: ListActivity = {}) {
   const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['meetings', 'list', scope],
     queryFn: ({ queryKey }) =>
       reads.read(queryKey, `meetings.list.${scope}`, () => resources.meetings.list({ mine: scope === 'mine' }), { slim: withoutOldMeetings(Date.now()) }),
+    enabled: active,
   });
 }
 
@@ -466,11 +476,12 @@ export function useRespondToMeeting(meetingId: string) {
 }
 
 /** Everything assigned to me across meetings — what is still to do, or all of it — kept for an offline start. */
-export function useMyActionItems(scope: 'open' | 'all') {
+export function useMyActionItems(scope: 'open' | 'all', { active = true }: ListActivity = {}) {
   const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['action-items', 'mine', scope],
     queryFn: ({ queryKey }) => reads.read(queryKey, `action-items.mine.${scope}`, () => resources.meetings.myActionItems({ openOnly: scope === 'open' })),
+    enabled: active,
   });
 }
 

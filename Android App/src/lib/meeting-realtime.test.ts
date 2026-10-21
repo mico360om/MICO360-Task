@@ -3,6 +3,8 @@ import { MEETING_EVENTS, meetingEventRefreshes, meetingsReconnectRefreshes } fro
 
 const exact = (...queryKey: string[]) => ({ queryKey, exact: true });
 const lists = { queryKey: ['meetings'] };
+/** Only a count on the list's cards changed: fetched when the list is next shown, not at once. */
+const listCounts = { queryKey: ['meetings'], later: true };
 const myItems = { queryKey: ['action-items', 'mine'] };
 
 describe('meeting events (sent to the meeting’s project room and to its organizer, creator and attendees)', () => {
@@ -23,9 +25,9 @@ describe('meeting events (sent to the meeting’s project room and to its organi
     expect(meetingEventRefreshes('meeting:created', { id: 'm1' })).toEqual([lists, { projectMeetingsOf: 'm1' }]);
   });
 
-  it('a changed or cancelled meeting: the lists, the meeting itself (not its parts) and its project’s meetings', () => {
+  it('a changed or cancelled meeting: the lists, the meeting itself and its final minutes, and its project’s meetings', () => {
     for (const ev of ['meeting:updated', 'meeting:cancelled']) {
-      expect(meetingEventRefreshes(ev, { id: 'm1' })).toEqual([lists, exact('meeting', 'm1'), { projectMeetingsOf: 'm1' }]);
+      expect(meetingEventRefreshes(ev, { id: 'm1' })).toEqual([lists, exact('meeting', 'm1'), exact('meeting', 'm1', 'final-minutes'), { projectMeetingsOf: 'm1' }]);
     }
   });
 
@@ -33,11 +35,11 @@ describe('meeting events (sent to the meeting’s project room and to its organi
     expect(meetingEventRefreshes('meeting:deleted', { id: 'm1' })).toEqual([lists, { queryKey: ['meeting', 'm1'] }, { projectMeetingsOf: 'm1' }, myItems]);
   });
 
-  it('one part of a meeting: that part only, plus the cards’ counts where the part shows on them', () => {
+  it('one part of a meeting: that part only; the cards’ counts it shows on are fetched when the list is next shown', () => {
     expect(meetingEventRefreshes('meeting:agenda', { id: 'm1' })).toEqual([exact('meeting', 'm1', 'agenda')]);
-    expect(meetingEventRefreshes('meeting:attendees', { id: 'm1' })).toEqual([lists, exact('meeting', 'm1', 'attendees'), { projectMeetingsOf: 'm1' }]);
-    expect(meetingEventRefreshes('meeting:notes', { id: 'm1' })).toEqual([lists, exact('meeting', 'm1', 'notes'), { projectMeetingsOf: 'm1' }]);
-    expect(meetingEventRefreshes('meeting:action-items', { id: 'm1' })).toEqual([lists, exact('meeting', 'm1', 'action-items'), myItems, { projectMeetingsOf: 'm1' }]);
+    expect(meetingEventRefreshes('meeting:attendees', { id: 'm1' })).toEqual([listCounts, exact('meeting', 'm1', 'attendees'), { projectMeetingsOf: 'm1' }]);
+    expect(meetingEventRefreshes('meeting:notes', { id: 'm1' })).toEqual([listCounts, exact('meeting', 'm1', 'notes'), { projectMeetingsOf: 'm1' }]);
+    expect(meetingEventRefreshes('meeting:action-items', { id: 'm1' })).toEqual([listCounts, exact('meeting', 'm1', 'action-items'), myItems, { projectMeetingsOf: 'm1' }]);
   });
 
   it('without a meeting id: everything about meetings (only what is on screen is fetched)', () => {

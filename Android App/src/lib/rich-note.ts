@@ -198,6 +198,20 @@ export function listMarkers(blocks: RichBlock[]): Array<string | null> {
   });
 }
 
+/**
+ * Does this text read right to left? By its first letter that has a direction (Arabic or Hebrew
+ * script = yes, Latin, Greek, Cyrillic and the like = no), as Android lays out a paragraph. Plain
+ * ranges, no \p{…} (Hermes' regular expressions don't have them).
+ */
+// Whole script blocks, combining marks included on purpose (a mark takes its letter's direction).
+// eslint-disable-next-line no-misleading-character-class
+const STRONG = /[֐-ࣿיִ-﷿ﹰ-ﻼ]|[A-Za-zÀ-ʯͰ-֏ऀ-῿Ⰰ-﬜]/;
+const RTL = /[֐-ࣿיִ-﷿ﹰ-ﻼ]/;
+export function isRtlText(text: string): boolean {
+  const first = STRONG.exec(text)?.[0];
+  return !!first && RTL.test(first);
+}
+
 /** A note's words, whether written plain or formatted: lines, "- " / "1. " for list items, links with their address. */
 export function noteWords(note: { body: string; bodyFormat?: 'PLAIN' | 'RICH' | null }): string {
   if (note.bodyFormat !== 'RICH') return note.body;

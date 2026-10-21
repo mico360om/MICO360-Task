@@ -138,4 +138,29 @@ describe('refresh (one pass over the cache, each query at most once)', () => {
     refresh(qc, []);
     expect(refreshed(qc, ['projects'])).toBe(false);
   });
+
+  it('only marks a `later` target out of date: it is fetched when next shown, not now', async () => {
+    const qc = client();
+    const queryFn = vi.fn(async () => []);
+    const observer = new QueryObserver(qc, { queryKey: ['meetings', 'list', 'all'], queryFn });
+    const stop = observer.subscribe(() => {});
+    await tick();
+    refresh(qc, [{ queryKey: ['meetings'], later: true }]);
+    await tick();
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    expect(refreshed(qc, ['meetings', 'list', 'all'])).toBe(true);
+    stop();
+  });
+
+  it('fetches a query named both now and `later` now', async () => {
+    const qc = client();
+    const queryFn = vi.fn(async () => []);
+    const observer = new QueryObserver(qc, { queryKey: ['meetings', 'list', 'all'], queryFn });
+    const stop = observer.subscribe(() => {});
+    await tick();
+    refresh(qc, [{ queryKey: ['meetings'], later: true }, { queryKey: ['meetings', 'list'] }]);
+    await tick();
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    stop();
+  });
 });

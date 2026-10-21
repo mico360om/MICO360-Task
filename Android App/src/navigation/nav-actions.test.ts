@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { targetToAction } from './nav-actions';
+import { meetingScreenId, targetToAction, taskScreenId } from './nav-actions';
 import { DRAWER_ITEMS, activeDrawerKey, actionRouteName, drawerItemsFor } from './drawer-menu';
 import { notificationToTarget, parseDeepLink } from '../lib/deep-link';
 
@@ -16,6 +16,13 @@ describe('targetToAction', () => {
     expect(targetToAction({ screen: 'MyActionItems' })).toEqual({ type: 'stack', screen: 'MyActionItems' });
     expect(targetToAction({ screen: 'Meetings' })).toEqual({ type: 'tab', tab: 'Meetings' });
     expect(targetToAction(notificationToTarget({ entityType: 'meeting', entityId: 'm2' }))).toEqual({ type: 'stack', screen: 'MeetingDetail', params: { meetingId: 'm2' } });
+  });
+
+  it('gives each task and each meeting its own screen, so a link from one to another adds a screen (Back returns)', () => {
+    expect(taskScreenId({ params: { taskId: 't1' } })).toBe('t1');
+    const route = { params: { meetingId: 'm1', title: 'Weekly' } };
+    expect(meetingScreenId(route)).toBe('m1');
+    expect(taskScreenId({ params: undefined })).toBeUndefined();
   });
 
   it('composes with the deep-link + push resolvers end to end', () => {

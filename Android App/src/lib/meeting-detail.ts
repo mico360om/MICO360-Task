@@ -6,6 +6,7 @@
 import { ApiError, isNetworkError } from './api-client';
 import { appTimeZone, companyTodayKey, dueDayKey, formatDueDay } from './due-date';
 import { clockTime } from './meetings';
+import { dateFormat } from './intl-cache';
 import type { Tone } from './tone';
 import type {
   ActionItemStatus,
@@ -206,7 +207,7 @@ export function approvedLine(fm: Pick<ApiFinalMinutes, 'approvedBy' | 'approvedA
   const who = fm.approvedBy?.name ?? 'someone';
   const at = fm.approvedAt ? new Date(fm.approvedAt) : null;
   if (!at || Number.isNaN(at.getTime())) return `Approved by ${who}.`;
-  const day = new Intl.DateTimeFormat(locale, { timeZone, day: 'numeric', month: 'short', year: 'numeric' }).format(at);
+  const day = dateFormat(locale, { timeZone, day: 'numeric', month: 'short', year: 'numeric' }).format(at);
   return `Approved by ${who} on ${day}, ${clockTime(fm.approvedAt!, timeZone)}.`;
 }
 
@@ -216,7 +217,7 @@ export function approvedLine(fm: Pick<ApiFinalMinutes, 'approvedBy' | 'approvedA
 export function meetingWhen(m: Pick<ApiMeeting, 'startAt' | 'endAt'>, timeZone: string = appTimeZone(), locale?: string): { day: string; time: string } {
   const start = new Date(m.startAt);
   if (Number.isNaN(start.getTime())) return { day: '', time: '' };
-  const day = new Intl.DateTimeFormat(locale, { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(start);
+  const day = dateFormat(locale, { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(start);
   const time = m.endAt ? `${clockTime(m.startAt, timeZone)} – ${clockTime(m.endAt, timeZone)}` : clockTime(m.startAt, timeZone);
   return { day, time };
 }

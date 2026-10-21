@@ -15,8 +15,12 @@ export function editRefreshes(taskId: string, patch: object): Refresh[] {
   return targets;
 }
 
-/** My Action Items, open and all (core/queries useMyActionItems). */
-export const MY_ACTION_ITEMS: Refresh = { queryKey: ['action-items', 'mine'] };
+/**
+ * My Action Items, open and all (core/queries useMyActionItems), after a task changed: marked out of
+ * date and fetched when they are next shown — most task changes don't touch an action item, and the
+ * server announces one that does (`meeting:action-items`, which fetches them at once).
+ */
+export const MY_ACTION_ITEMS: Refresh = { queryKey: ['action-items', 'mine'], later: true };
 
 /**
  * What a move refreshes once the server answered: the task, its activity (the timeline notes the

@@ -1,11 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, RefreshControl, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { useMeetings, useMyActionItems } from '../core/queries';
 import { useColors } from '../core/theme';
 import { Badge, Loader, EmptyState, ErrorNote } from '../components/ui';
 import { Chip } from '../components/task-detail/kit';
-import { useMinuteNow } from '../components/meeting/live';
+import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { ACTION_STATUS_LABELS, actionDueText, actionStatusTone, isActionItemOverdue } from '../lib/meeting-detail';
 import type { ApiActionItem } from '../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -21,11 +22,15 @@ type Scope = 'open' | 'all';
 export function MyActionItemsScreen({ navigation }: AppScreenProps<'MyActionItems'>) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const now = useMinuteNow();
+  // Under an opened meeting or task, the list isn't fetched; back in view, it is if it went out of date.
+  const focused = useIsFocused();
+  const now = useMinuteNow(focused);
   const [scope, setScope] = useState<Scope>('open');
-  const itemsQ = useMyActionItems(scope);
+  const itemsQ = useMyActionItems(scope, { active: focused });
   // The meetings' titles, from the Meetings list (one request, shared with the Meetings tab).
-  const meetingsQ = useMeetings('all');
+  const meetingsQ = useMeetings('all', { active: focused });
+  const { refetch } = itemsQ;
+  const pull = usePullRefresh(refetch);
   const titles = useMemo(() => new Map((meetingsQ.data ?? []).map((m) => [m.id, m.title])), [meetingsQ.data]);
   const items = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
   const overdue = items.filter((i) => isActionItemOverdue(i, now)).length;
@@ -105,7 +110,7 @@ export function MyActionItemsScreen({ navigation }: AppScreenProps<'MyActionItem
         ListEmptyComponent={empty}
         contentContainerStyle={styles.list}
         initialNumToRender={12}
-        refreshControl={<RefreshControl refreshing={itemsQ.isRefetching} onRefresh={() => void itemsQ.refetch()} />}
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
       />
     </SafeAreaView>
   );

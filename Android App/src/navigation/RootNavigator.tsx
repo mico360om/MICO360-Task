@@ -25,7 +25,7 @@ import { DATE_ZONES_KEY, nextDateZones } from '../lib/date-settings';
 import { asyncStore } from '../adapters/async-storage';
 import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
-import { targetToAction, requiresSession, type NavAction } from './nav-actions';
+import { targetToAction, requiresSession, meetingScreenId, taskScreenId, type NavAction } from './nav-actions';
 import { createPendingAction } from './pending-action';
 import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
@@ -83,7 +83,8 @@ const TAB_ICON: Record<keyof TabsParamList, string> = {
 const linking = {
   prefixes: LINKING_PREFIXES,
   config: linkingConfig,
-  // The website's /meetings/<id> opens the meeting as well as the app's meeting/<id>.
+  // /meetings/<id> (the website's path) opens the meeting as well as meeting/<id>. Today that is
+  // mico360://meetings/<id> only: the https App Link covers /reset alone until Stage 6b adds paths.
   getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) => getStateFromPath(normalizeLinkPath(path), options),
 } as unknown as LinkingOptions<AppStackParamList>;
 
@@ -342,11 +343,13 @@ export function RootNavigator() {
             <AppStack.Screen
               name="TaskDetail"
               component={TaskDetailScreen}
+              getId={taskScreenId}
               options={({ route }) => ({ title: route.params.title ?? 'Task' })}
             />
             <AppStack.Screen
               name="MeetingDetail"
               component={MeetingDetailScreen}
+              getId={meetingScreenId}
               options={({ route }) => ({ title: route.params.title ?? 'Meeting' })}
             />
             <AppStack.Screen name="MyActionItems" component={MyActionItemsScreen} options={{ title: 'My Action Items' }} />

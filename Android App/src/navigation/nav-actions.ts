@@ -41,6 +41,15 @@ export function targetToAction(target: LinkTarget): NavAction {
   }
 }
 
+/**
+ * The stack screens' ids (React Navigation's `getId`): one screen per task and one per meeting. A
+ * link from a meeting to its task, a task to its meeting, or a push for another meeting then adds a
+ * screen — Back returns to the one before — instead of reusing a screen of the same kind further
+ * down with the other's params (and its open edits).
+ */
+export const taskScreenId = ({ params }: { params?: { taskId?: string } }): string | undefined => params?.taskId;
+export const meetingScreenId = ({ params }: { params?: { meetingId?: string } }): string | undefined => params?.meetingId;
+
 /** True when the action needs a signed-in user (everything except the auth screens). */
 export function requiresSession(action: NavAction): boolean {
   return action.type !== 'auth';

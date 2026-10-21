@@ -246,7 +246,7 @@ export function MoreRow({ total, expanded, onToggle, place }: { total: number; e
   const s = useDetailStyles();
   return (
     <SectionRow place={place}>
-      <Pressable onPress={onToggle} accessibilityRole="button" hitSlop={6} style={s.link}>
+      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityState={{ expanded }} hitSlop={6} style={s.link}>
         <Text style={s.linkText}>{expanded ? 'Show fewer' : `Show all ${total}`}</Text>
       </Pressable>
     </SectionRow>

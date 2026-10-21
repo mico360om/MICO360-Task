@@ -30,7 +30,7 @@ import {
   StateRow,
   type RowPlace,
 } from '../components/meeting/MeetingDetailParts';
-import { openJoinLink, useMinuteNow } from '../components/meeting/live';
+import { openJoinLink, useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { appTimeZone } from '../lib/due-date';
 import { agendaTiming, agendaTimingText, answerAfterTap, canAnswer, meetingLoadProblem, myInvitation, responseLine, responseSummary } from '../lib/meeting-detail';
 import { meetingDetailRows, type DetailRow, type NoteFilter, type Section } from '../lib/meeting-screen';
@@ -111,10 +111,9 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     actions: () => void actionsQ.refetch(),
     minutes: () => void minutesQ.refetch(),
   };
-  const refreshAll = () => {
-    void meetingQ.refetch();
-    for (const r of Object.values(retry)) r();
-  };
+  const pull = usePullRefresh(() =>
+    Promise.all([meetingQ.refetch(), agendaQ.refetch(), peopleQ.refetch(), notesQ.refetch(), actionsQ.refetch(), minutesQ.refetch()]),
+  );
 
   const renderItem: ListRenderItem<DetailRow> = ({ item, index }) => {
     if (!meeting) return null;
@@ -191,7 +190,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
         ListHeaderComponent={
           meetingQ.isError ? <Text style={styles.stale}>Showing what this phone last loaded — pull down to load it again.</Text> : null
         }
-        refreshControl={<RefreshControl refreshing={meetingQ.isRefetching} onRefresh={refreshAll} />}
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
       />
     </SafeAreaView>
   );

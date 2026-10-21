@@ -20,6 +20,12 @@ export const MEETING_EVENTS = [
 
 /** The Meetings tab's lists and the calendar's meetings. */
 const LISTS: Refresh = { queryKey: ['meetings'] };
+/**
+ * Only a count on the lists' cards changed (people, minutes and decisions, open action items): the
+ * whole list isn't fetched again for it at once (an answer or a note in any of your projects would
+ * do that on every phone), only when the list is next shown.
+ */
+const LIST_COUNTS: Refresh = { queryKey: ['meetings'], later: true };
 const MY_ITEMS: Refresh = { queryKey: ['action-items', 'mine'] };
 
 /** After a reconnect (events may have been missed): everything about meetings. */
@@ -28,9 +34,10 @@ export function meetingsReconnectRefreshes(): Refresh[] {
 }
 
 /**
- * What a meeting event refreshes: the part of that meeting it names, plus the list cards where the
- * part shows on them (people, minutes and decisions, open action items) and its project's meetings.
- * The agenda shows only on the meeting itself.
+ * What a meeting event refreshes: the part of that meeting it names, its project's meetings, and the
+ * list cards where the part shows on them (when next shown). A change to the meeting itself may
+ * come with its final minutes approved or reopened, so they are fetched with it. The agenda shows
+ * only on the meeting itself.
  */
 export function meetingEventRefreshes(event: string, payload: unknown): Refresh[] {
   if (!(MEETING_EVENTS as readonly string[]).includes(event)) return [];
@@ -44,17 +51,17 @@ export function meetingEventRefreshes(event: string, payload: unknown): Refresh[
       return [LISTS, project];
     case 'meeting:updated':
     case 'meeting:cancelled':
-      return [LISTS, part(), project];
+      return [LISTS, part(), part('final-minutes'), project];
     case 'meeting:deleted':
       return [LISTS, { queryKey: ['meeting', id] }, project, MY_ITEMS];
     case 'meeting:agenda':
       return [part('agenda')];
     case 'meeting:attendees':
-      return [LISTS, part('attendees'), project];
+      return [LIST_COUNTS, part('attendees'), project];
     case 'meeting:notes':
-      return [LISTS, part('notes'), project];
+      return [LIST_COUNTS, part('notes'), project];
     case 'meeting:action-items':
-      return [LISTS, part('action-items'), MY_ITEMS, project];
+      return [LIST_COUNTS, part('action-items'), MY_ITEMS, project];
     default:
       return [];
   }

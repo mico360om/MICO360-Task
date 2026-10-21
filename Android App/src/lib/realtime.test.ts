@@ -62,7 +62,7 @@ describe('taskEventRefreshes (MOB-04, precise since 1c)', () => {
   const board = [{ queryKey: ['tasks', 'project', 'p1'] }, exact('project', 'p1', 'progress')];
 
   // A meeting's action item follows its task into Done and out of it (and loses its task when it's deleted).
-  const myItems = { queryKey: ['action-items', 'mine'] };
+  const myItems = { queryKey: ['action-items', 'mine'], later: true };
 
   it('a change to a task: its project’s board days and progress, the lists holding it, the task, its activity and My Action Items', () => {
     for (const ev of ['task:updated', 'task:moved']) {
