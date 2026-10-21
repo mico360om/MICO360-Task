@@ -44,6 +44,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ### Security
 - The task PDF and Excel file name the meeting a task came from only to people who are part of that
   meeting, and list only the blocking and waiting tasks the reader can open, as the website does.
+- A task's activity (on the website, in the apps and in the task PDF and Excel file) names a blocker
+  only to people who can open that task; anyone else sees "added a blocker".
 - A damaged or specially made picture attached to a task can no longer slow down or stop the server
   when someone downloads the task's PDF; it is listed as "(picture could not be shown)" instead.
 
