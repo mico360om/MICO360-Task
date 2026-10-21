@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildApp } from '../../app';
 import { createNotificationService } from './notification-service';
 import { normalizePreferences } from './notification-preferences';
@@ -117,5 +117,40 @@ describe('Notification preferences: daily task emails', () => {
     const a = await appWithStore();
     const res = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: { authorization: `Bearer ${await token()}` }, payload: { dailyEmails: { time: '6pm' } } });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('Mark all read up to the newest shown (5c review)', () => {
+  async function appWithSpy() {
+    const notificationService = createNotificationService({ notifications: inMemory() });
+    const markAllRead = vi.spyOn(notificationService, 'markAllRead');
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    return { app: await buildApp({ authService, tokenService, notificationService }), markAllRead };
+  }
+  const post = async (a: Awaited<ReturnType<typeof appWithSpy>>['app'], body?: unknown) =>
+    a.inject({ method: 'POST', url: '/api/v1/notifications/read-all', headers: { authorization: `Bearer ${await token()}` }, ...(body !== undefined ? { payload: body as object } : {}) });
+
+  it('reads only what came in up to the time given: a newer one stays unread', async () => {
+    const { app: a, markAllRead } = await appWithSpy();
+    const res = await post(a, { upTo: '2026-10-21T10:00:00.000Z' });
+    expect(res.statusCode).toBe(200);
+    expect(markAllRead).toHaveBeenCalledWith('u1', new Date('2026-10-21T10:00:00.000Z'));
+  });
+
+  it('without a time, reads everything, as before (older apps and pages)', async () => {
+    const { app: a, markAllRead } = await appWithSpy();
+    expect((await post(a)).statusCode).toBe(200);
+    expect(markAllRead).toHaveBeenCalledWith('u1', undefined);
+    expect((await post(a, {})).statusCode).toBe(200);
+    expect(markAllRead).toHaveBeenLastCalledWith('u1', undefined);
+  });
+
+  it('refuses a time that isn’t one', async () => {
+    const { app: a, markAllRead } = await appWithSpy();
+    expect((await post(a, { upTo: 'yesterday' })).statusCode).toBe(400);
+    expect(markAllRead).not.toHaveBeenCalled();
   });
 });

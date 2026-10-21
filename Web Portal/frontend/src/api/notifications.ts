@@ -42,7 +42,8 @@ export function notificationsApi(client: ApiClient) {
     list: () => client.get<{ data: ApiNotification[] }>('/notifications').then((r) => r.data),
     unreadCount: () => client.get<{ data: { count: number } }>('/notifications/unread-count').then((r) => r.data.count),
     markRead: (id: string) => client.put<{ data: ApiNotification }>(`/notifications/${id}/read`).then((r) => r.data),
-    markAllRead: () => client.post<{ data: { ok: boolean } }>('/notifications/read-all'),
+    /** Read everything shown: `upTo` (the newest shown) leaves one that came in meanwhile unread. */
+    markAllRead: (upTo?: string) => client.post<{ data: { ok: boolean } }>('/notifications/read-all', upTo ? { upTo } : undefined),
     getPreferences: () => client.get<{ data: NotificationPreferences }>('/notifications/preferences').then((r) => r.data),
     /** Saves what is sent; daily email settings left out are kept as they are. */
     setPreferences: (prefs: Partial<NotificationPreferences>) =>

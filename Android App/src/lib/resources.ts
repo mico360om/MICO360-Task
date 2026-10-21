@@ -68,6 +68,13 @@ import type { CalendarRange } from './calendar-data';
 import type { CalendarTask } from './calendar-model';
 import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
 import type { SummaryRequest } from './project-dashboard';
+import type { ApiActivityRow } from './activity-page';
+import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-admin';
+import type { SearchResults } from './search';
+import type { DeployedVersion, ReleaseEntry } from './about';
+
+type NewUserBody = ReturnType<typeof newUserBody>;
+type UserPatchBody = ReturnType<typeof userPatch>;
 
 export interface TaskListParams {
   projectId?: string;
@@ -472,7 +479,8 @@ export function resourcesApi(client: ApiClient) {
       list: () => data(client.get<Envelope<ApiNotification[]>>('/notifications')),
       unreadCount: () => data(client.get<Envelope<{ count: number }>>('/notifications/unread-count')),
       markRead: (id: string) => data(client.put<Envelope<ApiNotification>>(`/notifications/${seg(id)}/read`)),
-      markAllRead: () => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all')),
+      /** Read everything shown: `upTo` (the newest shown) leaves what came in meanwhile unread (5c review). */
+      markAllRead: (upTo?: string) => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all', upTo ? { upTo } : undefined)),
       // Which notifications you get and when "due soon" reminders arrive (shared with the web app).
       // Saved through `preferences.save` (6a): only what changed, so the daily emails set on the
       // website are never sent back over.
@@ -521,6 +529,10 @@ export function resourcesApi(client: ApiClient) {
       range: (from: string, to: string) => data(client.get<Envelope<CalendarRange>>(`/calendar${queryString({ from, to })}`)),
       overdue: () => data(client.get<Envelope<CalendarTask[]>>('/tasks?overdue=true')),
     },
+    /** The newest 50 things done in the projects you're on (the server scopes them), 5c. */
+    activity: {
+      recent: () => data(client.get<Envelope<ApiActivityRow[]>>('/activity')),
+    },
     /** Reports (administrators): the same figures as the web portal, scoped by project / team member. */
     reports: {
       projects: (f: ReportFilters = {}) => data(client.get<Envelope<ProjectPerformanceRow[]>>(`/reports/projects${queryString({ projectId: f.projectId, userId: f.userId })}`)),
@@ -532,6 +544,26 @@ export function resourcesApi(client: ApiClient) {
     },
     /** Minimal people directory (id + name) for chat author names and the DM picker. */
     directory: () => data(client.get<Envelope<ApiDirectoryUser[]>>('/users/directory')),
+    /** User Management (administrators, 6b): the server refuses everyone else. Passwords are only passed on. */
+    users: {
+      list: () => data(client.get<Envelope<ApiAdminUser[]>>('/users')),
+      /** A new account; the try's key means a lost answer never makes two. */
+      create: (body: NewUserBody, idempotencyKey: string) => data(client.post<Envelope<ApiAdminUser>>('/users', body, idempotencyHeaders(idempotencyKey))),
+      update: (id: string, patch: UserPatchBody) => data(client.put<Envelope<ApiAdminUser>>(`/users/${seg(id)}`, patch)),
+      setStatus: (id: string, status: UserStatus) => data(client.patch<Envelope<ApiAdminUser>>(`/users/${seg(id)}/status`, { status })),
+      /** Lift a sign-in lock left by too many failed passwords. */
+      unlock: (id: string) => client.post<unknown>(`/users/${seg(id)}/unlock`),
+      remove: (id: string) => client.del<void>(`/users/${seg(id)}`),
+      /** Set a new password for someone (it also lifts a lock and ends their sessions). */
+      resetPassword: (id: string, password: string) => client.post<unknown>(`/users/${seg(id)}/password`, { password }),
+    },
+    /** Search (6b): tasks, projects, people and meetings you may see. */
+    search: (q: string) => data(client.get<Envelope<SearchResults>>(`/search?q=${encodeURIComponent(q)}`)),
+    /** About (6b): the website's version (administrators get the details) and the version history. */
+    about: {
+      version: () => data(client.get<Envelope<DeployedVersion>>('/version')),
+      releases: () => data(client.get<Envelope<ReleaseEntry[]>>('/releases')),
+    },
     /** Chat: project channels + 1:1 direct messages. */
     chat: {
       conversations: () => data(client.get<Envelope<ApiConversationSummary[]>>('/conversations')),

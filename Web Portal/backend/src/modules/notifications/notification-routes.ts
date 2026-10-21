@@ -16,6 +16,8 @@ const prefsSchema = z.object({
     .optional(),
 });
 
+const readAllSchema = z.object({ upTo: z.string().datetime({ offset: true }).optional() });
+
 /** Preferences as the apps read them: the daily email settings always filled in. */
 const withDailyEmails = (p: NotificationPreferences): NotificationPreferences => ({ ...p, dailyEmails: dailyEmailPrefs(p) });
 
@@ -59,8 +61,11 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
     return { data: await notificationService.markRead(id, req.user!.id) };
   });
 
+  // `upTo` (optional, the newest notification the reader was shown): only what came in by then is
+  // read, so one that arrives while the list is open stays unread. Without it, everything (as before).
   app.post('/notifications/read-all', { preHandler: guard.authenticate }, async (req) => {
-    await notificationService.markAllRead(req.user!.id);
+    const { upTo } = readAllSchema.parse(req.body ?? {});
+    await notificationService.markAllRead(req.user!.id, upTo ? new Date(upTo) : undefined);
     return { data: { ok: true } };
   });
 }

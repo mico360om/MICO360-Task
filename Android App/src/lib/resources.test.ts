@@ -250,6 +250,14 @@ describe('resourcesApi.reports', () => {
   });
 });
 
+describe('resourcesApi.activity (5c)', () => {
+  it('reads the newest activity across your projects', async () => {
+    const { client, calls } = fakeClient();
+    await expect(resourcesApi(client).activity.recent()).resolves.toEqual([]);
+    expect(calls).toEqual([{ method: 'GET', path: '/activity' }]);
+  });
+});
+
 describe('resourcesApi.ai', () => {
   it('asks for checklist steps and a priority', async () => {
     const { client, calls } = fakeClient();
@@ -795,6 +803,66 @@ describe('resourcesApi — the board’s order and its columns (4b)', () => {
       { method: 'POST', path: '/projects/p1/columns', body: { name: 'In Review' } },
       { method: 'PUT', path: '/columns/c%2F2', body: { name: 'Waiting', color: '#1E5A8B', category: 'BLOCKED', enabled: false, position: 3 } },
       { method: 'DELETE', path: '/columns/c2' },
+    ]);
+  });
+});
+
+describe('resourcesApi: User Management, search and About (6b)', () => {
+  function recorder() {
+    const calls: { method: string; path: string; body?: unknown; opts?: unknown }[] = [];
+    const reply = (data: unknown) => Promise.resolve({ data });
+    const client = {
+      get: (path: string, opts?: unknown) => (calls.push({ method: 'GET', path, opts }), reply(path.startsWith('/search') ? { tasks: [], projects: [], users: [] } : [])),
+      post: (path: string, body?: unknown, opts?: unknown) => (calls.push({ method: 'POST', path, body, opts }), reply({ id: 'u9' })),
+      put: (path: string, body?: unknown) => (calls.push({ method: 'PUT', path, body }), reply({ id: 'u1' })),
+      patch: (path: string, body?: unknown) => (calls.push({ method: 'PATCH', path, body }), reply({ id: 'u1' })),
+      del: (path: string) => (calls.push({ method: 'DELETE', path }), Promise.resolve(undefined)),
+    } as unknown as ApiClient;
+    return { client, calls };
+  }
+
+  it('lists, creates (with the try’s key), edits, changes the status, unlocks, deletes and sets a password — ids encoded', async () => {
+    const { client, calls } = recorder();
+    const users = resourcesApi(client).users;
+    await users.list();
+    await users.create({ firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co', password: 'Fake-pass-1', roleNames: ['EMPLOYEE'] }, 'key-1');
+    await users.update('u 1', { firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co' });
+    await users.setStatus('u1', 'SUSPENDED');
+    await users.unlock('u1');
+    await users.remove('u/1');
+    await users.resetPassword('u1', 'Fake-pass-2');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET /users',
+      'POST /users',
+      'PUT /users/u%201',
+      'PATCH /users/u1/status',
+      'POST /users/u1/unlock',
+      'DELETE /users/u%2F1',
+      'POST /users/u1/password',
+    ]);
+    expect(calls[1]!.opts).toEqual({ headers: { 'Idempotency-Key': 'key-1' } });
+    expect(calls[3]!.body).toEqual({ status: 'SUSPENDED' });
+    expect(calls[6]!.body).toEqual({ password: 'Fake-pass-2' });
+  });
+
+  it('searches with the words encoded, and reads the version and the version history', async () => {
+    const { client, calls } = recorder();
+    const api = resourcesApi(client);
+    await api.search('a&b c/مراجعة');
+    await api.about.version();
+    await api.about.releases();
+    expect(calls.map((c) => c.path)).toEqual([`/search?q=${encodeURIComponent('a&b c/مراجعة')}`, '/version', '/releases']);
+  });
+});
+
+describe('resourcesApi.notifications.markAllRead (5c review #9)', () => {
+  it('sends the newest time shown, or no body at all (older servers)', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).notifications.markAllRead('2026-10-21T10:30:00.000Z');
+    await resourcesApi(client).notifications.markAllRead();
+    expect(calls).toEqual([
+      { method: 'POST', path: '/notifications/read-all', body: { upTo: '2026-10-21T10:30:00.000Z' } },
+      { method: 'POST', path: '/notifications/read-all', body: undefined },
     ]);
   });
 });

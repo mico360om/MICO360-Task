@@ -17,3 +17,29 @@ describe('notificationTarget', () => {
     expect(notificationTarget({ entityType: null, entityId: null })).toBeNull();
   });
 });
+
+describe('Mark all read: only what the reader was shown (5c review)', () => {
+  it('sends the newest notification’s time as upTo; nothing shown, no time', async () => {
+    const { newestShown } = await import('./notification-links');
+    expect(newestShown([
+      { createdAt: '2026-10-21T09:00:00.000Z' },
+      { createdAt: '2026-10-21T10:30:00.000Z' },
+      { createdAt: '2026-10-20T08:00:00.000Z' },
+    ])).toBe('2026-10-21T10:30:00.000Z');
+    expect(newestShown([])).toBeUndefined();
+    expect(newestShown(undefined)).toBeUndefined();
+    expect(newestShown([{ createdAt: 'not a date' }])).toBeUndefined();
+  });
+
+  it('the request carries it (and stays bodyless without one, as before)', async () => {
+    const { notificationsApi } = await import('../api/notifications');
+    const calls: [string, unknown][] = [];
+    const client = { post: async (path: string, body?: unknown) => { calls.push([path, body]); return { data: { ok: true } }; } };
+    await notificationsApi(client as never).markAllRead('2026-10-21T10:30:00.000Z');
+    await notificationsApi(client as never).markAllRead();
+    expect(calls).toEqual([
+      ['/notifications/read-all', { upTo: '2026-10-21T10:30:00.000Z' }],
+      ['/notifications/read-all', undefined],
+    ]);
+  });
+});

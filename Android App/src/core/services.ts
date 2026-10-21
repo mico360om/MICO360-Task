@@ -37,6 +37,7 @@ import { getPushToken, deactivatePush } from '../adapters/push';
 import { exportFiles } from '../adapters/files';
 import { pickedFiles } from '../adapters/picked-files';
 import { isBiometricAvailable, authenticateBiometric } from '../adapters/biometric';
+import { launcherBadge } from '../adapters/alerts';
 
 export interface Services {
   baseUrl: string;
@@ -275,8 +276,15 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     clearReadCache: () => cache.clear(),
     clearQueuedChanges: (userId) => queue.clearForUser(userId),
     deactivatePush: async () => {
+      // No number on the app's icon, and this person's notifications off the phone's list (5c). From
+      // here no count reaches the icon until the next sign-in (a poll still on its way can't put this
+      // person's number back), and it is cleared again once the push is off (5c review #5) — unless
+      // someone signed in meanwhile (turning push off can outlast the sign-out's time limit): their
+      // number stays on (6b review).
+      const signIn = launcherBadge.clear();
       await deactivatePush();
       await push.forget();
+      launcherBadge.clear(signIn);
     },
     clearExports: () => exportFiles.clearAll(),
     clearPickedFiles: () => pickedFiles.clearAll(),

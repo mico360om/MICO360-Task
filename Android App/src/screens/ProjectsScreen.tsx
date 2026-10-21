@@ -8,6 +8,7 @@ import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Badge } from '../components/ui';
 import { ProjectAvatar } from '../components/ProjectAvatar';
+import { TabHeaderButtons } from '../components/SearchButton';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
 import { PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
 import { boardProjects } from '../lib/all-board';
@@ -48,13 +49,16 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: admin
-        ? () => (
+      // Search stays in the header next to "+ New" (6b), as on every tab.
+      headerRight: () => (
+        <TabHeaderButtons>
+          {admin ? (
             <Pressable onPress={() => navigation.navigate('ProjectForm')} accessibilityRole="button" accessibilityLabel="New project" hitSlop={8} style={s.headerButton}>
               <Text style={s.headerButtonText}>+ New</Text>
             </Pressable>
-          )
-        : undefined,
+          ) : null}
+        </TabHeaderButtons>
+      ),
     });
   }, [navigation, admin, s]);
 

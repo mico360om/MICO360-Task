@@ -7,6 +7,7 @@ import { isSafeId } from './ids';
 export type LinkTarget =
   | { screen: 'TaskDetail'; params: { taskId: string } }
   | { screen: 'Board'; params: { projectId: string } }
+  | { screen: 'ProjectDetail'; params: { projectId: string } }
   | { screen: 'MeetingDetail'; params: { meetingId: string } }
   | { screen: 'Meetings' }
   | { screen: 'MyActionItems' }
@@ -28,7 +29,7 @@ export function notificationToTarget(data: Record<string, unknown>): LinkTarget 
   if (typeof data.entityId === 'string' && data.entityId && !isSafeId(data.entityId)) return { screen: 'Notifications' };
   const entityId = isSafeId(data.entityId) ? data.entityId : undefined;
   if (entityType === 'task' && entityId) return { screen: 'TaskDetail', params: { taskId: entityId } };
-  if (entityType === 'project' && entityId) return { screen: 'Board', params: { projectId: entityId } };
+  if (entityType === 'project' && entityId) return { screen: 'ProjectDetail', params: { projectId: entityId } }; // its dashboard (5c)
   if (entityType === 'meeting' && entityId) return { screen: 'MeetingDetail', params: { meetingId: entityId } };
   if (entityType === 'conversation' && entityId) return { screen: 'ChatThread', params: { conversationId: entityId } };
   if (entityType === 'conversation') return { screen: 'Chat' };

@@ -7,6 +7,7 @@ import { useOpenProjectChat } from '../core/chat';
 import { useConversationPrefs, usePresence, useStartDirect } from '../core/chat-features';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote } from '../components/ui';
+import { TabHeaderButtons } from '../components/SearchButton';
 import { ChatSearchResults, NewMessageSheet, PrefsSheet } from '../components/chat/ChatSheets';
 import { inboxSections, previewOf, type InboxRow } from '../lib/chat-model';
 import { listTime } from '../lib/chat-ui';
@@ -54,10 +55,13 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      // Search stays in the header next to ＋ (6b), as on every tab.
       headerRight: () => (
-        <Pressable onPress={() => setDmOpen(true)} accessibilityRole="button" accessibilityLabel="New direct message" hitSlop={8} style={styles.headerBtn}>
-          <Text style={styles.headerBtnText}>＋</Text>
-        </Pressable>
+        <TabHeaderButtons>
+          <Pressable onPress={() => setDmOpen(true)} accessibilityRole="button" accessibilityLabel="New direct message" hitSlop={8} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>＋</Text>
+          </Pressable>
+        </TabHeaderButtons>
       ),
     });
   }, [navigation, styles]);

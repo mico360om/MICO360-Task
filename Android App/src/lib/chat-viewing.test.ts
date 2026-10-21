@@ -95,4 +95,16 @@ describe('notificationsAbout (the phone’s notifications to clear once a conver
     ];
     expect(notificationsAbout(presented, 'conversation', 'c1')).toEqual(['a', 'e']);
   });
+
+  it('picks the ones about any other thing too — an alert opened in the Alerts list (5c)', () => {
+    const presented = [
+      n('1', { entityType: 'task', entityId: 't1' }),
+      n('2', { entityType: 'TASK', entityId: 't1' }),
+      n('3', { entityType: 'task', entityId: 't2' }),
+      n('4', { entityType: 'conversation', entityId: 't1' }),
+      n('5', null),
+    ];
+    expect(notificationsAbout(presented, 'task', 't1')).toEqual(['1', '2']);
+    expect(notificationsAbout(presented, 'project', 't1')).toEqual([]);
+  });
 });

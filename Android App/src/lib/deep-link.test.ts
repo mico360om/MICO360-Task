@@ -24,8 +24,16 @@ describe('notificationToTarget (A6.2 — deep-link on push tap)', () => {
     expect(notificationToTarget({ entityType: 'TASK', entityId: 't5' })).toEqual({ screen: 'TaskDetail', params: { taskId: 't5' } });
   });
 
-  it('routes a project notification to the Board', () => {
-    expect(notificationToTarget({ entityType: 'project', entityId: 'p2' })).toEqual({ screen: 'Board', params: { projectId: 'p2' } });
+  it('opens the project’s dashboard from a project notification (5c), not its board', () => {
+    expect(notificationToTarget({ entityType: 'project', entityId: 'p2' })).toEqual({ screen: 'ProjectDetail', params: { projectId: 'p2' } });
+    expect(notificationToTarget({ entityType: 'Project', entityId: 'p2' })).toEqual({ screen: 'ProjectDetail', params: { projectId: 'p2' } });
+    expect(notificationToTarget({ entityType: 'project' })).toEqual({ screen: 'Notifications' });
+  });
+
+  it('opens nothing built from an id that isn’t an id (5c, the 3a rule)', () => {
+    expect(notificationToTarget({ entityType: 'project', entityId: '../users' })).toEqual({ screen: 'Notifications' });
+    expect(notificationToTarget({ entityType: 'task', entityId: 't 1' })).toEqual({ screen: 'Notifications' });
+    expect(notificationToTarget({ entityType: 'meeting', entityId: 'x'.repeat(65) })).toEqual({ screen: 'Notifications' });
   });
 
   it('opens the conversation itself from a chat notification (3a), or the Chat tab without an id', () => {

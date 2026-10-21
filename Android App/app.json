@@ -33,6 +33,30 @@
           "autoVerify": true,
           "data": [{ "scheme": "https", "host": "task.mico360.com", "path": "/reset" }],
           "category": ["BROWSABLE", "DEFAULT"]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "task.mico360.com", "path": "/dashboard" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/my-tasks" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/board" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/projects" },
+            { "scheme": "https", "host": "task.mico360.com", "pathPrefix": "/projects/" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/calendar" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/meetings" },
+            { "scheme": "https", "host": "task.mico360.com", "pathPrefix": "/meetings/" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/my-action-items" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/chat" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/activity" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/notifications" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/settings" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/profile" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/about" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/reports" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/admin/users" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },

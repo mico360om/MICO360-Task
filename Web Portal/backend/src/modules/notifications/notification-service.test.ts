@@ -162,7 +162,7 @@ describe('NotificationService', () => {
     await withPush.notify({ userId: 'u1', type: 'TASK_ASSIGNED', title: 'You were assigned a task', body: 'Fix login', entityType: 'task', entityId: 't1' });
     await withPush.notify({ userId: 'u1', type: 'TASK_COMMENT', title: 'New comment' });
     expect(sendToUser).toHaveBeenCalledTimes(1);
-    expect(sendToUser).toHaveBeenCalledWith('u1', { title: 'You were assigned a task', body: 'Fix login', entityType: 'task', entityId: 't1' });
+    expect(sendToUser).toHaveBeenCalledWith('u1', { title: 'You were assigned a task', body: 'Fix login', entityType: 'task', entityId: 't1', notificationId: 'n0' });
   });
 
   it('never fails the in-app notification when the push fails', async () => {
@@ -171,5 +171,37 @@ describe('NotificationService', () => {
     await expect(withPush.notify({ userId: 'u1', type: 'X', title: 'a' })).resolves.not.toBeNull();
     await new Promise((resolve) => setImmediate(resolve));
     expect(logger.error).toHaveBeenCalledWith('push notification failed', expect.objectContaining({ userId: 'u1' }));
+  });
+});
+
+describe('the push names its notification (5c review)', () => {
+  it('carries the stored notification’s id, so a tap on the phone reads exactly that one', async () => {
+    const sendToUser = vi.fn(async () => 1);
+    const svc = createNotificationService({ notifications: inMemory(), push: { sendToUser } });
+    const first = await svc.notify({ userId: 'u1', type: 'TASK_COMMENT', title: 'New comment', entityType: 'task', entityId: 't1' });
+    const second = await svc.notify({ userId: 'u1', type: 'TASK_MENTION', title: 'You were mentioned', entityType: 'task', entityId: 't1' });
+    expect(sendToUser.mock.calls.map((c) => (c as unknown as [string, { notificationId?: string }])[1].notificationId)).toEqual([first!.id, second!.id]);
+  });
+
+  it('a waiting conversation notification that is reworded keeps its id in the push', async () => {
+    const sendToUser = vi.fn(async () => 1);
+    const svc = createNotificationService({ notifications: inMemory(), push: { sendToUser } });
+    const a = await svc.notifyOnce({ userId: 'u1', type: 'CHAT_MESSAGE', title: 'Omar: hi', entityType: 'conversation', entityId: 'c1' });
+    const b = await svc.notifyOnce({ userId: 'u1', type: 'CHAT_MESSAGE', title: 'Omar: are you there?', entityType: 'conversation', entityId: 'c1' });
+    expect(b!.id).toBe(a!.id);
+    expect(sendToUser.mock.calls.map((c) => (c as unknown as [string, { notificationId?: string }])[1].notificationId)).toEqual([a!.id, a!.id]);
+  });
+});
+
+describe('Mark all read up to a time (5c review)', () => {
+  it('passes the time on, so only what came in by then is read', async () => {
+    const repo = inMemory();
+    const markAllRead = vi.spyOn(repo, 'markAllRead');
+    const svc = createNotificationService({ notifications: repo });
+    const upTo = new Date('2026-10-21T10:00:00.000Z');
+    await svc.markAllRead('u1', upTo);
+    expect(markAllRead).toHaveBeenCalledWith('u1', upTo);
+    await svc.markAllRead('u1');
+    expect(markAllRead).toHaveBeenLastCalledWith('u1', undefined);
   });
 });
