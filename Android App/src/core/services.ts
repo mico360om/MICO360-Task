@@ -75,6 +75,8 @@ export interface Services {
   passwordGate: ChangeGate;
   /** A sign-out has begun. */
   isSigningOut: () => boolean;
+  /** Close a fresh session this phone won't keep (a password change that ended after a switch of person). */
+  revokeUnheld: (refreshToken: string) => Promise<void>;
 }
 
 /**
@@ -103,6 +105,26 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
    * 403 ACCOUNT_INACTIVE (the account was turned off), ends the session; being offline, a timeout, a
    * 5xx, a 429, a firewall's 403 or a reply that isn't a session is transient and keeps the user signed in.
    */
+  /**
+   * Close a session this phone was handed but won't keep (POST /auth/logout with its refresh
+   * token, without anyone's access token) — quietly: nobody is waiting on it.
+   */
+  function revokeUnheld(refreshToken: string): Promise<void> {
+    try {
+      assertAllowedUrl(`${baseUrl}/auth/logout`);
+    } catch {
+      return Promise.resolve();
+    }
+    return fetch(`${baseUrl}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    }).then(
+      () => {},
+      () => {},
+    );
+  }
+
   async function refreshTokens(): Promise<RefreshOutcome> {
     const current = session.getSession();
     if (!current?.refreshToken || signOutApi.isSigningOut()) return 'invalid';
@@ -145,11 +167,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     // again only with the same person's session.
     if (signOutApi.isSigningOut() || session.getSession()?.refreshToken !== current.refreshToken) {
       // (The refresh above already passed the address check, so this logout may use the same base.)
-      void fetch(`${baseUrl}/auth/logout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: next.refreshToken }),
-      }).catch(() => {});
+      void revokeUnheld(next.refreshToken);
       return refreshRaceOutcome(current, signOutApi.isSigningOut() ? null : session.getSession());
     }
     await session.setSession(next);
@@ -163,6 +181,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     baseUrl,
     appHeaders: versionHeaders(app),
     getToken: () => session.getToken(),
+    // Whose session a request goes with: a 401 is renewed only for that person (5b review).
+    getUserId: currentUserId,
     // A refresh whose reply was lost is tried once more: the server hands back the same new token.
     refreshTokens: () => refreshWithRetry(refreshTokens),
     // Not awaited: sign-out itself makes API calls and must not wait on the request that triggered it.
@@ -183,8 +203,9 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   const queue = createSyncQueue({
     store: asyncStore,
     // A replayed task edit or move made this phone's own new version: the next edit follows it.
+    // Sent only as the change's owner: never while someone else is signed in (5b review).
     perform: (m: QueuedMutation) =>
-      performMutation(resources, m).then((result) => {
+      performMutation(resourcesApi(api.forUser(m.userId)), m).then((result) => {
         noteReplayed(taskWrites, m, result);
         // A message kept on this phone reached the server: its saved copy shows in its thread.
         chat.afterSent(m, result);
@@ -268,7 +289,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   const exporter = createExporter({
     baseUrl,
     getToken: () => session.getToken(),
-    refreshSession: () => api.refreshSession(),
+    getUserId: currentUserId,
+    refreshSession: (expectedUserId) => api.refreshSession(expectedUserId),
     onUnauthorized: () => {
       void signOutApi.signOut('expired');
     },
@@ -300,5 +322,6 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     currentUserId,
     passwordGate,
     isSigningOut: () => signOutApi.isSigningOut(),
+    revokeUnheld,
   };
 }

@@ -48,7 +48,7 @@ export function useAvatar() {
  * passwords would be kept in its cache; here they live only in the form and this call.
  */
 export function usePasswordChange() {
-  const { resources, session, push, biometricLogin, connectivity, passwordGate, isSigningOut } = useServices();
+  const { resources, session, push, biometricLogin, connectivity, passwordGate, isSigningOut, revokeUnheld } = useServices();
   return useMemo(
     () =>
       createPasswordChange({
@@ -61,8 +61,10 @@ export function usePasswordChange() {
         // A refresh refused meanwhile waits for the fresh session; a sign-out under way isn't undone.
         gate: passwordGate,
         isSigningOut,
+        // A fresh session that isn't kept (someone else signed in meanwhile) is closed (5b review).
+        revoke: revokeUnheld,
       }),
-    [resources, session, push, biometricLogin, connectivity, passwordGate, isSigningOut],
+    [resources, session, push, biometricLogin, connectivity, passwordGate, isSigningOut, revokeUnheld],
   );
 }
 

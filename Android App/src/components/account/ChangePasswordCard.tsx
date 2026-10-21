@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, AccessibilityInfo, AppState, Platform, ToastAndroid, type TextInput } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useColors } from '../../core/theme';
+import { useServices } from '../../core/providers';
 import { usePasswordChange } from '../../core/account-queries';
 import { Card, SectionTitle, Muted, Button, TextField, ErrorNote } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
-import { PASSWORD_RULE_HINT, checkPasswordChange, clearsPasswordFields, lateOutcomeText, passwordChangeProblem, type PasswordField } from '../../lib/password-change';
+import { PASSWORD_RULE_HINT, checkPasswordChange, clearsPasswordFields, lateOutcomeFor, passwordChangeProblem, type PasswordField } from '../../lib/password-change';
 import { SIGN_IN_LIMITS } from '../../lib/auth';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 
@@ -18,6 +19,7 @@ export function ChangePasswordCard() {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const change = usePasswordChange();
+  const { session } = useServices();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -54,8 +56,12 @@ export function ChangePasswordCard() {
     };
   }, [navigation]);
 
-  /** A change that ended after the screen was left is still told (spoken, and shown briefly). */
-  const tellLate = (text: string) => {
+  /**
+   * A change that ended after the screen was left is still told (spoken, and shown briefly) — only
+   * to the person who asked, never to someone who signed in meanwhile (5b review).
+   */
+  const tellLate = (text: string | null) => {
+    if (!text) return;
     AccessibilityInfo.announceForAccessibility(text);
     if (Platform.OS === 'android') ToastAndroid.show(text, ToastAndroid.LONG);
   };
@@ -78,16 +84,18 @@ export function ChangePasswordCard() {
     }
     setProblem(null);
     setBusy(true);
+    const askedBy = session.getSession()?.user.id ?? null;
+    const nowSignedIn = () => session.getSession()?.user.id ?? null;
     try {
       const result = await change(current, next);
-      if (!mounted.current) return tellLate(lateOutcomeText({ ok: true, result }));
+      if (!mounted.current) return tellLate(lateOutcomeFor({ ok: true, result }, askedBy, nowSignedIn()));
       setCurrent('');
       setNext('');
       setConfirm('');
       setDone(result.message);
-      AccessibilityInfo.announceForAccessibility(result.message);
+      if (result.message) AccessibilityInfo.announceForAccessibility(result.message);
     } catch (e) {
-      if (!mounted.current) return tellLate(lateOutcomeText({ ok: false, error: e }));
+      if (!mounted.current) return tellLate(lateOutcomeFor({ ok: false, error: e }, askedBy, nowSignedIn()));
       const p = passwordChangeProblem(e);
       setProblem(p);
       if (p.field) refs[p.field].current?.focus();

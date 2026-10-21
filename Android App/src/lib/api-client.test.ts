@@ -527,3 +527,86 @@ describe('a refresh that finds someone else signed in meanwhile (6a review)', ()
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
 });
+
+describe('a request is renewed only for the person it was sent for (5b review #3)', () => {
+  /** A phone where A signs out and B signs in while A's request is on its way. */
+  function phone() {
+    let user: string | null = 'ann';
+    let token = 'ann-token';
+    const refreshTokens = vi.fn(async () => 'ok' as const);
+    const onUnauthorized = vi.fn();
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>).Authorization;
+      if (auth === 'Bearer ann-token') {
+        // While A's request is on its way, A signs out and B signs in.
+        user = 'bob';
+        token = 'bob-token';
+        return jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'expired' } }, 401);
+      }
+      return jsonResponse({ data: { ok: true } });
+    });
+    const api = createApiClient({
+      baseUrl: 'https://api.test',
+      getToken: () => token,
+      getUserId: () => user,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      refreshTokens,
+      onUnauthorized,
+    });
+    return { api, fetchImpl, refreshTokens, onUnauthorized, signInAs: (u: string, t: string) => ((user = u), (token = t)) };
+  }
+
+  it('A’s 401 that arrives once B is signed in: B’s session is not refreshed for it, and A’s request is never sent with it', async () => {
+    const { api, fetchImpl, refreshTokens, onUnauthorized } = phone();
+    const e = await api.post('/tasks', { title: 'Ann’s task' }).catch((err: unknown) => err);
+    expect(e).toMatchObject({ status: 401, code: 'SESSION_CHANGED' });
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('a refresh asked for someone who is no longer signed in answers "changed" (sockets, exports)', async () => {
+    const { api, refreshTokens, signInAs } = phone();
+    signInAs('bob', 'bob-token');
+    expect(await api.refreshSession('ann')).toBe('changed');
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(await api.refreshSession('bob')).toBe('ok');
+  });
+
+  it('a refresh that ends with someone else signed in answers "changed", even when it worked', async () => {
+    let user: string | null = 'ann';
+    const api = createApiClient({
+      baseUrl: 'https://api.test',
+      getToken: () => 't',
+      getUserId: () => user,
+      refreshTokens: async () => {
+        user = 'bob';
+        return 'ok';
+      },
+    });
+    expect(await api.refreshSession('ann')).toBe('changed');
+  });
+
+  it('a client kept for one person (the offline queue’s) never sends while someone else is signed in', async () => {
+    const { api, fetchImpl, signInAs } = phone();
+    signInAs('bob', 'bob-token');
+    const e = await api.forUser('ann').put('/tasks/t1', { title: 'x' }).catch((err: unknown) => err);
+    expect(e).toMatchObject({ status: 401, code: 'SESSION_CHANGED' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await expect(api.forUser('bob').get('/tasks')).resolves.toEqual({ data: { ok: true } });
+  });
+});
+
+describe('every refresh caller says whose request it is (5b review #3)', () => {
+  it('the app passes the person to the API client, the exporter, the live sockets and the offline queue', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const services = readFileSync(resolve(__dirname, '../core/services.ts'), 'utf8');
+    const socket = readFileSync(resolve(__dirname, '../core/authed-socket.ts'), 'utf8');
+    expect(services.match(/getUserId: currentUserId,/g)?.length).toBeGreaterThanOrEqual(2); // API client + exporter
+    expect(services).toMatch(/refreshSession: \(expectedUserId\) => api\.refreshSession\(expectedUserId\)/);
+    expect(services).toMatch(/performMutation\(resourcesApi\(api\.forUser\(m\.userId\)\), m\)/);
+    expect(socket).toMatch(/const owner = services\.session\.getSession\(\)\?\.user\.id \?\? null;/);
+    expect(socket).toMatch(/refresh: \(\) => services\.api\.refreshSession\(owner\)/);
+  });
+});

@@ -27,8 +27,11 @@ export function connectAuthedSocket(
     autoConnect: isAllowedUrl(origin),
   });
 
+  // This connection is the person's who opened it: it is renewed only for them (5b review) — once
+  // someone else is signed in the refresh answers 'changed' and the socket stops.
+  const owner = services.session.getSession()?.user.id ?? null;
   const auth = createSocketAuthHandler({
-    refresh: () => services.api.refreshSession(),
+    refresh: () => services.api.refreshSession(owner),
     reconnect: () => {
       if (!socket.connected && isAllowedUrl(origin)) socket.connect();
     },

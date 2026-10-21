@@ -105,3 +105,21 @@ describe('exporter — someone else signed in meanwhile (6a review)', () => {
     expect(files.share).not.toHaveBeenCalled();
   });
 });
+
+describe('exporter — renewed only for the person it was asked by (5b review #3)', () => {
+  it('asks the refresh for the person whose session the download was sent with', async () => {
+    const { files } = fakeFiles([{ status: 401 }, { status: 200 }]);
+    let user = 'ann';
+    const refreshSession = vi.fn(async (expected?: string | null) => (expected === user ? ('ok' as const) : ('changed' as const)));
+    // While the download is on its way, Ann signs out and Bob signs in.
+    files.download = vi.fn(async (_url: string, name: string) => {
+      user = 'bob';
+      return { status: 401, headers: {}, uri: `file:///cache/exports/${name}` };
+    });
+    const ex = exporter(files, { refreshSession, getUserId: () => user });
+    await expect(ex.exportFile('/reports/export.xlsx', 'r.xlsx', 'Report')).rejects.toMatchObject({ code: 'SESSION_CHANGED' });
+    expect(refreshSession).toHaveBeenCalledWith('ann');
+    expect(files.download).toHaveBeenCalledTimes(1);
+    expect(files.share).not.toHaveBeenCalled();
+  });
+});

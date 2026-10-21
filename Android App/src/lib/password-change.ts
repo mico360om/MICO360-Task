@@ -69,10 +69,24 @@ export function clearsPasswordFields(appState: string): boolean {
  * How a change ended that finished after its screen was left — still said (6a review): the
  * result's own words, or why the password wasn't changed (or that it may have been).
  */
-export function lateOutcomeText(outcome: { ok: true; result: PasswordChangeResult } | { ok: false; error: unknown }): string {
+export function lateOutcomeText(outcome: { ok: true; result: PasswordChangeResult } | { ok: false; error: unknown }): string | null {
+  // null: the change was the last person's, and someone else is signed in now — nothing is said to them.
   if (outcome.ok) return outcome.result.message;
   const p = passwordChangeProblem(outcome.error);
   return p.unsure ? p.message : `Your password wasn’t changed: ${p.message}`;
+}
+
+/**
+ * The late outcome for whoever is signed in now (5b review): the person who asked, or nobody (the
+ * sign-in screen) is told; someone else who signed in meanwhile is told nothing about it.
+ */
+export function lateOutcomeFor(
+  outcome: { ok: true; result: PasswordChangeResult } | { ok: false; error: unknown },
+  askedBy: string | null | undefined,
+  signedInNow: string | null | undefined,
+): string | null {
+  if (signedInNow && signedInNow !== askedBy) return null;
+  return lateOutcomeText(outcome);
 }
 
 export interface PasswordChangeDeps {
@@ -92,6 +106,11 @@ export interface PasswordChangeDeps {
   gate?: ChangeGate;
   /** A sign-out has begun: the fresh session is then not kept (it would be signed out anyway). */
   isSigningOut?: () => boolean;
+  /**
+   * Revoke a fresh refresh token this phone won't keep (POST /auth/logout with it, without anyone's
+   * access token), so a session nobody holds is never left open (5b review).
+   */
+  revoke?: (refreshToken: string) => Promise<unknown>;
 }
 
 export interface PasswordChangeResult {
@@ -99,7 +118,8 @@ export interface PasswordChangeResult {
   keptHere: boolean;
   /** This phone's fingerprint sign-in was on and has stopped. */
   fingerprintStopped: boolean;
-  message: string;
+  /** What to tell the person; null when someone else is signed in by the time it ends (5b review). */
+  message: string | null;
 }
 
 /**
@@ -113,16 +133,24 @@ export function createPasswordChange(deps: PasswordChangeDeps) {
     if (deps.isOnline && !deps.isOnline()) throw new PasswordChangeNotSent();
     // Sent and kept inside the gate: a refresh refused meanwhile waits until the fresh session is kept.
     const run = <T>(fn: () => Promise<T>) => (deps.gate ? deps.gate.run(fn) : fn());
-    const { keptHere, signedOut } = await run(async () => {
+    // Whose change this is: the fresh session is kept only for the same person (5b review — if
+    // someone else signed in while it was on its way, their session must never get these tokens).
+    const owner = deps.session.getSession()?.user.id ?? null;
+    const { keptHere, signedOut, someoneElse } = await run(async () => {
       const fresh = await deps.send(currentPassword, newPassword);
       const held = deps.session.getSession();
       const signingOut = deps.isSigningOut?.() ?? false;
-      if (!signingOut && held && fresh?.accessToken && fresh.refreshToken) {
+      const someoneElse = !!held && held.user.id !== owner;
+      if (!signingOut && held && !someoneElse && owner && fresh?.accessToken && fresh.refreshToken) {
         await deps.session.setSession({ user: held.user, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken });
-        return { keptHere: true, signedOut: false };
+        return { keptHere: true, signedOut: false, someoneElse: false };
       }
-      return { keptHere: false, signedOut: signingOut };
+      // Not kept: a session nobody holds is closed on the server (quietly — the change itself worked).
+      if (fresh?.refreshToken) await deps.revoke?.(fresh.refreshToken).catch(() => {});
+      return { keptHere: false, signedOut: signingOut, someoneElse };
     });
+    // Someone else's phone now: their fingerprint sign-in, notifications and screen are left alone.
+    if (someoneElse) return { keptHere: false, fingerprintStopped: false, message: null };
     const fingerprintStopped = await deps.fingerprint.isArmed().catch(() => false);
     if (fingerprintStopped) await deps.fingerprint.disarm().catch(() => {});
     if (keptHere) await deps.registerPush().catch(() => {});

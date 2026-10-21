@@ -8,6 +8,7 @@ import {
   createChangeGate,
   createPasswordChange,
   isStrongPassword,
+  lateOutcomeFor,
   lateOutcomeText,
   passwordChangeProblem,
   refreshRaceOutcome,
@@ -241,5 +242,62 @@ describe('the password fields don’t outlive their use (6a review)', () => {
     );
     expect(lateOutcomeText({ ok: false, error: new ApiError(400, 'VALIDATION', 'Current password is incorrect.') })).toBe('Your password wasn’t changed: Current password is incorrect.');
     expect(lateOutcomeText({ ok: false, error: new NetworkError('lost') })).toBe('We couldn’t confirm the change. If you’re asked to sign in, use your new password.');
+  });
+});
+
+describe('a password change whose answer comes after someone else signed in (5b review #1)', () => {
+  it('never stores the first person’s fresh tokens under the second person: nothing of theirs changes, and the fresh token is revoked', async () => {
+    const { d, current } = deps({ armed: true });
+    const revoke = vi.fn(async () => {});
+    const bee: Session = { user: { id: 'u2', email: 'b@x.test', username: 'bee', roles: ['EMPLOYEE'], avatarUrl: null }, accessToken: 'b-access', refreshToken: 'b-refresh' };
+    // A taps Change password; while it is on its way A signs out and B signs in.
+    d.send.mockImplementationOnce(async () => {
+      await d.session.setSession(bee);
+      return { accessToken: 'a-fresh-access', refreshToken: 'a-fresh-refresh' };
+    });
+    d.session.setSession.mockClear();
+    const result = await createPasswordChange({ ...d, revoke })('old-pass1', 'abcd1234');
+    expect(current()).toEqual(bee);
+    expect(d.session.setSession).toHaveBeenCalledTimes(1); // only B's own sign-in
+    expect(d.registerPush).not.toHaveBeenCalled();
+    expect(d.fingerprint.disarm).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalledWith('a-fresh-refresh');
+    expect(result).toEqual({ keptHere: false, fingerprintStopped: false, message: null });
+  });
+
+  it('a fresh session that isn’t kept (a sign-out under way) is revoked too', async () => {
+    const { d } = deps();
+    const revoke = vi.fn(async () => {});
+    let signingOut = false;
+    d.send.mockImplementationOnce(async () => {
+      signingOut = true;
+      return { accessToken: 'new-access', refreshToken: 'new-refresh' };
+    });
+    await createPasswordChange({ ...d, revoke, isSigningOut: () => signingOut })('old-pass1', 'abcd1234');
+    expect(revoke).toHaveBeenCalledWith('new-refresh');
+  });
+
+  it('the same person still gets the fresh session, and nothing is revoked', async () => {
+    const { d, current } = deps();
+    const revoke = vi.fn(async () => {});
+    await createPasswordChange({ ...d, revoke })('old-pass1', 'abcd1234');
+    expect(current()?.refreshToken).toBe('new-refresh');
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it('nothing is said to the next person about the first person’s change', () => {
+    expect(lateOutcomeText({ ok: true, result: { keptHere: false, fingerprintStopped: false, message: null } })).toBeNull();
+  });
+});
+
+describe('a late outcome is told only to the person who asked (5b review #1)', () => {
+  it('says nothing once someone else is signed in; says it on the sign-in screen (nobody) or to the same person', () => {
+    const lost = { ok: false as const, error: new ApiError(400, 'VALIDATION', 'Current password is incorrect.') };
+    expect(lateOutcomeFor(lost, 'u1', 'u2')).toBeNull();
+    expect(lateOutcomeFor(lost, 'u1', null)).toBe('Your password wasn’t changed: Current password is incorrect.');
+    expect(lateOutcomeFor(lost, 'u1', 'u1')).toBe('Your password wasn’t changed: Current password is incorrect.');
+    const done = { ok: true as const, result: { keptHere: false, fingerprintStopped: false, message: 'Password changed. Sign in again with your new password.' } };
+    expect(lateOutcomeFor(done, 'u1', 'u2')).toBeNull();
+    expect(lateOutcomeFor(done, 'u1', null)).toBe('Password changed. Sign in again with your new password.');
   });
 });

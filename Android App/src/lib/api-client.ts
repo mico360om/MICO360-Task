@@ -59,6 +59,12 @@ export interface ApiClientOptions {
   baseUrl: string;
   /** Returns the current access token (or null). May be async (SecureStore). */
   getToken: () => string | null | Promise<string | null>;
+  /**
+   * Whose session the phone holds now (the user id, or null). A request remembers whose session it
+   * was sent with, and a 401 is renewed only for that person (5b review): once someone else is
+   * signed in, it fails with SESSION_CHANGED and is never sent with their session.
+   */
+  getUserId?: () => string | null | Promise<string | null>;
   fetchImpl?: typeof fetch;
   /**
    * Attempt to refresh the access token after a 401. Resolve `'ok'` on success, `'invalid'` only
@@ -93,6 +99,8 @@ export interface RequestOptions {
    * itself may take minutes to answer (the AI helpers wait for a model that is still loading).
    */
   timeoutMs?: number;
+  /** The person this request is for (forUser): not sent at all while anyone else is signed in. */
+  asUser?: string;
 }
 
 export interface ApiClient {
@@ -103,8 +111,17 @@ export interface ApiClient {
   del<T = unknown>(path: string, opts?: RequestOptions): Promise<T>;
   /** POST a multipart form (file uploads); the platform sets the multipart boundary. */
   upload<T = unknown>(path: string, form: FormData, opts?: RequestOptions): Promise<T>;
-  /** Run (or join) the single-flight session refresh — used by sockets after an auth rejection. */
-  refreshSession(): Promise<RefreshOutcome>;
+  /**
+   * Run (or join) the single-flight session refresh — used by sockets and exports after an auth
+   * rejection. `expectedUserId`: the person it is for; 'changed' when someone else is signed in
+   * before or after it (5b review), so their session is never used for it.
+   */
+  refreshSession(expectedUserId?: string | null): Promise<RefreshOutcome>;
+  /**
+   * The same client for one person's requests (the offline queue replays a person's changes):
+   * each is sent only while that person is signed in, and renewed only for them (5b review).
+   */
+  forUser(userId: string): ApiClient;
 }
 
 function normalizeOutcome(v: RefreshOutcome | boolean): RefreshOutcome {
@@ -117,6 +134,7 @@ function normalizeOutcome(v: RefreshOutcome | boolean): RefreshOutcome {
 export function createApiClient({
   baseUrl,
   getToken,
+  getUserId,
   fetchImpl,
   refreshTokens,
   onUnauthorized,
@@ -167,7 +185,7 @@ export function createApiClient({
   // Single-flight refresh: N parallel 401s share ONE /auth/refresh. The server single-uses
   // refresh tokens, so N rotating refreshes would revoke every result but the last.
   let refreshing: Promise<RefreshOutcome> | null = null;
-  function refreshOnce(): Promise<RefreshOutcome> {
+  function sharedRefresh(): Promise<RefreshOutcome> {
     if (!refreshTokens) return Promise.resolve('invalid');
     if (!refreshing) {
       refreshing = refreshTokens()
@@ -177,6 +195,22 @@ export function createApiClient({
         });
     }
     return refreshing;
+  }
+
+  /** Whose session the phone holds now (undefined: the app doesn't say — no check). */
+  const holder = async (): Promise<string | null | undefined> => (getUserId ? ((await getUserId()) ?? null) : undefined);
+
+  /**
+   * The refresh for one person's request (5b review): never for someone else's session — when
+   * another person is signed in before it starts, it isn't run for them; when one is by the time it
+   * ends, the request isn't tried with it ('changed', nobody signed out).
+   */
+  async function refreshOnce(expected?: string | null): Promise<RefreshOutcome> {
+    const check = !!expected && !!getUserId;
+    if (check && (await holder()) !== expected) return 'changed';
+    const outcome = await sharedRefresh();
+    if (check && outcome === 'ok' && (await holder()) !== expected) return 'changed';
+    return outcome;
   }
 
   /** Build an ApiError from any error body — a proxy/CDN HTML page must not become a SyntaxError. */
@@ -262,10 +296,15 @@ export function createApiClient({
     // refresh for /auth/* (the fingerprint key calls carry the refresh token itself).
     const canRefresh = !path.startsWith('/auth/');
 
+    // Whose session this goes with: one person's request (forUser) is never sent with another's.
+    const now = await holder();
+    if (opts?.asUser && now !== undefined && now !== opts.asUser) throw sessionChangedError();
+    const sentAs = opts?.asUser ?? now ?? null;
+
     let res = await send(method, path, body, opts, form);
 
     if (res.status === 401 && canRefresh) {
-      const outcome = await refreshOnce();
+      const outcome = await refreshOnce(sentAs);
       if (outcome === 'ok') {
         res = await send(method, path, body, opts, form); // retry once with the new token
         if (res.status === 401) await onUnauthorized?.();
@@ -291,15 +330,21 @@ export function createApiClient({
     }
   }
 
-  return {
-    get: (path, opts) => request('GET', path, undefined, opts),
-    post: (path, body, opts) => request('POST', path, body, opts),
-    put: (path, body, opts) => request('PUT', path, body, opts),
-    patch: (path, body, opts) => request('PATCH', path, body, opts),
-    del: (path, opts) => request('DELETE', path, undefined, opts),
-    upload: (path, form, opts) => request('POST', path, undefined, opts, form),
-    refreshSession: () => refreshOnce(),
-  };
+  function clientFor(asUser?: string): ApiClient {
+    const o = (opts?: RequestOptions): RequestOptions | undefined => (asUser ? { ...opts, asUser } : opts);
+    return {
+      get: (path, opts) => request('GET', path, undefined, o(opts)),
+      post: (path, body, opts) => request('POST', path, body, o(opts)),
+      put: (path, body, opts) => request('PUT', path, body, o(opts)),
+      patch: (path, body, opts) => request('PATCH', path, body, o(opts)),
+      del: (path, opts) => request('DELETE', path, undefined, o(opts)),
+      upload: (path, form, opts) => request('POST', path, undefined, o(opts), form),
+      refreshSession: (expectedUserId) => refreshOnce(expectedUserId === undefined ? asUser : expectedUserId),
+      forUser: (userId) => clientFor(userId),
+    };
+  }
+
+  return clientFor();
 }
 
 /**

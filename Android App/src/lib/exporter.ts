@@ -18,8 +18,10 @@ export interface ExportFiles {
 export interface ExporterOptions {
   baseUrl: string;
   getToken: () => string | null | Promise<string | null>;
-  /** The API client's single-flight session refresh. */
-  refreshSession: () => Promise<RefreshOutcome>;
+  /** Whose session the phone holds now: a download is renewed only for the person it was sent for (5b review). */
+  getUserId?: () => string | null;
+  /** The API client's single-flight session refresh, for that person ('changed': someone else is signed in). */
+  refreshSession: (expectedUserId?: string | null) => Promise<RefreshOutcome>;
   /** The session is over: sign out (as for any other request). */
   onUnauthorized: () => void | Promise<void>;
   files: ExportFiles;
@@ -30,7 +32,7 @@ export interface ExporterOptions {
  * as the server does and hands it to the share sheet. A 401 renews the session once, like every
  * other request; a refused export (403/404/5xx) is an ApiError and nothing is shared.
  */
-export function createExporter({ baseUrl, getToken, refreshSession, onUnauthorized, files }: ExporterOptions) {
+export function createExporter({ baseUrl, getToken, getUserId, refreshSession, onUnauthorized, files }: ExporterOptions) {
   async function fetchFile(path: string, name: string) {
     // The download carries the session token: never over plain http to the internet.
     assertAllowedUrl(`${baseUrl}${path}`);
@@ -43,10 +45,12 @@ export function createExporter({ baseUrl, getToken, refreshSession, onUnauthoriz
   }
 
   async function exportFile(path: string, fallbackName: string, title: string): Promise<{ uri: string; fileName: string }> {
+    // Whose session the download goes with: a 401 is renewed only for that person.
+    const sentAs = getUserId?.() ?? null;
     let res = await fetchFile(path, fallbackName);
     if (res.status === 401) {
       await files.remove(res.uri).catch(() => {});
-      const outcome = await refreshSession();
+      const outcome = await refreshSession(sentAs);
       if (outcome === 'ok') res = await fetchFile(path, fallbackName);
       else if (outcome === 'transient') throw new NetworkError('Could not renew the session — check your connection.');
       else if (outcome === 'changed') throw sessionChangedError();
