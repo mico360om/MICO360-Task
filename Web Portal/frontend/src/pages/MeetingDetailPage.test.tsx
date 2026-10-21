@@ -388,6 +388,19 @@ describe('MeetingDetailPage — notes', () => {
     expect(await screen.findByText('Budget approved')).toBeInTheDocument();
   });
 
+  it('shows the Final MOM someone else just approved (the server says the meeting changed)', async () => {
+    const done = { summary: 'Done.', discussion: [], decisions: [], risks: [], nextSteps: [] };
+    let finalMinutes: Record<string, unknown> = { status: 'NONE', content: null, savedAt: null, approvedBy: null, approvedAt: null, canEdit: true };
+    override = (u, method) => (u.endsWith('/meetings/m1/final-minutes') && method === 'GET' ? json({ data: finalMinutes }) : undefined);
+    renderPage();
+    const section = await screen.findByRole('region', { name: /final mom/i });
+    await screen.findByText('Ship on Thursday');
+    expect(section).not.toHaveTextContent('Approved by');
+    finalMinutes = { status: 'FINAL', content: done, savedAt: '', approvedBy: { id: 'u1', name: 'Aisha Khan' }, approvedAt: '2026-10-14T09:00:00Z', canEdit: true };
+    await act(async () => { handlers['meeting:updated']?.({ id: 'm1' }); });
+    await waitFor(() => expect(screen.getByRole('region', { name: /final mom/i })).toHaveTextContent('Approved by Aisha Khan'));
+  });
+
   it('shows an error state (not an empty list) when notes fail to load (WEB-19)', async () => {
     override = (u, method) => (u.endsWith('/meetings/m1/notes') && method === 'GET' ? json({ error: { code: 'ERR', message: 'x' } }, 500) : undefined);
     renderPage();

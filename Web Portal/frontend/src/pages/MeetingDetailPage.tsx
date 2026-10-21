@@ -67,6 +67,7 @@ export function MeetingDetailPage() {
     }
     if (kind === 'meeting') {
       void qc.invalidateQueries({ queryKey: ['meeting', id], exact: true });
+      void qc.invalidateQueries({ queryKey: ['meeting', id, 'final-minutes'] }); // saved, approved or reopened by someone else
       void qc.invalidateQueries({ queryKey: ['meetings'] });
       return;
     }
