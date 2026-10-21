@@ -340,6 +340,14 @@ export function leftWhileSendingText(out: NewTaskOutcome): string {
   }
 }
 
+/**
+ * The toast about a form left while it sent — for the person who sent it only (4b review #3): on a
+ * shared phone, once they signed out (and someone else in) nothing is said to the next person.
+ */
+export function leftWhileSendingNotice(out: NewTaskOutcome, submitter: string | null, signedIn: string | null): string | null {
+  return submitter && signedIn === submitter ? leftWhileSendingText(out) : null;
+}
+
 function reasonOf(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 403) return 'You don’t have permission to do that.';

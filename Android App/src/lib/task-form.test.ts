@@ -5,6 +5,7 @@ import {
   assigneesWithoutTeam,
   projectOwnerName,
   leftWhileSendingText,
+  leftWhileSendingNotice,
   TASK_FILES_MAX_BYTES,
   checkTaskFiles,
   keptTry,
@@ -421,10 +422,20 @@ describe('leaving the New task form while it is still sending (4a review #3)', (
     expect(leftWhileSendingText({ kind: 'refused', message: 'Couldn’t create the task. Please try again.' })).toBe('Couldn’t create the task. Please try again.');
   });
 
+  it('is said only to the person who sent it — never to the next person signed in (4b review #3)', () => {
+    expect(leftWhileSendingNotice({ kind: 'created', task }, 'ann', 'ann')).toBe('Created MICO-7, with its files.');
+    expect(leftWhileSendingNotice({ kind: 'created', task }, 'ann', 'bob')).toBeNull();
+    expect(leftWhileSendingNotice({ kind: 'kept', message: 'Saved on this phone — will sync when you’re online.' }, 'ann', null)).toBeNull();
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/const submitter = currentUserId\(\);/);
+    expect(screen).toMatch(/const told = leftWhileSendingNotice\(out, submitter, currentUserId\(\)\);/);
+    expect(screen).not.toMatch(/notice\(leftWhileSendingText\(out\)\)/);
+  });
+
   it('the files still being sent aren’t deleted when the form goes; the end of the sending deletes them', () => {
     const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
     expect(screen).toMatch(/if \(busy\.current\) return; \/\/ still sending: the end of submit deletes them/);
-    expect(screen).toMatch(/notice\(leftWhileSendingText\(out\)\)/);
+    expect(screen).toMatch(/if \(told\) notice\(told\);/);
   });
 });
 

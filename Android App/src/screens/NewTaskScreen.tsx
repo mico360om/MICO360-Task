@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useDirectory, useProjectColumns, useProjectMembers, useProjects } from '../core/queries';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useLastProject, useSendNewTask } from '../core/new-task';
+import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
 import { pickedFiles } from '../adapters/picked-files';
 import { Button, ErrorNote, TextField } from '../components/ui';
@@ -36,7 +37,7 @@ import {
   isDraftDirty,
   keptTry,
   keptTryProblem,
-  leftWhileSendingText,
+  leftWhileSendingNotice,
   leaveWarning,
   NEW_TASK_TEXT,
   newTaskDraft,
@@ -85,6 +86,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const qc = useQueryClient();
+  const { currentUserId } = useServices();
   // Company time: the due date is a company calendar day, and "today" for Describe is the company's.
   const timeZone = useSyncExternalStore(subscribeTimeZone, dateZones, dateZones).company;
   const today = companyTodayKey(new Date(), timeZone);
@@ -317,18 +319,22 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     setSaving(true);
     setBanner(null);
     shownFraction.current.clear();
+    // Who sent it: what it says after the form has gone is for them only (4b review #3).
+    const submitter = currentUserId();
     try {
       const out = await send({ input: check.input, key: key.current, files, onFile: patchFile });
       const projectId = check.input.projectId;
       if (!mounted.current) {
         // The form was left while it was sending (4a review): the files are let go now, and how it
-        // ended is still told. Nothing here moves the screen the person is on now.
-        if (out.kind === 'created' || out.kind === 'files-failed' || out.kind === 'kept') {
+        // ended is still told — to the person who sent it, never to someone signed in since (4b
+        // review #3). Nothing here moves the screen the person is on now.
+        const told = leftWhileSendingNotice(out, submitter, currentUserId());
+        if (told && (out.kind === 'created' || out.kind === 'files-failed' || out.kind === 'kept')) {
           refresh(qc, createdTaskRefreshes(projectId));
           if (!projectFixed) rememberProject(projectId);
         }
         for (const f of files) void pickedFiles.forget(f.uri);
-        notice(leftWhileSendingText(out));
+        if (told) notice(told);
         return;
       }
       switch (out.kind) {
