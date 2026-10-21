@@ -18,9 +18,26 @@ describe('linking config (MOB-09)', () => {
     expect(state?.routes[0]).toMatchObject({ name: 'Reset', params: { token: 'AbC_d-9' } });
   });
 
-  it('still routes task and project links', () => {
+  it('still routes task links; a project link opens the project’s dashboard (5c), /board its board', () => {
     expect(getStateFromPath('task/t1', cfg)?.routes[0]).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
-    expect(getStateFromPath('project/p1', cfg)?.routes[0]).toMatchObject({ name: 'Board', params: { projectId: 'p1' } });
+    expect(getStateFromPath('project/p1', cfg)?.routes[0]).toMatchObject({ name: 'ProjectDetail', params: { projectId: 'p1' } });
+    expect(getStateFromPath('project/p1/board', cfg)?.routes[0]).toMatchObject({ name: 'Board', params: { projectId: 'p1' } });
+  });
+
+  it('opens Activity from its link (5c)', () => {
+    expect(getStateFromPath('activity', cfg)?.routes[0]).toMatchObject({ name: 'Activity' });
+  });
+
+  // The 3a rule (5c copy): an id that isn't an id (a path, spaces, too long) opens nothing.
+  it('opens nothing for a link whose id isn’t an id — never another API path', () => {
+    const open = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
+    expect(open('task/a%20b')).toBeUndefined();
+    expect(open(`meeting/${'x'.repeat(65)}`)).toBeUndefined();
+    expect(open('project/p1%3Fx%3D1')).toBeUndefined();
+    expect(open('project/..%2Fusers/board')).toBeUndefined();
+    // Real ids (cuid, uuid) still open.
+    expect(open('project/cmg1abcdef0001xyz')?.routes[0]?.params).toEqual({ projectId: 'cmg1abcdef0001xyz' });
+    expect(open('task/3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c')?.routes[0]?.params).toEqual({ taskId: '3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c' });
   });
 
   it('routes a meeting link to the meeting, and the meetings and action items paths to their screens', () => {

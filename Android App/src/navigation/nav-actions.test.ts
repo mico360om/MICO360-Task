@@ -12,6 +12,11 @@ describe('targetToAction', () => {
     expect(targetToAction({ screen: 'Notifications' })).toEqual({ type: 'tab', tab: 'Notifications' });
   });
 
+  it('pushes the project’s dashboard (5c)', () => {
+    expect(targetToAction({ screen: 'ProjectDetail', params: { projectId: 'p1' } })).toEqual({ type: 'stack', screen: 'ProjectDetail', params: { projectId: 'p1' } });
+    expect(targetToAction(notificationToTarget({ entityType: 'project', entityId: 'p2' }))).toEqual({ type: 'stack', screen: 'ProjectDetail', params: { projectId: 'p2' } });
+  });
+
   it('pushes the meeting and My Action Items, and switches to the Meetings tab', () => {
     expect(targetToAction({ screen: 'MeetingDetail', params: { meetingId: 'm1' } })).toEqual({ type: 'stack', screen: 'MeetingDetail', params: { meetingId: 'm1' } });
     expect(targetToAction({ screen: 'MyActionItems' })).toEqual({ type: 'stack', screen: 'MyActionItems' });
@@ -67,6 +72,14 @@ describe('drawer menu', () => {
     }
   });
 
+  it('offers Activity to everyone, under Alerts, as the website’s menu (5c)', () => {
+    const keys = DRAWER_ITEMS.map((i) => i.key);
+    expect(keys.slice(keys.indexOf('Notifications'), keys.indexOf('Notifications') + 2)).toEqual(['Notifications', 'Activity']);
+    expect(DRAWER_ITEMS.find((i) => i.key === 'Activity')).toMatchObject({ label: 'Activity', action: { type: 'stack', screen: 'Activity' } });
+    expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).toContain('Activity');
+    expect(activeDrawerKey('Activity')).toBe('Activity');
+  });
+
   it('offers Reports to administrators only (the server checks the role too)', () => {
     expect(drawerItemsFor(['ADMIN']).map((i) => i.key)).toContain('Reports');
     expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).not.toContain('Reports');
@@ -79,5 +92,21 @@ describe('drawer menu', () => {
     expect(activeDrawerKey('Calendar')).toBe('Calendar');
     expect(activeDrawerKey('SomethingElse')).toBeUndefined();
     expect(activeDrawerKey(undefined)).toBeUndefined();
+  });
+});
+
+describe('alertRoute (what a tap in the Alerts list opens)', () => {
+  it('opens a project alert’s dashboard (5c), and the task, meeting and chat as before', async () => {
+    const { alertRoute } = await import('./nav-actions');
+    const open = (entityType: string, entityId?: string) => alertRoute(targetToAction(notificationToTarget({ entityType, entityId })));
+    expect(open('project', 'p1')).toEqual({ name: 'ProjectDetail', params: { projectId: 'p1' } });
+    expect(open('task', 't1')).toEqual({ name: 'TaskDetail', params: { taskId: 't1' } });
+    expect(open('meeting', 'm1')).toEqual({ name: 'MeetingDetail', params: { meetingId: 'm1' } });
+    expect(open('conversation', 'c1')).toEqual({ name: 'Tabs', params: { screen: 'Chat' } });
+  });
+  it('stays on the list for an alert about nothing it can open', async () => {
+    const { alertRoute } = await import('./nav-actions');
+    expect(alertRoute(targetToAction(notificationToTarget({ entityType: 'digest', entityId: 'x' })))).toBeNull();
+    expect(alertRoute(targetToAction(notificationToTarget({ entityType: 'task', entityId: '../x' })))).toBeNull();
   });
 });

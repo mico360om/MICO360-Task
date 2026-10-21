@@ -10,6 +10,8 @@
  *   exists only while signed out (auth stack), the app screens only while signed in; both are
  *   listed here and React Navigation resolves whichever stack is mounted.
  */
+import { isSafeId } from '../lib/ids';
+
 export const LINKING_PREFIXES = ['mico360://', 'https://task.mico360.com'];
 
 /**
@@ -23,18 +25,30 @@ export function normalizeLinkPath(path: string): string {
 /** Params that name a screen in its header: set by the app as it opens one, never by a link. */
 const TITLE_PARAMS = ['title', 'projectName'];
 
+/** Params a link fills with an id (they go into API paths). */
+const ID_PARAMS = ['taskId', 'projectId', 'meetingId', 'conversationId'];
+
 interface LinkState {
   routes: Array<{ params?: object; state?: LinkState }>;
+}
+
+/** Does any route of the state carry an id that isn't an id (3a review)? */
+function hasBadId(state: LinkState): boolean {
+  return state.routes.some(
+    (r) => (r.params ? Object.entries(r.params).some(([k, v]) => ID_PARAMS.includes(k) && !isSafeId(v)) : false) || (r.state ? hasBadId(r.state) : false),
+  );
 }
 
 /**
  * The navigation state a link gives, without any header title it carried (`?title=…`,
  * `?projectName=…`): a link from an email or a web page can't make a screen call itself something
  * else. The screen shows its own name until its data says otherwise. Everything else a link
- * carries (the ids, a reset token) stays.
+ * carries (the ids, a reset token) stays — and a link whose id isn't an id (`chat/..%2F..%2Fx`)
+ * opens nothing at all (3a review).
  */
 export function withoutLinkTitles<S extends LinkState | undefined>(state: S): S {
   if (!state) return state;
+  if (hasBadId(state)) return undefined as S;
   return {
     ...state,
     routes: state.routes.map((r) => {
@@ -52,7 +66,10 @@ export const linkingConfig = {
     Reset: 'reset',
     // Signed-in (app stack)
     Tabs: { screens: { Notifications: 'notifications', Dashboard: 'home', Meetings: 'meetings' } },
-    Board: 'project/:projectId',
+    // A project link opens its dashboard, as the website's /projects/<id> does (5c); /board its board.
+    ProjectDetail: 'project/:projectId',
+    Board: 'project/:projectId/board',
+    Activity: 'activity',
     TaskDetail: 'task/:taskId',
     MeetingDetail: 'meeting/:meetingId',
     MyActionItems: 'my-action-items',

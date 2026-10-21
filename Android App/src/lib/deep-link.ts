@@ -1,3 +1,5 @@
+import { isSafeId } from './ids';
+
 /**
  * Where a push notification tap (or the app itself) sends you. URL links are read by the
  * navigator's linking config alone (navigation/linking), so there is one reading of every path.
@@ -5,6 +7,7 @@
 export type LinkTarget =
   | { screen: 'TaskDetail'; params: { taskId: string } }
   | { screen: 'Board'; params: { projectId: string } }
+  | { screen: 'ProjectDetail'; params: { projectId: string } }
   | { screen: 'MeetingDetail'; params: { meetingId: string } }
   | { screen: 'Meetings' }
   | { screen: 'MyActionItems' }
@@ -17,13 +20,15 @@ export type LinkTarget =
  * carries `entityType` + `entityId` (entityType is lowercase — `task` / `conversation` / `digest`,
  * and `meeting` once the server sends meeting notifications), so matching is case-insensitive. A
  * conversation opens the Chat tab (the push payload doesn't carry the title/kind a specific thread
- * needs); unknown/absent entities open the notifications list.
+ * needs); a project opens its dashboard (5c); unknown/absent entities open the notifications list.
  */
 export function notificationToTarget(data: Record<string, unknown>): LinkTarget {
   const entityType = typeof data.entityType === 'string' ? data.entityType.trim().toLowerCase() : '';
-  const entityId = typeof data.entityId === 'string' ? data.entityId : undefined;
+  // An id that isn't an id (a path, spaces, too long) opens nothing built from it (3a review).
+  if (typeof data.entityId === 'string' && data.entityId && !isSafeId(data.entityId)) return { screen: 'Notifications' };
+  const entityId = isSafeId(data.entityId) ? data.entityId : undefined;
   if (entityType === 'task' && entityId) return { screen: 'TaskDetail', params: { taskId: entityId } };
-  if (entityType === 'project' && entityId) return { screen: 'Board', params: { projectId: entityId } };
+  if (entityType === 'project' && entityId) return { screen: 'ProjectDetail', params: { projectId: entityId } };
   if (entityType === 'meeting' && entityId) return { screen: 'MeetingDetail', params: { meetingId: entityId } };
   if (entityType === 'conversation') return { screen: 'Chat' };
   return { screen: 'Notifications' };

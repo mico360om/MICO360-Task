@@ -31,6 +31,8 @@ export type AppStackParamList = {
   Calendar: undefined;
   Profile: undefined;
   Reports: undefined;
+  /** Who did what across your projects, as the website's Activity page (5c). */
+  Activity: undefined;
   Settings: undefined;
   ChatThread: { conversationId: string; title: string; kind: 'PROJECT' | 'DIRECT' };
   /** New project (no id) or Edit project — administrators (5b). */

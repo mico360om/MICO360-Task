@@ -1,4 +1,5 @@
 import { CATEGORY_LABEL } from './task-status';
+import { cumulative } from './chart';
 /**
  * Reports on the phone (admins): the exports offered (the same as the web portal and the extension),
  * their paths and file names, and the summary numbers on the Reports screen. Pure TypeScript.
@@ -8,12 +9,13 @@ import { CATEGORY_LABEL } from './task-status';
 export type ReportKind = 'export' | 'projects' | 'status' | 'workload' | 'timeseries';
 export type ReportFormat = 'xlsx' | 'pdf' | 'csv';
 
+/** The website's exports, by its names (pages/ReportsPage.tsx; tested to be the same). */
 export const EXPORT_REPORTS: readonly { kind: ReportKind; label: string; file: string }[] = [
-  { kind: 'export', label: 'Full report', file: 'tasks-report' },
-  { kind: 'projects', label: 'Projects', file: 'project-performance' },
-  { kind: 'status', label: 'Status', file: 'status-breakdown' },
-  { kind: 'workload', label: 'Workload', file: 'user-workload' },
-  { kind: 'timeseries', label: 'Trend', file: 'completion-trend' },
+  { kind: 'export', label: 'Full report (all sections)', file: 'tasks-report' },
+  { kind: 'projects', label: 'Project performance', file: 'project-performance' },
+  { kind: 'status', label: 'Task status', file: 'status-breakdown' },
+  { kind: 'workload', label: 'Employee workload', file: 'user-workload' },
+  { kind: 'timeseries', label: 'Completion trend', file: 'completion-trend' },
 ];
 
 export const REPORT_FORMATS: readonly { format: ReportFormat; label: string }[] = [
@@ -69,10 +71,18 @@ export interface TimeSeriesPoint {
   ideal: number;
 }
 
+/** Tasks completed in one 7-day bucket of the range (from its first day). */
+export interface VelocityPoint {
+  weekStart: string;
+  completed: number;
+}
+
 export interface TimeSeries {
   from?: string;
   to?: string;
   points: TimeSeriesPoint[];
+  /** Weekly completed counts (servers before 0.3.0 may leave it out). */
+  velocity?: VelocityPoint[];
   velocityPerWeek: number;
 }
 
@@ -176,6 +186,136 @@ export function statusBars(status: Record<string, number>): { category: string; 
   return entries
     .sort(([a], [b]) => rank(a) - rank(b))
     .map(([category, value]) => ({ category, label: CATEGORY_LABEL[category] ?? category, value: value || 0, pct: pct(value || 0, sum) }));
+}
+
+// ── A range of your own (5c) ────────────────────────────────────────────────
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "2026-09-25" → "25 Sep" (the calendar day as written, no time zone shift). */
+export function reportDay(key: string): string {
+  const [, m, d] = key.split('-');
+  return `${Number(d)} ${MONTHS[Number(m) - 1] ?? m}`;
+}
+
+/** A complete date (YYYY-MM-DD) with a plausible year — the website's date-box rule. */
+export function isWholeDate(value: string): boolean {
+  return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value) && value >= '2000-01-01';
+}
+
+/** Both ends are whole dates and the range ends before it starts (the website's rule). */
+export function isBackwards(from: string, to: string): boolean {
+  return isWholeDate(from) && isWholeDate(to) && from > to;
+}
+
+/** A whole date that is a real day (the server refuses 2026-02-30; a typed box can hold it). */
+function isRealDay(value: string): boolean {
+  if (!isWholeDate(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+/** The range two typed dates give: both real days, in order, not after today — else null (keep what is shown). */
+export function readRange(fromBox: string, toBox: string, today: string): { from: string; to: string } | null {
+  const from = fromBox.trim();
+  const to = toBox.trim();
+  if (!isRealDay(from) || !isRealDay(to) || from > to || to > today) return null;
+  return { from, to };
+}
+
+/**
+ * What is wrong with the typed dates, once a date is typed out (10 characters) — nothing while one
+ * is still being typed — and which range is still shown (the website's words).
+ */
+export function rangeProblem(fromBox: string, toBox: string, today: string, shown: { from: string; to: string }): string | null {
+  const from = fromBox.trim();
+  const to = toBox.trim();
+  const still = `Still showing ${reportDay(shown.from)} – ${reportDay(shown.to)}.`;
+  const typed = (v: string) => v.length >= 10;
+  if ((typed(from) && !isRealDay(from)) || (typed(to) && !isRealDay(to))) return `Enter a real date, as YYYY-MM-DD. ${still}`;
+  if (!typed(from) || !typed(to)) return null;
+  if (isBackwards(from, to)) return `The start date must be on or before the end date. ${still}`;
+  if (to > today) return `The end date can’t be after today. ${still}`;
+  return null;
+}
+
+/** The preset a range is (that many days, ending today), or null for a range of your own. */
+export function activePreset(range: { from: string; to: string }, today: string): number | null {
+  if (range.to !== today) return null;
+  const days = periodDays(range);
+  return (PERIOD_PRESETS as readonly number[]).includes(days) ? days : null;
+}
+
+/** The longest trend the server works out (it keeps the last 366 days of a longer range). */
+export const MAX_TREND_DAYS = 366;
+
+export function longRangeNote(range: { from: string; to: string }): string | null {
+  return periodDays(range) > MAX_TREND_DAYS ? `The trend shows the last ${MAX_TREND_DAYS} days of this range.` : null;
+}
+
+// ── The trend charts (5c), as the website's ────────────────────────────────
+
+/** A line's colour, by role: the screen picks the palette's colour for it. */
+export type LineTone = 'done' | 'muted' | 'danger' | 'brand';
+
+export interface TrendLine {
+  name: string;
+  values: number[];
+  tone: LineTone;
+  /** Shade the area under the line. */
+  area?: boolean;
+  /** A dashed reference line (the ideal burndown). */
+  dashed?: boolean;
+}
+
+/** The four trend charts and what each shows, in the website's words. */
+export const TREND_CHARTS: readonly { key: 'completion' | 'overdue' | 'burndown' | 'velocity'; title: string; about: (velocityPerWeek: number) => string }[] = [
+  { key: 'completion', title: 'Completion over time', about: () => 'Cumulative tasks created vs completed — are we keeping up?' },
+  { key: 'overdue', title: 'Overdue trend', about: () => 'Open tasks past their due date, each day.' },
+  { key: 'burndown', title: 'Burndown', about: () => 'Remaining open work vs an ideal linear burn.' },
+  { key: 'velocity', title: 'Velocity', about: (v) => `Tasks completed per week (${v}/wk average).` },
+];
+
+/** The trend's lines and weekly bars: created vs completed added up, overdue, burndown, velocity. */
+export function trendCharts(series: TimeSeries | null | undefined): {
+  labels: string[];
+  completion: TrendLine[];
+  overdue: TrendLine[];
+  burndown: TrendLine[];
+  velocity: { label: string; value: number }[];
+} {
+  const points = series?.points ?? [];
+  if (points.length === 0) return { labels: [], completion: [], overdue: [], burndown: [], velocity: velocityBars(series) };
+  return {
+    labels: points.map((p) => reportDay(p.date)),
+    completion: [
+      { name: 'Completed', values: cumulative(points.map((p) => p.completed || 0)), tone: 'done', area: true },
+      { name: 'Created', values: cumulative(points.map((p) => p.created || 0)), tone: 'muted' },
+    ],
+    overdue: [{ name: 'Overdue', values: points.map((p) => p.overdue || 0), tone: 'danger', area: true }],
+    burndown: [
+      { name: 'Remaining', values: points.map((p) => p.remaining || 0), tone: 'brand', area: true },
+      { name: 'Ideal', values: points.map((p) => p.ideal || 0), tone: 'muted', dashed: true },
+    ],
+    velocity: velocityBars(series),
+  };
+}
+
+function velocityBars(series: TimeSeries | null | undefined): { label: string; value: number }[] {
+  return (series?.velocity ?? []).map((w) => ({ label: `Week of ${reportDay(w.weekStart)}`, value: w.completed || 0 }));
+}
+
+/** What the on-time bar means. */
+export function onTimeText(c: CompletionStats): string {
+  return `${c.onTimeRate}% of completed tasks with a due date were delivered on time.`;
+}
+
+/** Each team member's assigned tasks, most first (narrowed to the chosen member). */
+export function workloadBars(rows: UserWorkloadRow[], userId: string): { label: string; value: number }[] {
+  return rows
+    .filter((w) => !userId || w.userId === userId)
+    .sort((a, b) => b.assigned - a.assigned)
+    .map((w) => ({ label: w.name || w.username, value: w.assigned }));
 }
 
 /** What happened in the period: tasks completed and created, overdue on its last day, weekly velocity. */

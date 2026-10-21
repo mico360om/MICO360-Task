@@ -21,6 +21,7 @@ export const DRAWER_ITEMS: readonly DrawerItem[] = [
   { key: 'MyActionItems', label: 'My Action Items', icon: '☑', action: { type: 'stack', screen: 'MyActionItems' } },
   { key: 'Chat', label: 'Chat', icon: '💬', action: { type: 'tab', tab: 'Chat' } },
   { key: 'Notifications', label: 'Alerts', icon: '🔔', action: { type: 'tab', tab: 'Notifications' } },
+  { key: 'Activity', label: 'Activity', icon: '📈', action: { type: 'stack', screen: 'Activity' } },
   { key: 'Calendar', label: 'Calendar', icon: '📅', action: { type: 'stack', screen: 'Calendar' } },
   { key: 'Reports', label: 'Reports', icon: '📊', action: { type: 'stack', screen: 'Reports' }, adminOnly: true },
   { key: 'Profile', label: 'Profile', icon: '👤', action: { type: 'stack', screen: 'Profile' } },

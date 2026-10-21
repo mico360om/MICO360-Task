@@ -64,6 +64,7 @@ import type { CalendarRange } from './calendar-data';
 import type { CalendarTask } from './calendar-model';
 import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
 import type { SummaryRequest } from './project-dashboard';
+import type { ApiActivityRow } from './activity-page';
 
 export interface TaskListParams {
   projectId?: string;
@@ -459,6 +460,10 @@ export function resourcesApi(client: ApiClient) {
     calendar: {
       range: (from: string, to: string) => data(client.get<Envelope<CalendarRange>>(`/calendar${queryString({ from, to })}`)),
       overdue: () => data(client.get<Envelope<CalendarTask[]>>('/tasks?overdue=true')),
+    },
+    /** The newest 50 things done in the projects you're on (the server scopes them), 5c. */
+    activity: {
+      recent: () => data(client.get<Envelope<ApiActivityRow[]>>('/activity')),
     },
     /** Reports (administrators): the same figures as the web portal, scoped by project / team member. */
     reports: {

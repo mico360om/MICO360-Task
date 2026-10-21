@@ -1,0 +1,138 @@
+/**
+ * The Reports charts (5c), drawn with plain React Native views: the app has no chart or SVG
+ * package. Bars are views whose width is their share of the largest; a line is thin views, one per
+ * piece between two points, each turned to its angle. The scale, grid and day labels follow the
+ * website's charts (components/LineChart.tsx and BarChart.tsx), and every chart can be read in words
+ * (TalkBack): a summary of each line and a table of the numbers. Pure, so it is tested here.
+ */
+
+/** Round a largest value up to a clean top for the scale (the website's niceCeil). */
+export function niceCeil(v: number): number {
+  if (v <= 1) return 1;
+  const step = Math.pow(10, Math.floor(Math.log10(v)));
+  return Math.ceil(v / step) * step;
+}
+
+/** The five grid lines' values, 0 to the top. */
+export function gridValues(top: number): number[] {
+  return [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(top * f));
+}
+
+/** Which days get a label under the chart: about `maxTicks` of them, always the last. */
+export function tickIndexes(n: number, maxTicks = 6): number[] {
+  const every = Math.max(1, Math.ceil(n / maxTicks));
+  const out: number[] = [];
+  for (let i = 0; i < n; i += 1) if (i % every === 0 || i === n - 1) out.push(i);
+  return out;
+}
+
+/**
+ * At most `max` of `n` points to draw, evenly spread, the first and last always: a year of days
+ * would otherwise be hundreds of views per line. The numbers table still lists every day.
+ */
+export function sampleIndexes(n: number, max: number): number[] {
+  if (n <= 0) return [];
+  if (n <= max) return Array.from({ length: n }, (_, i) => i);
+  const out = new Set<number>();
+  for (let i = 0; i < max; i += 1) out.add(Math.round((i * (n - 1)) / (max - 1)));
+  return [...out].sort((a, b) => a - b);
+}
+
+/** One thin view of a line: placed by its top-left corner, `width` long, turned by `angle` (radians) about its centre. */
+export interface Segment {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  angle: number;
+}
+
+/**
+ * The pieces of one line through `values` (only the points at `indexes` are drawn), in a plot area
+ * `width` × `height` whose scale tops out at `top`. One point is a dot in its place.
+ */
+export function lineSegments(
+  values: readonly number[],
+  indexes: readonly number[],
+  { width, height, top, thickness = 2 }: { width: number; height: number; top: number; thickness?: number },
+): Segment[] {
+  const n = values.length;
+  if (n === 0 || indexes.length === 0) return [];
+  const x = (i: number) => (n <= 1 ? width / 2 : (i / (n - 1)) * width);
+  const y = (v: number) => (1 - (Number.isFinite(v) ? v : 0) / top) * height;
+  const pts = indexes.map((i) => ({ x: x(i), y: y(values[i] ?? 0) }));
+  if (pts.length === 1) return [{ left: pts[0]!.x - thickness / 2, top: pts[0]!.y - thickness / 2, width: thickness, height: thickness, angle: 0 }];
+  const out: Segment[] = [];
+  for (let k = 1; k < pts.length; k += 1) {
+    const a = pts[k - 1]!;
+    const b = pts[k]!;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const cx = (a.x + b.x) / 2;
+    const cy = (a.y + b.y) / 2;
+    out.push({ left: cx - len / 2, top: cy - thickness / 2, width: len, height: thickness, angle: Math.atan2(b.y - a.y, b.x - a.x) });
+  }
+  return out;
+}
+
+/** A piece cut into dashes (`dash` long, `gap` apart) along its own direction. */
+export function dashed(seg: Segment, dash = 5, gap = 4): Segment[] {
+  const cos = Math.cos(seg.angle);
+  const sin = Math.sin(seg.angle);
+  const cx = seg.left + seg.width / 2;
+  const cy = seg.top + seg.height / 2;
+  const sx = cx - (seg.width / 2) * cos;
+  const sy = cy - (seg.width / 2) * sin;
+  const out: Segment[] = [];
+  for (let s = 0; s < seg.width; s += dash + gap) {
+    const len = Math.min(dash, seg.width - s);
+    if (len < 0.5) break; // a sliver left over at the end isn't worth a view
+    const mx = sx + (s + len / 2) * cos;
+    const my = sy + (s + len / 2) * sin;
+    out.push({ left: mx - len / 2, top: my - seg.height / 2, width: len, height: seg.height, angle: seg.angle });
+  }
+  return out;
+}
+
+/** A bar's width as a share (0–100) of the largest value (the website's bar chart). */
+export function barPct(value: number, values: readonly number[]): number {
+  const max = Math.max(1, ...values);
+  return (Math.max(0, value) / max) * 100;
+}
+
+/** A series added up day by day (the website's cumulative trend). */
+export function cumulative(vals: readonly number[]): number[] {
+  let sum = 0;
+  return vals.map((v) => (sum += v));
+}
+
+export interface ChartSeries {
+  name: string;
+  values: number[];
+}
+
+const hasData = (labels: readonly string[], series: readonly ChartSeries[]) => labels.length > 0 && series.some((s) => s.values.length > 0);
+
+/** A line chart in words: each line where it starts, where it ends and its highest. */
+export function chartSummary(title: string, labels: readonly string[], series: readonly ChartSeries[]): string {
+  if (!hasData(labels, series)) return `${title}: no data to chart yet.`;
+  const first = labels[0]!;
+  const last = labels[labels.length - 1]!;
+  if (labels.length === 1) return `${title}, ${first}. ${series.map((s) => `${s.name}: ${s.values[0] ?? 0}.`).join(' ')}`;
+  const lines = series.map((s) => {
+    const v0 = s.values[0] ?? 0;
+    const vn = s.values[s.values.length - 1] ?? 0;
+    return `${s.name}: ${v0} on ${first}, ${vn} on ${last}, highest ${Math.max(0, ...s.values)}.`;
+  });
+  return `${title}, ${first} to ${last}. ${lines.join(' ')}`;
+}
+
+/** The numbers under a chart, one row per day: "Remaining 5, Ideal 5". */
+export function chartRows(labels: readonly string[], series: readonly ChartSeries[]): { label: string; text: string }[] {
+  return labels.map((label, i) => ({ label, text: series.map((s) => `${s.name} ${s.values[i] ?? 0}`).join(', ') }));
+}
+
+/** A bar chart in words: "Tasks by status: To do 5, Done 3." */
+export function barsSummary(title: string, data: readonly { label: string; value: number }[]): string {
+  if (data.length === 0) return `${title}: no data to chart yet.`;
+  return `${title}: ${data.map((d) => `${d.label} ${d.value}`).join(', ')}.`;
+}

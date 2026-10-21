@@ -223,6 +223,14 @@ describe('resourcesApi.reports', () => {
   });
 });
 
+describe('resourcesApi.activity (5c)', () => {
+  it('reads the newest activity across your projects', async () => {
+    const { client, calls } = fakeClient();
+    await expect(resourcesApi(client).activity.recent()).resolves.toEqual([]);
+    expect(calls).toEqual([{ method: 'GET', path: '/activity' }]);
+  });
+});
+
 describe('resourcesApi.ai', () => {
   it('asks for checklist steps and a priority', async () => {
     const { client, calls } = fakeClient();
