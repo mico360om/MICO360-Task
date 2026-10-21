@@ -31,6 +31,15 @@ export interface TaskExportAttachment {
   picture?: Buffer | null;
 }
 
+/** A task linked by a dependency. */
+export interface TaskExportLink {
+  id: string;
+  key: string;
+  title: string;
+  /** Its column's name. */
+  status: string;
+}
+
 export interface TaskExportComment {
   id: string;
   /** The comment this one answers (a reply), or null. */
@@ -83,8 +92,9 @@ export interface TaskExportData {
    */
   meeting: { id: string; title: string | null; startAt: Date | null } | null;
   checklist: { text: string; done: boolean }[];
-  blockedBy: { key: string; title: string; status: string }[];
-  blocks: { key: string; title: string; status: string }[];
+  /** The tasks this one waits for, and those waiting for it (the export route keeps only those the reader may open). */
+  blockedBy: TaskExportLink[];
+  blocks: TaskExportLink[];
   attachments: TaskExportAttachment[];
   /** Oldest first. */
   comments: TaskExportComment[];
@@ -460,6 +470,9 @@ const personName = (u: { firstName: string | null; lastName: string | null; user
 /** Everything a task export shows, read in one go (deleted comments, tasks and meetings left out). */
 export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: string, now: () => Date = () => new Date()): TaskExportSource {
   const person = { select: { firstName: true, lastName: true, username: true } } as const;
+  const live = { deletedAt: null, project: { is: { deletedAt: null } } } as const;
+  const link = { id: true, key: true, title: true, column: { select: { name: true } } } as const;
+  const linked = (t: { id: string; key: string; title: string; column: { name: string } }): TaskExportLink => ({ id: t.id, key: t.key, title: t.title, status: t.column.name });
   return {
     async load(taskId) {
       const t = await prisma.task.findFirst({
@@ -473,8 +486,9 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
           watchers: { include: { user: person } },
           tags: { include: { tag: { select: { name: true } } } },
           checklist: { orderBy: { position: 'asc' }, select: { text: true, done: true } },
-          dependencies: { include: { dependsOn: { select: { key: true, title: true, deletedAt: true, column: { select: { name: true } } } } } },
-          dependedOnBy: { include: { task: { select: { key: true, title: true, deletedAt: true, column: { select: { name: true } } } } } },
+          // Linked tasks that are deleted, or in a deleted project, are left out.
+          dependencies: { where: { dependsOn: live }, include: { dependsOn: { select: link } } },
+          dependedOnBy: { where: { task: live }, include: { task: { select: link } } },
           attachments: { orderBy: { createdAt: 'asc' }, include: { uploadedBy: person } },
           comments: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, include: { user: person } },
           // The latest 500 changes (shown oldest first); the count says how many there are in all.
@@ -519,8 +533,8 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         isMilestone: t.isMilestone,
         meeting: t.meeting && !t.meeting.deletedAt ? { id: t.meeting.id, title: t.meeting.title, startAt: t.meeting.startAt } : null,
         checklist: t.checklist,
-        blockedBy: t.dependencies.filter((d) => !d.dependsOn.deletedAt).map((d) => ({ key: d.dependsOn.key, title: d.dependsOn.title, status: d.dependsOn.column.name })),
-        blocks: t.dependedOnBy.filter((d) => !d.task.deletedAt).map((d) => ({ key: d.task.key, title: d.task.title, status: d.task.column.name })),
+        blockedBy: t.dependencies.map((d) => linked(d.dependsOn)),
+        blocks: t.dependedOnBy.map((d) => linked(d.task)),
         attachments: t.attachments.map((a) => ({
           filename: a.filename,
           mimeType: a.mimeType,

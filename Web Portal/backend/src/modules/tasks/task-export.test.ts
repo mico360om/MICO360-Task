@@ -39,7 +39,7 @@ const task = (over: Partial<TaskExportData> = {}): TaskExportData => ({
     { text: 'Collect figures', done: true },
     { text: 'Write the summary', done: false },
   ],
-  blockedBy: [{ key: 'MICO-40', title: 'Close the books', status: 'Done' }],
+  blockedBy: [{ id: 't40', key: 'MICO-40', title: 'Close the books', status: 'Done' }],
   blocks: [],
   attachments: [file('sales-sep.xlsx', { sizeBytes: 48_213 })],
   comments: [{ id: 'c1', parentId: null, author: 'Omar Ahmed', at: new Date('2026-09-29T08:20:00Z'), body: 'Figures attached. أرقام سبتمبر جاهزة.', edited: false }],
@@ -356,7 +356,7 @@ describe('taskPdf: attachments', () => {
 
 describe('taskPdf: dependencies and activity', () => {
   it('shows Blocked by and Blocks as two tables', () => {
-    const t = task({ blockedBy: [{ key: 'MICO-40', title: 'Close the books', status: 'Done' }], blocks: [{ key: 'MICO-50', title: 'Publish the report', status: 'To do' }] });
+    const t = task({ blockedBy: [{ id: 't40', key: 'MICO-40', title: 'Close the books', status: 'Done' }], blocks: [{ id: 't50', key: 'MICO-50', title: 'Publish the report', status: 'To do' }] });
     const text = textOf(taskPdf(t, ctx));
     const i = (s: string) => text.indexOf(s);
     expect(i('Blocked by')).toBeGreaterThan(-1);

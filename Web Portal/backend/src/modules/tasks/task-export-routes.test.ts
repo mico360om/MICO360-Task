@@ -189,6 +189,34 @@ describe('Task export routes', () => {
     });
   });
 
+  it('lists only the blocking and waiting tasks the reader can open, in the PDF and the workbook, as the website does', async () => {
+    const linked: TaskExportData = {
+      ...data,
+      blockedBy: [
+        { id: 't2', key: 'HR-2', title: 'Hidden salary review', status: 'To do' },
+        { id: 't3', key: 'RIG-3', title: 'Order the parts', status: 'Done' },
+      ],
+      blocks: [{ id: 't4', key: 'HR-4', title: 'Hidden follow-up', status: 'To do' }],
+    };
+    const open = new Set(['t1', 't3']);
+    const canViewTask = vi.fn(async (_u: string, _r: string[], taskId: string) => open.has(taskId));
+    const app = await makeApp({ task: linked, extra: { canViewTask } });
+
+    const pdf = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(pdf.statusCode).toBe(200);
+    const text = inspectPdf(pdf.rawPayload).pages.flat().join(' ');
+    expect(text).toContain('Order the parts');
+    for (const hidden of ['HR-2', 'Hidden salary review', 'HR-4', 'Hidden follow-up']) expect(text, hidden).not.toContain(hidden);
+    expect(text).toContain('No other task waits for this one.');
+
+    const xlsx = await app.inject({ method: 'GET', url: '/tasks/t1/export.xlsx' });
+    const { sheets, text: cells } = inspectXlsx(xlsx.rawPayload);
+    const deps = cells[sheets.indexOf('Dependencies')]!.join(' ');
+    expect(deps).toContain('Order the parts');
+    for (const hidden of ['HR-2', 'Hidden salary review', 'HR-4', 'Hidden follow-up']) expect(deps, hidden).not.toContain(hidden);
+    expect(canViewTask.mock.calls.map((c) => c[2]).sort()).toEqual(['t1', 't1', 't2', 't2', 't3', 't3', 't4', 't4']);
+  });
+
   it('hides tasks the user cannot see (404), like opening the task', async () => {
     const app = await makeApp({ canView: false });
     expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' })).statusCode).toBe(404);

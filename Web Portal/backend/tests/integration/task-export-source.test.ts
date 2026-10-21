@@ -11,7 +11,7 @@ let taskId = '';
 let meetingId = '';
 
 async function cleanup() {
-  const projects = await prisma.project.findMany({ where: { code: CODE }, select: { id: true } });
+  const projects = await prisma.project.findMany({ where: { code: { in: [CODE, `${CODE}B`] } }, select: { id: true } });
   const ids = projects.map((p) => p.id);
   await prisma.task.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.meeting.deleteMany({ where: { title: { startsWith: 'TX export' } } });
@@ -87,6 +87,30 @@ describe('Task export source (integration)', () => {
     expect((await source.load(taskId))!.attachments).toEqual([
       expect.objectContaining({ filename: 'site.jpg', mimeType: 'image/jpeg', storageKey: 'abc.jpg', sizeBytes: 1234, uploadedBy: 'Bo Test' }),
     ]);
+  });
+
+  it('reads the blocking and waiting tasks with their ids (for the reader check), leaving out deleted ones and those of a deleted project', async () => {
+    const t = await prisma.task.findUniqueOrThrow({ where: { id: taskId }, select: { projectId: true, columnId: true, createdById: true } });
+    const other = await prisma.project.create({ data: { code: `${CODE}B`, name: 'TX Deleted Project', createdById: t.createdById, ownerId: t.createdById, deletedAt: new Date() } });
+    const otherColumn = await prisma.kanbanColumn.create({ data: { projectId: other.id, name: 'Open', category: 'TODO', position: 0 } });
+    const make = (key: string, title: string, projectId: string, columnId: string, deletedAt: Date | null = null) =>
+      prisma.task.create({ data: { key, title, projectId, columnId, createdById: t.createdById, deletedAt } });
+    const blocker = await make(`${CODE}-2`, 'Order the parts', t.projectId, t.columnId);
+    const gone = await make(`${CODE}-3`, 'Deleted blocker', t.projectId, t.columnId, new Date());
+    const elsewhere = await make(`${CODE}B-1`, 'In a deleted project', other.id, otherColumn.id);
+    const follower = await make(`${CODE}-4`, 'Publish the report', t.projectId, t.columnId);
+    await prisma.taskDependency.createMany({
+      data: [
+        { taskId, dependsOnTaskId: blocker.id },
+        { taskId, dependsOnTaskId: gone.id },
+        { taskId, dependsOnTaskId: elsewhere.id },
+        { taskId: follower.id, dependsOnTaskId: taskId },
+        { taskId: elsewhere.id, dependsOnTaskId: taskId },
+      ],
+    });
+    const loaded = (await source.load(taskId))!;
+    expect(loaded.blockedBy).toEqual([{ id: blocker.id, key: `${CODE}-2`, title: 'Order the parts', status: 'Doing' }]);
+    expect(loaded.blocks).toEqual([{ id: follower.id, key: `${CODE}-4`, title: 'Publish the report', status: 'Doing' }]);
   });
 
   it('reads the latest 500 changes, oldest first, and how many there are in all', async () => {
