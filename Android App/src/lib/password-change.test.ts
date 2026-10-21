@@ -4,9 +4,11 @@ import {
   PASSWORD_RULE_HINT,
   PasswordChangeNotSent,
   checkPasswordChange,
+  clearsPasswordFields,
   createChangeGate,
   createPasswordChange,
   isStrongPassword,
+  lateOutcomeText,
   passwordChangeProblem,
   refreshRaceOutcome,
   refusedRefreshOutcome,
@@ -223,5 +225,21 @@ describe('a refresh refused while a password change is on its way (6a review)', 
     expect(current()?.refreshToken).toBe('old-refresh');
     expect(result).toEqual({ keptHere: false, fingerprintStopped: false, message: 'Password changed. Sign in again with your new password.' });
     expect(gate.busy()).toBe(false);
+  });
+});
+
+describe('the password fields don’t outlive their use (6a review)', () => {
+  it('are emptied when the app goes to the background', () => {
+    expect(clearsPasswordFields('background')).toBe(true);
+    expect(clearsPasswordFields('inactive')).toBe(true);
+    expect(clearsPasswordFields('active')).toBe(false);
+  });
+
+  it('a change that finishes after the screen was left still says how it went', () => {
+    expect(lateOutcomeText({ ok: true, result: { keptHere: true, fingerprintStopped: false, message: 'Password changed. Other devices have been signed out; you’re still signed in here.' } })).toBe(
+      'Password changed. Other devices have been signed out; you’re still signed in here.',
+    );
+    expect(lateOutcomeText({ ok: false, error: new ApiError(400, 'VALIDATION', 'Current password is incorrect.') })).toBe('Your password wasn’t changed: Current password is incorrect.');
+    expect(lateOutcomeText({ ok: false, error: new NetworkError('lost') })).toBe('We couldn’t confirm the change. If you’re asked to sign in, use your new password.');
   });
 });

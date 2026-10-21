@@ -60,6 +60,21 @@ export function passwordChangeProblem(error: unknown): { field: PasswordField | 
   return { field: null, message: FALLBACK };
 }
 
+/** The password fields are emptied when the app leaves the screen for the background (6a review). */
+export function clearsPasswordFields(appState: string): boolean {
+  return appState === 'background' || appState === 'inactive';
+}
+
+/**
+ * How a change ended that finished after its screen was left — still said (6a review): the
+ * result's own words, or why the password wasn't changed (or that it may have been).
+ */
+export function lateOutcomeText(outcome: { ok: true; result: PasswordChangeResult } | { ok: false; error: unknown }): string {
+  if (outcome.ok) return outcome.result.message;
+  const p = passwordChangeProblem(outcome.error);
+  return p.unsure ? p.message : `Your password wasn’t changed: ${p.message}`;
+}
+
 export interface PasswordChangeDeps {
   /** POST /users/me/password: the fresh session's tokens (none from a server that doesn't give them). */
   send: (currentPassword: string, newPassword: string) => Promise<{ accessToken?: string; refreshToken?: string } | null | undefined>;
