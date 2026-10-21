@@ -55,11 +55,30 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 };
 
-/** The type to declare for an upload: the picker's, unless it's missing or generic, then by extension. */
+/**
+ * Other names Android's file providers give a type the server takes under its standard name only
+ * (3b review): the server refuses `text/comma-separated-values` though it takes `text/csv`.
+ */
+const TYPE_ALIASES: Record<string, string> = {
+  'text/comma-separated-values': 'text/csv',
+  'text/x-csv': 'text/csv',
+  'application/csv': 'text/csv',
+  'application/x-zip-compressed': 'application/zip',
+  'application/x-zip': 'application/zip',
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+};
+
+/**
+ * The type to declare for an upload: the picker's, unless it's missing or generic, then by
+ * extension; another name for a standard type becomes the standard one when the file's name agrees.
+ */
 export function uploadMimeType(filename: string, pickerType?: string | null): string {
   const t = (pickerType ?? '').trim().toLowerCase();
-  if (t && t !== 'application/octet-stream') return t;
   const ext = filename.toLowerCase().split('.').pop() ?? '';
+  const standard = TYPE_ALIASES[t];
+  if (standard) return MIME_BY_EXTENSION[ext] === standard ? standard : t;
+  if (t && t !== 'application/octet-stream') return t;
   return MIME_BY_EXTENSION[ext] ?? 'application/octet-stream';
 }
 

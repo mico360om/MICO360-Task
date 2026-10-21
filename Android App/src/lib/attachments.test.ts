@@ -32,6 +32,17 @@ describe('attachments', () => {
     expect(uploadPart({ uri: 'file:///x/تقرير.pdf', name: 'تقرير.pdf', mimeType: null })).toEqual({ uri: 'file:///x/تقرير.pdf', name: 'تقرير.pdf', type: 'application/pdf' });
   });
 
+  it('declares the standard type when Android names a CSV, ZIP or JPEG by another one the server refuses (3b review fix 11)', () => {
+    expect(uploadMimeType('data.csv', 'text/comma-separated-values')).toBe('text/csv');
+    expect(uploadMimeType('data.csv', 'text/x-csv')).toBe('text/csv');
+    expect(uploadMimeType('data.csv', 'application/csv')).toBe('text/csv');
+    expect(uploadMimeType('files.zip', 'application/x-zip-compressed')).toBe('application/zip');
+    expect(uploadMimeType('files.zip', 'application/x-zip')).toBe('application/zip');
+    expect(uploadMimeType('photo.jpg', 'image/jpg')).toBe('image/jpeg');
+    // An alias on a file whose name says something else is left as it is (the server decides).
+    expect(uploadMimeType('data.bin', 'text/comma-separated-values')).toBe('text/comma-separated-values');
+  });
+
   it('picks an icon by type', () => {
     expect(attachmentIcon('image/png')).toBe('🖼️');
     expect(attachmentIcon('application/pdf')).toBe('📕');
