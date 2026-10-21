@@ -2,7 +2,7 @@
 
 | In this folder | What it is |
 | --- | --- |
-| `MICO360-Tasks-Chrome-Extension-1.0.1.zip` | The extension for Chrome and Edge (Manifest V3, version 1.0.1) |
+| `MICO360-Tasks-Chrome-Extension-<version>.zip` | The extension for Chrome and Edge 116 or later (Manifest V3) |
 
 ## Install without the Web Store
 
@@ -11,6 +11,18 @@
 3. Turn on **Developer mode**.
 4. Click **Load unpacked** and choose the unzipped folder.
 5. Click the MICO360 icon and sign in.
+
+## Update it
+
+Chrome doesn't update an extension loaded this way. When the server has a newer version, the
+extension says so at the top of the app ("A newer version of MICO360 Tasks… is available") and in
+**Settings → About**, which also shows both versions.
+
+1. Unzip the new file **over the same folder**, replacing the old files.
+2. Open `chrome://extensions` and press **Reload** on MICO360 Tasks.
+
+You stay signed in, and changes waiting to sync are kept. (Loading it from a different folder
+installs a second copy, which starts signed out.)
 
 ## Publish to the Chrome Web Store
 

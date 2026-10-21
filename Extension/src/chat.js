@@ -1,7 +1,7 @@
 /**
- * Pure chat helpers for the extension popup + service worker. Framework-free and testable.
- * The popup fetches `/conversations` (inbox summaries) and `/users/directory`; these turn
- * that raw data into display rows and an unread total for the toolbar badge.
+ * Pure chat helpers for the Chat screen and the read cache. Framework-free and testable.
+ * The screen fetches `/conversations` (inbox summaries) and `/users/directory`; these turn
+ * that raw data into display rows, and keep deleted messages' text out of storage.
  */
 
 /** Inbox preview shown for a conversation whose latest message was deleted. */
@@ -32,11 +32,6 @@ export function messagePreview(m) {
   if (!m) return '';
   if (m.deletedAt) return DELETED_PREVIEW;
   return m.body || '';
-}
-
-/** Total unread messages across all of the user's conversations (for the badge). */
-export function unreadTotal(summaries) {
-  return (summaries ?? []).reduce((sum, s) => sum + (s?.unread || 0), 0);
 }
 
 /**

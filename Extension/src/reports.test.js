@@ -35,6 +35,8 @@ describe('report exports', () => {
     expect(fileNameFromDisposition('attachment')).toBeNull();
     expect(fileNameFromDisposition(null)).toBeNull();
     expect(fileNameFromDisposition('attachment; filename="../../evil.pdf"')).toBe('evil.pdf');
+    // A Windows-style path too, as on the web and Android.
+    expect(fileNameFromDisposition('attachment; filename="..\\..\\evil.pdf"')).toBe('evil.pdf');
   });
 });
 

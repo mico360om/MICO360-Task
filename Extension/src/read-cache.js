@@ -1,8 +1,24 @@
 import { isTransientFailure } from './errors.js';
 
 export const CACHE_PREFIX = 'cache:';
-/** Most recently cached responses kept on the device; older ones are evicted (EXT-05). */
+/**
+ * Most recently cached responses kept on the device; older ones are evicted (EXT-05). Chrome gives
+ * the extension unlimited storage, but a disk can still be full: a write that doesn't fit drops the
+ * older half and tries again, and a change waiting to sync is never refused for these copies
+ * (queue.js makes room for it).
+ */
 export const MAX_CACHE_ENTRIES = 200;
+
+/** Keep only the `keep` most recently cached responses in `storage`. Resolves how many were removed. */
+export async function pruneCache(storage, keep = MAX_CACHE_ENTRIES) {
+  const all = (await storage.get(null)) || {};
+  const entries = Object.entries(all)
+    .filter(([k]) => k.startsWith(CACHE_PREFIX))
+    .sort((a, b) => ((b[1] && b[1].cachedAt) || 0) - ((a[1] && a[1].cachedAt) || 0));
+  const drop = entries.slice(Math.max(0, keep)).map(([k]) => k);
+  if (drop.length) await storage.remove(drop);
+  return drop.length;
+}
 
 /**
  * Read-through cache for API GETs (offline support). A successful fetch is cached in the given
@@ -18,15 +34,7 @@ export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACH
   const cacheKey = (key) => `${CACHE_PREFIX}${key}`;
 
   /** Keep only the `keep` most recently cached entries. Returns how many were removed. */
-  async function prune(keep = maxEntries) {
-    const all = (await storage.get(null)) || {};
-    const entries = Object.entries(all)
-      .filter(([k]) => k.startsWith(CACHE_PREFIX))
-      .sort((a, b) => ((b[1] && b[1].cachedAt) || 0) - ((a[1] && a[1].cachedAt) || 0));
-    const drop = entries.slice(Math.max(0, keep)).map(([k]) => k);
-    if (drop.length) await storage.remove(drop);
-    return drop.length;
-  }
+  const prune = (keep = maxEntries) => pruneCache(storage, keep);
 
   async function save(k, env) {
     try {

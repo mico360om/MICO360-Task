@@ -36,6 +36,25 @@ describe('offline queue', () => {
     expect(item.idempotencyKey).toBe('k-1');
   });
 
+  it('when the device’s storage is full, saved copies of screens make room for a change waiting to sync', async () => {
+    // A full store (no room on the disk): here it is "full" while any copy is kept.
+    const copies = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`cache:k${i}`, { data: i, cachedAt: i }]));
+    const s = fakeStorage({ ...copies, theme: 'dark' }, { failSet: (obj, data) => 'syncQueue' in obj && Object.keys(data).some((k) => k.startsWith('cache:')) });
+    const item = await enqueue(s, { kind: 'comment.add', payload: { id: 't1', body: 'hi' }, userId: A });
+    expect((await getQueue(s)).map((i) => i.id)).toEqual([item.id]);
+    expect(Object.keys(s.data).sort()).toEqual(['syncQueue', 'theme']); // settings stay
+  });
+
+  it('gives way only as far as needed: the newest saved copies stay when dropping the older ones is enough', async () => {
+    const copies = Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`cache:k${i}`, { data: i, cachedAt: i }]));
+    const s = fakeStorage(copies, { failSet: (obj, data) => 'syncQueue' in obj && Object.keys(data).filter((k) => k.startsWith('cache:')).length > 100 });
+    await enqueue(s, { kind: 'comment.add', payload: { id: 't1', body: 'hi' }, userId: A });
+    const kept = Object.keys(s.data).filter((k) => k.startsWith('cache:'));
+    expect(kept).toHaveLength(100);
+    expect(kept).toContain('cache:k299');
+    expect(kept).not.toContain('cache:k0');
+  });
+
   it('XP-06: parallel enqueues never overwrite each other', async () => {
     const s = fakeStorage();
     await Promise.all(Array.from({ length: 20 }, (_, i) => enqueue(s, { kind: 'comment.add', payload: { i }, userId: A })));

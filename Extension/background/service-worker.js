@@ -7,7 +7,7 @@ import { createReadCache } from '../src/read-cache.js';
 import { rememberTask } from '../src/task-writes.js';
 
 const local = chrome.storage.local;
-const sessionStore = chrome.storage.session || null;
+const sessionStore = chrome.storage.session;
 const APP_PATH = 'app/app.html';
 /** The offline copies the app reads; a replayed task edit keeps its task's copy at the new version (H1). */
 const cache = createReadCache(local);
@@ -86,7 +86,7 @@ async function openApp(hash = '') {
       return;
     }
   } catch {
-    /* getContexts unavailable (Chrome < 116) — just open a new tab */
+    /* the tab closed meanwhile — just open a new one */
   }
   await chrome.tabs.create({ url: base + hash });
 }

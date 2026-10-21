@@ -2,11 +2,11 @@
 // signature (the backend does that on every request) — it only needs the caller's
 // own user id from the access token to support "assign to me".
 
-/** Base64url-decode a string to UTF-8 (browser + test environments). */
+/** Base64url-decode a string to UTF-8 (`atob` is there in Chrome, its service worker and Node 16+). */
 function base64UrlDecode(part) {
   let s = String(part).replace(/-/g, '+').replace(/_/g, '/');
   while (s.length % 4) s += '=';
-  const bin = typeof atob === 'function' ? atob(s) : Buffer.from(s, 'base64').toString('binary');
+  const bin = atob(s);
   try {
     // Recover UTF-8 (usernames/ids are ASCII in practice, but be safe).
     return decodeURIComponent(

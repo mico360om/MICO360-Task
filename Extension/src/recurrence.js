@@ -17,7 +17,7 @@ export const WEEK_OF_MONTH = [
   { week: -1, label: 'last' },
 ];
 
-/** A short description of a rule — the same wording as the web and Android apps. */
+/** A short description of a rule — the same wording as the server, web and Android apps (src/shared-copies.test.js). */
 export function recurrenceSummary(rule) {
   const unit = UNIT[rule.freq] || 'period';
   let s = `Repeats ${rule.interval === 1 ? `every ${unit}` : `every ${rule.interval} ${unit}s`}`;
@@ -51,11 +51,6 @@ export function isRecurring(task) {
  */
 export function isEarlierCopy(task) {
   return Boolean(task && task.recurrenceNextId);
-}
-
-/** Every copy of a series links to it. */
-export function inSeries(task) {
-  return Boolean(task && (task.recurrenceRule || task.recurrenceParentId));
 }
 
 function without(rule, ...keys) {

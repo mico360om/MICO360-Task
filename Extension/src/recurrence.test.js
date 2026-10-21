@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  recurrenceSummary, isRecurring, inSeries, withFreq, withInterval, toggleWeekday, withMonthlyMode, withNth,
+  recurrenceSummary, isRecurring, withFreq, withInterval, toggleWeekday, withMonthlyMode, withNth,
   withEnds, withCreateNext, togglePaused, nthWeekdayOf, isEarlierCopy,
 } from './recurrence.js';
 
@@ -22,11 +22,9 @@ describe('recurrenceSummary (same wording as the web and Android apps)', () => {
 });
 
 describe('series membership', () => {
-  it('the newest copy carries the rule; every copy links to the series', () => {
+  it('the newest copy carries the rule', () => {
     expect(isRecurring({ recurrenceRule: { freq: 'DAILY', interval: 1 } })).toBe(true);
     expect(isRecurring({ recurrenceRule: null, recurrenceParentId: 'x' })).toBe(false);
-    expect(inSeries({ recurrenceRule: null, recurrenceParentId: 'x' })).toBe(true);
-    expect(inSeries({})).toBe(false);
   });
 
   it('an earlier copy is one that already has its next copy', () => {

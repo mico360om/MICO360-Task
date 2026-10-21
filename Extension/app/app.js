@@ -10,6 +10,7 @@ import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
+import { showModal, returnFocus } from './dialog.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -24,8 +25,8 @@ import { SettingsScreen } from './screens/settings.js';
 import { ReportsScreen } from './screens/reports.js';
 
 const storage = chrome.storage.local;
-// The access token lives in memory-only session storage (EXT-07); local is the fallback on old Chrome.
-const sessionStore = chrome.storage.session || null;
+// The access token lives in memory-only session storage (EXT-07), never on disk.
+const sessionStore = chrome.storage.session;
 const NOTICE_KEY = 'mico360.loginNotice';
 
 const NAV = [
@@ -145,6 +146,7 @@ async function boot() {
 
   const app = new App({
     root, api, cache, auth, storage, apiBase, appBase, me, state, performMutation,
+    manifest: chrome.runtime.getManifest(),
     timeZone: safeTimeZone(stored.companyTimeZone || DEFAULT_TIME_ZONE),
   });
   app.start();
@@ -176,6 +178,7 @@ class App {
       apiBase: this.apiBase,
       appBase: this.appBase,
       me: this.me,
+      manifest: this.manifest,
       timeZone: this.timeZone,
       params: params || {},
       query: query || {},
@@ -234,6 +237,8 @@ class App {
     this.sync();
     this.refreshTimeZone();
     setInterval(() => this.refreshMeta(), 60000);
+    // No "newer version" banner: most releases change only the website, so a newer server doesn't
+    // mean a newer extension file. Settings → About shows both versions and how to update.
   }
 
   /** Company time zone from GET /config (cached for the next start; used by boards and due dates). */
@@ -269,7 +274,7 @@ class App {
   renderNav() {
     mount(this.navEl,
       NAV.filter((n) => !n.adminOnly || (this.me.roles || []).includes('ADMIN')).map((n) => el('a', { href: `#${n.path}`, class: 'navlink', dataset: { path: n.path } },
-        el('span', { class: 'ic' }, n.icon), el('span', {}, n.label),
+        el('span', { class: 'ic', 'aria-hidden': 'true' }, n.icon), el('span', {}, n.label),
         n.badge ? el('span', { class: 'badge nav-unread hidden' }) : null,
       )),
     );
@@ -290,7 +295,8 @@ class App {
     const sidebar = el('aside', { class: 'sidebar' },
       el('div', { class: 'brand' }, el('span', { class: 'n' }, el('span', { class: 'm' }, 'MICO'), '360')),
       this.navEl,
-      el('div', { class: 'side-foot' }, this.userEl),
+      el('div', { class: 'side-foot' }, this.userEl,
+        el('a', { class: 'side-ver', href: '#/settings', title: 'Versions and updates: Settings → About' }, `Version ${this.manifest?.version || ''}`)),
     );
     this.titleEl = el('h1', {}, 'Dashboard');
     this.connEl = el('span', { class: 'conn' });
@@ -322,7 +328,10 @@ class App {
   setActiveNav(path) {
     for (const a of this.root.querySelectorAll('.navlink')) {
       const p = a.dataset.path;
-      a.classList.toggle('active', p === '/' ? path === '/' : path.startsWith(p));
+      const active = p === '/' ? path === '/' : path.startsWith(p);
+      a.classList.toggle('active', active);
+      if (active) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
     }
   }
 
@@ -387,11 +396,20 @@ class App {
     const { route, params } = matched;
 
     if (route.overlay) {
+      // What opened the drawer (a board card, a task row), so focus can go back to it on close.
+      if (!this.overlay) {
+        const a = document.activeElement;
+        this.opener = { el: a && this.content.contains(a) ? a : null, taskId: params.taskId };
+      }
       this.closeOverlay();
       this.overlay = route.screen(this.ctx(params, query), () => this.closeOverlay(true));
       document.body.append(this.overlay);
+      // A modal dialog: focus moves in and stays in, the page behind is inert, Escape closes it.
+      this.releaseModal = showModal(this.overlay, { onEscape: () => this.closeOverlay(true) });
       return;
     }
+    const opener = this.opener; // set while a drawer is (or just was) open
+    this.opener = null;
     this.closeOverlay();
     this.contentBase = window.location.hash || '#/';
     this.titleEl.textContent = route.title;
@@ -403,9 +421,12 @@ class App {
     } catch (e) {
       this.content.append(el('div', { class: 'errbar' }, `Screen error: ${e.message}`));
     }
+    // Back from the drawer: focus the card or row that opened it once the screen has drawn it again.
+    if (opener) returnFocus(this.content, opener);
   }
 
   closeOverlay(navigateBack) {
+    if (this.releaseModal) { this.releaseModal(); this.releaseModal = null; }
     if (this.overlay) { this.overlay.remove(); this.overlay = null; }
     if (navigateBack) {
       if (this.contentBase && this.contentBase !== window.location.hash) window.location.hash = this.contentBase;

@@ -80,7 +80,7 @@ export async function ensureSession({ local, session, apiBase, fetchImpl = (...a
   if (!stored.refreshToken) {
     // Signed out: no stray access token may linger anywhere.
     if (stored.accessToken) await local.remove('accessToken');
-    if (session && session !== local) await session.remove('accessToken');
+    await session.remove('accessToken');
     return null;
   }
 
@@ -107,7 +107,7 @@ export async function ensureSession({ local, session, apiBase, fetchImpl = (...a
   }
 
   // Move a pre-hardening access token out of persistent storage.
-  if (stored.accessToken && session && session !== local) {
+  if (stored.accessToken) {
     const cur = (await session.get('accessToken')) || {};
     if (!cur.accessToken) await session.set({ accessToken: stored.accessToken });
     await local.remove('accessToken');
