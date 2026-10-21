@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, Switch, Pressable, StyleSheet, Alert, AppState, Linking } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Switch, Pressable, StyleSheet, Alert, AppState, Linking, AccessibilityInfo, findNodeHandle, type LayoutChangeEvent, type ScrollView } from 'react-native';
+import { reopenNote, type ReopenNote } from '../lib/reopen-note';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useSession, useMyQueuedChanges } from '../core/providers';
 import { useTheme, type ThemeMode } from '../core/theme';
@@ -46,6 +47,25 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
     savePrefs.mutate(next, { onError: (e) => setPrefsErr(prefsSaveProblem(e)) });
   };
   const openPage = (path: string) => void Linking.openURL(sitePageUrl(baseUrl, path)).catch(() => {});
+
+  // Reopened after a new time zone was saved: back to Calendar & dates, and say what was saved (6a review).
+  const scrollRef = useRef<ScrollView>(null);
+  const datesRef = useRef<View>(null);
+  // Taken once, when this Settings first renders (never by a re-render of the one being replaced).
+  const reopened = useRef<ReopenNote | null | undefined>(undefined);
+  if (reopened.current === undefined) reopened.current = reopenNote.take();
+  const onDatesLayout = (e: LayoutChangeEvent) => {
+    const note = reopened.current;
+    if (!note) return;
+    reopened.current = null;
+    const y = e.nativeEvent.layout.y;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - spacing.lg), animated: false });
+      const node = findNodeHandle(datesRef.current);
+      if (node) AccessibilityInfo.setAccessibilityFocus(node);
+      setTimeout(() => AccessibilityInfo.announceForAccessibility(note.announce), 700);
+    });
+  };
 
   // Read again on coming back (a password change on Profile ends fingerprint sign-in).
   useEffect(() => {
@@ -175,7 +195,7 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* The daily emails' time stays above the keyboard while typing. */}
-      <KeyboardAwareScrollView contentContainerStyle={styles.scroll}>
+      <KeyboardAwareScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         <SyncStatus />
 
         <View style={styles.section}>
@@ -285,7 +305,9 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
         {/* Only a server that knows the daily emails (1.5.0 and later) is offered them. */}
         {prefs && hasDailyEmails(prefs) ? <DailyEmailSettings prefs={prefs} /> : null}
 
-        <DateSettings />
+        <View ref={datesRef} onLayout={onDatesLayout} collapsable={false}>
+          <DateSettings />
+        </View>
 
         <View style={styles.section}>
           <SectionTitle>Security</SectionTitle>

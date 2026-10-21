@@ -6,6 +6,7 @@ import { CALENDAR_KEY, CALENDAR_MEETINGS_KEY, DATE_PREFERENCES_KEY } from './cal
 import { asyncStore } from '../adapters/async-storage';
 import { withAvatar, withDirectoryUser, type ApiAccountUser } from '../lib/account';
 import { createPasswordChange } from '../lib/password-change';
+import { reopenNote, zonesDiffer } from '../lib/reopen-note';
 import { DATE_ZONES_KEY, datePrefsSavedText, nextDateZones, withDatePatch, type DatePreferences } from '../lib/date-settings';
 import { dateZones, setDateZones } from '../lib/due-date';
 import { mergePreferences, type NotificationPreferences, type PreferencesUpdate } from '../lib/notification-prefs';
@@ -115,13 +116,16 @@ export function useSaveDatePreferences() {
       else void qc.invalidateQueries({ queryKey: DATE_PREFERENCES_KEY });
     },
     onSuccess: async (saved, _patch, ctx) => {
-      // Said before a new time zone opens the screens again (the Settings screen with them).
-      AccessibilityInfo.announceForAccessibility(datePrefsSavedText(ctx?.previous, saved));
+      const said = datePrefsSavedText(ctx?.previous, saved);
       qc.setQueryData(DATE_PREFERENCES_KEY, saved);
       // Read again through the offline copy, so an offline start has the new settings too.
       void qc.invalidateQueries({ queryKey: DATE_PREFERENCES_KEY });
       for (const queryKey of [CALENDAR_KEY, CALENDAR_MEETINGS_KEY]) void qc.invalidateQueries({ queryKey });
       const next = nextDateZones(dateZones(), { config: null, prefs: saved });
+      // A new zone opens every screen again: the reopened Settings returns to Calendar & dates and
+      // says what was saved then (said now, it would be cut off — 6a review).
+      if (zonesDiffer(dateZones(), next)) reopenNote.leave({ section: 'dates', announce: said });
+      else AccessibilityInfo.announceForAccessibility(said);
       await asyncStore.setItem(DATE_ZONES_KEY, JSON.stringify(next)).catch(() => {});
       setDateZones(next);
     },

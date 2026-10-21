@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Alert } from 'react-native';
+import { zoneChangeQuestion } from '../../lib/reopen-note';
 import { useColors } from '../../core/theme';
 import { useDatePreferences } from '../../core/calendar-queries';
 import { useSaveDatePreferences } from '../../core/account-queries';
@@ -46,6 +47,14 @@ export function DateSettings() {
     setProblem(null);
     save.mutate(patch, { onError: (e) => setProblem(prefsSaveProblem(e)) });
   };
+  /** A new zone reopens every screen: asked first, as anything unsaved elsewhere is lost (6a review). */
+  const changeZone = (timeZone: string | null) => {
+    const q = zoneChangeQuestion(timeZone);
+    Alert.alert(q.title, q.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: q.confirm, onPress: () => change({ timeZone }) },
+    ]);
+  };
 
   return (
     <View style={s.section}>
@@ -76,14 +85,15 @@ export function DateSettings() {
             options={choices}
             value={chosen}
             onChange={(v) => {
-              if (v && v !== chosen) change({ timeZone: v });
+              if (v && v !== chosen) changeZone(v);
             }}
             placeholder="Company default"
             disabled={loading}
             // Every zone can be reached by scrolling, not only by typing (6a review).
             limit={null}
           />
-          {own || unknown ? <Button title="Use the company time zone" variant="ghost" onPress={() => change({ timeZone: null })} disabled={save.isPending} /> : null}
+          {own || unknown ? <Button title="Use the company time zone" variant="ghost" onPress={() => changeZone(null)} disabled={save.isPending} /> : null}
+          <Muted>Changing it reloads the app’s screens, so every date shows in the new zone.</Muted>
         </View>
         {problem ? (
           <Text style={s.error} accessibilityRole="alert" accessibilityLiveRegion="assertive">
