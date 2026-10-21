@@ -41,7 +41,7 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined;
           // The rich-text editor (meeting notes) and what it is built on: loaded with the meeting
           // page only. First, so @tiptap/react doesn't land in vendor-react (its path has /react/).
-          if (/[\/](@tiptap|prosemirror-[^\/]+|orderedmap|rope-sequence|w3c-keyname|linkifyjs)[\/]/.test(id)) return 'vendor-editor';
+          if (/[/](@tiptap|prosemirror-[^/]+|orderedmap|rope-sequence|w3c-keyname|linkifyjs)[/]/.test(id)) return 'vendor-editor';
           // Only the leaf framework (react/react-dom/scheduler) goes in its own chunk — putting
           // react-router here creates a circular chunk with the rest of vendor.
           if (/[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react';
