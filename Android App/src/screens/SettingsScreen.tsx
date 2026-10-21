@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, Switch, Pressable, StyleSheet, Alert, AppState, Linking, AccessibilityInfo, findNodeHandle, type LayoutChangeEvent, type ScrollView } from 'react-native';
 import { reopenNote, type ReopenNote } from '../lib/reopen-note';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useServices, useSession, useMyQueuedChanges } from '../core/providers';
+import { useServices, useSession } from '../core/providers';
 import { useTheme, type ThemeMode } from '../core/theme';
 import { Card, SectionTitle, Button, Muted } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { DailyEmailSettings } from '../components/account/DailyEmailSettings';
 import { DateSettings } from '../components/account/DateSettings';
+import { SignOutButton } from '../components/account/SignOutButton';
 import { getPushPermission, openAppSettings, type PushPermission } from '../adapters/push';
 import { useNotificationPreferences, useServerVersion } from '../core/queries';
 import { useSavePreferences } from '../core/account-queries';
@@ -27,14 +28,12 @@ const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
 export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
   const { colors: c, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { auth, biometric, biometricLogin, session, push, baseUrl, signOut, app } = useServices();
+  const { auth, biometric, biometricLogin, session, push, baseUrl, app } = useServices();
   const serverVersion = useServerVersion().data?.version ?? null;
   const user = useSession()?.user;
-  const queued = useMyQueuedChanges();
   const [bioOn, setBioOn] = useState(false);
   const [keyArmed, setKeyArmed] = useState(false);
   const [bioBusy, setBioBusy] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
   const [pushPerm, setPushPerm] = useState<{ status: PushPermission; canAskAgain: boolean } | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const prefsQ = useNotificationPreferences();
@@ -166,28 +165,6 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
       setPushBusy(false);
       refreshPushPerm();
     }
-  }
-
-  async function doSignOut() {
-    setSigningOut(true);
-    try {
-      await signOut('user');
-    } finally {
-      setSigningOut(false);
-    }
-  }
-
-  function confirmLogout() {
-    const unsynced = queued.pending.length + queued.failed.length;
-    const message =
-      unsynced > 0
-        ? `${unsynced === 1 ? '1 change has' : `${unsynced} changes have`} not been saved to the server yet. ` +
-          'Signing out deletes them from this phone. Sign out anyway?'
-        : 'Are you sure you want to sign out?';
-    Alert.alert(unsynced > 0 ? 'Unsynced changes' : 'Sign out', message, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void doSignOut() },
-    ]);
   }
 
   const pushOff = pushPerm && pushPerm.status !== 'granted';
@@ -367,7 +344,7 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
           </Card>
         </View>
 
-        <Button title="Sign out" variant="secondary" onPress={confirmLogout} loading={signingOut} />
+        <SignOutButton />
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );

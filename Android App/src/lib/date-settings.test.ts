@@ -136,8 +136,12 @@ describe('what TalkBack hears after a date setting is saved', () => {
     expect(datePrefsSavedText({ timeZone: null, weekStart: 0 }, { timeZone: null, weekStart: 1 })).toBe('Saved. Weeks start on Monday.');
     expect(datePrefsSavedText({ timeZone: null, weekStart: 0 }, { timeZone: 'Europe/London', weekStart: 0 })).toBe('Saved. The calendar uses Europe/London.');
     expect(datePrefsSavedText({ timeZone: 'Europe/London', weekStart: 6 }, { timeZone: null, weekStart: 6 })).toBe('Saved. The calendar uses the company time zone.');
-    expect(datePrefsSavedText(undefined, { timeZone: null, weekStart: null })).toBe('Saved. Weeks start on Sunday.');
     expect(datePrefsSavedText({ timeZone: null, weekStart: 1 }, { timeZone: null, weekStart: 1 })).toBe('Saved.');
+  });
+
+  it('with nothing loaded before the save, says both the week start and the zone (6a review)', () => {
+    expect(datePrefsSavedText(undefined, { timeZone: null, weekStart: null })).toBe('Saved. Weeks start on Sunday. The calendar uses the company time zone.');
+    expect(datePrefsSavedText(null, { timeZone: 'Europe/London', weekStart: 1 })).toBe('Saved. Weeks start on Monday. The calendar uses Europe/London.');
   });
 });
 

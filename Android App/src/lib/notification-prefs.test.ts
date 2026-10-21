@@ -18,6 +18,7 @@ import {
   mergePreferences,
   prefsSaveProblem,
   readDailyEmailTime,
+  timeFieldKeyboard,
   type NotificationPreferences,
 } from './notification-prefs';
 import { ApiError, NetworkError } from './api-client';
@@ -138,5 +139,17 @@ describe('nothing saves the whole preferences object any more (6a review)', () =
     const resources = readFileSync(resolve(__dirname, './resources.ts'), 'utf8');
     expect(queries).not.toMatch(/useSaveNotificationPreferences/);
     expect(resources).not.toMatch(/setPreferences:/);
+  });
+});
+
+describe('typing the daily emails’ time on an Android keyboard (6a review)', () => {
+  it('uses a keyboard Android has (digits and a point), and reads what it can type', () => {
+    expect(timeFieldKeyboard('android')).toEqual({ keyboardType: 'decimal-pad', placeholder: 'HH.MM' });
+    expect(timeFieldKeyboard('ios')).toEqual({ keyboardType: 'numbers-and-punctuation', placeholder: 'HH:MM' });
+    expect(readDailyEmailTime('7,30')).toEqual({ ok: true, value: '07:30' });
+    expect(readDailyEmailTime('0730')).toEqual({ ok: true, value: '07:30' });
+    expect(readDailyEmailTime('730')).toEqual({ ok: true, value: '07:30' });
+    expect(readDailyEmailTime('1745')).toEqual({ ok: true, value: '17:45' });
+    expect(readDailyEmailTime('2460')).toEqual({ ok: false, error: 'Choose a time, for example 06:00.' });
   });
 });

@@ -23,7 +23,9 @@ import { createSyncController } from '../lib/sync-controller';
 import { createPushRegistrar } from '../lib/push-registrar';
 import { createBiometricGate } from '../lib/biometric-gate';
 import { createBiometricLogin } from '../lib/biometric-login';
-import { createSignOut } from '../lib/sign-out';
+import { createSignOut, zonesAfterSignOut } from '../lib/sign-out';
+import { dateZones, setDateZones } from '../lib/due-date';
+import { DATE_ZONES_KEY } from '../lib/date-settings';
 import { createExporter } from '../lib/exporter';
 import { createChangeGate, refreshRaceOutcome, settleRefusedRefresh, type ChangeGate } from '../lib/password-change';
 import { authApi } from '../lib/auth';
@@ -233,6 +235,12 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     },
     clearExports: () => exportFiles.clearAll(),
     clearPickedFiles: () => pickedFiles.clearAll(),
+    // The next person to sign in never gets this person's own time zone (6a review).
+    resetDateZones: async () => {
+      const next = zonesAfterSignOut(dateZones());
+      setDateZones(next);
+      await asyncStore.setItem(DATE_ZONES_KEY, JSON.stringify(next));
+    },
   });
 
   const exporter = createExporter({

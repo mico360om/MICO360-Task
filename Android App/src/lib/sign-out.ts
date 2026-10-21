@@ -1,4 +1,19 @@
 import type { Session } from './types';
+import type { DateZones } from './due-date';
+
+/** The question before "Sign out" (Settings and Profile), warning about changes not on the server yet. */
+export function signOutQuestion(unsynced: number): { title: string; message: string } {
+  if (unsynced <= 0) return { title: 'Sign out', message: 'Are you sure you want to sign out?' };
+  return {
+    title: 'Unsynced changes',
+    message: `${unsynced === 1 ? '1 change has' : `${unsynced} changes have`} not been saved to the server yet. Signing out deletes them from this phone. Sign out anyway?`,
+  };
+}
+
+/** The zones after a sign-out: the person's own is forgotten, the company's stays (6a review). */
+export function zonesAfterSignOut(zones: DateZones): DateZones {
+  return { company: zones.company, own: null };
+}
 
 /**
  * - `user`: the person chose "Sign out" in Settings (after being warned about unsynced changes).
@@ -33,6 +48,8 @@ export interface SignOutDeps {
   clearExports: () => Promise<unknown>;
   /** Delete the copies the file picker made (pictures picked for a profile or a project — 6a review). */
   clearPickedFiles?: () => Promise<unknown>;
+  /** Forget the person's own time zone, here and in what the phone kept (zonesAfterSignOut — 6a review). */
+  resetDateZones?: () => Promise<unknown>;
   /** Upper bound for each network step, so signing out offline is not blocked (default 5 s). */
   networkTimeoutMs?: number;
   /** Diagnostics hook for a step that failed (the sign-out still completes). */
@@ -114,6 +131,7 @@ export function createSignOut(deps: SignOutDeps) {
     await step('read-cache', () => deps.clearReadCache());
     await step('exports', () => deps.clearExports());
     if (deps.clearPickedFiles) await step('picked-files', () => deps.clearPickedFiles!());
+    if (deps.resetDateZones) await step('date-zones', () => deps.resetDateZones!());
     if (reason === 'user' && userId) await step('queue', () => deps.clearQueuedChanges(userId));
   }
 

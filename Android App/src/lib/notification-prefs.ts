@@ -101,10 +101,20 @@ export function dailyEmailChange(patch: Partial<DailyEmailPrefs>): PreferencesUp
   return { dailyEmails: patch };
 }
 
-/** A typed sending time as HH:MM ("7", "7:30", "7.30", Arabic digits), or the website's message. */
+/**
+ * A typed sending time as HH:MM ("7", "7:30", "7.30", "7,30", "0730", "730", Arabic digits), or the
+ * website's message. Android's number keyboard has no colon (6a review).
+ */
 export function readDailyEmailTime(input: string): { ok: true; value: string } | { ok: false; error: string } {
-  const r = parseTimeInput(input);
+  const t = input.trim().replace(',', '.');
+  const compact = /^\d{3,4}$/.test(t) ? `${t.slice(0, t.length - 2)}:${t.slice(-2)}` : t;
+  const r = parseTimeInput(compact);
   return r.ok && r.value ? { ok: true, value: r.value } : { ok: false, error: 'Choose a time, for example 06:00.' };
+}
+
+/** The keyboard for the time: Android has no "numbers and punctuation" one, so digits and a point. */
+export function timeFieldKeyboard(os: string): { keyboardType: 'decimal-pad' | 'numbers-and-punctuation'; placeholder: string } {
+  return os === 'ios' ? { keyboardType: 'numbers-and-punctuation', placeholder: 'HH:MM' } : { keyboardType: 'decimal-pad', placeholder: 'HH.MM' };
 }
 
 /** What "Send me a test now" sent, in the website's words: an email with nothing in it isn't sent. */

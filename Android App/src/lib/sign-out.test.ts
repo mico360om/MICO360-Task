@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSignOut, type SignOutDeps } from './sign-out';
+import { createSignOut, signOutQuestion, zonesAfterSignOut, type SignOutDeps } from './sign-out';
 import type { Session } from './types';
 
 const session = (refreshToken = 'rt-1'): Session => ({
@@ -181,5 +181,21 @@ describe('sign-out leaves nothing of the person behind (6a review)', () => {
     const { signOut } = setup({ clearPickedFiles });
     await signOut.signOut('expired');
     expect(clearPickedFiles).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sign-out and the next person (6a review)', () => {
+  it('forgets the person’s own time zone (the company’s stays)', async () => {
+    const resetDateZones = vi.fn(async () => {});
+    const { signOut } = setup({ resetDateZones });
+    await signOut.signOut('user');
+    expect(resetDateZones).toHaveBeenCalledTimes(1);
+    expect(zonesAfterSignOut({ company: 'Asia/Dubai', own: 'Europe/London' })).toEqual({ company: 'Asia/Dubai', own: null });
+  });
+
+  it('asks before signing out, warning about changes not saved to the server yet (Settings and Profile)', () => {
+    expect(signOutQuestion(0)).toEqual({ title: 'Sign out', message: 'Are you sure you want to sign out?' });
+    expect(signOutQuestion(1)).toEqual({ title: 'Unsynced changes', message: '1 change has not been saved to the server yet. Signing out deletes them from this phone. Sign out anyway?' });
+    expect(signOutQuestion(3).message).toBe('3 changes have not been saved to the server yet. Signing out deletes them from this phone. Sign out anyway?');
   });
 });

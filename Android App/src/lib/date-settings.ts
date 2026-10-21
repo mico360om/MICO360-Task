@@ -151,12 +151,15 @@ export function withDatePatch(prev: DatePreferences | null | undefined, patch: P
   return { timeZone: prev?.timeZone ?? null, weekStart: prev?.weekStart ?? null, ...patch };
 }
 
-/** What was saved, for TalkBack (a new time zone opens the screens again, so the change is said). */
+/**
+ * What was saved, for TalkBack (a new time zone opens the screens again, so the change is said).
+ * With nothing loaded before the save, both settings are said (6a review).
+ */
 export function datePrefsSavedText(before: DatePreferences | null | undefined, saved: DatePreferences): string {
   const parts = ['Saved.'];
   const week = (p: DatePreferences | null | undefined) => (p?.weekStart === 1 || p?.weekStart === 6 ? p.weekStart : 0);
   if (!before || week(before) !== week(saved)) parts.push(`Weeks start on ${WEEK_START_OPTIONS.find((o) => o.value === week(saved))!.label}.`);
-  if (before && (before.timeZone ?? null) !== (saved.timeZone ?? null)) {
+  if (!before || (before.timeZone ?? null) !== (saved.timeZone ?? null)) {
     parts.push(saved.timeZone ? `The calendar uses ${saved.timeZone}.` : 'The calendar uses the company time zone.');
   }
   return parts.join(' ');

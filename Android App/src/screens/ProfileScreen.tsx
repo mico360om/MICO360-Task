@@ -10,6 +10,7 @@ import { pickedFiles } from '../adapters/files';
 import { Card, SectionTitle, Muted, Badge, Button, ErrorNote } from '../components/ui';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { ChangePasswordCard } from '../components/account/ChangePasswordCard';
+import { SignOutButton } from '../components/account/SignOutButton';
 import {
   AVATAR_TYPES,
   MY_DATA_EXPORT_PATH,
@@ -189,6 +190,8 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
             accessibilityLabel="Preferences and notifications, opens Settings"
             onPress={() => navigation.navigate('Settings')}
           />
+          {/* As on the website's Profile page (6a review). */}
+          <SignOutButton />
         </View>
       </KeyboardAwareScrollView>
     </SafeAreaView>
