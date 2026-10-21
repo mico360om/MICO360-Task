@@ -325,11 +325,12 @@ describe('Minutes PDF route: the project header', () => {
 });
 
 describe('Final minutes (Final MOM)', () => {
-  async function setup(opts: { ai?: (facts: string) => Promise<unknown>; notify?: unknown } = {}) {
+  async function setup(opts: { ai?: (facts: string) => Promise<unknown>; notify?: unknown; changed?: (meetingId: string) => void } = {}) {
     const attendeesOf: Record<string, string[]> = {};
     const aiFacts: string[] = [];
     const app = await makeApp(attendeesOf, undefined, opts.notify, {
       finalMinutesRepository: createMemoryFinalMinutesRepository(() => new Date('2026-10-14T08:00:00Z')),
+      ...(opts.changed ? { onFinalMinutesChanged: opts.changed } : {}),
       draftMinutesWithAi: async (facts: string) => {
         aiFacts.push(facts);
         if (!opts.ai) throw new ValidationError('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
@@ -445,6 +446,19 @@ describe('Final minutes (Final MOM)', () => {
     const theirs = inspectPdf((await call('GET', '/minutes.pdf', attendee)).rawPayload).pages.flat();
     expect(theirs).not.toContain('Final Minutes of Meeting');
     expect(theirs).not.toContain('Progress was reviewed and go-live moved.');
+  });
+
+  it('tells the meeting’s people when the final minutes are saved, approved or reopened — not for a draft never kept, or a refused change', async () => {
+    const changed = vi.fn();
+    const { call, id, attendee } = await setup({ changed });
+    await call('POST', '/final-minutes/draft', undefined, { source: 'notes' });
+    expect(changed).not.toHaveBeenCalled();
+    await call('PUT', '/final-minutes', undefined, { content });
+    await call('POST', '/final-minutes/approve');
+    await call('PUT', '/final-minutes', undefined, { content }); // final: refused (409)
+    await call('POST', '/final-minutes/reopen', attendee); // not theirs to reopen (403)
+    await call('POST', '/final-minutes/reopen');
+    expect(changed.mock.calls).toEqual([[id], [id], [id]]);
   });
 
   it('emails the final minutes once they are approved — never a Final MOM that is only drafted', async () => {

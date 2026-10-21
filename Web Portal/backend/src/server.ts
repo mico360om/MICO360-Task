@@ -1219,6 +1219,9 @@ async function main(): Promise<void> {
     // Final minutes (Final MOM): kept in the meeting_minutes table, drafted by the same AI as the other features.
     finalMinutesRepository: createPrismaFinalMinutesRepository(prisma),
     draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }) => aiFeatureService.draftMinutes(facts, requester),
+    // Final minutes saved, approved or reopened: `meeting:updated`, which every client (the apps
+    // since 2a included) already answers by loading the meeting, its final minutes and the lists.
+    onFinalMinutesChanged: (meetingId: string) => broadcastMeetingChange(meetingId, 'meeting:updated'),
     // The minutes PDF prints the project's picture: read it back from where uploads are stored.
     readProjectImage: async (url: string) =>
       url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null,
