@@ -8,7 +8,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ProjectsScreen } from '../app/screens/projects.js';
 import { BoardScreen } from '../app/screens/board.js';
-
+import { MyTasksScreen } from '../app/screens/my-tasks.js';
+import { ApiError } from './errors.js';
 import { fakeStorage } from './test-helpers.js';
 
 const TZ = 'Asia/Muscat';
@@ -289,5 +290,127 @@ describe('Board: add a task in any column with the new-task form', () => {
     col.dispatchEvent(over);
     expect(over.defaultPrevented).toBe(false);
     expect(col.classList.contains('drop')).toBe(false);
+  });
+});
+
+const MINE = [
+  { id: 'm1', key: 'RIG-1', title: 'Valve check', priority: 'LOW', projectId: 'p1', columnId: 'r1', columnCategory: 'TODO', dueDate: null, progress: 10 },
+  { id: 'm2', key: 'OPS-4', title: 'Approve invoices', priority: 'URGENT', projectId: 'p2', columnId: 'o1', columnCategory: 'IN_PROGRESS', dueDate: null, progress: 60 },
+  { id: 'm3', key: 'RIG-2', title: 'Book the crane', priority: 'HIGH', projectId: 'p1', columnId: 'r1', columnCategory: 'TODO', dueDate: null, progress: 0 },
+];
+const RIG_COLUMNS = [
+  { id: 'r1', name: 'To do', category: 'TODO', enabled: true, position: 0 },
+  { id: 'r8', name: 'Signed off', category: 'DONE', enabled: true, position: 9 },
+  { id: 'r9', name: 'Done', category: 'DONE', enabled: true, position: 5 },
+];
+
+function mineCtx(over = {}) {
+  return {
+    params: {}, query: {},
+    timeZone: TZ,
+    isOnline: () => true,
+    api: {
+      tasks: { mine: vi.fn(async () => ({ data: (over.tasks ?? MINE).map((t) => ({ ...t })) })) },
+      projects: {
+        list: vi.fn(async () => ({ data: PROJECTS })),
+        columns: vi.fn(async (pid) => ({ data: pid === 'p1' ? RIG_COLUMNS : over.otherColumns ?? [] })),
+      },
+    },
+    openTask: vi.fn(),
+    write: over.write ?? vi.fn(async (kind, p) => ({ queued: false, data: { ...MINE.find((t) => t.id === p.id), columnId: p.columnId, columnCategory: 'DONE', completedAt: '2026-10-21T08:00:00Z', progress: 100, version: 2 } })),
+    afterMutation: vi.fn(),
+  };
+}
+
+async function openMine(ctx) {
+  const root = MyTasksScreen(ctx);
+  document.body.append(root);
+  await settle();
+  return root;
+}
+const rowTitles = (root) => [...root.querySelectorAll('.task-row .tt')].map((n) => n.textContent);
+const section = (root, name) => [...root.querySelectorAll('.mt-section')].find((s) => s.querySelector('.section-title').textContent.startsWith(name));
+
+describe('My Tasks: filter by project, sort, and mark a task done', () => {
+  it('“Filter by project” lists the projects my tasks are in; picking one shows only its tasks; Reset shows all', async () => {
+    const root = await openMine(mineCtx());
+    const filter = byLabel(root, 'Filter by project');
+    expect([...filter.options].map((o) => o.textContent)).toEqual(['All projects', 'Office Ops', 'Rig Inspection']);
+    filter.value = 'p1';
+    filter.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(rowTitles(root).sort()).toEqual(['Book the crane', 'Valve check']);
+    byText(root, 'button', 'Reset').click();
+    expect(rowTitles(root)).toHaveLength(3);
+    expect(byLabel(root, 'Filter by project').value).toBe('');
+  });
+
+  it('“Sort tasks”: due date first by default, or priority, progress, title — within each group', async () => {
+    const root = await openMine(mineCtx());
+    const sort = byLabel(root, 'Sort tasks');
+    expect([...sort.options].map((o) => o.textContent)).toEqual(['Due date', 'Priority', 'Progress', 'Title (A–Z)']);
+    expect(sort.value).toBe('due');
+    const pick = (v) => { sort.value = v; sort.dispatchEvent(new Event('change', { bubbles: true })); };
+    pick('priority');
+    expect(rowTitles(root)).toEqual(['Approve invoices', 'Book the crane', 'Valve check']);
+    pick('progress');
+    expect(rowTitles(root)).toEqual(['Approve invoices', 'Valve check', 'Book the crane']);
+    pick('title');
+    expect(rowTitles(root)).toEqual(['Approve invoices', 'Book the crane', 'Valve check']);
+  });
+
+  it('“Mark done” moves a task to its project’s Done column: it goes to Completed, focus stays on it, and it says so', async () => {
+    const ctx = mineCtx();
+    const root = await openMine(ctx);
+    const btn = byLabel(root, 'Mark “Valve check” done');
+    expect(btn.tagName).toBe('BUTTON');
+    btn.focus();
+    btn.click();
+    await settle();
+    // The project's first Done column on its board (r9, position 5 — not r8 at 9).
+    expect(ctx.api.projects.columns).toHaveBeenCalledWith('p1');
+    expect(ctx.write).toHaveBeenCalledWith('task.move', { id: 'm1', columnId: 'r9', columnCategory: 'DONE' });
+    expect(section(root, 'Completed').textContent).toContain('Valve check');
+    expect(byLabel(root, 'Mark “Valve check” done')).toBeNull(); // a finished task has no button
+    expect(document.activeElement.dataset.taskId).toBe('m1');
+    expect(root.querySelector('.sr-only[role="status"]').textContent).toBe('“Valve check” is done.');
+    expect(ctx.afterMutation).toHaveBeenCalled();
+  });
+
+  it('kept on this device offline: shown done at once, saying it will sync', async () => {
+    const ctx = mineCtx({ write: vi.fn(async () => ({ queued: true, item: { id: 'q1' } })) });
+    const root = await openMine(ctx);
+    byLabel(root, 'Mark “Book the crane” done').click();
+    await settle();
+    expect(section(root, 'Completed').textContent).toContain('Book the crane');
+    expect(root.querySelector('.infobar').textContent).toBe('Saved on this device — it will sync when the connection is back.');
+  });
+
+  it('a refusal puts it back with the server’s words; a project without a Done column says so; a task not synced yet waits', async () => {
+    const ctx = mineCtx({ write: vi.fn(async () => { throw new ApiError(403, 'You do not have permission to do that.', 'FORBIDDEN'); }) });
+    const root = await openMine(ctx);
+    byLabel(root, 'Mark “Valve check” done').click();
+    await settle();
+    expect(root.querySelector('[role="alert"]').textContent).toBe('You do not have permission to do that.');
+    expect(section(root, 'Completed')).toBeUndefined();
+    expect(byLabel(root, 'Mark “Valve check” done')).toBeTruthy();
+
+    byLabel(root, 'Mark “Approve invoices” done').click(); // Office Ops has no Done column here
+    await settle();
+    expect(root.querySelector('[role="alert"]').textContent).toBe('This project has no Done column — open its board to move the task.');
+    expect(ctx.write).toHaveBeenCalledTimes(1);
+
+    const waiting = await openMine(mineCtx({ tasks: [{ ...MINE[0], id: 'tmp-q7' }] }));
+    byLabel(waiting, 'Mark “Valve check” done').click();
+    await settle();
+    expect(waiting.querySelector('[role="alert"]').textContent).toBe('This task is still waiting to sync — mark it done after it syncs.');
+  });
+
+  it('completing a repeating task reads the list again, so its next copy shows up', async () => {
+    const ctx = mineCtx({ tasks: [{ ...MINE[0], recurrenceRule: { freq: 'DAILY', interval: 1 } }] });
+    const root = await openMine(ctx);
+    byLabel(root, 'Mark “Valve check” done').click();
+    await settle();
+    expect(ctx.api.tasks.mine).toHaveBeenCalledTimes(2);
+    expect(rowTitles(root)).toEqual(['Valve check']);
   });
 });

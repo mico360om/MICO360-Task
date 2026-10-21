@@ -1,47 +1,73 @@
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
-import { groupTasksByDue } from '../../src/summary.js';
-import { taskRow, PRIORITY_LABEL } from '../components.js';
+import { groupTasksByDue, isDone } from '../../src/summary.js';
+import { taskRow, PRIORITY_LABEL, writeErrorMessage, SAVED_ON_DEVICE } from '../components.js';
+import { SORT_OPTIONS, sortTasks, projectFilterOptions, doneColumnOf } from '../../src/task-cards.js';
+import { isRecurring } from '../../src/recurrence.js';
+import { isTempId } from '../../src/pending-overlay.js';
 
 /**
- * My Tasks — every task assigned to me, with a client-side keyword search and priority
- * filter, grouped into Overdue / Due today / Upcoming / No due date / Completed sections
- * (mirrors the web + Android apps). Reads work offline via the read-through cache.
+ * My Tasks — every task assigned to me, with a keyword search, priority chips, a project filter
+ * and a sort (the web's: due date, priority, progress, title), grouped into Overdue / Due today /
+ * Upcoming / No due date / Completed sections (mirrors the web + Android apps). "Mark done" on an
+ * open task moves it to its project's Done column (src/task-cards.js doneColumnOf — the server
+ * completes a task moved there), sent now or kept on this device like a move on the board. Reads
+ * work offline via the read-through cache.
  */
 export function MyTasksScreen(ctx) {
   const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
   // ---- screen state (declared BEFORE load()/return to avoid a TDZ ReferenceError) ----
   let allTasks = [];
+  let projects = [];
   let search = '';
+  let project = '';
+  let sort = 'due';
+  let err = '';
+  let note = '';
+  let focusTaskId = null; // the row to focus after the next render (marked done from the keyboard)
   const activePriorities = new Set();
+  const marking = new Set(); // tasks being marked done (their button waits)
 
   const root = el('div');
 
   // Persistent toolbar (built once) so the search input keeps focus across re-renders;
   // only `resultsEl` is re-rendered as filters change.
   const searchInput = el('input', {
-    class: 'field', type: 'search', placeholder: 'Search tasks…',
+    class: 'field', type: 'search', placeholder: 'Search tasks…', 'aria-label': 'Search my tasks',
     style: { flex: '1', minWidth: '160px' },
     onInput: (e) => { search = e.currentTarget.value; syncReset(); renderResults(); },
   });
   const chipEls = PRIORITIES.map((p) =>
-    el('button', { class: 'chip', type: 'button', onClick: (e) => togglePriority(p, e.currentTarget) }, PRIORITY_LABEL[p]),
+    el('button', { class: 'chip', type: 'button', 'aria-pressed': 'false', onClick: (e) => togglePriority(p, e.currentTarget) }, PRIORITY_LABEL[p]),
   );
+  const projectSel = el('select', { class: 'field mt-select', 'aria-label': 'Filter by project', onChange: (e) => { project = e.currentTarget.value; syncReset(); renderResults(); } });
+  const sortSel = el('select', { class: 'field mt-select', 'aria-label': 'Sort tasks', onChange: (e) => { sort = e.currentTarget.value; renderResults(); } },
+    SORT_OPTIONS.map((o) => el('option', { value: o.value }, o.label)));
+  sortSel.value = sort;
   const resetBtn = el('button', { class: 'btn sm hidden', type: 'button', onClick: reset }, 'Reset');
   const staleTag = el('span', { class: 'stale-tag hidden' }, 'offline · saved');
-  const toolbar = el('div', { class: 'toolbar' }, searchInput, ...chipEls, resetBtn, staleTag);
+  const toolbar = el('div', { class: 'toolbar' }, searchInput, ...chipEls, projectSel,
+    el('span', { class: 'mt-sort' }, el('span', { 'aria-hidden': 'true' }, 'Sort'), sortSel), resetBtn, staleTag);
+  const messages = el('div');
+  const live = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
   const resultsEl = el('div');
 
   load();
   return root;
 
   async function load() {
-    mount(root, Loader());
+    const first = !allTasks.length;
+    if (first) mount(root, Loader());
     try {
-      const { data, stale } = await ctx.api.tasks.mine();
-      allTasks = data ?? [];
-      staleTag.classList.toggle('hidden', !stale);
-      mount(root, toolbar, resultsEl);
+      const [mine, list] = await Promise.all([
+        ctx.api.tasks.mine(),
+        ctx.api.projects && ctx.api.projects.list ? ctx.api.projects.list().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+      ]);
+      allTasks = mine.data ?? [];
+      projects = Array.isArray(list && list.data) ? list.data : [];
+      staleTag.classList.toggle('hidden', !mine.stale);
+      renderProjectFilter();
+      if (!root.contains(toolbar)) mount(root, toolbar, messages, resultsEl, live);
       syncReset();
       renderResults();
     } catch {
@@ -49,9 +75,18 @@ export function MyTasksScreen(ctx) {
     }
   }
 
+  function renderProjectFilter() {
+    const options = projectFilterOptions(allTasks, projects);
+    if (project && !options.some((o) => o.value === project)) project = '';
+    mount(projectSel, options.map((o) => el('option', { value: o.value }, o.label)));
+    projectSel.value = project;
+  }
+
   function togglePriority(p, btn) {
-    if (activePriorities.has(p)) { activePriorities.delete(p); btn.classList.remove('on'); }
-    else { activePriorities.add(p); btn.classList.add('on'); }
+    if (activePriorities.has(p)) activePriorities.delete(p);
+    else activePriorities.add(p);
+    btn.classList.toggle('on', activePriorities.has(p));
+    btn.setAttribute('aria-pressed', String(activePriorities.has(p)));
     syncReset();
     renderResults();
   }
@@ -59,27 +94,37 @@ export function MyTasksScreen(ctx) {
   function reset() {
     search = '';
     searchInput.value = '';
+    project = '';
+    projectSel.value = '';
     activePriorities.clear();
-    for (const c of chipEls) c.classList.remove('on');
+    for (const c of chipEls) { c.classList.remove('on'); c.setAttribute('aria-pressed', 'false'); }
     syncReset();
     renderResults();
   }
 
   function syncReset() {
-    const active = search.trim() !== '' || activePriorities.size > 0;
+    const active = search.trim() !== '' || activePriorities.size > 0 || project !== '';
     resetBtn.classList.toggle('hidden', !active);
   }
 
   function filtered() {
     const q = search.trim().toLowerCase();
     return allTasks.filter((t) => {
+      if (project && t.projectId !== project) return false;
       if (activePriorities.size && !activePriorities.has(t.priority)) return false;
       if (!q) return true;
       return `${t.title || ''} ${t.description || ''} ${t.key || ''}`.toLowerCase().includes(q);
     });
   }
 
+  function renderMessages() {
+    mount(messages,
+      err ? el('div', { class: 'errbar', role: 'alert' }, el('span', {}, err)) : null,
+      note ? el('div', { class: 'infobar', role: 'status' }, note) : null);
+  }
+
   function renderResults() {
+    renderMessages();
     if (allTasks.length === 0) {
       mount(resultsEl, Empty('No tasks assigned', 'Tasks assigned to you show up here.'));
       return;
@@ -100,13 +145,86 @@ export function MyTasksScreen(ctx) {
       section('No due date', g.noDue),
       section('Completed', g.completed),
     );
+    if (focusTaskId) {
+      const row = [...resultsEl.querySelectorAll('.task-row')].find((r) => r.dataset.taskId === focusTaskId);
+      focusTaskId = null;
+      if (row) row.focus();
+    }
   }
 
   function section(label, tasks) {
     if (!tasks.length) return null;
-    return el('div', { style: { marginTop: '20px' } },
+    return el('div', { class: 'mt-section', style: { marginTop: '20px' } },
       el('div', { class: 'section-title' }, `${label} · ${tasks.length}`),
-      el('div', { class: 'list' }, tasks.map((t) => taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone }))),
+      el('div', { class: 'list' }, sortTasks(tasks, sort, ctx.timeZone).map(row)),
     );
+  }
+
+  /** A task's row; an open one has "Mark done" beside it (two controls, not one inside the other). */
+  function row(t) {
+    const line = taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone });
+    if (isDone(t)) return line;
+    return el('div', { class: 'task-row-wrap' }, line,
+      el('button', {
+        class: 'btn sm mark-done', type: 'button', 'aria-label': `Mark “${t.title}” done`, title: 'Move it to its project’s Done column',
+        disabled: marking.has(t.id), onClick: () => markDone(t),
+      }, el('span', { 'aria-hidden': 'true' }, '✓ '), 'Mark done'));
+  }
+
+  function fail(text) {
+    err = text;
+    note = '';
+    renderResults();
+  }
+
+  /**
+   * Move the task to its project's Done column (the server then completes it). A repeating task's
+   * next copy is made on the server, so the list is read again.
+   */
+  async function markDone(t) {
+    err = '';
+    if (isTempId(String(t.id))) {
+      fail('This task is still waiting to sync — mark it done after it syncs.');
+      return;
+    }
+    marking.add(t.id);
+    renderResults();
+    let columnId = null;
+    try {
+      const cols = await ctx.api.projects.columns(t.projectId);
+      columnId = doneColumnOf(cols && cols.data);
+    } catch (e) {
+      marking.delete(t.id);
+      fail(writeErrorMessage(e, 'Couldn’t mark it done — its board couldn’t be read. Check the connection and try again.'));
+      return;
+    }
+    if (!columnId) {
+      marking.delete(t.id);
+      fail('This project has no Done column — open its board to move the task.');
+      return;
+    }
+    const before = { columnId: t.columnId, columnCategory: t.columnCategory, completedAt: t.completedAt, progress: t.progress };
+    const repeats = isRecurring(t); // its next copy is made on the server (the reply may no longer say it repeats)
+    Object.assign(t, { columnId, columnCategory: 'DONE', completedAt: t.completedAt || new Date().toISOString(), progress: 100 });
+    focusTaskId = t.id;
+    try {
+      const r = await ctx.write('task.move', { id: t.id, columnId, columnCategory: 'DONE' });
+      marking.delete(t.id);
+      if (r.queued) note = SAVED_ON_DEVICE;
+      else {
+        note = '';
+        if (r.data && r.data.id === t.id) Object.assign(t, r.data);
+      }
+      live.textContent = `“${t.title}” is done.`;
+      if (!r.queued && repeats) await load();
+      else renderResults();
+    } catch (e) {
+      marking.delete(t.id);
+      Object.assign(t, before);
+      focusTaskId = null;
+      fail(writeErrorMessage(e, 'Couldn’t mark it done — please try again.'));
+    } finally {
+      ctx.afterMutation();
+    }
   }
 }

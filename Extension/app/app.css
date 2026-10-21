@@ -127,6 +127,12 @@ button { font: inherit; }
 .task-row.done .tt { text-decoration: line-through; color: var(--ink2); }
 .task-row .meta { font-size: 12px; color: var(--ink2); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
 .task-row .k { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink3); }
+/* My Tasks: a row and its "Mark done" button side by side (two controls, not one inside the other). */
+.task-row-wrap { display: flex; gap: 8px; align-items: stretch; }
+.task-row-wrap .task-row { flex: 1; min-width: 0; }
+.task-row-wrap .mark-done { flex: none; align-self: center; white-space: nowrap; }
+.mt-select { width: auto; min-width: 140px; max-width: 220px; padding-top: 6px; padding-bottom: 6px; }
+.mt-sort { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
 
 .pill { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 8px; border-radius: 999px; background: var(--ground); color: var(--ink2); white-space: nowrap; }
 .pill.LOW { color: var(--ink2); } .pill.NORMAL { color: var(--info); background: var(--info-soft); }
