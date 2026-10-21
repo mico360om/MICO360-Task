@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Every page's footer has "Get the apps": download the Android app or the Chrome extension straight
+  from the site. The extension comes with each website release, so it always matches the site (hover
+  over the link for how to install it); a download the site doesn't have isn't shown.
+
 ## [1.6.0] - 2026-10-21
 
 ### New features

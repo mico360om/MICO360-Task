@@ -5,10 +5,10 @@ import { resolve, relative, dirname } from 'node:path';
 // What Chrome is told about the extension (Manifest V3), and what the package ships.
 const ext = resolve(__dirname, '..');
 const manifest = JSON.parse(readFileSync(resolve(ext, 'manifest.json'), 'utf8'));
-/** The folders with code and pages (tools/release/build-release.mjs packages them, with icons/). */
+/** The folders with code and pages (tools/release/extension-package.mjs packages them, with icons/). */
 const CODE_DIRS = ['app', 'background', 'popup', 'src'];
 
-/** Every packaged file (as tools/release/build-release.mjs copies them), relative to the extension. */
+/** Every packaged file (as tools/release/extension-package.mjs copies them), relative to the extension. */
 function packagedText() {
   const out = [];
   for (const dir of CODE_DIRS) {
@@ -102,9 +102,9 @@ describe('packaged code', () => {
     expect(files).toContain('popup/popup.css');
     expect(files).toContain('app/app.css');
     expect(files.filter((f) => !existsSync(resolve(ext, f)))).toEqual([]);
-    const script = resolve(ext, '../tools/release/build-release.mjs');
+    const script = resolve(ext, '../tools/release/extension-package.mjs');
     if (!existsSync(script)) return; // the extension on its own, without the release tools
-    const m = /for \(const dir of (\[[^\]]+\])\)/.exec(readFileSync(script, 'utf8'));
+    const m = /export const EXTENSION_DIRS = (\[[^\]]+\])/.exec(readFileSync(script, 'utf8'));
     const packaged = JSON.parse(m[1].replace(/'/g, '"'));
     expect([...new Set(files.map((f) => f.split('/')[0]))].filter((d) => !packaged.includes(d))).toEqual([]);
   });
