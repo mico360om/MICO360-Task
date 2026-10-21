@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyTaskEvent, taskEventInvalidationKeys, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from './realtime';
+import { applyTaskEvent, taskEventRefreshes, boardRefreshes, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from './realtime';
 import type { ApiTask } from './types';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
@@ -57,19 +57,36 @@ describe('applyTaskEvent (A2 realtime)', () => {
   });
 });
 
-describe('taskEventInvalidationKeys (MOB-04)', () => {
-  it('refreshes every board date of the project, the task detail, My tasks and progress', () => {
-    expect(taskEventInvalidationKeys('p1', { id: 't9' })).toEqual([
-      ['tasks', 'project', 'p1'],
-      ['tasks', 'mine'],
-      ['project', 'p1', 'progress'],
-      ['task', 't9'],
-    ]);
+describe('taskEventRefreshes (MOB-04, precise since 1c)', () => {
+  const exact = (...queryKey: string[]) => ({ queryKey, exact: true });
+  const board = [{ queryKey: ['tasks', 'project', 'p1'] }, exact('project', 'p1', 'progress')];
+
+  it('a change to a task: its project’s board days and progress, the lists holding it, the task and its activity', () => {
+    for (const ev of ['task:updated', 'task:moved']) {
+      expect(taskEventRefreshes(ev, 'p1', { id: 't9' })).toEqual([...board, { listsHolding: 't9' }, exact('task', 't9'), exact('task', 't9', 'activity')]);
+    }
   });
 
-  it('skips the task key when the payload has no id', () => {
-    expect(taskEventInvalidationKeys('p1', {})).toHaveLength(3);
-    expect(taskEventInvalidationKeys('p1', null)).toHaveLength(3);
+  it('never the task’s other parts (they have their own events)', () => {
+    expect(taskEventRefreshes('task:updated', 'p1', { id: 't9' })).not.toContainEqual({ queryKey: ['task', 't9'] });
+  });
+
+  it('a new task may be yours: My tasks too', () => {
+    expect(taskEventRefreshes('task:created', 'p1', { id: 't9' })).toContainEqual({ queryKey: ['tasks', 'mine'] });
+    expect(taskEventRefreshes('task:updated', 'p1', { id: 't9' })).not.toContainEqual({ queryKey: ['tasks', 'mine'] });
+  });
+
+  it('a deleted task: the lists holding it and its details (which then say it’s gone)', () => {
+    expect(taskEventRefreshes('task:deleted', 'p1', { id: 't9' })).toEqual([...board, { listsHolding: 't9' }, exact('task', 't9')]);
+  });
+
+  it('without a task id: the board, My tasks and progress', () => {
+    expect(taskEventRefreshes('task:updated', 'p1', {})).toEqual([...board, { queryKey: ['tasks', 'mine'] }]);
+    expect(taskEventRefreshes('task:moved', 'p1', null)).toEqual([...board, { queryKey: ['tasks', 'mine'] }]);
+  });
+
+  it('after a reconnect: the board, its columns, My tasks and progress', () => {
+    expect(boardRefreshes('p1')).toEqual([...board, { queryKey: ['tasks', 'mine'] }, { queryKey: ['columns', 'p1'] }]);
   });
 
   it('listens to create / update / move / delete', () => {
