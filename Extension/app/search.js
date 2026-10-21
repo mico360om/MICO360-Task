@@ -12,11 +12,13 @@ export function isSearchShortcut(e) {
 }
 
 /**
- * The app's Ctrl+K: search opens over the screen — or over the task panel or another dialog, as on
- * the web; with search already open, focus goes back to its box. Chrome never gets the keys (its
- * Ctrl+K puts focus in the address bar). `open()` opens the search dialog. Returns whether it acted.
+ * The app's Ctrl+K: search opens over the screen — or over the task panel, as on the web; with
+ * search already open, focus goes back to its box. Chrome never gets the keys (its Ctrl+K puts
+ * focus in the address bar). `open()` opens the search dialog. `blocked()`: a dialog the screen
+ * waits on is open (a board's New task form) — then nothing opens, as with the Search button: a
+ * result's page would wait for that dialog to close, then jump there. Returns whether it acted.
  */
-export function searchShortcut(e, { doc = document, open }) {
+export function searchShortcut(e, { doc = document, open, blocked = () => false }) {
   if (!isSearchShortcut(e) || e.defaultPrevented) return false;
   e.preventDefault();
   const box = doc.querySelector('.search-dialog .search-input');
@@ -25,6 +27,7 @@ export function searchShortcut(e, { doc = document, open }) {
     if (typeof box.select === 'function') box.select();
     return true;
   }
+  if (blocked()) return false;
   open();
   return true;
 }

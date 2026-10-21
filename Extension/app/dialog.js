@@ -31,6 +31,14 @@ function findAgain(panel, d) {
     && (d.label ? n.getAttribute('aria-label') === d.label : !n.getAttribute('aria-label') && n.textContent.trim() === d.text)) || null;
 }
 
+/** The dialogs open on each page, oldest first, with what each one made inert. */
+const openDialogs = new WeakMap();
+
+function dialogsOn(doc) {
+  if (!openDialogs.has(doc)) openDialogs.set(doc, []);
+  return openDialogs.get(doc);
+}
+
 /**
  * Show `node` — already in the page — as a modal dialog. The element inside it with role="dialog"
  * takes focus; everything else on the page becomes inert (no focus, hidden from screen readers);
@@ -38,13 +46,19 @@ function findAgain(panel, d) {
  * calls `onEscape`. When part of the dialog is redrawn under the focused control, focus goes to the
  * same control again (or the dialog itself), so it never falls out — unless a click or Tab was
  * already taking it somewhere else in the dialog. Returns `release()`.
+ *
+ * Dialogs can be closed out of order: one closed under another leaves the page out of reach until
+ * the one on top closes too. A dialog taken off the page without `release()` lets go by itself.
  */
 export function showModal(node, { onEscape } = {}) {
   const doc = node.ownerDocument;
   const panel = node.matches('[role="dialog"]') ? node : node.querySelector('[role="dialog"]') || node;
   if (!panel.hasAttribute('tabindex')) panel.setAttribute('tabindex', '-1');
-  const inerted = [...doc.body.children].filter((n) => n !== node && !n.contains(node) && !n.hasAttribute('inert'));
+  const inerted = new Set([...doc.body.children].filter((n) => n !== node && !n.contains(node) && !n.hasAttribute('inert')));
   for (const n of inerted) n.setAttribute('inert', '');
+  const me = { node, inerted };
+  const stack = dialogsOn(doc);
+  stack.push(me);
 
   let last = null; // the control that had focus
   let heading = null; // where a Tab press is taking focus (a blur-save may redraw it away first)
@@ -53,6 +67,7 @@ export function showModal(node, { onEscape } = {}) {
   const covered = () => !!node.closest('[inert]');
 
   function onFocusIn(e) {
+    if (gone()) return;
     if (covered()) return;
     if (panel.contains(e.target)) {
       if (e.target !== panel) last = describe(e.target);
@@ -92,6 +107,7 @@ export function showModal(node, { onEscape } = {}) {
   }
 
   function onKeyDown(e) {
+    if (gone()) return;
     if (covered()) return;
     if (e.key === 'Tab') {
       trap(e);
@@ -125,18 +141,39 @@ export function showModal(node, { onEscape } = {}) {
     }, 0);
   });
 
+  /** Taken off the page without being released: let go now (the keys, focus and the page behind). */
+  function gone() {
+    if (node.isConnected) return false;
+    release();
+    return true;
+  }
+  const removal = new MutationObserver(() => { gone(); });
+
   doc.addEventListener('keydown', onKeyDown);
   doc.addEventListener('focusin', onFocusIn);
   observer.observe(panel, { childList: true, subtree: true });
+  removal.observe(doc.body, { childList: true, subtree: true });
   panel.focus();
 
-  return function release() {
+  function release() {
+    if (released) return;
     released = true;
     doc.removeEventListener('keydown', onKeyDown);
     doc.removeEventListener('focusin', onFocusIn);
     observer.disconnect();
-    for (const n of inerted) n.removeAttribute('inert');
-  };
+    removal.disconnect();
+    const i = stack.indexOf(me);
+    const newer = i >= 0 ? stack.slice(i + 1).reverse() : [];
+    if (i >= 0) stack.splice(i, 1);
+    for (const n of inerted) {
+      // A dialog opened after this one (over it) and still open needs `n` kept out of reach: it
+      // takes it over, and lets go of it when it closes.
+      const heir = newer.find((d) => d.node.isConnected && d.node !== n && !n.contains(d.node));
+      if (heir) heir.inerted.add(n);
+      else n.removeAttribute('inert');
+    }
+  }
+  return release;
 }
 
 /**

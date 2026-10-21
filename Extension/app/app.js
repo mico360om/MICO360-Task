@@ -317,9 +317,10 @@ class App {
     this.renderShell();
     window.addEventListener('hashchange', () => this.hold.run(() => this.route()));
     // Ctrl+K (⌘K) searches, as on the website — over the task panel too; with search open, back to
-    // its box. Chrome never gets the keys (its Ctrl+K would put focus in the address bar).
+    // its box. Chrome never gets the keys (its Ctrl+K would put focus in the address bar). Not over
+    // a dialog the screen waits on (a board's New task form): a result would wait for it, then jump.
     document.addEventListener('keydown', (e) => {
-      searchShortcut(e, { doc: document, open: () => openSearch(this.ctx({}, {})) });
+      searchShortcut(e, { doc: document, open: () => openSearch(this.ctx({}, {})), blocked: () => this.hold.busy() });
     });
     window.addEventListener('online', () => { this.state.online = true; this.renderStatus(); this.sync(); });
     window.addEventListener('offline', () => { this.state.online = false; this.renderStatus(); });
