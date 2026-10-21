@@ -14,7 +14,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import * as Notifications from 'expo-notifications';
 import { useServices, useUserId } from '../core/providers';
 import { useProjects } from '../core/queries';
-import { useChatRealtime } from '../core/useChatRealtime';
+import { useAppRealtime } from '../core/useAppRealtime';
 import { useTheme } from '../core/theme';
 import { spacing } from '../lib/theme';
 import { notificationToTarget } from '../lib/deep-link';
@@ -47,6 +47,9 @@ import { CalendarScreen } from '../screens/CalendarScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { ChatThreadScreen } from '../screens/ChatThreadScreen';
+import { MeetingsScreen } from '../screens/MeetingsScreen';
+import { MeetingDetailScreen } from '../screens/MeetingDetailScreen';
+import { MyActionItemsScreen } from '../screens/MyActionItemsScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -63,6 +66,7 @@ const TAB_ICON: Record<keyof TabsParamList, string> = {
   Dashboard: '🏠',
   MyTasks: '✓',
   Projects: '🗂',
+  Meetings: '👥',
   Chat: '💬',
   Notifications: '🔔',
   Settings: '⚙️',
@@ -70,7 +74,8 @@ const TAB_ICON: Record<keyof TabsParamList, string> = {
 
 /**
  * URL deep links (A0.3, MOB-09): mico360://task/<id>, mico360://project/<id>,
- * mico360://notifications and the e-mailed https://task.mico360.com/reset?token=… link.
+ * mico360://meeting/<id>, mico360://notifications and the e-mailed
+ * https://task.mico360.com/reset?token=… link.
  */
 // Typed against the app stack (the container ref's param list); the config also names the
 // signed-out auth screens, which React Navigation resolves when that stack is mounted.
@@ -101,6 +106,12 @@ function applyAction(action: NavAction): void {
     case 'Board':
       navigationRef.navigate('Board', action.params);
       break;
+    case 'MeetingDetail':
+      navigationRef.navigate('MeetingDetail', action.params);
+      break;
+    case 'MyActionItems':
+      navigationRef.navigate('MyActionItems');
+      break;
     case 'Calendar':
       navigationRef.navigate('Calendar');
       break;
@@ -113,11 +124,12 @@ function applyAction(action: NavAction): void {
   }
 }
 
-/** Subscribes to live chat events app-wide (A2.3) so the Chat inbox and threads stay current
- *  without polling. Rendered only when signed in; joins the user's project channel rooms. */
-function ChatRealtimeMount() {
+/** Subscribes to live chat and meeting events app-wide (A2.3, 2a) on one socket, so the Chat inbox,
+ *  threads and meetings stay current without polling. Rendered only when signed in; joins the user's
+ *  project rooms. */
+function RealtimeMount() {
   const { data: projects } = useProjects();
-  useChatRealtime((projects ?? []).map((p) => p.id));
+  useAppRealtime((projects ?? []).map((p) => p.id));
   return null;
 }
 
@@ -205,6 +217,7 @@ function MainTabs() {
       <Tabs.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Home' }} />
       <Tabs.Screen name="MyTasks" component={MyTasksScreen} options={{ title: 'My Tasks' }} />
       <Tabs.Screen name="Projects" component={ProjectsScreen} options={{ title: 'Projects' }} />
+      <Tabs.Screen name="Meetings" component={MeetingsScreen} options={{ title: 'Meetings' }} />
       <Tabs.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
       <Tabs.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Alerts' }} />
       <Tabs.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
@@ -328,13 +341,19 @@ export function RootNavigator() {
               component={TaskDetailScreen}
               options={({ route }) => ({ title: route.params.title ?? 'Task' })}
             />
+            <AppStack.Screen
+              name="MeetingDetail"
+              component={MeetingDetailScreen}
+              options={({ route }) => ({ title: route.params.title ?? 'Meeting' })}
+            />
+            <AppStack.Screen name="MyActionItems" component={MyActionItemsScreen} options={{ title: 'My Action Items' }} />
             <AppStack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Calendar' }} />
             <AppStack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
             <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports' }} />
             <AppStack.Screen name="ChatThread" component={ChatThreadScreen} options={{ title: 'Chat' }} />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />
-          <ChatRealtimeMount />
+          <RealtimeMount />
           <PushRegistrationMount />
           <TimeZoneMount />
           <UpdateBanner />

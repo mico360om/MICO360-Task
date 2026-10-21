@@ -9,8 +9,11 @@ import { projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
 import { newIdempotencyKey } from '../lib/idempotency';
+import { withoutOldMeetings } from '../lib/meeting-list';
+import { withAnswer } from '../lib/meeting-detail';
+import { findMeeting } from '../lib/meeting-screen';
 import type { SyncQueue } from '../lib/sync-queue';
-import type { ApiTask } from '../lib/types';
+import type { ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
 import type { NotificationPreferences } from '../lib/notification-prefs';
 import type { ReportFilters } from '../lib/reports';
 
@@ -373,6 +376,101 @@ export function useProjectMeetings(projectId: string) {
         throw e;
       }),
     enabled: !!projectId,
+  });
+}
+
+// ── Meetings: taking part (the Meetings tab, one meeting, my answer, my action items) ──
+/** Every meeting I can see, or only the ones I organize. */
+export type MeetingScope = 'all' | 'mine';
+
+/**
+ * The Meetings tab's list, kept for an offline start under a fixed name per scope. A list too long
+ * to keep whole leaves out meetings older than 90 days.
+ */
+export function useMeetings(scope: MeetingScope) {
+  const { resources, reads } = useServices();
+  return useQuery({
+    queryKey: ['meetings', 'list', scope],
+    queryFn: ({ queryKey }) =>
+      reads.read(queryKey, `meetings.list.${scope}`, () => resources.meetings.list({ mine: scope === 'mine' }), { slim: withoutOldMeetings(Date.now()) }),
+  });
+}
+
+/**
+ * One meeting. It shows at once from a list that holds it (the Meetings tab's, the calendar's —
+ * also offline, from their offline copies), and is then loaded fresh with its series and `canEdit`.
+ */
+export function useMeeting(meetingId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ['meeting', meetingId],
+    queryFn: () => resources.meetings.get(meetingId),
+    enabled: !!meetingId,
+    initialData: () => findMeeting(qc.getQueriesData({ queryKey: ['meetings'] }).map(([, data]) => data), meetingId),
+    // From a list: shown, but out of date at once, so the meeting itself is loaded too.
+    initialDataUpdatedAt: 0,
+  });
+}
+
+export function useMeetingAttendees(meetingId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['meeting', meetingId, 'attendees'], queryFn: () => resources.meetings.attendees(meetingId), enabled: !!meetingId });
+}
+
+export function useMeetingAgenda(meetingId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['meeting', meetingId, 'agenda'], queryFn: () => resources.meetings.agenda(meetingId), enabled: !!meetingId });
+}
+
+export function useMeetingNotes(meetingId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['meeting', meetingId, 'notes'], queryFn: () => resources.meetings.notes(meetingId), enabled: !!meetingId });
+}
+
+export function useMeetingActionItems(meetingId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['meeting', meetingId, 'action-items'], queryFn: () => resources.meetings.actionItems(meetingId), enabled: !!meetingId });
+}
+
+export function useFinalMinutes(meetingId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['meeting', meetingId, 'final-minutes'], queryFn: () => resources.meetings.finalMinutes(meetingId), enabled: !!meetingId });
+}
+
+/**
+ * Answer my own invitation. The answer shows at once and goes back if the server refuses it; the
+ * server's copy of my row replaces it after — nothing else is fetched again (the answer shows on no
+ * other screen; the others hear of it through the meeting's live event). Needs a connection.
+ */
+export function useRespondToMeeting(meetingId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  const key = ['meeting', meetingId, 'attendees'];
+  return useMutation({
+    mutationFn: ({ attendeeId, response }: { attendeeId: string; response: InvitationResponse }) => resources.meetings.respond(meetingId, attendeeId, response),
+    onMutate: async ({ attendeeId, response }) => {
+      await qc.cancelQueries({ queryKey: key, exact: true });
+      const previous = qc.getQueryData<ApiMeetingAttendee[]>(key);
+      if (previous) qc.setQueryData(key, withAnswer(previous, attendeeId, response));
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
+    onSuccess: (saved, { attendeeId }) => {
+      if (saved?.id === attendeeId) qc.setQueryData<ApiMeetingAttendee[]>(key, (list) => list?.map((a) => (a.id === attendeeId ? { ...a, ...saved } : a)));
+      else refresh(qc, [{ queryKey: key, exact: true }]);
+    },
+  });
+}
+
+/** Everything assigned to me across meetings — what is still to do, or all of it — kept for an offline start. */
+export function useMyActionItems(scope: 'open' | 'all') {
+  const { resources, reads } = useServices();
+  return useQuery({
+    queryKey: ['action-items', 'mine', scope],
+    queryFn: ({ queryKey }) => reads.read(queryKey, `action-items.mine.${scope}`, () => resources.meetings.myActionItems({ openOnly: scope === 'open' })),
   });
 }
 

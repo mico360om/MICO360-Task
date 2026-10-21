@@ -26,6 +26,25 @@ describe('parseDeepLink (A0.3)', () => {
   });
 });
 
+describe('meeting links (2a)', () => {
+  it('maps a meeting link (custom scheme or the website address) to the meeting', () => {
+    expect(parseDeepLink('mico360://meeting/m1')).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm1' } });
+    expect(parseDeepLink('https://task.mico360.com/meetings/m2')).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm2' } });
+    expect(parseDeepLink('mico360://meeting/')).toBeNull();
+  });
+
+  it('maps the meetings list and My Action Items', () => {
+    expect(parseDeepLink('mico360://meetings')).toEqual({ screen: 'Meetings' });
+    expect(parseDeepLink('https://task.mico360.com/my-action-items')).toEqual({ screen: 'MyActionItems' });
+  });
+
+  it('opens the meeting from a notification about it', () => {
+    expect(notificationToTarget({ entityType: 'meeting', entityId: 'm5' })).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm5' } });
+    expect(notificationToTarget({ entityType: 'Meeting', entityId: 'm5' })).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm5' } });
+    expect(notificationToTarget({ entityType: 'meeting' })).toEqual({ screen: 'Notifications' });
+  });
+});
+
 describe('notificationToTarget (A6.2 — deep-link on push tap)', () => {
   it('routes a task notification to TaskDetail — matching the backend’s lowercase entityType', () => {
     // the backend sends entityType: 'task' (lowercase); matching must be case-insensitive

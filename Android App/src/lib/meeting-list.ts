@@ -7,8 +7,8 @@
  */
 import type { ApiMeeting, MeetingStatus } from './types';
 import { appTimeZone, zonedDayKey } from './due-date';
-import { clockTime } from './meetings';
-import { MEETING_STATUS_LABELS } from './meeting-detail';
+import { clockTime, isRepeating, meetingPlace } from './meetings';
+import { MEETING_STATUS_LABELS, meetingWhen, minutesBadge } from './meeting-detail';
 
 export type DateRange = 'any' | 'today' | 'next7' | 'last7' | 'month' | 'last30';
 
@@ -186,6 +186,42 @@ export function filterChips(f: MeetingFilters, sort: MeetingSort, ctx: Pick<List
   if (sort === 'title') chips.push({ key: 'sort', label: 'Sorted by title' });
   if (sort === 'updated') chips.push({ key: 'sort', label: 'Recently updated first' });
   return chips;
+}
+
+/** "No attendees yet", "1 person", "4 people". */
+export function peopleText(m: Pick<ApiMeeting, 'attendeeCount' | 'attendees'>): string {
+  const n = m.attendeeCount ?? m.attendees?.length ?? 0;
+  if (!n) return 'No attendees yet';
+  return `${n} ${n === 1 ? 'person' : 'people'}`;
+}
+
+/**
+ * What TalkBack reads for a meeting's card: its title, day, time and place, the project (or
+ * standalone) and organizer, who is coming, its status when it isn't simply scheduled (or "Under
+ * way"), how far the minutes are, decisions, open action items, and whether it repeats.
+ */
+export function meetingCardLabel(m: ApiMeeting, ctx: ListContext, locale?: string, statusShown = true): string {
+  const when = meetingWhen(m, ctx.timeZone, locale);
+  const organizer = ctx.organizerName(m.organizerId);
+  const decisions = m.decisionCount ?? 0;
+  const open = m.openActionItemCount ?? 0;
+  const status = isUnderWay(m, ctx.now) ? 'Under way' : m.status !== 'SCHEDULED' && statusShown ? MEETING_STATUS_LABELS[m.status] : null;
+  return [
+    m.title,
+    when.day,
+    when.time,
+    meetingPlace(m),
+    m.projectId ? ctx.projectName(m.projectId) ?? 'A project' : 'Standalone',
+    organizer ? `organized by ${organizer}` : null,
+    peopleText(m),
+    status,
+    minutesBadge(m.minutes)?.label,
+    decisions ? `${decisions} ${decisions === 1 ? 'decision' : 'decisions'}` : null,
+    open ? `${open} open action ${open === 1 ? 'item' : 'items'}` : null,
+    isRepeating(m) ? 'repeats' : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
 }
 
 /** One row of the Meetings list: a group's heading, or a meeting. */

@@ -12,6 +12,7 @@ export type TabsParamList = {
   Dashboard: undefined;
   MyTasks: undefined;
   Projects: undefined;
+  Meetings: undefined;
   Chat: undefined;
   Notifications: undefined;
   Settings: undefined;
@@ -22,6 +23,8 @@ export type AppStackParamList = {
   Board: { projectId: string; projectName?: string };
   ProjectDetail: { projectId: string; projectName?: string };
   TaskDetail: { taskId: string; title?: string };
+  MeetingDetail: { meetingId: string; title?: string };
+  MyActionItems: undefined;
   Calendar: undefined;
   Profile: undefined;
   Reports: undefined;

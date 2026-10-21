@@ -2,8 +2,8 @@
  * Chat realtime wiring (A2.3), mirroring the web app's socket event names. The board has its own
  * realtime (see useBoardRealtime); this is the user/DM + project-channel side. The backend emits
  * these to the socket's project rooms (channel messages) and to the auto-joined `user:<id>` room
- * (direct messages). Pure so the invalidation logic is unit-testable; the RN socket lives in
- * core/useChatRealtime.
+ * (direct messages). Pure so the invalidation logic is unit-testable; the RN socket (shared with
+ * the meeting events) lives in core/useAppRealtime.
  */
 export const CHAT_EVENTS = [
   'chat:message',

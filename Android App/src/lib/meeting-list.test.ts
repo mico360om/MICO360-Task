@@ -9,6 +9,7 @@ import {
   groupMeetings,
   hasActiveFilters,
   isUnderWay,
+  meetingCardLabel,
   meetingListRows,
   nextUpMeeting,
   startsLabel,
@@ -170,6 +171,33 @@ describe('Up next', () => {
     expect(startsLabel(m({ startAt: '2026-10-11T06:00:00.000Z' }), now, 'Asia/Muscat')).toBe('Tomorrow at 10:00');
     expect(startsLabel(m({ startAt: '2026-10-13T06:00:00.000Z' }), now, 'Asia/Muscat')).toBe('Tuesday at 10:00');
     expect(startsLabel(m({ startAt: '2026-10-20T06:00:00.000Z' }), now, 'Asia/Muscat')).toBe('Tue 20 Oct at 10:00');
+  });
+});
+
+describe('meetingCardLabel (what TalkBack reads for a card)', () => {
+  it('reads the title, when and where, the project and organizer, who is coming and how far it got', () => {
+    const card = m({
+      id: 'c1',
+      title: 'Budget review',
+      startAt: '2026-10-12T06:00:00.000Z',
+      endAt: '2026-10-12T07:00:00.000Z',
+      location: 'Room B',
+      projectId: 'p1',
+      attendeeCount: 3,
+      minutes: 'FINAL',
+      openActionItemCount: 2,
+      decisionCount: 1,
+      recurrenceParentId: 'r1',
+      status: 'COMPLETED',
+    });
+    expect(meetingCardLabel(card, ctx, 'en-US')).toBe(
+      'Budget review, Mon, Oct 12, 10:00 – 11:00, Room B, Falcon CRM, organized by Aisha Khan, 3 people, Completed, Final minutes, 1 decision, 2 open action items, repeats',
+    );
+  });
+
+  it('says a meeting is under way, standalone, and has nobody yet', () => {
+    const live = m({ id: 'l1', title: 'Stand-up', startAt: '2026-10-10T04:30:00.000Z', endAt: '2026-10-10T05:30:00.000Z', organizerId: 'u9', attendeeCount: 0 });
+    expect(meetingCardLabel(live, ctx, 'en-US')).toBe('Stand-up, Sat, Oct 10, 08:30 – 09:30, Standalone, No attendees yet, Under way');
   });
 });
 

@@ -58,6 +58,7 @@ export function NotificationsScreen({ navigation }: TabScreenProps<'Notification
     const action = targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId }));
     if (action.type === 'stack' && action.screen === 'TaskDetail') navigation.navigate('TaskDetail', action.params);
     else if (action.type === 'stack' && action.screen === 'Board') navigation.navigate('Board', action.params);
+    else if (action.type === 'stack' && action.screen === 'MeetingDetail') navigation.navigate('MeetingDetail', action.params);
     else if (action.type === 'tab' && action.tab !== 'Notifications') navigation.navigate('Tabs', { screen: action.tab });
   };
 

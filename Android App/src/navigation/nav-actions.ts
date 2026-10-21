@@ -10,6 +10,8 @@ export type NavAction =
   | { type: 'tab'; tab: keyof TabsParamList }
   | { type: 'stack'; screen: 'TaskDetail'; params: AppStackParamList['TaskDetail'] }
   | { type: 'stack'; screen: 'Board'; params: AppStackParamList['Board'] }
+  | { type: 'stack'; screen: 'MeetingDetail'; params: AppStackParamList['MeetingDetail'] }
+  | { type: 'stack'; screen: 'MyActionItems' }
   | { type: 'stack'; screen: 'Calendar' }
   | { type: 'stack'; screen: 'Profile' }
   | { type: 'stack'; screen: 'Reports' }
@@ -23,6 +25,12 @@ export function targetToAction(target: LinkTarget): NavAction {
       return { type: 'stack', screen: 'TaskDetail', params: target.params };
     case 'Board':
       return { type: 'stack', screen: 'Board', params: target.params };
+    case 'MeetingDetail':
+      return { type: 'stack', screen: 'MeetingDetail', params: target.params };
+    case 'MyActionItems':
+      return { type: 'stack', screen: 'MyActionItems' };
+    case 'Meetings':
+      return { type: 'tab', tab: 'Meetings' };
     case 'Chat':
       return { type: 'tab', tab: 'Chat' };
     case 'Reset':

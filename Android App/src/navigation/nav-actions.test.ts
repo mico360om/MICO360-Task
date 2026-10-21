@@ -11,6 +11,13 @@ describe('targetToAction', () => {
     expect(targetToAction({ screen: 'Notifications' })).toEqual({ type: 'tab', tab: 'Notifications' });
   });
 
+  it('pushes the meeting and My Action Items, and switches to the Meetings tab', () => {
+    expect(targetToAction({ screen: 'MeetingDetail', params: { meetingId: 'm1' } })).toEqual({ type: 'stack', screen: 'MeetingDetail', params: { meetingId: 'm1' } });
+    expect(targetToAction({ screen: 'MyActionItems' })).toEqual({ type: 'stack', screen: 'MyActionItems' });
+    expect(targetToAction({ screen: 'Meetings' })).toEqual({ type: 'tab', tab: 'Meetings' });
+    expect(targetToAction(notificationToTarget({ entityType: 'meeting', entityId: 'm2' }))).toEqual({ type: 'stack', screen: 'MeetingDetail', params: { meetingId: 'm2' } });
+  });
+
   it('composes with the deep-link + push resolvers end to end', () => {
     expect(targetToAction(parseDeepLink('mico360://task/t9')!)).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't9' } });
     // a real backend push (lowercase entityType) → opens the task
@@ -26,10 +33,18 @@ describe('drawer menu', () => {
     for (const i of DRAWER_ITEMS) expect(actionRouteName(i.action)).toBeTruthy();
   });
 
-  it('includes the stack-only screens the tabs do not reach (Calendar, Profile)', () => {
+  it('includes the stack-only screens the tabs do not reach (Calendar, Profile, My Action Items)', () => {
     const routes = DRAWER_ITEMS.map((i) => actionRouteName(i.action));
     expect(routes).toContain('Calendar');
     expect(routes).toContain('Profile');
+    expect(routes).toContain('MyActionItems');
+  });
+
+  it('puts Meetings and My Action Items after Chat', () => {
+    const keys = DRAWER_ITEMS.map((i) => i.key);
+    expect(keys.slice(keys.indexOf('Chat'), keys.indexOf('Chat') + 3)).toEqual(['Chat', 'Meetings', 'MyActionItems']);
+    expect(DRAWER_ITEMS.find((i) => i.key === 'Meetings')?.action).toEqual({ type: 'tab', tab: 'Meetings' });
+    expect(activeDrawerKey('MyActionItems')).toBe('MyActionItems');
   });
 
   it('offers Reports to administrators only (the server checks the role too)', () => {

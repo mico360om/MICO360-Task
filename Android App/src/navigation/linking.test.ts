@@ -24,6 +24,14 @@ describe('linking config (MOB-09)', () => {
     expect(getStateFromPath('project/p1', cfg)?.routes[0]).toMatchObject({ name: 'Board', params: { projectId: 'p1' } });
   });
 
+  it('routes a meeting link to the meeting, and the meetings and action items paths to their screens', () => {
+    expect(getStateFromPath('meeting/m1', cfg)?.routes[0]).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm1' } });
+    expect(getStateFromPath('my-action-items', cfg)?.routes[0]).toMatchObject({ name: 'MyActionItems' });
+    const tabs = getStateFromPath('meetings', cfg)?.routes[0];
+    expect(tabs).toMatchObject({ name: 'Tabs' });
+    expect(tabs?.state?.routes[0]).toMatchObject({ name: 'Meetings' });
+  });
+
   it('maps a parsed reset link to a signed-out navigation action', () => {
     const action = targetToAction(parseDeepLink('https://task.mico360.com/reset?token=zz')!);
     expect(action).toEqual({ type: 'auth', screen: 'Reset', params: { token: 'zz' } });
