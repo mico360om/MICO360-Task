@@ -78,6 +78,17 @@ describe('performMutation (offline replay mapping)', () => {
   });
 });
 
+describe('performMutation: a chat message kept on this phone (3a)', () => {
+  it('is sent with its client id and comes back as the server stored it', async () => {
+    const r = mockResources();
+    const saved = { id: 'm9', conversationId: 'cv1', body: 'yo', clientId: 'cid-1' };
+    r.chat.send.mockResolvedValueOnce(saved);
+    const result = await performMutation(r, mut('chat.send', { conversationId: 'cv1', body: 'yo', clientId: 'cid-1' }));
+    expect(r.chat.send).toHaveBeenCalledWith('cv1', 'yo', { idempotencyKey: 'idem-1', clientId: 'cid-1' });
+    expect(result).toBe(saved);
+  });
+});
+
 describe('describeMutation', () => {
   it('summarises queued changes for the sync list', () => {
     expect(describeMutation({ kind: 'comment.add', payload: { body: 'Looks good' } })).toBe('Comment “Looks good”');
@@ -198,10 +209,8 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
 
   it('notifications and chat messages', () => {
     expect(refreshesAfterReplay(mut('notification.read', { id: 'n1' }))).toEqual([{ queryKey: ['notifications'] }]);
-    expect(refreshesAfterReplay(mut('chat.send', { conversationId: 'c1', body: 'hi' }))).toEqual([
-      { queryKey: ['chat', 'messages', 'c1'] },
-      { queryKey: ['chat', 'conversations'] },
-    ]);
+    // The thread gets the server's copy put in directly (chat-cache): only the inbox is fetched again.
+    expect(refreshesAfterReplay(mut('chat.send', { conversationId: 'c1', body: 'hi', clientId: 'k1' }))).toEqual([{ queryKey: ['chat', 'conversations'] }]);
   });
 
   it('anything it doesn’t know: everything, as before', () => {

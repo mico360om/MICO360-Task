@@ -418,16 +418,27 @@ export function resourcesApi(client: ApiClient) {
       openProjectChannel: (projectId: string) =>
         data(client.get<Envelope<{ conversation: ApiConversation; messages: ApiChatMessage[] }>>(`/projects/${projectId}/chat`)),
       startDirect: (userId: string) => data(client.post<Envelope<ApiConversation>>('/conversations/direct', { userId })),
-      messages: (conversationId: string, before?: string) =>
-        data(client.get<Envelope<ApiChatMessage[]>>(`/conversations/${conversationId}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`)),
-      send: (conversationId: string, body: string, opts?: WriteOptions) =>
+      /**
+       * One page of history, oldest first: the newest page, or (with `before` = the oldest loaded
+       * message's createdAt) the page just older than it.
+       */
+      messages: (conversationId: string, before?: string, limit?: number) =>
+        data(
+          client.get<Envelope<ApiChatMessage[]>>(
+            `/conversations/${conversationId}/messages${queryString({ before, limit: limit ? String(limit) : undefined })}`,
+          ),
+        ),
+      /** Send. With a client id the server hands a retry the first message back, never a second copy. */
+      send: (conversationId: string, body: string, opts?: WriteOptions & { clientId?: string }) =>
         data(
           client.post<Envelope<ApiChatMessage>>(
             `/conversations/${conversationId}/messages`,
-            { body },
+            opts?.clientId ? { body, clientId: opts.clientId } : { body },
             idempotencyHeaders(opts?.idempotencyKey),
           ),
         ),
+      /** Who is in a conversation (user ids): a channel's project people, or a direct conversation's two. */
+      members: (conversationId: string) => data(client.get<Envelope<string[]>>(`/conversations/${conversationId}/members`)),
       edit: (messageId: string, body: string) => data(client.patch<Envelope<ApiChatMessage>>(`/messages/${messageId}`, { body })),
       remove: (messageId: string) => client.del<void>(`/messages/${messageId}`),
       addReaction: (messageId: string, emoji: string) => client.post<void>(`/messages/${messageId}/reactions`, { emoji }),

@@ -9,6 +9,7 @@ import { MentionSuggestions, MentionText, useMentionInput } from '../components/
 import type { MentionPerson } from '../lib/mentions';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { isAtLatest } from '../lib/chat';
+import { threadMessages, type ThreadPages } from '../lib/chat-thread';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiChatMessage } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
@@ -51,7 +52,8 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Someone';
   };
 
-  const messages = messagesQ.data ?? [];
+  // Oldest first for this list (the pages hold the newest first, chat-thread).
+  const messages = useMemo(() => threadMessages(messagesQ.data as ThreadPages | undefined).reverse(), [messagesQ.data]);
   // Messages written offline for this conversation, waiting to sync (MOB-07).
   const pending = queued.pending.filter(
     (m) => m.kind === 'chat.send' && (m.payload as { conversationId?: string } | null)?.conversationId === conversationId,

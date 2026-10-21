@@ -596,6 +596,18 @@ export interface ApiChatMessage {
   createdAt: string;
   reactions: ReactionGroup[];
   attachments: ApiChatAttachment[];
+  /** The message this one answers (older servers leave it out). */
+  replyTo?: ReplyQuote | null;
+  /** The sender's own id for this message: how a message waiting on this phone is matched to the server's copy. */
+  clientId?: string | null;
+}
+
+/** A short quote of the message being answered (no text once that message is deleted). */
+export interface ReplyQuote {
+  id: string;
+  userId: string;
+  body: string;
+  deleted: boolean;
 }
 
 export interface ApiChatParticipant {
@@ -603,13 +615,24 @@ export interface ApiChatParticipant {
   userId: string;
   lastReadAt: string | null;
   addedAt: string;
+  /** When their app last received this conversation ("delivered"; older servers leave it out). */
+  lastDeliveredAt?: string | null;
+}
+
+/** The signed-in person's own settings for a conversation. */
+export interface ConversationPrefs {
+  favorite: boolean;
+  archived: boolean;
+  muted: boolean;
 }
 
 export interface ApiConversationSummary {
   conversation: ApiConversation;
   participants: ApiChatParticipant[];
   unread: number;
-  lastMessage: (Omit<ApiChatMessage, 'reactions'> & { reactions?: ReactionGroup[] }) | null;
+  lastMessage: (Omit<ApiChatMessage, 'reactions' | 'attachments'> & { reactions?: ReactionGroup[]; attachments?: ApiChatAttachment[] }) | null;
+  /** Older servers leave it out: all off. */
+  prefs?: ConversationPrefs;
 }
 
 /** One line of a task's activity history (newest first from the server). */

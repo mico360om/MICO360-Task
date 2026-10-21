@@ -529,3 +529,32 @@ describe('resourcesApi: meeting AI and free times (2c)', () => {
     expect(sent[0]).toMatchObject({ path: '/meetings/free-times', body });
   });
 });
+
+describe('resourcesApi.chat: the server contract (3a)', () => {
+  it('sends a message with its client id, so a retry is recognised and never stored twice', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).chat.send('c1', 'Hello', { idempotencyKey: 'k1', clientId: 'k1' });
+    expect(calls[0]).toEqual({ method: 'POST', path: '/conversations/c1/messages', body: { body: 'Hello', clientId: 'k1' } });
+  });
+
+  it('sends no client id when there is none (a message kept by an older version)', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).chat.send('c1', 'Hello', { idempotencyKey: 'k1' });
+    expect(calls[0]).toEqual({ method: 'POST', path: '/conversations/c1/messages', body: { body: 'Hello' } });
+  });
+
+  it('reads one page of history: the newest, or the one older than a message (before = its createdAt)', async () => {
+    const { client, calls } = fakeClient();
+    const chat = resourcesApi(client).chat;
+    await chat.messages('c1', undefined, 50);
+    await chat.messages('c1', '2026-10-21T08:00:00.000Z', 50);
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/conversations/c1/messages?limit=50' });
+    expect(calls[1]).toMatchObject({ method: 'GET', path: '/conversations/c1/messages?before=2026-10-21T08%3A00%3A00.000Z&limit=50' });
+  });
+
+  it('reads who is in a conversation (user ids)', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).chat.members('c1');
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/conversations/c1/members' });
+  });
+});

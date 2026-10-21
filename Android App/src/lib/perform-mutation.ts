@@ -85,9 +85,10 @@ export async function performMutation(resources: ResourcesApi, m: QueuedMutation
       return;
     }
     case 'chat.send': {
-      const p = m.payload as { conversationId: string; body: string };
-      await resources.chat.send(p.conversationId, p.body, write);
-      return;
+      // The client id (from 3a) lets the server hand a retry the first message back; the server's
+      // copy comes back so the thread can show it in place of the one waiting (chat-cache).
+      const p = m.payload as { conversationId: string; body: string; clientId?: unknown };
+      return resources.chat.send(p.conversationId, p.body, typeof p.clientId === 'string' && p.clientId ? { ...write, clientId: p.clientId } : write);
     }
     // Meetings (2b): what is taken down in a meeting room with a poor connection.
     case 'meeting.note.add': {
@@ -174,9 +175,9 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
     case 'notification.read':
       return [{ queryKey: ['notifications'] }];
     case 'chat.send':
-      return typeof p.conversationId === 'string'
-        ? [{ queryKey: ['chat', 'messages', p.conversationId] }, { queryKey: ['chat', 'conversations'] }]
-        : [{ queryKey: ['chat'] }];
+      // The thread already has the server's copy (put in as the reply came, chat-cache); the inbox
+      // (last message, unread) is fetched again.
+      return [{ queryKey: ['chat', 'conversations'] }];
     case 'meeting.note.add':
     case 'meeting.action.add':
     case 'meeting.action.update':

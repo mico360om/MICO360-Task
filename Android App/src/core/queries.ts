@@ -1,4 +1,4 @@
-import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { meetingWindow } from '../lib/meetings';
@@ -14,6 +14,8 @@ import { withAnswer } from '../lib/meeting-detail';
 import { findMeeting } from '../lib/meeting-screen';
 import { answerFailed, answerScope } from '../lib/meeting-cache';
 import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
+import { CHAT_PAGE_SIZE, olderPageCursor } from '../lib/chat-thread';
+import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
 import type { ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
 import type { NotificationPreferences } from '../lib/notification-prefs';
@@ -685,24 +687,33 @@ export function useConversations() {
   return useQuery({ queryKey: ['chat', 'conversations'], queryFn: () => resources.chat.conversations() });
 }
 
+/**
+ * A conversation's history, a page at a time (3a): the newest page first, older pages as you scroll
+ * back (chat-thread). New and sent messages are put into these pages in place (chat-cache).
+ */
 export function useConversationMessages(conversationId: string) {
   const { resources } = useServices();
-  return useQuery({
-    queryKey: ['chat', 'messages', conversationId],
-    queryFn: () => resources.chat.messages(conversationId),
+  return useInfiniteQuery({
+    queryKey: threadKey(conversationId),
+    queryFn: ({ pageParam }) => resources.chat.messages(conversationId, pageParam, CHAT_PAGE_SIZE),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: olderPageCursor,
     enabled: !!conversationId,
   });
 }
 
 export function useSendMessage(conversationId: string) {
-  const { resources, queue, currentUserId } = useServices();
+  const { resources, queue, currentUserId, chat } = useServices();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ body, idempotencyKey }: Keyed<{ body: string }>) => resources.chat.send(conversationId, body, { idempotencyKey }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['chat', 'messages', conversationId] });
+    // The action's key is also the message's client id: a retry (or the replay) is recognised.
+    mutationFn: ({ body, idempotencyKey }: Keyed<{ body: string }>) =>
+      resources.chat.send(conversationId, body, { idempotencyKey, clientId: idempotencyKey }),
+    onSuccess: (saved) => {
+      chat.put(conversationId, saved);
       void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
     },
-    onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'chat.send', { conversationId, body: v.body }, v.idempotencyKey),
+    onError: (err, v) =>
+      queueOnOffline(queue, currentUserId(), err, 'chat.send', { conversationId, body: v.body, clientId: v.idempotencyKey }, v.idempotencyKey),
   });
 }

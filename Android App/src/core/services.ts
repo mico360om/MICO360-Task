@@ -20,6 +20,7 @@ import { refresh } from '../lib/refresh';
 import { noteReplayed, rebaseQueuedVersion, taskWrites } from '../lib/task-writes';
 import { dropOvertaken } from '../lib/write-order';
 import { createSyncController } from '../lib/sync-controller';
+import { createChatCache, type ChatCache } from '../lib/chat-cache';
 import { createPushRegistrar } from '../lib/push-registrar';
 import { createBiometricGate } from '../lib/biometric-gate';
 import { createBiometricLogin } from '../lib/biometric-login';
@@ -52,6 +53,8 @@ export interface Services {
   reads: OfflineReads;
   queue: ReturnType<typeof createSyncQueue>;
   sync: ReturnType<typeof createSyncController>;
+  /** Chat messages put into a loaded thread in place (sent ones, live ones), 3a. */
+  chat: ChatCache;
   push: ReturnType<typeof createPushRegistrar>;
   biometric: ReturnType<typeof createBiometricGate>;
   biometricLogin: ReturnType<typeof createBiometricLogin>;
@@ -160,6 +163,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     perform: (m: QueuedMutation) =>
       performMutation(resources, m).then((result) => {
         noteReplayed(taskWrites, m, result);
+        // A message kept on this phone reached the server: its saved copy shows in its thread.
+        chat.afterSent(m, result);
         return result;
       }),
     // A task edit queued after an earlier one of this phone's moves on to the version that one made.
@@ -169,6 +174,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   // back online or back in the app), and the board shows the moves still waiting (offline-reads).
   const reads = createOfflineReads({ cache, pendingChanges: () => queue.pendingFor(currentUserId()) });
   const queryClient = createQueryClient({ answeredFromCopy: reads.answeredFromCopy });
+  const chat = createChatCache({ queryClient });
 
   const sync = createSyncController({
     queue,
@@ -243,6 +249,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     reads,
     queue,
     sync,
+    chat,
     push,
     biometric,
     biometricLogin,
