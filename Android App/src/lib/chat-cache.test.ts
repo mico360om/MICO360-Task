@@ -105,3 +105,30 @@ describe('the offline copy of a thread (3a): what was seen is readable offline, 
     expect(offline).toEqual({ data: [msg('a', '01'), msg('b', '02')], stale: true });
   });
 });
+
+describe('my message arriving live while it still waits on the phone (3a)', () => {
+  it('shows once: the live copy takes the waiting one’s place by its client id, and the send’s answer adds nothing', async () => {
+    const { outboxFor } = await import('./chat-outbox');
+    const { threadItems } = await import('./chat-thread');
+    const { chatEventPlan } = await import('./chat-realtime');
+    const qc = client();
+    seed(qc, 'c1', [msg('a', '01', { userId: 'u2' })]);
+    const cache = createChatCache({ queryClient: qc });
+    const waiting = { ...sent({ conversationId: 'c1', body: 'mine', clientId: 'k1' }), createdAt: Date.parse('2026-10-21T08:02:00.000Z') };
+    const saved = msg('m-mine', '02', { body: 'mine', clientId: 'k1' });
+    const rows = () => {
+      const data = qc.getQueryData<ThreadPages>(threadKey('c1'));
+      const confirmed = new Set(threadMessages(data).map((m) => m.clientId).filter((x): x is string => !!x));
+      const outbox = outboxFor('c1', { pending: [waiting], failed: [] }, { online: true, confirmed });
+      return threadItems(data, outbox, 'u1').map((r) => r.key);
+    };
+    expect(rows()).toEqual(['out-q1', 'msg-a']);
+    // The socket's copy comes first…
+    const plan = chatEventPlan('chat:message', { conversationId: 'c1', message: saved }, 'u1');
+    cache.put(plan.put!.conversationId, plan.put!.message);
+    expect(rows()).toEqual(['msg-m-mine', 'msg-a']);
+    // …then the send's answer: still one.
+    cache.afterSent(waiting, saved);
+    expect(rows()).toEqual(['msg-m-mine', 'msg-a']);
+  });
+});

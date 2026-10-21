@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import { connectAuthedSocket } from './authed-socket';
-import { CHAT_EVENTS, chatInvalidationKeys, type ChatEventPayload } from '../lib/chat-realtime';
+import { CHAT_EVENTS, chatEventPlan, type ChatEventPayload } from '../lib/chat-realtime';
 import { MEETING_EVENTS, meetingEventRefreshes, meetingsReconnectRefreshes } from '../lib/meeting-realtime';
 import { PROJECT_REMOVED_EVENT } from '../lib/realtime';
 import { refresh } from '../lib/refresh';
@@ -14,7 +14,8 @@ import { createRefreshBatcher } from '../lib/refresh-batch';
  * created or are invited to) and we join each project room (channel messages and the project's
  * meetings). One socket for both, so taking part in meetings costs no extra connection.
  *
- * - A chat event refreshes the inbox (conversation list + unread) and the affected thread.
+ * - A chat event changes the loaded thread in place (a new message put in by id, so the copy this
+ *   phone sent and the live one are one), and refreshes the inbox (last message, unread) — 3a.
  * - A meeting event refreshes the part of that meeting it names, and the lists showing it
  *   (meeting-realtime) — only what is on screen is fetched again.
  *
@@ -41,8 +42,14 @@ export function useAppRealtime(projectIds: string[]): void {
       }
     });
 
-    const onChat = (payload: ChatEventPayload) => chat.add(chatInvalidationKeys(payload).map((queryKey) => ({ queryKey })));
-    for (const ev of CHAT_EVENTS) socket.on(ev, onChat);
+    for (const ev of CHAT_EVENTS) {
+      socket.on(ev, (payload: ChatEventPayload) => {
+        const plan = chatEventPlan(ev, payload, userId);
+        if (plan.put) services.chat.put(plan.put.conversationId, plan.put.message);
+        if (plan.patch) services.chat.patch(plan.patch.conversationId, plan.patch.id, plan.patch.change);
+        if (plan.refresh.length) chat.add(plan.refresh);
+      });
+    }
     for (const ev of MEETING_EVENTS) socket.on(ev, (payload: unknown) => meetings.add(meetingEventRefreshes(ev, payload)));
     // Removed from a project: its channel, meetings and data are gone — refresh projects, chats,
     // meetings and tasks. (The new project list changes the joined rooms, which reconnects this socket.)
