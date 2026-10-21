@@ -117,7 +117,7 @@ describe('a change goes as the person who made it, never as whoever is signed in
 
   it('every write in a lane or a mutation scope captures its maker before it waits (tasks, moves, steps, people, meetings, chat, account, columns, calendar)', () => {
     const core = (p: string) => readFileSync(resolve(__dirname, '../core', p), 'utf8');
-    const files = ['queries.ts', 'meeting-mutations.ts', 'chat-features.ts', 'account-queries.ts', 'board-queries.ts', 'new-task.ts', 'all-board-queries.ts', 'calendar-queries.ts'];
+    const files = ['queries.ts', 'meeting-mutations.ts', 'chat-features.ts', 'account-queries.ts', 'board-queries.ts', 'new-task.ts', 'all-board-queries.ts', 'calendar-queries.ts', 'my-tasks-queries.ts'];
     for (const f of files) {
       const text = core(f);
       // No write order or resources read inside a lane: the lane's work uses what ownedWrite captured.
