@@ -1171,6 +1171,7 @@ async function main(): Promise<void> {
     meetingService,
     meetingSeriesService,
     projectMeetings: { load: createPrismaProjectMeetingsSource(prisma).load, timeZone: companyTz },
+    isActiveUser,
     // Schedule meeting's free times: who is busy, inside the company's meeting hours.
     meetingFreeTimes: {
       busy: meetingRepository,

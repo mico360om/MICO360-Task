@@ -4,6 +4,8 @@ import type { MeetingService } from './meeting-service';
 import type { MeetingNotifyService } from './meeting-notify-service';
 import type { MeetingRecord } from './meeting-repository';
 import type { MeetingSeriesService } from './meeting-series-service';
+import type { AttendeeService } from './attendee-service';
+import type { AgendaService } from './agenda-service';
 import { ruleProblem, seriesStarts } from './meeting-series';
 import { findClashes, suggestTimes, type BusyBlock } from './free-times';
 import type { BusyMeetingsStore } from './meeting-repository';
@@ -50,6 +52,30 @@ const createSchema = z.object({
   timeZone: timeZoneField,
   recurrenceRule: recurrenceSchema.nullable().optional(),
   templateId: z.string().nullable().optional(),
+  // The new-meeting form's People and Agenda, saved with the meeting (all or nothing).
+  attendees: z
+    .array(
+      z
+        .object({
+          userId: z.string().min(1).optional(),
+          externalName: z.string().trim().max(200).nullable().optional(),
+          externalEmail: z.string().trim().email().max(320).nullable().optional(),
+          role: z.enum(['REQUIRED', 'OPTIONAL']).optional(),
+        })
+        .refine((a) => !!a.userId || !!a.externalEmail, { message: 'A guest needs a valid email address.' }),
+    )
+    .max(100)
+    .optional(),
+  agendaItems: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(300),
+        ownerId: z.string().min(1).nullable().optional(),
+        expectedMinutes: z.number().int().min(1).max(600).nullable().optional(),
+      }),
+    )
+    .max(50)
+    .optional(),
 });
 
 const updateSchema = z.object({
@@ -108,6 +134,11 @@ export interface MeetingRouteDeps {
   projectMeetings?: ProjectMeetingsDeps;
   /** Enables POST /meetings/free-times (suggested times, clashes, the day's busy strip). */
   freeTimes?: FreeTimesDeps;
+  /** Save the people and agenda sent with a new meeting. */
+  attendeeService?: Pick<AttendeeService, 'addAttendee' | 'listAttendees'>;
+  agendaService?: Pick<AgendaService, 'addItem' | 'listAgenda'>;
+  /** Is this an existing, active user? Checks the people sent with a new meeting. */
+  isActiveUser?: (userId: string) => Promise<boolean>;
 }
 
 export interface FreeTimesDeps {
@@ -260,7 +291,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
   }
 
   app.post('/meetings', { preHandler: guard.authenticate }, async (req, reply) => {
-    const body = createSchema.parse(req.body);
+    const { attendees: sentPeople = [], agendaItems = [], ...body } = createSchema.parse(req.body);
     // Invitations go out in the organizer's name: only an admin may schedule on someone else's behalf.
     if (body.organizerId && body.organizerId !== req.user!.id && !actor(req).roles.includes('ADMIN')) {
       return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You can only schedule meetings that you organize.' } });
@@ -269,17 +300,48 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     if (body.projectId && !(await canUseProject(req, body.projectId))) return reply.status(403).send(noProject);
     const problem = ruleProblem(body.recurrenceRule, body.startAt, body.timeZone || 'UTC');
     if (problem) return reply.status(400).send(badRule(problem));
-    let meeting = await meetingService.createMeeting({
-      ...body,
-      organizerId: body.organizerId ?? req.user!.id,
-      createdById: req.user!.id,
+    const organizerId = body.organizerId ?? req.user!.id;
+
+    // People and agenda are checked before anything is saved, so a bad one creates nothing.
+    const { attendeeService, agendaService } = deps;
+    if ((sentPeople.length && !attendeeService) || (agendaItems.length && !agendaService)) {
+      return reply.status(400).send(badRule('People and agenda can’t be saved with a new meeting here.'));
+    }
+    const seen = new Set<string>();
+    const people = sentPeople.filter((p) => {
+      const key = p.userId ? `u:${p.userId}` : `e:${p.externalEmail!.toLowerCase()}`;
+      return !seen.has(key) && !!seen.add(key);
     });
-    // A repeating meeting is the first of its series: the next meetings are created now.
+    const userIds = people.flatMap((p) => (p.userId ? [p.userId] : []));
+    if (deps.isActiveUser) {
+      const active = await Promise.all(userIds.map((id) => deps.isActiveUser!(id)));
+      if (active.includes(false)) return reply.status(400).send(badRule('Everyone invited must be an active user.'));
+    }
+    const leads = new Set([organizerId, ...userIds]);
+    if (agendaItems.some((g) => g.ownerId && !leads.has(g.ownerId))) {
+      return reply.status(400).send(badRule('An agenda lead must be one of the meeting’s people or the organizer.'));
+    }
+
+    let meeting = await meetingService.createMeeting({ ...body, organizerId, createdById: req.user!.id });
+    try {
+      for (const p of people) {
+        // A guest given only as an email is named from the part before the @.
+        const externalName = p.userId ? null : p.externalName || p.externalEmail!.split('@')[0]!;
+        await attendeeService!.addAttendee(meeting.id, { userId: p.userId ?? null, externalName, externalEmail: p.userId ? null : p.externalEmail, role: p.role });
+      }
+      for (const g of agendaItems) await agendaService!.addItem(meeting.id, { title: g.title, ownerId: g.ownerId ?? null, expectedMinutes: g.expectedMinutes ?? null });
+    } catch (err) {
+      // All or nothing: take the half-saved meeting back out.
+      await meetingService.deleteMeeting(meeting.id).catch((e) => deps.logger?.error('could not remove a half-created meeting', { err: e, meetingId: meeting.id }));
+      throw err;
+    }
+    // A repeating meeting is the first of its series: the next meetings are created now (with its people).
     if (deps.series && meeting.recurrenceRule && !meeting.recurrenceRule.paused) {
       await deps.series.start(meeting);
       meeting = await meetingService.getMeeting(meeting.id);
     }
-    return reply.status(201).send({ data: await withSeries({ ...meeting, canEdit: true }) });
+    const lists = attendeeService && agendaService ? { attendees: await attendeeService.listAttendees(meeting.id), agendaItems: await agendaService.listAgenda(meeting.id) } : {};
+    return reply.status(201).send({ data: { ...(await withSeries({ ...meeting, canEdit: true })), ...lists } });
   });
 
   // Free times for a meeting being scheduled: three suggestions (working hours, everyone invited

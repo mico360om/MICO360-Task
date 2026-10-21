@@ -138,6 +138,8 @@ export interface AppDeps extends AuthRouteDeps {
   notificationService?: NotificationService;
   /** Free times for Schedule meeting (busy meetings, working hours, names). */
   meetingFreeTimes?: import('./modules/meetings/meeting-routes').FreeTimesDeps;
+  /** Is this an existing, active user? Checks the people sent with a new meeting. */
+  isActiveUser?: (userId: string) => Promise<boolean>;
   /** The two morning task emails: "Send me a test now" and the admins' delivery log. */
   dailyEmails?: Omit<DailyEmailRouteDeps, 'guard'>;
   deviceTokenService?: DeviceTokenService;
@@ -568,7 +570,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds });
       }
       if (deps.meetingService) {
-        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes });
+        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser });
       }
       if (deps.attendeeService) {
         await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting });

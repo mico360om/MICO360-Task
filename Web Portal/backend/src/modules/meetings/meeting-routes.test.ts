@@ -5,6 +5,11 @@ import { createMeetingAccess } from './meeting-access';
 import type { MeetingRepository, MeetingRecord, CreateMeetingData } from './meeting-repository';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
+import { createMeetingSeriesService } from './meeting-series-service';
+import { memoryAttendees, memoryMeetings } from './meeting-memory.fixture';
+import { createAttendeeService } from './attendee-service';
+import { createAgendaService } from './agenda-service';
+import type { AgendaItemRecord, AgendaRepository } from './agenda-repository';
 
 function inMemory(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
@@ -379,5 +384,110 @@ describe('Meeting free times', () => {
     const many = Array.from({ length: 51 }, (_, i) => `u${i}`);
     expect((await ask(app, auth, { userIds: many, startAt: at('2026-10-26 10:00').toISOString(), minutes: 60 })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/api/v1/meetings/free-times', payload: { userIds: ['u1'], startAt: '2026-10-26T06:00:00Z', minutes: 60 } })).statusCode).toBe(401);
+  });
+});
+
+describe('Schedule a meeting with its people and agenda', () => {
+  const TZ = 'Asia/Muscat';
+  function memoryAgenda(failOn?: string): AgendaRepository & { rows: AgendaItemRecord[] } {
+    const rows: AgendaItemRecord[] = [];
+    return {
+      rows,
+      async add(d) {
+        if (failOn && d.title === failOn) throw new Error('database went away');
+        const rec: AgendaItemRecord = { id: `g${rows.length + 1}`, meetingId: d.meetingId, title: d.title, ownerId: d.ownerId ?? null, expectedMinutes: d.expectedMinutes ?? null, position: d.position, completed: false, linkedPrevActionId: null, createdAt: new Date() };
+        rows.push(rec);
+        return rec;
+      },
+      async findById(id) { return rows.find((r) => r.id === id) ?? null; },
+      async listByMeeting(meetingId) { return rows.filter((r) => r.meetingId === meetingId).sort((a, b) => a.position - b.position); },
+      async update(id, patch) { const r = rows.find((x) => x.id === id)!; Object.assign(r, patch); return r; },
+      async remove(id) { rows.splice(rows.findIndex((r) => r.id === id), 1); },
+      async setPositions() {},
+    };
+  }
+  async function setup(opts: { failAgendaOn?: string } = {}) {
+    const meetings = memoryMeetings();
+    const attendees = memoryAttendees();
+    const agenda = memoryAgenda(opts.failAgendaOn);
+    const active = new Set(['u1', 'u2', 'u3']);
+    const isActiveUser = async (id: string) => active.has(id);
+    const meetingService = createMeetingService({ meetings, defaultTimeZone: TZ, isActiveUser });
+    const meetingAccess = createMeetingAccess({ meetings, projectAccess });
+    const meetingSeriesService = createMeetingSeriesService({ meetings, attendees, defaultTimeZone: TZ, now: () => new Date('2026-10-16T08:00:00Z') });
+    const attendeeService = createAttendeeService({ attendees, laterMeetings: async (id) => (await meetingSeriesService.laterMeetings(id)).map((m) => m.id) });
+    const agendaService = createAgendaService({ agenda });
+    const app = await makeApp({ meetingService, meetingAccess, meetingSeriesService, attendeeService, agendaService, isActiveUser });
+    const auth = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const create = (payload: Record<string, unknown>) =>
+      app.inject({ method: 'POST', url: '/api/v1/meetings', headers: auth, payload: { title: 'Pump station review', startAt: '2026-10-20T06:00:00Z', endAt: '2026-10-20T07:00:00Z', timeZone: TZ, status: 'SCHEDULED', ...payload } });
+    const alive = () => [...meetings.rows.values()].filter((m) => !m.deletedAt);
+    return { create, alive, attendees, agenda };
+  }
+
+  it('saves the people and agenda with the meeting, before a repeat copies the people', async () => {
+    const t = await setup();
+    const res = await t.create({
+      recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [2] },
+      attendees: [{ userId: 'u2' }, { userId: 'u3', role: 'OPTIONAL' }, { externalEmail: 'sami.k@contractor.om' }],
+      agendaItems: [{ title: 'Pump test results', ownerId: 'u2', expectedMinutes: 20 }, { title: 'Next steps', ownerId: 'u1' }],
+    });
+    expect(res.statusCode).toBe(201);
+    const d = res.json().data;
+    expect(d.attendees.map((a: { userId: string | null; externalName: string | null; role: string }) => `${a.userId ?? a.externalName}:${a.role}`)).toEqual(['u2:REQUIRED', 'u3:OPTIONAL', 'sami.k:REQUIRED']);
+    expect(d.attendees[2].externalEmail).toBe('sami.k@contractor.om');
+    expect(d.agendaItems.map((g: { title: string; ownerId: string | null; expectedMinutes: number | null }) => [g.title, g.ownerId, g.expectedMinutes])).toEqual([
+      ['Pump test results', 'u2', 20],
+      ['Next steps', 'u1', null],
+    ]);
+    // The repeat's later meetings carry the same people; the agenda stays on the first meeting.
+    const later = t.alive().filter((m) => m.recurrenceParentId === d.id);
+    expect(later.length).toBeGreaterThan(1);
+    for (const m of later) expect((await t.attendees.listByMeeting(m.id)).map((a) => a.userId ?? a.externalName)).toEqual(['u2', 'u3', 'sami.k']);
+    expect(t.agenda.rows.every((g) => g.meetingId === d.id)).toBe(true);
+  });
+
+  it('creates nothing when a person can’t be added', async () => {
+    const t = await setup();
+    const res = await t.create({ attendees: [{ userId: 'u2' }, { userId: 'gone' }], agendaItems: [{ title: 'Budget' }] });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toMatch(/active/i);
+    expect(t.alive()).toEqual([]);
+    expect(t.attendees.rows.size).toBe(0);
+    expect(t.agenda.rows).toEqual([]);
+  });
+
+  it('an agenda lead must be one of the meeting’s people or the organizer', async () => {
+    const t = await setup();
+    const res = await t.create({ attendees: [{ userId: 'u2' }], agendaItems: [{ title: 'Budget', ownerId: 'u3' }] });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toMatch(/lead/i);
+    expect(t.alive()).toEqual([]);
+    expect((await t.create({ attendees: [{ userId: 'u2' }], agendaItems: [{ title: 'Budget', ownerId: 'u1' }] })).statusCode).toBe(201);
+  });
+
+  it('a guest needs a valid email', async () => {
+    const t = await setup();
+    expect((await t.create({ attendees: [{ externalName: 'Sami' }] })).statusCode).toBe(400);
+    expect((await t.create({ attendees: [{ externalName: 'Sami', externalEmail: 'not-an-email' }] })).statusCode).toBe(400);
+    expect(t.alive()).toEqual([]);
+    const ok = await t.create({ attendees: [{ externalName: 'Sami Al Harthy', externalEmail: 'sami@contractor.om' }] });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().data.attendees[0].externalName).toBe('Sami Al Harthy');
+  });
+
+  it('takes the meeting back out when saving its agenda fails part way', async () => {
+    const t = await setup({ failAgendaOn: 'Second point' });
+    const res = await t.create({ attendees: [{ userId: 'u2' }], agendaItems: [{ title: 'First point' }, { title: 'Second point' }] });
+    expect(res.statusCode).toBe(500);
+    expect(t.alive()).toEqual([]);
+  });
+
+  it('keeps each list bounded', async () => {
+    const t = await setup();
+    expect((await t.create({ agendaItems: Array.from({ length: 51 }, (_, i) => ({ title: `Point ${i}` })) })).statusCode).toBe(400);
+    expect((await t.create({ agendaItems: [{ title: 'x'.repeat(301) }] })).statusCode).toBe(400);
+    expect((await t.create({ agendaItems: [{ title: 'Long one', expectedMinutes: 601 }] })).statusCode).toBe(400);
+    expect(t.alive()).toEqual([]);
   });
 });
