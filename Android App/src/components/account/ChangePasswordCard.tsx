@@ -6,7 +6,7 @@ import { useServices } from '../../core/providers';
 import { usePasswordChange } from '../../core/account-queries';
 import { Card, SectionTitle, Muted, Button, TextField, ErrorNote } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
-import { PASSWORD_RULE_HINT, checkPasswordChange, clearsPasswordFields, lateOutcomeFor, passwordChangeProblem, type PasswordField } from '../../lib/password-change';
+import { PASSWORD_RULE_HINT, checkPasswordChange, createPasswordWipe, lateOutcomeFor, passwordChangeProblem, type PasswordField } from '../../lib/password-change';
 import { SIGN_IN_LIMITS } from '../../lib/auth';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 
@@ -38,7 +38,7 @@ export function ChangePasswordCard() {
     [],
   );
 
-  // The passwords don't outlive their use: emptied when you leave the screen or the app (6a review).
+  // The passwords don't outlive their use: emptied when you leave the screen, or after a minute away from the app (6a, 5b reviews).
   const navigation = useNavigation();
   useEffect(() => {
     const clear = () => {
@@ -47,8 +47,10 @@ export function ChangePasswordCard() {
       setConfirm('');
     };
     const offBlur = navigation.addListener('blur', clear);
+    // Kept while you copy a password from a password manager; emptied after a minute away (5b review).
+    const wipe = createPasswordWipe();
     const sub = AppState.addEventListener('change', (state) => {
-      if (clearsPasswordFields(state)) clear();
+      if (wipe.onAppState(state)) clear();
     });
     return () => {
       offBlur();

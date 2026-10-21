@@ -4,7 +4,8 @@ import {
   PASSWORD_RULE_HINT,
   PasswordChangeNotSent,
   checkPasswordChange,
-  clearsPasswordFields,
+  PASSWORD_WIPE_AFTER_MS,
+  createPasswordWipe,
   createChangeGate,
   createPasswordChange,
   isStrongPassword,
@@ -230,10 +231,22 @@ describe('a refresh refused while a password change is on its way (6a review)', 
 });
 
 describe('the password fields don’t outlive their use (6a review)', () => {
-  it('are emptied when the app goes to the background', () => {
-    expect(clearsPasswordFields('background')).toBe(true);
-    expect(clearsPasswordFields('inactive')).toBe(true);
-    expect(clearsPasswordFields('active')).toBe(false);
+  it('stay while you copy a password from a password manager; are emptied after a minute away (5b review #8)', () => {
+    let now = 0;
+    const wipe = createPasswordWipe({ afterMs: PASSWORD_WIPE_AFTER_MS, now: () => now });
+    // Off to the password manager and back within a minute: kept.
+    expect(wipe.onAppState('inactive')).toBe(false);
+    expect(wipe.onAppState('background')).toBe(false);
+    now = 20_000;
+    expect(wipe.onAppState('active')).toBe(false);
+    // Away for longer: emptied on the way back.
+    now = 30_000;
+    expect(wipe.onAppState('background')).toBe(false);
+    now = 30_000 + PASSWORD_WIPE_AFTER_MS;
+    expect(wipe.onAppState('active')).toBe(true);
+    expect(PASSWORD_WIPE_AFTER_MS).toBe(60_000);
+    // Coming back active without having left: nothing to wipe.
+    expect(wipe.onAppState('active')).toBe(false);
   });
 
   it('a change that finishes after the screen was left still says how it went', () => {

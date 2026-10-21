@@ -60,9 +60,29 @@ export function passwordChangeProblem(error: unknown): { field: PasswordField | 
   return { field: null, message: FALLBACK };
 }
 
-/** The password fields are emptied when the app leaves the screen for the background (6a review). */
-export function clearsPasswordFields(appState: string): boolean {
-  return appState === 'background' || appState === 'inactive';
+/** How long the app may be away before the password fields are emptied (5b review). */
+export const PASSWORD_WIPE_AFTER_MS = 60_000;
+
+/**
+ * When to empty the password fields (6a, then the 5b review): not as soon as the app goes to the
+ * background — a password copied from a password manager would be lost on the way back — but when
+ * it comes back after being away for a minute or more. Leaving the screen, or signing out, always
+ * empties them (the screen does that).
+ */
+export function createPasswordWipe({ afterMs = PASSWORD_WIPE_AFTER_MS, now = Date.now }: { afterMs?: number; now?: () => number } = {}) {
+  let leftAt: number | null = null;
+  return {
+    /** The app's state changed: true when the fields should be emptied now. */
+    onAppState(state: string): boolean {
+      if (state === 'background' || state === 'inactive') {
+        leftAt ??= now();
+        return false;
+      }
+      const away = leftAt === null ? 0 : now() - leftAt;
+      leftAt = null;
+      return away >= afterMs;
+    },
+  };
 }
 
 /**
