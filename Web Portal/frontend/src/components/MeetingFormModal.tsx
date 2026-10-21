@@ -20,6 +20,7 @@ import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } fro
 import { SeriesScopeChoice } from './meeting/series-scope';
 import { PeopleField, type MeetingPerson } from './meeting-form/PeopleField';
 import { AgendaField, type AgendaDraft } from './meeting-form/AgendaField';
+import { FreeTimes } from './meeting-form/FreeTimes';
 import { usersApi } from '../api/users';
 import { useAuthStore } from '../stores/auth-store';
 
@@ -136,6 +137,18 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
     ...(organizerId ? [{ id: organizerId, name: me ? `${`${me.firstName} ${me.lastName}`.trim() || me.username} (you)` : 'You' }] : []),
     ...people.flatMap((p) => (p.kind === 'user' ? [{ id: p.id, name: p.name }] : [])),
   ];
+  // Free times are checked for the organizer and the invited team members (an existing meeting's
+  // are on its page).
+  const attendeesQ = useQuery({ queryKey: ['meeting', meeting?.id, 'attendees'], queryFn: () => meetingsApi(apiClient).listAttendees(meeting!.id), enabled: editing });
+  const freeTimeUsers = editing
+    ? [meeting!.organizerId, ...(Array.isArray(attendeesQ.data) ? attendeesQ.data : []).flatMap((a) => (a.userId ? [a.userId] : []))]
+    : leads.map((l) => l.id);
+  /** A suggested time: the start moves there and an end set keeps the meeting's length. */
+  const pickTime = (iso: string) => {
+    timesTouched.current = true;
+    setStart(toLocalInputValue(iso, timeZone));
+    if (end && endIso && startIso) setEnd(toLocalInputValue(new Date(Date.parse(iso) + (Date.parse(endIso) - Date.parse(startIso))).toISOString(), timeZone));
+  };
   const changePeople = (next: MeetingPerson[]) => {
     setPeople(next);
     // Someone taken off the list no longer leads their agenda items.
@@ -289,6 +302,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 </div>
                 <p id="mf-tz" className="col-span-2 -mt-1 text-xs text-ink-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
               </div>
+              <FreeTimes userIds={freeTimeUsers} startAt={startIso} minutes={lengthMinutes} rule={seriesId ? null : rule} excludeMeetingId={meeting?.id} onPick={pickTime} />
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Repeat</FieldLabel>
                 <SearchableSelect

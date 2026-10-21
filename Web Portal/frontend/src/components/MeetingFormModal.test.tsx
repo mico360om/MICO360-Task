@@ -16,14 +16,19 @@ const directory = [
   { id: 'u2', username: 'sara', firstName: 'Sara', lastName: 'Al Balushi', avatarUrl: null },
 ];
 
+let freeReply: Record<string, unknown>;
+
 beforeEach(() => {
   calls = [];
+  freeReply = { suggestions: [], clashes: [], day: [], workingHours: { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' } };
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
     const method = init?.method ?? 'GET';
     calls.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'MICO360', companyName: 'MICO', serverTime: new Date().toISOString() } });
     if (u.endsWith('/users/directory')) return json({ data: directory });
+    if (u.endsWith('/meetings/free-times')) return json({ data: freeReply });
+    if (u.endsWith('/meetings/m1/attendees')) return json({ data: [{ id: 'a1', meetingId: 'm1', userId: 'u2' }, { id: 'a2', meetingId: 'm1', userId: null, externalName: 'Sami', externalEmail: 'sami@contractor.om' }] });
     if (u.endsWith('/meetings') && method === 'POST') return json({ data: { id: 'm-new' } }, 201);
     if (u.includes('/meetings/') && method === 'PUT') return json({ data: { id: 'm1' } });
     if (u.endsWith('/meetings/m3') && method === 'GET') return json({ data: { ...baseMeeting, id: 'm3', recurrenceParentId: 'm1', series: { id: 'm1', rule: { freq: 'WEEKLY', interval: 1, weekdays: [4] }, timeZone: 'Asia/Muscat' } } });
@@ -294,7 +299,8 @@ describe('MeetingFormModal: people and agenda in a new meeting', () => {
     expect(screen.getByText('Total 20 of 90 minutes')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /schedule meeting/i }));
     await waitFor(() => expect(posted()).toBeDefined());
-    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+    // One create call (the free-time checks are separate reads).
+    expect(calls.filter((c) => c.method === 'POST' && !c.url.endsWith('/meetings/free-times'))).toHaveLength(1);
     expect(posted()!.attendees).toEqual([{ userId: 'u2' }, { externalEmail: 'sami.k@contractor.om', externalName: 'sami.k' }]);
     expect(posted()!.agendaItems).toEqual([{ title: 'Pump test results', ownerId: 'u2', expectedMinutes: 20 }]);
   });
@@ -314,6 +320,26 @@ describe('MeetingFormModal: people and agenda in a new meeting', () => {
     await waitFor(() => expect(posted()).toBeDefined());
     expect(posted()!.attendees).toBeUndefined();
     expect(posted()!.agendaItems).toEqual([{ title: 'Intro', ownerId: 'u1', expectedMinutes: null }, { title: 'Pump test', ownerId: null, expectedMinutes: null }]);
+  });
+
+  it('a suggested time moves the start and keeps the meeting’s length', async () => {
+    freeReply.suggestions = ['2026-10-26T04:00:00.000Z']; // 08:00 Muscat
+    renderModal();
+    await fillBasics();
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a team member' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Sara Al Balushi/ }));
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/meetings/free-times')).at(-1)?.body?.userIds).toEqual(['u1', 'u2']));
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest 3 times' }));
+    await userEvent.click(within(await screen.findByRole('group', { name: 'Suggested times' })).getByRole('button'));
+    expect(screen.getByLabelText(/starts/i)).toHaveValue('2026-10-26T08:00');
+    expect(screen.getByLabelText(/ends/i)).toHaveValue('2026-10-26T09:30');
+  });
+
+  it('editing checks the meeting’s own people, leaving the meeting itself out', async () => {
+    renderModal(baseMeeting);
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/meetings/free-times') && (c.body?.userIds as string[] | undefined)?.includes('u2'))).toBe(true));
+    const body = calls.filter((c) => c.url.endsWith('/meetings/free-times')).at(-1)!.body!;
+    expect(body).toMatchObject({ userIds: ['u1', 'u2'], excludeMeetingId: 'm1', minutes: 60 });
   });
 
   it('the edit form shows neither section', () => {

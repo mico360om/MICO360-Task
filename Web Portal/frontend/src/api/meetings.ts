@@ -260,6 +260,26 @@ export interface NewMeetingInput {
 
 export type MeetingPatch = Partial<Omit<NewMeetingInput, 'startAt' | 'attendees' | 'agendaItems'>> & { startAt?: string };
 
+export interface FreeTimesInput {
+  /** The invited portal users, the organizer included. */
+  userIds: string[];
+  startAt: string;
+  minutes: number;
+  recurrenceRule?: RecurrenceRule | null;
+  /** The meeting being edited: its own time isn't a clash. */
+  excludeMeetingId?: string;
+}
+
+export interface FreeTimesReply {
+  /** Up to three start times (ISO) when everyone is free, inside working hours. */
+  suggestions: string[];
+  /** Who already has a meeting at the chosen time (the repeat's first four meetings are checked). */
+  clashes: Array<{ userId: string; name: string; date: string; start: string; end: string; title: string | null }>;
+  /** The chosen day's busy blocks, per person. A null title is a meeting the requester can't see. */
+  day: Array<{ userId: string; name: string; blocks: Array<{ start: string; end: string; title: string | null }> }>;
+  workingHours: { days: number[]; start: string; end: string };
+}
+
 export interface NewAttendeeInput {
   userId?: string | null;
   externalName?: string | null;
@@ -419,6 +439,8 @@ export function meetingsApi(client: ApiClient) {
         .then((r) => r.data),
     get: (id: string) => client.get<{ data: Meeting }>(`/meetings/${id}`).then((r) => r.data),
     create: (input: NewMeetingInput) => client.post<{ data: Meeting }>('/meetings', input).then((r) => r.data),
+    /** Free times for a meeting being scheduled: suggestions, clashes and the chosen day's busy blocks. */
+    freeTimes: (body: FreeTimesInput) => client.post<{ data: FreeTimesReply }>('/meetings/free-times', body).then((r) => r.data),
     /** `scope: 'series'` changes every upcoming meeting of the meeting's series. */
     update: (id: string, patch: MeetingPatch, scope: SeriesScope = 'one') =>
       client.put<{ data: Meeting }>(`/meetings/${id}${scope === 'series' ? '?scope=series' : ''}`, patch).then((r) => r.data),
