@@ -161,10 +161,14 @@ export interface ApiProject {
   targetDate?: string | null;
 }
 
-// ── Meetings (read-only in the app) ──────────────────────────────────────────
+// ── Meetings (the app takes part in them; running them is on the website) ────
 export type MeetingStatus = 'DRAFT' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
-/** A meeting as the meetings list gives it (the calendar). */
+export type MeetingPhase = 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
+/** How far a meeting's minutes are: none, notes taken, final minutes drafted, final minutes approved. */
+export type MinutesState = 'NONE' | 'NOTES' | 'DRAFT' | 'FINAL';
+
+/** A meeting as the meetings list gives it (the calendar, the Meetings tab, one meeting). */
 export interface ApiMeeting {
   id: string;
   title: string;
@@ -181,11 +185,121 @@ export interface ApiMeeting {
   recurrenceRule: RecurrenceRule | null;
   /** On the other meetings of a series: the first meeting's id. */
   recurrenceParentId: string | null;
+  /** A series meeting's place in its series (the start its rule gave it). */
+  recurrenceStart?: string | null;
+  /** The meeting's series (one meeting's details only; null for a one-off). */
+  series?: { id: string; rule: RecurrenceRule; timeZone: string } | null;
+  category?: string | null;
+  createdById?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  /** When calendar invitations were last sent (null = never). */
+  invitesSentAt?: string | null;
+  /** May the signed-in person run this meeting (on the website)? Older servers leave it out. */
+  canEdit?: boolean;
+  /** List only: how many people are on it. */
+  attendeeCount?: number;
+  /** List only: action items still to do. */
+  openActionItemCount?: number;
+  /** List only: the first few attendees' names. */
+  attendees?: string[];
+  /** List only: how far the minutes are. */
+  minutes?: MinutesState;
+  /** List only: notes recorded as decisions. */
+  decisionCount?: number;
 }
 
-export type MeetingPhase = 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
-/** How far a meeting's minutes are: none, notes taken, final minutes drafted, final minutes approved. */
-export type MinutesState = 'NONE' | 'NOTES' | 'DRAFT' | 'FINAL';
+/** The answer to the invitation — apart from the role (required / optional) and attendance on the day. */
+export type InvitationResponse = 'PENDING' | 'ACCEPTED' | 'TENTATIVE' | 'DECLINED';
+export type AttendanceStatus = 'INVITED' | 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
+
+/** Someone on a meeting: a team member (userId) or a guest (externalName / externalEmail). */
+export interface ApiMeetingAttendee {
+  id: string;
+  meetingId: string;
+  userId: string | null;
+  externalName: string | null;
+  externalEmail: string | null;
+  role: 'REQUIRED' | 'OPTIONAL';
+  attendance: AttendanceStatus;
+  /** Older servers leave these out (no answer yet). */
+  response?: InvitationResponse;
+  respondedAt?: string | null;
+  invitedAt?: string | null;
+  department: string | null;
+  createdAt: string;
+}
+
+/** One topic of a meeting's agenda. */
+export interface ApiAgendaItem {
+  id: string;
+  meetingId: string;
+  title: string;
+  ownerId: string | null;
+  expectedMinutes: number | null;
+  position: number;
+  completed: boolean;
+}
+
+export type MeetingNoteType = 'DISCUSSION' | 'DECISION' | 'ACTION' | 'ISSUE' | 'QUESTION' | 'INFORMATION';
+
+/** A Live note taken in a meeting. A RICH body is the server's one fixed, safe HTML form (lib/rich-note). */
+export interface ApiMeetingNote {
+  id: string;
+  meetingId: string;
+  agendaItemId: string | null;
+  authorId: string;
+  type: MeetingNoteType;
+  body: string;
+  bodyFormat?: 'PLAIN' | 'RICH';
+  highlighted: boolean;
+  taskId: string | null;
+  createdAt: string;
+  editedAt: string | null;
+}
+
+export type ActionItemStatus = 'OPEN' | 'IN_PROGRESS' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
+
+/** A follow-up from a meeting (in its register, or in My Action Items). */
+export interface ApiActionItem {
+  id: string;
+  meetingId: string | null;
+  projectId: string | null;
+  description: string;
+  assigneeId: string | null;
+  priority: Priority;
+  status: ActionItemStatus;
+  dueDate: string | null;
+  progress: number;
+  completedAt: string | null;
+  taskId: string | null;
+  sourceNoteId: string | null;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  /** The server's word: past due and still to do. */
+  overdue: boolean;
+  /** Board key of the linked task (null when there is none, or it's gone). */
+  taskKey?: string | null;
+}
+
+export interface FinalMinutesContent {
+  summary: string;
+  discussion: Array<{ topic: string; text: string }>;
+  decisions: string[];
+  risks: string[];
+  nextSteps: string[];
+}
+
+/** A meeting's final minutes (the Final MOM). An attendee sees NONE until they are final. */
+export interface ApiFinalMinutes {
+  status: 'NONE' | 'DRAFT' | 'FINAL';
+  content: FinalMinutesContent | null;
+  savedAt: string | null;
+  approvedBy: { id: string; name: string | null } | null;
+  approvedAt: string | null;
+  canEdit: boolean;
+}
 
 /** One meeting on a project's dashboard. */
 export interface ApiProjectMeeting extends Omit<ApiMeeting, 'description' | 'projectId'> {

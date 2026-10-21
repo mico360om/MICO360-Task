@@ -20,7 +20,13 @@ import type {
   ApiWatcher,
   ApiPrioritySuggestion,
   ApiNotification,
+  ApiActionItem,
+  ApiAgendaItem,
+  ApiFinalMinutes,
   ApiMeeting,
+  ApiMeetingAttendee,
+  ApiMeetingNote,
+  InvitationResponse,
   ApiProject,
   ApiProjectMeetingsOverview,
   ApiProjectProgress,
@@ -196,12 +202,31 @@ export function resourcesApi(client: ApiClient) {
       unwatch: (id: string) => client.del<void>(`/tasks/${id}/watch`),
       watchers: (id: string) => data(client.get<Envelope<ApiWatcher[]>>(`/tasks/${id}/watchers`)),
     },
-    /** Meetings, read-only: the calendar's range and a project's dashboard. */
+    /**
+     * Meetings: taking part in them — the list, one meeting and its parts, your answer to the
+     * invitation and your action items. Running them (editing, notes, minutes) is on the website.
+     */
     meetings: {
       /** The meetings starting in [from, to) (ISO instants) that the user can see. */
       range: (from: string, to: string) => data(client.get<Envelope<ApiMeeting[]>>(`/meetings${queryString({ from, to })}`)),
       projectOverview: (projectId: string) =>
         data(client.get<Envelope<ApiProjectMeetingsOverview>>(`/projects/${projectId}/meetings-overview`)),
+      /** Every meeting the user can see (with its people and minutes counts), or only the ones they organize. */
+      list: (filter: { mine?: boolean } = {}) => data(client.get<Envelope<ApiMeeting[]>>(`/meetings${queryString({ mine: filter.mine ? 'true' : undefined })}`)),
+      get: (id: string) => data(client.get<Envelope<ApiMeeting>>(`/meetings/${encodeURIComponent(id)}`)),
+      attendees: (id: string) => data(client.get<Envelope<ApiMeetingAttendee[]>>(`/meetings/${encodeURIComponent(id)}/attendees`)),
+      agenda: (id: string) => data(client.get<Envelope<ApiAgendaItem[]>>(`/meetings/${encodeURIComponent(id)}/agenda`)),
+      notes: (id: string) => data(client.get<Envelope<ApiMeetingNote[]>>(`/meetings/${encodeURIComponent(id)}/notes`)),
+      actionItems: (id: string) => data(client.get<Envelope<ApiActionItem[]>>(`/meetings/${encodeURIComponent(id)}/action-items`)),
+      finalMinutes: (id: string) => data(client.get<Envelope<ApiFinalMinutes>>(`/meetings/${encodeURIComponent(id)}/final-minutes`)),
+      /** Answer my own invitation (the server lets an attendee change only this on their own row). */
+      respond: (meetingId: string, attendeeId: string, response: InvitationResponse) =>
+        data(
+          client.patch<Envelope<ApiMeetingAttendee>>(`/meetings/${encodeURIComponent(meetingId)}/attendees/${encodeURIComponent(attendeeId)}`, { response }),
+        ),
+      /** Everything assigned to me across meetings — only what is still to do, or all of it. */
+      myActionItems: (filter: { openOnly?: boolean } = {}) =>
+        data(client.get<Envelope<ApiActionItem[]>>(`/me/action-items${queryString({ openOnly: filter.openOnly ? 'true' : undefined })}`)),
     },
     /** AI help — suggestions the user reviews before anything changes (given longer than other requests). */
     ai: {

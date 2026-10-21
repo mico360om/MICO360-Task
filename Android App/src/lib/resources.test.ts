@@ -287,4 +287,48 @@ describe('resourcesApi.meetings', () => {
     await resourcesApi(client).tasks.update('t1', { isMilestone: true });
     expect(calls[0]).toEqual({ method: 'PUT', path: '/tasks/t1', body: { isMilestone: true } });
   });
+
+  it('GETs every meeting I can see, or only the ones I organize (the Meetings list)', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).meetings;
+    await api.list();
+    await api.list({ mine: true });
+    expect(calls[0]).toEqual({ method: 'GET', path: '/meetings' });
+    expect(calls[1]).toEqual({ method: 'GET', path: '/meetings?mine=true' });
+  });
+
+  it('GETs one meeting and each of its parts (details, read-only)', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).meetings;
+    await api.get('m 1');
+    await api.attendees('m1');
+    await api.agenda('m1');
+    await api.notes('m1');
+    await api.actionItems('m1');
+    await api.finalMinutes('m1');
+    expect(calls.map((c) => c.path)).toEqual([
+      '/meetings/m%201',
+      '/meetings/m1/attendees',
+      '/meetings/m1/agenda',
+      '/meetings/m1/notes',
+      '/meetings/m1/action-items',
+      '/meetings/m1/final-minutes',
+    ]);
+    expect(calls.every((c) => c.method === 'GET')).toBe(true);
+  });
+
+  it('PATCHes my own attendee row with my answer to the invitation (and nothing else)', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).meetings.respond('m1', 'a1', 'TENTATIVE');
+    expect(calls[0]).toEqual({ method: 'PATCH', path: '/meetings/m1/attendees/a1', body: { response: 'TENTATIVE' } });
+  });
+
+  it('GETs my action items: the open ones, or all of them', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).meetings;
+    await api.myActionItems({ openOnly: true });
+    await api.myActionItems();
+    expect(calls[0]).toEqual({ method: 'GET', path: '/me/action-items?openOnly=true' });
+    expect(calls[1]).toEqual({ method: 'GET', path: '/me/action-items' });
+  });
 });

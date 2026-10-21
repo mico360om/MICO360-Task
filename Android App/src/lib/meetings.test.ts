@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildAgenda, isRepeating, joinLink, meetingPlace, meetingTime, meetingWindow, meetingDayKey } from './meetings';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { buildAgenda, clockTime, isRepeating, joinLink, meetingPlace, meetingTime, meetingWindow, meetingDayKey, safeMeetingHref } from './meetings';
 import type { ApiMeeting, ApiTask } from './types';
 
 const meeting = (id: string, patch: Partial<ApiMeeting> = {}): ApiMeeting => ({
@@ -113,5 +115,55 @@ describe('joinLink', () => {
     expect(joinLink(meeting('c', { onlineLink: 'javascript:alert(1)' }))).toBeNull();
     expect(joinLink(meeting('d', { onlineLink: 'intent://evil' }))).toBeNull();
     expect(joinLink(meeting('e'))).toBeNull();
+  });
+
+  it('opens a link typed without https:// as the website does (meet.google.com/abc)', () => {
+    expect(joinLink(meeting('a', { onlineLink: 'meet.google.com/abc-defg-hij' }))).toBe('https://meet.google.com/abc-defg-hij');
+  });
+});
+
+/** Links as people type them, and what the website's safeMeetingHref makes of each. */
+const LINKS: Array<[string | null, string | null]> = [
+  ['https://meet.example.com/abc', 'https://meet.example.com/abc'],
+  ['  https://zoom.us/j/123?pwd=x#y  ', 'https://zoom.us/j/123?pwd=x#y'],
+  ['HTTPS://Teams.Microsoft.com/l/meetup', 'https://teams.microsoft.com/l/meetup'],
+  ['https://meet.example.com', 'https://meet.example.com/'],
+  ['https://meet.example.com:8443/room', 'https://meet.example.com:8443/room'],
+  ['https://meet.example.com:443/room', 'https://meet.example.com/room'],
+  ['http://localhost:3000/x', 'http://localhost:3000/x'],
+  ['meet.google.com/abc', 'https://meet.google.com/abc'],
+  ['//meet.google.com/abc', 'https://meet.google.com/abc'],
+  ['javascript:alert(1)', null],
+  [' JavaScript:alert(1)', null],
+  ['data:text/html,hi', null],
+  ['mailto:a@b.com', null],
+  ['tel:+96812345678', null],
+  ['file:///etc/passwd', null],
+  ['intent://evil#Intent;end', null],
+  ['ftp://files.example.com/x', null],
+  ['https://intranet/room', null],
+  ['https://', null],
+  ['https://exa mple.com/x', null],
+  ['', null],
+  ['   ', null],
+  [null, null],
+];
+
+describe('safeMeetingHref (Join opens only a real web link)', () => {
+  it('keeps http(s) links with a real host, adds https:// when it was left out, refuses everything else', () => {
+    for (const [input, out] of LINKS) expect(safeMeetingHref(input), String(input)).toBe(out);
+  });
+
+  const web = resolve(__dirname, '../../../Web Portal/frontend/src/lib/meetingFormat.ts');
+  it.skipIf(!existsSync(web))('says the same as the website for every link', async () => {
+    const { safeMeetingHref: theirs } = (await import(/* @vite-ignore */ web)) as { safeMeetingHref: (link: string | null) => string | null };
+    for (const [input] of LINKS) expect(safeMeetingHref(input), String(input)).toBe(theirs(input));
+  });
+});
+
+describe('clockTime', () => {
+  it('is the 24-hour time in the zone given', () => {
+    expect(clockTime('2026-10-20T06:05:00.000Z', 'Asia/Muscat')).toBe('10:05');
+    expect(clockTime('not a date', 'Asia/Muscat')).toBe('');
   });
 });
