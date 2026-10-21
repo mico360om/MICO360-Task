@@ -10,6 +10,7 @@ import { Loader, EmptyState, ErrorNote, Badge } from '../components/ui';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
 import { PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
+import { boardProjects } from '../lib/all-board';
 import { emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectFiguresFor, projectsSubtitle, statusChangeProblem, type ProjectCardMeta } from '../lib/project-list';
 import { ownerName } from '../lib/project-dashboard';
 import { canEditProject } from '../lib/project-team';
@@ -82,6 +83,18 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
         ListHeaderComponent={
           <View style={s.head}>
             <Text style={s.subtitle}>{projectsSubtitle(admin)}</Text>
+            {/* Every project on one board (4c) — offered when there is more than one, as on the website. */}
+            {boardProjects(list).length > 1 ? (
+              <Pressable
+                onPress={() => navigation.navigate('AllBoard')}
+                accessibilityRole="button"
+                accessibilityLabel="Board: all projects"
+                accessibilityHint="Every project’s tasks for the day, under six statuses"
+                style={({ pressed }) => [s.allBoard, pressed && s.pressed]}
+              >
+                <Text style={s.allBoardText}>▦ Board: all projects</Text>
+              </Pressable>
+            ) : null}
             {isError && !projects ? <ErrorNote message="Couldn’t load your projects." onRetry={() => void refetch()} retrying={isRefetching} /> : null}
           </View>
         }
@@ -233,6 +246,8 @@ const makeStyles = (c: Palette) =>
     head: { gap: spacing.sm },
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
     headerButton: { paddingHorizontal: spacing.lg, minHeight: 44, justifyContent: 'center' },
+    allBoard: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
+    allBoardText: { fontSize: fontSize.md, fontWeight: '700', color: c.brand },
     headerButtonText: { color: c.onBrand, fontWeight: '800', fontSize: fontSize.md },
     flex: { flex: 1 },
     pressed: { opacity: 0.7 },

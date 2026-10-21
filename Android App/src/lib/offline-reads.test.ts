@@ -232,3 +232,22 @@ describe('a card moved offline to a chosen place stays there (4b)', () => {
     expect(moved.find((t) => t.id === 't1')).toMatchObject({ columnId: 'c2', position: 0.5 });
   });
 });
+
+describe('a card moved offline on the All projects board stays under its new status (4c)', () => {
+  it('a waiting move that names the status of its new column shows the card under it', () => {
+    const tasks = [{ ...task('t1', 'c1'), columnCategory: 'TODO' }, { ...task('t2', 'c1'), columnCategory: 'TODO' }];
+    const moved = withPendingMoves(tasks, [{ kind: 'task.move', payload: { id: 't1', columnId: 'd1', projectId: 'p1', category: 'DONE' } }]);
+    expect(moved[0]).toMatchObject({ columnId: 'd1', columnCategory: 'DONE' });
+    expect(moved[1]).toBe(tasks[1]);
+  });
+
+  it('a waiting move without a status (an older one) changes the column only', () => {
+    const tasks = [{ ...task('t1', 'c1'), columnCategory: 'TODO' }];
+    expect(withPendingMoves(tasks, [{ kind: 'task.move', payload: { id: 't1', columnId: 'c2' } }])[0]).toMatchObject({ columnId: 'c2', columnCategory: 'TODO' });
+  });
+
+  it('a status already shown changes nothing', () => {
+    const tasks = [{ ...task('t1', 'd1'), columnCategory: 'DONE' }];
+    expect(withPendingMoves(tasks, [{ kind: 'task.move', payload: { id: 't1', columnId: 'd1', category: 'DONE' } }])).toBe(tasks);
+  });
+});

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Image, StyleSheet, type AccessibilityActionEvent } from 'react-native';
 import { useColors } from '../../core/theme';
 import { priorityColor } from '../TaskRow';
+import { ProjectAvatar } from '../ProjectAvatar';
 import { cardView, personInitials, type BoardCard as Card } from '../../lib/board';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 
@@ -11,8 +12,9 @@ const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urg
  * A card on the board (4b), as the website's TaskCard: its column's colour as a stripe; the key,
  * Blocked, milestone, repeat and priority; the title; the due day (Overdue in company time, never
  * for finished work); subtasks, comments and files when there are some; the progress; and up to
- * three faces (photos from this server only) and "+N". Tap opens the task; long-press (or TalkBack's
- * actions: Move…, Move up, Move down) places it. It grows with the font size.
+ * three faces (photos from this server only) and "+N". On the All projects board (4c) it names its
+ * project first. Tap opens the task; long-press (or TalkBack's actions: Move…, Move up, Move down)
+ * places it. It grows with the font size.
  */
 export const BoardCard = React.memo(function BoardCard({
   card,
@@ -63,6 +65,14 @@ export const BoardCard = React.memo(function BoardCard({
       style={({ pressed }) => [s.card, view.overdue ? s.overdueRing : card.blocked ? s.blockedRing : null, pressed && s.pressed]}
     >
       <View style={[s.stripe, { backgroundColor: card.accentColor }]} />
+      {card.project ? (
+        <View style={s.project} importantForAccessibility="no-hide-descendants">
+          <ProjectAvatar project={card.project} size="xs" />
+          <Text style={s.projectName} numberOfLines={1}>
+            {card.project.name}
+          </Text>
+        </View>
+      ) : null}
       <View style={s.top} importantForAccessibility="no-hide-descendants">
         <Text style={s.key}>{card.key}</Text>
         <View style={s.flags}>
@@ -160,6 +170,8 @@ const makeStyles = (c: Palette) =>
     blockedRing: { borderColor: c.warning },
     pressed: { opacity: 0.75 },
     stripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
+    project: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+    projectName: { flexShrink: 1, fontSize: fontSize.xs, fontWeight: '600', color: c.ink2 },
     top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
     key: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
     flags: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },

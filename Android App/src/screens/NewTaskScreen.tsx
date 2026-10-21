@@ -152,8 +152,9 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
 
   const columnsQ = useProjectColumns(draft.projectId);
   const columns = useMemo(() => formColumns(columnsQ.data), [columnsQ.data]);
-  // After a project change, land in the same kind of column (e.g. "in progress") when it has one.
-  const preferKind = useRef<string | null>(null);
+  // After a project change, land in the same kind of column (e.g. "in progress") when it has one;
+  // opened from a status of the All projects board (4c), start in that kind of column.
+  const preferKind = useRef<string | null>(params.columnCategory ?? null);
   useEffect(() => {
     // A locked form doesn't move: its kept try goes again with exactly what it carried (5b review).
     if (frozen || !columnsQ.data || columns.length === 0) return;

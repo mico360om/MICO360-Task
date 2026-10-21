@@ -1,6 +1,7 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigation/native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import type { ColumnCategory } from '../lib/types';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -20,6 +21,8 @@ export type TabsParamList = {
 export type AppStackParamList = {
   Tabs: NavigatorScreenParams<TabsParamList> | undefined;
   Board: { projectId: string; projectName?: string };
+  /** Every open project's tasks for a day under the six shared statuses (4c). */
+  AllBoard: undefined;
   /** Manage columns (4b): for an administrator or a manager of the project. */
   BoardColumns: { projectId: string; projectName?: string };
   ProjectDetail: { projectId: string; projectName?: string };
@@ -27,8 +30,10 @@ export type AppStackParamList = {
   /**
    * New task (4a): in a fixed project (a board, a project; with the board’s column and day), or
    * starting in a project that can be changed (the calendar’s filter), on a day (the calendar’s).
+   * `columnCategory`: start in that kind of column of whichever project is chosen (the All projects
+   * board’s “+” on a status — 4c).
    */
-  NewTask: { projectId?: string; defaultProjectId?: string; columnId?: string; dueDate?: string; boardDate?: string } | undefined;
+  NewTask: { projectId?: string; defaultProjectId?: string; columnId?: string; columnCategory?: ColumnCategory; dueDate?: string; boardDate?: string } | undefined;
   MeetingDetail: { meetingId: string; title?: string };
   /** Schedule a meeting (no id; in a project when given), or edit one. */
   MeetingForm: { meetingId?: string; projectId?: string } | undefined;

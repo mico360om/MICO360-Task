@@ -5,6 +5,10 @@ import { useServices, useUserId } from './providers';
 import { connectAuthedSocket } from './authed-socket';
 import {
   afterRemoval,
+  allBoardEventRefreshes,
+  allBoardRefreshes,
+  ALL_BOARD_KEY,
+  columnChangedRefreshes,
   boardRefreshes,
   createJoinMemory,
   isProjectRemoval,
@@ -111,4 +115,68 @@ export function useBoardRealtime(projectId: string | undefined, onProjectRemoved
     };
     // Reconnect only when the project, the signed-in user or the services change.
   }, [projectId, userId, services, qc, joins]);
+}
+
+/**
+ * Live updates for the All projects board (4c), as the website's: one connection that joins every
+ * project the board shows. A task event refreshes the board (the day on screen) and what the
+ * project's own board would (allBoardEventRefreshes); a change to one part of a task refreshes just
+ * that part; a project's columns changing refreshes them and the board. Events are gathered for
+ * about 300 ms and refreshed in one pass, with one animation. After a reconnect — and when the
+ * screen comes back after it stopped listening (`projectIds` undefined while it is out of view) —
+ * the board is fetched again, since events may have been missed. Taken off a project: the project
+ * list and the board are fetched again (the new list changes the rooms, which reconnects).
+ */
+export function useAllBoardRealtime(projectIds: readonly string[] | undefined): void {
+  const services = useServices();
+  const userId = useUserId();
+  const qc = useQueryClient();
+  // Keyed by the ids themselves, so a new list naming the same projects doesn't reconnect.
+  const key = projectIds ? [...projectIds].sort().join(',') : '';
+  const joins = useRef(createJoinMemory()).current;
+
+  useEffect(() => {
+    if (!key || !userId) return;
+    const ids = key.split(',');
+    let animate = false;
+    const batch = createRefreshBatcher((targets) => {
+      if (animate) animateNext();
+      animate = false;
+      refresh(qc, targets);
+    });
+    const later = (targets: Parameters<typeof batch.add>[0], moveCards = false) => {
+      if (moveCards) animate = true;
+      batch.add(targets);
+    };
+
+    let first = true;
+    const { socket, dispose } = connectAuthedSocket(services, (s, isReconnect) => {
+      for (const id of ids) s.emit('join', { projectId: id });
+      const back = first && joins.returning(key);
+      first = false;
+      if (isReconnect || back) later(allBoardRefreshes());
+    });
+
+    for (const ev of TASK_EVENTS) {
+      socket.on(ev, (payload: unknown) => later(allBoardEventRefreshes(ev, payload), true));
+    }
+    for (const ev of TASK_PART_EVENTS) {
+      socket.on(ev, (payload: unknown) => {
+        const taskId = (payload as { taskId?: unknown } | null)?.taskId;
+        const inMyTasks = (qc.getQueryData<ApiTask[]>(['tasks', 'mine']) ?? []).some((t) => t.id === taskId);
+        later(taskPartRefreshes(ev, payload, { myId: userId, inMyTasks }));
+      });
+    }
+    socket.on('column:changed', (payload: unknown) => later(columnChangedRefreshes(payload), true));
+    socket.on(PROJECT_REMOVED_EVENT, () => {
+      void qc.invalidateQueries({ queryKey: ['projects'] });
+      later([{ queryKey: [...ALL_BOARD_KEY] }]);
+    });
+
+    return () => {
+      dispose();
+      animate = false;
+      batch.flush();
+    };
+  }, [key, userId, services, qc, joins]);
 }

@@ -60,6 +60,8 @@ import { FinalMinutesScreen } from '../screens/FinalMinutesScreen';
 import { NewTaskScreen } from '../screens/NewTaskScreen';
 import { ProjectFormScreen } from '../screens/ProjectFormScreen';
 import { BoardColumnsScreen } from '../screens/BoardColumnsScreen';
+import { AllBoardScreen } from '../screens/AllBoardScreen';
+import { ALL_PROJECTS_TEXT } from '../lib/all-board';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -342,6 +344,7 @@ export function RootNavigator() {
               options={({ route }) => ({ title: route.params.projectName ?? 'Board' })}
             />
             <AppStack.Screen name="BoardColumns" component={BoardColumnsScreen} options={{ title: 'Manage columns' }} />
+            <AppStack.Screen name="AllBoard" component={AllBoardScreen} options={{ title: ALL_PROJECTS_TEXT.title }} />
             <AppStack.Screen
               name="ProjectDetail"
               component={ProjectDetailScreen}

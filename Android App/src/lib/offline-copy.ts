@@ -20,6 +20,11 @@ export function projectTasksCopyKey(projectId: string, boardDate?: string): stri
   return `tasks.${projectId}.${boardDate ?? 'all'}`;
 }
 
+/** The offline copy's name for the All projects board on one day (4c): kept, and capped, with the board days. */
+export function allTasksCopyKey(boardDate: string): string {
+  return `tasks.all.${boardDate}`;
+}
+
 /** Is this the copy of one board day (one is kept per day looked at)? */
 export function isBoardDayCopy(key: string): boolean {
   return BOARD_DAY.test(key);

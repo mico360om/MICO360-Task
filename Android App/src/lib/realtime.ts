@@ -71,6 +71,35 @@ export function boardRefreshes(projectId: string): Refresh[] {
   ];
 }
 
+// ── The All projects board (4c): one connection, every project it shows ──────
+
+/** The All projects board's days (core/board-queries useAllProjectsTasks): ['tasks', 'all', <day>]. */
+export const ALL_BOARD_KEY = ['tasks', 'all'] as const;
+
+/**
+ * A task event on the All projects board: the board (only the day on screen is fetched), and what
+ * the event refreshes on that project's own board (taskEventRefreshes) — its project's figures
+ * when the event names its project (a deletion names only the task).
+ */
+export function allBoardEventRefreshes(event: string, payload?: unknown): Refresh[] {
+  const raw = (payload as { projectId?: unknown } | null | undefined)?.projectId;
+  const projectId = typeof raw === 'string' && raw ? raw : '';
+  const rest = taskEventRefreshes(event, projectId, payload).filter((t) => !('queryKey' in t) || !t.queryKey.includes(''));
+  return [{ queryKey: [...ALL_BOARD_KEY] }, ...rest];
+}
+
+/** After the All projects board's socket reconnects (events may have been missed). */
+export function allBoardRefreshes(): Refresh[] {
+  return [{ queryKey: [...ALL_BOARD_KEY] }, { queryKey: ['tasks', 'mine'] }, { queryKey: ['columns'], later: true }, MY_ACTION_ITEMS];
+}
+
+/** A project's columns changed (`column:changed`): its columns, and the board — a column switched off takes its cards off. */
+export function columnChangedRefreshes(payload: unknown): Refresh[] {
+  const raw = (payload as { projectId?: unknown } | null | undefined)?.projectId;
+  const columns = typeof raw === 'string' && raw ? ['columns', raw] : ['columns'];
+  return [{ queryKey: columns }, { queryKey: [...ALL_BOARD_KEY] }];
+}
+
 /** Task events the board listens to. */
 export const TASK_EVENTS = ['task:created', 'task:updated', 'task:moved', 'task:deleted'] as const;
 

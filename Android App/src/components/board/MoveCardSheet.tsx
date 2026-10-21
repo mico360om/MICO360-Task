@@ -66,7 +66,7 @@ export function MoveCardSheet({
     >
       {dest && task ? (
         placeChoices(dest.tasks, task.id).map((choice) => (
-          <Option key={typeof choice.place === 'string' ? choice.place : `after:${choice.place.after}`} label={choice.label} onPress={() => onMove(dest.column.id, choice.place)} s={s} />
+          <MoveOption key={typeof choice.place === 'string' ? choice.place : `after:${choice.place.after}`} label={choice.label} onPress={() => onMove(dest.column.id, choice.place)} />
         ))
       ) : (
         <>
@@ -74,7 +74,7 @@ export function MoveCardSheet({
             <View style={s.group}>
               <FieldLabel>In {own.column.name}</FieldLabel>
               {shownHere.map((h) => (
-                <Option key={h.label} label={h.label} onPress={() => onReorder(own.column.id, h.order!)} s={s} />
+                <MoveOption key={h.label} label={h.label} onPress={() => onReorder(own.column.id, h.order!)} />
               ))}
             </View>
           ) : null}
@@ -84,14 +84,13 @@ export function MoveCardSheet({
             {targets.map((col) => {
               const count = board.find((b) => b.column.id === col.id)?.tasks.length ?? 0;
               return (
-                <Option
+                <MoveOption
                   key={col.id}
                   label={col.name}
                   a11y={`Move to ${col.name}, ${count} ${count === 1 ? 'task' : 'tasks'}. Then choose where in it.`}
                   dot={col.color}
                   trailing={`${count} ›`}
                   onPress={() => setTo(col.id)}
-                  s={s}
                 />
               );
             })}
@@ -102,7 +101,10 @@ export function MoveCardSheet({
   );
 }
 
-function Option({ label, a11y, dot, trailing, onPress, s }: { label: string; a11y?: string; dot?: string; trailing?: string; onPress: () => void; s: Styles }) {
+/** One choice in a move sheet (the All projects board's status sheet uses it too — 4c). */
+export function MoveOption({ label, a11y, dot, trailing, onPress }: { label: string; a11y?: string; dot?: string; trailing?: string; onPress: () => void }) {
+  const c = useColors();
+  const s = useMemo(() => makeStyles(c), [c]);
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y ?? label} style={({ pressed }) => [s.option, pressed && s.pressed]}>
       {dot ? <View style={[s.dot, { backgroundColor: dot }]} /> : null}
@@ -115,8 +117,6 @@ function Option({ label, a11y, dot, trailing, onPress, s }: { label: string; a11
     </Pressable>
   );
 }
-
-type Styles = ReturnType<typeof makeStyles>;
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({

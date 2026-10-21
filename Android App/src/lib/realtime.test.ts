@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyTaskEvent, taskEventRefreshes, boardRefreshes, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval, createJoinMemory, afterRemoval } from './realtime';
+import { allBoardEventRefreshes, allBoardRefreshes, columnChangedRefreshes, applyTaskEvent, taskEventRefreshes, boardRefreshes, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval, createJoinMemory, afterRemoval } from './realtime';
 import { ApiError, NetworkError } from './api-client';
 import type { ApiTask } from './types';
 
@@ -195,5 +195,32 @@ describe('the live board hook (5b review #5, #6)', () => {
     expect(hook).toMatch(/if \(isReconnect \|\| back\) later\(boardRefreshes\(projectId\)\);/);
     expect(hook).toMatch(/afterRemoval\(\(\) => services\.resources\.projects\.get\(projectId\)\)/);
     expect(hook).toMatch(/if \(outcome === 'gone'\) onRemovedRef\.current\?\.\(\);/);
+  });
+});
+
+describe('the All projects board, live (4c): one connection for every project it shows', () => {
+  const exact = (...queryKey: string[]) => ({ queryKey, exact: true });
+  const myItems = { queryKey: ['action-items', 'mine'], later: true };
+  const all = { queryKey: ['tasks', 'all'] };
+
+  it('a change to a task refreshes the board (the day on screen) and what the project’s own board would', () => {
+    expect(allBoardEventRefreshes('task:moved', { id: 't9', projectId: 'p2' })).toEqual([all, ...taskEventRefreshes('task:moved', 'p2', { id: 't9', projectId: 'p2' })]);
+  });
+
+  it('a deleted task (no project named): the board, the lists holding it, its details and My Action Items', () => {
+    expect(allBoardEventRefreshes('task:deleted', { id: 't9' })).toEqual([all, { listsHolding: 't9' }, exact('task', 't9'), myItems]);
+  });
+
+  it('a new task may be yours: My tasks too', () => {
+    expect(allBoardEventRefreshes('task:created', { id: 't9', projectId: 'p1' })).toContainEqual({ queryKey: ['tasks', 'mine'] });
+  });
+
+  it('after a reconnect (events may have been missed): the board, My tasks, the columns when next used and My Action Items', () => {
+    expect(allBoardRefreshes()).toEqual([all, { queryKey: ['tasks', 'mine'] }, { queryKey: ['columns'], later: true }, myItems]);
+  });
+
+  it('a project’s columns changed: its columns, and the board (a column switched off takes its cards off)', () => {
+    expect(columnChangedRefreshes({ projectId: 'p2', action: 'updated' })).toEqual([{ queryKey: ['columns', 'p2'] }, all]);
+    expect(columnChangedRefreshes(null)).toEqual([{ queryKey: ['columns'] }, all]);
   });
 });

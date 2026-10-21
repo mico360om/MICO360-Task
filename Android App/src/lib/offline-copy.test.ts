@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BOARD_DAYS_KEPT, isBoardDayCopy, projectTasksCopyKey, withoutOldDone } from './offline-copy';
+import { BOARD_DAYS_KEPT, allTasksCopyKey, isBoardDayCopy, projectTasksCopyKey, withoutOldDone } from './offline-copy';
 import type { ApiTask } from './types';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
@@ -84,5 +84,12 @@ describe('the projects’ progress kept offline (5b review #2)', () => {
     expect(capOf('progress.p1')?.name).toBe('progress');
     expect(capOf('projects.figures')).toBeUndefined();
     expect(PROGRESS_KEPT).toBe(20);
+  });
+});
+
+describe('the All projects board kept offline (4c)', () => {
+  it('is kept per board day, among the board days (and capped with them)', () => {
+    expect(allTasksCopyKey('2026-10-21')).toBe('tasks.all.2026-10-21');
+    expect(isBoardDayCopy(allTasksCopyKey('2026-10-21'))).toBe(true);
   });
 });

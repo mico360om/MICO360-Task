@@ -15,13 +15,16 @@ export interface OfflineReadsDeps {
  * the offline copy has these moves yet. Tasks no move names are left as they are, and the same list
  * comes back when nothing changes.
  */
-export function withPendingMoves<T extends { id: string; columnId: string }>(tasks: T[], pending: readonly Pick<QueuedMutation, 'kind' | 'payload'>[]): T[] {
-  const movedTo = new Map<string, { columnId: string; at?: number }>();
+export function withPendingMoves<T extends { id: string; columnId: string; columnCategory?: string | null }>(tasks: T[], pending: readonly Pick<QueuedMutation, 'kind' | 'payload'>[]): T[] {
+  const movedTo = new Map<string, { columnId: string; at?: number; category?: string }>();
   for (const m of pending) {
     if (m.kind !== 'task.move') continue;
-    const p = (m.payload ?? {}) as { id?: unknown; columnId?: unknown; at?: unknown };
-    // `at`: where the card shows in its new column, between its new neighbours (4b).
-    if (typeof p.id === 'string' && typeof p.columnId === 'string') movedTo.set(p.id, { columnId: p.columnId, ...(typeof p.at === 'number' ? { at: p.at } : {}) });
+    const p = (m.payload ?? {}) as { id?: unknown; columnId?: unknown; at?: unknown; category?: unknown };
+    // `at`: where the card shows in its new column, between its new neighbours (4b). `category`:
+    // the new column's kind, so the All projects board shows it under that status (4c).
+    if (typeof p.id === 'string' && typeof p.columnId === 'string') {
+      movedTo.set(p.id, { columnId: p.columnId, ...(typeof p.at === 'number' ? { at: p.at } : {}), ...(typeof p.category === 'string' && p.category ? { category: p.category } : {}) });
+    }
   }
   if (movedTo.size === 0 || !Array.isArray(tasks)) return tasks;
   let changed = false;
@@ -29,9 +32,10 @@ export function withPendingMoves<T extends { id: string; columnId: string }>(tas
     const move = movedTo.get(t.id);
     if (move === undefined) return t;
     const placed = move.at !== undefined && (t as { position?: unknown }).position !== move.at;
-    if (move.columnId === t.columnId && !placed) return t;
+    const recategorised = move.category !== undefined && t.columnCategory !== move.category;
+    if (move.columnId === t.columnId && !placed && !recategorised) return t;
     changed = true;
-    return { ...t, columnId: move.columnId, ...(placed ? { position: move.at } : {}) };
+    return { ...t, columnId: move.columnId, ...(placed ? { position: move.at } : {}), ...(recategorised ? { columnCategory: move.category } : {}) };
   });
   return changed ? next : tasks;
 }

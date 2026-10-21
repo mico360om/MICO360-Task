@@ -64,6 +64,13 @@ export interface ApiTask {
   meeting?: ApiTaskMeeting | null;
   /** The category of the task's column (e.g. DONE) — older servers leave it out. */
   columnCategory?: string | null;
+  /** List rows: its column is switched off in Manage columns, so it isn't on a board (older servers leave it out). */
+  columnHidden?: boolean;
+  /**
+   * Task details only: every day it was carried forward to (per-date boards), oldest first —
+   * 'YYYY-MM-DD' days and when it happened. Absent or null when it never was.
+   */
+  carryForwardLog?: { from: string; to: string; at: string }[] | null;
   /** Present only on the create response when tags were applied in the same call. */
   tags?: ApiTag[];
   /** Present only on the create response when assignees were applied in the same call. */

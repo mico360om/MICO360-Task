@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
 import { WaitingBehindError } from './write-order';
-import { BOARD_TEXT, moveCard, reorderCards } from './board-writes';
+import { BOARD_TEXT, moveCard, reorderCards, taskMovePayload } from './board-writes';
 
 const kept = (e: Error) => Object.assign(e, { [Symbol.for('mico360.keptOnPhone')]: true });
 
@@ -55,5 +55,12 @@ describe('changing a card’s place in its own column (4b)', () => {
     expect(BOARD_TEXT.moveRefused).toBe('Couldn’t move that task — it was put back. Please try again.');
     expect(BOARD_TEXT.orderNeedsConnection).toBe('Changing the order needs a connection — the card was put back.');
     expect(BOARD_TEXT.orderNotSaved).toBe('Moved. Its place in the column wasn’t saved — check your connection, then place it again.');
+  });
+});
+
+describe('what a move kept on this phone carries (4c)', () => {
+  it('its task, column, place and project — and the status of its column, so every board shows it there meanwhile', () => {
+    expect(taskMovePayload({ id: 't1', columnId: 'd1', projectId: 'p1', category: 'DONE' })).toEqual({ id: 't1', columnId: 'd1', position: undefined, projectId: 'p1', category: 'DONE' });
+    expect(taskMovePayload({ id: 't1', columnId: 'c2', position: 2, projectId: 'p1', at: 1.5 })).toEqual({ id: 't1', columnId: 'c2', position: 2, projectId: 'p1', at: 1.5 });
   });
 });

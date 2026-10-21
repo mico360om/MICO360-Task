@@ -49,6 +49,8 @@ export interface BoardCard {
   milestone: boolean;
   /** In a Done column, or completed: never overdue. */
   done: boolean;
+  /** Its project, on a board showing several projects (the All projects board, 4c). */
+  project?: { name: string; code: string; color?: string | null; icon?: string | null; imageUrl?: string | null };
 }
 
 type AnyAssignee = { id: string; name?: string; username?: string; firstName?: string; lastName?: string };
@@ -135,6 +137,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
   if (c && c.attachments > 0) counts.push({ kind: 'files', value: String(c.attachments), label: plural(c.attachments, 'file', 'files') });
   const words = [
     `${card.key}, ${card.title}.`,
+    card.project ? `In ${card.project.name}.` : null,
     `${PRIORITY_WORD[card.priority] ?? card.priority} priority.`,
     card.blocked ? 'Blocked.' : null,
     card.milestone ? 'Milestone.' : null,

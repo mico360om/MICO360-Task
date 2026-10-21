@@ -7,17 +7,22 @@ const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 describe('the board screen (4b)', () => {
   const screen = src('screens/BoardScreen.tsx');
 
+  // A column is drawn by the shared column view (the All projects board uses it too — 4c).
+  const columnView = src('components/board/BoardColumnView.tsx');
+
   it('lays its columns and their cards out as virtualized lists, not mapped scroll views', () => {
     expect(screen).toMatch(/<FlatList\s+horizontal\s+data=\{board\}/);
-    expect(screen).toMatch(/<FlatList\s+data=\{cards\}/);
+    expect(screen).toMatch(/<BoardColumnView id=\{column\.id\} name=\{column\.name\} color=\{column\.color\} cards=\{cards\}/);
+    expect(columnView).toMatch(/<FlatList\s+data=\{cards\}/);
     expect(screen).not.toMatch(/ScrollView/);
+    expect(columnView).not.toMatch(/ScrollView/);
   });
 
   it('draws each column in its own colour (the website’s column.color), with its count and “+”', () => {
-    expect(screen).toMatch(/styles\.columnStripe, \{ backgroundColor: column\.color \}/);
-    expect(screen).toMatch(/styles\.dot, \{ backgroundColor: column\.color \}/);
+    expect(columnView).toMatch(/s\.columnStripe, \{ backgroundColor: color \}/);
+    expect(columnView).toMatch(/s\.dot, \{ backgroundColor: color \}/);
     expect(screen).not.toMatch(/categoryColorOf/);
-    expect(screen).toMatch(/accessibilityLabel=\{`Add a task to \$\{column\.name\}`\}/);
+    expect(columnView).toMatch(/accessibilityLabel=\{`Add a task to \$\{name\}`\}/);
   });
 
   it('moves cards through the task write path, then the column’s order, as the website does', () => {
@@ -28,7 +33,8 @@ describe('the board screen (4b)', () => {
   });
 
   it('picks the board’s day from a calendar, and offers Manage columns only to those the server lets manage the project', () => {
-    expect(screen).toMatch(/<DayPicker/);
+    expect(screen).toMatch(/<BoardDayBar boardDate=\{boardDate\} todayKey=\{todayKey\}/);
+    expect(src('components/board/BoardDayBar.tsx')).toMatch(/<DayPicker/);
     expect(screen).toMatch(/const canManage = canManageProject\(user, membersQ\.data \?\? \[\]\);/);
     expect(screen).toMatch(/\{canManage \? \(/);
     expect(screen).toMatch(/navigation\.navigate\('BoardColumns', \{ projectId, projectName \}\)/);

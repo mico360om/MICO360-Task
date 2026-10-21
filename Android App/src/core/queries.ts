@@ -16,11 +16,12 @@ import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-o
 import { pendingKeys, settleShownAgenda, settleShownAttendees } from '../lib/pending-keys';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { withOrder } from '../lib/board-move';
+import { taskMovePayload } from '../lib/board-writes';
 import { useDebouncedValue } from './useDebounced';
 import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-thread';
 import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
-import type { ApiChatMessage, ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
+import type { ApiChatMessage, ApiColumn, ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
 import type { ReportFilters } from '../lib/reports';
 
 /** Variables of a creating write, carrying the idempotency key minted for this user action (XP-06). */
@@ -534,6 +535,28 @@ export function useUnreadCount() {
 }
 
 /**
+ * Send one task move through the app's task write path (the board, its details, the All projects
+ * board and bulk actions share it): one task's writes go one after another, and the version its
+ * move made is remembered so the next edit isn't refused as someone else's (task-writes). Inside
+ * that lane the move waits behind an older change of the task still on this phone, and is kept here
+ * when it gets no answer (write-order) — so a quick second move can't overtake the first. Its
+ * project goes with it, so the replay refreshes that project's board days (refreshesAfterReplay),
+ * and its new column's kind, so a move kept offline shows under that status (4c).
+ */
+export function sendTaskMove(
+  services: Pick<Services, 'resources' | 'queue' | 'currentUserId' | 'sync'>,
+  v: { id: string; columnId: string; position?: number; projectId: string; at?: number; category?: string | null },
+) {
+  return taskWrites.run(v.id, () =>
+    sendInOrder(writeOrder(services), { kind: 'task.move', payload: taskMovePayload(v) }, async () => {
+      const moved = await services.resources.tasks.move(v.id, v.columnId, v.position);
+      taskWrites.note(v.id, moved?.version);
+      return moved;
+    }),
+  );
+}
+
+/**
  * Move a task to another column (MOB-04). The board caches one task list per board date
  * (`['tasks','project',projectId,<date>]`), so the optimistic move and the refresh address the
  * whole `['tasks','project',projectId]` prefix — plus the task's own detail and activity, "My
@@ -542,25 +565,15 @@ export function useUnreadCount() {
  */
 export function useMoveTask(projectId: string) {
   const services = useServices();
-  const { resources, queue, currentUserId } = services;
+  const { queue, currentUserId } = services;
   const qc = useQueryClient();
   const boardPrefix = ['tasks', 'project', projectId];
   return useMutation({
-    // One task's writes go one after another, and the version its move made is remembered so the
-    // next edit isn't refused as someone else's (task-writes). Inside that lane the move waits
-    // behind an older change of the task still on this phone, and is kept here when it gets no
-    // answer (write-order) — so a quick second move can't overtake the first. Its project goes
-    // with it, so the replay refreshes that project's board days (refreshesAfterReplay).
-    // `position`: its index in the new column (4b); `at`: where it shows meanwhile — kept with a
-    // move saved on this phone, so the board shows it there until it is sent (offline-reads).
+    // Through the task write path (sendTaskMove). `position`: its index in the new column (4b);
+    // `at`: where it shows meanwhile — kept with a move saved on this phone, so the board shows it
+    // there until it is sent (offline-reads); the column's kind, from the project's columns.
     mutationFn: ({ id, columnId, position, at }: { id: string; columnId: string; position?: number; at?: number }) =>
-      taskWrites.run(id, () =>
-        sendInOrder(writeOrder(services), { kind: 'task.move', payload: { id, columnId, position, projectId, ...(at !== undefined ? { at } : {}) } }, async () => {
-          const moved = await resources.tasks.move(id, columnId, position);
-          taskWrites.note(id, moved?.version);
-          return moved;
-        }),
-      ),
+      sendTaskMove(services, { id, columnId, position, projectId, at, category: qc.getQueryData<ApiColumn[]>(['columns', projectId])?.find((c) => c.id === columnId)?.category }),
     // Optimistic move: the card jumps columns immediately, then we reconcile with the server.
     onMutate: async ({ id, columnId, at }) => {
       await qc.cancelQueries({ queryKey: boardPrefix });

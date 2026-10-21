@@ -29,6 +29,16 @@ export interface MoveDeps {
   reorder: (columnId: string, orderedIds: string[]) => Promise<unknown>;
 }
 
+/**
+ * What a task's move carries through the write path, and kept on this phone when it gets no answer:
+ * the task, its column and place there, its project (the replay refreshes that project's board
+ * days), where it shows meanwhile (`at`, 4b) and the kind of its new column (`category`, 4c) — so a
+ * move kept offline shows under its new status on the All projects board too.
+ */
+export function taskMovePayload(v: { id: string; columnId: string; position?: number; projectId: string; at?: number; category?: string | null }): Record<string, unknown> {
+  return { id: v.id, columnId: v.columnId, position: v.position, projectId: v.projectId, ...(v.at !== undefined ? { at: v.at } : {}), ...(v.category ? { category: v.category } : {}) };
+}
+
 export async function moveCard(deps: MoveDeps, req: { id: string; toColumnId: string; plan: { index: number; orderedIds: string[]; at: number } }): Promise<MoveOutcome> {
   try {
     await deps.move(req.id, req.toColumnId, req.plan.index, req.plan.at);
