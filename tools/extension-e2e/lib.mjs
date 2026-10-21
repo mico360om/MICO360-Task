@@ -158,9 +158,17 @@ const KEYS = {
  * Open the extension's app page in a tab. Resolves { evaluate, text, shot, press, errors, sessionId }.
  * `errors` collects uncaught exceptions and console errors from the page.
  */
-export async function openApp(browser, { shotsDir } = {}) {
+export function openApp(browser, opts = {}) {
+  return openPage(browser, 'app/app.html', opts);
+}
+
+/**
+ * Open one of the extension's pages (e.g. 'popup/popup.html', the toolbar popup) in a tab. Resolves
+ * { evaluate, text, shot, press, insertText, errors, sessionId, targetId, close }.
+ */
+export async function openPage(browser, page, { shotsDir, wait = 2500 } = {}) {
   const { send, on, extId } = browser;
-  const { targetId } = await send('Target.createTarget', { url: `chrome-extension://${extId}/app/app.html` });
+  const { targetId } = await send('Target.createTarget', { url: `chrome-extension://${extId}/${page}` });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
   await send('Runtime.enable', {}, sessionId);
   await send('Page.enable', {}, sessionId);
@@ -171,7 +179,7 @@ export async function openApp(browser, { shotsDir } = {}) {
     if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text);
     if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push(m.params.args.map((a) => a.value ?? a.description).join(' '));
   });
-  await sleep(2500);
+  await sleep(wait);
   const evaluate = async (expression) => {
     const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
     if (r.exceptionDetails) throw new Error(`page: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
@@ -189,16 +197,41 @@ export async function openApp(browser, { shotsDir } = {}) {
     fs.writeFileSync(path.join(shotsDir, file), Buffer.from(data, 'base64'));
     if (full) await send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
   };
-  /** A real key press (keyDown + keyUp) in the page, e.g. press('Tab', { shift: true }). */
-  const press = async (key, { shift = false } = {}) => {
+  /** A real key press (keyDown + keyUp) in the page, e.g. press('Tab', { shift: true }) or press('Enter', { ctrl: true }). */
+  const press = async (key, { shift = false, ctrl = false } = {}) => {
     const k = KEYS[key];
     if (!k) throw new Error(`no key code for ${key}`);
-    const base = { key, code: k.code, windowsVirtualKeyCode: k.keyCode, nativeVirtualKeyCode: k.keyCode, modifiers: shift ? 8 : 0 };
+    const base = { key, code: k.code, windowsVirtualKeyCode: k.keyCode, nativeVirtualKeyCode: k.keyCode, modifiers: (shift ? 8 : 0) | (ctrl ? 2 : 0) };
     await send('Input.dispatchKeyEvent', { type: k.text ? 'keyDown' : 'rawKeyDown', ...base, ...(k.text ? { text: k.text, unmodifiedText: k.text } : {}) }, sessionId);
     await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }, sessionId);
     await sleep(120);
   };
-  return { evaluate, text, shot, press, errors, sessionId, send };
+  /** Type text into the focused field, as a keyboard or an input method would (fires `input`). */
+  const insertText = async (value) => {
+    await send('Input.insertText', { text: value }, sessionId);
+    await sleep(80);
+  };
+  const close = () => send('Target.closeTarget', { targetId }).catch(() => {});
+  return { evaluate, text, shot, press, insertText, errors, sessionId, targetId, send, close };
+}
+
+/**
+ * Evaluate in the extension's background service worker (its own target), e.g. to check the
+ * right-click menu item exists. Resolves the value.
+ */
+export async function inWorker(browser, expression) {
+  const { send, extId } = browser;
+  const { targetInfos } = await send('Target.getTargets');
+  const worker = targetInfos.find((t) => t.type === 'service_worker' && t.url.includes(extId));
+  if (!worker) throw new Error('the background service worker is not running');
+  const { sessionId } = await send('Target.attachToTarget', { targetId: worker.targetId, flatten: true });
+  try {
+    const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
+    if (r.exceptionDetails) throw new Error(`worker: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
+    return r.result.value;
+  } finally {
+    await send('Target.detachFromTarget', { sessionId }).catch(() => {});
+  }
 }
 
 /**
