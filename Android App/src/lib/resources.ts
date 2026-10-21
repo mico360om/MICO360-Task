@@ -155,18 +155,23 @@ function aiDescription(description: string | undefined): string | undefined {
  */
 export function resourcesApi(client: ApiClient) {
   const data = <T>(p: Promise<Envelope<T>>) => p.then((r) => r.data);
-  const meeting = (id: string) => `/meetings/${encodeURIComponent(id)}`;
+  /**
+   * An id as one part of a path, always encoded (3a review): an id from a link or a push can never
+   * reach another API path ("../../projects/p1" stays one part).
+   */
+  const seg = (id: string) => encodeURIComponent(String(id));
+  const meeting = (id: string) => `/meetings/${seg(id)}`;
   const seriesQuery = (scope: SeriesScope) => (scope === 'series' ? '?scope=series' : '');
 
   return {
     projects: {
       list: () => data(client.get<Envelope<ApiProject[]>>('/projects')),
-      get: (id: string) => data(client.get<Envelope<ApiProject>>(`/projects/${id}`)),
-      columns: (id: string) => data(client.get<Envelope<ApiColumn[]>>(`/projects/${id}/columns`)),
+      get: (id: string) => data(client.get<Envelope<ApiProject>>(`/projects/${seg(id)}`)),
+      columns: (id: string) => data(client.get<Envelope<ApiColumn[]>>(`/projects/${seg(id)}/columns`)),
       /** Project members — the pool of users a task in this project can be assigned to. */
-      members: (id: string) => data(client.get<Envelope<ApiMember[]>>(`/projects/${id}/members`)),
+      members: (id: string) => data(client.get<Envelope<ApiMember[]>>(`/projects/${seg(id)}/members`)),
       /** Per-project progress/dashboard figures. */
-      progress: (id: string) => data(client.get<Envelope<ApiProjectProgress>>(`/projects/${id}/progress`)),
+      progress: (id: string) => data(client.get<Envelope<ApiProjectProgress>>(`/projects/${seg(id)}/progress`)),
     },
     tasks: {
       list: (params: TaskListParams = {}) =>
@@ -192,7 +197,7 @@ export function resourcesApi(client: ApiClient) {
           ),
         ),
       mine: () => data(client.get<Envelope<ApiTask[]>>('/tasks/mine')),
-      get: (id: string) => data(client.get<Envelope<ApiTask>>(`/tasks/${id}`)),
+      get: (id: string) => data(client.get<Envelope<ApiTask>>(`/tasks/${seg(id)}`)),
       create: (
         body: Omit<Partial<ApiTask>, 'tags' | 'assignees'> & {
           title: string;
@@ -204,64 +209,64 @@ export function resourcesApi(client: ApiClient) {
         opts?: WriteOptions,
       ) => data(client.post<Envelope<ApiTask>>('/tasks', body, idempotencyHeaders(opts?.idempotencyKey))),
       update: (id: string, body: Partial<ApiTask> & { scope?: 'one' | 'series'; expectedVersion?: number }) =>
-        data(client.put<Envelope<ApiTask>>(`/tasks/${id}`, body)),
+        data(client.put<Envelope<ApiTask>>(`/tasks/${seg(id)}`, body)),
       move: (id: string, columnId: string, position?: number) =>
-        data(client.patch<Envelope<ApiTask>>(`/tasks/${id}/move`, { columnId, position })),
+        data(client.patch<Envelope<ApiTask>>(`/tasks/${seg(id)}/move`, { columnId, position })),
       /** Delete a task — with 'series', every copy of a repeating task. */
-      remove: (id: string, scope?: 'series') => client.del<void>(scope ? `/tasks/${id}?scope=${scope}` : `/tasks/${id}`),
+      remove: (id: string, scope?: 'series') => client.del<void>(scope ? `/tasks/${seg(id)}?scope=series` : `/tasks/${seg(id)}`),
       // Tags: read a task's tags, replace the whole set (find-or-create by name), or detach one.
-      tags: (id: string) => data(client.get<Envelope<ApiTag[]>>(`/tasks/${id}/tags`)),
-      setTags: (id: string, tags: string[]) => data(client.put<Envelope<ApiTag[]>>(`/tasks/${id}/tags`, { tags })),
-      removeTag: (id: string, tagId: string) => client.del<void>(`/tasks/${id}/tags/${tagId}`),
+      tags: (id: string) => data(client.get<Envelope<ApiTag[]>>(`/tasks/${seg(id)}/tags`)),
+      setTags: (id: string, tags: string[]) => data(client.put<Envelope<ApiTag[]>>(`/tasks/${seg(id)}/tags`, { tags })),
+      removeTag: (id: string, tagId: string) => client.del<void>(`/tasks/${seg(id)}/tags/${seg(tagId)}`),
       // Assignees: list, add one or more (idempotent), or remove one.
-      assignees: (id: string) => data(client.get<Envelope<ApiAssignee[]>>(`/tasks/${id}/assignees`)),
+      assignees: (id: string) => data(client.get<Envelope<ApiAssignee[]>>(`/tasks/${seg(id)}/assignees`)),
       assign: (id: string, userIds: string[], opts?: WriteOptions) =>
-        data(client.post<Envelope<ApiAssignee[]>>(`/tasks/${id}/assignees`, { userIds }, idempotencyHeaders(opts?.idempotencyKey))),
-      unassign: (id: string, userId: string) => client.del<void>(`/tasks/${id}/assignees/${userId}`),
+        data(client.post<Envelope<ApiAssignee[]>>(`/tasks/${seg(id)}/assignees`, { userIds }, idempotencyHeaders(opts?.idempotencyKey))),
+      unassign: (id: string, userId: string) => client.del<void>(`/tasks/${seg(id)}/assignees/${seg(userId)}`),
       // Checklist (subtasks): list with progress, add, toggle/edit, reorder, remove.
-      checklist: (id: string) => data(client.get<Envelope<ApiChecklist>>(`/tasks/${id}/checklist`)),
+      checklist: (id: string) => data(client.get<Envelope<ApiChecklist>>(`/tasks/${seg(id)}/checklist`)),
       addChecklistItem: (id: string, text: string, opts?: WriteOptions) =>
-        data(client.post<Envelope<ApiChecklistItem>>(`/tasks/${id}/checklist`, { text }, idempotencyHeaders(opts?.idempotencyKey))),
+        data(client.post<Envelope<ApiChecklistItem>>(`/tasks/${seg(id)}/checklist`, { text }, idempotencyHeaders(opts?.idempotencyKey))),
       updateChecklistItem: (itemId: string, patch: { done?: boolean; text?: string }) =>
-        data(client.put<Envelope<ApiChecklistItem>>(`/checklist/${itemId}`, patch)),
+        data(client.put<Envelope<ApiChecklistItem>>(`/checklist/${seg(itemId)}`, patch)),
       reorderChecklist: (id: string, orderedIds: string[]) =>
-        data(client.put<Envelope<ApiChecklistItem[]>>(`/tasks/${id}/checklist/reorder`, { orderedIds })),
-      removeChecklistItem: (itemId: string) => client.del<void>(`/checklist/${itemId}`),
+        data(client.put<Envelope<ApiChecklistItem[]>>(`/tasks/${seg(id)}/checklist/reorder`, { orderedIds })),
+      removeChecklistItem: (itemId: string) => client.del<void>(`/checklist/${seg(itemId)}`),
       // Comments: list, add (supports @mentions), edit (own), remove (own/admin).
-      comments: (id: string) => data(client.get<Envelope<ApiComment[]>>(`/tasks/${id}/comments`)),
+      comments: (id: string) => data(client.get<Envelope<ApiComment[]>>(`/tasks/${seg(id)}/comments`)),
       // Who an @mention in this task's comments would notify — suggested while typing.
-      mentionable: (id: string) => data(client.get<Envelope<ApiMentionable[]>>(`/tasks/${id}/mentionable`)),
+      mentionable: (id: string) => data(client.get<Envelope<ApiMentionable[]>>(`/tasks/${seg(id)}/mentionable`)),
       addComment: (id: string, body: string, parentId?: string, opts?: WriteOptions) =>
         data(
           client.post<Envelope<ApiComment>>(
-            `/tasks/${id}/comments`,
+            `/tasks/${seg(id)}/comments`,
             parentId ? { body, parentId } : { body },
             idempotencyHeaders(opts?.idempotencyKey),
           ),
         ),
-      editComment: (commentId: string, body: string) => data(client.put<Envelope<ApiComment>>(`/comments/${commentId}`, { body })),
-      removeComment: (commentId: string) => client.del<void>(`/comments/${commentId}`),
+      editComment: (commentId: string, body: string) => data(client.put<Envelope<ApiComment>>(`/comments/${seg(commentId)}`, { body })),
+      removeComment: (commentId: string) => client.del<void>(`/comments/${seg(commentId)}`),
       // Attachments (files on a task): list, upload one picked file, remove.
-      attachments: (id: string) => data(client.get<Envelope<ApiAttachment[]>>(`/tasks/${id}/attachments`)),
+      attachments: (id: string) => data(client.get<Envelope<ApiAttachment[]>>(`/tasks/${seg(id)}/attachments`)),
       /** Upload one picked file; `onProgress` hears how much has been sent (0–1). */
       uploadAttachment: (id: string, part: { uri: string; name: string; type: string }, onProgress?: (fraction: number) => void) => {
         const form = new FormData();
         // React Native sends a { uri, name, type } part as the file's bytes.
         form.append('file', part as unknown as Blob);
-        return data(client.upload<Envelope<ApiAttachment>>(`/tasks/${id}/attachments`, form, onProgress ? { onProgress } : undefined));
+        return data(client.upload<Envelope<ApiAttachment>>(`/tasks/${seg(id)}/attachments`, form, onProgress ? { onProgress } : undefined));
       },
-      removeAttachment: (attachmentId: string) => client.del<void>(`/attachments/${attachmentId}`),
+      removeAttachment: (attachmentId: string) => client.del<void>(`/attachments/${seg(attachmentId)}`),
       /** The task's activity history (newest first). */
-      activity: (id: string) => data(client.get<Envelope<ApiActivityEntry[]>>(`/tasks/${id}/activity`)),
+      activity: (id: string) => data(client.get<Envelope<ApiActivityEntry[]>>(`/tasks/${seg(id)}/activity`)),
       /** Blockers: what the task waits on, and what waits on it. */
-      dependencies: (id: string) => data(client.get<Envelope<ApiDependencyView>>(`/tasks/${id}/dependencies`)),
-      addDependency: (id: string, dependsOnTaskId: string) => data(client.post<Envelope<unknown>>(`/tasks/${id}/dependencies`, { dependsOnTaskId })),
-      removeDependency: (id: string, dependsOnTaskId: string) => client.del<void>(`/tasks/${id}/dependencies/${dependsOnTaskId}`),
+      dependencies: (id: string) => data(client.get<Envelope<ApiDependencyView>>(`/tasks/${seg(id)}/dependencies`)),
+      addDependency: (id: string, dependsOnTaskId: string) => data(client.post<Envelope<unknown>>(`/tasks/${seg(id)}/dependencies`, { dependsOnTaskId })),
+      removeDependency: (id: string, dependsOnTaskId: string) => client.del<void>(`/tasks/${seg(id)}/dependencies/${seg(dependsOnTaskId)}`),
       /** Following a task's updates. */
-      watchStatus: (id: string) => data(client.get<Envelope<{ watching: boolean }>>(`/tasks/${id}/watch`)).then((r) => r.watching),
-      watch: (id: string) => data(client.post<Envelope<{ watching: boolean }>>(`/tasks/${id}/watch`)),
-      unwatch: (id: string) => client.del<void>(`/tasks/${id}/watch`),
-      watchers: (id: string) => data(client.get<Envelope<ApiWatcher[]>>(`/tasks/${id}/watchers`)),
+      watchStatus: (id: string) => data(client.get<Envelope<{ watching: boolean }>>(`/tasks/${seg(id)}/watch`)).then((r) => r.watching),
+      watch: (id: string) => data(client.post<Envelope<{ watching: boolean }>>(`/tasks/${seg(id)}/watch`)),
+      unwatch: (id: string) => client.del<void>(`/tasks/${seg(id)}/watch`),
+      watchers: (id: string) => data(client.get<Envelope<ApiWatcher[]>>(`/tasks/${seg(id)}/watchers`)),
     },
     /**
      * Meetings: taking part in them — the list, one meeting and its parts, your answer to the
@@ -274,7 +279,7 @@ export function resourcesApi(client: ApiClient) {
       /** The meetings starting in [from, to) (ISO instants) that the user can see. */
       range: (from: string, to: string) => data(client.get<Envelope<ApiMeeting[]>>(`/meetings${queryString({ from, to })}`)),
       projectOverview: (projectId: string) =>
-        data(client.get<Envelope<ApiProjectMeetingsOverview>>(`/projects/${projectId}/meetings-overview`)),
+        data(client.get<Envelope<ApiProjectMeetingsOverview>>(`/projects/${seg(projectId)}/meetings-overview`)),
       /** Every meeting the user can see (with its people and minutes counts), or only the ones they organize. */
       list: (filter: { mine?: boolean } = {}) => data(client.get<Envelope<ApiMeeting[]>>(`/meetings${queryString({ mine: filter.mine ? 'true' : undefined })}`)),
       get: (id: string) => data(client.get<Envelope<ApiMeeting>>(`/meetings/${encodeURIComponent(id)}`)),
@@ -413,7 +418,7 @@ export function resourcesApi(client: ApiClient) {
     notifications: {
       list: () => data(client.get<Envelope<ApiNotification[]>>('/notifications')),
       unreadCount: () => data(client.get<Envelope<{ count: number }>>('/notifications/unread-count')),
-      markRead: (id: string) => data(client.put<Envelope<ApiNotification>>(`/notifications/${id}/read`)),
+      markRead: (id: string) => data(client.put<Envelope<ApiNotification>>(`/notifications/${seg(id)}/read`)),
       markAllRead: () => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all')),
       // Which notifications you get and when "due soon" reminders arrive (shared with the web app).
       preferences: () => data(client.get<Envelope<NotificationPreferences>>('/notifications/preferences')),
@@ -447,7 +452,7 @@ export function resourcesApi(client: ApiClient) {
     chat: {
       conversations: () => data(client.get<Envelope<ApiConversationSummary[]>>('/conversations')),
       openProjectChannel: (projectId: string) =>
-        data(client.get<Envelope<{ conversation: ApiConversation; messages: ApiChatMessage[] }>>(`/projects/${projectId}/chat`)),
+        data(client.get<Envelope<{ conversation: ApiConversation; messages: ApiChatMessage[] }>>(`/projects/${seg(projectId)}/chat`)),
       startDirect: (userId: string) => data(client.post<Envelope<ApiConversation>>('/conversations/direct', { userId })),
       /**
        * One page of history, oldest first: the newest page, or (with `before` = the oldest loaded
@@ -456,26 +461,26 @@ export function resourcesApi(client: ApiClient) {
       messages: (conversationId: string, before?: string, limit?: number) =>
         data(
           client.get<Envelope<ApiChatMessage[]>>(
-            `/conversations/${conversationId}/messages${queryString({ before, limit: limit ? String(limit) : undefined })}`,
+            `/conversations/${seg(conversationId)}/messages${queryString({ before, limit: limit ? String(limit) : undefined })}`,
           ),
         ),
       /** Send. With a client id the server hands a retry the first message back, never a second copy. */
       send: (conversationId: string, body: string, opts?: WriteOptions & { clientId?: string }) =>
         data(
           client.post<Envelope<ApiChatMessage>>(
-            `/conversations/${conversationId}/messages`,
+            `/conversations/${seg(conversationId)}/messages`,
             opts?.clientId ? { body, clientId: opts.clientId } : { body },
             idempotencyHeaders(opts?.idempotencyKey),
           ),
         ),
       /** Who is in a conversation (user ids): a channel's project people, or a direct conversation's two. */
-      members: (conversationId: string) => data(client.get<Envelope<string[]>>(`/conversations/${conversationId}/members`)),
-      edit: (messageId: string, body: string) => data(client.patch<Envelope<ApiChatMessage>>(`/messages/${messageId}`, { body })),
-      remove: (messageId: string) => client.del<void>(`/messages/${messageId}`),
-      addReaction: (messageId: string, emoji: string) => client.post<void>(`/messages/${messageId}/reactions`, { emoji }),
+      members: (conversationId: string) => data(client.get<Envelope<string[]>>(`/conversations/${seg(conversationId)}/members`)),
+      edit: (messageId: string, body: string) => data(client.patch<Envelope<ApiChatMessage>>(`/messages/${seg(messageId)}`, { body })),
+      remove: (messageId: string) => client.del<void>(`/messages/${seg(messageId)}`),
+      addReaction: (messageId: string, emoji: string) => client.post<void>(`/messages/${seg(messageId)}/reactions`, { emoji }),
       removeReaction: (messageId: string, emoji: string) =>
-        client.del<void>(`/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
-      markRead: (conversationId: string) => client.post<void>(`/conversations/${conversationId}/read`, {}),
+        client.del<void>(`/messages/${seg(messageId)}/reactions/${encodeURIComponent(emoji)}`),
+      markRead: (conversationId: string) => client.post<void>(`/conversations/${seg(conversationId)}/read`, {}),
     },
   };
 }

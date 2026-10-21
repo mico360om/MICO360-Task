@@ -1,3 +1,5 @@
+import { isSafeId } from './ids';
+
 /**
  * Where a push notification tap (or the app itself) sends you. URL links are read by the
  * navigator's linking config alone (navigation/linking), so there is one reading of every path.
@@ -22,7 +24,9 @@ export type LinkTarget =
  */
 export function notificationToTarget(data: Record<string, unknown>): LinkTarget {
   const entityType = typeof data.entityType === 'string' ? data.entityType.trim().toLowerCase() : '';
-  const entityId = typeof data.entityId === 'string' ? data.entityId : undefined;
+  // An id that isn't an id (a path, spaces, too long) opens nothing built from it (3a review).
+  if (typeof data.entityId === 'string' && data.entityId && !isSafeId(data.entityId)) return { screen: 'Notifications' };
+  const entityId = isSafeId(data.entityId) ? data.entityId : undefined;
   if (entityType === 'task' && entityId) return { screen: 'TaskDetail', params: { taskId: entityId } };
   if (entityType === 'project' && entityId) return { screen: 'Board', params: { projectId: entityId } };
   if (entityType === 'meeting' && entityId) return { screen: 'MeetingDetail', params: { meetingId: entityId } };

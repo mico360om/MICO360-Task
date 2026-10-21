@@ -16,6 +16,32 @@ function fakeClient() {
   return { client, calls };
 }
 
+// 3a review fix 8: an id from a link (`mico360://chat/..%2F..%2Fprojects%2Fp1`) must never reach
+// another API path — every id put into a path is encoded as one part of it.
+describe('every id in a path stays one part of that path', () => {
+  it('encodes each id, in every resource that builds a path from one', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client) as unknown as Record<string, unknown>;
+    const evil = '../../projects/p1';
+    const call = async (fn: unknown) => {
+      if (typeof fn !== 'function') return;
+      const args = Array.from({ length: Math.max(1, (fn as (...a: unknown[]) => unknown).length) }, () => evil);
+      try {
+        await (fn as (...a: unknown[]) => unknown)(...args);
+      } catch {
+        /* a call that needs a real body (an upload) is skipped */
+      }
+    };
+    for (const value of Object.values(api)) {
+      if (typeof value === 'function') await call(value);
+      else if (value && typeof value === 'object') for (const fn of Object.values(value)) await call(fn);
+    }
+    expect(calls.length).toBeGreaterThan(60);
+    const escaped = calls.filter((c) => c.path.includes('../') || /\/projects\/p1(\/|$|\?)/.test(c.path));
+    expect(escaped.map((c) => `${c.method} ${c.path}`)).toEqual([]);
+  });
+});
+
 describe('resourcesApi.tasks', () => {
   it('POSTs /tasks with the create body including tags', async () => {
     const { client, calls } = fakeClient();

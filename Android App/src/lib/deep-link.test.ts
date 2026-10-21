@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as DeepLink from './deep-link';
 import { notificationToTarget, extractResetToken } from './deep-link';
+import { isSafeId } from './ids';
 
 describe('links (A0.3)', () => {
   it('are read in one place only — the navigator’s linking config (navigation/linking) — never by a second parser that could drift from it', () => {
@@ -37,6 +38,17 @@ describe('notificationToTarget (A6.2 — deep-link on push tap)', () => {
     expect(notificationToTarget({ entityType: 'digest', entityId: '2026-09-15' })).toEqual({ screen: 'Notifications' });
     expect(notificationToTarget({ type: 'SYSTEM' })).toEqual({ screen: 'Notifications' });
     expect(notificationToTarget({})).toEqual({ screen: 'Notifications' });
+  });
+});
+
+describe('a push whose id isn’t an id (3a review fix 8)', () => {
+  it('opens the Notifications list, never a path built from it', () => {
+    expect(notificationToTarget({ entityType: 'conversation', entityId: '../../projects/p1' })).toEqual({ screen: 'Notifications' });
+    expect(notificationToTarget({ entityType: 'task', entityId: 't 1' })).toEqual({ screen: 'Notifications' });
+    expect(notificationToTarget({ entityType: 'meeting', entityId: 'x'.repeat(65) })).toEqual({ screen: 'Notifications' });
+    expect(isSafeId('cmg1abc_DEF-09')).toBe(true);
+    expect(isSafeId('')).toBe(false);
+    expect(isSafeId(42)).toBe(false);
   });
 });
 

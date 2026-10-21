@@ -57,6 +57,18 @@ describe('linking config (MOB-09)', () => {
     expect(withoutLinkTitles(undefined)).toBeUndefined();
   });
 
+  // 3a review fix 8: an id that isn't an id (a path, spaces, too long) opens nothing.
+  it('opens nothing for a link whose id isn’t an id — never another API path', () => {
+    const open = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
+    expect(open('chat/..%2F..%2Fprojects%2Fp1')).toBeUndefined();
+    expect(open('task/a%20b')).toBeUndefined();
+    expect(open(`meeting/${'x'.repeat(65)}`)).toBeUndefined();
+    expect(open('project/p1%3Fx%3D1')).toBeUndefined();
+    // Real ids (cuid, uuid) still open.
+    expect(open('chat/cmg1abcdef0001xyz')?.routes[0]?.params).toEqual({ conversationId: 'cmg1abcdef0001xyz' });
+    expect(open('task/3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c')?.routes[0]?.params).toEqual({ taskId: '3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c' });
+  });
+
   it('maps a parsed reset link to a signed-out navigation action', () => {
     const action = targetToAction({ screen: 'Reset', params: { token: 'zz' } });
     expect(action).toEqual({ type: 'auth', screen: 'Reset', params: { token: 'zz' } });
