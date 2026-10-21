@@ -135,8 +135,17 @@ describe('notSentReason (why a message was not sent, in the website’s words �
     expect(notSentReason({ lastError: 'Request failed (503)' })).toBe('The server had a problem.');
     expect(notSentReason({})).toBe('The server had a problem.');
   });
-  it('says the server couldn’t be reached when it never answered', () => {
-    expect(notSentReason({ lastError: NO_ANSWER_TEXT, timeouts: 3 })).toBe('Couldn’t reach the server.');
+  it('a message one of whose tries got no answer may have been sent: said so, and Retry (same client id) comes first, with no Edit (3b review fix 3)', () => {
+    const maybe = 'The server didn’t answer one of the tries, so it may have been sent. Retry won’t send it twice.';
+    expect(notSentReason({ lastError: NO_ANSWER_TEXT, timeouts: 3 })).toBe(maybe);
+    expect(notSentReason({ lastError: 'Request failed (503)', timeouts: 1 })).toBe(maybe);
+    const failed = [queued({ id: 'q1', payload: p('c1', 'maybe', 'k1'), status: 'failed', timeouts: 1, lastError: 'Request failed (503)' })];
+    const refused = [queued({ id: 'q2', payload: p('c1', 'no', 'k2'), status: 'failed', refused: true, lastError: 'Not allowed.' })];
+    const entries = outboxFor('c1', { pending: [], failed: [...failed, ...refused] }, { online: true, confirmed: new Set() });
+    expect(entries.map((e) => [e.body, e.mayBeSent ?? false])).toEqual([
+      ['maybe', true],
+      ['no', false],
+    ]);
   });
 });
 

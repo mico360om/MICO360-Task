@@ -335,7 +335,8 @@ export const MessageBubble = memo(function MessageBubble({
               <Text style={[s.smallBtnText, { color: c.brand }]}>Retry</Text>
             </Pressable>
           ) : null}
-          {outbox.state === 'failed' && outbox.body ? (
+          {/* One the server may have is retried as it is (its client id keeps it single), never re-written (3b review). */}
+          {outbox.state === 'failed' && outbox.body && !outbox.mayBeSent ? (
             <Pressable style={s.smallBtn} onPress={() => handlers.onEditUnsent(outbox.queueId, outbox.body)} accessibilityRole="button" accessibilityLabel={`Edit “${outbox.body.slice(0, 40)}” and send it again`}>
               <Text style={s.smallBtnText}>Edit</Text>
             </Pressable>

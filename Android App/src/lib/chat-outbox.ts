@@ -37,6 +37,11 @@ export interface OutboxEntry {
   state: OutboxState;
   /** Why it was not sent (failed only). */
   reason?: string;
+  /**
+   * Not sent, but one of its tries got no answer, so the server may have it (3b review): Retry
+   * (the same client id — never stored twice) is what to do; Edit, a new message, could duplicate it.
+   */
+  mayBeSent?: true;
   /** Still waiting, but too long (no answer, or a long wait): it can be discarded, as in the sync list. */
   canDiscard?: true;
   /** The message it answers (3b). */
@@ -102,8 +107,13 @@ export async function enqueueChatMessage(
 export function notSentReason(m: Pick<QueuedMutation, 'lastError' | 'refused' | 'timeouts'>): string {
   const text = (m.lastError ?? '').trim();
   if (m.refused && text && !/^Request failed/i.test(text) && text !== 'Could not be saved.') return text;
-  if (!m.refused && (m.lastError === NO_ANSWER_TEXT || (m.timeouts ?? 0) > 0)) return 'Couldn’t reach the server.';
+  if (mayHaveBeenSent(m)) return 'The server didn’t answer one of the tries, so it may have been sent. Retry won’t send it twice.';
   return 'The server had a problem.';
+}
+
+/** One of its tries got no answer (and it wasn't refused): the server may have the message (3b review). */
+function mayHaveBeenSent(m: Pick<QueuedMutation, 'lastError' | 'refused' | 'timeouts'>): boolean {
+  return !m.refused && (m.lastError === NO_ANSWER_TEXT || (m.timeouts ?? 0) > 0);
 }
 
 /**
@@ -133,6 +143,7 @@ export function outboxFor(
       createdAt: new Date(m.createdAt).toISOString(),
       state,
       ...(state === 'failed' ? { reason: notSentReason(m) } : {}),
+      ...(state === 'failed' && mayHaveBeenSent(m) ? { mayBeSent: true as const } : {}),
       ...(isQuote(p.replyTo) ? { replyTo: p.replyTo } : {}),
       // The same rule as the sync list: a message stuck waiting can be discarded (2c review).
       ...(state !== 'failed' && waitingTooLong(m, now) ? { canDiscard: true as const } : {}),
