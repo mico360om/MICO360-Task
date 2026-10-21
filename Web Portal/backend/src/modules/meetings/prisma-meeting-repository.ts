@@ -11,6 +11,7 @@ import type {
   EndedMeetingSweep,
   BusyMeetingsStore,
 } from './meeting-repository';
+import { BUSY_ROWS_LIMIT } from './meeting-repository';
 import { MEETING_DEFAULT_LENGTH_MS } from './meeting-end';
 
 type Row = Meeting;
@@ -184,7 +185,7 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
         },
         select: { id: true, title: true, startAt: true, endAt: true, organizerId: true, attendees: { where: { userId: { in: userIds } }, select: { userId: true } } },
         orderBy: { startAt: 'asc' },
-        take: 2000,
+        take: BUSY_ROWS_LIMIT,
       });
       return rows.map((m) => ({
         meetingId: m.id,
@@ -193,6 +194,24 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
         end: m.endAt ?? new Date(m.startAt.getTime() + MEETING_DEFAULT_LENGTH_MS),
         userIds: [...new Set([...(userIds.includes(m.organizerId) ? [m.organizerId] : []), ...m.attendees.map((a) => a.userId).filter((u): u is string => !!u)])],
       }));
+    },
+
+    async visibleTo(meetingIds, userId, projectIds) {
+      if (meetingIds.length === 0) return new Set<string>();
+      if (projectIds === null) return new Set(meetingIds);
+      const rows = await prisma.meeting.findMany({
+        where: {
+          id: { in: meetingIds },
+          OR: [
+            { organizerId: userId },
+            { createdById: userId },
+            { attendees: { some: { userId } } },
+            ...(projectIds.length ? [{ projectId: { in: projectIds } }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      return new Set(rows.map((r) => r.id));
     },
 
     async completeEnded(now) {

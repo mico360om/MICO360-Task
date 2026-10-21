@@ -8,7 +8,7 @@ import type { AttendeeService } from './attendee-service';
 import type { AgendaService } from './agenda-service';
 import { ruleProblem, seriesStarts } from './meeting-series';
 import { findClashes, suggestTimes, type BusyBlock } from './free-times';
-import type { BusyMeetingsStore } from './meeting-repository';
+import { BUSY_ROWS_LIMIT, type BusyMeetingsStore } from './meeting-repository';
 import type { WorkingHours } from '../settings/settings-service';
 import { zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { buildProjectMeetingsOverview, type MinutesState, type ProjectMeetingsData } from './project-meetings';
@@ -125,7 +125,7 @@ export interface MeetingRouteDeps {
   /** Calendar invitations / cancellations (enables POST /meetings/:id/invites + automatic updates). */
   notify?: Pick<MeetingNotifyService, 'sendInvites' | 'sendCancellation'> & Partial<Pick<MeetingNotifyService, 'previewInvites'>>;
   /** Structured logger for best-effort background sends. */
-  logger?: Pick<Logger, 'error'>;
+  logger?: Pick<Logger, 'error'> & Partial<Pick<Logger, 'warn'>>;
   /** Attendee and open action-item counts per meeting id (one lookup for the whole list). */
   listCounts?: (meetingIds: string[]) => Promise<Record<string, MeetingListCounts>>;
   /** Repeating meetings (creates a series' meetings; ?scope=series changes all upcoming ones). */
@@ -356,15 +356,37 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       const day = zonedDayKey(body.startAt, tz);
       const dayStart = zonedStartOfDay(day, tz);
       const rule = body.recurrenceRule ?? null;
-      // Two weeks of suggestions, and a repeat's first 4 meetings for clashes.
-      const lastStart = rule ? (seriesStarts(body.startAt, rule, tz, new Date(body.startAt.getTime() + 5 * 366 * DAY_MS)).slice(0, 4).at(-1) ?? body.startAt) : body.startAt;
-      const to = new Date(Math.max(dayStart.getTime() + 15 * DAY_MS, lastStart.getTime() + body.minutes * 60_000));
-      const [rows, hours, names] = await Promise.all([ft.busy.busyBetween(userIds, dayStart, to, body.excludeMeetingId), ft.workingHours(), ft.userNames(userIds)]);
-      const visible = new Map<string, boolean>();
-      for (const m of rows) if (!visible.has(m.meetingId)) visible.set(m.meetingId, await canView(req, m.meetingId).catch(() => false));
-      const busy: BusyBlock[] = rows.flatMap((m) => m.userIds.map((userId) => ({ userId, start: m.start, end: m.end, meetingId: m.meetingId, title: visible.get(m.meetingId) ? m.title : null })));
+      const length = body.minutes * 60_000;
+      // Suggestions start at the chosen day, or now if that has passed, and look two weeks ahead.
+      const from = new Date(Math.max(dayStart.getTime(), Date.now()));
+      const searchStart = zonedStartOfDay(zonedDayKey(from, tz), tz);
+      const searchEnd = new Date(searchStart.getTime() + 15 * DAY_MS);
+      // Read only what is needed: the chosen day (the busy strip), the search, and each of a
+      // repeat's first 4 meetings (the clashes) — never the whole stretch to a yearly repeat's 4th.
+      const starts = rule ? seriesStarts(body.startAt, rule, tz, new Date(body.startAt.getTime() + 5 * 366 * DAY_MS)).slice(0, 4) : [body.startAt];
+      const inSearch = (a: Date, b: Date) => a.getTime() >= searchStart.getTime() && b.getTime() <= searchEnd.getTime();
+      const windows = [
+        { from: searchStart, to: searchEnd },
+        { from: dayStart, to: new Date(dayStart.getTime() + DAY_MS) },
+        ...starts.map((s) => ({ from: s, to: new Date(s.getTime() + length) })),
+      ].filter((w, i) => i === 0 || !inSearch(w.from, w.to));
+      const [reads, hours, names] = await Promise.all([
+        Promise.all(windows.map((w) => ft.busy.busyBetween(userIds, w.from, w.to, body.excludeMeetingId))),
+        ft.workingHours(),
+        ft.userNames(userIds),
+      ]);
+      if (reads.some((r) => r.length >= BUSY_ROWS_LIMIT)) deps.logger?.warn?.('meeting free times: busy list cut short', { limit: BUSY_ROWS_LIMIT, userCount: userIds.length });
+      const rows = [...new Map(reads.flat().map((m) => [m.meetingId, m])).values()];
+      // Which titles may be shown: in one look-up where the store can, else each meeting's own check.
+      const ids = rows.map((m) => m.meetingId);
+      const { id: me, roles } = actor(req);
+      const visible =
+        ft.busy.visibleTo && deps.accessibleProjectIds
+          ? await ft.busy.visibleTo(ids, me, await deps.accessibleProjectIds(me, roles)).catch(() => new Set<string>())
+          : new Set((await Promise.all(ids.map(async (id) => ((await canView(req, id).catch(() => false)) ? id : null)))).filter((id): id is string => id !== null));
+      const busy: BusyBlock[] = rows.flatMap((m) => m.userIds.map((userId) => ({ userId, start: m.start, end: m.end, meetingId: m.meetingId, title: visible.has(m.meetingId) ? m.title : null })));
       const nameOf = (id: string) => names.get(id) ?? 'Someone';
-      const suggestions = suggestTimes({ from: new Date(Math.max(dayStart.getTime(), Date.now())), minutes: body.minutes, busy, hours, timeZone: tz, rule });
+      const suggestions = suggestTimes({ from, minutes: body.minutes, busy, hours, timeZone: tz, rule });
       const clashes = findClashes({ start: body.startAt, minutes: body.minutes, busy, timeZone: tz, rule }).map((c) => ({ ...c, name: nameOf(c.userId) }));
       const dayEnd = dayStart.getTime() + DAY_MS;
       const dayBlocks = userIds.map((userId) => ({

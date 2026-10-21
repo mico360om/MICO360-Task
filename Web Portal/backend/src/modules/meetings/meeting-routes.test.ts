@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { buildApp } from '../../app';
 import { createMeetingService } from './meeting-service';
 import { createMeetingAccess } from './meeting-access';
-import type { MeetingRepository, MeetingRecord, CreateMeetingData } from './meeting-repository';
+import { BUSY_ROWS_LIMIT, type MeetingRepository, type MeetingRecord, type CreateMeetingData } from './meeting-repository';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import { createMeetingSeriesService } from './meeting-series-service';
@@ -489,5 +489,86 @@ describe('Schedule a meeting with its people and agenda', () => {
     expect((await t.create({ agendaItems: [{ title: 'x'.repeat(301) }] })).statusCode).toBe(400);
     expect((await t.create({ agendaItems: [{ title: 'Long one', expectedMinutes: 601 }] })).statusCode).toBe(400);
     expect(t.alive()).toEqual([]);
+  });
+});
+
+describe('Meeting free times: what is read', () => {
+  const at = (local: string) => new Date(`${local.replace(' ', 'T')}:00+04:00`);
+  type Row = { meetingId: string; title: string; start: Date; end: Date; userIds: string[] };
+  async function setup(rows: Row[], opts: { logger?: { error: () => void; warn: (msg: string) => void } } = {}) {
+    const reads: Array<{ from: Date; to: Date }> = [];
+    let visibilityChecks = 0;
+    const busy = {
+      async busyBetween(_ids: string[], from: Date, to: Date) {
+        reads.push({ from, to });
+        return rows.filter((r) => r.start < to && r.end > from);
+      },
+      async visibleTo(ids: string[], userId: string, projectIds: string[] | null) {
+        visibilityChecks++;
+        expect(userId).toBe('u1');
+        expect(projectIds).toEqual(['p1']);
+        return new Set(ids.filter((id) => id.startsWith('mine')));
+      },
+    };
+    const app = await makeApp({
+      meetingFreeTimes: { busy, workingHours: async () => ({ days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' }), userNames: async (ids: string[]) => new Map(ids.map((i) => [i, i.toUpperCase()])), timeZone: 'Asia/Muscat' },
+      ...(opts.logger ? { logger: opts.logger as never } : {}),
+    });
+    const auth = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const ask = async (payload: Record<string, unknown>) => {
+      const res = await app.inject({ method: 'POST', url: '/api/v1/meetings/free-times', headers: auth, payload });
+      expect(res.statusCode).toBe(200);
+      return res.json().data;
+    };
+    return { ask, reads, visibilityChecks: () => visibilityChecks };
+  }
+  const iso = (d: Date) => d.toISOString();
+
+  it('suggests around everyone’s meetings even when the chosen day has passed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(at('2026-10-21 09:00')); // a Wednesday
+      const t = await setup([
+        { meetingId: 'x1', title: 'Audit', start: at('2026-10-21 09:00'), end: at('2026-10-21 17:00'), userIds: ['u1'] },
+        { meetingId: 'x2', title: 'Site day', start: at('2026-10-22 08:00'), end: at('2026-10-22 17:00'), userIds: ['u1'] },
+      ]);
+      const d = await t.ask({ userIds: ['u1'], startAt: iso(at('2026-10-01 10:00')), minutes: 60 }); // a postponed meeting
+      // Wednesday and Thursday are taken, Friday and Saturday are off: Sunday 25 Oct is the first free day.
+      expect(d.suggestions[0]).toBe(iso(at('2026-10-25 08:00')));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reads the chosen day, the next two weeks and each meeting of a repeat — never one long stretch', async () => {
+    const t = await setup([
+      { meetingId: 'x1', title: 'Board', start: at('2026-11-16 10:00'), end: at('2026-11-16 11:00'), userIds: ['u2'] },
+      { meetingId: 'x2', title: 'AGM', start: at('2029-10-26 10:30'), end: at('2029-10-26 11:30'), userIds: ['u2'] },
+    ]);
+    const weekly = await t.ask({ userIds: ['u1', 'u2'], startAt: iso(at('2026-10-26 10:00')), minutes: 60, recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [1] } });
+    expect(weekly.clashes.map((c: { date: string }) => c.date)).toEqual(['2026-11-16']); // the 4th Monday
+    const yearly = await t.ask({ userIds: ['u1', 'u2'], startAt: iso(at('2026-10-26 10:00')), minutes: 60, recurrenceRule: { freq: 'YEARLY', interval: 1 } });
+    expect(yearly.clashes.map((c: { date: string }) => c.date)).toEqual(['2029-10-26']); // three years on
+    expect(t.reads.every((r) => r.to.getTime() - r.from.getTime() <= 16 * 86_400_000)).toBe(true);
+  });
+
+  it('decides which titles may be shown in one check, not one meeting at a time', async () => {
+    const t = await setup([
+      { meetingId: 'mine-1', title: 'Pump review', start: at('2026-10-26 10:00'), end: at('2026-10-26 11:00'), userIds: ['u1'] },
+      { meetingId: 'other-1', title: 'Pay talks', start: at('2026-10-26 13:00'), end: at('2026-10-26 14:00'), userIds: ['u2'] },
+      { meetingId: 'other-2', title: 'Hiring', start: at('2026-10-27 13:00'), end: at('2026-10-27 14:00'), userIds: ['u2'] },
+    ]);
+    const d = await t.ask({ userIds: ['u1', 'u2'], startAt: iso(at('2026-10-26 10:00')), minutes: 60 });
+    expect(t.visibilityChecks()).toBe(1);
+    expect(d.day.flatMap((p: { blocks: Array<{ title: string | null }> }) => p.blocks.map((b) => b.title))).toEqual(['Pump review', null]);
+    expect(JSON.stringify(d)).not.toContain('Pay talks');
+  });
+
+  it('says so in the log when the busy list was cut short', async () => {
+    const warn = vi.fn();
+    const rows = Array.from({ length: BUSY_ROWS_LIMIT }, (_, i) => ({ meetingId: `x${i}`, title: 'Busy day', start: at('2026-10-26 08:00'), end: at('2026-10-26 17:00'), userIds: ['u2'] }));
+    const t = await setup(rows, { logger: { error: vi.fn(), warn } });
+    await t.ask({ userIds: ['u1', 'u2'], startAt: iso(at('2026-10-26 10:00')), minutes: 60 });
+    expect(warn).toHaveBeenCalledWith('meeting free times: busy list cut short', expect.objectContaining({ limit: BUSY_ROWS_LIMIT }));
   });
 });

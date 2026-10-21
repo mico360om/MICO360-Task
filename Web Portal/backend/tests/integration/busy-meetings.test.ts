@@ -59,4 +59,23 @@ describe('PrismaMeetingRepository.busyBetween (integration)', () => {
     await meeting('Long one', '2026-10-25 22:00', '2026-10-26 09:00', { organizer: 'omar' });
     expect((await repo.busyBetween(['omar'], at('2026-10-26 00:00'), at('2026-10-27 00:00'))).map((b) => b.title)).toEqual(['Long one']);
   });
+
+  it('says in one look-up which meetings a person may see: theirs, or in a project they can see', async () => {
+    const owner = await prisma.user.create({ data: { email: 'bm-owner@mico360.test', username: 'bm-owner', passwordHash: 'x', firstName: 'Busy', lastName: 'Owner' } });
+    const project = await prisma.project.create({ data: { code: 'BMVIS', name: 'Busy visibility', status: 'ACTIVE', createdById: owner.id, ownerId: owner.id } });
+    try {
+      const organized = await meeting('Hers', '2026-10-26 09:00', null, { organizer: 'sara' });
+      const invited = await meeting('Invited', '2026-10-26 10:00', null, { organizer: 'omar', attendees: ['sara'] });
+      const inProject = await prisma.meeting.create({ data: { title: 'Project one', status: 'SCHEDULED', startAt: at('2026-10-26 11:00'), organizerId: 'omar', createdById: 'omar', projectId: project.id } });
+      const secret = await meeting('Not hers', '2026-10-26 12:00', null, { organizer: 'omar' });
+      const ids = [organized.id, invited.id, inProject.id, secret.id];
+      expect(await repo.visibleTo!(ids, 'sara', [])).toEqual(new Set([organized.id, invited.id]));
+      expect(await repo.visibleTo!(ids, 'sara', [project.id])).toEqual(new Set([organized.id, invited.id, inProject.id]));
+      expect(await repo.visibleTo!(ids, 'sara', null)).toEqual(new Set(ids)); // an admin
+    } finally {
+      await prisma.meeting.deleteMany({ where: { projectId: project.id } });
+      await prisma.project.delete({ where: { id: project.id } });
+      await prisma.user.delete({ where: { id: owner.id } });
+    }
+  });
 });
