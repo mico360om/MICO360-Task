@@ -9,7 +9,7 @@ import {
   WEEK_START_OPTIONS,
   calendarZoneNote,
   deviceTimeZone,
-  supportedTimeZones,
+  phoneTimeZones,
   timeZoneChoices,
   unknownZoneNote,
   usableZone,
@@ -38,7 +38,7 @@ export function DateSettings() {
   const chosen = own ? webZoneName(own) : '';
   const unknown = unknownZoneNote(prefs?.timeZone, zones.company);
   const weekStart = weekStartOf(prefs);
-  const choices = useMemo(() => timeZoneChoices({ zones: supportedTimeZones(), company: zones.company, own, device: deviceTimeZone() }), [zones.company, own]);
+  const choices = useMemo(() => timeZoneChoices({ zones: phoneTimeZones(), company: zones.company, own, device: deviceTimeZone() }), [zones.company, own]);
   const [problem, setProblem] = useState<string | null>(null);
   const loading = !prefs && prefsQ.isLoading;
 

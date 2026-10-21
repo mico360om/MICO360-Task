@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, unknownZoneNote, usableZone, webZoneName, withDatePatch } from './date-settings';
+import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, createZoneList, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, unknownZoneNote, usableZone, webZoneName, withDatePatch } from './date-settings';
 
 const prev = { company: 'Asia/Dubai', own: 'Europe/London' };
 
@@ -211,5 +211,16 @@ describe('loadDateSettings keeps your settings for the whole session', () => {
       zones: { get: () => zones, set: (z) => (zones = z) },
     });
     expect(qc.getQueryCache().find({ queryKey: DATE_PREFERENCES_KEY })?.options.gcTime).toBe(Infinity);
+  });
+});
+
+describe('the list of zones is worked out once per app run (6a review)', () => {
+  it('only when first asked for, and never again', () => {
+    const compute = vi.fn(() => ['Asia/Muscat', 'UTC']);
+    const list = createZoneList(compute);
+    expect(compute).not.toHaveBeenCalled();
+    expect(list()).toEqual(['Asia/Muscat', 'UTC']);
+    expect(list()).toBe(list());
+    expect(compute).toHaveBeenCalledTimes(1);
   });
 });

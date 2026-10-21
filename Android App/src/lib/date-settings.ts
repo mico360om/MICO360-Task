@@ -188,6 +188,18 @@ export function supportedTimeZones(intl: { supportedValuesOf?: (key: string) => 
   return (all?.length ? all : [...TIME_ZONES]).filter(isValidTimeZone);
 }
 
+/** A list worked out only when first asked for, then kept (checking each zone costs a formatter apiece). */
+export function createZoneList(compute: () => string[]): () => string[] {
+  let kept: string[] | null = null;
+  return () => {
+    if (!kept) kept = compute();
+    return kept;
+  };
+}
+
+/** This phone's zones, worked out once per app run (Settings opened again doesn't redo it — 6a review). */
+export const phoneTimeZones = createZoneList(() => supportedTimeZones());
+
 /**
  * The zones to choose from, in the website's spelling and labelled as it does ("America/New
  * York"), with the company's and this phone's marked; the one you chose and this phone's own are
