@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AVATAR_MAX_BYTES,
   AVATAR_TYPES,
   accountRoleLabel,
   avatarHref,
   avatarPart,
+  avatarProblem,
+  isPickedCopy,
   fullNameOf,
   initialsOf,
   myDataFileName,
@@ -56,6 +59,32 @@ describe('account: the profile photo', () => {
     expect(avatarHref('https://task.mico360.com/api/v1', undefined)).toBeNull();
     // Only a photo stored on this server is loaded (3b review fix 8, the 6a review's avatar rule).
     expect(avatarHref('https://task.mico360.com/api/v1', 'https://tracker.example/pixel.png')).toBeNull();
+  });
+
+  it('shows a photo only from this server’s uploads (6a review)', () => {
+    const api = 'https://task.mico360.com/api/v1';
+    expect(avatarHref(api, 'https://tracker.example/pixel.png')).toBeNull();
+    expect(avatarHref(api, 'http://task.mico360.com/uploads/a.png')).toBeNull();
+    expect(avatarHref(api, '//tracker.example/uploads/a.png')).toBeNull();
+    expect(avatarHref(api, 'data:image/png;base64,AAAA')).toBeNull();
+    expect(avatarHref(api, '/elsewhere/a.png')).toBeNull();
+  });
+
+  it('checks a picked picture before sending it: the server’s types, and up to the server’s 10 MB (6a review)', () => {
+    expect(AVATAR_MAX_BYTES).toBe(10 * 1024 * 1024);
+    expect(avatarProblem({ name: 'me.jpg', mimeType: 'image/jpeg', size: 2_000_000 })).toBeNull();
+    expect(avatarProblem({ name: 'me.jpg', mimeType: 'image/jpeg', size: undefined })).toBeNull();
+    expect(avatarProblem({ name: 'big.jpg', mimeType: 'image/jpeg', size: 12 * 1024 * 1024 })).toBe('That picture is too large. Choose a smaller one.');
+    expect(avatarProblem({ name: 'me.heic', mimeType: 'image/heic', size: 1000 })).toBe('“me.heic” can’t be used — choose a PNG, JPEG, WebP or GIF image.');
+  });
+
+  it('knows which files are the picker’s own copies (deleted after use), never the person’s originals (6a review)', () => {
+    const cache = 'file:///data/user/0/com.mico360.tasks/cache/';
+    expect(isPickedCopy(`${cache}DocumentPicker/1b2c-me.jpg`, cache)).toBe(true);
+    expect(isPickedCopy('content://com.android.providers.media.documents/document/image%3A12', cache)).toBe(false);
+    expect(isPickedCopy('file:///sdcard/DCIM/me.jpg', cache)).toBe(false);
+    expect(isPickedCopy(`${cache}DocumentPicker/../exports/r.xlsx`, cache)).toBe(false);
+    expect(isPickedCopy(`${cache}DocumentPicker/x.jpg`, null)).toBe(false);
   });
 
   it('says why a picture wasn’t taken, in the website’s words', () => {

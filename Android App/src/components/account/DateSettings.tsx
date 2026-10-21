@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Alert } from 'react-native';
+import { zoneChangeQuestion } from '../../lib/reopen-note';
 import { useColors } from '../../core/theme';
 import { useDatePreferences } from '../../core/calendar-queries';
 import { useSaveDatePreferences } from '../../core/account-queries';
@@ -9,9 +10,11 @@ import {
   WEEK_START_OPTIONS,
   calendarZoneNote,
   deviceTimeZone,
-  isValidTimeZone,
-  supportedTimeZones,
+  phoneTimeZones,
   timeZoneChoices,
+  unknownZoneNote,
+  usableZone,
+  webZoneName,
   type DatePreferences,
 } from '../../lib/date-settings';
 import { weekStartOf } from '../../lib/calendar';
@@ -31,15 +34,26 @@ export function DateSettings() {
   const save = useSaveDatePreferences();
   const zones = useSyncExternalStore(subscribeTimeZone, dateZones);
   const prefs = prefsQ.data;
-  const own = prefs ? (isValidTimeZone(prefs.timeZone) ? prefs.timeZone : null) : zones.own;
+  // Your zone in a spelling this phone knows; offered and saved in the website's spelling.
+  const own = prefs ? usableZone(prefs.timeZone) : zones.own;
+  const chosen = own ? webZoneName(own) : '';
+  const unknown = unknownZoneNote(prefs?.timeZone, zones.company);
   const weekStart = weekStartOf(prefs);
-  const choices = useMemo(() => timeZoneChoices({ zones: supportedTimeZones(), company: zones.company, own, device: deviceTimeZone() }), [zones.company, own]);
+  const choices = useMemo(() => timeZoneChoices({ zones: phoneTimeZones(), company: zones.company, own, device: deviceTimeZone() }), [zones.company, own]);
   const [problem, setProblem] = useState<string | null>(null);
   const loading = !prefs && prefsQ.isLoading;
 
   const change = (patch: Partial<DatePreferences>) => {
     setProblem(null);
     save.mutate(patch, { onError: (e) => setProblem(prefsSaveProblem(e)) });
+  };
+  /** A new zone reopens every screen: asked first, as anything unsaved elsewhere is lost (6a review). */
+  const changeZone = (timeZone: string | null) => {
+    const q = zoneChangeQuestion(timeZone);
+    Alert.alert(q.title, q.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: q.confirm, onPress: () => change({ timeZone }) },
+    ]);
   };
 
   return (
@@ -60,18 +74,26 @@ export function DateSettings() {
         <Muted>The first column of the calendar.</Muted>
         <View style={s.divided}>
           <Text style={s.rowTitle}>Time zone for the calendar</Text>
-          <Muted style={s.gap}>{calendarZoneNote(own, zones.company)}</Muted>
+          <Muted style={s.gap}>{calendarZoneNote(own ? webZoneName(own) : null, zones.company)}</Muted>
+          {unknown ? (
+            <Text style={s.error} accessibilityLiveRegion="polite">
+              {unknown}
+            </Text>
+          ) : null}
           <InlinePicker
             label="Time zone"
             options={choices}
-            value={own ?? ''}
+            value={chosen}
             onChange={(v) => {
-              if (v && v !== own) change({ timeZone: v });
+              if (v && v !== chosen) changeZone(v);
             }}
             placeholder="Company default"
             disabled={loading}
+            // Every zone can be reached by scrolling, not only by typing (6a review).
+            limit={null}
           />
-          {own ? <Button title="Use the company time zone" variant="ghost" onPress={() => change({ timeZone: null })} disabled={save.isPending} /> : null}
+          {own || unknown ? <Button title="Use the company time zone" variant="ghost" onPress={() => changeZone(null)} disabled={save.isPending} /> : null}
+          <Muted>Changing it reloads the app’s screens, so every date shows in the new zone.</Muted>
         </View>
         {problem ? (
           <Text style={s.error} accessibilityRole="alert" accessibilityLiveRegion="assertive">

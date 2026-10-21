@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Switch, StyleSheet } from 'react-native';
+import { View, Text, Switch, StyleSheet, Platform } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useServerConfig } from '../../core/queries';
 import { useSavePreferences, useSendDailyEmailTest } from '../../core/account-queries';
@@ -13,6 +13,7 @@ import {
   dailyEmailTestSummary,
   prefsSaveProblem,
   readDailyEmailTime,
+  timeFieldKeyboard,
   type DailyEmailPrefs,
   type NotificationPreferences,
 } from '../../lib/notification-prefs';
@@ -110,10 +111,11 @@ export function DailyEmailSettings({ prefs }: { prefs: NotificationPreferences }
             onBlur={saveTime}
             onSubmitEditing={saveTime}
             returnKeyType="done"
-            placeholder="HH:MM"
-            keyboardType="numbers-and-punctuation"
+            // Android's number keyboard has no colon: digits and a point ("7.30") are read too (6a review).
+            placeholder={timeFieldKeyboard(Platform.OS).placeholder}
+            keyboardType={timeFieldKeyboard(Platform.OS).keyboardType}
             maxLength={5}
-            accessibilityHint="In your time zone, as HH:MM"
+            accessibilityHint="In your time zone, for example 7.30"
             error={timeError}
           />
           <Muted style={s.timeNote}>In your time zone (see Calendar & dates below).</Muted>

@@ -2,11 +2,17 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   PASSWORD_RULE_ERROR,
   PASSWORD_RULE_HINT,
+  PasswordChangeNotSent,
   checkPasswordChange,
+  clearsPasswordFields,
+  createChangeGate,
   createPasswordChange,
   isStrongPassword,
+  lateOutcomeText,
   passwordChangeProblem,
+  refreshRaceOutcome,
   refusedRefreshOutcome,
+  settleRefusedRefresh,
 } from './password-change';
 import { ApiError, NetworkError } from './api-client';
 import type { Session } from './types';
@@ -43,7 +49,22 @@ describe('password change: the server’s rule, in the website’s words', () =>
       field: null,
       message: 'Too many requests. Please wait a moment and try again.',
     });
-    expect(passwordChangeProblem(new NetworkError('Network request failed.'))).toEqual({ field: null, message: 'You’re offline — your password can be changed when you’re connected.' });
+  });
+
+  it('a change whose answer was lost may have happened: it never says "not changed" then (6a review)', () => {
+    const unsure = { field: null, message: 'We couldn’t confirm the change. If you’re asked to sign in, use your new password.', unsure: true };
+    expect(passwordChangeProblem(new NetworkError('Network request failed.'))).toEqual(unsure);
+    expect(passwordChangeProblem(new NetworkError('The server took too long to respond.', { timedOut: true }))).toEqual(unsure);
+  });
+
+  it('only a change that never left the phone (offline before sending) says it can be changed when connected', async () => {
+    const { d } = deps();
+    const change = createPasswordChange({ ...d, isOnline: () => false });
+    const e = await change('old-pass1', 'abcd1234').catch((err: unknown) => err);
+    expect(d.send).not.toHaveBeenCalled();
+    expect(e).toBeInstanceOf(PasswordChangeNotSent);
+    expect(passwordChangeProblem(e)).toEqual({ field: null, message: 'You’re offline — your password can be changed when you’re connected.' });
+    await expect(createPasswordChange({ ...d, isOnline: () => true })('old-pass1', 'abcd1234')).resolves.toMatchObject({ keptHere: true });
   });
 });
 
@@ -127,14 +148,98 @@ describe('password change: what happens to the session afterwards (as on the web
   });
 });
 
+const as = (userId: string, refreshToken: string) => ({ refreshToken, user: { id: userId } });
+
 describe('a session refresh refused after this phone already holds a new session', () => {
   it('counts as done when the token it sent was replaced meanwhile (a password change here)', () => {
-    expect(refusedRefreshOutcome('invalid', 'old-refresh', 'new-refresh')).toBe('ok');
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), as('u1', 'new-refresh'))).toBe('ok');
   });
 
   it('still ends the session when nothing replaced it, or it is gone', () => {
-    expect(refusedRefreshOutcome('invalid', 'old-refresh', 'old-refresh')).toBe('invalid');
-    expect(refusedRefreshOutcome('invalid', 'old-refresh', null)).toBe('invalid');
-    expect(refusedRefreshOutcome('transient', 'old-refresh', 'new-refresh')).toBe('transient');
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), as('u1', 'old-refresh'))).toBe('invalid');
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), null)).toBe('invalid');
+    expect(refusedRefreshOutcome('transient', as('u1', 'old-refresh'), as('u1', 'new-refresh'))).toBe('transient');
+  });
+
+  it('never replays one person’s request with someone else’s session (6a review)', () => {
+    expect(refusedRefreshOutcome('invalid', as('u1', 'old-refresh'), as('u2', 'their-refresh'))).toBe('changed');
+    expect(refreshRaceOutcome(as('u1', 'old-refresh'), as('u2', 'their-refresh'))).toBe('changed');
+    expect(refreshRaceOutcome(as('u1', 'old-refresh'), as('u1', 'newer-refresh'))).toBe('ok');
+    expect(refreshRaceOutcome(as('u1', 'old-refresh'), null)).toBe('invalid');
+  });
+});
+
+describe('a refresh refused while a password change is on its way (6a review)', () => {
+  it('waits for the change: once its fresh session is kept, the request is tried with it, not signed out', async () => {
+    const gate = createChangeGate();
+    let held = as('u1', 'old-refresh');
+    let answer!: () => void;
+    const change = gate.run(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = () => {
+            held = as('u1', 'fresh-refresh');
+            resolve();
+          };
+        }),
+    );
+    expect(gate.busy()).toBe(true);
+    const outcome = settleRefusedRefresh('invalid', as('u1', 'old-refresh'), { gate, held: () => held, signingOut: () => false, waitMs: 20_000 });
+    answer();
+    await change;
+    expect(await outcome).toBe('ok');
+    expect(gate.busy()).toBe(false);
+  });
+
+  it('waits no longer than its limit (the change itself may be waiting on this refresh)', async () => {
+    vi.useFakeTimers();
+    try {
+      const gate = createChangeGate();
+      void gate.run(() => new Promise<void>(() => {}));
+      const outcome = settleRefusedRefresh('invalid', as('u1', 'old-refresh'), { gate, held: () => as('u1', 'old-refresh'), signingOut: () => false, waitMs: 20_000 });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(await outcome).toBe('invalid');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('without a change on its way it decides at once; signing out ends it', async () => {
+    const gate = createChangeGate();
+    expect(await settleRefusedRefresh('invalid', as('u1', 'a'), { gate, held: () => as('u1', 'b'), signingOut: () => false, waitMs: 20_000 })).toBe('ok');
+    expect(await settleRefusedRefresh('invalid', as('u1', 'a'), { gate, held: () => as('u1', 'b'), signingOut: () => true, waitMs: 20_000 })).toBe('invalid');
+    expect(await settleRefusedRefresh('transient', as('u1', 'a'), { gate, held: () => as('u1', 'a'), signingOut: () => false, waitMs: 20_000 })).toBe('transient');
+  });
+
+  it('the change runs through the gate, and a sign-out that began meanwhile isn’t undone by it', async () => {
+    const gate = createChangeGate();
+    const { d, current } = deps();
+    let signingOut = false;
+    d.send.mockImplementationOnce(async () => {
+      expect(gate.busy()).toBe(true);
+      signingOut = true;
+      return { accessToken: 'new-access', refreshToken: 'new-refresh' };
+    });
+    const result = await createPasswordChange({ ...d, gate, isSigningOut: () => signingOut })('old-pass1', 'abcd1234');
+    expect(d.session.setSession).not.toHaveBeenCalled();
+    expect(current()?.refreshToken).toBe('old-refresh');
+    expect(result).toEqual({ keptHere: false, fingerprintStopped: false, message: 'Password changed. Sign in again with your new password.' });
+    expect(gate.busy()).toBe(false);
+  });
+});
+
+describe('the password fields don’t outlive their use (6a review)', () => {
+  it('are emptied when the app goes to the background', () => {
+    expect(clearsPasswordFields('background')).toBe(true);
+    expect(clearsPasswordFields('inactive')).toBe(true);
+    expect(clearsPasswordFields('active')).toBe(false);
+  });
+
+  it('a change that finishes after the screen was left still says how it went', () => {
+    expect(lateOutcomeText({ ok: true, result: { keptHere: true, fingerprintStopped: false, message: 'Password changed. Other devices have been signed out; you’re still signed in here.' } })).toBe(
+      'Password changed. Other devices have been signed out; you’re still signed in here.',
+    );
+    expect(lateOutcomeText({ ok: false, error: new ApiError(400, 'VALIDATION', 'Current password is incorrect.') })).toBe('Your password wasn’t changed: Current password is incorrect.');
+    expect(lateOutcomeText({ ok: false, error: new NetworkError('lost') })).toBe('We couldn’t confirm the change. If you’re asked to sign in, use your new password.');
   });
 });

@@ -58,6 +58,7 @@ import { MyActionItemsScreen } from '../screens/MyActionItemsScreen';
 import { MeetingFormScreen } from '../screens/MeetingFormScreen';
 import { FinalMinutesScreen } from '../screens/FinalMinutesScreen';
 import { NewTaskScreen } from '../screens/NewTaskScreen';
+import { ProjectFormScreen } from '../screens/ProjectFormScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -373,6 +374,11 @@ export function RootNavigator() {
               component={ChatThreadScreen}
               getId={chatScreenId}
               options={({ route }) => ({ title: route.params.title ?? 'Chat' })}
+            />
+            <AppStack.Screen
+              name="ProjectForm"
+              component={ProjectFormScreen}
+              options={({ route }) => ({ title: route.params?.projectId ? 'Edit project' : 'New project' })}
             />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />

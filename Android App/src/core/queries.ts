@@ -129,6 +129,7 @@ export function useProjectMembers(projectId: string) {
   const { resources, reads } = useServices();
   return useQuery({
     queryKey: ['project', projectId, 'members'],
+    // Through the offline copy (5b): the Team tab and the assignee pickers work offline too.
     queryFn: ({ queryKey }) => reads.read(queryKey, `members.${projectId}`, () => resources.projects.members(projectId)),
     enabled: !!projectId,
   });
@@ -328,18 +329,27 @@ export function useNotificationPreferences() {
 
 // ── Project details ──────────────────────────────────────────────────────────
 export function useProject(projectId: string) {
-  const { resources } = useServices();
-  return useQuery({ queryKey: ['project', projectId, 'details'], queryFn: () => resources.projects.get(projectId), enabled: !!projectId });
+  const { resources, reads } = useServices();
+  return useQuery({
+    queryKey: ['project', projectId, 'details'],
+    // Through the offline copy (5b): the project's dashboard opens offline too.
+    queryFn: ({ queryKey }) => reads.read(queryKey, `project.${projectId}`, () => resources.projects.get(projectId)),
+    enabled: !!projectId,
+  });
 }
 
 // ── Project progress ─────────────────────────────────────────────────────────
-export function useProjectProgress(projectId: string) {
-  const { resources } = useServices();
-  return useQuery({
+/** One project's progress, through the offline copy (the Projects list's cards use it too — 5b). */
+export function projectProgressQuery(s: Pick<Services, 'resources' | 'reads'>, projectId: string) {
+  return {
     queryKey: ['project', projectId, 'progress'],
-    queryFn: () => resources.projects.progress(projectId),
+    queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) => s.reads.read(queryKey, `progress.${projectId}`, () => s.resources.projects.progress(projectId)),
     enabled: !!projectId,
-  });
+  };
+}
+
+export function useProjectProgress(projectId: string) {
+  return useQuery(projectProgressQuery(useServices(), projectId));
 }
 
 // ── Meetings: a project (reads); the calendar's are in core/calendar-queries (5a) ──

@@ -25,9 +25,11 @@ import { createChatDrafts, type ChatDrafts } from '../lib/chat-drafts';
 import { createPushRegistrar } from '../lib/push-registrar';
 import { createBiometricGate } from '../lib/biometric-gate';
 import { createBiometricLogin } from '../lib/biometric-login';
-import { createSignOut } from '../lib/sign-out';
+import { createSignOut, zonesAfterSignOut } from '../lib/sign-out';
+import { dateZones, setDateZones } from '../lib/due-date';
+import { DATE_ZONES_KEY } from '../lib/date-settings';
 import { createExporter } from '../lib/exporter';
-import { refusedRefreshOutcome } from '../lib/password-change';
+import { createChangeGate, refreshRaceOutcome, settleRefusedRefresh, type ChangeGate } from '../lib/password-change';
 import { authApi } from '../lib/auth';
 import { secureStore, biometricSecureStore } from '../adapters/secure-store';
 import { asyncStore } from '../adapters/async-storage';
@@ -69,6 +71,10 @@ export interface Services {
   exporter: ReturnType<typeof createExporter>;
   /** The signed-in user's id (or null). */
   currentUserId: () => string | null;
+  /** A password change on its way (a refused session refresh waits for it — 6a review). */
+  passwordGate: ChangeGate;
+  /** A sign-out has begun. */
+  isSigningOut: () => boolean;
 }
 
 /**
@@ -86,6 +92,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
 
   const session = createSessionStore({ store: secureStore });
   const currentUserId = () => session.getSession()?.user.id ?? null;
+  const passwordGate = createChangeGate();
 
   // Declared before use by refreshTokens/onUnauthorized; assigned below.
   // eslint-disable-next-line prefer-const
@@ -121,12 +128,21 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     // A 200 that isn't a real session (a proxy or Wi-Fi page) is never stored: signed in with no
     // user, signing out couldn't drop that person's queued changes.
     const reply = await readRefreshReply(res);
-    // Refused because this phone replaced the token meanwhile (a password change here): keep the new session.
-    if (reply.outcome !== 'ok') return refusedRefreshOutcome(reply.outcome, current.refreshToken, signOutApi.isSigningOut() ? null : session.getSession()?.refreshToken);
+    // Refused because this phone replaced the token meanwhile (a password change here, or one still
+    // on its way, which it waits for): keep the new session — but only the same person's (6a review).
+    if (reply.outcome !== 'ok') {
+      return settleRefusedRefresh(reply.outcome, current, {
+        gate: passwordGate,
+        held: () => session.getSession(),
+        signingOut: () => signOutApi.isSigningOut(),
+        waitMs: DEFAULT_TIMEOUT_MS,
+      });
+    }
     const next = reply.session;
 
     // The user signed out (or the session changed) while we waited: never resurrect it, and
-    // revoke the token we were just given since nobody will ever use it.
+    // revoke the token we were just given since nobody will ever use it. The request is tried
+    // again only with the same person's session.
     if (signOutApi.isSigningOut() || session.getSession()?.refreshToken !== current.refreshToken) {
       // (The refresh above already passed the address check, so this logout may use the same base.)
       void fetch(`${baseUrl}/auth/logout`, {
@@ -134,7 +150,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: next.refreshToken }),
       }).catch(() => {});
-      return session.getSession() ? 'ok' : 'invalid';
+      return refreshRaceOutcome(current, signOutApi.isSigningOut() ? null : session.getSession());
     }
     await session.setSession(next);
     return 'ok';
@@ -241,6 +257,12 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     },
     clearExports: () => exportFiles.clearAll(),
     clearPickedFiles: () => pickedFiles.clearAll(),
+    // The next person to sign in never gets this person's own time zone (6a review).
+    resetDateZones: async () => {
+      const next = zonesAfterSignOut(dateZones());
+      setDateZones(next);
+      await asyncStore.setItem(DATE_ZONES_KEY, JSON.stringify(next));
+    },
   });
 
   const exporter = createExporter({
@@ -276,5 +298,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     signOut: signOutApi.signOut,
     exporter,
     currentUserId,
+    passwordGate,
+    isSigningOut: () => signOutApi.isSigningOut(),
   };
 }

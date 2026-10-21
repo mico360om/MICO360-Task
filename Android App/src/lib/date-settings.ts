@@ -25,13 +25,47 @@ export function isValidTimeZone(tz: unknown): tz is string {
 }
 
 /**
+ * Zones with two spellings: this phone's (the current IANA name) and the website's (the older name
+ * the server's and browsers' lists still use). A zone saved on either is the same zone (6a review).
+ */
+const WEB_ZONE_NAME: Record<string, string> = {
+  'Asia/Kolkata': 'Asia/Calcutta',
+  'Asia/Ho_Chi_Minh': 'Asia/Saigon',
+  'Asia/Kathmandu': 'Asia/Katmandu',
+  'Asia/Yangon': 'Asia/Rangoon',
+  'Europe/Kyiv': 'Europe/Kiev',
+  'America/Argentina/Buenos_Aires': 'America/Buenos_Aires',
+};
+const PHONE_ZONE_NAME: Record<string, string> = Object.fromEntries(Object.entries(WEB_ZONE_NAME).map(([phone, web]) => [web, phone]));
+
+/** A zone as the website spells it (what is offered and saved). */
+export function webZoneName(tz: string): string {
+  return WEB_ZONE_NAME[tz] ?? tz;
+}
+
+/** The zone in a spelling this phone knows (either one), or null when it knows neither. */
+export function usableZone(tz: unknown, valid: (tz: unknown) => boolean = isValidTimeZone): string | null {
+  if (typeof tz !== 'string' || !tz.trim()) return null;
+  if (valid(tz)) return tz;
+  const other = WEB_ZONE_NAME[tz] ?? PHONE_ZONE_NAME[tz];
+  return other && valid(other) ? other : null;
+}
+
+/** Said in Settings when your saved zone (from the website) is one this phone doesn't know. */
+export function unknownZoneNote(saved: string | null | undefined, company: string, valid: (tz: unknown) => boolean = isValidTimeZone): string | null {
+  if (!saved || usableZone(saved, valid)) return null;
+  return `Your time zone (${saved}) isn’t known to this phone, so the calendar here uses the company time zone (${company}).`;
+}
+
+/**
  * The zones after loading the server's settings and yours (null = that load failed: offline, a
  * Wi-Fi sign-in page). A failed load keeps what the phone had; a missing or unknown company zone
- * is Asia/Muscat, and an unknown own zone counts as none (the company's is used).
+ * is Asia/Muscat, and an unknown own zone counts as none (the company's is used; Settings says so).
+ * A zone is used in whichever spelling this phone knows.
  */
-export function nextDateZones(prev: DateZones, loaded: { config: ServerConfig | null; prefs: DatePreferences | null }): DateZones {
-  const company = loaded.config ? (isValidTimeZone(loaded.config.timeZone) ? loaded.config.timeZone : FALLBACK_TIME_ZONE) : prev.company;
-  const own = loaded.prefs ? (isValidTimeZone(loaded.prefs.timeZone) ? loaded.prefs.timeZone : null) : prev.own;
+export function nextDateZones(prev: DateZones, loaded: { config: ServerConfig | null; prefs: DatePreferences | null }, valid: (tz: unknown) => boolean = isValidTimeZone): DateZones {
+  const company = loaded.config ? (usableZone(loaded.config.timeZone, valid) ?? FALLBACK_TIME_ZONE) : prev.company;
+  const own = loaded.prefs ? usableZone(loaded.prefs.timeZone, valid) : prev.own;
   return { company, own };
 }
 
@@ -117,12 +151,15 @@ export function withDatePatch(prev: DatePreferences | null | undefined, patch: P
   return { timeZone: prev?.timeZone ?? null, weekStart: prev?.weekStart ?? null, ...patch };
 }
 
-/** What was saved, for TalkBack (a new time zone opens the screens again, so the change is said). */
+/**
+ * What was saved, for TalkBack (a new time zone opens the screens again, so the change is said).
+ * With nothing loaded before the save, both settings are said (6a review).
+ */
 export function datePrefsSavedText(before: DatePreferences | null | undefined, saved: DatePreferences): string {
   const parts = ['Saved.'];
   const week = (p: DatePreferences | null | undefined) => (p?.weekStart === 1 || p?.weekStart === 6 ? p.weekStart : 0);
   if (!before || week(before) !== week(saved)) parts.push(`Weeks start on ${WEEK_START_OPTIONS.find((o) => o.value === week(saved))!.label}.`);
-  if (before && (before.timeZone ?? null) !== (saved.timeZone ?? null)) {
+  if (!before || (before.timeZone ?? null) !== (saved.timeZone ?? null)) {
     parts.push(saved.timeZone ? `The calendar uses ${saved.timeZone}.` : 'The calendar uses the company time zone.');
   }
   return parts.join(' ');
@@ -154,14 +191,31 @@ export function supportedTimeZones(intl: { supportedValuesOf?: (key: string) => 
   return (all?.length ? all : [...TIME_ZONES]).filter(isValidTimeZone);
 }
 
+/** A list worked out only when first asked for, then kept (checking each zone costs a formatter apiece). */
+export function createZoneList(compute: () => string[]): () => string[] {
+  let kept: string[] | null = null;
+  return () => {
+    if (!kept) kept = compute();
+    return kept;
+  };
+}
+
+/** This phone's zones, worked out once per app run (Settings opened again doesn't redo it — 6a review). */
+export const phoneTimeZones = createZoneList(() => supportedTimeZones());
+
 /**
- * The zones to choose from, labelled as the website does ("America/New York"), with the company's
- * and this phone's marked; the one you chose is always there, even when the list doesn't have it.
+ * The zones to choose from, in the website's spelling and labelled as it does ("America/New
+ * York"), with the company's and this phone's marked; the one you chose and this phone's own are
+ * always there, even when the list doesn't have them.
  */
 export function timeZoneChoices(opts: { zones: readonly string[]; company: string; own: string | null; device: string | null }): { value: string; label: string; hint?: string }[] {
-  const all = [...new Set([...opts.zones, ...(opts.own ? [opts.own] : []), opts.company])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const company = webZoneName(opts.company);
+  const device = opts.device ? webZoneName(opts.device) : null;
+  const all = [...new Set([...opts.zones, ...(opts.own ? [opts.own] : []), opts.company, ...(opts.device ? [opts.device] : [])].map(webZoneName))].sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
   return all.map((z) => {
-    const marks = [z === opts.company ? 'company' : null, z === opts.device ? 'this phone' : null].filter(Boolean);
+    const marks = [z === company ? 'company' : null, z === device ? 'this phone' : null].filter(Boolean);
     return { value: z, label: z.replace(/_/g, ' '), ...(marks.length ? { hint: marks.join(' · ') } : {}) };
   });
 }

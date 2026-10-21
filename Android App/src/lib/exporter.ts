@@ -1,4 +1,4 @@
-import { ApiError, NetworkError, type RefreshOutcome } from './api-client';
+import { ApiError, NetworkError, sessionChangedError, type RefreshOutcome } from './api-client';
 import { fileNameFromDisposition, mimeTypeFor } from './reports';
 import { assertAllowedUrl } from './server-address';
 
@@ -49,6 +49,7 @@ export function createExporter({ baseUrl, getToken, refreshSession, onUnauthoriz
       const outcome = await refreshSession();
       if (outcome === 'ok') res = await fetchFile(path, fallbackName);
       else if (outcome === 'transient') throw new NetworkError('Could not renew the session — check your connection.');
+      else if (outcome === 'changed') throw sessionChangedError();
       if (res.status === 401) {
         await files.remove(res.uri).catch(() => {});
         await onUnauthorized();

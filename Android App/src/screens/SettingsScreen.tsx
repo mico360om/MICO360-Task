@@ -1,13 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, Switch, Pressable, StyleSheet, Alert, AppState, Linking } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Switch, Pressable, StyleSheet, Alert, AppState, Linking, AccessibilityInfo, findNodeHandle, type LayoutChangeEvent, type ScrollView } from 'react-native';
+import { reopenNote, type ReopenNote } from '../lib/reopen-note';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useServices, useSession, useMyQueuedChanges } from '../core/providers';
+import { useServices, useSession } from '../core/providers';
 import { useTheme, type ThemeMode } from '../core/theme';
 import { Card, SectionTitle, Button, Muted } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { DailyEmailSettings } from '../components/account/DailyEmailSettings';
 import { DateSettings } from '../components/account/DateSettings';
+import { SignOutButton } from '../components/account/SignOutButton';
 import { getPushPermission, openAppSettings, type PushPermission } from '../adapters/push';
 import { useNotificationPreferences, useServerVersion } from '../core/queries';
 import { useSavePreferences } from '../core/account-queries';
@@ -26,14 +28,12 @@ const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
 export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
   const { colors: c, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { auth, biometric, biometricLogin, session, push, baseUrl, signOut, app } = useServices();
+  const { auth, biometric, biometricLogin, session, push, baseUrl, app } = useServices();
   const serverVersion = useServerVersion().data?.version ?? null;
   const user = useSession()?.user;
-  const queued = useMyQueuedChanges();
   const [bioOn, setBioOn] = useState(false);
   const [keyArmed, setKeyArmed] = useState(false);
   const [bioBusy, setBioBusy] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
   const [pushPerm, setPushPerm] = useState<{ status: PushPermission; canAskAgain: boolean } | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const prefsQ = useNotificationPreferences();
@@ -46,6 +46,25 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
     savePrefs.mutate(next, { onError: (e) => setPrefsErr(prefsSaveProblem(e)) });
   };
   const openPage = (path: string) => void Linking.openURL(sitePageUrl(baseUrl, path)).catch(() => {});
+
+  // Reopened after a new time zone was saved: back to Calendar & dates, and say what was saved (6a review).
+  const scrollRef = useRef<ScrollView>(null);
+  const datesRef = useRef<View>(null);
+  // Taken once, when this Settings first renders (never by a re-render of the one being replaced).
+  const reopened = useRef<ReopenNote | null | undefined>(undefined);
+  if (reopened.current === undefined) reopened.current = reopenNote.take();
+  const onDatesLayout = (e: LayoutChangeEvent) => {
+    const note = reopened.current;
+    if (!note) return;
+    reopened.current = null;
+    const y = e.nativeEvent.layout.y;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - spacing.lg), animated: false });
+      const node = findNodeHandle(datesRef.current);
+      if (node) AccessibilityInfo.setAccessibilityFocus(node);
+      setTimeout(() => AccessibilityInfo.announceForAccessibility(note.announce), 700);
+    });
+  };
 
   // Read again on coming back (a password change on Profile ends fingerprint sign-in).
   useEffect(() => {
@@ -148,34 +167,12 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
     }
   }
 
-  async function doSignOut() {
-    setSigningOut(true);
-    try {
-      await signOut('user');
-    } finally {
-      setSigningOut(false);
-    }
-  }
-
-  function confirmLogout() {
-    const unsynced = queued.pending.length + queued.failed.length;
-    const message =
-      unsynced > 0
-        ? `${unsynced === 1 ? '1 change has' : `${unsynced} changes have`} not been saved to the server yet. ` +
-          'Signing out deletes them from this phone. Sign out anyway?'
-        : 'Are you sure you want to sign out?';
-    Alert.alert(unsynced > 0 ? 'Unsynced changes' : 'Sign out', message, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void doSignOut() },
-    ]);
-  }
-
   const pushOff = pushPerm && pushPerm.status !== 'granted';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* The daily emails' time stays above the keyboard while typing. */}
-      <KeyboardAwareScrollView contentContainerStyle={styles.scroll}>
+      <KeyboardAwareScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         <SyncStatus />
 
         <View style={styles.section}>
@@ -285,7 +282,9 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
         {/* Only a server that knows the daily emails (1.5.0 and later) is offered them. */}
         {prefs && hasDailyEmails(prefs) ? <DailyEmailSettings prefs={prefs} /> : null}
 
-        <DateSettings />
+        <View ref={datesRef} onLayout={onDatesLayout} collapsable={false}>
+          <DateSettings />
+        </View>
 
         <View style={styles.section}>
           <SectionTitle>Security</SectionTitle>
@@ -345,7 +344,7 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
           </Card>
         </View>
 
-        <Button title="Sign out" variant="secondary" onPress={confirmLogout} loading={signingOut} />
+        <SignOutButton />
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );

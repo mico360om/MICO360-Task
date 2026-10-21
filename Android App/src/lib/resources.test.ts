@@ -218,11 +218,15 @@ describe('resourcesApi — attachments and notification preferences', () => {
     expect(calls[1]!.body).toBeInstanceOf(FormData);
   });
 
-  it('reads notification preferences; no whole-preferences save is left (only what changed is sent, 6a)', async () => {
+  it('reads notification preferences, and saves only what changed (no whole-preferences save is left, 6a)', async () => {
     const { client, calls } = fakeClient();
     const api = resourcesApi(client);
     await api.notifications.preferences();
-    expect(calls).toEqual([{ method: 'GET', path: '/notifications/preferences' }]);
+    await api.preferences.save({ muted: ['MENTION'], reminderLeadMinutes: 60 });
+    expect(calls).toEqual([
+      { method: 'GET', path: '/notifications/preferences' },
+      { method: 'PUT', path: '/notifications/preferences', body: { muted: ['MENTION'], reminderLeadMinutes: 60 } },
+    ]);
     expect('setPreferences' in api.notifications).toBe(false);
   });
 });
@@ -714,5 +718,66 @@ describe('resourcesApi.account and your settings (6a)', () => {
       { method: 'PUT', path: '/notifications/preferences', body: { dailyEmails: { time: '07:00' } } },
       { method: 'POST', path: '/notifications/daily-emails/test', body: undefined },
     ]);
+  });
+});
+
+describe('resourcesApi.projects: creating, editing and the team (5b)', () => {
+  /** Records the request options too (headers, time limits). */
+  function recording(reply: unknown = { data: { id: 'p1' } }) {
+    const calls: { method: string; path: string; body?: unknown; opts?: { headers?: Record<string, string>; timeoutMs?: number } }[] = [];
+    const rec = (method: string) => (path: string, a?: unknown, b?: unknown) => {
+      const withBody = method !== 'GET' && method !== 'DELETE';
+      calls.push({ method, path, ...(withBody ? { body: a } : {}), opts: (withBody ? b : a) as never });
+      return Promise.resolve(reply);
+    };
+    const client = { get: rec('GET'), post: rec('POST'), put: rec('PUT'), patch: rec('PATCH'), del: rec('DELETE'), upload: rec('UPLOAD') } as unknown as ApiClient;
+    return { client, calls };
+  }
+
+  it('checks a code, creates with the try’s key, edits, archives', async () => {
+    const { client, calls } = recording();
+    const api = resourcesApi(client).projects;
+    await api.checkCode('mi co');
+    await api.create({ code: 'RIG', name: 'Rig' }, 'key-1');
+    await api.update('p1', { name: 'Rig 2', ownerId: null });
+    await api.archive('p1');
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['GET', '/projects/code-check?code=mi%20co', undefined],
+      ['POST', '/projects', { code: 'RIG', name: 'Rig' }],
+      ['PUT', '/projects/p1', { name: 'Rig 2', ownerId: null }],
+      ['POST', '/projects/p1/archive', {}],
+    ]);
+    expect(calls[1]!.opts?.headers).toEqual({ 'Idempotency-Key': 'key-1' });
+  });
+
+  it('uploads the picture as the multipart "file" part, and removes it', async () => {
+    const { client, calls } = recording();
+    const api = resourcesApi(client).projects;
+    await api.uploadImage('p1', { uri: 'file:///c/logo.png', name: 'logo.png', type: 'image/png' });
+    await api.removeImage('p1');
+    expect(calls[0]).toMatchObject({ method: 'UPLOAD', path: '/projects/p1/image' });
+    expect(calls[0]!.body).toBeInstanceOf(FormData);
+    expect(calls[1]).toMatchObject({ method: 'DELETE', path: '/projects/p1/image' });
+  });
+
+  it('adds members, changes a role and removes someone', async () => {
+    const { client, calls } = recording({ data: [] });
+    const api = resourcesApi(client).projects;
+    await api.addMembers('p1', ['u2']);
+    await api.setMemberRole('p1', 'u2', 'MANAGER');
+    await api.removeMember('p1', 'u2');
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['POST', '/projects/p1/members', { userIds: ['u2'] }],
+      ['PATCH', '/projects/p1/members/u2', { role: 'MANAGER' }],
+      ['DELETE', '/projects/p1/members/u2', undefined],
+    ]);
+  });
+
+  it('asks the AI for a status summary, giving it the AI’s time', async () => {
+    const { client, calls } = recording({ data: { summary: '  On track.  ' } });
+    const req = { name: 'Rig', stats: { total: 3, completed: 1, inProgress: 1, overdue: 0 }, sampleTitles: ['A'] };
+    expect(await resourcesApi(client).ai.summary(req)).toBe('On track.');
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/ai/summary', body: req });
+    expect(calls[0]!.opts?.timeoutMs).toBe(AI_TIMEOUT_MS);
   });
 });

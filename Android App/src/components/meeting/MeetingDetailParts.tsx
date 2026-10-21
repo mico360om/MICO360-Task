@@ -32,6 +32,8 @@ import {
 } from '../../lib/meeting-detail';
 import { noteFilters, type NoteFilter } from '../../lib/meeting-screen';
 import type { ApiActionItem, ApiAgendaItem, ApiFinalMinutes, ApiMeeting, ApiMeetingAttendee, ApiMeetingNote, InvitationResponse } from '../../lib/types';
+import type { ApiProject } from '../../lib/types';
+import { ProjectAvatar } from '../ProjectAvatar';
 
 type NameOf = (userId: string) => string | null;
 
@@ -50,9 +52,12 @@ export function MeetingHeaderCard({
   onJoin,
   primary,
   onMore,
+  project,
 }: {
   meeting: ApiMeeting;
   projectName: string | null;
+  /** The meeting's project, when known: shown with its picture (5b). */
+  project?: Pick<ApiProject, 'name' | 'color' | 'icon' | 'imageUrl'> | null;
   nameOf: NameOf;
   timeZone: string;
   now: Date;
@@ -88,7 +93,15 @@ export function MeetingHeaderCard({
         {m.title}
       </Text>
       <View style={s.facts}>
-        {fact('🗂', projectName ?? (m.projectId ? 'Project' : 'Standalone meeting'))}
+        {project ? (
+          // The project's own picture, as everywhere (5b).
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} accessible accessibilityLabel={`Project: ${project.name}`}>
+            <ProjectAvatar project={project} size="xs" />
+            <Text style={[s.fact, { flexShrink: 1 }]}>{project.name}</Text>
+          </View>
+        ) : (
+          fact('🗂', projectName ?? (m.projectId ? 'Project' : 'Standalone meeting'))
+        )}
         {fact('📅', when.day)}
         {fact('🕒', when.time, `${when.time}, ${zone} time`)}
         {fact('🌐', zone, `Time zone: ${zone}`)}

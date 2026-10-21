@@ -513,3 +513,17 @@ describe('readRefreshReply — only a real session is ever stored', () => {
     expect(await readRefreshReply(reply(502, {}))).toEqual({ outcome: 'transient' });
   });
 });
+
+describe('a refresh that finds someone else signed in meanwhile (6a review)', () => {
+  it('fails the request plainly: never sent with the other person’s session, and nobody is signed out', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'x' } }, 401));
+    const onUnauthorized = vi.fn();
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => 'old', fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens: async () => 'changed', onUnauthorized });
+    const e = await api.post('/tasks', { title: 'x' }).catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e).toMatchObject({ status: 401, code: 'SESSION_CHANGED' });
+    expect(isNetworkError(e)).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+});

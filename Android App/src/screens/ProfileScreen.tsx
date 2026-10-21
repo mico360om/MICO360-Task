@@ -10,12 +10,14 @@ import { useAvatar } from '../core/account-queries';
 import { Card, SectionTitle, Muted, Badge, Button, ErrorNote } from '../components/ui';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { ChangePasswordCard } from '../components/account/ChangePasswordCard';
+import { SignOutButton } from '../components/account/SignOutButton';
 import {
   AVATAR_TYPES,
   MY_DATA_EXPORT_PATH,
   accountRoleLabel,
   avatarHref,
   avatarPart,
+  avatarProblem,
   fullNameOf,
   initialsOf,
   myDataFileName,
@@ -61,6 +63,13 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
     }
     const asset = picked.canceled ? null : picked.assets?.[0];
     if (!asset) return;
+    // Checked here first, so a photo the server would refuse isn't uploaded for nothing (6a review).
+    const problem = avatarProblem(asset);
+    if (problem) {
+      setPhotoProblem(problem);
+      void pickedFiles.forget(asset.uri);
+      return;
+    }
     upload.mutate(avatarPart(asset), {
       onSuccess: () => AccessibilityInfo.announceForAccessibility('Photo updated.'),
       onError: (e) => setPhotoProblem(photoUploadProblem(e)),
@@ -181,6 +190,8 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
             accessibilityLabel="Preferences and notifications, opens Settings"
             onPress={() => navigation.navigate('Settings')}
           />
+          {/* As on the website's Profile page (6a review). */}
+          <SignOutButton />
         </View>
       </KeyboardAwareScrollView>
     </SafeAreaView>

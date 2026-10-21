@@ -42,6 +42,8 @@ export type AppStackParamList = {
    * push). `jumpTo`: a message to show (a search result), loading older pages to find it (3b).
    */
   ChatThread: { conversationId: string; title?: string; jumpTo?: string };
+  /** New project (no id) or Edit project — administrators (5b). */
+  ProjectForm: { projectId?: string } | undefined;
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;

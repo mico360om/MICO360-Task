@@ -5,6 +5,7 @@
  */
 import { ApiError, isNetworkError } from './api-client';
 import { serverFileHref, uploadMimeType } from './attachments';
+import { isPickedCopy } from './picked-files';
 import type { Session } from './types';
 
 /** You, as the server sends you back after a photo change (POST/DELETE /users/me/avatar). */
@@ -62,6 +63,19 @@ export function photoOf(me: { id?: string; avatarUrl?: string | null } | null | 
 export function avatarHref(apiBase: string, url: string | null | undefined): string | null {
   return serverFileHref(apiBase, url);
 }
+
+/** The largest photo the server takes (its upload limit, 10 MB unless set otherwise). */
+export const AVATAR_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Why a picked picture can't be sent (null: send it) — checked first, so a big photo isn't uploaded for nothing. */
+export function avatarProblem(asset: { name?: string | null; mimeType?: string | null; size?: number | null }): string | null {
+  const name = asset.name?.trim() || 'This picture';
+  if (!AVATAR_TYPES.includes(uploadMimeType(name, asset.mimeType))) return `“${name}” can’t be used — choose a PNG, JPEG, WebP or GIF image.`;
+  if (typeof asset.size === 'number' && asset.size > AVATAR_MAX_BYTES) return 'That picture is too large. Choose a smaller one.';
+  return null;
+}
+
+export { isPickedCopy };
 
 /** Did the server give a reason of its own (not just "Request failed (400)")? */
 const ownReason = (e: ApiError) => e.code !== 'ERROR' && !!e.message && !/^Request failed/.test(e.message);

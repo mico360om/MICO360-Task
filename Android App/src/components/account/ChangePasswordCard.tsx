@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, AccessibilityInfo, type TextInput } from 'react-native';
+import { View, Text, StyleSheet, AccessibilityInfo, AppState, Platform, ToastAndroid, type TextInput } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useColors } from '../../core/theme';
 import { usePasswordChange } from '../../core/account-queries';
 import { Card, SectionTitle, Muted, Button, TextField, ErrorNote } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
-import { PASSWORD_RULE_HINT, checkPasswordChange, passwordChangeProblem, type PasswordField } from '../../lib/password-change';
+import { PASSWORD_RULE_HINT, checkPasswordChange, clearsPasswordFields, lateOutcomeText, passwordChangeProblem, type PasswordField } from '../../lib/password-change';
 import { SIGN_IN_LIMITS } from '../../lib/auth';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 
@@ -35,6 +36,30 @@ export function ChangePasswordCard() {
     [],
   );
 
+  // The passwords don't outlive their use: emptied when you leave the screen or the app (6a review).
+  const navigation = useNavigation();
+  useEffect(() => {
+    const clear = () => {
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+    };
+    const offBlur = navigation.addListener('blur', clear);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (clearsPasswordFields(state)) clear();
+    });
+    return () => {
+      offBlur();
+      sub.remove();
+    };
+  }, [navigation]);
+
+  /** A change that ended after the screen was left is still told (spoken, and shown briefly). */
+  const tellLate = (text: string) => {
+    AccessibilityInfo.announceForAccessibility(text);
+    if (Platform.OS === 'android') ToastAndroid.show(text, ToastAndroid.LONG);
+  };
+
   /** Typing again clears the last outcome (as on the website). */
   const typed = (set: (v: string) => void) => (v: string) => {
     set(v);
@@ -55,14 +80,14 @@ export function ChangePasswordCard() {
     setBusy(true);
     try {
       const result = await change(current, next);
-      if (!mounted.current) return;
+      if (!mounted.current) return tellLate(lateOutcomeText({ ok: true, result }));
       setCurrent('');
       setNext('');
       setConfirm('');
       setDone(result.message);
       AccessibilityInfo.announceForAccessibility(result.message);
     } catch (e) {
-      if (!mounted.current) return;
+      if (!mounted.current) return tellLate(lateOutcomeText({ ok: false, error: e }));
       const p = passwordChangeProblem(e);
       setProblem(p);
       if (p.field) refs[p.field].current?.focus();

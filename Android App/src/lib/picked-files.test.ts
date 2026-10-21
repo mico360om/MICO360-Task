@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createPickedFiles, isPickedCopy } from './picked-files';
 
 const CACHE = 'file:///data/user/0/com.mico360.tasks/cache/';
@@ -32,5 +34,18 @@ describe('the picker’s copies of picked files (3b review fix 7)', () => {
     const none = vi.fn(async () => {});
     await createPickedFiles({ deleteAsync: none }, null).clearAll();
     expect(none).not.toHaveBeenCalled();
+  });
+
+  it('is ONE helper: every screen that picks files forgets its copies through it (merge of the two app lanes)', () => {
+    const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+    // The other copy of this helper (adapters/files) is gone, and so is the second rule for it.
+    expect(src('adapters/files.ts')).not.toMatch(/pickedFiles|DocumentPicker/);
+    expect(src('lib/attachments.ts')).not.toMatch(/isPickedCopy/);
+    for (const screen of ['screens/ProfileScreen.tsx', 'screens/ProjectFormScreen.tsx', 'screens/NewTaskScreen.tsx', 'screens/TaskDetailScreen.tsx']) {
+      const text = src(screen);
+      expect(text, screen).toMatch(/import \{ pickedFiles \} from '\.\.\/adapters\/picked-files';/);
+      expect(text, screen).toMatch(/pickedFiles\.forget\(/);
+      expect(text, screen).not.toMatch(/pickedFiles\.remove\(/);
+    }
   });
 });

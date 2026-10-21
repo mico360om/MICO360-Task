@@ -41,9 +41,16 @@ export function isNetworkError(error: unknown): boolean {
  * - `invalid`: the server really rejected the refresh token (401/400), or the account is no longer
  *   active (our server's 403 ACCOUNT_INACTIVE) — the session is over;
  * - `transient`: offline, timeout, 5xx, 429, a 403 from something in front of the server (a firewall
- *   page) or a reply that isn't a session — the session may still be fine, so do NOT log out.
+ *   page) or a reply that isn't a session — the session may still be fine, so do NOT log out;
+ * - `changed`: someone else signed in on this phone while it was on its way — the request is not
+ *   tried with their session, and nobody is signed out (6a review).
  */
-export type RefreshOutcome = 'ok' | 'invalid' | 'transient';
+export type RefreshOutcome = 'ok' | 'invalid' | 'transient' | 'changed';
+
+/** A request stopped because the phone now holds someone else's session (never sent with it). */
+export function sessionChangedError(): ApiError {
+  return new ApiError(401, 'SESSION_CHANGED', 'You’re signed in as someone else now, so this wasn’t sent.');
+}
 
 /** Default per-request timeout: a hung connection must not leave a spinner (or a sign-out) forever. */
 export const DEFAULT_TIMEOUT_MS = 20_000;
@@ -264,6 +271,8 @@ export function createApiClient({
         if (res.status === 401) await onUnauthorized?.();
       } else if (outcome === 'invalid') {
         await onUnauthorized?.();
+      } else if (outcome === 'changed') {
+        throw sessionChangedError();
       } else {
         // Could not reach /auth/refresh (offline, 5xx, 429): the session may be fine — keep it and
         // report the request as a network failure so reads use the cache and writes are queued.
@@ -299,7 +308,7 @@ export function createApiClient({
  * decided by readRefreshReply: our server's ACCOUNT_INACTIVE ends it, a firewall page in front of the
  * server doesn't.
  */
-export function classifyRefreshStatus(status: number): RefreshOutcome {
+export function classifyRefreshStatus(status: number): Exclude<RefreshOutcome, 'changed'> {
   if (status >= 200 && status < 300) return 'ok';
   if (status === 401 || status === 400) return 'invalid';
   return 'transient';
