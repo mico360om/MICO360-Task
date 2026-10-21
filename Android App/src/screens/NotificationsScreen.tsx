@@ -1,102 +1,141 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, AccessibilityInfo, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNotifications, useMarkNotificationRead } from '../core/queries';
 import { notificationToTarget } from '../lib/deep-link';
-import { targetToAction } from '../navigation/nav-actions';
+import { alertRoute, targetToAction } from '../navigation/nav-actions';
 import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
+import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
+import { dismissTrayAbout } from '../adapters/alerts';
+import { ALERTS_REFRESH, allRead, markAllProblem } from '../lib/alerts';
+import { relativeTime } from '../lib/relative-time';
+import { refresh } from '../lib/refresh';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiNotification } from '../lib/types';
 import type { TabScreenProps } from '../navigation/types';
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
-
 /** Does tapping this alert open something besides the alert list? */
 function hasTarget(n: ApiNotification): boolean {
-  return notificationToTarget({ entityType: n.entityType, entityId: n.entityId }).screen !== 'Notifications';
+  return alertRoute(targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId }))) !== null;
 }
 
+/**
+ * Alerts (5c), as the website's Notifications page: mentions, assignments and updates, newest
+ * first. Tapping one reads it and opens what it is about — the task, the project's dashboard, the
+ * meeting or the chat — and takes the phone's notifications about it off its list. "Mark all read"
+ * needs a connection; reading one without a connection is kept and sent later. The list shows the
+ * last copy offline. The tab's number is the unread count (lib/alerts has the badge rule).
+ */
 export function NotificationsScreen({ navigation }: TabScreenProps<'Notifications'>) {
   const c = useColors();
-  const styles = useMemo(() => makeStyles(c), [c]);
-  const { data: items, isLoading, isError, refetch, isRefetching } = useNotifications();
-  const markRead = useMarkNotificationRead();
+  const s = useMemo(() => makeStyles(c), [c]);
+  const focused = useIsFocused();
+  const now = useMinuteNow(focused).getTime();
+  const q = useNotifications();
+  const { mutate: markRead } = useMarkNotificationRead();
   const { resources } = useServices();
   const qc = useQueryClient();
+  const pull = usePullRefresh(q.refetch);
   const [markingAll, setMarkingAll] = useState(false);
   const [markAllErr, setMarkAllErr] = useState<string | null>(null);
 
-  if (isLoading) return <Loader />;
+  const list = useMemo(() => q.data ?? [], [q.data]);
+  const unread = list.filter((n) => !n.readAt).length;
 
-  const list = items ?? [];
-  const hasUnread = list.some((n) => !n.readAt);
   const markAll = () => {
     setMarkingAll(true);
     setMarkAllErr(null);
     void resources.notifications
       .markAllRead()
-      // Refresh the list AND the unread badge (both live under ['notifications']).
-      .then(() => qc.invalidateQueries({ queryKey: ['notifications'] }))
-      .catch(() => setMarkAllErr('Couldn’t mark everything as read. Please try again.'))
+      .then(() => {
+        qc.setQueryData<ApiNotification[]>(['notifications'], (l) => allRead(l, new Date().toISOString()));
+        qc.setQueryData<{ count: number }>(['notifications', 'unread'], { count: 0 });
+        refresh(qc, ALERTS_REFRESH);
+        AccessibilityInfo.announceForAccessibility('All alerts marked as read.');
+      })
+      .catch((e: unknown) => setMarkAllErr(markAllProblem(e)))
       .finally(() => setMarkingAll(false));
   };
 
-  /** Tapping an alert marks it read and opens what it is about — e.g. the task (WEB-18). */
-  const open = (n: ApiNotification) => {
-    if (!n.readAt) markRead.mutate(n.id);
-    const action = targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId }));
-    if (action.type === 'stack' && action.screen === 'TaskDetail') navigation.navigate('TaskDetail', action.params);
-    else if (action.type === 'stack' && action.screen === 'Board') navigation.navigate('Board', action.params);
-    else if (action.type === 'stack' && action.screen === 'MeetingDetail') navigation.navigate('MeetingDetail', action.params);
-    else if (action.type === 'tab' && action.tab !== 'Notifications') navigation.navigate('Tabs', { screen: action.tab });
-  };
+  /** Tapping an alert reads it and opens what it is about (WEB-18). */
+  const open = useCallback(
+    (n: ApiNotification) => {
+      if (!n.readAt) markRead(n);
+      void dismissTrayAbout(n.entityType, n.entityId);
+      const route = alertRoute(targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId })));
+      if (route?.name === 'TaskDetail') navigation.navigate('TaskDetail', route.params);
+      else if (route?.name === 'Board') navigation.navigate('Board', route.params);
+      else if (route?.name === 'ProjectDetail') navigation.navigate('ProjectDetail', route.params);
+      else if (route?.name === 'MeetingDetail') navigation.navigate('MeetingDetail', route.params);
+      else if (route?.name === 'Tabs') navigation.navigate('Tabs', route.params);
+    },
+    [markRead, navigation],
+  );
+
+  const renderItem: ListRenderItem<ApiNotification> = useCallback(
+    ({ item: n }) => {
+      const when = relativeTime(n.createdAt, now);
+      return (
+        <Pressable
+          onPress={() => open(n)}
+          accessibilityRole="button"
+          accessibilityLabel={[n.readAt ? null : 'Unread', n.title, n.body, when].filter(Boolean).join('. ')}
+          accessibilityHint={hasTarget(n) ? 'Opens the related item' : undefined}
+          style={({ pressed }) => [s.item, !n.readAt && s.unread, pressed && s.pressed]}
+        >
+          {!n.readAt ? <View style={s.dot} /> : <View style={s.dotSpacer} />}
+          <View style={s.body}>
+            <Text style={[s.title, !n.readAt && s.titleUnread]}>{n.title}</Text>
+            {n.body ? <Text style={s.desc}>{n.body}</Text> : null}
+            {when ? <Text style={s.time}>{when}</Text> : null}
+          </View>
+        </Pressable>
+      );
+    },
+    [s, now, open],
+  );
+
+  if (q.isLoading) return <Loader />;
+
+  const header = (
+    <View style={s.header}>
+      <Text style={s.intro}>Mentions, assignments and updates across your work.</Text>
+      {unread > 0 ? (
+        <Button
+          title="Mark all read"
+          variant="secondary"
+          loading={markingAll}
+          onPress={markAll}
+          accessibilityLabel={`Mark all read, ${unread} unread`}
+        />
+      ) : null}
+      {markAllErr ? <ErrorNote message={markAllErr} /> : null}
+    </View>
+  );
+
+  const empty =
+    q.isError && !q.data ? (
+      <ErrorNote message="Couldn’t load notifications." onRetry={() => void q.refetch()} retrying={q.isRefetching} />
+    ) : (
+      <EmptyState title="You’re all caught up" subtitle="Mentions, assignments and task updates will appear here." />
+    );
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
-      >
-        {hasUnread ? (
-          <Button title="Mark all as read" variant="secondary" loading={markingAll} onPress={markAll} />
-        ) : null}
-
-        {markAllErr ? <ErrorNote message={markAllErr} /> : null}
-        {isError && !items ? (
-          <ErrorNote message="Couldn't load your notifications." onRetry={() => void refetch()} retrying={isRefetching} />
-        ) : list.length === 0 ? (
-          <EmptyState title="You're all caught up" subtitle="New notifications will show up here." />
-        ) : (
-          list.map((n: ApiNotification) => (
-            <Pressable
-              key={n.id}
-              onPress={() => open(n)}
-              accessibilityRole="button"
-              accessibilityLabel={`${n.readAt ? '' : 'Unread. '}${n.title}${n.body ? '. ' + n.body : ''}, ${timeAgo(n.createdAt)}`}
-              accessibilityHint={hasTarget(n) ? 'Opens the related item' : undefined}
-              style={[styles.item, !n.readAt && styles.unread]}
-            >
-              {!n.readAt ? <View style={styles.dot} /> : <View style={styles.dotSpacer} />}
-              <View style={styles.body}>
-                <Text style={styles.title}>{n.title}</Text>
-                {n.body ? <Text style={styles.desc}>{n.body}</Text> : null}
-                <Text style={styles.time}>{timeAgo(n.createdAt)}</Text>
-              </View>
-            </Pressable>
-          ))
-        )}
-      </ScrollView>
+    <SafeAreaView style={s.safe} edges={['top']}>
+      <FlatList
+        data={list}
+        keyExtractor={(n) => n.id}
+        renderItem={renderItem}
+        ListHeaderComponent={header}
+        ListEmptyComponent={empty}
+        contentContainerStyle={s.list}
+        initialNumToRender={12}
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} />}
+      />
     </SafeAreaView>
   );
 }
@@ -104,7 +143,9 @@ export function NotificationsScreen({ navigation }: TabScreenProps<'Notification
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
-    scroll: { padding: spacing.lg, gap: spacing.sm },
+    list: { padding: spacing.lg, gap: spacing.sm },
+    header: { gap: spacing.sm, marginBottom: spacing.xs },
+    intro: { fontSize: fontSize.sm, color: c.ink2 },
     item: {
       flexDirection: 'row',
       gap: spacing.sm,
@@ -113,12 +154,17 @@ const makeStyles = (c: Palette) =>
       borderWidth: 1,
       borderColor: c.line,
       padding: spacing.md,
+      minHeight: 48,
     },
-    unread: { borderColor: c.brand, backgroundColor: c.brandWash },
+    // Unread: the website's brand edge, and a dot (the colour alone isn't the only sign).
+    unread: { borderColor: c.brand, borderLeftWidth: 4, backgroundColor: c.brandWash },
+    pressed: { opacity: 0.7 },
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.brand, marginTop: 6 },
     dotSpacer: { width: 8 },
-    body: { flex: 1 },
-    title: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
-    desc: { fontSize: fontSize.sm, color: c.ink2, marginTop: 2 },
-    time: { fontSize: fontSize.xs, color: c.ink3, marginTop: 4 },
+    body: { flex: 1, gap: 2 },
+    // Arabic titles read right to left (Android picks the direction from the text).
+    title: { fontSize: fontSize.md, color: c.ink2, textAlign: 'auto' },
+    titleUnread: { fontWeight: '600', color: c.ink },
+    desc: { fontSize: fontSize.sm, color: c.ink2, textAlign: 'auto' },
+    time: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
   });

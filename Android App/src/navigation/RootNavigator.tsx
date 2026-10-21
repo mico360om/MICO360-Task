@@ -55,6 +55,9 @@ import { MyActionItemsScreen } from '../screens/MyActionItemsScreen';
 import { MeetingFormScreen } from '../screens/MeetingFormScreen';
 import { FinalMinutesScreen } from '../screens/FinalMinutesScreen';
 import { ProjectFormScreen } from '../screens/ProjectFormScreen';
+import { ActivityScreen } from '../screens/ActivityScreen';
+import { useAlertsCount, useAlertsLive, usePushOpened } from '../core/alerts';
+import { alertsBadge, alertsTabLabel } from '../lib/alerts';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -116,6 +119,9 @@ function applyAction(action: NavAction): void {
     case 'Board':
       navigationRef.navigate('Board', action.params);
       break;
+    case 'ProjectDetail':
+      navigationRef.navigate('ProjectDetail', action.params);
+      break;
     case 'MeetingDetail':
       navigationRef.navigate('MeetingDetail', action.params);
       break;
@@ -130,6 +136,9 @@ function applyAction(action: NavAction): void {
       break;
     case 'Reports':
       navigationRef.navigate('Reports');
+      break;
+    case 'Activity':
+      navigationRef.navigate('Activity');
       break;
     case 'Settings':
       navigationRef.navigate('Settings');
@@ -176,6 +185,15 @@ function TimeZoneMount() {
   return null;
 }
 
+/**
+ * Alerts stay current while signed in (5c): the unread count every 30 s in front, the list and count
+ * again on a push and on coming back to the app, and the app icon's number (lib/alerts' badge rule).
+ */
+function AlertsMount() {
+  useAlertsLive();
+  return null;
+}
+
 function HamburgerButton() {
   const { colors } = useTheme();
   return (
@@ -192,6 +210,8 @@ function HamburgerButton() {
 }
 
 function MainTabs() {
+  // Unread alerts (5c): the Alerts tab's number, as the website's bell.
+  const alerts = useAlertsCount();
   const { colors } = useTheme();
   return (
     <Tabs.Navigator
@@ -204,6 +224,9 @@ function MainTabs() {
         tabBarInactiveTintColor: colors.ink3,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line },
         tabBarIcon: ({ color }) => <Text style={{ fontSize: 18, color }}>{TAB_ICON[route.name]}</Text>,
+        ...(route.name === 'Notifications'
+          ? { tabBarBadge: alertsBadge(alerts), tabBarAccessibilityLabel: alertsTabLabel(alerts), tabBarBadgeStyle: { backgroundColor: colors.brand, color: colors.onBrand } }
+          : {}),
       })}
     >
       {/* Six tabs, in the side menu's order; Settings is in the menu (navigation/tabs). */}
@@ -274,14 +297,18 @@ export function RootNavigator() {
     headerTitleStyle: { fontWeight: '700' as const },
   };
 
+  // A push opened from the phone's list reads its alert, as clicking it on the website does (5c).
+  const pushOpened = usePushOpened();
+
   // Deep-link on push tap while the app is running/backgrounded (A6.2): route to the entity.
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
       dispatch(targetToAction(notificationToTarget(data)));
+      pushOpened(data);
     });
     return () => sub.remove();
-  }, [dispatch]);
+  }, [dispatch, pushOpened]);
 
   // Cold start: the app was launched by tapping a push while it was killed (A6.2).
   useEffect(() => {
@@ -295,11 +322,12 @@ export function RootNavigator() {
       await asyncStore.setItem(LAST_HANDLED_KEY, id).catch(() => {});
       const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
       dispatch(targetToAction(notificationToTarget(data))); // runs now, onReady, or after sign-in
+      pushOpened(data);
     })();
     return () => {
       cancelled = true;
     };
-  }, [dispatch]);
+  }, [dispatch, pushOpened]);
 
   return (
     <NavigationContainer
@@ -347,6 +375,7 @@ export function RootNavigator() {
             <AppStack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Calendar' }} />
             <AppStack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
             <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports' }} />
+            <AppStack.Screen name="Activity" component={ActivityScreen} options={{ title: 'Activity' }} />
             <AppStack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
             <AppStack.Screen name="ChatThread" component={ChatThreadScreen} options={{ title: 'Chat' }} />
             <AppStack.Screen
@@ -359,6 +388,7 @@ export function RootNavigator() {
           <RealtimeMount />
           <PushRegistrationMount />
           <TimeZoneMount />
+          <AlertsMount />
           <UpdateBanner />
         </>
       ) : (

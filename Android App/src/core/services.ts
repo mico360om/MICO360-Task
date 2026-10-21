@@ -34,6 +34,7 @@ import { asyncStore } from '../adapters/async-storage';
 import { getPushToken, deactivatePush } from '../adapters/push';
 import { exportFiles, pickedFiles } from '../adapters/files';
 import { isBiometricAvailable, authenticateBiometric } from '../adapters/biometric';
+import { launcherBadge } from '../adapters/alerts';
 
 export interface Services {
   baseUrl: string;
@@ -230,6 +231,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     clearReadCache: () => cache.clear(),
     clearQueuedChanges: (userId) => queue.clearForUser(userId),
     deactivatePush: async () => {
+      // No number on the app's icon, and this person's notifications off the phone's list (5c).
+      launcherBadge.clear();
       await deactivatePush();
       await push.forget();
     },

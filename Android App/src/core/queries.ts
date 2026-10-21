@@ -16,6 +16,8 @@ import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-o
 import type { Services } from './services';
 import type { ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
 import type { ReportFilters } from '../lib/reports';
+import { ALERTS_POLL_MS, ALERTS_REFRESH, countAfterRead, markedRead, withPendingReads } from '../lib/alerts';
+import type { ApiNotification } from '../lib/types';
 
 /** Variables of a creating write, carrying the idempotency key minted for this user action (XP-06). */
 export type Keyed<T> = T & { idempotencyKey: string };
@@ -480,10 +482,12 @@ export function useSetTaskTags(taskId: string) {
 }
 
 export function useNotifications() {
-  const { resources, reads } = useServices();
+  const { resources, reads, queue, currentUserId } = useServices();
   return useQuery({
     queryKey: ['notifications'],
-    queryFn: ({ queryKey }) => reads.read(queryKey, 'notifications', () => resources.notifications.list()),
+    // Alerts read on this phone while offline show as read until their reads are sent (5c).
+    queryFn: ({ queryKey }) =>
+      reads.read(queryKey, 'notifications', () => resources.notifications.list()).then((list) => withPendingReads(list, queue.pendingFor(currentUserId()))),
   });
 }
 
@@ -499,11 +503,17 @@ export function useServerConfig() {
   return useQuery({ queryKey: ['server', 'config'], queryFn: () => resources.settings.config(), staleTime: 60 * 60_000 });
 }
 
-export function useUnreadCount() {
+/**
+ * The unread alerts (the Alerts tab and the app icon, lib/alerts). With `poll` (one place only, the
+ * app-wide alerts mount) it is asked for again every 30 s while the app is in front, as the website's
+ * bell is; TanStack pauses it while the app is away.
+ */
+export function useUnreadCount({ poll = false }: { poll?: boolean } = {}) {
   const { resources } = useServices();
   return useQuery({
     queryKey: ['notifications', 'unread'],
     queryFn: () => resources.notifications.unreadCount(),
+    refetchInterval: poll ? ALERTS_POLL_MS : false,
   });
 }
 
@@ -596,37 +606,55 @@ export function useUpdateTask(taskId: string) {
   });
 }
 
+/**
+ * Read one alert. It shows read at once with one fewer on the Alerts tab (5c); without a connection
+ * the read is kept on this phone and sent later (the list shows it read meanwhile). A refusal (the
+ * alert is gone) leaves what the server says.
+ */
 export function useMarkNotificationRead() {
   const { resources, queue, currentUserId } = useServices();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => resources.notifications.markRead(id),
-    // Invalidates the list AND the unread badge (both live under ['notifications']).
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['notifications'] });
+    mutationFn: (n: Pick<ApiNotification, 'id'>) => resources.notifications.markRead(n.id),
+    onMutate: async (n) => {
+      await qc.cancelQueries({ queryKey: ['notifications'], exact: true });
+      await qc.cancelQueries({ queryKey: ['notifications', 'unread'], exact: true });
+      const wasUnread = !qc.getQueryData<ApiNotification[]>(['notifications'])?.some((x) => x.id === n.id && x.readAt);
+      qc.setQueryData<ApiNotification[]>(['notifications'], (list) => markedRead(list, n.id, new Date().toISOString()));
+      qc.setQueryData<{ count: number }>(['notifications', 'unread'], (c) => (c ? { count: countAfterRead(c.count, wasUnread) ?? 0 } : c));
     },
-    onError: (err, id) => queueOnOffline(queue, currentUserId(), err, 'notification.read', { id }),
+    onSuccess: () => refresh(qc, ALERTS_REFRESH),
+    onError: async (err, n) => {
+      if (isNetworkError(err)) return queueOnOffline(queue, currentUserId(), err, 'notification.read', { id: n.id });
+      refresh(qc, ALERTS_REFRESH);
+    },
   });
 }
 
 // ── Reports (administrators) ────────────────────────────────────────────────
-/** Everything the Reports screen shows, for the filters; always read fresh (no offline copy). */
-export function useReports(filters: ReportFilters) {
+// Always read fresh (no offline copy): the figures change all day, and each filter would be a copy.
+
+/** The Reports figures that don't depend on the range, for the project / team-member filters. */
+export function useReportSummary(scope: Pick<ReportFilters, 'projectId' | 'userId'>) {
   const { resources } = useServices();
-  const scope = { projectId: filters.projectId, userId: filters.userId };
+  const key = { projectId: scope.projectId, userId: scope.userId };
   return useQuery({
-    queryKey: ['reports', filters],
+    queryKey: ['reports', 'summary', key],
     queryFn: async () => {
       const r = resources.reports;
-      const [projects, status, workload, completion, series] = await Promise.all([
-        r.projects(scope),
-        r.status(scope),
-        r.workload(scope),
-        r.completion(scope).catch(() => null),
-        r.timeseries(filters).catch(() => null),
-      ]);
-      return { projects, status, workload, completion, series };
+      const [projects, status, workload, completion] = await Promise.all([r.projects(key), r.status(key), r.workload(key), r.completion(key).catch(() => null)]);
+      return { projects, status, workload, completion };
     },
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** The trend for the filters and the range (a new range asks for this alone, as on the website). */
+export function useReportTrend(filters: ReportFilters) {
+  const { resources } = useServices();
+  return useQuery({
+    queryKey: ['reports', 'trend', filters],
+    queryFn: () => resources.reports.timeseries(filters),
     placeholderData: (prev) => prev,
   });
 }
