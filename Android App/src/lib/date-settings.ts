@@ -57,7 +57,8 @@ export interface DateSettingsLoad {
 export async function loadDateSettings(d: DateSettingsLoad): Promise<void> {
   const [config, prefs] = await Promise.all([
     d.config().catch(() => null),
-    d.qc.fetchQuery({ queryKey: DATE_PREFERENCES_KEY, queryFn: () => d.readPrefs(), staleTime: 0 }).catch(() => null),
+    // Kept for the whole session: the calendar opened later still has them at once.
+    d.qc.fetchQuery({ queryKey: DATE_PREFERENCES_KEY, queryFn: () => d.readPrefs(), staleTime: 0, gcTime: Infinity }).catch(() => null),
   ]);
   if ((d.isActive && !d.isActive()) || (!config && !prefs)) return;
   const next = nextDateZones(d.zones.get(), { config, prefs });

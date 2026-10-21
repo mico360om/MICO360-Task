@@ -160,3 +160,18 @@ describe('weekStartKnown — the calendar asks for its days once it knows how it
     expect(weekStartKnown({ data: undefined, fetchStatus: 'paused' })).toBe(true);
   });
 });
+
+describe('loadDateSettings keeps your settings for the whole session', () => {
+  it('they aren’t dropped after a few minutes with the calendar closed (it would open on a loader again)', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let zones = { company: 'Asia/Muscat', own: null as string | null };
+    await loadDateSettings({
+      qc,
+      config: async () => ({ timeZone: 'Asia/Muscat' }),
+      readPrefs: async () => ({ timeZone: null, weekStart: 6 }),
+      keepZones: async () => {},
+      zones: { get: () => zones, set: (z) => (zones = z) },
+    });
+    expect(qc.getQueryCache().find({ queryKey: DATE_PREFERENCES_KEY })?.options.gcTime).toBe(Infinity);
+  });
+});
