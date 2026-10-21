@@ -14,6 +14,7 @@ import { ApiError, isNetworkError } from './api-client';
 import { uploadErrorMessage, uploadMimeType } from './attachments';
 import { validateAttachment } from './chat-model';
 import { isKeptOnPhone, keptOnPhoneText } from './write-order';
+import { dueDayKey } from './due-date';
 import { recurrenceSummary } from './recurrence-summary';
 import { displayName, type ApiColumn, type ApiDirectoryUser, type ApiMember, type ApiTask, type Priority, type RecurrenceRule } from './types';
 
@@ -71,6 +72,8 @@ export interface TaskDraft {
   rule: RecurrenceRule | null;
   assigneeIds: string[];
   milestone: boolean;
+  /** Edit task only (4d): 'YYYY-MM-DD' (a company calendar day), or '' for none. New tasks start today (the server's). */
+  startDate?: string;
 }
 
 /** A new task as it opens: in the project and column it was opened from, on the day chosen (the calendar's). */
@@ -109,9 +112,9 @@ export function startProjectId(o: { fixed?: string | null; preferred?: string | 
   return o.open[0]?.id ?? '';
 }
 
-/** A project's columns in board order, without the ones turned off. */
-export function formColumns(columns: readonly ApiColumn[] | null | undefined): ApiColumn[] {
-  return (Array.isArray(columns) ? columns : []).filter((c) => c.enabled !== false).sort((a, b) => a.position - b.position);
+/** A project's columns in board order, without the ones turned off — except `keep` (an edited task's own column). */
+export function formColumns(columns: readonly ApiColumn[] | null | undefined, keep?: string): ApiColumn[] {
+  return (Array.isArray(columns) ? columns : []).filter((c) => c.enabled !== false || c.id === keep).sort((a, b) => a.position - b.position);
 }
 
 /**
@@ -346,6 +349,144 @@ export function leftWhileSendingText(out: NewTaskOutcome): string {
  */
 export function leftWhileSendingNotice(out: NewTaskOutcome, submitter: string | null, signedIn: string | null): string | null {
   return submitter && signedIn === submitter ? leftWhileSendingText(out) : null;
+}
+
+// ── Edit task (4d): the same form, filled with the task (the website's TaskFormDialog with a task) ──
+
+/** The Edit form's words (the website's, checked by the test). */
+export const EDIT_TEXT = {
+  heading: 'Edit task',
+  legend: 'Apply changes to',
+  one: 'This task',
+  series: 'Entire series',
+  conflict: 'Someone else changed this task while you were editing. Close this form and open the task again to see their changes — then make yours.',
+  noRepeatHere: 'An earlier copy of a repeating series — change the repeat on its newest copy.',
+  nobody: 'Nobody is assigned.',
+} as const;
+
+/** The task as the form opens it: its place, words, priority, days (company calendar days), repeat, people and milestone. */
+export function editTaskDraft(task: ApiTask, assigneeIds: readonly string[], timeZone: string): TaskDraft {
+  return {
+    projectId: task.projectId,
+    columnId: task.columnId,
+    title: task.title,
+    description: task.description ?? '',
+    priority: task.priority,
+    dueDate: dueDayKey(task.dueDate, timeZone) ?? '',
+    startDate: dueDayKey(task.startDate, timeZone) ?? '',
+    rule: task.recurrenceRule ?? null,
+    assigneeIds: [...assigneeIds],
+    milestone: !!task.isMilestone,
+  };
+}
+
+/** The server's rule for the two days (its words): null when they are fine. */
+export function startProblem(startDate: string | undefined, dueDate: string): string | null {
+  return startDate && dueDate && startDate > dueDate ? 'The start date must be on or before the due date.' : null;
+}
+
+export function checkEditTask(d: TaskDraft): { ok: true } | { ok: false; field: 'title' | 'repeat' | 'start'; message: string } {
+  if (!d.title.trim()) return { ok: false, field: 'title', message: 'Give the task a title.' };
+  const until = untilProblem(d.rule, d.dueDate);
+  if (until) return { ok: false, field: 'repeat', message: until };
+  const start = startProblem(d.startDate, d.dueDate);
+  if (start) return { ok: false, field: 'start', message: start };
+  return { ok: true };
+}
+
+/**
+ * What goes to every copy of a series. The server shares only the title, description and priority
+ * (and the estimate) with the other copies; the website's note also names the due date, which the
+ * server keeps on this copy — so this says what really happens.
+ */
+export function scopeNote(): string {
+  return 'The title, description and priority go to every copy when you choose the series. Dates, the column and people change on this task only.';
+}
+
+export function editSubmitLabel(saving: boolean): string {
+  return saving ? 'Saving…' : 'Save changes';
+}
+
+export function editLeaveWarning(): { title: string; message: string; stay: string; leave: string } {
+  return { title: 'Discard your changes?', message: 'Your changes to this task haven’t been saved.', stay: 'Keep editing', leave: 'Discard' };
+}
+
+/** The writes an edit makes (core/new-task useSaveTaskEdit sends each through the task write path). */
+export interface EditDeps {
+  /** PUT /tasks/:id with only what changed (and `scope: 'series'`), against the version the form opened with. */
+  update(patch: Record<string, unknown>): Promise<unknown>;
+  move(columnId: string): Promise<unknown>;
+  assign(userIds: string[]): Promise<unknown>;
+  unassign(userId: string): Promise<unknown>;
+}
+
+export type EditOutcome =
+  | { kind: 'saved'; saved: TaskDraft }
+  /** No answer: kept on this phone, sent later. */
+  | { kind: 'kept'; saved: TaskDraft; message: string }
+  /** Refused: what went is kept in `saved` (the next try sends only the rest). */
+  | { kind: 'failed'; saved: TaskDraft; message: string };
+
+const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * Save an edit as the website does: only what changed, in one edit (`scope: 'series'` when chosen);
+ * a new repeat for a series on its own (the rule lives on the newest copy); then the column; then the
+ * people added (one request) and taken off. Each step's success is kept, so a retry sends only the
+ * rest. A step with no answer is kept on this phone (the rest go too).
+ */
+export async function saveTaskEdit(deps: EditDeps, draft: TaskDraft, saved: TaskDraft, o: { series: boolean; canRepeat: boolean }): Promise<EditOutcome> {
+  let done = saved;
+  let kept: unknown = null;
+  const keep = (patch: Partial<TaskDraft>) => {
+    done = { ...done, ...patch };
+  };
+  const step = async (send: () => Promise<unknown>, after: () => void) => {
+    try {
+      await send();
+    } catch (e) {
+      if (!isNetworkError(e)) throw e;
+      kept ??= e;
+    }
+    after();
+  };
+  try {
+    const fields: Record<string, unknown> = {};
+    if (draft.title.trim() !== done.title.trim()) fields.title = draft.title.trim();
+    if (draft.description.trim() !== done.description.trim()) fields.description = draft.description.trim();
+    if (draft.priority !== done.priority) fields.priority = draft.priority;
+    if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
+    if ((draft.startDate ?? '') !== (done.startDate ?? '')) fields.startDate = draft.startDate || null;
+    if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
+    const ruleChanged = o.canRepeat && !sameRule(draft.rule, done.rule);
+    if (ruleChanged && !o.series) fields.recurrenceRule = draft.rule;
+    if (Object.keys(fields).length) {
+      await step(
+        () => deps.update({ ...fields, ...(o.series ? { scope: 'series' } : {}) }),
+        () =>
+          keep({
+            title: draft.title,
+            description: draft.description,
+            priority: draft.priority,
+            dueDate: draft.dueDate,
+            startDate: draft.startDate,
+            milestone: draft.milestone,
+            ...(ruleChanged && !o.series ? { rule: draft.rule } : {}),
+          }),
+      );
+    }
+    if (ruleChanged && o.series) await step(() => deps.update({ recurrenceRule: draft.rule }), () => keep({ rule: draft.rule }));
+    if (draft.columnId !== done.columnId) await step(() => deps.move(draft.columnId), () => keep({ columnId: draft.columnId }));
+    const add = draft.assigneeIds.filter((id) => !done.assigneeIds.includes(id));
+    if (add.length) await step(() => deps.assign(add), () => keep({ assigneeIds: [...done.assigneeIds, ...add] }));
+    for (const id of done.assigneeIds.filter((x) => !draft.assigneeIds.includes(x))) {
+      await step(() => deps.unassign(id), () => keep({ assigneeIds: done.assigneeIds.filter((x) => x !== id) }));
+    }
+    return kept ? { kind: 'kept', saved: done, message: keptOnPhoneText(kept) } : { kind: 'saved', saved: done };
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'VERSION_CONFLICT') return { kind: 'failed', saved: done, message: EDIT_TEXT.conflict };
+    return { kind: 'failed', saved: done, message: `Couldn’t save ${done !== saved ? 'all of ' : ''}the changes. ${reasonOf(e)}` };
+  }
 }
 
 function reasonOf(err: unknown): string {

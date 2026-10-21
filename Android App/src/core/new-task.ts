@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
-import { owned } from './queries';
+import { owned, sendTaskEdit, sendTaskMove } from './queries';
 import { asyncStore } from '../adapters/async-storage';
 import { uploadPart } from '../lib/attachments';
 import { sendInOrder } from '../lib/write-order';
-import { lastProjectKey, sendNewTask, type NewTaskFile, type NewTaskInput, type NewTaskOutcome } from '../lib/task-form';
+import { lastProjectKey, saveTaskEdit, sendNewTask, type EditDeps, type EditOutcome, type NewTaskFile, type NewTaskInput, type NewTaskOutcome, type TaskDraft } from '../lib/task-form';
+import { newIdempotencyKey } from '../lib/idempotency';
+import { itemLanes, sendItemWrite } from '../lib/item-lanes';
+import { refresh } from '../lib/refresh';
+import { afterTaskSaved, assignmentRefreshes, moveRefreshes } from '../lib/task-cache';
+import type { ApiColumn } from '../lib/types';
 
 /**
  * The New task form's server side (4a): Describe, the project used last time, and sending — the
@@ -68,4 +73,44 @@ export function useSendNewTask(): (req: { input: NewTaskInput; key: string; file
       );
     };
   }, [services]);
+}
+
+/**
+ * Save Edit task's changes (4d), as the website's form does (lib/task-form saveTaskEdit): only what
+ * changed, each through the task write path — the edit against the version the form opened with
+ * (a colleague's change meanwhile is refused, not overwritten), the column as a move, the people as
+ * assignments — each kept on this phone when it gets no answer, each refreshing what it changed.
+ */
+export function useSaveTaskEdit(taskId: string): (draft: TaskDraft, saved: TaskDraft, o: { series: boolean; canRepeat: boolean; projectId: string; openedVersion?: number }) => Promise<EditOutcome> {
+  const services = useServices();
+  const qc = useQueryClient();
+  return useCallback(
+    (draft, saved, { series, canRepeat, projectId, openedVersion }) => {
+      const deps: EditDeps = {
+        update: async (patch) => {
+          const done = await sendTaskEdit(services, qc, taskId, patch, undefined, openedVersion);
+          afterTaskSaved(qc, taskId, done, patch);
+        },
+        move: async (columnId) => {
+          // The column's kind goes with it, so a move kept offline shows under its new status (4c).
+          const category = qc.getQueryData<ApiColumn[]>(['columns', projectId])?.find((c) => c.id === columnId)?.category;
+          await sendTaskMove(services, { id: taskId, columnId, projectId, category });
+          refresh(qc, moveRefreshes(taskId, projectId));
+        },
+        assign: async (userIds) => {
+          const w = owned(services);
+          const idempotencyKey = newIdempotencyKey();
+          await sendItemWrite(itemLanes, w.order, { kind: 'task.assign', payload: { id: taskId, userIds }, idempotencyKey }, () => w.resources.tasks.assign(taskId, userIds, { idempotencyKey }));
+          refresh(qc, assignmentRefreshes(taskId));
+        },
+        unassign: async (userId) => {
+          const w = owned(services);
+          await sendItemWrite(itemLanes, w.order, { kind: 'task.unassign', payload: { id: taskId, userId } }, () => w.resources.tasks.unassign(taskId, userId));
+          refresh(qc, assignmentRefreshes(taskId));
+        },
+      };
+      return saveTaskEdit(deps, draft, saved, { series, canRepeat });
+    },
+    [services, qc, taskId],
+  );
 }

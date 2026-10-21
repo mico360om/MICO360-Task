@@ -18,7 +18,10 @@ export function DueDateField({
   weekStart,
   disabled,
   label = 'Due date (optional)',
+  what = 'Due date',
 }: {
+  /** What the day is, in words ("Due date", "Start date" — the Edit form's, 4d). */
+  what?: string;
   /** The field's label; null when the screen labels it itself (the task's details). */
   label?: string | null;
   /** 'YYYY-MM-DD', or '' for none. */
@@ -30,7 +33,7 @@ export function DueDateField({
 }) {
   const c = useColors();
   const [open, setOpen] = useState(false);
-  const shown = value ? fullDayLabel(value) : 'No due date';
+  const shown = value ? fullDayLabel(value) : `No ${what.toLowerCase()}`;
   return (
     <View style={styles.wrap}>
       {label ? <FieldLabel>{label}</FieldLabel> : null}
@@ -39,7 +42,7 @@ export function DueDateField({
           onPress={() => setOpen((v) => !v)}
           disabled={disabled}
           accessibilityRole="button"
-          accessibilityLabel={`Due date: ${shown}`}
+          accessibilityLabel={`${what}: ${shown}`}
           accessibilityHint={open ? 'Closes the calendar' : 'Opens a calendar to pick the day'}
           accessibilityState={{ expanded: open, disabled: !!disabled }}
           style={({ pressed }) => [styles.field, { borderColor: c.line, backgroundColor: c.surface }, pressed && styles.pressed, disabled && styles.disabled]}
@@ -57,7 +60,7 @@ export function DueDateField({
             }}
             disabled={disabled}
             accessibilityRole="button"
-            accessibilityLabel="Clear the due date"
+            accessibilityLabel={`Clear the ${what.toLowerCase()}`}
             style={({ pressed }) => [styles.clear, { borderColor: c.line }, pressed && styles.pressed]}
           >
             <Text style={[styles.clearText, { color: c.ink2 }]}>Clear</Text>
@@ -78,7 +81,7 @@ export function DueDateField({
             { label: 'Tomorrow', day: shiftDayKey(today, 1) },
             { label: 'In a week', day: shiftDayKey(today, 7) },
           ]}
-          hint="Sets the due date"
+          hint={`Sets the ${what.toLowerCase()}`}
         />
       ) : null}
     </View>

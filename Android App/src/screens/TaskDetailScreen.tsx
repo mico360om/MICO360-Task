@@ -357,6 +357,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           exporting={exporting}
           meeting={meetingLine(task.meeting)}
           onOpenMeeting={openMeeting}
+          // The full Edit form (4d): New task's form, filled with this task.
+          onEdit={() => navigation.navigate('NewTask', { taskId: task.id })}
         />
         {wide ? (
           <View style={styles.columns}>

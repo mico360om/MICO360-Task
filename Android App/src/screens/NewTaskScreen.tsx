@@ -3,18 +3,18 @@ import { View, Text, StyleSheet, Alert, Pressable, AccessibilityInfo, type Scrol
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { useQueryClient } from '@tanstack/react-query';
-import { useDirectory, useProjectColumns, useProjectMembers, useProjects } from '../core/queries';
+import { useDirectory, useProjectColumns, useProjectMembers, useProjects, useTask, useTaskAssignees } from '../core/queries';
 import { useDatePreferences } from '../core/calendar-queries';
-import { useLastProject, useSendNewTask } from '../core/new-task';
+import { useLastProject, useSaveTaskEdit, useSendNewTask } from '../core/new-task';
 import { useServices } from '../core/providers';
 // A short notice that stays after the form has closed (Android's own toast; TalkBack reads it).
 import { notice } from '../components/notice';
 import { useColors } from '../core/theme';
 import { pickedFiles } from '../adapters/picked-files';
-import { Button, ErrorNote, TextField } from '../components/ui';
+import { Button, ErrorNote, Loader, TextField } from '../components/ui';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { RecurrenceEditor } from '../components/RecurrenceEditor';
-import { CheckRow, ChipChoice, FieldLabel, InlinePicker } from '../components/meeting/sheet-kit';
+import { CardChoice, CheckRow, ChipChoice, FieldLabel, InlinePicker } from '../components/meeting/sheet-kit';
 import { DescribeTask } from '../components/task-form/DescribeTask';
 import { AssigneeField } from '../components/task-form/AssigneeField';
 import { DueDateField } from '../components/task-form/DueDateField';
@@ -27,12 +27,20 @@ import { newIdempotencyKey } from '../lib/idempotency';
 import { refresh } from '../lib/refresh';
 import { createdTaskRefreshes } from '../lib/task-cache';
 import { taskSuggestions, type AiTaskDraft, type DescribedFields } from '../lib/task-describe';
+import { inSeries, isEarlierCopy } from '../lib/recurrence-edit';
 import {
   assignablePeople,
   assigneeNote,
   assigneesWithoutTeam,
+  checkEditTask,
   checkNewTask,
   createdWithoutFilesText,
+  EDIT_TEXT,
+  editLeaveWarning,
+  editSubmitLabel,
+  editTaskDraft,
+  scopeNote,
+  startProblem,
   DESCRIPTION_MAX,
   formColumns,
   checkTaskFiles,
@@ -76,10 +84,22 @@ const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
  * waiting in the sync list; the same key, so never twice). Files need a connection: a task with
  * files that got no answer may be on the server, so the form keeps its key and locks until it is
  * finished or started over.
+ *
+ * Edit task (4d) is this form too, as on the website (opened from the task's details, with
+ * `taskId`): the task's project is fixed, and everything else — column, title, description,
+ * priority, start and due dates, repeat (not on an earlier copy of a series), people, milestone —
+ * is saved on Save changes, only what changed, each through the task write path against the
+ * version the form opened with. For a repeating task it asks whether the changes go to this task or
+ * the entire series. Describe and files are New task's only (files are added from the task).
  */
 export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) {
   const params = route.params ?? {};
   const fixedProjectId = params.projectId ?? '';
+  // Edit task (4d): the same form, filled with the task.
+  const editId = params.taskId ?? '';
+  const editing = !!editId;
+  const taskQ = useTask(editId);
+  const assigneesQ = useTaskAssignees(editId);
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const qc = useQueryClient();
@@ -98,6 +118,9 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const fileSeq = useRef({ n: 0 });
   const [titleError, setTitleError] = useState<string | null>(null);
   const [repeatError, setRepeatError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  // A repeating task's changes: to this task, or the entire series (the website asks the same).
+  const [scope, setScope] = useState<'one' | 'series'>('one');
   const [banner, setBanner] = useState<string | null>(null);
   const [placeNotice, setPlaceNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -138,7 +161,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const allProjects = useMemo(() => (Array.isArray(projectsQ.data) ? (projectsQ.data as FormProject[]) : []), [projectsQ.data]);
   const openProjects = useMemo(() => openProjectsOf(allProjects), [allProjects]);
   const project = allProjects.find((p) => p.id === draft.projectId) ?? null;
-  const projectFixed = !!fixedProjectId;
+  const projectFixed = editing || !!fixedProjectId;
   const noProjects = !projectFixed && !!projectsQ.data && openProjects.length === 0;
   const [lastProject, rememberProject] = useLastProject();
 
@@ -149,8 +172,24 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     if (id) settle({ projectId: id });
   }, [projectFixed, draft.projectId, lastProject, openProjects, params.defaultProjectId]);
 
+  // ── Edit task: filled once with the task and its people; the version it opened with is kept ──
+  const editTask = taskQ.data;
+  const filled = useRef(false);
+  const openedVersion = useRef<number | undefined>(undefined);
+  // Who is on it couldn't be read (offline, not kept): they are left as they are.
+  const peopleUnknown = editing && assigneesQ.isError && !assigneesQ.data;
+  useEffect(() => {
+    if (!editing || filled.current || !taskQ.data || (!assigneesQ.data && !peopleUnknown)) return;
+    filled.current = true;
+    openedVersion.current = taskQ.data.version;
+    settle(editTaskDraft(taskQ.data, (assigneesQ.data ?? []).map((a) => a.id), timeZone));
+  }, [editing, taskQ.data, assigneesQ.data, peopleUnknown, timeZone]);
+  const series = editing && inSeries(editTask);
+  const canRepeat = !editing || !isEarlierCopy(editTask);
+
   const columnsQ = useProjectColumns(draft.projectId);
-  const columns = useMemo(() => formColumns(columnsQ.data), [columnsQ.data]);
+  // An edited task's own column stays on offer even when it is switched off.
+  const columns = useMemo(() => formColumns(columnsQ.data, editing ? editTask?.columnId : undefined), [columnsQ.data, editing, editTask?.columnId]);
   // After a project change, land in the same kind of column (e.g. "in progress") when it has one;
   // opened from a status of the All projects board (4c), start in that kind of column.
   const preferKind = useRef<string | null>(params.columnCategory ?? null);
@@ -263,13 +302,13 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
       navigation.addListener('beforeRemove', (e) => {
         if (done.current || created || (!dirty && !locked && !saving)) return;
         e.preventDefault();
-        const w = leaveWarning({ saving, locked });
+        const w = editing && !saving ? editLeaveWarning() : leaveWarning({ saving, locked });
         Alert.alert(w.title, w.message, [
           { text: w.stay, style: 'cancel' },
           { text: w.leave, style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
         ]);
       }),
-    [navigation, dirty, locked, saving, created],
+    [navigation, dirty, locked, saving, created, editing],
   );
   const leave = () => {
     done.current = true;
@@ -292,10 +331,44 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
       },
     ]);
 
+  // ── Saving an edit ──
+  const saveEditTask = useSaveTaskEdit(editId);
+  async function saveEdit() {
+    if (busy.current || !editTask) return;
+    const check = checkEditTask(draft);
+    if (!check.ok) {
+      if (check.field === 'title') {
+        setTitleError(check.message);
+        titleRef.current?.focus();
+      } else if (check.field === 'repeat') showRepeatProblem(check.message);
+      else setStartError(check.message);
+      return;
+    }
+    busy.current = true;
+    setSaving(true);
+    setBanner(null);
+    try {
+      const out = await saveEditTask(draft, saved, { series: series && scope === 'series', canRepeat, projectId: editTask.projectId, openedVersion: openedVersion.current });
+      // What went is what the server has now: a try after a failure sends only the rest.
+      if (mounted.current) setSaved(out.saved);
+      if (out.kind === 'failed') {
+        if (mounted.current) setBanner(out.message);
+        return;
+      }
+      if (out.kind === 'kept') notice(out.message);
+      else AccessibilityInfo.announceForAccessibility('Saved.');
+      if (mounted.current) leave();
+    } finally {
+      busy.current = false;
+      if (mounted.current) setSaving(false);
+    }
+  }
+
   // ── Creating ──
   const send = useSendNewTask();
   async function submit() {
     if (busy.current) return;
+    if (editing) return saveEdit();
     if (created) return leave(); // the task exists already: never a second one
     const check = checkNewTask(draft, { noProjects, boardDate: params.boardDate });
     if (!check.ok) {
@@ -391,6 +464,11 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const repeatProblem = repeatError ?? untilProblem(draft.rule, draft.dueDate);
   const projectOptions = useMemo(() => openProjects.map((p) => ({ value: p.id, label: p.name, hint: p.code })), [openProjects]);
 
+  if (editing && !filled.current) {
+    if (taskQ.isError && !taskQ.data) return <ErrorNote message="Couldn’t load this task. Check your connection and try again." onRetry={() => void taskQ.refetch()} retrying={taskQ.isRefetching} />;
+    return <Loader />;
+  }
+
   return (
     <SafeAreaView style={s.safe} edges={['bottom']}>
       <KeyboardAwareScrollView ref={scrollRef} contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
@@ -410,7 +488,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           </View>
         ) : null}
 
-        {!noProjects && !created ? <DescribeTask timeZone={timeZone} withProject={!projectFixed} suggest={suggest} onApply={applyFound} disabled={frozen} /> : null}
+        {!editing && !noProjects && !created ? <DescribeTask timeZone={timeZone} withProject={!projectFixed} suggest={suggest} onApply={applyFound} disabled={frozen} /> : null}
 
         {projectFixed ? (
           <View style={s.group}>
@@ -505,11 +583,33 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           weekStart={weekStart}
           disabled={frozen}
         />
+        {editing ? (
+          <>
+            <DueDateField
+              label="Start date (optional)"
+              what="Start date"
+              value={draft.startDate ?? ''}
+              onChange={(startDate) => {
+                set({ startDate });
+                setStartError(null);
+              }}
+              today={today}
+              weekStart={weekStart}
+              disabled={frozen}
+            />
+            {startError ?? startProblem(draft.startDate, draft.dueDate) ? (
+              <Text style={s.problem} accessibilityRole="alert">
+                {startError ?? startProblem(draft.startDate, draft.dueDate)}
+              </Text>
+            ) : null}
+          </>
+        ) : null}
 
         <View style={s.card} onLayout={(e) => (repeatY.current = e.nativeEvent.layout.y)}>
           <FieldLabel>Repeat</FieldLabel>
           {draft.rule ? <Text style={s.summary}>🔁 {scheduleText(draft.rule, draft.dueDate)}</Text> : null}
-          <RecurrenceEditor
+          {!canRepeat ? <Text style={s.hint}>{EDIT_TEXT.noRepeatHere}</Text> : null}
+          {canRepeat ? <RecurrenceEditor
             value={draft.rule}
             onChange={(rule) => {
               set({ rule });
@@ -518,7 +618,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
             dueDate={draft.dueDate || null}
             disabled={frozen}
             untilRef={untilRef}
-          />
+          /> : null}
           {repeatProblem ? (
             <Text style={s.problem} accessibilityRole="alert">
               {repeatProblem}
@@ -531,17 +631,29 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           people={people}
           value={draft.assigneeIds}
           onChange={(assigneeIds) => set({ assigneeIds })}
-          note={assigneeNote(draft.assigneeIds, ownerName)}
-          disabled={frozen || !draft.projectId}
+          note={peopleUnknown ? 'Couldn’t load who is on this task — they’re left as they are.' : editing ? (draft.assigneeIds.length ? null : EDIT_TEXT.nobody) : assigneeNote(draft.assigneeIds, ownerName)}
+          disabled={frozen || !draft.projectId || peopleUnknown}
           status={membersStatus}
         />
 
-        <FilesField files={files} onPickFiles={() => void pick(false)} onPickPictures={() => void pick(true)} onRemove={removeFile} busy={saving || !!created} />
+        {!editing ? <FilesField files={files} onPickFiles={() => void pick(false)} onPickPictures={() => void pick(true)} onRemove={removeFile} busy={saving || !!created} /> : null}
 
         <View style={s.card}>
           <CheckRow label="Milestone" checked={draft.milestone} onChange={(milestone) => set({ milestone })} disabled={frozen} />
           <Text style={s.hint}>{NEW_TASK_TEXT.milestoneHint}</Text>
         </View>
+
+        {editing && series ? (
+          <CardChoice
+            legend={EDIT_TEXT.legend}
+            options={[
+              { value: 'one', label: EDIT_TEXT.one, hint: 'Only this copy of the series.' },
+              { value: 'series', label: EDIT_TEXT.series, hint: scopeNote() },
+            ]}
+            value={scope}
+            onChange={setScope}
+          />
+        ) : null}
       </KeyboardAwareScrollView>
 
       <View style={s.footer}>
@@ -558,7 +670,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         ) : (
           <Button title="Cancel" variant="ghost" onPress={() => navigation.goBack()} disabled={saving} style={s.grow} />
         )}
-        <Button title={submitLabel({ created: !!created, saving, uploading })} onPress={() => void submit()} loading={saving} disabled={noProjects} style={s.wide} />
+        <Button title={editing ? editSubmitLabel(saving) : submitLabel({ created: !!created, saving, uploading })} onPress={() => void submit()} loading={saving} disabled={!editing && noProjects} style={s.wide} />
       </View>
     </SafeAreaView>
   );

@@ -91,7 +91,7 @@ export function useMyTasks() {
 
 export function useTask(taskId: string) {
   const { resources } = useServices();
-  return useQuery({ queryKey: ['task', taskId], queryFn: () => resources.tasks.get(taskId) });
+  return useQuery({ queryKey: ['task', taskId], queryFn: () => resources.tasks.get(taskId), enabled: !!taskId });
 }
 
 /**
@@ -144,7 +144,7 @@ export function useProjectMembers(projectId: string) {
 
 export function useTaskAssignees(taskId: string) {
   const { resources } = useServices();
-  return useQuery({ queryKey: ['task', taskId, 'assignees'], queryFn: () => resources.tasks.assignees(taskId) });
+  return useQuery({ queryKey: ['task', taskId, 'assignees'], queryFn: () => resources.tasks.assignees(taskId), enabled: !!taskId });
 }
 
 /**
@@ -671,10 +671,12 @@ export function sendTaskEdit(
   taskId: string,
   patch: Partial<ApiTask> & { scope?: 'one' | 'series' },
   fallbackVersion?: number,
+  /** The version a form opened with (Edit task): a colleague's later change is then refused, never overwritten unseen. */
+  pinnedVersion?: number,
 ): Promise<ApiTask> {
   const w = owned(services);
   return taskWrites.run(taskId, async () => {
-    const loaded = qc.getQueryData<ApiTask>(['task', taskId])?.version ?? fallbackVersion;
+    const loaded = pinnedVersion ?? qc.getQueryData<ApiTask>(['task', taskId])?.version ?? fallbackVersion;
     const body = withExpectedVersion(patch, taskWrites.expectedVersion(taskId, loaded));
     sentEdits.set(patch, body);
     return sendInOrder(w.order, { kind: 'task.update', payload: { id: taskId, patch: body } }, async () => {

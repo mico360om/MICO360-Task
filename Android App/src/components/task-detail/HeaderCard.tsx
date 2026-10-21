@@ -31,7 +31,10 @@ export function HeaderCard({
   exporting,
   meeting,
   onOpenMeeting,
+  onEdit,
 }: {
+  /** Opens the full Edit form (every detail at once — 4d), as the website's "Edit task". */
+  onEdit?: () => void;
   task: ApiTask;
   statusName?: string;
   statusCategory?: string;
@@ -91,6 +94,11 @@ export function HeaderCard({
           <Tag label={PRIORITY_LABEL[task.priority] ?? task.priority} color={priorityColor(c, task.priority)} />
           {due.text ? <Tag label={due.text} tone={due.overdue ? 'danger' : undefined} /> : null}
         </View>
+        {onEdit ? (
+          <Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit task" accessibilityHint="Edit every detail of the task" style={({ pressed }) => [s.edit, pressed && { opacity: 0.6 }]}>
+            <Text style={s.editText}>✎ Edit</Text>
+          </Pressable>
+        ) : null}
         <IconButton glyph="⋯" label="More actions" onPress={() => setMenu(true)} tone="brand" />
       </View>
 
@@ -159,6 +167,8 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     wrap: { gap: spacing.xs },
     topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    edit: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md },
+    editText: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
     meta: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
     key: { fontSize: fontSize.xs, fontWeight: '800', color: c.brand, letterSpacing: 1, marginRight: spacing.xs },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
