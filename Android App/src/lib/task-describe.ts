@@ -74,7 +74,16 @@ export function describeHint(withProject: boolean): string {
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const FREQS = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** A real calendar day 'YYYY-MM-DD' — the server's isCalendarDate (no 31 September — 4a review). */
+export function isCalendarDay(value: string): boolean {
+  const m = DAY.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi ? v : null);
 
@@ -89,7 +98,7 @@ function readRule(raw: unknown): RecurrenceRule | null {
   const dayOfMonth = int(r.dayOfMonth, 1, 31);
   if ((rule.freq === 'MONTHLY' || rule.freq === 'QUARTERLY') && dayOfMonth) rule.dayOfMonth = dayOfMonth;
   const until = str(r.until);
-  if (until && DAY.test(until.slice(0, 10))) rule.until = until.slice(0, 10);
+  if (until && isCalendarDay(until.slice(0, 10))) rule.until = until.slice(0, 10);
   const count = int(r.count, 1, 1000);
   if (count) rule.count = count;
   return rule;
@@ -103,7 +112,7 @@ export function readTaskDraft(raw: unknown): AiTaskDraft {
   return {
     title: (str(r.title) ?? '').trim().slice(0, 191),
     description: str(r.description)?.trim() || null,
-    dueDate: dueDate && DAY.test(dueDate) ? dueDate : null,
+    dueDate: dueDate && isCalendarDay(dueDate) ? dueDate : null,
     priority: PRIORITIES.includes(r.priority as Priority) ? (r.priority as Priority) : null,
     recurrence: readRule(r.recurrence),
     project: p && typeof p.id === 'string' && p.id ? { id: p.id, code: str(p.code) ?? '', number: str(p.number), name: str(p.name) ?? '' } : null,

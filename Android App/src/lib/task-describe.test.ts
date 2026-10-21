@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chosenTaskPatch, describeFailure, describeHint, readTaskDraft, taskSuggestions, DESCRIBE_TEXT, type DescribedFields } from './task-describe';
+import { chosenTaskPatch, describeFailure, describeHint, isCalendarDay, readTaskDraft, taskSuggestions, DESCRIBE_TEXT, type DescribedFields } from './task-describe';
 import { scheduleText } from './task-form';
 import { ApiError, NetworkError } from './api-client';
 
@@ -130,5 +130,16 @@ describe.skipIf(!existsSync(webDescribe))('the same rules and words as the websi
     }
     for (const words of Object.values(DESCRIBE_TEXT)) expect(web, words).toContain(words);
     expect(web).toContain('The assistant suggests a title, description, due date, repeat, priority');
+  });
+});
+
+describe('the AI’s dates are real calendar days (4a review #7)', () => {
+  it('a day that doesn’t exist (31 September, 30 February) is left out, as the server would refuse it', () => {
+    expect(readTaskDraft({ title: 'x', dueDate: '2026-09-31' }).dueDate).toBeNull();
+    expect(readTaskDraft({ title: 'x', dueDate: '2026-02-30' }).dueDate).toBeNull();
+    expect(readTaskDraft({ title: 'x', dueDate: '2026-13-01' }).dueDate).toBeNull();
+    expect(readTaskDraft({ title: 'x', dueDate: '2028-02-29' }).dueDate).toBe('2028-02-29');
+    expect(readTaskDraft({ title: 'x', recurrence: { freq: 'DAILY', interval: 1, until: '2026-04-31' } }).recurrence?.until).toBeUndefined();
+    expect(isCalendarDay('2026-10-21')).toBe(true);
   });
 });
