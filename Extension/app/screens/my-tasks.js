@@ -24,7 +24,7 @@ export function MyTasksScreen(ctx) {
   let sort = 'due';
   let err = '';
   let note = '';
-  let focusTaskId = null; // the row to focus after the next render (marked done from the keyboard)
+  let focusWant = null; // what to focus after the next render: { id, part: 'row' | 'mark' }
   const activePriorities = new Set();
   const marking = new Set(); // tasks being marked done (their button waits)
 
@@ -138,6 +138,7 @@ export function MyTasksScreen(ctx) {
     // Calendar days in the company time zone; finished tasks are never overdue (XP-03).
     const g = groupTasksByDue(tasks, { timeZone: ctx.timeZone });
 
+    const kept = focusedPart();
     mount(resultsEl,
       section('Overdue', g.overdue),
       section('Due today', g.dueToday),
@@ -145,11 +146,28 @@ export function MyTasksScreen(ctx) {
       section('No due date', g.noDue),
       section('Completed', g.completed),
     );
-    if (focusTaskId) {
-      const row = [...resultsEl.querySelectorAll('.task-row')].find((r) => r.dataset.taskId === focusTaskId);
-      focusTaskId = null;
-      if (row) row.focus();
-    }
+    // Drawing the list again replaces every row: focus goes back to the same row or "Mark done"
+    // (never taken from the search box or a filter).
+    const want = focusWant || kept;
+    focusWant = null;
+    const a = document.activeElement;
+    if (want && (!a || a === document.body || !a.isConnected)) focusPart(want);
+  }
+
+  /** The row or "Mark done" button that has keyboard focus, to find again after the list is redrawn. */
+  function focusedPart() {
+    const a = document.activeElement;
+    if (!a || !resultsEl.contains(a)) return null;
+    if (a.dataset.markDone) return { id: a.dataset.markDone, part: 'mark' };
+    if (a.classList.contains('task-row') && a.dataset.taskId) return { id: a.dataset.taskId, part: 'row' };
+    return null;
+  }
+
+  /** Focus a task's "Mark done" (or, once it is done and has none, its row). */
+  function focusPart({ id, part }) {
+    const mark = part === 'mark' ? [...resultsEl.querySelectorAll('.mark-done')].find((b) => b.dataset.markDone === id) : null;
+    const target = mark || [...resultsEl.querySelectorAll('.task-row')].find((r) => r.dataset.taskId === id);
+    if (target) target.focus();
   }
 
   function section(label, tasks) {
@@ -160,20 +178,28 @@ export function MyTasksScreen(ctx) {
     );
   }
 
-  /** A task's row; an open one has "Mark done" beside it (two controls, not one inside the other). */
+  /**
+   * A task's row; an open one has "Mark done" beside it (two controls, not one inside the other). Its
+   * name starts with what it says (WCAG 2.5.3). While it waits it says so (aria-disabled, not
+   * disabled, so it keeps keyboard focus) and a second press does nothing.
+   */
   function row(t) {
     const line = taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone });
     if (isDone(t)) return line;
+    const busy = marking.has(t.id);
     return el('div', { class: 'task-row-wrap' }, line,
       el('button', {
-        class: 'btn sm mark-done', type: 'button', 'aria-label': `Mark “${t.title}” done`, title: 'Move it to its project’s Done column',
-        disabled: marking.has(t.id), onClick: () => markDone(t),
+        class: 'btn sm mark-done', type: 'button', 'aria-label': `Mark done: “${t.title}”`, title: 'Move it to its project’s Done column',
+        'aria-disabled': busy ? 'true' : null, dataset: { markDone: t.id },
+        onClick: () => { if (!marking.has(t.id)) markDone(t); },
       }, el('span', { 'aria-hidden': 'true' }, '✓ '), 'Mark done'));
   }
 
-  function fail(text) {
+  /** Say what went wrong; focus stays on (or goes back to) the task's "Mark done". */
+  function fail(text, t) {
     err = text;
     note = '';
+    if (t) focusWant = { id: t.id, part: 'mark' };
     renderResults();
   }
 
@@ -184,10 +210,11 @@ export function MyTasksScreen(ctx) {
   async function markDone(t) {
     err = '';
     if (isTempId(String(t.id))) {
-      fail('This task is still waiting to sync — mark it done after it syncs.');
+      fail('This task is still waiting to sync — mark it done after it syncs.', t);
       return;
     }
     marking.add(t.id);
+    focusWant = { id: t.id, part: 'mark' }; // the button waits, with focus still on it
     renderResults();
     let columnId = null;
     try {
@@ -195,21 +222,21 @@ export function MyTasksScreen(ctx) {
       columnId = doneColumnOf(cols && cols.data);
     } catch (e) {
       marking.delete(t.id);
-      fail(writeErrorMessage(e, 'Couldn’t mark it done — its board couldn’t be read. Check the connection and try again.'));
+      fail(writeErrorMessage(e, 'Couldn’t mark it done — its board couldn’t be read. Check the connection and try again.'), t);
       return;
     }
     if (!columnId) {
       marking.delete(t.id);
-      fail('This project has no Done column — open its board to move the task.');
+      fail('This project has no Done column — open its board to move the task.', t);
       return;
     }
     const before = { columnId: t.columnId, columnCategory: t.columnCategory, completedAt: t.completedAt, progress: t.progress };
     const repeats = isRecurring(t); // its next copy is made on the server (the reply may no longer say it repeats)
     Object.assign(t, { columnId, columnCategory: 'DONE', completedAt: t.completedAt || new Date().toISOString(), progress: 100 });
-    focusTaskId = t.id;
     try {
       const r = await ctx.write('task.move', { id: t.id, columnId, columnCategory: 'DONE' });
       marking.delete(t.id);
+      focusWant = { id: t.id, part: 'row' }; // done: it has no "Mark done" any more, so its row
       if (r.queued) note = SAVED_ON_DEVICE;
       else {
         note = '';
@@ -221,8 +248,7 @@ export function MyTasksScreen(ctx) {
     } catch (e) {
       marking.delete(t.id);
       Object.assign(t, before);
-      focusTaskId = null;
-      fail(writeErrorMessage(e, 'Couldn’t mark it done — please try again.'));
+      fail(writeErrorMessage(e, 'Couldn’t mark it done — please try again.'), t);
     } finally {
       ctx.afterMutation();
     }

@@ -56,6 +56,9 @@ export function BoardScreen(ctx) {
   let note = '';
   let draggingId = null;
   let focusTaskId = null; // the card to focus after the next render (moved from the keyboard)
+  let keptFocus = null;   // the card or "Add a task" button that had focus when a reload began
+  let loads = 0;          // each read's number: an answer to an earlier one is dropped
+  let drawn = false;      // the board has been shown (a quiet reload keeps it on screen meanwhile)
 
   if (!projectId) {
     mount(view, Empty('Pick a project', 'Open a project to see its board.'),
@@ -64,14 +67,20 @@ export function BoardScreen(ctx) {
     return root;
   }
 
+  // Coming back to the tab reads the board again in place (app.js): the same screen, so a dialog it
+  // opened still reports to it, its announcements aren't cut off, and focus stays where it was.
+  // Past midnight it declines (null): the app builds it again, for the new "today".
+  root.refresh = () => (todayKey(ctx.timeZone) === today ? load({ quiet: true }) : null);
   load();
   return root;
 
-  async function load() {
+  async function load({ quiet = false } = {}) {
+    const n = ++loads;
     const kept = focusedCard();
-    if (kept && !focusTaskId) focusTaskId = kept.id; // a reload (e.g. a repeat's next copy) keeps focus on the card
-    mount(view, Loader());
-    err = '';
+    if (kept && !focusTaskId && !kept.add) focusTaskId = kept.id; // a reload (e.g. a repeat's next copy) keeps focus on the card
+    if (kept && kept.add) keptFocus = kept;
+    const inPlace = quiet && drawn;
+    if (!inPlace) mount(view, Loader());
     try {
       const [p, cols, tks, prog] = await Promise.all([
         ctx.api.projects.get(projectId),
@@ -79,6 +88,8 @@ export function BoardScreen(ctx) {
         ctx.api.tasks.list({ projectId, boardDate }),
         ctx.api.projects.progress(projectId),
       ]);
+      if (n !== loads) return;
+      err = '';
       project = p.data ?? null;
       columns = (cols.data ?? []).filter((c) => c.enabled).sort((a, b) => a.position - b.position);
       // M10: a task in a column switched off in Manage columns isn't on the board (as on the web).
@@ -89,6 +100,8 @@ export function BoardScreen(ctx) {
       note = tks.pending ? SAVED_ON_DEVICE : '';
       render();
     } catch (e) {
+      if (n !== loads) return;
+      if (inPlace) return; // a quiet reload that couldn't read: the board stays as it was
       mount(view, header(), ErrorState(writeErrorMessage(e, 'Could not load this board.'), () => load()));
     }
   }
@@ -98,11 +111,13 @@ export function BoardScreen(ctx) {
   }
 
   function render() {
+    drawn = true;
     if (columns.length === 0) {
       mount(view, header(), Empty('No columns', 'This project has no board columns yet.'));
       return;
     }
-    const kept = focusedCard();
+    const kept = focusedCard() || keptFocus;
+    keptFocus = null;
     mount(view,
       header(),
       stale ? el('div', { class: 'errbar', style: { background: 'var(--warning-soft)', color: 'var(--warning)', borderColor: 'transparent' } }, 'Showing saved data — you appear to be offline.') : null,
@@ -110,23 +125,45 @@ export function BoardScreen(ctx) {
       note ? el('div', { class: 'infobar', role: 'status' }, note) : null,
       el('div', { class: 'board' }, columns.map(column)),
     );
-    // Redrawing replaces every card: keep keyboard focus on the same one (or the one just moved).
+    // Redrawing replaces every card: keep keyboard focus on the same one (or the one just moved),
+    // or on the same "Add a task" button.
     const want = focusTaskId ? { id: focusTaskId, part: 'card' } : kept;
     focusTaskId = null;
     const free = !document.activeElement || document.activeElement === document.body;
     if (want && free) {
+      if (want.add) {
+        const target = addButton(view, want);
+        if (target) target.focus();
+        return;
+      }
       const wrap = [...view.querySelectorAll('.tcard-wrap')].find((w) => w.querySelector('.tcard')?.dataset.taskId === want.id);
       const target = wrap && (want.part === 'move' ? wrap.querySelector('.tcard-move') : wrap.querySelector('.tcard'));
       if (target) target.focus();
     }
   }
 
-  /** The card (or its "Move to…" button) that has keyboard focus, to find again after a redraw. */
+  /**
+   * The card (or its "Move to…" button), or the "Add a task" button, that has keyboard focus, to
+   * find again after a redraw.
+   */
   function focusedCard() {
     const a = document.activeElement;
-    const wrap = a && view.contains(a) ? a.closest('.tcard-wrap') : null;
+    if (!a || !view.contains(a)) return null;
+    if (a.dataset.add) return { add: a.dataset.add, column: a.dataset.addColumn || '' };
+    const wrap = a.closest('.tcard-wrap');
     const id = wrap && wrap.querySelector('.tcard')?.dataset.taskId;
     return id ? { id, part: a.classList.contains('tcard-move') ? 'move' : 'card' } : null;
+  }
+
+  /**
+   * An "Add a task" button in `scope`: "New task" at the top, a column's "+" ("Add a task to …") or
+   * its empty box. A column's empty box that is gone (its first task was just added) is that
+   * column's "+".
+   */
+  function addButton(scope, { add, column: colId }) {
+    const all = [...scope.querySelectorAll('[data-add]')];
+    const same = all.find((b) => b.dataset.add === add && (b.dataset.addColumn || '') === colId);
+    return same || (add === 'empty' ? all.find((b) => b.dataset.add === 'column' && b.dataset.addColumn === colId) : null) || null;
   }
 
   function dayNav() {
@@ -158,7 +195,7 @@ export function BoardScreen(ctx) {
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
         project ? ProjectAvatar(project, { size: 'md', apiBase: ctx.apiBase }) : null,
         el('div', { class: 'h2', style: { margin: 0, flex: 1 }, dir: 'auto' }, title),
-        el('button', { class: 'btn primary sm', type: 'button', 'aria-haspopup': 'dialog', title: 'New task', onClick: (e) => addTask(columns[0], e.currentTarget) }, 'New task'),
+        el('button', { class: 'btn primary sm', type: 'button', 'aria-haspopup': 'dialog', title: 'New task', dataset: { add: 'new' }, onClick: (e) => addTask(columns[0], e.currentTarget) }, 'New task'),
       ),
       dayNav(),
       bar,
@@ -171,7 +208,7 @@ export function BoardScreen(ctx) {
     const body = el('div', { class: 'column-body' },
       colTasks.map(card),
       // An empty column's box is itself the way to start its first task (as on the web).
-      colTasks.length ? null : el('button', { class: 'column-empty', type: 'button', 'aria-haspopup': 'dialog', onClick: (e) => addTask(col, e.currentTarget) },
+      colTasks.length ? null : el('button', { class: 'column-empty', type: 'button', 'aria-haspopup': 'dialog', dataset: { add: 'empty', addColumn: col.id }, onClick: (e) => addTask(col, e.currentTarget) },
         el('span', { class: 'ce-title' }, 'No tasks'),
         el('span', { class: 'ce-hint' }, el('span', { class: 'ce-link' }, 'Add a task'), ' or drop a card here')),
     );
@@ -180,7 +217,7 @@ export function BoardScreen(ctx) {
         el('span', { class: 'cdot', style: { background: `var(${catVar(col.category)})` } }),
         el('span', { class: 'cname', dir: 'auto' }, col.name),
         el('span', { class: 'count' }, String(colTasks.length)),
-        el('button', { class: 'iconbtn sm col-add', type: 'button', 'aria-label': addLabel, title: addLabel, 'aria-haspopup': 'dialog', onClick: (e) => addTask(col, e.currentTarget) }, svgIcon(ICON.plus, 15, 2.2)),
+        el('button', { class: 'iconbtn sm col-add', type: 'button', 'aria-label': addLabel, title: addLabel, 'aria-haspopup': 'dialog', dataset: { add: 'column', addColumn: col.id }, onClick: (e) => addTask(col, e.currentTarget) }, svgIcon(ICON.plus, 15, 2.2)),
       ),
       body,
     );
@@ -336,11 +373,10 @@ export function BoardScreen(ctx) {
    */
   function addTask(col, opener) {
     if (!col || !project) return;
-    // The board is drawn again meanwhile: find the same button again by its name.
-    const back = opener && opener.getAttribute('aria-label');
-    const backText = opener && !back ? opener.textContent : null;
-    const again = () => [...view.querySelectorAll('button')]
-      .find((b) => (back ? b.getAttribute('aria-label') === back : b.textContent === backText)) || null;
+    // The board may be drawn again meanwhile: find the same button again by what it is and its
+    // column (every empty box reads the same); a column's empty box that is gone is its "+".
+    const which = opener && opener.dataset.add ? { add: opener.dataset.add, column: opener.dataset.addColumn || '' } : { add: 'column', column: col.id };
+    const again = () => addButton(root.isConnected ? view : document, which);
     openNewTaskDialog(ctx, { project: { ...project, id: project.id || projectId }, columnId: col.id, boardDate }, {
       onDone: (result) => created(result),
       focusBack: again,
@@ -348,6 +384,15 @@ export function BoardScreen(ctx) {
   }
 
   function created({ task, item, payload, message }) {
+    if (!root.isConnected) {
+      // This board was replaced while the form was open: the screen now shown is read again (the
+      // app waits until the form has closed) — from the server, or with the task waiting on this
+      // device — and the app says what happened.
+      if (typeof ctx.announce === 'function') ctx.announce(message || '');
+      if (typeof ctx.refresh === 'function') ctx.refresh();
+      ctx.afterMutation();
+      return;
+    }
     err = '';
     if (task && task.id) {
       note = '';

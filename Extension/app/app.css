@@ -262,7 +262,7 @@ label.lbl { display: block; font-size: 12px; font-weight: 700; margin: 0 0 5px; 
 .row-fields > * { flex: 1; min-width: 120px; }
 .btn { font: inherit; font-weight: 600; padding: 9px 15px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
 .btn:hover { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
-.btn:disabled { opacity: .55; cursor: default; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .55; cursor: default; }
 .btn.primary { background: linear-gradient(135deg, var(--brand2), var(--brand)); color: var(--brand-ink); border-color: transparent; }
 .btn.sm { padding: 6px 11px; font-size: 12.5px; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--brand); }

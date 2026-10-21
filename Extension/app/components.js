@@ -35,7 +35,8 @@ const AVATAR_ICON = { xs: 12, sm: 14, md: 18, lg: 22 };
 export function ProjectAvatar(project, { size = 'md', apiBase = '', label = false } = {}) {
   const look = projectLook(project);
   const a11y = label ? { role: 'img', 'aria-label': project.name, title: project.name } : { 'aria-hidden': 'true' };
-  const src = look.kind === 'image' ? attachmentUrl(apiBase, look.src) || (/^(https?:|data:|blob:)/.test(look.src) ? look.src : null) : null;
+  // Only a picture the server stored, from the server's own address (projectLook checks the path).
+  const src = look.kind === 'image' ? attachmentUrl(apiBase, look.src) : null;
   if (src) {
     const img = el('img', { src, alt: '', draggable: 'false' });
     const node = el('span', { class: `pavatar ${size}`, ...a11y, dataset: { projectAvatar: 'image' } }, img);

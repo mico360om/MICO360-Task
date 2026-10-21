@@ -362,7 +362,7 @@ describe('My Tasks: filter by project, sort, and mark a task done', () => {
   it('“Mark done” moves a task to its project’s Done column: it goes to Completed, focus stays on it, and it says so', async () => {
     const ctx = mineCtx();
     const root = await openMine(ctx);
-    const btn = byLabel(root, 'Mark “Valve check” done');
+    const btn = byLabel(root, 'Mark done: “Valve check”');
     expect(btn.tagName).toBe('BUTTON');
     btn.focus();
     btn.click();
@@ -371,7 +371,7 @@ describe('My Tasks: filter by project, sort, and mark a task done', () => {
     expect(ctx.api.projects.columns).toHaveBeenCalledWith('p1');
     expect(ctx.write).toHaveBeenCalledWith('task.move', { id: 'm1', columnId: 'r9', columnCategory: 'DONE' });
     expect(section(root, 'Completed').textContent).toContain('Valve check');
-    expect(byLabel(root, 'Mark “Valve check” done')).toBeNull(); // a finished task has no button
+    expect(byLabel(root, 'Mark done: “Valve check”')).toBeNull(); // a finished task has no button
     expect(document.activeElement.dataset.taskId).toBe('m1');
     expect(root.querySelector('.sr-only[role="status"]').textContent).toBe('“Valve check” is done.');
     expect(ctx.afterMutation).toHaveBeenCalled();
@@ -380,7 +380,7 @@ describe('My Tasks: filter by project, sort, and mark a task done', () => {
   it('kept on this device offline: shown done at once, saying it will sync', async () => {
     const ctx = mineCtx({ write: vi.fn(async () => ({ queued: true, item: { id: 'q1' } })) });
     const root = await openMine(ctx);
-    byLabel(root, 'Mark “Book the crane” done').click();
+    byLabel(root, 'Mark done: “Book the crane”').click();
     await settle();
     expect(section(root, 'Completed').textContent).toContain('Book the crane');
     expect(root.querySelector('.infobar').textContent).toBe('Saved on this device — it will sync when the connection is back.');
@@ -389,19 +389,19 @@ describe('My Tasks: filter by project, sort, and mark a task done', () => {
   it('a refusal puts it back with the server’s words; a project without a Done column says so; a task not synced yet waits', async () => {
     const ctx = mineCtx({ write: vi.fn(async () => { throw new ApiError(403, 'You do not have permission to do that.', 'FORBIDDEN'); }) });
     const root = await openMine(ctx);
-    byLabel(root, 'Mark “Valve check” done').click();
+    byLabel(root, 'Mark done: “Valve check”').click();
     await settle();
     expect(root.querySelector('[role="alert"]').textContent).toBe('You do not have permission to do that.');
     expect(section(root, 'Completed')).toBeUndefined();
-    expect(byLabel(root, 'Mark “Valve check” done')).toBeTruthy();
+    expect(byLabel(root, 'Mark done: “Valve check”')).toBeTruthy();
 
-    byLabel(root, 'Mark “Approve invoices” done').click(); // Office Ops has no Done column here
+    byLabel(root, 'Mark done: “Approve invoices”').click(); // Office Ops has no Done column here
     await settle();
     expect(root.querySelector('[role="alert"]').textContent).toBe('This project has no Done column — open its board to move the task.');
     expect(ctx.write).toHaveBeenCalledTimes(1);
 
     const waiting = await openMine(mineCtx({ tasks: [{ ...MINE[0], id: 'tmp-q7' }] }));
-    byLabel(waiting, 'Mark “Valve check” done').click();
+    byLabel(waiting, 'Mark done: “Valve check”').click();
     await settle();
     expect(waiting.querySelector('[role="alert"]').textContent).toBe('This task is still waiting to sync — mark it done after it syncs.');
   });
@@ -409,7 +409,7 @@ describe('My Tasks: filter by project, sort, and mark a task done', () => {
   it('completing a repeating task reads the list again, so its next copy shows up', async () => {
     const ctx = mineCtx({ tasks: [{ ...MINE[0], recurrenceRule: { freq: 'DAILY', interval: 1 } }] });
     const root = await openMine(ctx);
-    byLabel(root, 'Mark “Valve check” done').click();
+    byLabel(root, 'Mark done: “Valve check”').click();
     await settle();
     expect(ctx.api.tasks.mine).toHaveBeenCalledTimes(2);
     expect(rowTitles(root)).toEqual(['Valve check']);

@@ -46,6 +46,27 @@ export const isProjectIcon = (v) => typeof v === 'string' && ICON_NAMES.has(v);
 /** The web's colour for a project that has none. */
 export const DEFAULT_PROJECT_COLOR = '#8B1E1E';
 
+/** The colours the server accepts for a project (backend projects/project-icons.ts HEX_COLOR). */
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** Whether the project has a colour of the server's kind (only such a colour is put into a style). */
+export function hasProjectColor(project) {
+  return Boolean(project) && typeof project.color === 'string' && HEX_COLOR.test(project.color);
+}
+
+/** The project's colour, or the web's red when it has none of the server's kind. */
+export function projectColor(project) {
+  return hasProjectColor(project) ? project.color : DEFAULT_PROJECT_COLOR;
+}
+
+/**
+ * Whether a picture address is one the server stored (`/uploads/<key>`, served by the server the
+ * extension signs in to). Nothing else is ever loaded: no other site, data: or blob: address.
+ */
+export function isServerUpload(url) {
+  return typeof url === 'string' && url.startsWith('/uploads/') && !url.includes('..') && !url.includes('\\');
+}
+
 /** White or near-black, whichever reads better on the colour. */
 export function readableOn(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -69,13 +90,14 @@ export function projectInitials(name) {
 
 /**
  * What a project's tile shows: `{ kind: 'image', src }`, `{ kind: 'icon', icon }` or
- * `{ kind: 'initials', text }`, each with its colour and the text colour on it.
+ * `{ kind: 'initials', text }`, each with its colour and the text colour on it. Only a picture the
+ * server stored, and only a colour like #8B1E1E (else the default red).
  */
 export function projectLook(project) {
   const p = project || {};
-  const color = p.color || DEFAULT_PROJECT_COLOR;
+  const color = projectColor(p);
   const fg = readableOn(color);
-  if (typeof p.imageUrl === 'string' && p.imageUrl) return { kind: 'image', src: p.imageUrl, color, fg };
+  if (isServerUpload(p.imageUrl)) return { kind: 'image', src: p.imageUrl, color, fg };
   if (isProjectIcon(p.icon)) return { kind: 'icon', icon: p.icon, color, fg };
   return { kind: 'initials', text: projectInitials(p.name), color, fg };
 }

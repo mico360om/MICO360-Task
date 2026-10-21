@@ -1,6 +1,6 @@
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
 import { ProjectAvatar, projectStatusPill } from '../components.js';
-import { dashboardUrl } from '../../src/project-identity.js';
+import { dashboardUrl, projectStatusLabel, hasProjectColor } from '../../src/project-identity.js';
 
 /**
  * Projects — a grid of project cards as on the web: each project's picture (its image, icon or
@@ -40,9 +40,16 @@ export function ProjectsScreen(ctx) {
 
   function card(p) {
     const name = p.name || p.code || 'Project';
-    return el('div', { class: 'project', style: p.color ? { borderTopColor: p.color } : null },
+    // The button is named after what it does; a screen reader also hears what the card shows.
+    const describedId = `project-about-${p.id}`;
+    const about = [p.code, p.number ? `Project number ${p.number}` : null, projectStatusLabel(p.status), p.description].filter(Boolean).join(', ');
+    return el('div', { class: 'project', style: hasProjectColor(p) ? { borderTopColor: p.color } : null },
+      about ? el('span', { id: describedId, class: 'sr-only' }, about) : null,
       // One button for the card's main part (opens the board); the website link is beside it.
-      el('button', { class: 'project-open', type: 'button', 'aria-label': `Open the board of ${name}`, onClick: () => ctx.navigate(`#/board/${p.id}`) },
+      el('button', {
+        class: 'project-open', type: 'button', 'aria-label': `Open the board of ${name}`, 'aria-describedby': about ? describedId : null,
+        onClick: () => ctx.navigate(`#/board/${p.id}`),
+      },
         el('div', { class: 'project-top' },
           el('span', { class: 'project-codes' },
             el('span', { class: 'code' }, p.code || ''),
