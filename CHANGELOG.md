@@ -14,6 +14,26 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- The Chrome extension's board shows what the website's cards show: the due date (marked "Overdue"
+  when late, never for finished work), steps done, comments, files, up to three people, milestones,
+  blocked and repeating tasks. Add a task in any column with the full New task form, on the day the
+  board shows.
+- The Chrome extension's My Tasks can be filtered by project and sorted (due date, priority, progress,
+  title), and "Mark done" finishes a task straight from the list.
+- The Chrome extension's projects show their picture or icon, their number and their status in plain
+  words, with "Open dashboard on the web".
+
+### Security
+- The Chrome extension shows project pictures only from your MICO360 server, and uses only proper
+  colour values.
+
+### Bug fixes
+- The Chrome extension: a task added from the board's New task form while you switched tabs now
+  appears on the board at once; after adding a task from an empty column, focus goes back to that
+  column's "Add a task"; "Mark done" keeps keyboard focus while it works and when it can't be done; and
+  screen readers hear a project card's status, number and description.
+
 ## [1.7.0] - 2026-10-21
 
 ### New features
