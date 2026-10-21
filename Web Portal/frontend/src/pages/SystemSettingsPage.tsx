@@ -7,6 +7,7 @@ import { systemSettingsApi } from '../api/system-settings';
 import { tasksApi } from '../api/tasks';
 import { LoadError } from '../components/ui/LoadError';
 import { DailyEmailLog } from '../components/admin/DailyEmailLog';
+import { MeetingHoursSettings, workingHoursText } from '../components/admin/MeetingHoursSettings';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -37,6 +38,16 @@ const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => stri
       Array.isArray(v) && v.every((x) => typeof x === 'string')
         ? [...(v as string[])].sort(byChipOrder).map((x) => STATUS_LABEL.get(x) ?? x).join(', ') || 'None'
         : null,
+  },
+  {
+    key: 'meetings.workingHours',
+    label: 'Meeting hours',
+    format: (v) => {
+      const h = v as { days?: unknown; start?: unknown; end?: unknown } | null;
+      return h && Array.isArray(h.days) && h.days.length && typeof h.start === 'string' && typeof h.end === 'string'
+        ? workingHoursText({ days: h.days as number[], start: h.start, end: h.end })
+        : null;
+    },
   },
 ];
 /** Belt and braces: never show a key that looks secret, even if it were ever added above. */
@@ -182,6 +193,9 @@ export function SystemSettingsPage() {
             </p>
           ) : null}
         </section>
+
+        {/* The working hours meeting free times are suggested in. */}
+        <MeetingHoursSettings />
 
         {/* The morning task emails: who got which, and how it went. */}
         <DailyEmailLog />

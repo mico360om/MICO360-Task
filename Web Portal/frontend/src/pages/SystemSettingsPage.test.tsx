@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SystemSettingsPage } from './SystemSettingsPage';
+import { SystemSettingsPage, displayableSettings } from './SystemSettingsPage';
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -29,6 +29,19 @@ function renderPage() {
     </QueryClientProvider>,
   );
 }
+
+describe('SystemSettingsPage — meeting hours', () => {
+  it('has the meeting hours card', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Meeting hours' })).toBeInTheDocument();
+  });
+
+  it('lists the meeting hours among the current settings, in words', () => {
+    expect(displayableSettings([{ key: 'meetings.workingHours', value: { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' } }]).rows).toEqual([
+      { key: 'meetings.workingHours', label: 'Meeting hours', value: 'Sun–Thu, 08:00–17:00' },
+    ]);
+  });
+});
 
 describe('SystemSettingsPage — daily task emails', () => {
   it('has the daily task email log', async () => {

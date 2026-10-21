@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
 import { ZodError } from 'zod';
-import { createSettingsService } from './settings-service';
+import { createSettingsService, DEFAULT_WORKING_HOURS } from './settings-service';
 import { registerSettingsRoutes } from './settings-routes';
 import { createAuthGuard } from '../auth/auth-guard';
 import { createTokenService } from '../auth/token-service';
@@ -63,6 +63,32 @@ describe('SettingsService', () => {
     expect(await legacy.getCarryForward(DEFAULT_STATUSES)).toEqual({ enabled: false, statuses: DEFAULT_STATUSES });
     const set = createSettingsService({ settings: inMemory({ 'carryForward.enabled': false, 'carryForward.statuses': ['TODO'] }) });
     expect(await set.getCarryForward(DEFAULT_STATUSES)).toEqual({ enabled: false, statuses: ['TODO'] });
+  });
+});
+
+describe('SettingsService: meeting working hours', () => {
+  it('workingHours() returns the default when unset: Sunday to Thursday, 08:00 to 17:00', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    expect(DEFAULT_WORKING_HOURS).toEqual({ days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' });
+    expect(await svc.workingHours()).toEqual(DEFAULT_WORKING_HOURS);
+  });
+
+  it('accepts Sun–Thu 07:30–16:00 and reads it back', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    await svc.set('meetings.workingHours', { days: [4, 0, 1, 2, 3, 3], start: '07:30', end: '16:00' });
+    expect(await svc.workingHours()).toEqual({ days: [0, 1, 2, 3, 4], start: '07:30', end: '16:00' });
+  });
+
+  it('refuses an end before the start, an empty day list and a malformed time', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    await expect(svc.set('meetings.workingHours', { days: [0], start: '17:00', end: '08:00' })).rejects.toMatchObject({ code: 'VALIDATION', status: 400 });
+    await expect(svc.set('meetings.workingHours', { days: [], start: '08:00', end: '17:00' })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(svc.set('meetings.workingHours', { days: [0], start: '8am', end: '17:00' })).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('falls back to the default when the stored value is broken', async () => {
+    const svc = createSettingsService({ settings: inMemory({ 'meetings.workingHours': { days: 'weekdays' } }) });
+    expect(await svc.workingHours()).toEqual(DEFAULT_WORKING_HOURS);
   });
 });
 
