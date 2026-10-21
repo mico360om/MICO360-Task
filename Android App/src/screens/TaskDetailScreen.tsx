@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, RefreshControl, Alert, Linking, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import { pickedFiles } from '../adapters/picked-files';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   keyed,
@@ -189,7 +190,9 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
         .then(
           () => setUploads((u) => u.filter((x) => x.key !== key)),
           (e) => set({ error: uploadErrorMessage(e) }),
-        );
+        )
+        // Sent or not, the picker’s copy goes (a new try picks the file again) — 3b review.
+        .finally(() => void pickedFiles.forget(asset.uri));
     }
   }
 

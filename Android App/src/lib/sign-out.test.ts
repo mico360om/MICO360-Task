@@ -24,6 +24,7 @@ function setup(over: Partial<SignOutDeps> = {}) {
     clearQueuedChanges: vi.fn(async (u: string) => void log.push(`queue:${u}`)),
     deactivatePush: vi.fn(async () => void log.push('push-off')),
     clearExports: vi.fn(async () => void log.push('exports')),
+    clearPickedFiles: vi.fn(async () => void log.push('picked-files')),
     networkTimeoutMs: 50,
     ...over,
   };
@@ -49,6 +50,7 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
       'queries',
       'read-cache',
       'exports',
+      'picked-files',
       'queue:u1',
     ]);
   });
@@ -58,14 +60,14 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
     await signOut.signOut('expired');
     expect(deps.revokeRefreshToken).not.toHaveBeenCalled();
     expect(deps.unregisterPush).not.toHaveBeenCalled();
-    expect(log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports']);
+    expect(log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports', 'picked-files']);
     expect(deps.clearQueuedChanges).not.toHaveBeenCalled();
   });
 
   it('lock-screen sign-out revokes the session but keeps the owner’s queued changes', async () => {
     const { deps, log, signOut } = setup();
     await signOut.signOut('lock');
-    expect(log).toEqual(['push(token=at)', 'logout:rt-1', 'push-off', 'session', 'queries', 'read-cache', 'exports']);
+    expect(log).toEqual(['push(token=at)', 'logout:rt-1', 'push-off', 'session', 'queries', 'read-cache', 'exports', 'picked-files']);
     expect(deps.clearQueuedChanges).not.toHaveBeenCalled();
   });
 
@@ -81,7 +83,7 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
     const onStepError = vi.fn();
     deps.onStepError = onStepError;
     await signOut.signOut('user');
-    expect(log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports', 'queue:u1']);
+    expect(log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports', 'picked-files', 'queue:u1']);
     expect(onStepError).toHaveBeenCalledWith('push', expect.any(Error));
   });
 
@@ -121,7 +123,7 @@ describe('createSignOut — the single sign-out routine (XP-01 / MOB-01 / MOB-11
     h.setSession(null);
     await h.signOut.signOut('user');
     expect(h.deps.revokeRefreshToken).not.toHaveBeenCalled();
-    expect(h.log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports']);
+    expect(h.log).toEqual(['push-off', 'session', 'queries', 'read-cache', 'exports', 'picked-files']);
   });
 });
 
@@ -140,6 +142,14 @@ describe('createSignOut — nothing of the previous user is left on the phone', 
       const { deps, signOut } = setup();
       await signOut.signOut(reason);
       expect(deps.clearExports, reason).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('every sign-out deletes the picker’s copies of picked files (chat, photo, task) — 3b review fix 7', async () => {
+    for (const reason of ['user', 'lock', 'expired'] as const) {
+      const { deps, signOut } = setup();
+      await signOut.signOut(reason);
+      expect(deps.clearPickedFiles, reason).toHaveBeenCalledTimes(1);
     }
   });
 

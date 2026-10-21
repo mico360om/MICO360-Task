@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Alert, AccessibilityInfo, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
+import { pickedFiles } from '../adapters/picked-files';
 import { useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useDirectory } from '../core/queries';
@@ -63,6 +64,8 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
     upload.mutate(avatarPart(asset), {
       onSuccess: () => AccessibilityInfo.announceForAccessibility('Photo updated.'),
       onError: (e) => setPhotoProblem(photoUploadProblem(e)),
+      // Either way the picker's copy isn't needed (a new try picks the photo again) — 3b review.
+      onSettled: () => void pickedFiles.forget(asset.uri),
     });
   }
 

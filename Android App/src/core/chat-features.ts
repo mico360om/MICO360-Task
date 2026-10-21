@@ -15,6 +15,7 @@ import { newIdempotencyKey } from '../lib/idempotency';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { presence } from '../lib/presence-store';
 import { refresh } from '../lib/refresh';
+import { pickedFiles } from '../adapters/picked-files';
 import type { ApiChatMessage, ApiConversationSummary, ConversationPrefs, ReplyQuote } from '../lib/types';
 
 /**
@@ -218,6 +219,8 @@ export function useChatUploads(conversationId: string) {
           // Its saved copy takes its place in the thread.
           if (saved?.id) chat.put(conversationId, saved);
           setUploads((list) => list.filter((u) => u.key !== entry.key));
+          // Sent: the picker's copy of it isn't needed any more (3b review).
+          void pickedFiles.forget(entry.uri);
         } catch (e) {
           update(entry.key, { state: 'failed', error: uploadFailure(e) });
         }
@@ -232,6 +235,8 @@ export function useChatUploads(conversationId: string) {
       if (!online) return { sent: 0, problems: ['You’re offline — files can be sent when you’re connected.'] };
       const problems = files.map((f) => fileProblem(f)).filter((x): x is string => !!x);
       const ok = files.filter((f) => !fileProblem(f));
+      // A file that can't be sent isn't kept either.
+      for (const f of files) if (fileProblem(f)) void pickedFiles.forget(f.uri);
       const now = Date.now();
       const entries = ok.map<UploadEntry>((f, i) => ({
         key: `up-${++seq.current}`,
@@ -263,10 +268,15 @@ export function useChatUploads(conversationId: string) {
   );
   const discard = useCallback(
     (key: string) => {
+      // One waiting its turn is never sent now (chat-jump), so its copy can go at once.
+      const neverSent = runner.waiting(key);
       runner.cancel(key);
+      const gone = uploads.find((u) => u.key === key);
       setUploads((list) => list.filter((u) => u.key !== key));
+      // Discarded: its copy goes too (one being sent when discarded is deleted after it, by its success).
+      if (gone && (gone.state === 'failed' || neverSent)) void pickedFiles.forget(gone.uri);
     },
-    [runner],
+    [runner, uploads],
   );
 
   return { uploads, send, retry, discard };
