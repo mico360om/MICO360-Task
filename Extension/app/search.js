@@ -11,6 +11,24 @@ export function isSearchShortcut(e) {
   return !!e && (e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
 }
 
+/**
+ * The app's Ctrl+K: search opens over the screen — or over the task panel or another dialog, as on
+ * the web; with search already open, focus goes back to its box. Chrome never gets the keys (its
+ * Ctrl+K puts focus in the address bar). `open()` opens the search dialog. Returns whether it acted.
+ */
+export function searchShortcut(e, { doc = document, open }) {
+  if (!isSearchShortcut(e) || e.defaultPrevented) return false;
+  e.preventDefault();
+  const box = doc.querySelector('.search-dialog .search-input');
+  if (box) {
+    box.focus();
+    if (typeof box.select === 'function') box.select();
+    return true;
+  }
+  open();
+  return true;
+}
+
 /** Why the server couldn't be asked, in plain words. */
 function failureText(e) {
   if (!e || typeof e.status !== 'number') return 'You’re offline — search needs a connection.';

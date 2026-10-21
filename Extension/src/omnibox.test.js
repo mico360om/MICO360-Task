@@ -32,6 +32,13 @@ describe('the address bar’s “mico” search', () => {
     expect(escapeXml(`a<b>&'"`)).toBe('a&lt;b&gt;&amp;&apos;&quot;');
   });
 
+  it('review fix #10: leaves out characters XML can’t hold (controls other than tab and line breaks, U+FFFE, U+FFFF)', () => {
+    const c = (...codes) => String.fromCharCode(...codes);
+    expect(escapeXml(`a${c(0)}b${c(8)}c${c(11, 12)}d${c(31)}e${c(0xfffe, 0xffff)}f`)).toBe('abcdef');
+    expect(escapeXml(`tab${c(9)}lf${c(10)}cr${c(13)}`)).toBe(`tab${c(9)}lf${c(10)}cr${c(13)}`);
+    expect(escapeXml('مراجعة 🚀')).toBe('مراجعة 🚀');
+  });
+
   it('says what pressing Enter does', () => {
     expect(defaultSuggestion(true)).toBe('Search MICO360 Tasks for <match>%s</match>');
     expect(defaultSuggestion(false)).toBe('Sign in to MICO360 Tasks to search it from here');

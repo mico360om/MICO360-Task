@@ -12,7 +12,7 @@ import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
 import { showModal, returnFocus, createRouteHold, modalOpen } from './dialog.js';
 import { svgIcon } from './components.js';
-import { openSearch, isSearchShortcut } from './search.js';
+import { openSearch, searchShortcut } from './search.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
 import { createChatDrafts } from '../src/chat-drafts.js';
 
@@ -255,10 +255,10 @@ class App {
   start() {
     this.renderShell();
     window.addEventListener('hashchange', () => this.hold.run(() => this.route()));
-    // Ctrl+K (⌘K) searches, as on the website — not over another dialog (the task panel).
+    // Ctrl+K (⌘K) searches, as on the website — over the task panel too; with search open, back to
+    // its box. Chrome never gets the keys (its Ctrl+K would put focus in the address bar).
     document.addEventListener('keydown', (e) => {
-      if (!isSearchShortcut(e) || e.defaultPrevented) return;
-      if (this.showSearch()) e.preventDefault();
+      searchShortcut(e, { doc: document, open: () => openSearch(this.ctx({}, {})) });
     });
     window.addEventListener('online', () => { this.state.online = true; this.renderStatus(); this.sync(); });
     window.addEventListener('offline', () => { this.state.online = false; this.renderStatus(); });

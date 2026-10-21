@@ -11,6 +11,11 @@ const event = (name) => ({ addListener: (fn) => { (listeners[name] ||= []).push(
 const settle = async () => {
   for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
 };
+/** The address bar waits until typing stops before it asks (Stage 6 review fix #10). */
+const typingStops = async () => {
+  await new Promise((r) => setTimeout(r, 220));
+  await settle();
+};
 const chrome = {
   storage: { local: fakeStorage(), session: fakeStorage() },
   runtime: {
@@ -85,19 +90,39 @@ describe('background worker: “mico” in the address bar (Stage 6)', () => {
   it('signed out: suggests nothing, and says to sign in', async () => {
     const suggest = vi.fn();
     listeners.omniChanged[0]('rig', suggest);
-    await settle();
+    await typingStops();
     expect(suggest).toHaveBeenCalledWith([]);
     expect(chrome.omnibox.setDefaultSuggestion).toHaveBeenLastCalledWith({ description: 'Sign in to MICO360 Tasks to search it from here' });
   });
 
-  it('Enter opens the app at the Search screen with the words (or at a chosen suggestion)', async () => {
+  it('review fix #10: waits until typing stops (~150 ms) — one answer for the words last typed, not one per key', async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const last = vi.fn();
+    listeners.omniChanged[0]('r', first);
+    listeners.omniChanged[0]('ri', second);
+    listeners.omniChanged[0]('rig', last);
+    await settle();
+    expect(last).not.toHaveBeenCalled(); // not yet: still typing
+    await typingStops();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+    expect(last).toHaveBeenCalledTimes(1);
+  });
+
+  it('review fix #10: Enter opens it where Chrome says — this tab, a new tab, or a new tab behind', async () => {
     chrome.tabs.create.mockClear();
+    chrome.tabs.update.mockClear();
     listeners.omniEntered[0]('rig valves', 'currentTab');
     await settle();
-    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'chrome-extension://ext/app/app.html#/search?q=rig%20valves' });
-    listeners.omniEntered[0]('task:t1', 'currentTab');
+    expect(chrome.tabs.update).toHaveBeenCalledWith({ url: 'chrome-extension://ext/app/app.html#/search?q=rig%20valves' });
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+    listeners.omniEntered[0]('task:t1', 'newForegroundTab');
     await settle();
-    expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'chrome-extension://ext/app/app.html#/task/t1' });
+    expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'chrome-extension://ext/app/app.html#/task/t1', active: true });
+    listeners.omniEntered[0]('task:t1', 'newBackgroundTab');
+    await settle();
+    expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'chrome-extension://ext/app/app.html#/task/t1', active: false });
   });
 });
 

@@ -10,9 +10,20 @@ import { matchPages, pageTarget, searchable } from './search.js';
 export const OMNIBOX_KEYWORD = 'mico';
 const MAX = 6;
 
-/** Text for the address bar's suggestions, which Chrome reads as XML. */
+/** Whether XML can hold a character (tab, line breaks and printable ones; no lone surrogate, U+FFFE or U+FFFF). */
+function xmlChar(ch) {
+  const c = ch.codePointAt(0);
+  if (c === 9 || c === 10 || c === 13) return true;
+  return c >= 0x20 && !(c >= 0xd800 && c <= 0xdfff) && c !== 0xfffe && c !== 0xffff;
+}
+
+/**
+ * Text for the address bar's suggestions, which Chrome reads as XML: the five special characters
+ * escaped, and characters XML can't hold left out (a title pasted with a control character in it).
+ */
 export function escapeXml(text) {
-  return String(text == null ? '' : text).replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;' }[c]));
+  return Array.from(String(text == null ? '' : text)).filter(xmlChar).join('')
+    .replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;' }[c]));
 }
 
 const rows = (v) => (Array.isArray(v) ? v.filter((r) => r && typeof r.id === 'string' && r.id) : []);

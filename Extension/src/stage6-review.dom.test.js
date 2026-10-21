@@ -9,6 +9,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CalendarScreen } from '../app/screens/calendar.js';
 import { MeetingsScreen } from '../app/screens/meetings.js';
 import { DashboardScreen } from '../app/screens/dashboard.js';
+import { searchShortcut, openSearch } from '../app/search.js';
+import { showModal } from '../app/dialog.js';
 
 const settle = async () => {
   for (let i = 0; i < 12; i += 1) await new Promise((r) => setTimeout(r, 0));
@@ -361,5 +363,107 @@ describe('Meetings review fix #8: Arabic in a line of values', () => {
     expect(line.hasAttribute('dir')).toBe(false);
     expect([...line.querySelectorAll('bdi')].map((b) => b.textContent)).toEqual(['عمر', '15 min']);
     expect(textNodes(line)).toEqual([' · ']);
+  });
+});
+
+// ---- Ctrl+K --------------------------------------------------------------------------------------
+
+describe('review fix #11: Ctrl+K never goes to Chrome’s address bar', () => {
+  const ctrlK = (target = document.activeElement || document.body) => {
+    const e = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true });
+    target.dispatchEvent(e);
+    return e;
+  };
+  /** The app's handler, as app/app.js adds it: search opens over the screen or any dialog. */
+  const listen = () => {
+    const open = vi.fn(() => openSearch({ api: {}, me: { roles: [] }, navigate: vi.fn(), openExternal: vi.fn() }, { debounceMs: 0 }));
+    const handler = (e) => searchShortcut(e, { doc: document, open });
+    document.addEventListener('keydown', handler);
+    return { open, stop: () => document.removeEventListener('keydown', handler) };
+  };
+
+  it('over the task panel: search opens over it (as on the web); Escape closes it and focus goes back into the panel', () => {
+    const app = document.createElement('div');
+    document.body.append(app);
+    const drawer = document.createElement('div');
+    drawer.setAttribute('role', 'dialog');
+    drawer.setAttribute('aria-modal', 'true');
+    const field = document.createElement('button');
+    field.textContent = 'High';
+    drawer.append(field);
+    document.body.append(drawer);
+    const release = showModal(drawer);
+    field.focus();
+    const { open, stop } = listen();
+    try {
+      const e = ctrlK(field);
+      expect(e.defaultPrevented).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+      const box = document.querySelector('.search-dialog .search-input');
+      expect(document.activeElement).toBe(box);
+      expect(drawer.hasAttribute('inert')).toBe(true);
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      expect(document.querySelector('.search-dialog')).toBeNull();
+      expect(drawer.hasAttribute('inert')).toBe(false);
+      expect(document.activeElement).toBe(field);
+    } finally {
+      stop();
+      release();
+    }
+  });
+
+  it('with search already open: back to its box (no second one), and Chrome doesn’t take the keys', () => {
+    const { open, stop } = listen();
+    try {
+      ctrlK(document.body);
+      const box = document.querySelector('.search-dialog .search-input');
+      box.blur();
+      const e = ctrlK(document.body);
+      expect(e.defaultPrevented).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(document.querySelectorAll('.search-dialog')).toHaveLength(1);
+      expect(document.activeElement).toBe(box);
+    } finally {
+      stop();
+      for (const r of open.mock.results) if (typeof r.value === 'function') r.value(); // close it
+    }
+  });
+
+  it('a dialog opened over another: only the one on top takes Escape and Tab; the one below takes them back after', () => {
+    const make = (label) => {
+      const d = document.createElement('div');
+      d.setAttribute('role', 'dialog');
+      d.setAttribute('aria-modal', 'true');
+      const b = document.createElement('button');
+      b.textContent = label;
+      d.append(b);
+      document.body.append(d);
+      return { d, b };
+    };
+    const below = make('Below');
+    const belowEscape = vi.fn();
+    const releaseBelow = showModal(below.d, { onEscape: belowEscape });
+    const top = make('Top');
+    const topEscape = vi.fn();
+    const releaseTop = showModal(top.d, { onEscape: topEscape });
+    top.b.focus();
+    expect(document.activeElement).toBe(top.b); // focus isn't pulled into the dialog below
+    top.b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(topEscape).toHaveBeenCalledTimes(1);
+    expect(belowEscape).not.toHaveBeenCalled();
+    releaseTop();
+    top.d.remove();
+    below.b.focus();
+    below.b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(belowEscape).toHaveBeenCalledTimes(1);
+    releaseBelow();
+  });
+
+  it('other keys (Ctrl+Shift+K is the popup’s) are left alone', () => {
+    const open = vi.fn();
+    const e = new KeyboardEvent('keydown', { key: 'K', ctrlKey: true, shiftKey: true, cancelable: true });
+    expect(searchShortcut(e, { doc: document, open })).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+    expect(open).not.toHaveBeenCalled();
   });
 });

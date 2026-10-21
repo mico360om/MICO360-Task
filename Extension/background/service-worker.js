@@ -5,7 +5,7 @@ import { createAuth } from '../src/auth.js';
 import { ensureSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { rememberTask } from '../src/task-writes.js';
-import { openAppTab } from '../src/open-app.js';
+import { openAppTab, APP_PATH } from '../src/open-app.js';
 import { createMenu, onMenuClick } from '../src/context-menu.js';
 import { pollNotifications, openAlert } from '../src/background-poll.js';
 import { readSessionUser } from '../src/auth.js';
@@ -117,9 +117,14 @@ async function isAdmin() {
   }
 }
 
+/** How long the address bar waits after the last key before it asks (one search per pause, not per key). */
+const OMNI_WAIT_MS = 150;
+
 /** Suggestions for the words typed after "mico": pages, and what GET /search finds. */
 async function omniboxSuggest(text, suggest) {
   const mine = (omniAsked += 1);
+  await new Promise((r) => setTimeout(r, OMNI_WAIT_MS));
+  if (mine !== omniAsked) return; // more was typed meanwhile: that answer is the one shown
   let ctx = null;
   try { ctx = await signedIn(); } catch { ctx = null; }
   try { chrome.omnibox.setDefaultSuggestion({ description: defaultSuggestion(!!ctx) }); } catch { /* older Chrome */ }
@@ -141,19 +146,30 @@ async function omniboxSuggest(text, suggest) {
   suggest(omniboxSuggestions(results, text, { isAdmin: await isAdmin() }));
 }
 
-/** Enter: a chosen suggestion opens here (or a page on the website); words open the Search screen. */
-async function omniboxOpen(text) {
+/**
+ * Enter: a chosen suggestion opens here (or a page on the website); words open the Search screen.
+ * Where, as Chrome says (`disposition`): this tab (Enter), a new tab (Alt+Enter) or one behind.
+ */
+async function omniboxOpen(text, disposition) {
   const { appBase } = resolveBases(await local.get(['apiBase', 'appBase']));
   const target = omniboxTarget(text, { appBase, isAdmin: await isAdmin() });
-  if (target.url) await chrome.tabs.create({ url: target.url });
-  else await openApp(target.hash);
+  const url = target.url || chrome.runtime.getURL(APP_PATH) + target.hash;
+  if (disposition === 'newForegroundTab' || disposition === 'newBackgroundTab') {
+    await chrome.tabs.create({ url, active: disposition === 'newForegroundTab' });
+    return;
+  }
+  try {
+    await chrome.tabs.update({ url }); // the tab the words were typed in
+  } catch {
+    await chrome.tabs.create({ url });
+  }
 }
 
 chrome.omnibox?.onInputChanged.addListener((text, suggest) => {
   void omniboxSuggest(text, suggest).catch(() => suggest([]));
 });
-chrome.omnibox?.onInputEntered.addListener((text) => {
-  void omniboxOpen(text).catch(() => openApp('#/'));
+chrome.omnibox?.onInputEntered.addListener((text, disposition) => {
+  void omniboxOpen(text, disposition).catch(() => openApp('#/'));
 });
 
 /** The polling alarm can be lost when the browser restarts; make sure it exists (EXT-06). */
