@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { brotliCompressSync, brotliDecompressSync, gzipSync, gunzipSync } from 'node:zlib';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor, androidAppLink, robotsTagFor, HOSTED_APK_PATH, downloadsDirFor } from './web-app';
+import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor, androidAppLink, robotsTagFor, HOSTED_APK_PATH, HOSTED_EXTENSION_PATH, downloadsDirFor } from './web-app';
 
 describe('isClientRoute', () => {
   it('accepts page routes and rejects server paths, files and non-GET requests', () => {
@@ -157,6 +157,15 @@ describe('registerWebApp', () => {
     expect(head.statusCode).toBe(200);
   });
 
+  it('serves the Chrome extension the web build carries as a download too', async () => {
+    writeFileSync(join(root, 'downloads', 'MICO360-Tasks-Chrome-Extension.zip'), Buffer.from('PK-ext-bytes'));
+    const res = await app.inject({ method: 'GET', url: HOSTED_EXTENSION_PATH });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-disposition']).toBe('attachment; filename="MICO360-Tasks-Chrome-Extension.zip"');
+    expect(res.headers['cache-control']).toBe('no-cache');
+    expect(res.rawPayload.toString()).toBe('PK-ext-bytes');
+  });
+
   it('serves robots.txt from the web root as plain text', async () => {
     const res = await app.inject({ method: 'GET', url: '/robots.txt' });
     expect(res.statusCode).toBe(200);
@@ -306,6 +315,26 @@ describe('the Android app in a downloads folder kept across deploys', () => {
       for (const url of ['/downloads/notes.txt', '/downloads/..%2fsecret.txt']) {
         expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(404);
       }
+    } finally {
+      await app.close();
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('serves the Chrome extension the web build carries, as a download (a copy in the downloads folder wins)', async () => {
+    const { base, root, downloads } = site();
+    mkdirSync(join(root, 'downloads'));
+    writeFileSync(join(root, 'downloads', 'MICO360-Tasks-Chrome-Extension.zip'), Buffer.from('PK-ext-in-the-build'));
+    const app = await serve(root, downloads);
+    try {
+      const res = await app.inject({ method: 'GET', url: HOSTED_EXTENSION_PATH });
+      expect(res.statusCode).toBe(200);
+      expect(res.rawPayload.toString()).toBe('PK-ext-in-the-build');
+      expect(res.headers['content-type']).toBe('application/zip');
+      expect(res.headers['content-disposition']).toBe('attachment; filename="MICO360-Tasks-Chrome-Extension.zip"');
+      expect(res.headers['cache-control']).toBe('no-cache');
+      writeFileSync(join(downloads, 'MICO360-Tasks-Chrome-Extension.zip'), Buffer.from('PK-ext-kept'));
+      expect((await app.inject({ method: 'GET', url: HOSTED_EXTENSION_PATH })).rawPayload.toString()).toBe('PK-ext-kept');
     } finally {
       await app.close();
       rmSync(base, { recursive: true, force: true });

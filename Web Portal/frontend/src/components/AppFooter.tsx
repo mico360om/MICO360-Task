@@ -3,8 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { aboutApi, deployedWebBuild } from '../api/about';
+import { configApi } from '../api/config';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { RUNNING_BUILD, formatLastUpdated, isStaleBundle } from '../lib/release';
+import { androidAppLink, checkHostedApk } from '../lib/android-app-link';
+import { EXTENSION_INSTALL_HINT, HOSTED_EXTENSION_PATH } from '../lib/app-downloads';
 
 /** How often an open page checks for a new deployment. */
 const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -35,6 +38,16 @@ export function AppFooter() {
   });
   const version = versionQ.data?.version ?? RUNNING_BUILD.version;
   const stale = isStaleBundle(RUNNING_BUILD, webQ.data);
+
+  // The apps: the Android app (the APK this site hosts, or a page the administrator set) and the
+  // Chrome extension every web build carries. A file the site doesn't have is left out rather than
+  // offered as a link that fails; until the site answers, it is offered.
+  const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
+  const android = androidAppLink(configQ.data?.androidAppUrl);
+  const apkQ = useQuery({ queryKey: ['android-apk', android.href], queryFn: () => checkHostedApk(android.href), enabled: android.hosted, staleTime: Infinity, refetchOnWindowFocus: false });
+  const extensionQ = useQuery({ queryKey: ['hosted-download', HOSTED_EXTENSION_PATH], queryFn: () => checkHostedApk(HOSTED_EXTENSION_PATH), staleTime: Infinity, refetchOnWindowFocus: false });
+  const showAndroid = !android.hosted || apkQ.data !== false;
+  const showExtension = extensionQ.data !== false;
 
   // Pages sized to the window (the chat) leave room for the footer: its height, as a CSS variable.
   const ref = useRef<HTMLElement>(null);
@@ -67,6 +80,33 @@ export function AppFooter() {
             Last Updated: {versionQ.data ? formatLastUpdated(versionQ.data.deployedAt, timeZone) : versionQ.isError ? 'not available' : '…'}
           </span>
         </p>
+        {showAndroid || showExtension ? (
+          <nav aria-label="Get the apps" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Get the apps:</span>
+            {showAndroid ? (
+              <a
+                href={android.href}
+                {...(android.hosted ? { download: '' } : { target: '_blank', rel: 'noopener noreferrer' })}
+                title={android.hosted ? 'The MICO360 Tasks app for Android phones (an .apk file to install)' : 'The MICO360 Tasks app for Android phones'}
+                className="inline-flex min-h-[28px] items-center gap-1 font-medium text-brand hover:underline"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M7 9.5h10v7.5a1 1 0 0 1-1 1h-1v2.5a1.25 1.25 0 0 1-2.5 0V18h-1v2.5a1.25 1.25 0 0 1-2.5 0V18H8a1 1 0 0 1-1-1zM4.75 9.5A1.25 1.25 0 0 1 6 10.75v4.5a1.25 1.25 0 0 1-2.5 0v-4.5A1.25 1.25 0 0 1 4.75 9.5zm14.5 0a1.25 1.25 0 0 1 1.25 1.25v4.5a1.25 1.25 0 0 1-2.5 0v-4.5a1.25 1.25 0 0 1 1.25-1.25zM15.5 4.2l1-1.5a.3.3 0 0 0-.5-.33l-1.06 1.58A6.3 6.3 0 0 0 12 3.4a6.3 6.3 0 0 0-2.94.55L8 2.37a.3.3 0 1 0-.5.33l1 1.5A5 5 0 0 0 7 8.5h10a5 5 0 0 0-1.5-4.3zM10 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zm4 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z" /></svg>
+                Android app
+              </a>
+            ) : null}
+            {showExtension ? (
+              <a
+                href={HOSTED_EXTENSION_PATH}
+                download=""
+                title={EXTENSION_INSTALL_HINT}
+                className="inline-flex min-h-[28px] items-center gap-1 font-medium text-brand hover:underline"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.5" /><path d="M12 8.5h8.2M8.97 13.75 4.85 6.6M15.03 13.75l-4.1 7.12" /></svg>
+                Chrome extension
+              </a>
+            ) : null}
+          </nav>
+        ) : null}
         <Link to="/about" className="font-medium text-brand hover:underline">
           About and version history
         </Link>
