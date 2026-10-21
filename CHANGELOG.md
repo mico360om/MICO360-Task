@@ -28,11 +28,31 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   @mentions, the task's history, milestone and start date, the meeting it came from, changes to a
   whole repeating series, and deleting one copy or the whole series. Changes made offline are sent in
   the order you made them.
+- The task PDF shows the whole task under its project's picture (or icon, or initials), as the
+  minutes PDF does: a clear title that never gets cut, status cards without repeats, the milestone
+  and the meeting the task came from, comment threads with bold @mentions, up to 12 pictures as
+  thumbnails (other files listed with their size, who added them and when), Blocked by / Blocks
+  tables, and the latest 50 changes, newest first.
 
 ### Improvements
 - A meeting's page shows the Final MOM as soon as someone else saves, approves or reopens it.
+- The task PDF and Excel file say what changed in the website's words, for example "Changed priority
+  from Normal to High" or "Ticked off “Order the parts”", instead of just "Updated".
+- In every PDF, a long link breaks at a slash or similar instead of in the middle of a word, and a
+  long project name gets smaller or wraps instead of being cut.
+
+### Security
+- The task PDF and Excel file name the meeting a task came from only to people who are part of that
+  meeting, and list only the blocking and waiting tasks the reader can open, as the website does.
+- A damaged or specially made picture attached to a task can no longer slow down or stop the server
+  when someone downloads the task's PDF; it is listed as "(picture could not be shown)" instead.
 
 ### Bug fixes
+- Long checklist items, links and Arabic text in the task PDF are never cut, and Arabic reads right to
+  left; section headings stay with what comes under them instead of sitting alone at a page's bottom.
+- A project picture the PDF can't use (a see-through, interlaced or damaged picture) no longer breaks
+  the task PDF or the meeting minutes PDF; the project's icon or initials are shown instead.
+- A task's activity says "added a blocker" instead of "added the blocker a task".
 - Deleting a task that someone else already deleted now says it wasn't found, for everyone, instead
   of "You do not have permission"; "no permission" now only means you really can't delete it.
 - The Chrome extension: changing a task's tags while offline no longer removes tags someone else added
