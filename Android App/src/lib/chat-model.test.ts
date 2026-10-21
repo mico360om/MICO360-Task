@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  ALLOWED_TYPES,
   buildTimeline,
   dayLabel,
   formatSize,
@@ -208,6 +209,44 @@ describe.skipIf(!existsSync(webModel))('the same as the website', () => {
     }
     for (const n of [12, 2048, 3.5 * 1024 * 1024]) expect(formatSize(n)).toBe(w.formatSize!(n));
     for (const iso of ['2026-10-21T09:00:00.000Z', '2026-10-20T09:00:00.000Z', '2026-10-14T09:00:00.000Z', '2025-02-02T09:00:00.000Z']) expect(dayLabel(iso, NOW, 'UTC')).toBe(w.dayLabel!(iso, NOW, 'UTC'));
+  });
+
+  it('tells the server a message arrived in the same cases, and allows the same files (3b review fix 6)', async () => {
+    const w = (await import(/* @vite-ignore */ webModel)) as Record<string, unknown> & {
+      needsDeliveryAck: typeof needsDeliveryAck;
+      validateAttachment: typeof validateAttachment;
+      ALLOWED_TYPES: Set<string>;
+      MAX_UPLOAD_BYTES: number;
+    };
+    const at = '2026-10-21T10:00:00.000Z';
+    const before = '2026-10-21T09:00:00.000Z';
+    const after = '2026-10-21T11:00:00.000Z';
+    const fromThem = { id: 'm', conversationId: 'd', userId: 'u2', body: 'Hi', editedAt: null, deletedAt: null, createdAt: at };
+    const me = (over: object) => ({ conversationId: 'd', userId: 'me', lastReadAt: null, addedAt: '', lastDeliveredAt: null, ...over });
+    const them = { conversationId: 'd', userId: 'u2', lastReadAt: null, addedAt: '' };
+    const cases: ApiConversationSummary[] = [
+      summary('d', { lastMessage: fromThem }), // not yet delivered: yes
+      summary('d', { lastMessage: { ...fromThem, userId: 'me' } }), // mine: no
+      summary('d', { lastMessage: { ...fromThem, deletedAt: after } }), // deleted: no
+      summary('d', { lastMessage: fromThem, participants: [me({ lastDeliveredAt: after }), them] }), // delivered since: no
+      summary('d', { lastMessage: fromThem, participants: [me({ lastDeliveredAt: before }), them] }), // delivered before it: yes
+      summary('d', { lastMessage: fromThem, participants: [me({ lastReadAt: after }), them] }), // read since: no
+      summary('d', { lastMessage: fromThem, participants: [me({ lastReadAt: before }), them] }), // read before it: yes
+      summary('d', { lastMessage: fromThem, participants: [me({ lastDeliveredAt: at }), them] }), // delivered at that moment: no
+      { ...summary('p', { lastMessage: fromThem }), conversation: { id: 'p', kind: 'PROJECT' as const, projectId: 'p1', createdAt: '' } }, // a channel: no
+      summary('d', { lastMessage: fromThem, participants: [them] }), // no row for me: yes
+    ];
+    expect(cases.map((s) => needsDeliveryAck(s, 'me'))).toEqual(cases.map((s) => w.needsDeliveryAck(s, 'me')));
+    expect(cases.map((s) => needsDeliveryAck(s, 'me'))).toEqual([true, false, false, false, true, false, true, false, false, true]);
+    // The same types and limit, compared directly.
+    expect([...ALLOWED_TYPES].sort()).toEqual([...w.ALLOWED_TYPES].sort());
+    expect(MAX_UPLOAD_BYTES).toBe(w.MAX_UPLOAD_BYTES);
+    for (const type of [...ALLOWED_TYPES, 'image/svg+xml', 'text/html', 'application/octet-stream', '']) {
+      for (const size of [0, 1, MAX_UPLOAD_BYTES, MAX_UPLOAD_BYTES + 1]) {
+        const f = { name: 'f', size, type };
+        expect(validateAttachment(f), `${type} ${size}`).toBe(w.validateAttachment(f));
+      }
+    }
   });
 
   it('says last active and follows presence the same way', async () => {
