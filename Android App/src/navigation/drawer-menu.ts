@@ -9,19 +9,22 @@ export interface DrawerItem {
   adminOnly?: boolean;
 }
 
-/** The side-drawer destinations (a superset of the bottom tabs + the stack-only screens). */
+/**
+ * The side-drawer destinations: the bottom tabs first, in the tab bar's order (navigation/tabs),
+ * with My Action Items under Meetings, then the screens the tabs don't reach.
+ */
 export const DRAWER_ITEMS: readonly DrawerItem[] = [
   { key: 'Dashboard', label: 'Home', icon: '🏠', action: { type: 'tab', tab: 'Dashboard' } },
   { key: 'MyTasks', label: 'My Tasks', icon: '✓', action: { type: 'tab', tab: 'MyTasks' } },
   { key: 'Projects', label: 'Projects', icon: '🗂', action: { type: 'tab', tab: 'Projects' } },
-  { key: 'Chat', label: 'Chat', icon: '💬', action: { type: 'tab', tab: 'Chat' } },
   { key: 'Meetings', label: 'Meetings', icon: '👥', action: { type: 'tab', tab: 'Meetings' } },
   { key: 'MyActionItems', label: 'My Action Items', icon: '☑', action: { type: 'stack', screen: 'MyActionItems' } },
-  { key: 'Calendar', label: 'Calendar', icon: '📅', action: { type: 'stack', screen: 'Calendar' } },
+  { key: 'Chat', label: 'Chat', icon: '💬', action: { type: 'tab', tab: 'Chat' } },
   { key: 'Notifications', label: 'Alerts', icon: '🔔', action: { type: 'tab', tab: 'Notifications' } },
+  { key: 'Calendar', label: 'Calendar', icon: '📅', action: { type: 'stack', screen: 'Calendar' } },
   { key: 'Reports', label: 'Reports', icon: '📊', action: { type: 'stack', screen: 'Reports' }, adminOnly: true },
   { key: 'Profile', label: 'Profile', icon: '👤', action: { type: 'stack', screen: 'Profile' } },
-  { key: 'Settings', label: 'Settings', icon: '⚙️', action: { type: 'tab', tab: 'Settings' } },
+  { key: 'Settings', label: 'Settings', icon: '⚙️', action: { type: 'stack', screen: 'Settings' } },
 ] as const;
 
 /** The drawer destinations for a user with these roles. */

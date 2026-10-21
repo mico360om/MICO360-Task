@@ -69,9 +69,24 @@ const ACTION_TONE: Record<ActionItemStatus, Tone> = { OPEN: 'info', IN_PROGRESS:
 const NOTE_TONE: Record<MeetingNoteType, Tone> = { DISCUSSION: 'neutral', DECISION: 'success', ACTION: 'brand', ISSUE: 'danger', QUESTION: 'warning', INFORMATION: 'info' };
 
 export const meetingStatusTone = (s: MeetingStatus): Tone => STATUS_TONE[s] ?? 'neutral';
-export const responseTone = (r: InvitationResponse | undefined): Tone => RESPONSE_TONE[r ?? 'PENDING'];
+export const responseTone = (r: InvitationResponse | undefined): Tone => RESPONSE_TONE[r ?? 'PENDING'] ?? 'neutral';
 export const actionStatusTone = (s: ActionItemStatus): Tone => ACTION_TONE[s] ?? 'info';
 export const noteTypeTone = (t: MeetingNoteType): Tone => NOTE_TONE[t] ?? 'neutral';
+
+/** A code this version doesn't know, in plain words: "ON_HOLD" → "On hold" ('' for none). */
+function plainWords(code: unknown): string {
+  if (typeof code !== 'string' || !code) return '';
+  const words = code.replace(/_/g, ' ').trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// The words for what the server sends. A newer server may send a value this version doesn't know:
+// it is shown in plain words rather than breaking the screen.
+export const meetingStatusLabel = (s: MeetingStatus): string => MEETING_STATUS_LABELS[s] ?? plainWords(s);
+export const responseLabel = (r: InvitationResponse | undefined): string => RESPONSE_LABELS[r ?? 'PENDING'] ?? plainWords(r);
+export const attendanceLabel = (a: AttendanceStatus): string => ATTENDANCE_LABELS[a] ?? plainWords(a);
+export const actionStatusLabel = (s: ActionItemStatus): string => ACTION_STATUS_LABELS[s] ?? plainWords(s);
+export const noteTypeLabel = (t: MeetingNoteType): string => NOTE_TYPE_LABELS[t] ?? plainWords(t);
 
 /** How far a meeting's minutes are, as a badge (null when nothing was taken). */
 export function minutesBadge(state: MinutesState | undefined): { label: string; tone: Tone } | null {

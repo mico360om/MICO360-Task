@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { meetingScreenId, targetToAction, taskScreenId } from './nav-actions';
 import { DRAWER_ITEMS, activeDrawerKey, actionRouteName, drawerItemsFor } from './drawer-menu';
-import { notificationToTarget, parseDeepLink } from '../lib/deep-link';
+import { TAB_ITEMS } from './tabs';
+import { notificationToTarget } from '../lib/deep-link';
 
 describe('targetToAction', () => {
   it('pushes stack screens for task/board and switches tabs for chat/notifications', () => {
@@ -25,8 +26,7 @@ describe('targetToAction', () => {
     expect(taskScreenId({ params: undefined })).toBeUndefined();
   });
 
-  it('composes with the deep-link + push resolvers end to end', () => {
-    expect(targetToAction(parseDeepLink('mico360://task/t9')!)).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't9' } });
+  it('composes with the push resolver end to end', () => {
     // a real backend push (lowercase entityType) → opens the task
     expect(targetToAction(notificationToTarget({ entityType: 'task', entityId: 't9' }))).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't9' } });
     expect(targetToAction(notificationToTarget({ entityType: 'conversation', entityId: 'c1' }))).toEqual({ type: 'tab', tab: 'Chat' });
@@ -47,11 +47,24 @@ describe('drawer menu', () => {
     expect(routes).toContain('MyActionItems');
   });
 
-  it('puts Meetings and My Action Items after Chat', () => {
+  it('lists the tabs in the tab bar’s order, with My Action Items under Meetings', () => {
+    const tabs = DRAWER_ITEMS.filter((i) => i.action.type === 'tab').map((i) => actionRouteName(i.action));
+    expect(tabs).toEqual(TAB_ITEMS.map((t) => t.name));
     const keys = DRAWER_ITEMS.map((i) => i.key);
-    expect(keys.slice(keys.indexOf('Chat'), keys.indexOf('Chat') + 3)).toEqual(['Chat', 'Meetings', 'MyActionItems']);
+    expect(keys.slice(keys.indexOf('Meetings'), keys.indexOf('Meetings') + 2)).toEqual(['Meetings', 'MyActionItems']);
     expect(DRAWER_ITEMS.find((i) => i.key === 'Meetings')?.action).toEqual({ type: 'tab', tab: 'Meetings' });
     expect(activeDrawerKey('MyActionItems')).toBe('MyActionItems');
+  });
+
+  it('keeps the tab bar to six tabs: Settings is in the menu only', () => {
+    expect(TAB_ITEMS.map((t) => t.name)).toEqual(['Dashboard', 'MyTasks', 'Projects', 'Meetings', 'Chat', 'Notifications']);
+    expect(DRAWER_ITEMS.find((i) => i.key === 'Settings')?.action).toEqual({ type: 'stack', screen: 'Settings' });
+    expect(activeDrawerKey('Settings')).toBe('Settings');
+    // Each tab is named and drawn as the menu names it.
+    for (const t of TAB_ITEMS) {
+      const item = DRAWER_ITEMS.find((i) => i.key === t.name);
+      expect([item?.label, item?.icon]).toEqual([t.title, t.icon]);
+    }
   });
 
   it('offers Reports to administrators only (the server checks the role too)', () => {

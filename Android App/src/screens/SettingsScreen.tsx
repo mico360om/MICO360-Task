@@ -11,7 +11,7 @@ import { NOTIFICATION_TYPES, REMINDER_OPTIONS, isTypeOn, toggleType, withReminde
 import { sitePageUrl } from '../lib/server-address';
 import { fingerprintSetting } from '../lib/biometric-login';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
-import type { TabScreenProps } from '../navigation/types';
+import type { AppScreenProps } from '../navigation/types';
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: 'light', label: 'Light' },
@@ -19,7 +19,7 @@ const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: 'system', label: 'System' },
 ];
 
-export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
+export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
   const { colors: c, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
   const { auth, biometric, biometricLogin, session, push, baseUrl, signOut, app } = useServices();

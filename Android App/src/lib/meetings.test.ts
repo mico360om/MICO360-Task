@@ -1,7 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildAgenda, clockTime, isRepeating, joinLink, meetingPlace, meetingRowLabel, meetingTime, meetingWindow, meetingDayKey, safeMeetingHref } from './meetings';
+import { buildAgenda, clockTime, isRepeating, joinLink, meetingPlace, meetingRowLabel, meetingTime, meetingWindow, meetingDayKey, openMeetingLink, safeMeetingHref } from './meetings';
+
+describe('openMeetingLink (Join: checks the link itself, whoever hands it over)', () => {
+  it('opens a web link only, as the website would', async () => {
+    const open = vi.fn(async () => undefined);
+    expect(await openMeetingLink('javascript:alert(1)', open)).toBe(false);
+    expect(await openMeetingLink('intent://scan#Intent;end', open)).toBe(false);
+    expect(await openMeetingLink('', open)).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+    expect(await openMeetingLink('meet.google.com/abc-defg', open)).toBe(true);
+    expect(open).toHaveBeenCalledWith('https://meet.google.com/abc-defg');
+  });
+
+  it('says so when the phone couldn’t open it', async () => {
+    expect(await openMeetingLink('https://zoom.us/j/1', async () => Promise.reject(new Error('no app')))).toBe(false);
+  });
+});
 import type { ApiMeeting, ApiTask } from './types';
 
 describe('meetingRowLabel (a meeting in the calendar or on a project: it opens the meeting)', () => {

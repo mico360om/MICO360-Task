@@ -1,43 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { parseDeepLink, notificationToTarget, extractResetToken } from './deep-link';
+import * as DeepLink from './deep-link';
+import { notificationToTarget, extractResetToken } from './deep-link';
 
-describe('parseDeepLink (A0.3)', () => {
-  it('maps a task URL (custom scheme) to the TaskDetail target', () => {
-    expect(parseDeepLink('mico360://task/t123')).toEqual({ screen: 'TaskDetail', params: { taskId: 't123' } });
-  });
-
-  it('maps a project URL to the Board target', () => {
-    expect(parseDeepLink('mico360://project/p1')).toEqual({ screen: 'Board', params: { projectId: 'p1' } });
-  });
-
-  it('maps an https universal link the same way', () => {
-    expect(parseDeepLink('https://app.mico360.test/task/t9')).toEqual({ screen: 'TaskDetail', params: { taskId: 't9' } });
-  });
-
-  it('maps the notifications and chat paths', () => {
-    expect(parseDeepLink('mico360://notifications')).toEqual({ screen: 'Notifications' });
-    expect(parseDeepLink('mico360://chat')).toEqual({ screen: 'Chat' });
-  });
-
-  it('returns null for an unknown or malformed URL', () => {
-    expect(parseDeepLink('mico360://')).toBeNull();
-    expect(parseDeepLink('not a url')).toBeNull();
-    expect(parseDeepLink('mico360://task/')).toBeNull();
+describe('links (A0.3)', () => {
+  it('are read in one place only — the navigator’s linking config (navigation/linking) — never by a second parser that could drift from it', () => {
+    expect(Object.keys(DeepLink)).not.toContain('parseDeepLink');
   });
 });
 
-describe('meeting links (2a)', () => {
-  it('maps a meeting link (custom scheme or the website address) to the meeting', () => {
-    expect(parseDeepLink('mico360://meeting/m1')).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm1' } });
-    expect(parseDeepLink('https://task.mico360.com/meetings/m2')).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm2' } });
-    expect(parseDeepLink('mico360://meeting/')).toBeNull();
-  });
-
-  it('maps the meetings list and My Action Items', () => {
-    expect(parseDeepLink('mico360://meetings')).toEqual({ screen: 'Meetings' });
-    expect(parseDeepLink('https://task.mico360.com/my-action-items')).toEqual({ screen: 'MyActionItems' });
-  });
-
+describe('meeting notifications (2a)', () => {
   it('opens the meeting from a notification about it', () => {
     expect(notificationToTarget({ entityType: 'meeting', entityId: 'm5' })).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm5' } });
     expect(notificationToTarget({ entityType: 'Meeting', entityId: 'm5' })).toEqual({ screen: 'MeetingDetail', params: { meetingId: 'm5' } });
@@ -76,15 +47,6 @@ describe('Alerts list items (WEB-18)', () => {
 });
 
 describe('password-reset links (MOB-09)', () => {
-  it('maps the e-mailed reset link to the Reset screen with the token', () => {
-    expect(parseDeepLink('https://task.mico360.com/reset?token=AbC_d-9')).toEqual({ screen: 'Reset', params: { token: 'AbC_d-9' } });
-    expect(parseDeepLink('mico360://reset?token=xyz')).toEqual({ screen: 'Reset', params: { token: 'xyz' } });
-  });
-
-  it('ignores a reset link without a token', () => {
-    expect(parseDeepLink('https://task.mico360.com/reset')).toBeNull();
-  });
-
   it('extracts the token from a pasted link, a query fragment or a bare token', () => {
     expect(extractResetToken('https://task.mico360.com/reset?token=AbC_d-9&x=1')).toBe('AbC_d-9');
     expect(extractResetToken('reset?token=a%2Db')).toBe('a-b');

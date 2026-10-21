@@ -57,7 +57,8 @@ export function meetingEventRefreshes(event: string, payload: unknown): Refresh[
     case 'meeting:agenda':
       return [part('agenda')];
     case 'meeting:attendees':
-      return [LIST_COUNTS, part('attendees'), project];
+      // Someone just invited sees it in their lists at once; for the others only a count changed.
+      return [LIST_COUNTS, { meetingListsIfNew: id }, part('attendees'), project];
     case 'meeting:notes':
       return [LIST_COUNTS, part('notes'), project];
     case 'meeting:action-items':

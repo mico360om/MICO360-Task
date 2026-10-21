@@ -163,4 +163,25 @@ describe('refresh (one pass over the cache, each query at most once)', () => {
     expect(queryFn).toHaveBeenCalledTimes(2);
     stop();
   });
+
+  it('fetches the meeting lists now for a meeting none of them holds yet (you were just invited), else leaves them', async () => {
+    const qc = client();
+    const queryFn = vi.fn(async () => [{ id: 'm1', projectId: null }]);
+    const observer = new QueryObserver(qc, { queryKey: ['meetings', 'list', 'all'], queryFn });
+    const stop = observer.subscribe(() => {});
+    await tick();
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    refresh(qc, [{ queryKey: ['meetings'], later: true }, { meetingListsIfNew: 'm1' }]);
+    await tick();
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    refresh(qc, [{ queryKey: ['meetings'], later: true }, { meetingListsIfNew: 'new' }]);
+    await tick();
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    // A meeting open on its own screen isn't new either.
+    qc.setQueryData(['meeting', 'open'], { id: 'open', projectId: null });
+    refresh(qc, [{ meetingListsIfNew: 'open' }]);
+    await tick();
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    stop();
+  });
 });

@@ -15,7 +15,6 @@ export type TabsParamList = {
   Meetings: undefined;
   Chat: undefined;
   Notifications: undefined;
-  Settings: undefined;
 };
 
 export type AppStackParamList = {
@@ -28,6 +27,7 @@ export type AppStackParamList = {
   Calendar: undefined;
   Profile: undefined;
   Reports: undefined;
+  Settings: undefined;
   ChatThread: { conversationId: string; title: string; kind: 'PROJECT' | 'DIRECT' };
 };
 

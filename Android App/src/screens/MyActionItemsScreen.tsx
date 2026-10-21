@@ -7,7 +7,7 @@ import { useColors } from '../core/theme';
 import { Badge, Loader, EmptyState, ErrorNote } from '../components/ui';
 import { Chip } from '../components/task-detail/kit';
 import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
-import { ACTION_STATUS_LABELS, actionDueText, actionStatusTone, isActionItemOverdue } from '../lib/meeting-detail';
+import { actionDueText, actionStatusLabel, actionStatusTone, isActionItemOverdue } from '../lib/meeting-detail';
 import type { ApiActionItem } from '../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
@@ -49,13 +49,13 @@ export function MyActionItemsScreen({ navigation }: AppScreenProps<'MyActionItem
             onPress={meetingId ? () => navigation.navigate('MeetingDetail', { meetingId, title: titles.get(meetingId) }) : undefined}
             disabled={!meetingId}
             accessibilityRole={meetingId ? 'button' : undefined}
-            accessibilityLabel={[item.description, ACTION_STATUS_LABELS[item.status], due, meetingTitle ? `from ${meetingTitle}` : null].filter(Boolean).join(', ')}
+            accessibilityLabel={[item.description, actionStatusLabel(item.status), due, meetingTitle ? `from ${meetingTitle}` : null].filter(Boolean).join(', ')}
             accessibilityHint={meetingId ? 'Opens the meeting' : undefined}
             style={({ pressed }) => [styles.main, pressed && styles.pressed]}
           >
             <Text style={[styles.title, done && styles.done]}>{item.description}</Text>
             <View style={styles.meta}>
-              <Badge label={ACTION_STATUS_LABELS[item.status]} tone={actionStatusTone(item.status)} />
+              <Badge label={actionStatusLabel(item.status)} tone={actionStatusTone(item.status)} />
               <Text style={[styles.sub, late && styles.overdue]}>{due}</Text>
               {meetingTitle ? <Text style={styles.sub} numberOfLines={1}>↗ {meetingTitle}</Text> : null}
             </View>

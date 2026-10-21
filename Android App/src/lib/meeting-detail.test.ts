@@ -24,6 +24,15 @@ import {
   responseLine,
   responseSummary,
   withAnswer,
+  actionStatusLabel,
+  actionStatusTone,
+  attendanceLabel,
+  meetingStatusLabel,
+  meetingStatusTone,
+  noteTypeLabel,
+  noteTypeTone,
+  responseLabel,
+  responseTone,
 } from './meeting-detail';
 import { ApiError, NetworkError } from './api-client';
 import type { ApiActionItem, ApiFinalMinutes, ApiMeetingAttendee, ApiMeetingNote } from './types';
@@ -237,5 +246,30 @@ describe('meetingLoadProblem', () => {
     });
     expect(meetingLoadProblem(new NetworkError('offline'))).toEqual({ message: 'Couldn’t load this meeting. Check your connection and try again.', canRetry: true });
     expect(meetingLoadProblem(new ApiError(500, 'INTERNAL', 'x'))).toEqual({ message: 'Couldn’t load this meeting. Please try again.', canRetry: true });
+  });
+});
+
+describe('words for what the server sends (a value this version doesn’t know never breaks the screen)', () => {
+  it('names the known ones as the website does', () => {
+    expect(noteTypeLabel('ACTION')).toBe('Action Item');
+    expect(meetingStatusLabel('IN_PROGRESS')).toBe('In Progress');
+    expect(responseLabel('TENTATIVE')).toBe('Maybe');
+    expect(responseLabel(undefined)).toBe('No response');
+    expect(attendanceLabel('INVITED')).toBe('Not recorded');
+    expect(actionStatusLabel('PENDING')).toBe('Pending');
+  });
+
+  it('turns an unknown one into plain words, and its colour into a neutral one', () => {
+    type Any = never;
+    expect(noteTypeLabel('BRAIN_STORM' as Any)).toBe('Brain storm');
+    expect(noteTypeLabel(undefined as Any)).toBe('');
+    expect(meetingStatusLabel('ON_HOLD' as Any)).toBe('On hold');
+    expect(responseLabel('MAYBE_LATER' as Any)).toBe('Maybe later');
+    expect(attendanceLabel('REMOTE' as Any)).toBe('Remote');
+    expect(actionStatusLabel('BLOCKED' as Any)).toBe('Blocked');
+    expect(responseTone('MAYBE_LATER' as Any)).toBe('neutral');
+    expect(meetingStatusTone('ON_HOLD' as Any)).toBe('neutral');
+    expect(noteTypeTone('BRAIN_STORM' as Any)).toBe('neutral');
+    expect(actionStatusTone('BLOCKED' as Any)).toBe('info');
   });
 });

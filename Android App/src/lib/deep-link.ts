@@ -1,4 +1,7 @@
-/** A resolved navigation target from a deep link or a push notification tap. */
+/**
+ * Where a push notification tap (or the app itself) sends you. URL links are read by the
+ * navigator's linking config alone (navigation/linking), so there is one reading of every path.
+ */
 export type LinkTarget =
   | { screen: 'TaskDetail'; params: { taskId: string } }
   | { screen: 'Board'; params: { projectId: string } }
@@ -8,34 +11,6 @@ export type LinkTarget =
   | { screen: 'Chat' }
   | { screen: 'Notifications' }
   | { screen: 'Reset'; params: { token: string } };
-
-/**
- * Parse an incoming URL (custom scheme `mico360://…` or an https universal link)
- * into a navigation target (A0.3). Returns null for anything unrecognized.
- */
-export function parseDeepLink(url: string): LinkTarget | null {
-  const match = /^(?:mico360:\/\/|https?:\/\/[^/]+\/)(.*)$/i.exec(url.trim());
-  if (!match) return null;
-  const rest = (match[1] ?? '').replace(/^\/+/, '');
-  const path = rest.replace(/[?#].*$/, '');
-  const [segment, id] = path.split('/');
-
-  // Password-reset e-mail link: https://task.mico360.com/reset?token=… (MOB-09).
-  if (segment === 'reset' && !id) {
-    const token = extractResetToken(rest);
-    return token && token !== rest ? { screen: 'Reset', params: { token } } : null;
-  }
-
-  if (segment === 'task' && id) return { screen: 'TaskDetail', params: { taskId: id } };
-  if (segment === 'project' && id) return { screen: 'Board', params: { projectId: id } };
-  // mico360://meeting/<id>, and the website's own address for it (/meetings/<id>).
-  if ((segment === 'meeting' || segment === 'meetings') && id) return { screen: 'MeetingDetail', params: { meetingId: id } };
-  if (segment === 'meetings') return { screen: 'Meetings' };
-  if (segment === 'my-action-items') return { screen: 'MyActionItems' };
-  if (segment === 'chat') return { screen: 'Chat' };
-  if (segment === 'notifications') return { screen: 'Notifications' };
-  return null;
-}
 
 /**
  * Map a push notification's data payload to a navigation target (A6.2). The backend notification

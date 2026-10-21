@@ -79,6 +79,22 @@ export function meetingRowLabel(
     .join(', ');
 }
 
+/**
+ * Open a meeting's online link with `open` (the phone's Linking.openURL) — checked here again, so
+ * only a web (http/https) link is ever opened, whoever hands it over. False when it isn't one or the
+ * phone couldn't open it (the caller says so).
+ */
+export async function openMeetingLink(href: string | null | undefined, open: (url: string) => Promise<unknown>): Promise<boolean> {
+  const safe = safeMeetingHref(href);
+  if (!safe) return false;
+  try {
+    await open(safe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The meeting's online link to open — web (http/https) links only, else null (safeMeetingHref). */
 export function joinLink(m: Pick<ApiMeeting, 'onlineLink'>): string | null {
   return safeMeetingHref(m.onlineLink);

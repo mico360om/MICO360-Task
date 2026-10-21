@@ -27,8 +27,9 @@ import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
 import { targetToAction, requiresSession, meetingScreenId, taskScreenId, type NavAction } from './nav-actions';
 import { createPendingAction } from './pending-action';
-import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath } from './linking';
+import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
+import { TAB_ITEMS, type TabName } from './tabs';
 import { AppDrawer } from '../components/AppDrawer';
 import { UpdateBanner } from '../components/UpdateBanner';
 
@@ -63,15 +64,15 @@ configureNotifications();
  *  (getLastNotificationResponseAsync keeps returning the last tap) does not re-navigate. */
 const LAST_HANDLED_KEY = 'mico360.lastHandledNotifId';
 
-const TAB_ICON: Record<keyof TabsParamList, string> = {
-  Dashboard: '🏠',
-  MyTasks: '✓',
-  Projects: '🗂',
-  Meetings: '👥',
-  Chat: '💬',
-  Notifications: '🔔',
-  Settings: '⚙️',
+const TAB_SCREENS: Record<TabName, React.ComponentType<never>> = {
+  Dashboard: DashboardScreen,
+  MyTasks: MyTasksScreen,
+  Projects: ProjectsScreen,
+  Meetings: MeetingsScreen,
+  Chat: ChatScreen,
+  Notifications: NotificationsScreen,
 };
+const TAB_ICON = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.icon])) as Record<TabName, string>;
 
 /**
  * URL deep links (A0.3, MOB-09): mico360://task/<id>, mico360://project/<id>,
@@ -85,7 +86,9 @@ const linking = {
   config: linkingConfig,
   // /meetings/<id> (the website's path) opens the meeting as well as meeting/<id>. Today that is
   // mico360://meetings/<id> only: the https App Link covers /reset alone until Stage 6b adds paths.
-  getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) => getStateFromPath(normalizeLinkPath(path), options),
+  // A link never names a screen (?title=…): only the app sets the titles of the screens it opens.
+  getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) =>
+    withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), options)),
 } as unknown as LinkingOptions<AppStackParamList>;
 
 /** Perform a navigation action against the root container (imperative: push taps, deep links, drawer). */
@@ -124,6 +127,9 @@ function applyAction(action: NavAction): void {
       break;
     case 'Reports':
       navigationRef.navigate('Reports');
+      break;
+    case 'Settings':
+      navigationRef.navigate('Settings');
       break;
   }
 }
@@ -218,13 +224,10 @@ function MainTabs() {
         tabBarIcon: ({ color }) => <Text style={{ fontSize: 18, color }}>{TAB_ICON[route.name]}</Text>,
       })}
     >
-      <Tabs.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Home' }} />
-      <Tabs.Screen name="MyTasks" component={MyTasksScreen} options={{ title: 'My Tasks' }} />
-      <Tabs.Screen name="Projects" component={ProjectsScreen} options={{ title: 'Projects' }} />
-      <Tabs.Screen name="Meetings" component={MeetingsScreen} options={{ title: 'Meetings' }} />
-      <Tabs.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
-      <Tabs.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Alerts' }} />
-      <Tabs.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+      {/* Six tabs, in the side menu's order; Settings is in the menu (navigation/tabs). */}
+      {TAB_ITEMS.map((t) => (
+        <Tabs.Screen key={t.name} name={t.name} component={TAB_SCREENS[t.name] as React.ComponentType} options={{ title: t.title }} />
+      ))}
     </Tabs.Navigator>
   );
 }
@@ -356,6 +359,7 @@ export function RootNavigator() {
             <AppStack.Screen name="Calendar" component={CalendarScreen} options={{ title: 'Calendar' }} />
             <AppStack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
             <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports' }} />
+            <AppStack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
             <AppStack.Screen name="ChatThread" component={ChatThreadScreen} options={{ title: 'Chat' }} />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />

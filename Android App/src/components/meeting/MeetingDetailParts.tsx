@@ -10,12 +10,12 @@ import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { isRepeating, joinLink } from '../../lib/meetings';
 import { isUnderWay } from '../../lib/meeting-list';
 import {
-  ACTION_STATUS_LABELS,
+  actionStatusLabel,
   ANSWERS,
-  ATTENDANCE_LABELS,
-  MEETING_STATUS_LABELS,
-  NOTE_TYPE_LABELS,
-  RESPONSE_LABELS,
+  attendanceLabel,
+  meetingStatusLabel,
+  noteTypeLabel,
+  responseLabel,
   actionDueText,
   actionStatusTone,
   agendaItemLine,
@@ -74,7 +74,7 @@ export function MeetingHeaderCard({
   return (
     <View style={s.card}>
       <View style={s.badges}>
-        <Badge label={MEETING_STATUS_LABELS[m.status]} tone={meetingStatusTone(m.status)} />
+        <Badge label={meetingStatusLabel(m.status)} tone={meetingStatusTone(m.status)} />
         {isUnderWay(m, now) ? <Badge label="Under way" tone="brand" /> : null}
         {invites ? <Text style={s.small}>{invites}</Text> : null}
       </View>
@@ -222,7 +222,7 @@ export function PersonRow({ attendee: a, nameOf, myId, showAttendance, place }: 
   const name = attendeeName(a, nameOf);
   const response = a.response ?? 'PENDING';
   const own = !!a.userId && a.userId === myId;
-  const parts = [own ? `${name} (you)` : name, a.role === 'OPTIONAL' ? 'optional' : 'required', a.userId ? null : 'guest', RESPONSE_LABELS[response], showAttendance ? `attendance: ${ATTENDANCE_LABELS[a.attendance]}` : null];
+  const parts = [own ? `${name} (you)` : name, a.role === 'OPTIONAL' ? 'optional' : 'required', a.userId ? null : 'guest', responseLabel(response), showAttendance ? `attendance: ${attendanceLabel(a.attendance)}` : null];
   return (
     <SectionRow place={place}>
       <View accessible accessibilityLabel={parts.filter(Boolean).join(', ')}>
@@ -234,8 +234,8 @@ export function PersonRow({ attendee: a, nameOf, myId, showAttendance, place }: 
         <View style={s.badges}>
           <Badge label={a.role === 'OPTIONAL' ? 'Optional' : 'Required'} tone={a.role === 'OPTIONAL' ? 'neutral' : 'info'} />
           {!a.userId ? <Badge label="Guest" /> : null}
-          <Badge label={RESPONSE_LABELS[response]} tone={responseTone(response)} />
-          {showAttendance ? <Text style={s.small}>Attendance: {ATTENDANCE_LABELS[a.attendance]}</Text> : null}
+          <Badge label={responseLabel(response)} tone={responseTone(response)} />
+          {showAttendance ? <Text style={s.small}>Attendance: {attendanceLabel(a.attendance)}</Text> : null}
         </View>
       </View>
     </SectionRow>
@@ -288,7 +288,7 @@ export function NoteRow({
     <SectionRow place={place}>
       <View style={[s.note, { borderLeftColor: tone.fg }, note.highlighted && s.noteKey]}>
         <View style={s.badges}>
-          <Text style={[s.noteType, { color: tone.fg }]}>{NOTE_TYPE_LABELS[note.type].toUpperCase()}</Text>
+          <Text style={[s.noteType, { color: tone.fg }]}>{noteTypeLabel(note.type).toUpperCase()}</Text>
           {note.highlighted ? <Text style={s.keyPoint}>★ Key point</Text> : null}
           <Text style={s.small}>{noteMeta(note, nameOf, timeZone)}</Text>
         </View>
@@ -329,10 +329,10 @@ export function ActionRow({
   return (
     <SectionRow place={place}>
       <View style={s.gapXs}>
-        <View accessible accessibilityLabel={[item.description, ACTION_STATUS_LABELS[item.status], owner, due, item.sourceNoteId ? 'from a note' : null].filter(Boolean).join(', ')}>
+        <View accessible accessibilityLabel={[item.description, actionStatusLabel(item.status), owner, due, item.sourceNoteId ? 'from a note' : null].filter(Boolean).join(', ')}>
           <Text style={[s.itemTitle, done && s.done]}>{item.description}</Text>
           <View style={s.badges}>
-            <Badge label={ACTION_STATUS_LABELS[item.status]} tone={actionStatusTone(item.status)} />
+            <Badge label={actionStatusLabel(item.status)} tone={actionStatusTone(item.status)} />
             <Text style={s.small}>{owner}</Text>
             <Text style={[s.small, overdue && s.overdue]}>{due}</Text>
             {item.sourceNoteId ? <Text style={s.small}>· From a note</Text> : null}

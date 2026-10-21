@@ -9,7 +9,7 @@ import type { ApiMeeting, MeetingStatus } from './types';
 import { appTimeZone, zonedDayKey } from './due-date';
 import { dateFormat } from './intl-cache';
 import { clockTime, isRepeating, meetingPlace } from './meetings';
-import { MEETING_STATUS_LABELS, meetingWhen, minutesBadge } from './meeting-detail';
+import { MEETING_STATUS_LABELS, meetingStatusLabel, meetingWhen, minutesBadge } from './meeting-detail';
 
 export type DateRange = 'any' | 'today' | 'next7' | 'last7' | 'month' | 'last30';
 
@@ -208,7 +208,7 @@ export function meetingCardLabel(m: ApiMeeting, ctx: ListContext, locale?: strin
   const organizer = ctx.organizerName(m.organizerId);
   const decisions = m.decisionCount ?? 0;
   const open = m.openActionItemCount ?? 0;
-  const status = isUnderWay(m, ctx.now) ? 'Under way' : m.status !== 'SCHEDULED' && statusShown ? MEETING_STATUS_LABELS[m.status] : null;
+  const status = isUnderWay(m, ctx.now) ? 'Under way' : m.status !== 'SCHEDULED' && statusShown ? meetingStatusLabel(m.status) : null;
   return [
     m.title,
     when.day,

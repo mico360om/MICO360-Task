@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Linking } from 'react-native';
+import { openMeetingLink } from '../../lib/meetings';
 
 /**
  * "Now", moved on every minute while the screen is in view (`active`), so "Under way", "in 25 min"
@@ -32,7 +33,9 @@ export function usePullRefresh(load: () => Promise<unknown>): { refreshing: bool
   return { refreshing, onRefresh };
 }
 
-/** Open an online meeting's link — one already checked to be http or https (safeMeetingHref). */
+/** Open an online meeting's link — checked again here: only a web (http/https) link opens. */
 export function openJoinLink(href: string): void {
-  void Linking.openURL(href).catch(() => Alert.alert('Couldn’t open the meeting link', href));
+  void openMeetingLink(href, (url) => Linking.openURL(url)).then((opened) => {
+    if (!opened) Alert.alert('Couldn’t open the meeting link', href);
+  });
 }

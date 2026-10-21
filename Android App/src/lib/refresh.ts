@@ -21,8 +21,16 @@ export interface KeyRefresh {
  * - `taskDetails`: every task's own details, without their parts (a change to a whole series);
  * - `projectMeetingsOf`: the meetings overview of this meeting's project (none for a standalone
  *   meeting; every project's when the meeting isn't in the cache).
+ * - `meetingListsIfNew`: the meeting lists, when none of them — nor a meeting screen — holds this
+ *   meeting yet (you were just invited to it); nothing otherwise.
  */
-export type Refresh = KeyRefresh | { listsHolding: string } | { progressFor: string } | { taskDetails: 'all' } | { projectMeetingsOf: string };
+export type Refresh =
+  | KeyRefresh
+  | { listsHolding: string }
+  | { progressFor: string }
+  | { taskDetails: 'all' }
+  | { projectMeetingsOf: string }
+  | { meetingListsIfNew: string };
 
 type Task = { id?: unknown; projectId?: unknown };
 
@@ -58,6 +66,12 @@ function meetingProjectOf(qc: QueryClient, meetingId: string): string | null | u
   return undefined;
 }
 
+/** Does this phone know the meeting: on its own screen, or in a meetings list? */
+function meetingKnown(qc: QueryClient, meetingId: string): boolean {
+  if (qc.getQueryData(['meeting', meetingId]) !== undefined) return true;
+  return qc.getQueriesData({ queryKey: ['meetings'] }).some(([, data]) => holds(data, meetingId));
+}
+
 function matcher(qc: QueryClient, target: Refresh): (q: Query) => boolean {
   if ('listsHolding' in target) {
     return (q) => q.queryKey[0] === 'tasks' && holds(q.state.data, target.listsHolding);
@@ -67,6 +81,10 @@ function matcher(qc: QueryClient, target: Refresh): (q: Query) => boolean {
     return (q) => q.queryKey[0] === 'project' && q.queryKey[2] === 'progress' && q.queryKey.length === 3 && (!projectId || q.queryKey[1] === projectId);
   }
   if ('taskDetails' in target) return (q) => q.queryKey[0] === 'task' && q.queryKey.length === 2;
+  if ('meetingListsIfNew' in target) {
+    if (meetingKnown(qc, target.meetingListsIfNew)) return () => false;
+    return (q) => q.queryKey[0] === 'meetings';
+  }
   if ('projectMeetingsOf' in target) {
     const projectId = meetingProjectOf(qc, target.projectMeetingsOf);
     if (projectId === null) return () => false;

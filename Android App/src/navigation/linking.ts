@@ -20,6 +20,30 @@ export function normalizeLinkPath(path: string): string {
   return path.replace(/^(\/?)meetings\/(?=[^/?#])/, '$1meeting/');
 }
 
+/** Params that name a screen in its header: set by the app as it opens one, never by a link. */
+const TITLE_PARAMS = ['title', 'projectName'];
+
+interface LinkState {
+  routes: Array<{ params?: object; state?: LinkState }>;
+}
+
+/**
+ * The navigation state a link gives, without any header title it carried (`?title=…`,
+ * `?projectName=…`): a link from an email or a web page can't make a screen call itself something
+ * else. The screen shows its own name until its data says otherwise. Everything else a link
+ * carries (the ids, a reset token) stays.
+ */
+export function withoutLinkTitles<S extends LinkState | undefined>(state: S): S {
+  if (!state) return state;
+  return {
+    ...state,
+    routes: state.routes.map((r) => {
+      const params = r.params ? Object.fromEntries(Object.entries(r.params).filter(([k]) => !TITLE_PARAMS.includes(k))) : r.params;
+      return { ...r, params, ...(r.state ? { state: withoutLinkTitles(r.state) } : {}) };
+    }),
+  };
+}
+
 export const linkingConfig = {
   screens: {
     // Signed-out (auth stack)

@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { getStateFromPath } from '@react-navigation/core';
-import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath } from './linking';
+import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import { createPendingAction } from './pending-action';
 import { requiresSession, targetToAction } from './nav-actions';
-import { parseDeepLink } from '../lib/deep-link';
 
 // React Navigation's config type is invariant on the param list; the pure config is plain data.
 const cfg = linkingConfig as unknown as Parameters<typeof getStateFromPath>[1];
@@ -41,8 +40,19 @@ describe('linking config (MOB-09)', () => {
     expect(getStateFromPath(normalizeLinkPath('meetings/m9'), cfg)?.routes[0]).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm9' } });
   });
 
+  it('never takes a screen title from a link — only the app itself names a screen it opens', () => {
+    const open = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
+    expect(open('meeting/m1?title=Pay%20now')?.routes[0]).toEqual(expect.objectContaining({ name: 'MeetingDetail', params: { meetingId: 'm1' } }));
+    expect(open('meetings/m2?title=x')?.routes[0]?.params).toEqual({ meetingId: 'm2' });
+    expect(open('task/t1?title=Urgent%3A%20call%20me')?.routes[0]?.params).toEqual({ taskId: 't1' });
+    expect(open('project/p1?projectName=Fake')?.routes[0]?.params).toEqual({ projectId: 'p1' });
+    // Everything else a link carries stays (the reset token), and a link without a state is left alone.
+    expect(open('reset?token=AbC')?.routes[0]?.params).toEqual({ token: 'AbC' });
+    expect(withoutLinkTitles(undefined)).toBeUndefined();
+  });
+
   it('maps a parsed reset link to a signed-out navigation action', () => {
-    const action = targetToAction(parseDeepLink('https://task.mico360.com/reset?token=zz')!);
+    const action = targetToAction({ screen: 'Reset', params: { token: 'zz' } });
     expect(action).toEqual({ type: 'auth', screen: 'Reset', params: { token: 'zz' } });
     expect(requiresSession(action)).toBe(false);
     expect(requiresSession({ type: 'tab', tab: 'Chat' })).toBe(true);

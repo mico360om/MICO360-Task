@@ -37,7 +37,7 @@ describe('meeting events (sent to the meeting’s project room and to its organi
 
   it('one part of a meeting: that part only; the cards’ counts it shows on are fetched when the list is next shown', () => {
     expect(meetingEventRefreshes('meeting:agenda', { id: 'm1' })).toEqual([exact('meeting', 'm1', 'agenda')]);
-    expect(meetingEventRefreshes('meeting:attendees', { id: 'm1' })).toEqual([listCounts, exact('meeting', 'm1', 'attendees'), { projectMeetingsOf: 'm1' }]);
+    expect(meetingEventRefreshes('meeting:attendees', { id: 'm1' })).toEqual([listCounts, { meetingListsIfNew: 'm1' }, exact('meeting', 'm1', 'attendees'), { projectMeetingsOf: 'm1' }]);
     expect(meetingEventRefreshes('meeting:notes', { id: 'm1' })).toEqual([listCounts, exact('meeting', 'm1', 'notes'), { projectMeetingsOf: 'm1' }]);
     expect(meetingEventRefreshes('meeting:action-items', { id: 'm1' })).toEqual([listCounts, exact('meeting', 'm1', 'action-items'), myItems, { projectMeetingsOf: 'm1' }]);
   });

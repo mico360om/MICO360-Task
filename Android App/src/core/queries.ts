@@ -12,6 +12,7 @@ import { newIdempotencyKey } from '../lib/idempotency';
 import { withoutOldMeetings } from '../lib/meeting-list';
 import { withAnswer } from '../lib/meeting-detail';
 import { findMeeting } from '../lib/meeting-screen';
+import { answerFailed, answerScope } from '../lib/meeting-cache';
 import type { SyncQueue } from '../lib/sync-queue';
 import type { ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
 import type { NotificationPreferences } from '../lib/notification-prefs';
@@ -449,25 +450,27 @@ export function useFinalMinutes(meetingId: string) {
 }
 
 /**
- * Answer my own invitation. The answer shows at once and goes back if the server refuses it; the
- * server's copy of my row replaces it after — nothing else is fetched again (the answer shows on no
- * other screen; the others hear of it through the meeting's live event). Needs a connection.
+ * Answer my own invitation. The answer shows at once; if the server refuses it (or gives no
+ * answer) my row's old answer goes back and the people are loaded again (answerFailed). The
+ * server's copy of my row replaces it after a success — nothing else is fetched again (the answer
+ * shows on no other screen; the others hear of it through the meeting's live event). One meeting's
+ * answers go one after another (answerScope). Needs a connection.
  */
 export function useRespondToMeeting(meetingId: string) {
   const { resources } = useServices();
   const qc = useQueryClient();
   const key = ['meeting', meetingId, 'attendees'];
   return useMutation({
+    scope: answerScope(meetingId),
     mutationFn: ({ attendeeId, response }: { attendeeId: string; response: InvitationResponse }) => resources.meetings.respond(meetingId, attendeeId, response),
     onMutate: async ({ attendeeId, response }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
-      const previous = qc.getQueryData<ApiMeetingAttendee[]>(key);
-      if (previous) qc.setQueryData(key, withAnswer(previous, attendeeId, response));
+      const list = qc.getQueryData<ApiMeetingAttendee[]>(key);
+      const previous = list?.find((a) => a.id === attendeeId) ?? null;
+      if (list) qc.setQueryData(key, withAnswer(list, attendeeId, response));
       return { previous };
     },
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
-    },
+    onError: (error, _vars, ctx) => answerFailed(qc, { meetingId, previous: ctx?.previous ?? null, error }),
     onSuccess: (saved, { attendeeId }) => {
       if (saved?.id === attendeeId) qc.setQueryData<ApiMeetingAttendee[]>(key, (list) => list?.map((a) => (a.id === attendeeId ? { ...a, ...saved } : a)));
       else refresh(qc, [{ queryKey: key, exact: true }]);

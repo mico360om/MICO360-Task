@@ -6,7 +6,7 @@ import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { zonedDayKey } from '../../lib/due-date';
 import { dateFormat } from '../../lib/intl-cache';
 import { isRepeating, meetingPlace } from '../../lib/meetings';
-import { MEETING_STATUS_LABELS, meetingStatusTone, meetingWhen, minutesBadge } from '../../lib/meeting-detail';
+import { meetingStatusLabel, meetingStatusTone, meetingWhen, minutesBadge } from '../../lib/meeting-detail';
 import { isUnderWay, meetingCardLabel, peopleText, type ListContext } from '../../lib/meeting-list';
 import type { ApiMeeting } from '../../lib/types';
 
@@ -86,7 +86,7 @@ export const MeetingCard = memo(function MeetingCard({
       <View style={s.foot}>
         <Text style={s.people}>{peopleText(m)}</Text>
         <View style={s.badges}>
-          {live ? <Badge label="Under way" tone="brand" /> : m.status !== 'SCHEDULED' && statusShown ? <Badge label={MEETING_STATUS_LABELS[m.status]} tone={meetingStatusTone(m.status)} /> : null}
+          {live ? <Badge label="Under way" tone="brand" /> : m.status !== 'SCHEDULED' && statusShown ? <Badge label={meetingStatusLabel(m.status)} tone={meetingStatusTone(m.status)} /> : null}
           {minutes ? <Badge label={minutes.label} tone={minutes.tone} /> : null}
           {decisions ? <Text style={s.count}>{decisions} {decisions === 1 ? 'decision' : 'decisions'}</Text> : null}
           {open ? <Badge label={`${open} open`} tone="warning" /> : null}
