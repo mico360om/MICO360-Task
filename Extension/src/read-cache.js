@@ -3,7 +3,7 @@ import { isTransientFailure } from './errors.js';
 export const CACHE_PREFIX = 'cache:';
 /**
  * Most recently cached responses kept on the device; older ones are evicted (EXT-05). Chrome gives
- * the extension 10 MB of storage (it has no unlimitedStorage): a write that doesn't fit drops the
+ * the extension unlimited storage, but a disk can still be full: a write that doesn't fit drops the
  * older half and tries again, and a change waiting to sync is never refused for these copies
  * (queue.js makes room for it).
  */

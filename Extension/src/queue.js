@@ -45,8 +45,8 @@ async function mutateQueue(storage, change) {
 }
 
 /**
- * Write the queue. The device's storage for the extension is 10 MB (no unlimitedStorage); when it is
- * full, the saved copies of screens give way — the older half, then all of them — so a change waiting
+ * Write the queue. When the device's storage for the extension is full (a disk without room, or a
+ * copy without unlimitedStorage), the saved copies of screens give way — the older half, then all of them — so a change waiting
  * to sync is never refused for their sake. Only when even that fails does the write fail (EXT-05).
  */
 async function saveQueue(storage, next) {

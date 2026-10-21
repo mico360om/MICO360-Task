@@ -75,6 +75,10 @@ export function showModal(node, { onEscape } = {}) {
       // The browser moves focus; leaving a field saves it, which can redraw the next control away.
       const i = items.indexOf(a);
       heading = i >= 0 ? describe(items[i + (e.shiftKey ? -1 : 1)]) : null;
+      // Tab can also stay in the same control (a date's day, month and year): then it isn't heading on.
+      setTimeout(() => {
+        if (doc.activeElement === a) heading = null;
+      }, 0);
       return;
     }
     e.preventDefault();

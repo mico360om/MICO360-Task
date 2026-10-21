@@ -9,9 +9,7 @@ import { setToolbarBadge } from '../src/notify.js';
 import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
-import { versionStatus, aboutUrl } from '../src/version.js';
 import { applyStoredTheme } from './theme.js';
-import { updateNotice } from './components.js';
 import { showModal, returnFocus } from './dialog.js';
 
 import { LoginScreen } from './screens/login.js';
@@ -30,8 +28,6 @@ const storage = chrome.storage.local;
 // The access token lives in memory-only session storage (EXT-07), never on disk.
 const sessionStore = chrome.storage.session;
 const NOTICE_KEY = 'mico360.loginNotice';
-/** How often an open app tab asks the server for its version (a newer one means an update is out). */
-const VERSION_CHECK_MS = 30 * 60000;
 
 const NAV = [
   { path: '/', icon: '🏠', label: 'Dashboard' },
@@ -240,34 +236,9 @@ class App {
     this.refreshMeta();
     this.sync();
     this.refreshTimeZone();
-    this.checkVersion();
     setInterval(() => this.refreshMeta(), 60000);
-    setInterval(() => this.checkVersion(), VERSION_CHECK_MS);
-  }
-
-  /**
-   * The server's version (GET /version). A zip install is told when the server is newer — Chrome
-   * never updates those — until it is dismissed for that version (Settings → About still says so).
-   */
-  async checkVersion() {
-    let server = null;
-    try {
-      server = (await this.api.version()).data?.version ?? null;
-    } catch {
-      /* offline with nothing saved — check again later */
-    }
-    const status = versionStatus({ manifest: this.manifest, server });
-    let dismissed = null;
-    try { dismissed = (await this.storage.get('dismissedUpdate')).dismissedUpdate ?? null; } catch { dismissed = null; }
-    const show = status.updateAvailable && dismissed !== status.server;
-    mount(this.updateEl, show ? updateNotice({
-      status,
-      aboutHref: aboutUrl(this.appBase),
-      onDismiss: async () => {
-        clear(this.updateEl);
-        try { await this.storage.set({ dismissedUpdate: status.server }); } catch { /* shown again next time */ }
-      },
-    }) : null);
+    // No "newer version" banner: most releases change only the website, so a newer server doesn't
+    // mean a newer extension file. Settings → About shows both versions and how to update.
   }
 
   /** Company time zone from GET /config (cached for the next start; used by boards and due dates). */
@@ -330,12 +301,10 @@ class App {
     this.titleEl = el('h1', {}, 'Dashboard');
     this.connEl = el('span', { class: 'conn' });
     this.offbar = el('div', { class: 'offbar hidden' }, 'Offline — showing saved data. Changes will sync when you reconnect.');
-    this.updateEl = el('div');
     this.content = el('div', { class: 'content' });
     const main = el('main', { class: 'main' },
       el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), this.connEl),
       this.offbar,
-      this.updateEl,
       this.content,
     );
     mount(this.root, el('div', { class: 'app' }, sidebar, main));

@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
-/** The extension's and the server's versions in Settings, and the shell's "newer version" notice. */
+/** The extension's and the server's versions in Settings. */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SettingsScreen } from '../app/screens/settings.js';
-import { updateNotice } from '../app/components.js';
-import { versionStatus } from './version.js';
 import { DEFAULTS } from './config.js';
 import { ApiError } from './errors.js';
 import { fakeStorage } from './test-helpers.js';
@@ -47,14 +45,16 @@ describe('Settings → About', () => {
     expect(link.rel).toBe('noopener');
   });
 
-  it('a zip install is told when the server is newer, how to update, and the card comes first', async () => {
+  it('a zip install is told the website’s newer version and how to update when a new file comes — never that one exists', async () => {
     const ctx = settingsCtx({ version: async () => ({ data: { version: '1.6.0' }, stale: false }) });
     const root = SettingsScreen(ctx);
     await settle();
     const card = about(root);
-    expect(root.querySelector('.card')).toBe(card);
     expect(card.textContent).toContain('Server version 1.6.0');
-    expect(card.textContent).toContain('A newer version, 1.6.0, is available');
+    // A website update (most releases) needs no new extension: nothing claims one is out.
+    expect(card.textContent).not.toMatch(/newer version|is available/i);
+    expect(card.textContent).toContain('The website runs version 1.6.0.');
+    expect(card.textContent).toContain('your administrator');
     expect(card.textContent).toMatch(/unzip it over this extension’s folder/);
     expect(card.textContent).toContain('chrome://extensions');
   });
@@ -79,24 +79,5 @@ describe('Settings → About', () => {
     await settle();
     expect(about(root).textContent).toContain('Server version not known.');
     expect(about(root).textContent).not.toContain('offline');
-  });
-});
-
-describe('the shell’s update notice', () => {
-  it('names both versions, links to the steps and to what’s new, and can be dismissed', () => {
-    const onDismiss = vi.fn();
-    const node = updateNotice({ status: versionStatus({ manifest: { version: '1.5.1' }, server: '1.6.0' }), aboutHref: 'https://tasks.example.com/about', onDismiss });
-    document.body.append(node);
-    expect(node.getAttribute('role')).toBe('status');
-    expect(node.textContent).toContain('A newer version of MICO360 Tasks, 1.6.0, is available (this extension is 1.5.1).');
-    const links = [...node.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href')]);
-    expect(links).toEqual([['How to update', '#/settings'], ['What’s new ↗', 'https://tasks.example.com/about']]);
-    node.querySelector('button').click();
-    expect(onDismiss).toHaveBeenCalled();
-    expect(node.querySelector('button').getAttribute('aria-label')).toBe('Dismiss the update notice');
-  });
-
-  it('is nothing when there is no newer version', () => {
-    expect(updateNotice({ status: versionStatus({ manifest: { version: '1.5.1' }, server: '1.5.1' }), aboutHref: '#', onDismiss() {} })).toBeNull();
   });
 });

@@ -46,9 +46,11 @@ It needs Chrome 116 or later (`minimum_chrome_version`). The access token is kep
 the open app tab is found with `chrome.runtime.getContexts` (Chrome 116+).
 
 Permissions: `storage` (settings, the session, offline copies and the sync queue), `alarms` (the
-one-minute background check), `notifications` (the unread alert). There is no `unlimitedStorage`:
-Chrome's 10 MB is plenty for the 200 offline copies kept (`src/read-cache.js`), and when storage is
-full those copies make room for changes waiting to sync, never the other way round.
+one-minute background check), `notifications` (the unread alert), `unlimitedStorage` (installed
+copies already have it: without it, an app tab left open for days can fill Chrome's 10 MB with
+offline copies, and the next renewal of the sign-in could not be saved). The offline copies are
+still capped at 200 (`src/read-cache.js`), and when storage is full they make room for changes
+waiting to sync, never the other way round.
 
 ## Structure
 

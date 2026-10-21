@@ -37,7 +37,7 @@ describe('offline queue', () => {
   });
 
   it('when the device’s storage is full, saved copies of screens make room for a change waiting to sync', async () => {
-    // Chrome gives the extension 10 MB (no unlimitedStorage): here it is "full" while any copy is kept.
+    // A full store (no room on the disk): here it is "full" while any copy is kept.
     const copies = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`cache:k${i}`, { data: i, cachedAt: i }]));
     const s = fakeStorage({ ...copies, theme: 'dark' }, { failSet: (obj, data) => 'syncQueue' in obj && Object.keys(data).some((k) => k.startsWith('cache:')) });
     const item = await enqueue(s, { kind: 'comment.add', payload: { id: 't1', body: 'hi' }, userId: A });

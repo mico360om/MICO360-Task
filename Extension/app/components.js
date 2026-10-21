@@ -33,20 +33,6 @@ export const SAVED_ON_DEVICE = 'Saved on this device — it will sync when the c
 export const UPDATE_STEPS = 'To update, get the new extension file from your administrator, unzip it over this extension’s folder, then open chrome://extensions and press Reload on MICO360 Tasks. You stay signed in.';
 
 /**
- * The shell's notice that the server runs a newer version than this zip-installed extension (see
- * src/version.js), or null when there is none. "How to update" opens Settings → About.
- */
-export function updateNotice({ status, aboutHref, onDismiss }) {
-  if (!status || !status.updateAvailable) return null;
-  return el('div', { class: 'updatebar', role: 'status' },
-    el('span', { class: 'msg' }, `A newer version of MICO360 Tasks, ${status.server}, is available (this extension is ${status.extension}).`),
-    el('a', { href: '#/settings' }, 'How to update'),
-    el('a', { href: aboutHref, target: '_blank', rel: 'noopener' }, 'What’s new ↗'),
-    el('button', { class: 'btn sm ghost', type: 'button', 'aria-label': 'Dismiss the update notice', onClick: onDismiss }, 'Dismiss'),
-  );
-}
-
-/**
  * The reusable task row (Dashboard, My Tasks, Calendar). Voices priority for screen readers. The due
  * date is shown as its calendar day (never shifted by the viewer's zone) and "Overdue" follows the
  * company-time-zone rule; a finished task is never overdue (XP-03).

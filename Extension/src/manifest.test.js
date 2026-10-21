@@ -23,8 +23,8 @@ describe('manifest.json', () => {
     expect(manifest.minimum_chrome_version).toBe('116');
   });
 
-  it('asks only for the permissions it uses — not unlimitedStorage (the offline copies are capped)', () => {
-    expect([...manifest.permissions].sort()).toEqual(['alarms', 'notifications', 'storage']);
+  it('asks only for the permissions it uses, keeping unlimitedStorage (installed copies have it; without it a full store could refuse the sign-in token)', () => {
+    expect([...manifest.permissions].sort()).toEqual(['alarms', 'notifications', 'storage', 'unlimitedStorage']);
     expect(manifest.host_permissions).toEqual(['https://task.mico360.com/*']);
   });
 

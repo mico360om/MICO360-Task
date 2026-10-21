@@ -298,6 +298,31 @@ describe('the task drawer is a modal dialog', () => {
     release();
     expect(app.hasAttribute('inert')).toBe(false);
   });
+
+  it('Tab between a date’s own parts (day, month, year) keeps focus on the date when typing it saves and redraws', async () => {
+    const draw = () => [
+      Object.assign(document.createElement('input'), { type: 'date' }),
+      document.createElement('select'),
+    ];
+    const panel = document.createElement('div');
+    panel.setAttribute('role', 'dialog');
+    const [date, repeat] = draw();
+    date.setAttribute('aria-label', 'Due date');
+    repeat.setAttribute('aria-label', 'Repeat');
+    panel.append(date, repeat);
+    document.body.append(panel);
+    releases.push(showModal(panel));
+    date.focus();
+    key(date, 'Tab'); // the browser moves to the date's next part: focus stays on the date input
+    await settle();
+    // Typing the day completes the date: it saves, and the drawer is drawn again.
+    const [date2, repeat2] = draw();
+    date2.setAttribute('aria-label', 'Due date');
+    repeat2.setAttribute('aria-label', 'Repeat');
+    panel.replaceChildren(date2, repeat2);
+    await settle();
+    expect(active()).toBe(date2);
+  });
 });
 
 describe('returnFocus (closing the drawer)', () => {

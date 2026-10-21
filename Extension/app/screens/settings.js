@@ -82,9 +82,10 @@ export function SettingsScreen(ctx) {
       : `Server version not known${offline ? ' — you appear to be offline' : ''}.`;
     let note = null;
     if (status.updateAvailable) {
+      // Most releases change only the website: a newer server doesn't mean a newer extension file.
       note = el('div', { class: 'infobar', style: { marginTop: '10px', marginBottom: 0 } },
-        el('div', {}, `A newer version, ${status.server}, is available.`),
-        el('div', { style: { fontWeight: '400', marginTop: '4px' } }, UPDATE_STEPS));
+        el('div', {}, `The website runs version ${status.server}.`),
+        el('div', { style: { fontWeight: '400', marginTop: '4px' } }, `Not every website update needs a new extension. When one does, ${UPDATE_STEPS.charAt(0).toLowerCase()}${UPDATE_STEPS.slice(1)}`));
     } else if (status.storeInstall) {
       note = el('div', { class: 'muted', style: { marginTop: '8px', fontSize: '13px' } }, 'Chrome keeps this extension up to date.');
     }
@@ -95,7 +96,6 @@ export function SettingsScreen(ctx) {
       el('div', { style: { marginTop: '10px', fontSize: '13px' } },
         el('a', { href: aboutUrl(appBase), target: '_blank', rel: 'noopener' }, 'What’s new in each release ↗')),
     );
-    if (status.updateAvailable) root.prepend(aboutCard);
   }
 
   async function saveBackend(apiValue, appValue, current, saveMsg) {
