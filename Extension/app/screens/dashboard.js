@@ -2,7 +2,7 @@ import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
 import { summarizeTasks, groupTasksByDue } from '../../src/summary.js';
 import { taskRow } from '../components.js';
 import { UpNext } from '../meeting/up-next.js';
-import { nextUpMeeting, myInvitation } from '../../src/meetings.js';
+import { nextUpMeeting, myInvitation, rowInvitation, upNextListParams } from '../../src/meetings.js';
 
 /**
  * Dashboard — My Work widgets + overdue / upcoming lists (mirrors the web dashboard). "Today" and
@@ -26,20 +26,27 @@ export function DashboardScreen(ctx) {
     }
   }
 
-  /** The Up next card, or null (no meeting coming, or meetings can't be read). */
+  /**
+   * The Up next card, or null (no meeting coming, or meetings can't be read). Only the two weeks from
+   * today are read (soonest first); your answer comes on the row from a newer server, else from the
+   * meeting's people.
+   */
   async function upNext() {
     if (!ctx.api.meetings) return null;
     try {
       const now = new Date();
-      const list = await ctx.api.meetings.list();
+      const myId = ctx.me && ctx.me.id;
+      const list = await ctx.api.meetings.list(upNextListParams(ctx.timeZone, now));
       const up = nextUpMeeting(Array.isArray(list && list.data) ? list.data : [], now);
       if (!up) return null;
+      const fromRow = rowInvitation(up, myId);
       const [people, projects] = await Promise.all([
-        ctx.api.meetings.attendees(up.id).catch(() => null),
+        fromRow === undefined ? ctx.api.meetings.attendees(up.id).catch(() => null) : null,
         ctx.api.projects && ctx.api.projects.list ? ctx.api.projects.list().catch(() => null) : null,
       ]);
       const project = up.projectId && projects && Array.isArray(projects.data) ? projects.data.find((p) => p.id === up.projectId) || null : null;
-      return UpNext(ctx, up, { attendee: people ? myInvitation(people.data, ctx.me && ctx.me.id) : null, project, now });
+      const attendee = fromRow !== undefined ? fromRow : people ? myInvitation(people.data, myId) : null;
+      return UpNext(ctx, up, { attendee, project, now });
     } catch {
       return null;
     }

@@ -4,7 +4,7 @@
  * next one ("Up next"), the upcoming ones by day, when and where, Join, who's coming, and your answer
  * to the invitation. src/meetings.test.js runs these and the web's over the same inputs. Pure (no DOM).
  */
-import { todayKey, zonedDayKey, shiftDayKey } from './due-date.js';
+import { todayKey, zonedDayKey, shiftDayKey, zonedStartOfDay } from './due-date.js';
 import { recurrenceSummary } from './recurrence.js';
 
 export const MEETING_STATUS_LABELS = { DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled' };
@@ -242,4 +242,36 @@ export function answersFor(list, userId) {
     if (mine) out.set(meetingId, { attendeeId: mine.id, response: mine.response || 'PENDING' });
   }
   return out;
+}
+
+/**
+ * Your row on a listed meeting from the list itself: a newer server sends `myAttendeeId` and
+ * `myResponse` on each row (`myPending`: your answer waiting to sync, H3). Null when you aren't on
+ * it; undefined when the server doesn't send them (an older one: read the meeting's people).
+ */
+export function rowInvitation(m, userId) {
+  if (!m || !('myAttendeeId' in m)) return undefined;
+  if (!m.myAttendeeId) return null;
+  return { id: m.myAttendeeId, userId, response: m.myResponse || 'PENDING', ...(m.myPending ? { pending: true } : {}) };
+}
+
+// ---- which meetings a list reads ------------------------------------------------------------
+
+/** The start of today in `timeZone`, as an ISO instant (stable all day, so its saved copy is too). */
+function startOfToday(timeZone, now) {
+  return zonedStartOfDay(todayKey(timeZone, now), timeZone);
+}
+
+/**
+ * Meetings: those starting from today (company time). A ranged read lists them soonest first — the
+ * plain list is the latest 500 by start, so a few repeating series could push today's out.
+ */
+export function meetingsListParams(timeZone, now = new Date()) {
+  return { from: startOfToday(timeZone, now).toISOString() };
+}
+
+/** The Dashboard's Up next: the two weeks from the start of today. */
+export function upNextListParams(timeZone, now = new Date()) {
+  const from = startOfToday(timeZone, now);
+  return { from: from.toISOString(), to: zonedStartOfDay(shiftDayKey(todayKey(timeZone, now), 14), timeZone).toISOString() };
 }

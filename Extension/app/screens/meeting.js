@@ -1,4 +1,4 @@
-import { el, mount, Loader, redrawKeepingFocus } from '../dom.js';
+import { el, mount, Loader, redrawKeepingFocus, valuesLine } from '../dom.js';
 import { AnswerControl } from '../meeting/answer.js';
 import {
   formatMeetingDay, formatMeetingTimes, safeJoinLink, meetingStatusLabel, responseLabel, responseSummary, responseLine,
@@ -114,7 +114,8 @@ export function MeetingScreen(ctx) {
       el('ol', { class: 'mt-agenda-list' }, sorted.map((g) => el('li', { class: g.completed ? 'done' : null },
         el('span', { class: 'mt-agenda-title', dir: 'auto' }, g.title),
         g.completed ? el('span', { class: 'sr-only' }, ' (covered)') : null,
-        el('span', { class: 'muted mt-agenda-line' }, `${(g.ownerId && nameOf(g.ownerId)) || 'No presenter'} · ${g.expectedMinutes != null ? `${g.expectedMinutes} min` : 'no time set'}`)))));
+        // Each value isolated, the " · " outside: an Arabic name can't move it.
+        el('span', { class: 'muted mt-agenda-line' }, valuesLine([(g.ownerId && nameOf(g.ownerId)) || 'No presenter', g.expectedMinutes != null ? `${g.expectedMinutes} min` : 'no time set']))))));
   }
 
   function peoplePart(people, nameOf) {

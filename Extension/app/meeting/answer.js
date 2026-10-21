@@ -17,7 +17,7 @@ export function AnswerControl(ctx, { meeting, attendee, onAnswered }) {
   const lane = createWriteLane();
 
   const buttons = ANSWERS.map((a) => el('button', {
-    class: 'chip mt-answer', type: 'button', 'aria-pressed': 'false', dataset: { answer: a.value }, onClick: () => press(a.value),
+    class: 'chip mt-answer', type: 'button', 'aria-pressed': 'false', dataset: { answer: a.value, focusKey: `answer-${meeting.id}-${a.value}` }, onClick: () => press(a.value),
   }, a.label));
   const status = el('p', { class: 'muted mt-answer-status', role: 'status', 'aria-live': 'polite' });
   const alert = el('div', { class: 'mt-answer-problem' });
@@ -46,6 +46,12 @@ export function AnswerControl(ctx, { meeting, attendee, onAnswered }) {
         const r = await ctx.write('meeting.respond', { meetingId: meeting.id, attendeeId: attendee.id, response: next, title: meeting.title });
         kept = !!(r && r.queued);
         if (r && !r.queued && r.data && typeof r.data.response === 'string' && current === next) current = r.data.response;
+        if (r && !r.queued) {
+          // Taken by the server: the saved copies say it too (offline they'd show the answer before).
+          const took = r.data && typeof r.data.response === 'string' ? r.data.response : next;
+          const meetings = ctx.api && ctx.api.meetings;
+          if (meetings && typeof meetings.rememberAnswer === 'function') void meetings.rememberAnswer({ meetingId: meeting.id, attendeeId: attendee.id, response: took, timeZone: ctx.timeZone });
+        }
         if (onAnswered) onAnswered(current);
       } catch (e) {
         if (current === next) current = before;

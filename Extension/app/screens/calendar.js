@@ -1,4 +1,4 @@
-import { el, mount, Loader, ErrorState } from '../dom.js';
+import { el, mount, Loader, ErrorState, valuesLine } from '../dom.js';
 import { href } from '../../src/router.js';
 import { isDayKey, todayKey } from '../../src/due-date.js';
 import { hasProjectColor } from '../../src/project-identity.js';
@@ -16,16 +16,6 @@ const OVERDUE_PREVIEW = 8;
 const ICON = { overdue: '!', blocked: '⊘', 'in-progress': '◐', todo: '○', done: '✓', projected: '↻' };
 const WEEKDAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const rows = (v) => (Array.isArray(v) ? v : []);
-
-/**
- * "a · b · c": each value isolated in its own <bdi> and the " · " between them outside, so an
- * Arabic value can't move the separators or swap the order. Null when there is nothing to say.
- */
-function valuesLine(values) {
-  const parts = values.filter(Boolean);
-  if (!parts.length) return null;
-  return parts.flatMap((v, i) => (i ? [' · ', el('bdi', {}, v)] : [el('bdi', {}, v)]));
-}
 
 /**
  * Calendar, as on the web (Stage 6): `GET /calendar` for the days shown — the tasks due in the

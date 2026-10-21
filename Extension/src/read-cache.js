@@ -97,5 +97,23 @@ export function createReadCache(storage, { now = Date.now, maxEntries = MAX_CACH
     }
   }
 
-  return { read, peek, prune, merge };
+  /**
+   * Change a saved answer (a list too) with `change(data)`, which returns the new data or undefined
+   * to leave it. Only a key already saved is touched. Resolves true when it was updated. Best effort.
+   */
+  async function update(key, change) {
+    const k = cacheKey(key);
+    try {
+      const o = await storage.get(k);
+      const env = o && o[k];
+      if (!env || env.data == null) return false;
+      const data = change(env.data);
+      if (data === undefined) return false;
+      return save(k, { data, cachedAt: env.cachedAt });
+    } catch {
+      return false;
+    }
+  }
+
+  return { read, peek, prune, merge, update };
 }

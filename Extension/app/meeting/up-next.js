@@ -1,4 +1,4 @@
-import { el } from '../dom.js';
+import { el, valuesLine } from '../dom.js';
 import { AnswerControl } from './answer.js';
 import {
   isUnderWay, startsLabel, formatClockTime, formatMeetingDay, formatMeetingTimes, safeJoinLink, meetingPlace, canAnswer,
@@ -9,8 +9,10 @@ import {
  * how many are coming; Join for an online one (a secure link only, in a new tab), Open (its page
  * here), and your answer when you are invited. As the web's UpNextCard, on Meetings and the Dashboard.
  * `attendee`: your row on it, or null when you aren't invited (or it couldn't be read).
+ * `onAnswered(response)`: the answer given here was taken (the screen shows it elsewhere too).
+ * Its controls carry focus keys with the meeting's id, so a re-read finds the very same one again.
  */
-export function UpNext(ctx, m, { attendee = null, project = null, now = new Date() } = {}) {
+export function UpNext(ctx, m, { attendee = null, project = null, now = new Date(), onAnswered } = {}) {
   const tz = ctx.timeZone;
   const live = isUnderWay(m, now);
   const when = live ? (m.endAt ? `until ${formatClockTime(m.endAt, tz)}` : 'Happening now') : startsLabel(m, now, tz);
@@ -24,13 +26,16 @@ export function UpNext(ctx, m, { attendee = null, project = null, now = new Date
         el('span', { 'aria-hidden': 'true' }, ' · '),
         el('span', { class: 'mt-upnext-at' }, when)),
       el('p', { class: 'mt-upnext-title', dir: 'auto' }, m.title),
-      el('p', { class: 'muted mt-upnext-meta' },
-        el('span', {}, `${formatMeetingDay(m.startAt, tz)} · ${formatMeetingTimes(m.startAt, m.endAt, tz)}`),
-        place ? el('span', { dir: 'auto' }, ` · ${place}`) : null,
-        el('span', { dir: 'auto' }, ` · ${project ? project.name : 'Standalone'}`),
-        people ? el('span', {}, ` · ${people} ${people === 1 ? 'person' : 'people'}`) : null)),
+      // Each value isolated, the " · " outside: an Arabic place or project can't move them.
+      el('p', { class: 'muted mt-upnext-meta' }, valuesLine([
+        formatMeetingDay(m.startAt, tz), formatMeetingTimes(m.startAt, m.endAt, tz), place, project ? project.name : 'Standalone',
+        people ? `${people} ${people === 1 ? 'person' : 'people'}` : null,
+      ]))),
     el('div', { class: 'mt-upnext-actions' },
-      join ? el('a', { class: 'btn primary', href: join, target: '_blank', rel: 'noopener noreferrer' }, 'Join') : null,
-      el('button', { class: `btn${join ? '' : ' primary'}`, type: 'button', 'aria-label': `Open ${m.title}`, onClick: () => ctx.navigate(`#/meeting/${encodeURIComponent(m.id)}`) }, 'Open')),
-    attendee && canAnswer(m) ? AnswerControl(ctx, { meeting: m, attendee }) : null);
+      join ? el('a', { class: 'btn primary', href: join, target: '_blank', rel: 'noopener noreferrer', dataset: { focusKey: `upnext-join-${m.id}` } }, 'Join') : null,
+      el('button', {
+        class: `btn${join ? '' : ' primary'}`, type: 'button', 'aria-label': `Open ${m.title}`, dataset: { focusKey: `upnext-open-${m.id}` },
+        onClick: () => ctx.navigate(`#/meeting/${encodeURIComponent(m.id)}`),
+      }, 'Open')),
+    attendee && canAnswer(m) ? AnswerControl(ctx, { meeting: m, attendee, onAnswered }) : null);
 }

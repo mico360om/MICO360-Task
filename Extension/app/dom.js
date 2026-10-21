@@ -78,6 +78,18 @@ export function redrawKeepingFocus(root, draw) {
   if (same) same.focus();
 }
 
+/**
+ * "a · b · c" as nodes: each value isolated in its own <bdi> and the " · " between them outside, so
+ * an Arabic value can't move the separators or swap the order. A value may be a node already (a
+ * label with its value). Null when there is nothing to say.
+ */
+export function valuesLine(values) {
+  const parts = values.filter((v) => v != null && v !== false && v !== '');
+  if (!parts.length) return null;
+  const node = (v) => (v && v.nodeType ? v : el('bdi', {}, v));
+  return parts.flatMap((v, i) => (i ? [' · ', node(v)] : [node(v)]));
+}
+
 /** A themed status/priority pill. */
 export function pill(text, cls) {
   return el('span', { class: `pill ${cls || ''}` }, text);

@@ -3,6 +3,7 @@ import { sanitizeMessages, sanitizeSummaries, CHAT_PAGE_SIZE } from './chat.js';
 import { fileNameFromDisposition } from './reports.js';
 import { timeoutSignal, DOWNLOAD_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, AI_TIMEOUT_MS } from './auth.js';
 import { applyPending } from './pending-overlay.js';
+import { meetingsListParams, upNextListParams } from './meetings.js';
 
 export { ApiError };
 
@@ -10,6 +11,9 @@ function qs(params) {
   const pairs = Object.entries(params).filter(([, v]) => v != null && v !== '');
   return pairs.length ? '?' + pairs.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&') : '';
 }
+
+/** GET /meetings's query (and its saved copy's key): `from`/`to` ISO instants, `mine`. */
+const meetingsQuery = ({ from, to, mine } = {}) => qs({ from, to, mine: mine ? 'true' : undefined });
 
 /**
  * Resources layer for the extension app. Reads go through the read-through `cache` (so screens work
@@ -186,14 +190,30 @@ export function createApi({ auth, cache, pending }) {
     preferences: () => get('prefs', '/users/me/preferences'),
     meetings: {
       /** Meetings you can see; `from`/`to` (ISO instants): those starting in that span; `mine`: you organize. */
-      list: ({ from, to, mine } = {}) => {
-        const query = qs({ from, to, mine: mine ? 'true' : undefined });
+      list: (params = {}) => {
+        const query = meetingsQuery(params);
         return get(`meetings:${query}`, `/meetings${query}`);
       },
       get: (id) => get(`meeting:${id}`, `/meetings/${encodeURIComponent(id)}`),
       /** Who is on it, with each one's answer (yours waiting to sync on top). */
       attendees: (id) => get(`meeting-attendees:${id}`, `/meetings/${encodeURIComponent(id)}/attendees`),
       agenda: (id) => get(`meeting-agenda:${id}`, `/meetings/${encodeURIComponent(id)}/agenda`),
+      /**
+       * An answer the server took: the saved copies say it too — the meeting's people, and today's
+       * Meetings and Up next lists (offline they would show the answer before). Only copies already
+       * saved are changed; never throws.
+       */
+      rememberAnswer: async ({ meetingId, attendeeId, response, timeZone }) => {
+        if (!cache || typeof cache.update !== 'function') return;
+        const people = (rows) => (Array.isArray(rows) ? rows.map((a) => (a && a.id === attendeeId ? { ...a, response } : a)) : undefined);
+        const listed = (rows) => (Array.isArray(rows) ? rows.map((m) => (m && m.id === meetingId && m.myAttendeeId === attendeeId ? { ...m, myResponse: response } : m)) : undefined);
+        try {
+          await cache.update(`meeting-attendees:${meetingId}`, people);
+          for (const params of [meetingsListParams(timeZone), upNextListParams(timeZone)]) await cache.update(`meetings:${meetingsQuery(params)}`, listed);
+        } catch {
+          /* the saved copies are best effort */
+        }
+      },
     },
     notifications: {
       list: () => get('notifications', '/notifications'),

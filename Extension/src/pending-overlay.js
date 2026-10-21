@@ -287,6 +287,19 @@ function overMeetingPeople(meetingId, list, items) {
   return { data: rows, applied };
 }
 
+/** A list of meetings with your answer waiting to sync on the rows that carry your own row (myAttendeeId). */
+function overMeetingList(list, items) {
+  let rows = list;
+  let applied = 0;
+  for (const item of items) {
+    const p = item.payload || {};
+    if (item.kind !== 'meeting.respond' || !rows.some((m) => m && m.id === p.meetingId && m.myAttendeeId === p.attendeeId)) continue;
+    rows = rows.map((m) => (m && m.id === p.meetingId && m.myAttendeeId === p.attendeeId ? { ...m, myResponse: p.response, myPending: true } : m));
+    applied += 1;
+  }
+  return { data: rows, applied };
+}
+
 export function applyPending(key, data, items) {
   const waiting = (items || []).filter((i) => i && i.status !== 'failed');
   const none = { data, applied: 0 };
@@ -302,6 +315,7 @@ export function applyPending(key, data, items) {
   if (key.startsWith('watchers:')) return Array.isArray(data) ? overWatchers(after('watchers:'), data, waiting) : none;
   if (key.startsWith('messages:')) return Array.isArray(data) ? overMessages(after('messages:'), data, waiting) : none;
   if (key.startsWith('meeting-attendees:')) return Array.isArray(data) ? overMeetingPeople(after('meeting-attendees:'), data, waiting) : none;
+  if (key.startsWith('meetings:')) return Array.isArray(data) ? overMeetingList(data, waiting) : none;
   if (key === 'notifications') return Array.isArray(data) ? overNotifications(data, waiting) : none;
   if (key === 'unread') return typeof data === 'object' ? overUnread(data, waiting) : none;
   return none;
