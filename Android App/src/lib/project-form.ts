@@ -157,6 +157,23 @@ export function projectChanges(before: ProjectDraft, after: ProjectDraft): Proje
   return patch;
 }
 
+/**
+ * The clients other projects already have (the website's list of them), the same name once,
+ * matching what is typed (and not the one typed exactly) — at most six.
+ */
+export function clientSuggestions(projects: { clientName?: string | null }[], typed: string): string[] {
+  const seen = new Map<string, string>();
+  for (const p of projects) {
+    const name = p.clientName?.trim();
+    if (name && !seen.has(name.toLocaleLowerCase())) seen.set(name.toLocaleLowerCase(), name);
+  }
+  const t = typed.trim().toLocaleLowerCase();
+  return [...seen.values()]
+    .filter((n) => !t || (n.toLocaleLowerCase().includes(t) && n.toLocaleLowerCase() !== t))
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 6);
+}
+
 /** Is there something typed or picked that leaving would lose? */
 export function isDirty(initial: ProjectDraft, draft: ProjectDraft, picture: PictureChoice): boolean {
   return picture.kind !== 'keep' || JSON.stringify(initial) !== JSON.stringify(draft);

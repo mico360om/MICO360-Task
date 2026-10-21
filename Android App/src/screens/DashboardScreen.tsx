@@ -8,6 +8,9 @@ import { summarizeTasks } from '../lib/tasks-summary';
 import { TaskRow } from '../components/TaskRow';
 import { Card, SectionTitle, Loader, EmptyState, ErrorNote } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
+import { AdminTotals } from '../components/AdminTotals';
+import { canEditProject } from '../lib/project-team';
+import { useQueryClient } from '@tanstack/react-query';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 
@@ -17,6 +20,8 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const session = useSession();
   const { data: tasks, isLoading, isError, refetch, isRefetching } = useMyTasks();
   const summary = useMemo(() => summarizeTasks(tasks ?? [], new Date()), [tasks]);
+  const admin = canEditProject(session?.user ?? null);
+  const qc = useQueryClient();
 
   if (isLoading) return <Loader />;
 
@@ -27,7 +32,15 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={() => {
+              void refetch();
+              if (admin) void qc.invalidateQueries({ queryKey: ['dashboard', 'admin-totals'] });
+            }}
+          />
+        }
       >
         <Text style={styles.greeting}>Hi {firstName}</Text>
         <Text style={styles.sub}>Here&apos;s what needs your attention.</Text>
@@ -44,6 +57,9 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
           <Tile label="Upcoming" value={summary.upcoming.length} tone={c.category.REVIEW} styles={styles} />
           <Tile label="Completed" value={summary.completed} tone={c.category.DONE} styles={styles} />
         </View>
+
+        {/* Administrators: every project's totals, as on the website's dashboard (5b). */}
+        {admin ? <AdminTotals onOpenReports={() => navigation.navigate('Reports')} /> : null}
 
         {summary.overdue.length > 0 && (
           <Section title="Overdue" styles={styles}>

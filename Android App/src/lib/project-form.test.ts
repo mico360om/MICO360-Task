@@ -3,6 +3,7 @@ import { ApiError, NetworkError } from './api-client';
 import {
   PICTURE_MAX_BYTES,
   checkDraft,
+  clientSuggestions,
   codeError,
   codeNote,
   createBody,
@@ -115,6 +116,14 @@ describe('before saving', () => {
     expect(projectChanges(before, before)).toEqual({});
     expect(projectChanges(before, { ...before, name: 'Rig 2 ', number: 'N-1', clientName: '', ownerId: '', color: '#2e7d53', icon: null, code: 'NEW' })).toEqual({ name: 'Rig 2', number: 'N-1', clientName: '', ownerId: null, icon: null });
     expect(projectChanges({ ...before, number: 'N-1' }, { ...before, number: ' ' })).toEqual({ number: null });
+  });
+
+  it('offers the clients other projects already have, matching what is typed', () => {
+    const projects = [project({ clientName: 'PDO' }), project({ clientName: ' Petroleum Development Oman ' }), project({ clientName: 'OQ' }), project({ clientName: null }), project({ clientName: 'pdo' })];
+    expect(clientSuggestions(projects, '')).toEqual(['OQ', 'PDO', 'Petroleum Development Oman']);
+    expect(clientSuggestions(projects, 'pe')).toEqual(['Petroleum Development Oman']);
+    expect(clientSuggestions(projects, 'PDO')).toEqual([]);
+    expect(clientSuggestions(projects, 'o').length).toBeLessThanOrEqual(6);
   });
 
   it('knows when there is something to lose', () => {

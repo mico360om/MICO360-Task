@@ -54,6 +54,7 @@ import { MeetingDetailScreen } from '../screens/MeetingDetailScreen';
 import { MyActionItemsScreen } from '../screens/MyActionItemsScreen';
 import { MeetingFormScreen } from '../screens/MeetingFormScreen';
 import { FinalMinutesScreen } from '../screens/FinalMinutesScreen';
+import { ProjectFormScreen } from '../screens/ProjectFormScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -348,6 +349,11 @@ export function RootNavigator() {
             <AppStack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reports' }} />
             <AppStack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
             <AppStack.Screen name="ChatThread" component={ChatThreadScreen} options={{ title: 'Chat' }} />
+            <AppStack.Screen
+              name="ProjectForm"
+              component={ProjectFormScreen}
+              options={({ route }) => ({ title: route.params?.projectId ? 'Edit project' : 'New project' })}
+            />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyAction} />
           <RealtimeMount />

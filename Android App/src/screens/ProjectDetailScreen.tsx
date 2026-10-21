@@ -1,47 +1,106 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, Pressable } from 'react-native';
-import { useProject, useProjectMeetings, useProjectMembers, useProjectProgress, useProjectTasks } from '../core/queries';
-import { useServices } from '../core/providers';
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, RefreshControl, Alert, AccessibilityInfo } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
+import { useDirectory, useProject, useProjectColumns, useProjectMeetings, useProjectMembers, useProjectTasks } from '../core/queries';
+import { useProjectOwner } from '../core/project-queries';
+import { useBoardRealtime } from '../core/useBoardRealtime';
+import { useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
-import { Card, SectionTitle, Loader, ErrorNote, Pill, Badge, Button } from '../components/ui';
+import { Badge, Button, ErrorNote, Loader } from '../components/ui';
+import { ProjectAvatar } from '../components/ProjectAvatar';
+import { InlinePicker, SheetMessage } from '../components/meeting/sheet-kit';
+import { ProgressBar, StatTiles, Tabs, EmptyNote } from '../components/project/parts';
+import { OverviewTab } from '../components/project/OverviewTab';
+import { MeetingsTab } from '../components/project/MeetingsTab';
+import { TeamTab } from '../components/project/TeamTab';
+import { TaskGroupHeading, TasksTabBar, TasksTabRow, tasksTabItems, type TasksTabItem } from '../components/project/TasksTab';
 import { ApiError, isNetworkError } from '../lib/api-client';
-import { displayName, type ApiProjectMeetingsOverview } from '../lib/types';
-import { companyTodayKey, formatDueDay } from '../lib/due-date';
-import { daysLeftLabel, projectDeadlines, projectMilestones, type MilestoneState } from '../lib/project-dashboard';
-import { meetingDayKey } from '../lib/meetings';
-import { recurrenceSummary } from '../lib/recurrence-summary';
-import { TaskRow } from '../components/TaskRow';
-import { MeetingRow } from '../components/MeetingRow';
-import type { Tone } from '../lib/tone';
+import { companyTodayKey } from '../lib/due-date';
+import { projectStatusLabel, projectStatusTone } from '../lib/project-identity';
+import { canEditProject, canManageProject } from '../lib/project-team';
+import { ownerChangeProblem } from '../lib/project-list';
+import {
+  canScheduleIn,
+  filterCounts,
+  ownerName,
+  shownGroups,
+  statTiles,
+  summaryRequest,
+  taskGroups,
+  taskStats,
+  withColumnStage,
+  type TaskFilter,
+} from '../lib/project-dashboard';
+import { displayName, type ApiTask } from '../lib/types';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 
+type Tab = 'overview' | 'tasks' | 'meetings' | 'team';
+
 /**
- * Project details (A5.1): what the project is, how far along it is, its milestones, the deadlines
- * coming up, its meetings (each opens in the app; "Schedule a meeting" adds one to it) and who is on the team —
- * with shortcuts to its board and its chat channel.
+ * A project's dashboard (5b), as the website's: its picture, name, status and owner; the stat
+ * tiles and completion; then Overview (details, work done and time, milestones, deadlines, the AI
+ * status summary, who runs it and who has what, the next meeting, tasks by status), Tasks (every
+ * task by status column, narrowed by where it stands or by words), Meetings and Team. Live: another
+ * person's change to its tasks shows here at once. An administrator can edit the project and change
+ * its owner; administrators and the project's managers run the team. It opens offline from the
+ * last copy; every change needs a connection.
  */
 export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'ProjectDetail'>) {
   const { projectId } = route.params;
   const c = useColors();
-  const styles = useMemo(() => makeStyles(c), [c]);
+  const s = useMemo(() => makeStyles(c), [c]);
   const { resources } = useServices();
+  const user = useSession()?.user ?? null;
   const projectQ = useProject(projectId);
-  const progressQ = useProjectProgress(projectId);
-  const membersQ = useProjectMembers(projectId);
+  const columnsQ = useProjectColumns(projectId);
   const tasksQ = useProjectTasks(projectId);
+  const membersQ = useProjectMembers(projectId);
   const meetingsQ = useProjectMeetings(projectId);
-  const today = companyTodayKey();
-  const milestones = useMemo(() => projectMilestones(tasksQ.data ?? [], today), [tasksQ.data, today]);
-  const deadlines = useMemo(() => projectDeadlines(tasksQ.data ?? [], today), [tasksQ.data, today]);
+  const dirQ = useDirectory();
+  const focused = useIsFocused();
+  // Live while in view (the board, opened over it, has its own): leave when taken off the project.
+  useBoardRealtime(focused ? projectId : undefined, () => {
+    Alert.alert('No longer available', 'You were removed from this project.');
+    navigation.navigate('Tabs', { screen: 'Projects' });
+  });
+
+  const [tab, setTab] = useState<Tab>('overview');
+  const [filter, setFilter] = useState<TaskFilter>('all');
+  const [query, setQuery] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
   const [openingChat, setOpeningChat] = useState(false);
+  const [ownerProblem, setOwnerProblem] = useState<string | null>(null);
+  const ownerMut = useProjectOwner(projectId);
 
   const project = projectQ.data;
-  const progress = progressQ.data;
-  const members = [...(membersQ.data ?? [])].sort((a, b) => (a.role === b.role ? displayName(a).localeCompare(displayName(b)) : a.role === 'MANAGER' ? -1 : 1));
-  const refreshing = projectQ.isRefetching || progressQ.isRefetching || membersQ.isRefetching || tasksQ.isRefetching || meetingsQ.isRefetching;
-  const openTask = (t: { id: string; title: string }) => navigation.navigate('TaskDetail', { taskId: t.id, title: t.title });
+  const today = companyTodayKey();
+  const columns = useMemo(() => columnsQ.data ?? [], [columnsQ.data]);
+  const tasks = useMemo(() => withColumnStage(tasksQ.data ?? [], columns), [tasksQ.data, columns]);
+  const stats = useMemo(() => taskStats(tasks, today), [tasks, today]);
+  const groups = useMemo(() => taskGroups(columns, tasks), [columns, tasks]);
+  const statsReady = !!tasksQ.data && !!columnsQ.data;
+  const members = useMemo(() => membersQ.data ?? [], [membersQ.data]);
+  const people = useMemo(() => dirQ.data ?? [], [dirQ.data]);
+  const canManage = canManageProject(user, members);
+  const canEdit = canEditProject(user);
+  // Until the people list has loaded (offline, say), an owner shows as "—" rather than "Unknown".
+  const owner = dirQ.data || !project?.ownerId ? ownerName(project?.ownerId, people) : '—';
+  const canSchedule = canScheduleIn(project);
+  const counts = useMemo(() => filterCounts(tasks, today), [tasks, today]);
+  const items = useMemo<TasksTabItem[]>(() => (tab === 'tasks' ? tasksTabItems(shownGroups(groups, filter, query, today)) : []), [tab, groups, filter, query, today]);
+
+  // The title follows the project's name (an edit renames it).
+  useLayoutEffect(() => {
+    if (project?.name) navigation.setOptions({ title: project.name });
+  }, [navigation, project?.name]);
+
+  const openTask = useCallback((t: Pick<ApiTask, 'id' | 'title'>) => navigation.navigate('TaskDetail', { taskId: t.id, title: t.title }), [navigation]);
+  const openMeeting = (meetingId: string, title?: string | null) => navigation.navigate('MeetingDetail', { meetingId, title: title ?? undefined });
+  const show = (next: 'tasks' | 'meetings' | 'team', f?: TaskFilter) => {
+    if (f) setFilter(f);
+    setTab(next);
+  };
 
   async function openChat() {
     if (!project) return;
@@ -57,324 +116,171 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
     }
   }
 
+  function changeOwner(ownerId: string) {
+    setOwnerProblem(null);
+    ownerMut.mutate(ownerId || null, {
+      onSuccess: () => AccessibilityInfo.announceForAccessibility('Owner changed.'),
+      onError: (e) => setOwnerProblem(ownerChangeProblem(e)),
+    });
+  }
+
+  const refreshing = projectQ.isRefetching || columnsQ.isRefetching || membersQ.isRefetching || tasksQ.isRefetching || meetingsQ.isRefetching;
+  const refreshAll = () => {
+    void projectQ.refetch();
+    void columnsQ.refetch();
+    void tasksQ.refetch();
+    void membersQ.refetch();
+    void meetingsQ.refetch();
+  };
+
   if (projectQ.isLoading) return <Loader />;
   if (!project) {
+    const missing = projectQ.error instanceof ApiError && projectQ.error.status === 404;
     return (
-      <View style={styles.safe}>
-        <ErrorNote message="Couldn’t load this project." onRetry={() => void projectQ.refetch()} retrying={projectQ.isRefetching} />
+      <View style={s.safe}>
+        <View style={s.missing}>
+          <ErrorNote
+            message={missing ? 'Project not found. It may have been deleted, or the link is wrong.' : 'Couldn’t load this project. Check your connection and try again.'}
+            onRetry={missing ? undefined : () => void projectQ.refetch()}
+            retrying={projectQ.isRefetching}
+          />
+        </View>
       </View>
     );
   }
 
-  return (
-    <ScrollView
-      style={styles.safe}
-      contentContainerStyle={styles.scroll}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            void projectQ.refetch();
-            void progressQ.refetch();
-            void membersQ.refetch();
-            void tasksQ.refetch();
-            void meetingsQ.refetch();
-          }}
-        />
-      }
-    >
-      <Card>
-        <View style={styles.headRow}>
-          <Text style={styles.code}>
-            {project.code}
-            {project.number ? <Text style={styles.number}>{`  ·  Project no. ${project.number}`}</Text> : null}
+  const ownerOptions = [{ value: '', label: 'No owner' }, ...people.map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }))];
+  const meta = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName || null, `Owner: ${owner}`].filter(Boolean).join(' · ');
+
+  const header = (
+    <View style={s.head}>
+      <View style={s.identity}>
+        <ProjectAvatar project={project} size="lg" label />
+        <View style={s.identityText}>
+          <Text style={s.name} accessibilityRole="header">
+            {project.name}
           </Text>
-          <Pill label={project.status} />
-        </View>
-        <Text style={styles.name}>{project.name}</Text>
-        {project.clientName ? <Text style={styles.meta}>Client: {project.clientName}</Text> : null}
-        {project.startDate || project.targetDate ? (
-          <Text style={styles.meta}>
-            {project.startDate ? `Starts ${project.startDate.slice(0, 10)}` : ''}
-            {project.startDate && project.targetDate ? ' · ' : ''}
-            {project.targetDate ? `Target ${project.targetDate.slice(0, 10)}` : ''}
-          </Text>
-        ) : null}
-        {project.description ? <Text style={styles.desc}>{project.description}</Text> : null}
-        <View style={styles.actions}>
-          <Button title="Open board" onPress={() => navigation.navigate('Board', { projectId, projectName: project.name })} style={styles.action} />
-          <Button title="Project chat" variant="secondary" onPress={() => void openChat()} loading={openingChat} style={styles.action} />
-        </View>
-        {chatError ? <Text style={styles.error} accessibilityRole="alert">{chatError}</Text> : null}
-      </Card>
-
-      <Card>
-        <SectionTitle>Progress{progress ? ` · ${progress.completionPct}%` : ''}</SectionTitle>
-        {progress ? (
-          <>
-            <View style={styles.bar} importantForAccessibility="no-hide-descendants">
-              <View style={[styles.barFill, { width: `${Math.min(100, Math.max(0, progress.completionPct))}%` }]} />
-            </View>
-            <View style={styles.stats}>
-              <Stat label="Done" value={progress.completed} styles={styles} />
-              <Stat label="In progress" value={progress.inProgress} styles={styles} />
-              <Stat label="To do" value={progress.todo} styles={styles} />
-              <Stat label="Overdue" value={progress.overdue} styles={styles} danger={progress.overdue > 0} />
-            </View>
-          </>
-        ) : progressQ.isError ? (
-          <Text style={styles.meta}>Progress isn’t available right now.</Text>
-        ) : (
-          <Loader />
-        )}
-      </Card>
-
-      {milestones.length > 0 ? (
-        <Card>
-          <SectionTitle>Milestones · {milestones.filter((m) => m.state === 'done').length} of {milestones.length} done</SectionTitle>
-          {milestones.map((m) => (
-            <Pressable
-              key={m.task.id}
-              onPress={() => openTask(m.task)}
-              accessibilityRole="button"
-              accessibilityLabel={`Milestone ${m.task.title}, ${m.due ? `due ${formatDueDay(m.due)}` : 'no date'}, ${milestoneText(m.state, m.daysLeft)}`}
-              style={({ pressed }) => [styles.line, pressed && styles.pressed]}
-            >
-              <Text style={styles.flag} importantForAccessibility="no">🏁</Text>
-              <View style={styles.lineText}>
-                <Text style={[styles.lineTitle, m.state === 'done' && styles.doneTitle]} numberOfLines={2}>{m.task.title}</Text>
-                {m.due ? <Text style={styles.lineSub}>{formatDueDay(m.due)}</Text> : null}
-              </View>
-              <Badge label={milestoneText(m.state, m.daysLeft)} tone={MILESTONE_TONE[m.state]} />
-            </Pressable>
-          ))}
-        </Card>
-      ) : null}
-
-      <Card>
-        <SectionTitle>Deadlines · late or due within two weeks</SectionTitle>
-        {tasksQ.isError && !tasksQ.data ? (
-          <Text style={styles.meta}>The project’s tasks aren’t available right now.</Text>
-        ) : !tasksQ.data ? (
-          <Loader />
-        ) : deadlines.length === 0 ? (
-          <Text style={styles.meta}>Nothing late and nothing due in the next two weeks.</Text>
-        ) : (
-          <View style={styles.list}>
-            {deadlines.slice(0, 6).map((d) => (
-              <TaskRow key={d.task.id} task={d.task} onPress={() => openTask(d.task)} />
-            ))}
-            {deadlines.length > 6 ? <Text style={styles.meta}>+ {deadlines.length - 6} more on the board</Text> : null}
+          <View style={s.badgeRow}>
+            <Badge label={projectStatusLabel(project.status)} tone={projectStatusTone(project.status)} />
           </View>
-        )}
-      </Card>
+          <Text style={s.meta}>{meta}</Text>
+        </View>
+      </View>
+      {canEdit ? <Button title="✏️ Edit project" accessibilityLabel="Edit project" variant="secondary" onPress={() => navigation.navigate('ProjectForm', { projectId })} /> : null}
+      <SheetMessage text={ownerProblem} />
 
-      {meetingsQ.data === null ? null : (
-        <Card>
-          <SectionTitle>Meetings</SectionTitle>
-          {meetingsQ.isError && !meetingsQ.data ? (
-            <Text style={styles.meta}>The project’s meetings aren’t available right now.</Text>
-          ) : !meetingsQ.data ? (
+      <StatTiles tiles={statTiles(stats, statsReady)} />
+      <ProgressBar value={statsReady ? stats.pct : 0} label="Completion" />
+
+      <Tabs
+        label="Project dashboard"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: 'overview', label: 'Overview' },
+          { value: 'tasks', label: 'Tasks', count: stats.total },
+          { value: 'meetings', label: 'Meetings', count: meetingsQ.data?.stats.upcoming ?? 0 },
+          { value: 'team', label: 'Team', count: members.length },
+        ]}
+      />
+
+      {tab === 'overview' ? (
+        <OverviewTab
+          project={project}
+          tasks={tasks}
+          groups={groups}
+          stats={stats}
+          statsReady={statsReady}
+          today={today}
+          members={members}
+          ownerName={owner}
+          ownerControl={
+            canEdit ? <InlinePicker label="Project owner" options={ownerOptions} value={project.ownerId ?? ''} onChange={changeOwner} placeholder="No owner" disabled={ownerMut.isPending} /> : null
+          }
+          meetings={meetingsQ.data}
+          meetingsLoading={meetingsQ.isLoading}
+          onOpenTask={openTask}
+          onOpenMeeting={openMeeting}
+          onShow={show}
+          onOpenBoard={() => navigation.navigate('Board', { projectId, projectName: project.name })}
+          onOpenChat={() => void openChat()}
+          chatBusy={openingChat}
+          chatError={chatError}
+          onNewMeeting={canSchedule ? () => navigation.navigate('MeetingForm', { projectId }) : undefined}
+          summaryRequest={() => summaryRequest(project.name, tasks, stats)}
+        />
+      ) : null}
+
+      {tab === 'tasks' ? (
+        <View style={s.tasksHead}>
+          {tasksQ.isLoading || columnsQ.isLoading ? (
             <Loader />
+          ) : tasksQ.isError && !tasksQ.data ? (
+            <ErrorNote message="The project’s tasks aren’t available right now." onRetry={() => void tasksQ.refetch()} retrying={tasksQ.isRefetching} />
+          ) : tasks.length === 0 ? (
+            <EmptyNote>No tasks in this project yet.</EmptyNote>
           ) : (
-            <ProjectMeetings overview={meetingsQ.data} styles={styles} onOpen={(meetingId, title) => navigation.navigate('MeetingDetail', { meetingId, title: title ?? undefined })} />
+            <>
+              <TasksTabBar counts={counts} filter={filter} onFilter={setFilter} query={query} onQuery={setQuery} />
+              {items.length === 0 ? <EmptyNote>No tasks match.</EmptyNote> : null}
+            </>
           )}
-          <Button title="Schedule a meeting" variant="secondary" onPress={() => navigation.navigate('MeetingForm', { projectId })} />
-        </Card>
-      )}
-
-      <Card>
-        <SectionTitle>Team · {members.length}</SectionTitle>
-        {membersQ.isError && members.length === 0 ? (
-          <Text style={styles.meta}>The team list isn’t available right now.</Text>
-        ) : members.length === 0 ? (
-          <Text style={styles.meta}>No members yet.</Text>
-        ) : (
-          members.map((m) => (
-            <View key={m.id} style={styles.member} accessible accessibilityLabel={`${displayName(m)}${m.role === 'MANAGER' ? ', project manager' : ''}`}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{displayName(m).slice(0, 2).toUpperCase()}</Text>
-              </View>
-              <View style={styles.memberText}>
-                <Text style={styles.memberName}>{displayName(m)}</Text>
-                <Text style={styles.memberSub}>@{m.username}</Text>
-              </View>
-              {m.role === 'MANAGER' ? <Badge label="Manager" tone="brand" /> : null}
-            </View>
-          ))
-        )}
-      </Card>
-    </ScrollView>
-  );
-}
-
-const MILESTONE_TONE: Record<MilestoneState, Tone> = { done: 'success', overdue: 'danger', upcoming: 'brand', undated: 'neutral' };
-
-function milestoneText(state: MilestoneState, daysLeft: number | null): string {
-  if (state === 'done') return 'Done';
-  if (state === 'undated' || daysLeft === null) return 'No date';
-  return daysLeftLabel(daysLeft);
-}
-
-/** "Tue, Oct 20" for a 'YYYY-MM-DD' day, never shifted by the phone's time zone. */
-function dayLabel(date: string): string {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-/** A line of the meetings card; it opens its meeting when it has one. */
-function MeetingLine({ onPress, styles, children, label }: { onPress?: () => void; styles: ReturnType<typeof makeStyles>; children: React.ReactNode; label?: string }) {
-  if (!onPress) {
-    return (
-      <View style={styles.line} accessible>
-        {children}
-      </View>
-    );
-  }
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityHint="Opens the meeting" style={({ pressed }) => [styles.line, pressed && styles.pressed]}>
-      {children}
-    </Pressable>
-  );
-}
-
-/** The project's meetings: counts, the next few, its repeating series, open action items and decisions — each opens its meeting. */
-function ProjectMeetings({
-  overview,
-  styles,
-  onOpen,
-}: {
-  overview: ApiProjectMeetingsOverview;
-  styles: ReturnType<typeof makeStyles>;
-  onOpen: (meetingId: string, title?: string | null) => void;
-}) {
-  const next = overview.meetings
-    .filter((m) => m.phase === 'upcoming' || m.phase === 'ongoing')
-    .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))
-    .slice(0, 3);
-  const actions = overview.actionItems.slice(0, 5);
-  const decisions = overview.decisions.slice(0, 3);
-  const { stats } = overview;
-  if (overview.meetings.length === 0 && overview.actionItems.length === 0) {
-    return <Text style={styles.meta}>No meetings for this project yet.</Text>;
-  }
-  return (
-    <View style={styles.list}>
-      <View style={styles.stats}>
-        <Stat label="Upcoming" value={stats.upcoming + stats.ongoing} styles={styles} />
-        <Stat label="Held" value={stats.completed} styles={styles} />
-        <Stat label="Open actions" value={stats.openActionItems} styles={styles} danger={stats.overdueActionItems > 0} />
-        <Stat label="Decisions" value={stats.decisions} styles={styles} />
-      </View>
-
-      <Text style={styles.subhead} accessibilityRole="header">Next meetings</Text>
-      {next.length === 0 ? (
-        <Text style={styles.meta}>No meetings coming up.</Text>
-      ) : (
-        next.map((m) => <MeetingRow key={m.id} meeting={m} showDate={dayLabel(meetingDayKey(m))} onPress={() => onOpen(m.id, m.title)} />)
-      )}
-
-      {overview.series.length > 0 ? (
-        <>
-          <Text style={styles.subhead} accessibilityRole="header">Repeating meetings</Text>
-          {overview.series.map((s) => {
-            const when = `${recurrenceSummary(s.rule)}${s.nextStartAt ? ` · next ${dayLabel(meetingDayKey({ startAt: s.nextStartAt }))}` : ' · nothing coming up'}`;
-            const nextId = s.nextMeetingId;
-            return (
-              <MeetingLine key={s.id} styles={styles} onPress={nextId ? () => onOpen(nextId, s.title) : undefined} label={`${s.title}, ${when}`}>
-                <Text style={styles.flag} importantForAccessibility="no">🔁</Text>
-                <View style={styles.lineText}>
-                  <Text style={styles.lineTitle} numberOfLines={2}>{s.title}</Text>
-                  <Text style={styles.lineSub}>{when}</Text>
-                </View>
-              </MeetingLine>
-            );
-          })}
-        </>
+        </View>
       ) : null}
 
-      {actions.length > 0 ? (
-        <>
-          <Text style={styles.subhead} accessibilityRole="header">
-            Open action items{stats.overdueActionItems > 0 ? ` · ${stats.overdueActionItems} overdue` : ''}
-          </Text>
-          {actions.map((a) => {
-            const sub = [a.assignee?.name ?? 'Unassigned', a.dueDate ? `${a.overdue ? 'overdue, was due' : 'due'} ${formatDueDay(a.dueDate)}` : null, a.meetingTitle].filter(Boolean).join(' · ');
-            const meetingId = a.meetingId;
-            return (
-              <MeetingLine key={a.id} styles={styles} onPress={meetingId ? () => onOpen(meetingId, a.meetingTitle) : undefined} label={`${a.description}, ${sub}`}>
-                <Text style={styles.flag} importantForAccessibility="no">☐</Text>
-                <View style={styles.lineText}>
-                  <Text style={styles.lineTitle} numberOfLines={3}>{a.description}</Text>
-                  <Text style={[styles.lineSub, a.overdue && styles.overdue]}>{sub}</Text>
-                </View>
-              </MeetingLine>
-            );
-          })}
-          {stats.openActionItems > actions.length ? <Text style={styles.meta}>+ {stats.openActionItems - actions.length} more</Text> : null}
-        </>
+      {tab === 'meetings' ? (
+        <MeetingsTab
+          overview={meetingsQ.data}
+          loading={meetingsQ.isLoading}
+          failed={meetingsQ.isError}
+          onRetry={() => void meetingsQ.refetch()}
+          retrying={meetingsQ.isRefetching}
+          onOpen={openMeeting}
+          onSchedule={canSchedule ? () => navigation.navigate('MeetingForm', { projectId }) : undefined}
+        />
       ) : null}
 
-      {decisions.length > 0 ? (
-        <>
-          <Text style={styles.subhead} accessibilityRole="header">Recent decisions</Text>
-          {decisions.map((d) => (
-            <MeetingLine key={d.id} styles={styles} onPress={() => onOpen(d.meetingId, d.meetingTitle)} label={[d.text, d.meetingTitle].filter(Boolean).join(', ')}>
-              <Text style={styles.flag} importantForAccessibility="no">✔</Text>
-              <View style={styles.lineText}>
-                <Text style={styles.lineTitle}>{d.text}</Text>
-                {d.meetingTitle ? <Text style={styles.lineSub}>{d.meetingTitle}</Text> : null}
-              </View>
-            </MeetingLine>
-          ))}
-        </>
+      {tab === 'team' ? (
+        <TeamTab
+          projectId={projectId}
+          members={members}
+          loadFailed={membersQ.isError}
+          onRetry={() => void membersQ.refetch()}
+          retrying={membersQ.isRefetching}
+          canManage={canManage}
+          people={people}
+          myId={user?.id}
+        />
       ) : null}
     </View>
   );
-}
 
-function Stat({ label, value, styles, danger }: { label: string; value: number; styles: ReturnType<typeof makeStyles>; danger?: boolean }) {
   return (
-    <View style={styles.stat} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Text style={[styles.statValue, danger && styles.statDanger]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    <FlatList
+      style={s.safe}
+      contentContainerStyle={s.scroll}
+      data={items}
+      keyExtractor={(item) => (item.kind === 'group' ? `g:${item.group.id}` : `t:${item.task.id}`)}
+      renderItem={({ item }) => (item.kind === 'group' ? <TaskGroupHeading group={item.group} /> : <TasksTabRow task={item.task} group={item.group} today={today} onOpen={openTask} />)}
+      ListHeaderComponent={header}
+      keyboardShouldPersistTaps="handled"
+      initialNumToRender={20}
+      windowSize={7}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshAll} />}
+    />
   );
 }
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
-    scroll: { padding: spacing.lg, gap: spacing.md },
-    headRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    code: { fontSize: fontSize.xs, fontWeight: '700', color: c.brand, letterSpacing: 1, flexShrink: 1 },
-    number: { color: c.ink2, letterSpacing: 0 },
-    list: { gap: spacing.sm },
-    subhead: { fontSize: fontSize.sm, fontWeight: '800', color: c.ink2, marginTop: spacing.sm },
-    line: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: c.line, minHeight: 48 },
-    pressed: { opacity: 0.7 },
-    flag: { fontSize: fontSize.md, width: 22, textAlign: 'center', color: c.ink2 },
-    lineText: { flex: 1 },
-    lineTitle: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
-    doneTitle: { textDecorationLine: 'line-through', color: c.ink2 },
-    lineSub: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
-    overdue: { color: c.danger, fontWeight: '700' },
-    name: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink, marginTop: spacing.xs },
-    meta: { fontSize: fontSize.sm, color: c.ink2, marginTop: spacing.xs },
-    desc: { fontSize: fontSize.md, color: c.ink, marginTop: spacing.sm, lineHeight: 22 },
-    actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
-    action: { flex: 1 },
-    error: { color: c.danger, fontSize: fontSize.sm, marginTop: spacing.sm },
-    bar: { height: 8, borderRadius: 4, backgroundColor: c.line, overflow: 'hidden', marginTop: spacing.sm },
-    barFill: { height: 8, borderRadius: 4, backgroundColor: c.success },
-    stats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md },
-    stat: { alignItems: 'center', flex: 1 },
-    statValue: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink },
-    statDanger: { color: c.danger },
-    statLabel: { fontSize: fontSize.xs, color: c.ink3, marginTop: 2 },
-    member: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: c.line },
-    avatar: { width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center' },
-    avatarText: { color: c.onBrand, fontWeight: '700', fontSize: fontSize.xs },
-    memberText: { flex: 1 },
-    memberName: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
-    memberSub: { fontSize: fontSize.xs, color: c.ink3 },
+    scroll: { padding: spacing.lg, paddingBottom: spacing.xxl },
+    missing: { padding: spacing.lg },
+    head: { gap: spacing.md, marginBottom: spacing.sm },
+    identity: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg },
+    identityText: { flex: 1, gap: spacing.xs },
+    name: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink },
+    badgeRow: { flexDirection: 'row' },
+    meta: { fontSize: fontSize.sm, color: c.ink2 },
+    tasksHead: { gap: spacing.sm },
   });

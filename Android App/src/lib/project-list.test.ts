@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
-import { adminTotals, completionBars, emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectsSubtitle, statusChangeProblem, statusChangeRequest } from './project-list';
+import { adminTotals, completionBars, emptyProjects, ownerChangeProblem, projectCardLabel, projectCardMeta, projectDates, projectsSubtitle, statusChangeProblem, statusChangeRequest } from './project-list';
 import type { ApiProject } from './types';
 
 const project = (patch: Partial<ApiProject> = {}): ApiProject => ({
@@ -45,6 +45,12 @@ describe('changing a project’s status (administrators)', () => {
   it('archives through the archive action, and changes any other status as an edit', () => {
     expect(statusChangeRequest('ARCHIVED')).toBe('archive');
     expect(statusChangeRequest('ACTIVE')).toBe('update');
+  });
+
+  it('says plainly why the owner didn’t change, in the website’s words', () => {
+    expect(ownerChangeProblem(new ApiError(403, 'FORBIDDEN', 'Insufficient role'))).toBe('Only an administrator can change the project owner.');
+    expect(ownerChangeProblem(new NetworkError('offline'))).toBe('You’re offline — the owner can be changed when you’re connected.');
+    expect(ownerChangeProblem(new ApiError(500, 'ERROR', 'Request failed (500)'))).toBe('Couldn’t change the owner. Please try again.');
   });
 
   it('says plainly why it didn’t change', () => {

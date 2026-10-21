@@ -33,6 +33,8 @@ export type AppStackParamList = {
   Reports: undefined;
   Settings: undefined;
   ChatThread: { conversationId: string; title: string; kind: 'PROJECT' | 'DIRECT' };
+  /** New project (no id) or Edit project — administrators (5b). */
+  ProjectForm: { projectId?: string } | undefined;
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;

@@ -129,7 +129,8 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   const directory = useMemo(() => dirQ.data ?? [], [dirQ.data]);
   const people = useMemo(() => new Map(directory.map((u) => [u.id, displayName(u)])), [directory]);
   const nameOf = useCallback((id: string) => people.get(id) ?? null, [people]);
-  const projectName = meeting?.projectId ? (projectsQ.data ?? []).find((p) => p.id === meeting.projectId)?.name ?? null : null;
+  const meetingProject = meeting?.projectId ? (projectsQ.data ?? []).find((p) => p.id === meeting.projectId) ?? null : null;
+  const projectName = meetingProject?.name ?? null;
   const mine = myInvitation(peopleQ.data ?? [], myId);
   const taskKeys = useMemo(() => new Map((actionsQ.data ?? []).flatMap((i) => (i.taskId && i.taskKey ? [[i.taskId, i.taskKey] as const] : []))), [actionsQ.data]);
   const openTask = useCallback((taskId: string) => navigation.navigate('TaskDetail', { taskId }), [navigation]);
@@ -332,6 +333,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
           <MeetingHeaderCard
             meeting={meeting}
             projectName={projectName}
+            project={meetingProject}
             nameOf={nameOf}
             timeZone={timeZone}
             now={now}
