@@ -20,7 +20,7 @@ export type LinkTarget =
  * carries `entityType` + `entityId` (entityType is lowercase — `task` / `conversation` / `digest`,
  * and `meeting` once the server sends meeting notifications), so matching is case-insensitive. A
  * conversation opens the Chat tab (the push payload doesn't carry the title/kind a specific thread
- * needs); a project opens its dashboard (5c); unknown/absent entities open the notifications list.
+ * needs); unknown/absent entities open the notifications list.
  */
 export function notificationToTarget(data: Record<string, unknown>): LinkTarget {
   const entityType = typeof data.entityType === 'string' ? data.entityType.trim().toLowerCase() : '';
@@ -28,7 +28,7 @@ export function notificationToTarget(data: Record<string, unknown>): LinkTarget 
   if (typeof data.entityId === 'string' && data.entityId && !isSafeId(data.entityId)) return { screen: 'Notifications' };
   const entityId = isSafeId(data.entityId) ? data.entityId : undefined;
   if (entityType === 'task' && entityId) return { screen: 'TaskDetail', params: { taskId: entityId } };
-  if (entityType === 'project' && entityId) return { screen: 'ProjectDetail', params: { projectId: entityId } };
+  if (entityType === 'project' && entityId) return { screen: 'ProjectDetail', params: { projectId: entityId } }; // its dashboard (5c)
   if (entityType === 'meeting' && entityId) return { screen: 'MeetingDetail', params: { meetingId: entityId } };
   if (entityType === 'conversation') return { screen: 'Chat' };
   return { screen: 'Notifications' };
