@@ -165,6 +165,30 @@ describe('Task export routes', () => {
     expect(ms).toBeLessThan(2000);
   }, 30_000);
 
+  describe('the meeting the task came from', () => {
+    const fromMeeting: TaskExportData = { ...data, meeting: { id: 'm1', title: 'Weekly review', startAt: new Date('2026-09-27T06:00:00Z') } };
+
+    it('shows its title and day to someone who can see the meeting', async () => {
+      const canViewMeeting = vi.fn(async () => true);
+      const res = await (await makeApp({ task: fromMeeting, extra: { canViewMeeting } })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+      expect(res.statusCode).toBe(200);
+      expect(canViewMeeting).toHaveBeenCalledWith('u1', ['EMPLOYEE'], 'm1');
+      const text = inspectPdf(res.rawPayload).pages.flat();
+      expect(text).toContain('From meeting');
+      expect(text.join(' ')).toContain('Weekly review · 27 Sep 2026');
+    });
+
+    it('only says the task came from a meeting to someone not part of it, as the website does', async () => {
+      const res = await (await makeApp({ task: fromMeeting, extra: { canViewMeeting: async () => false } })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+      expect(res.statusCode).toBe(200);
+      const text = inspectPdf(res.rawPayload).pages.flat().join(' ');
+      expect(text).toContain('From meeting');
+      expect(text).toContain('A meeting you’re not part of');
+      expect(text).not.toContain('Weekly review');
+      expect(text).not.toContain('27 Sep 2026');
+    });
+  });
+
   it('hides tasks the user cannot see (404), like opening the task', async () => {
     const app = await makeApp({ canView: false });
     expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' })).statusCode).toBe(404);

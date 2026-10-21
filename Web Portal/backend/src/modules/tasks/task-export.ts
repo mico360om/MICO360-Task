@@ -77,8 +77,11 @@ export interface TaskExportData {
   overdue: boolean;
   /** A milestone: a key date of its project. */
   isMilestone: boolean;
-  /** The meeting the task was made from (null when none, or when that meeting was deleted). */
-  meeting: { title: string; startAt: Date } | null;
+  /**
+   * The meeting the task was made from (null when none, or when that meeting was deleted). Its title
+   * and start are null for a reader who may not see that meeting (the export route checks), as on the website.
+   */
+  meeting: { id: string; title: string | null; startAt: Date | null } | null;
   checklist: { text: string; done: boolean }[];
   blockedBy: { key: string; title: string; status: string }[];
   blocks: { key: string; title: string; status: string }[];
@@ -305,6 +308,13 @@ export function commentRuns(body: string, mentionable: string[]): StyledRun[] {
 /** Names in a list, each isolated so an Arabic name can't pull its neighbours (or the commas) out of order. */
 const names = (list: string[]) => list.map(isolate).join(', ');
 
+/** "Weekly review · 27 Sep 2026"; for a reader not part of that meeting, only that there is one (the website's words). */
+function meetingText(meeting: TaskExportData['meeting'], tz: string): string {
+  if (!meeting) return '';
+  if (!meeting.title) return 'A meeting you’re not part of';
+  return meeting.startAt ? `${isolate(meeting.title)} · ${day(meeting.startAt, tz)}` : isolate(meeting.title);
+}
+
 export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   const tz = ctx.timeZone;
   const brand = hexToRgb(BRAND);
@@ -349,7 +359,7 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
       ['Watchers', names(t.watchers)],
       ['Tags', names(t.tags)],
       ['Milestone', t.isMilestone ? 'Yes, a key date of this project' : ''],
-      ['From meeting', t.meeting ? `${isolate(t.meeting.title)} · ${day(t.meeting.startAt, tz)}` : ''],
+      ['From meeting', meetingText(t.meeting, tz)],
     ]),
     rows([
       ['Start', day(t.startDate, tz)],
@@ -458,7 +468,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
           project: { select: { name: true, code: true, number: true, color: true, icon: true, imageUrl: true } },
           column: { select: { name: true, category: true } },
           createdBy: person,
-          meeting: { select: { title: true, startAt: true, deletedAt: true } },
+          meeting: { select: { id: true, title: true, startAt: true, deletedAt: true } },
           assignees: { include: { user: person } },
           watchers: { include: { user: person } },
           tags: { include: { tag: { select: { name: true } } } },
@@ -507,7 +517,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         repeat: rule ? recurrenceSummary(rule) : t.recurrenceParentId ? 'Part of a repeating series' : null,
         overdue: !done && isOverdue(t.dueDate, timeZone, now()),
         isMilestone: t.isMilestone,
-        meeting: t.meeting && !t.meeting.deletedAt ? { title: t.meeting.title, startAt: t.meeting.startAt } : null,
+        meeting: t.meeting && !t.meeting.deletedAt ? { id: t.meeting.id, title: t.meeting.title, startAt: t.meeting.startAt } : null,
         checklist: t.checklist,
         blockedBy: t.dependencies.filter((d) => !d.dependsOn.deletedAt).map((d) => ({ key: d.dependsOn.key, title: d.dependsOn.title, status: d.dependsOn.column.name })),
         blocks: t.dependedOnBy.filter((d) => !d.task.deletedAt).map((d) => ({ key: d.task.key, title: d.task.title, status: d.task.column.name })),

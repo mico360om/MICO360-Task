@@ -180,7 +180,7 @@ describe('taskPdf: summary and details', () => {
       status: 'Done',
       completedAt: new Date('2026-10-01T05:30:00Z'),
       isMilestone: true,
-      meeting: { title: 'اجتماع العمليات الأسبوعي', startAt: new Date('2026-09-27T06:00:00Z') },
+      meeting: { id: 'm1', title: 'اجتماع العمليات الأسبوعي', startAt: new Date('2026-09-27T06:00:00Z') },
     });
     const text = textOf(taskPdf(done, ctx));
     const joined = text.join(' ');
@@ -202,6 +202,13 @@ describe('taskPdf: summary and details', () => {
       expect(text, label).toContain(label);
       expect(joined, value).toContain(value); // a long value may wrap within its column
     }
+  });
+
+  it('says only that the task came from a meeting when the reader can’t see that meeting', () => {
+    const text = textOf(taskPdf(task({ meeting: { id: 'm1', title: null, startAt: null } }), ctx));
+    const at = text.indexOf('From meeting');
+    expect(at).toBeGreaterThan(-1);
+    expect(text.join(' ')).toContain('A meeting you’re not part of');
   });
 
   it('leaves out what a task doesn’t have: no milestone, no meeting, no completed date', () => {

@@ -10,6 +10,8 @@ export interface TaskExportRouteDeps {
   source: TaskExportSource;
   /** Who may see a task (as for GET /tasks/:id); undefined leaves the routes open (unit tests). */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
+  /** Who may see a meeting: the meeting a task came from is named only to them (as GET /tasks/:id does); undefined names it to all (unit tests). */
+  canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
   /** The signed-in user's name, shown as the document's author. */
   userName?: (userId: string) => Promise<string | null>;
   timeZone: string;
@@ -21,6 +23,16 @@ export interface TaskExportRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a project picture the PDF can't take as stored (WebP, GIF, some PNGs). */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
+}
+
+/**
+ * The task as this reader may see it, as the website shows it to them: the meeting it came from is
+ * named only to someone who can see that meeting (anyone else is told only that there is one).
+ */
+async function asSeenBy(data: TaskExportData, user: { id: string; roles?: string[] }, deps: TaskExportRouteDeps): Promise<TaskExportData> {
+  const roles = user.roles ?? [];
+  const meeting = data.meeting && deps.canViewMeeting && !(await deps.canViewMeeting(user.id, roles, data.meeting.id)) ? { id: data.meeting.id, title: null, startAt: null } : data.meeting;
+  return { ...data, meeting };
 }
 
 /** The task with what only its PDF shows: the project's picture and the task's own pictures. */
@@ -40,8 +52,9 @@ export async function registerTaskExportRoutes(app: FastifyInstance, deps: TaskE
       const user = req.user!;
       const notFound = () => reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Task not found.' } });
       if (deps.canViewTask && !(await deps.canViewTask(user.id, user.roles ?? [], id))) return notFound();
-      const data = await deps.source.load(id);
-      if (!data) return notFound();
+      const loaded = await deps.source.load(id);
+      if (!loaded) return notFound();
+      const data = await asSeenBy(loaded, user, deps);
       const ctx = { generatedAt: new Date(), timeZone: deps.timeZone, generatedBy: (await deps.userName?.(user.id)) ?? null };
       const file = `${data.key}-${fileSlug(data.title)}.${format}`;
       const body =

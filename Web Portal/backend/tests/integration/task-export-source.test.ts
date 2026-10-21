@@ -64,7 +64,7 @@ describe('Task export source (integration)', () => {
       projectIcon: 'rocket',
       projectImageUrl: '/uploads/projects/tx.png',
       isMilestone: true,
-      meeting: { title: 'TX export weekly sync', startAt: new Date('2026-09-27T06:00:00Z') },
+      meeting: { id: meetingId, title: 'TX export weekly sync', startAt: new Date('2026-09-27T06:00:00Z') },
     });
   });
 

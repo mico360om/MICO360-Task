@@ -439,6 +439,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           source: deps.taskExportSource,
           canViewTask,
+          // The same meeting check as the task's details (GET /tasks/:id).
+          canViewMeeting: deps.taskMeeting?.canView ?? canViewMeeting,
           userName: deps.reportNames ? (id) => deps.reportNames!.user(id) : undefined,
           timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
           readAttachment: deps.readAttachment,

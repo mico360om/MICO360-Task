@@ -214,6 +214,29 @@ describe('task PDF pictures', () => {
     expect(asked).toEqual(['/uploads/projects/rig.png']);
     expect(res.rawPayload.toString('latin1')).toMatch(/\/Subtype \/Image[\s\S]{0,200}\/Width 44\b|\/Width 44\b[\s\S]{0,200}\/Subtype \/Image/);
   });
+
+  it('checks the meeting a task came from with meeting access, as the task’s details do', async () => {
+    const { inspectPdf } = await import('./lib/pdf-inspect');
+    const task = {
+      key: 'MICO-7', title: 'Inspect the rig', description: null, projectName: 'Rig', projectCode: 'RIG', projectNumber: null, projectColor: null, projectIcon: null,
+      status: 'To do', category: 'TODO', priority: 'NORMAL', startDate: null, dueDate: null, completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+      progress: 0, estimatedHours: null, actualHours: null, createdBy: 'Aisha', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, isMilestone: false,
+      meeting: { id: 'm1', title: 'Board pay review', startAt: new Date('2026-09-27T06:00:00Z') },
+      checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [], attachments: [],
+    };
+    const asked: string[] = [];
+    const app = await buildApp({
+      authService,
+      tokenService,
+      taskExportSource: { load: async () => task },
+      meetingAccess: { canViewMeeting: async (_u: string, _r: string[], id: string) => (asked.push(id), false) } as never,
+    });
+    const token = (await tokenService.issueTokens({ id: 'e1', roles: ['EMPLOYEE'] })).accessToken;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/tasks/t1/export.pdf', headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(200);
+    expect(asked).toEqual(['m1']);
+    expect(inspectPdf(res.rawPayload).pages.flat().join(' ')).not.toContain('Board pay review');
+  });
 });
 
 describe('rate limiting behind a proxy', () => {
