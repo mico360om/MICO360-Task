@@ -239,6 +239,12 @@ export function StateRow({ kind, text, onRetry, place }: { kind: 'loading' | 'fa
   );
 }
 
+/** "Waiting to sync": a change made on this phone that the server doesn't have yet. */
+function WaitingNote() {
+  const s = useDetailStyles();
+  return <Text style={s.waiting}>⏳ Waiting to sync</Text>;
+}
+
 export function AgendaRow({
   item,
   index,
@@ -246,6 +252,7 @@ export function AgendaRow({
   place,
   onToggle,
   onOpen,
+  waiting,
 }: {
   item: ApiAgendaItem;
   index: number;
@@ -255,16 +262,19 @@ export function AgendaRow({
   onToggle?: (() => void) | null;
   /** Edit, move or remove it (whoever runs the meeting). */
   onOpen?: (() => void) | null;
+  /** A change to it is still waiting on this phone. */
+  waiting?: boolean;
 }) {
   const s = useDetailStyles();
   const line = agendaItemLine(item, nameOf);
-  const label = `${index + 1}. ${item.title}, ${line}${item.completed ? ', covered' : ''}`;
+  const label = `${index + 1}. ${item.title}, ${line}${item.completed ? ', covered' : ''}${waiting ? ', waiting to sync' : ''}`;
   const body = (
     <View style={[s.inline, s.flex]}>
       <Text style={s.index}>{index + 1}</Text>
       <View style={s.flex}>
         <Text style={[s.itemTitle, item.completed && s.done]}>{item.title}</Text>
         <Text style={s.small}>{line}</Text>
+        {waiting ? <WaitingNote /> : null}
       </View>
       {item.completed ? <Badge label="Covered" tone="success" /> : null}
     </View>
@@ -295,6 +305,7 @@ export function PersonRow({
   place,
   flags,
   onOpen,
+  waiting,
 }: {
   attendee: ApiMeetingAttendee;
   nameOf: NameOf;
@@ -305,6 +316,8 @@ export function PersonRow({
   flags?: { notInvited: boolean; noEmail: boolean } | null;
   /** Their role, answer, attendance or removal. */
   onOpen?: (() => void) | null;
+  /** Their attendance, changed on this phone, is still waiting to sync. */
+  waiting?: boolean;
 }) {
   const s = useDetailStyles();
   const name = attendeeName(a, nameOf);
@@ -318,6 +331,7 @@ export function PersonRow({
     showAttendance ? `attendance: ${attendanceLabel(a.attendance)}` : null,
     flags?.notInvited ? 'not invited yet' : null,
     flags?.noEmail ? 'no email address' : null,
+    waiting ? 'waiting to sync' : null,
   ];
   const body = (
     <>
@@ -333,6 +347,7 @@ export function PersonRow({
         {showAttendance ? <Text style={s.small}>Attendance: {attendanceLabel(a.attendance)}</Text> : null}
         {flags?.notInvited ? <Text style={s.warn}>Not invited yet</Text> : null}
         {flags?.noEmail ? <Text style={s.small}>No email address</Text> : null}
+        {waiting ? <WaitingNote /> : null}
       </View>
     </>
   );
@@ -391,6 +406,7 @@ export function NoteRow({
   onOpenTask,
   place,
   actions,
+  waiting,
 }: {
   note: ApiMeetingNote;
   nameOf: NameOf;
@@ -399,6 +415,8 @@ export function NoteRow({
   onOpenTask: (taskId: string) => void;
   place: RowPlace;
   actions?: NoteActions;
+  /** Taken on this phone and still waiting to sync (it can be changed once it has). */
+  waiting?: boolean;
 }) {
   const c = useColors();
   const s = useDetailStyles();
@@ -418,6 +436,7 @@ export function NoteRow({
           <Text style={s.small}>{noteMeta(note, nameOf, timeZone)}</Text>
         </View>
         <NoteBody note={note} />
+        {waiting ? <WaitingNote /> : null}
         {note.taskId ? (
           <Pressable
             onPress={() => onOpenTask(note.taskId!)}
@@ -450,6 +469,7 @@ export function ActionRow({
   onOpenTask,
   place,
   onOpen,
+  waiting,
 }: {
   item: ApiActionItem;
   nameOf: NameOf;
@@ -458,13 +478,15 @@ export function ActionRow({
   place: RowPlace;
   /** Change it (status, owner, due day, priority) or remove it. */
   onOpen?: (() => void) | null;
+  /** Added or changed on this phone and still waiting to sync. */
+  waiting?: boolean;
 }) {
   const s = useDetailStyles();
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   const overdue = isActionItemOverdue(item, now);
   const due = actionDueText(item, now);
   const owner = item.assigneeId ? nameOf(item.assigneeId) ?? 'A team member' : 'Unassigned';
-  const label = [item.description, actionStatusLabel(item.status), owner, due, item.sourceNoteId ? 'from a note' : null].filter(Boolean).join(', ');
+  const label = [item.description, actionStatusLabel(item.status), owner, due, item.sourceNoteId ? 'from a note' : null, waiting ? 'waiting to sync' : null].filter(Boolean).join(', ');
   const body = (
     <>
       <Text style={[s.itemTitle, done && s.done]}>{item.description}</Text>
@@ -473,6 +495,7 @@ export function ActionRow({
         <Text style={s.small}>{owner}</Text>
         <Text style={[s.small, overdue && s.overdue]}>{due}</Text>
         {item.sourceNoteId ? <Text style={s.small}>· From a note</Text> : null}
+        {waiting ? <WaitingNote /> : null}
       </View>
     </>
   );
@@ -648,6 +671,7 @@ const makeStyles = (c: Palette) =>
     addButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.pill, backgroundColor: c.brandWash },
     addText: { fontSize: fontSize.xs, fontWeight: '800', color: c.brand },
     warn: { fontSize: fontSize.xs, fontWeight: '700', color: c.warning },
+    waiting: { fontSize: fontSize.xs, fontWeight: '700', color: c.brand },
     tickTarget: { minWidth: 40, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     tick: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     tickOn: { borderColor: c.success, backgroundColor: c.success },

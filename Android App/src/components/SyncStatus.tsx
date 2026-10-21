@@ -4,18 +4,22 @@ import { useServices, useMyQueuedChanges } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Button } from './ui';
 import { describeMutation } from '../lib/perform-mutation';
+import type { QueuedMutation } from '../lib/sync-queue';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 
 /**
  * Offline-queue status for the signed-in user (XP-06): how many changes are waiting to sync, and
  * the changes the server would not accept — each with its reason and Retry / Discard — so nothing
- * is dropped silently. Renders nothing when the queue is empty.
+ * is dropped silently. Renders nothing when the queue is empty. `only` keeps it to some changes
+ * (a meeting's own, on its screen).
  */
-export function SyncStatus() {
+export function SyncStatus({ only }: { only?: (m: QueuedMutation) => boolean } = {}) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const { sync, queue } = useServices();
-  const { pending, failed } = useMyQueuedChanges();
+  const mine = useMyQueuedChanges();
+  const pending = only ? mine.pending.filter(only) : mine.pending;
+  const failed = only ? mine.failed.filter(only) : mine.failed;
   const [syncing, setSyncing] = useState(false);
 
   if (pending.length === 0 && failed.length === 0) return null;

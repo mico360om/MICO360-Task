@@ -15,7 +15,10 @@ import {
   useRespondToMeeting,
 } from '../core/queries';
 import { useAgendaMutations, useFinalMinutesMutations, useMeetingActions, useNoteMutations } from '../core/meeting-mutations';
-import { useServices, useUserId } from '../core/providers';
+import { useMyQueuedChanges, useServices, useUserId } from '../core/providers';
+import { SyncStatus } from '../components/SyncStatus';
+import { isMeetingChange, isWaitingRow, withWaitingChanges } from '../lib/meeting-waiting';
+import type { QueuedMutation } from '../lib/sync-queue';
 import { useColors } from '../core/theme';
 import { Loader, ErrorNote, Button } from '../components/ui';
 import {
@@ -132,17 +135,26 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   const viewer = { canEdit, myId };
   const attendanceTime = meeting?.status === 'IN_PROGRESS' || meeting?.status === 'COMPLETED';
 
-  const part = <T,>(q: { data?: T; isLoading: boolean; isError: boolean }) => ({ data: q.data, loading: q.isLoading, failed: q.isError && q.data === undefined });
+  // What this phone took down and hasn't sent yet shows on the lists, "Waiting to sync" — and stays
+  // over a list that loads again before the sync (meeting-waiting).
+  const { pending: queued } = useMyQueuedChanges();
+  const shown = useMemo(
+    () => withWaitingChanges({ agenda: agendaQ.data, attendees: peopleQ.data, notes: notesQ.data, actions: actionsQ.data }, queued, { meetingId, myId }),
+    [agendaQ.data, peopleQ.data, notesQ.data, actionsQ.data, queued, meetingId, myId],
+  );
+  const onlyThisMeeting = useCallback((m: QueuedMutation) => isMeetingChange(m, meetingId), [meetingId]);
+
+  const part = <T,>(q: { data?: T; isLoading: boolean; isError: boolean }, data: T | undefined = q.data) => ({ data, loading: q.isLoading, failed: q.isError && data === undefined });
   // A few hundred rows at most, built again on each render (cheap); the list draws only what is on screen.
   const rows = meeting
     ? meetingDetailRows({
         meeting,
         canRsvp: !!mine && canAnswer(meeting),
         canEdit,
-        agenda: part(agendaQ),
-        people: part(peopleQ),
-        notes: part(notesQ),
-        actions: part(actionsQ),
+        agenda: part(agendaQ, shown.agenda),
+        people: part(peopleQ, shown.attendees),
+        notes: part(notesQ, shown.notes),
+        actions: part(actionsQ, shown.actions),
         minutes: part(minutesQ),
         showAllPeople,
         noteFilter,
@@ -365,6 +377,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
             place={place}
             onToggle={canTickAgendaItem(item.item, viewer) ? () => toggleCovered(item.item) : null}
             onOpen={canEdit ? () => setSheet({ kind: 'agenda', item: item.item }) : null}
+            waiting={shown.waiting.has(item.item.id)}
           />
         );
       case 'person': {
@@ -378,15 +391,18 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
             place={place}
             flags={canEdit ? personFlags(item.attendee, meeting) : null}
             onOpen={canEdit || (own && attendanceTime) ? () => setSheet({ kind: 'person', attendeeId: item.attendee.id }) : null}
+            waiting={shown.waiting.has(item.attendee.id)}
           />
         );
       }
       case 'more':
         return <MoreRow total={item.total} expanded={item.expanded} onToggle={() => setShowAllPeople((v) => !v)} place={place} />;
       case 'noteFilters':
-        return <NoteFiltersRow notes={notesQ.data ?? []} filter={noteFilter} onFilter={setNoteFilter} place={place} />;
+        return <NoteFiltersRow notes={shown.notes ?? []} filter={noteFilter} onFilter={setNoteFilter} place={place} />;
       case 'note': {
         const n = item.note;
+        // A note taken on this phone and not sent yet can't be changed until the server has it.
+        const notSent = isWaitingRow(n.id);
         return (
           <NoteRow
             note={n}
@@ -395,17 +411,33 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
             taskKey={n.taskId ? taskKeys.get(n.taskId) ?? null : null}
             onOpenTask={openTask}
             place={place}
-            actions={{
-              onTask: n.taskId ? null : () => setSheet({ kind: 'noteTask', note: n }),
-              onStar: canManageNote(n, viewer) ? () => toggleKey(n) : null,
-              onEdit: canChangeNoteText(n, myId) ? () => setSheet({ kind: 'note', note: n }) : null,
-              onDelete: canManageNote(n, viewer) ? () => deleteNote(n) : null,
-            }}
+            waiting={shown.waiting.has(n.id)}
+            actions={
+              notSent
+                ? undefined
+                : {
+                    onTask: n.taskId ? null : () => setSheet({ kind: 'noteTask', note: n }),
+                    onStar: canManageNote(n, viewer) ? () => toggleKey(n) : null,
+                    onEdit: canChangeNoteText(n, myId) ? () => setSheet({ kind: 'note', note: n }) : null,
+                    onDelete: canManageNote(n, viewer) ? () => deleteNote(n) : null,
+                  }
+            }
           />
         );
       }
       case 'action':
-        return <ActionRow item={item.item} nameOf={nameOf} now={now} onOpenTask={openTask} place={place} onOpen={() => setSheet({ kind: 'action', item: item.item })} />;
+        return (
+          <ActionRow
+            item={item.item}
+            nameOf={nameOf}
+            now={now}
+            onOpenTask={openTask}
+            place={place}
+            // One added on this phone and not sent yet can be changed once the server has it.
+            onOpen={isWaitingRow(item.item.id) ? null : () => setSheet({ kind: 'action', item: item.item })}
+            waiting={shown.waiting.has(item.item.id)}
+          />
+        );
       case 'minutes':
         return (
           <MinutesRow
@@ -458,6 +490,8 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
           </Text>
         </Pressable>
       ) : null}
+      {/* This meeting's changes still on this phone, and any the server refused (Retry / Discard). */}
+      <SyncStatus only={onlyThisMeeting} />
       {undoNoteId ? (
         <View style={styles.undo} accessibilityLiveRegion="polite">
           <Text style={styles.undoText}>Note deleted.</Text>
@@ -467,7 +501,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     </View>
   );
 
-  const personSheet = sheet?.kind === 'person' ? (peopleQ.data ?? []).find((a) => a.id === sheet.attendeeId) ?? null : null;
+  const personSheet = sheet?.kind === 'person' ? (shown.attendees ?? []).find((a) => a.id === sheet.attendeeId) ?? null : null;
   const dialog = sheet?.kind === 'cancel' ? cancelDialog(meeting, scope) : sheet?.kind === 'delete' ? deleteDialog(meeting, scope) : null;
   const close = () => setSheet(null);
 
