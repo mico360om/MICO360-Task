@@ -3,6 +3,7 @@ import { useServices } from './providers';
 import { queueOnOffline, writeOrder, type Keyed } from './queries';
 import { isNetworkError } from '../lib/api-client';
 import { sendInOrder } from '../lib/write-order';
+import { noteTaskFailure } from '../lib/meeting-parts';
 import { refresh } from '../lib/refresh';
 import { afterMeetingSaved, afterPartChanged, dropRow, patchRow, putRow } from '../lib/meeting-cache';
 import type { SaveRequest } from '../lib/meeting-form';
@@ -257,6 +258,11 @@ export function useNoteToTask(meetingId: string) {
       afterPartChanged(qc, meetingId, res?.actionItem ? 'action-items' : 'notes');
       // The new task: its board, and My Tasks (when it is mine) — fetched when next shown.
       if (res?.task) refresh(qc, [{ queryKey: ['tasks', 'project', res.task.projectId], later: true }, { queryKey: ['tasks', 'mine'], later: true }, { queryKey: ['project', res.task.projectId, 'progress'], later: true }]);
+    },
+    // The note already has a task (another try, or the website): the notes and action items load
+    // again, so the note shows its task and its Task button goes.
+    onError: (err) => {
+      if (noteTaskFailure(err).reload) refresh(qc, [{ queryKey: part(meetingId, 'notes'), exact: true }, { queryKey: part(meetingId, 'action-items'), exact: true }]);
     },
   });
 }

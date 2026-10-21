@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ApiError } from './api-client';
+import { ApiError, NetworkError } from './api-client';
 import {
   addablePeople,
   attendeeAddFailure,
@@ -12,6 +12,7 @@ import {
   moveAgenda,
   noteEditStart,
   notePlaceholder,
+  noteTaskFailure,
   noteTaskTitle,
   parseAgendaMinutes,
   personFlags,
@@ -143,5 +144,26 @@ describe('action items', () => {
     expect(canRemoveActionItem(item(), { canEdit: true, myId: 'me' })).toBe(true);
     expect(canRemoveActionItem(item({ createdById: 'me' }), { canEdit: false, myId: 'me' })).toBe(true);
     expect(canRemoveActionItem(item(), { canEdit: false, myId: 'me' })).toBe(false);
+  });
+});
+
+describe('a try that got no answer (2b review)', () => {
+  it('says tapping again finishes it after a time-out, and plainly when there is no connection', () => {
+    expect(attendeeAddFailure(new NetworkError('slow', { timedOut: true }), 'member')).toBe(
+      'The server took too long to answer — it may already be done. Tap “Add attendee” again to finish: it won’t happen twice.',
+    );
+    expect(attendeeAddFailure(new NetworkError('offline'), 'guest')).toBe('Couldn’t add the attendee. You’re offline — this needs a connection.');
+  });
+
+  it('a note that already has a task: the notes are loaded again (its Task button goes) and the screen says so', () => {
+    expect(noteTaskFailure(new ApiError(409, 'NOTE_HAS_TASK', 'A task has already been created from this note.'))).toEqual({
+      text: 'A task has already been made from this note — it now shows on the note.',
+      reload: true,
+    });
+    expect(noteTaskFailure(new NetworkError('slow', { timedOut: true }))).toEqual({
+      text: 'The server took too long to answer — it may already be done. Tap “Create task” again to finish: it won’t happen twice.',
+      reload: false,
+    });
+    expect(noteTaskFailure(new ApiError(403, 'FORBIDDEN', 'x'))).toEqual({ text: 'Couldn’t create the task. You don’t have permission to do that.', reload: false });
   });
 });

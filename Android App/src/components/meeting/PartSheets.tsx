@@ -19,11 +19,13 @@ import {
   moveAgenda,
   noteEditStart,
   notePlaceholder,
+  noteTaskFailure,
   noteTaskTitle,
   parseAgendaMinutes,
   personFlags,
 } from '../../lib/meeting-parts';
 import { meetingFailure } from '../../lib/meeting-flow';
+import { keptTryText, pendingKeys, tryName } from '../../lib/pending-keys';
 import { parseDueDateInput } from '../../lib/form-input';
 import { dueDayKey } from '../../lib/due-date';
 import { displayName } from '../../lib/types';
@@ -90,14 +92,20 @@ export function AddPersonSheet({ meetingId, attendees, directory, visible, onClo
     }
     const input = mode === 'member' ? { userId, role } : { externalName: name.trim(), externalEmail: email.trim() || null, role };
     const who = mode === 'member' ? options.find((o) => o.value === userId)?.label ?? 'The person' : name.trim();
-    add.mutate(keyed({ input }), {
+    // A try that got no answer keeps its key, so tapping again can't add them twice (pending-keys).
+    const what = tryName('attendee', meetingId, input);
+    add.mutate({ input, idempotencyKey: pendingKeys.keyFor(what) }, {
       onSuccess: () => {
+        pendingKeys.settle(what);
         setAdded(`${who} was added.`);
         setUserId('');
         setName('');
         setEmail('');
       },
-      onError: (e) => setError(attendeeAddFailure(e, mode)),
+      onError: (e) => {
+        pendingKeys.settle(what, e);
+        setError(attendeeAddFailure(e, mode));
+      },
     });
   };
 
@@ -254,8 +262,25 @@ export function AgendaItemSheet({
     const m = parseAgendaMinutes(minutes);
     if (!m.ok) return setError(m.error);
     const input = { title: title.trim(), ownerId: ownerId || null, expectedMinutes: m.value };
-    if (item) update.mutate({ itemId: item.id, patch: input }, { onSuccess: onClose, onError: (e) => setError(meetingFailure(e, 'Couldn’t save the agenda item.')) });
-    else add.mutate(keyed({ input }), { onSuccess: onClose, onError: (e) => setError(meetingFailure(e, 'Couldn’t add the agenda item.')) });
+    if (item) {
+      update.mutate({ itemId: item.id, patch: input }, { onSuccess: onClose, onError: (e) => setError(meetingFailure(e, 'Couldn’t save the agenda item.')) });
+      return;
+    }
+    // A try that got no answer keeps its key, so tapping Add again can't add it twice (pending-keys).
+    const what = tryName('agenda', meetingId, input);
+    add.mutate(
+      { input, idempotencyKey: pendingKeys.keyFor(what) },
+      {
+        onSuccess: () => {
+          pendingKeys.settle(what);
+          onClose();
+        },
+        onError: (e) => {
+          pendingKeys.settle(what, e);
+          setError(keptTryText(e, 'Couldn’t add the agenda item.', 'Add', meetingFailure));
+        },
+      },
+    );
   };
   const move = (dir: -1 | 1) => {
     const ids = moveAgenda(items, index, dir);
@@ -404,9 +429,18 @@ export function NoteTaskSheet({
     if (!projectId) return setError('Choose a project for this task.');
     const d = parseDueDateInput(due);
     if (!d.ok) return setError(d.error);
-    make.mutate(keyed({ noteId: note.id, input: { title: title.trim(), projectId, priority, dueDate: d.value, assigneeId: assigneeId || null } }), {
-      onSuccess: setCreated,
-      onError: (e) => setError(meetingFailure(e, 'Couldn’t create the task.')),
+    const input = { title: title.trim(), projectId, priority, dueDate: d.value, assigneeId: assigneeId || null };
+    // A try that got no answer keeps its key, so tapping again can't make a second task (pending-keys).
+    const what = tryName('note-task', meetingId, note.id, input);
+    make.mutate({ noteId: note.id, input, idempotencyKey: pendingKeys.keyFor(what) }, {
+      onSuccess: (res) => {
+        pendingKeys.settle(what);
+        setCreated(res);
+      },
+      onError: (e) => {
+        pendingKeys.settle(what, e);
+        setError(noteTaskFailure(e).text);
+      },
     });
   };
 

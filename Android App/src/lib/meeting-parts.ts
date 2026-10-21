@@ -5,6 +5,7 @@
  */
 import { ApiError } from './api-client';
 import { normalizeDigits, type Parsed } from './form-input';
+import { keptTryText } from './pending-keys';
 import { meetingFailure } from './meeting-flow';
 import { noteTypeLabel } from './meeting-detail';
 import { noteWords } from './rich-note';
@@ -104,11 +105,12 @@ export function guestProblem(name: string, email: string, attendees: Pick<ApiMee
   return null;
 }
 
-/** Why someone couldn't be added. */
+/** Why someone couldn't be added (after a time-out: tap again to finish — never added twice). */
 export function attendeeAddFailure(e: unknown, mode: 'member' | 'guest'): string {
+  if (e instanceof ApiError && e.code === 'IDEMPOTENCY_IN_PROGRESS') return keptTryText(e, '', 'Add attendee', meetingFailure);
   if (e instanceof ApiError && e.status === 409) return mode === 'member' ? 'That person is already on the list.' : 'That guest is already on the list.';
   if (e instanceof ApiError && e.status === 400 && mode === 'guest') return 'Check the guest’s details — the email address doesn’t look valid.';
-  return meetingFailure(e, 'Couldn’t add the attendee.');
+  return keptTryText(e, 'Couldn’t add the attendee.', 'Add attendee', meetingFailure);
 }
 
 /**
@@ -133,4 +135,13 @@ export function dueDayToIso(day: string | null | undefined): string | null {
 /** Whoever runs the meeting, or the item's creator, may remove it. */
 export function canRemoveActionItem(item: Pick<ApiActionItem, 'createdById'>, v: Viewer): boolean {
   return v.canEdit || (!!v.myId && item.createdById === v.myId);
+}
+
+/**
+ * Why a note couldn't become a task. When one was made from it already (by another try, or on the
+ * website), the notes are loaded again, so the note shows its task and its Task button goes.
+ */
+export function noteTaskFailure(e: unknown): { text: string; reload: boolean } {
+  if (e instanceof ApiError && e.code === 'NOTE_HAS_TASK') return { text: 'A task has already been made from this note — it now shows on the note.', reload: true };
+  return { text: keptTryText(e, 'Couldn’t create the task.', 'Create task', meetingFailure), reload: false };
 }

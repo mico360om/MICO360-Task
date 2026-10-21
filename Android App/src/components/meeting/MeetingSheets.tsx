@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useInvitePreview, useMinutesPreview, useSendInvites, useSendMinutes } from '../../core/meeting-mutations';
 import { ActionRowButton, CardChoice, CheckRow, Sheet, SheetButtons, SheetMessage, useSheetStyles } from './sheet-kit';
-import { inviteChoice, inviteFailure, inviteRequest, keepsSendKey, minutesChoice, sendFailure, sendSummary } from '../../lib/meeting-invites';
-import { newIdempotencyKey } from '../../lib/idempotency';
+import { inviteChoice, inviteFailure, inviteRequest, minutesChoice, sendFailure, sendSummary } from '../../lib/meeting-invites';
+import { inviteTry, minutesTry, pendingKeys } from '../../lib/pending-keys';
 import { meetingFailure, type ConfirmDialog, type MenuItem } from '../../lib/meeting-flow';
 import { meetingWhen } from '../../lib/meeting-detail';
 import { spacing, fontSize, radius } from '../../lib/theme';
@@ -68,15 +68,6 @@ export function ConfirmScopeSheet({
   );
 }
 
-/** The idempotency key of the next send, and a way to start a new one. */
-function useSendKey(visible: boolean) {
-  const key = useRef(newIdempotencyKey());
-  useEffect(() => {
-    if (visible) key.current = newIdempotencyKey();
-  }, [visible]);
-  return { current: () => key.current, renew: () => (key.current = newIdempotencyKey()) };
-}
-
 /** What happened to each email of a send. */
 function SendResults({ report, what }: { report: SendReport; what: string }) {
   const c = useColors();
@@ -124,7 +115,6 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
   const c = useColors();
   const previewQ = useInvitePreview(meeting.id, visible);
   const send = useSendInvites(meeting);
-  const sendKey = useSendKey(visible);
   const [mode, setMode] = useState<'new' | 'all' | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -142,10 +132,14 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
   const onSend = () => {
     if (!choice) return;
     setError(null);
-    send.mutate({ opts: inviteRequest(choice), idempotencyKey: sendKey.current() }, {
-      onSuccess: () => sendKey.renew(),
+    // A send that got no answer keeps its key until one comes — also after this sheet is closed —
+    // so sending the same again can't email anyone twice (pending-keys).
+    const opts = inviteRequest(choice);
+    const what = inviteTry(meeting.id, opts, choice.targets.map((r) => r.email));
+    send.mutate({ opts, idempotencyKey: pendingKeys.keyFor(what) }, {
+      onSuccess: () => pendingKeys.settle(what),
       onError: (e) => {
-        if (!keepsSendKey(e)) sendKey.renew();
+        pendingKeys.settle(what, e);
         const f = inviteFailure(e);
         setError(f.text);
         if (f.reload) void previewQ.refetch();
@@ -187,10 +181,7 @@ export function InviteSheet({ meeting, visible, onClose }: { meeting: ApiMeeting
             <CardChoice<'new' | 'all'>
               legend={`Invitations already went out on ${meetingWhen({ startAt: choice.sentBefore, endAt: null }).day}. Send to:`}
               value={choice.effective}
-              onChange={(m) => {
-                setMode(m);
-                sendKey.renew();
-              }}
+              onChange={setMode}
               options={[
                 { value: 'new', label: `Only people not invited yet (${choice.fresh.length})`, hint: 'The others already have it.', disabled: choice.fresh.length === 0 },
                 { value: 'all', label: `Everyone again (${preview.recipients.length})`, hint: 'An updated invitation for everyone.' },
@@ -230,18 +221,13 @@ export function MinutesEmailSheet({
   const c = useColors();
   const previewQ = useMinutesPreview(meeting.id, visible);
   const send = useSendMinutes(meeting.id);
-  const sendKey = useSendKey(visible);
-  const [left, setLeftState] = useState<Set<string>>(new Set());
+  // Someone left out or put back is another send, with its own key (pending-keys).
+  const [left, setLeft] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  // Someone left out or put back: a new send.
-  const setLeft = (next: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-    setLeftState(next);
-    sendKey.renew();
-  };
   useEffect(() => {
     if (!visible) {
-      setLeftState(new Set());
+      setLeft(new Set());
       setError(null);
       setDownloadError(null);
       send.reset();
@@ -250,13 +236,17 @@ export function MinutesEmailSheet({
   const preview = previewQ.data;
   const choice = preview ? minutesChoice(preview, left) : null;
   const onSend = () => {
+    if (!choice) return;
     setError(null);
+    // A send that got no answer keeps its key until one comes — also after this sheet is closed and
+    // opened again — so "nobody gets it twice" holds (the server has no other guard on it).
+    const what = minutesTry(meeting.id, choice.chosen.map((r) => r.email));
     send.mutate(
-      { recipients: choice?.recipients, idempotencyKey: sendKey.current() },
+      { recipients: choice.recipients, idempotencyKey: pendingKeys.keyFor(what) },
       {
-        onSuccess: () => sendKey.renew(),
+        onSuccess: () => pendingKeys.settle(what),
         onError: (e) => {
-          if (!keepsSendKey(e)) sendKey.renew();
+          pendingKeys.settle(what, e);
           setError(sendFailure(e, 'Couldn’t email the minutes.'));
         },
       },

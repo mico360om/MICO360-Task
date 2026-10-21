@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  keyed,
   useDirectory,
   useFinalMinutes,
   useMeeting,
@@ -38,6 +37,7 @@ import { ActionsSheet, ConfirmScopeSheet, InviteSheet, MinutesEmailSheet } from 
 import { ActionItemSheet, AddPersonSheet, AgendaItemSheet, NoteSheet, NoteTaskSheet, PersonSheet } from '../components/meeting/PartSheets';
 import { openJoinLink, useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { isNetworkError } from '../lib/api-client';
+import { keptTryText, pendingKeys, tryName } from '../lib/pending-keys';
 import { appTimeZone } from '../lib/due-date';
 import { afterMeetingDeleted } from '../lib/meeting-cache';
 import { agendaTiming, agendaTimingText, answerAfterTap, canAnswer, meetingLoadProblem, myInvitation, responseLine, responseSummary } from '../lib/meeting-detail';
@@ -182,11 +182,23 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
     const problem = await downloadPdf();
     if (problem) say(problem, true);
   };
-  const duplicate = () =>
-    lifecycle.duplicate.mutate(keyed({}), {
-      onSuccess: (copy) => navigation.navigate('MeetingDetail', { meetingId: copy.id, title: copy.title }),
-      onError: (e) => say(meetingFailure(e, 'Couldn’t duplicate the meeting.'), true),
-    });
+  const duplicate = () => {
+    // A copy whose try got no answer keeps its key, so tapping again can't make a second copy.
+    const what = tryName('duplicate', meetingId);
+    lifecycle.duplicate.mutate(
+      { idempotencyKey: pendingKeys.keyFor(what) },
+      {
+        onSuccess: (copy) => {
+          pendingKeys.settle(what);
+          navigation.navigate('MeetingDetail', { meetingId: copy.id, title: copy.title });
+        },
+        onError: (e) => {
+          pendingKeys.settle(what, e);
+          say(keptTryText(e, 'Couldn’t duplicate the meeting.', 'Duplicate', meetingFailure), true);
+        },
+      },
+    );
+  };
   const run = (key: PrimaryAction | MenuKey) => {
     setSheet(null);
     setNotice(null);
