@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildQuickAddPayload, parseTags, openProjects, startProjectId, projectFromUrl, boardColumns, pickColumn, personName, listNames,
   assigneeNote, removedNotice, withPage, isAddablePage, captureFromContext, mergeCapture, rememberRecent, recentStatus, ownedBy,
-  fileFailure, createFailure, attachFailureMessage, createdMessage, formatSize, TITLE_MAX,
+  fileFailure, createFailure, attachFailureMessage, createdMessage, formatSize, TITLE_MAX, DESCRIPTION_MAX,
 } from './quick-add.js';
 
 describe('buildQuickAddPayload', () => {
@@ -195,6 +195,35 @@ describe('the right-click menu: "Add to MICO360 Tasks"', () => {
     expect(mergeCapture(empty, link).description).toBe(`https://a.example/doc\n\n${tab.title}\n${tab.url}`);
     const page = captureFromContext({ pageUrl: tab.url }, tab);
     expect(mergeCapture(empty, page)).toMatchObject({ title: tab.title, description: tab.url });
+  });
+
+  it('a single-line selection longer than a title is kept whole in the description (I3)', () => {
+    const empty = { title: '', description: '', priority: 'NORMAL' };
+    const sentence = `${'Inspect the flange on the north manifold and record the torque values '.repeat(4)}before the shift ends.`;
+    expect(sentence.length).toBeGreaterThan(TITLE_MAX);
+    const long = captureFromContext({ selectionText: sentence, pageUrl: tab.url }, tab);
+    const merged = mergeCapture(empty, long);
+    expect(merged.title).toHaveLength(TITLE_MAX);
+    expect(merged.description).toBe(`${sentence}\n\n${tab.title}\n${tab.url}`);
+    expect(merged.description).toContain('before the shift ends.');
+    // A page title too long for a task title is kept whole as well.
+    const longPage = { title: `Report ${'x'.repeat(250)} end`, url: tab.url };
+    expect(mergeCapture(empty, captureFromContext({ pageUrl: tab.url }, longPage)).description).toBe(`${longPage.title}\n${tab.url}`);
+  });
+
+  it('a capture never goes past the fields’ limits (M7): the selection is shortened, the page stays', () => {
+    const empty = { title: '', description: '', priority: 'NORMAL' };
+    const huge = `Start ${'word '.repeat(DESCRIPTION_MAX / 4)}`;
+    const merged = mergeCapture(empty, captureFromContext({ selectionText: huge, pageUrl: tab.url }, tab));
+    expect(merged.description.length).toBeLessThanOrEqual(DESCRIPTION_MAX);
+    expect(merged.description.startsWith('Start word')).toBe(true);
+    expect(merged.description.endsWith(`…\n\n${tab.title}\n${tab.url}`)).toBe(true);
+    // A title kept in storage is clipped too, and typed text that is already long is never cut.
+    expect(mergeCapture(empty, { title: 'y'.repeat(400), text: '', link: '', page: null }).title.length).toBeLessThanOrEqual(TITLE_MAX);
+    const typed = { title: 'Mine', description: 'z'.repeat(DESCRIPTION_MAX - 5) };
+    const next = mergeCapture(typed, { title: 'T', text: 'A selection that does not fit', link: '', page: null });
+    expect(next.description.length).toBeLessThanOrEqual(DESCRIPTION_MAX);
+    expect(next.description.startsWith(typed.description)).toBe(true);
   });
 
   it('never replaces what is already typed: it adds to the description instead', () => {

@@ -209,17 +209,29 @@ function joinPart(description, part) {
 /**
  * Put a capture into the form. Nothing typed is replaced: an empty title takes the capture's, and
  * the rest (the selected text, the link, then the page) goes at the end of the description.
+ * A value set from code skips the fields' `maxlength` (M7), so the result keeps to TITLE_MAX and
+ * DESCRIPTION_MAX itself: a selection too long is shortened (the link and the page stay), and what
+ * was typed is never cut.
  */
 export function mergeCapture(fields, capture) {
   if (!capture) return fields;
   const titleFree = !String(fields.title ?? '').trim();
-  const title = titleFree ? capture.title : fields.title;
-  const isTitle = (v) => titleFree && !!v && !/\n/.test(v.trim()) && clipTitle(v) === capture.title;
-  let description = String(fields.description ?? '');
-  if (capture.text && !isTitle(capture.text)) description = joinPart(description, capture.text);
-  if (capture.link && !isTitle(capture.link)) description = joinPart(description, capture.link);
-  const page = capture.page && titleFree && clipTitle(capture.page.title) === capture.title ? { title: '', url: capture.page.url } : capture.page;
-  description = withPage(description, page).description;
+  const captured = clipTitle(capture.title);
+  const title = titleFree ? captured : fields.title;
+  // Only text that IS the title whole (spaces aside) is left out; a clipped one goes in full (I3).
+  const isTitle = (v) => titleFree && !!v && String(v).replace(/\s+/g, ' ').trim() === captured;
+  const typed = String(fields.description ?? '');
+  const text = capture.text && !isTitle(capture.text) ? String(capture.text) : '';
+  const link = capture.link && !isTitle(capture.link) ? capture.link : '';
+  const page = capture.page && isTitle(capture.page.title) ? { title: '', url: capture.page.url } : capture.page;
+  const build = (t) => withPage(joinPart(joinPart(typed, t), link), page).description;
+  const fits = (d) => d.length <= DESCRIPTION_MAX;
+  let description = build(text);
+  if (!fits(description)) {
+    const room = text.length - (description.length - DESCRIPTION_MAX); // what the selection may keep
+    const shorter = room > 1 ? build(`${text.slice(0, room - 1)}…`) : '';
+    description = [shorter, build(''), typed].find((d) => d && fits(d)) || typed;
+  }
   return { ...fields, title, description };
 }
 
