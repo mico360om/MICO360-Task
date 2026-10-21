@@ -32,10 +32,30 @@ import {
   userPatch,
   usersLoadProblem,
   userActions,
+  offersNewUser,
   StatusAfterSaveError,
   type UserApi,
   type ApiAdminUser,
 } from './users-admin';
+
+// 6b review: "+ New" showed to someone who isn't an administrator while the list loaded (until the
+// server's "only administrators" came back).
+describe('“+ New” on User Management', () => {
+  it('shows for an administrator at once, and for anyone else only once the server gave the list', () => {
+    expect(offersNewUser({ isAdmin: true, listed: false, denied: false })).toBe(true); // loading
+    expect(offersNewUser({ isAdmin: false, listed: false, denied: false })).toBe(false); // loading
+    expect(offersNewUser({ isAdmin: false, listed: true, denied: false })).toBe(true); // made an administrator since signing in
+  });
+  it('never after the server’s “only administrators”', () => {
+    expect(offersNewUser({ isAdmin: false, listed: false, denied: true })).toBe(false);
+    expect(offersNewUser({ isAdmin: true, listed: false, denied: true })).toBe(false); // no longer one
+  });
+  it('the screen asks this rule, with the session’s roles and the list’s answer', () => {
+    const screen = readFileSync(resolve(__dirname, '../screens/UsersScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/offersNewUser\(\{ isAdmin, listed: usersQ\.isSuccess, denied \}\)/);
+    expect(screen).toMatch(/headerRight: showNew/);
+  });
+});
 
 const user = (over: Partial<ApiAdminUser> = {}): ApiAdminUser => ({
   id: 'u1',

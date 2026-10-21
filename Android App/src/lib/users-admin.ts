@@ -99,6 +99,15 @@ export function usersLoadProblem(error: unknown): string {
   return 'Couldn’t load users.';
 }
 
+/**
+ * Does User Management show "+ New" (6b review)? For an administrator (the session's roles) at
+ * once; for anyone else only once the server gave the list (made an administrator since signing
+ * in) — never while it loads, and never after the server's "only administrators".
+ */
+export function offersNewUser(state: { isAdmin: boolean; listed: boolean; denied: boolean }): boolean {
+  return !state.denied && (state.isAdmin || state.listed);
+}
+
 // ── Why a change wasn't made ─────────────────────────────────────────────────
 
 /** The phone knew it was offline, so the change was never sent: nothing changed. */

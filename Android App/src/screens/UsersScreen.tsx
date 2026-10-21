@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, AccessibilityInfo } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useUserId } from '../core/providers';
+import { useSession, useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useAfterUserChange, useUserActions, useUsers } from '../core/admin-queries';
 import { Badge, ErrorNote, Loader, NoticeNote, TextField } from '../components/ui';
@@ -14,6 +14,7 @@ import {
   filterOptions,
   filterUsers,
   lockedNote,
+  offersNewUser,
   rolesText,
   statusChangeProblem,
   statusLabel,
@@ -57,17 +58,19 @@ export function UsersScreen({ navigation, route }: AppScreenProps<'Users'>) {
   }, [asked]);
 
   const denied = usersQ.error instanceof ApiError && usersQ.error.status === 403;
+  const isAdmin = (useSession()?.user.roles ?? []).includes('ADMIN');
+  const showNew = offersNewUser({ isAdmin, listed: usersQ.isSuccess, denied });
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: denied
-        ? undefined
-        : () => (
+      headerRight: showNew
+        ? () => (
             <Pressable onPress={() => navigation.navigate('UserForm')} accessibilityRole="button" accessibilityLabel="New user" hitSlop={8} style={s.headerButton}>
               <Text style={s.headerButtonText}>+ New</Text>
             </Pressable>
-          ),
+          )
+        : undefined,
     });
-  }, [navigation, denied, s]);
+  }, [navigation, showNew, s]);
 
   const users = useMemo(() => usersQ.data ?? [], [usersQ.data]);
   const shown = useMemo(() => filterUsers(users, { q, filter }), [users, q, filter]);
