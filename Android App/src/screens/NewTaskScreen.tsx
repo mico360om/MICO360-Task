@@ -111,6 +111,15 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const keptBody = useRef<string | null>(null);
   const titleRef = useRef<TextInput>(null);
   const scrollRef = useRef<ScrollView>(null);
+  // The Repeat card's place in the form and its Last date: a repeat problem on Create is brought
+  // into view there, with the cursor in the field (as the website does — 4a review).
+  const repeatY = useRef(0);
+  const untilRef = useRef<TextInput>(null);
+  const showRepeatProblem = (message: string) => {
+    setRepeatError(message);
+    scrollRef.current?.scrollTo({ y: Math.max(0, repeatY.current - spacing.md), animated: true });
+    untilRef.current?.focus();
+  };
   const frozen = locked || !!created || saving;
 
   const set = (patch: Partial<TaskDraft>) => {
@@ -287,7 +296,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
       if (check.field === 'title') {
         setTitleError(check.message);
         titleRef.current?.focus();
-      } else if (check.field === 'repeat') setRepeatError(check.message);
+      } else if (check.field === 'repeat') showRepeatProblem(check.message);
       else setBanner(check.message);
       return;
     }
@@ -487,7 +496,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           disabled={frozen}
         />
 
-        <View style={s.card}>
+        <View style={s.card} onLayout={(e) => (repeatY.current = e.nativeEvent.layout.y)}>
           <FieldLabel>Repeat</FieldLabel>
           {draft.rule ? <Text style={s.summary}>🔁 {scheduleText(draft.rule, draft.dueDate)}</Text> : null}
           <RecurrenceEditor
@@ -498,6 +507,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
             }}
             dueDate={draft.dueDate || null}
             disabled={frozen}
+            untilRef={untilRef}
           />
           {repeatProblem ? (
             <Text style={s.problem} accessibilityRole="alert">

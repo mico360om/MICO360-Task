@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, type TextInput } from 'react-native';
 import { useColors } from '../core/theme';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { RecurrenceRule } from '../lib/types';
@@ -26,9 +26,12 @@ export function RecurrenceEditor({
   dueDate,
   disabled = false,
   kind = 'task',
+  untilRef,
 }: {
   value: RecurrenceRule | null;
   onChange: (rule: RecurrenceRule | null) => void;
+  /** The "Last date" field, so a form can put the cursor there for a problem with it (4a review). */
+  untilRef?: React.RefObject<TextInput>;
   /** The task's due date ('YYYY-MM-DD' or ISO): previews the next dates and suggests "the 2nd Tuesday". */
   dueDate?: string | null;
   disabled?: boolean;
@@ -170,6 +173,7 @@ export function RecurrenceEditor({
           {endsMode(rule) === 'UNTIL' ? (
             <TextField
               label="Last date"
+              inputRef={untilRef}
               value={untilText}
               onChangeText={(v) => {
                 setUntilText(v);

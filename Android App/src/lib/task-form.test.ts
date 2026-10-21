@@ -468,3 +468,14 @@ describe('a server problem on create keeps the key (4a review #10)', () => {
     expect(NEW_TASK_TEXT.tooMany).toBe('Too many tries just now — wait a moment, then tap Create task again.');
   });
 });
+
+describe('a repeat problem on Create is brought into view (4a review #6)', () => {
+  it('scrolls to the Repeat card and puts the cursor in its Last date, as the website does', () => {
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/showRepeatProblem\(check\.message\)/);
+    expect(screen).toMatch(/scrollRef\.current\?\.scrollTo\(\{ y: Math\.max\(0, repeatY\.current - spacing\.md\), animated: true \}\)/);
+    expect(screen).toMatch(/untilRef\.current\?\.focus\(\)/);
+    const editor = readFileSync(resolve(__dirname, '../components/RecurrenceEditor.tsx'), 'utf8');
+    expect(editor).toMatch(/inputRef=\{untilRef\}/);
+  });
+});
