@@ -1,7 +1,8 @@
 /**
- * The task's tags: take one off, or type one (the workspace's tags are suggested). The whole list is
- * sent each time (`PUT /tasks/:id/tags`), one change after another, so two quick changes can't land
- * in the wrong order. A name the server would refuse (blank, an eleventh tag) is explained first.
+ * The task's tags: take one off, or type one (the workspace's tags are suggested). Each change is
+ * sent with the list it started from (`PUT /tasks/:id/tags` over the task's tags as they are then),
+ * one change after another, so two quick changes can't land in the wrong order. A name the server
+ * would refuse (blank, an eleventh tag) is explained first.
  */
 import { el, mount } from '../dom.js';
 import { createWriteLane } from '../../src/task-writes.js';
@@ -69,16 +70,21 @@ export function TagsSection(d) {
     save(withoutTag(names(), name), `Removed the tag ${name}.`);
   }
 
-  /** Show the new list at once, then send it after the change before it has been answered. */
+  /**
+   * Show the new list at once, then send it after the change before it has been answered. The list
+   * it started from goes with it, so it is sent as its own additions and removals over the task's
+   * tags as they are then: a tag someone else added or took off meanwhile stays (src/queue.js).
+   */
   function save(next, said) {
     const before = tags();
+    const base = before.map((t) => t.name);
     d.s.task.tags = tagRecords(next, [...before, ...(Array.isArray(d.s.tagCatalog) ? d.s.tagCatalog : [])]);
     render();
     latest += 1;
     const mine = latest;
     return lane.run(async () => {
       try {
-        const r = await d.send('task.tags', { id: d.taskId, tags: next });
+        const r = await d.send('task.tags', { id: d.taskId, base, tags: next });
         if (!r.queued && Array.isArray(r.data) && mine === latest) d.s.task.tags = r.data;
         d.announce(said);
       } catch (e) {

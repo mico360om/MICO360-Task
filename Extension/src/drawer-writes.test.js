@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mutationRequest, describeMutation, sendOrQueue, enqueue, getQueue, flushQueue, makePerformMutation } from './queue.js';
-import { taskIdOf } from './task-writes.js';
+import { mutationRequest, describeMutation, sendOrQueue, enqueue, getQueue, flushQueue, makePerformMutation, retryQueued } from './queue.js';
+import { taskIdOf, SUPERSEDED_MESSAGE } from './task-writes.js';
 import { applyPending, tempId } from './pending-overlay.js';
 import { createApi } from './api.js';
 import { createReadCache } from './read-cache.js';
@@ -103,22 +103,23 @@ describe('the order they reach the server', () => {
     expect(await flushQueue(s, makePerformMutation(gone), { userId: A })).toMatchObject({ synced: 0, failed: 1 });
   });
 
-  it('a manager deleting a task that is already gone is refused (the server can’t find its project): it counts as done when the task is gone', async () => {
-    // The server checks permission first, and a deleted task has no project to check: 403. Reading it says 404.
-    const server = (exists) => vi.fn(async (path, init) => (init.method === 'DELETE'
+  it('a task delete the server refuses (403) fails with the server’s words, and nothing else is asked — even when the task can’t be read any more', async () => {
+    // The server looks the task up before it checks who may delete it: a task that is already gone
+    // answers 404 (done, above), so a 403 is a real refusal — say, a manager taken off the project
+    // while the delete waited offline (reading the task then says 404 too: it is hidden from them).
+    const refusing = () => vi.fn(async (path, init) => (init.method === 'DELETE'
       ? jsonRes({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } }, 403)
-      : exists ? jsonRes({ data: { id: 't1' } }) : jsonRes({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404)));
-    const gone = server(false);
-    expect(await sendOrQueue({ kind: 'task.delete', payload: { id: 't1' } }, { doFetch: gone, storage: fakeStorage(), userId: A })).toEqual({ queued: false, data: undefined });
-    expect(gone).toHaveBeenLastCalledWith('/tasks/t1', { method: 'GET' });
+      : jsonRes({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404)));
+    const now = refusing();
+    const err = await sendOrQueue({ kind: 'task.delete', payload: { id: 't1' } }, { doFetch: now, storage: fakeStorage(), userId: A }).catch((e) => e);
+    expect(err).toMatchObject({ status: 403, message: 'You do not have permission to do that.' });
+    expect(now).toHaveBeenCalledTimes(1);
     const s = fakeStorage();
     await enqueue(s, { kind: 'task.delete', payload: { id: 't1' }, userId: A });
-    expect(await flushQueue(s, makePerformMutation(server(false)), { userId: A })).toMatchObject({ synced: 1, failed: 0 });
-    // Still there: the refusal stands.
-    const err = await sendOrQueue({ kind: 'task.delete', payload: { id: 't1' } }, { doFetch: server(true), storage: fakeStorage(), userId: A }).catch((e) => e);
-    expect(err).toMatchObject({ status: 403, message: 'You do not have permission to do that.' });
-    await enqueue(s, { kind: 'task.delete', payload: { id: 't1' }, userId: A });
-    expect(await flushQueue(s, makePerformMutation(server(true)), { userId: A })).toMatchObject({ synced: 0, failed: 1 });
+    const later = refusing();
+    expect(await flushQueue(s, makePerformMutation(later), { userId: A })).toMatchObject({ synced: 0, failed: 1 });
+    expect(later).toHaveBeenCalledTimes(1);
+    expect((await getQueue(s))[0]).toMatchObject({ status: 'failed', lastError: '403 — You do not have permission to do that.' });
   });
 
   it('a delete waits behind a ticked checklist item of the task too', async () => {
@@ -129,6 +130,107 @@ describe('the order they reach the server', () => {
     expect(send).not.toHaveBeenCalled();
     expect(taskIdOf({ kind: 'checklist.update', payload: { id: 't1', itemId: 'k1' } })).toBe('t1');
     expect(req('checklist.update', { id: 't1', itemId: 'k1', patch: { done: true } })).toEqual({ path: '/checklist/k1', init: { method: 'PUT', body: JSON.stringify({ done: true }) } });
+  });
+});
+
+/** A server holding task t1's tags: GET and PUT /tasks/t1/tags, as the server answers them (sorted by name). */
+function tagServer(initial) {
+  let tags = [];
+  const set = (names) => { tags = [...names].sort((a, b) => a.localeCompare(b)).map((name) => ({ id: `g-${name.toLowerCase()}`, name, color: null })); };
+  set(initial);
+  const doFetch = vi.fn(async (path, init) => {
+    if (path !== '/tasks/t1/tags') return jsonRes({ data: {} });
+    if (init.method === 'PUT') set(JSON.parse(init.body).tags);
+    return jsonRes({ data: tags });
+  });
+  return { doFetch, set, names: () => tags.map((t) => t.name), puts: () => doFetch.mock.calls.filter(([, i]) => i.method === 'PUT').length };
+}
+
+describe('a change of tags made from an older list (review I1)', () => {
+  it('a tag taken off offline and one someone else added meanwhile both stay as they were left', async () => {
+    const server = tagServer(['Client', 'Urgent']);
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.tags', payload: { id: 't1', base: ['Urgent', 'Client'], tags: ['Client'] }, userId: A });
+    server.set(['Audit', 'Client', 'Urgent']); // someone else, while this device was offline
+    expect(await flushQueue(s, makePerformMutation(server.doFetch), { userId: A })).toMatchObject({ synced: 1, failed: 0 });
+    expect(server.names()).toEqual(['Audit', 'Client']);
+  });
+
+  it('sent now from a drawer opened before someone else’s change, it keeps that change too', async () => {
+    const server = tagServer(['Audit', 'Urgent']);
+    const r = await sendOrQueue({ kind: 'task.tags', payload: { id: 't1', base: ['Urgent'], tags: ['Urgent', 'Site'] } }, { doFetch: server.doFetch, storage: fakeStorage(), userId: A });
+    expect(r.queued).toBe(false);
+    expect(server.names()).toEqual(['Audit', 'Site', 'Urgent']);
+    expect(r.data.map((t) => t.name)).toEqual(['Audit', 'Site', 'Urgent']);
+  });
+
+  it('when the task’s tags can’t be read first, nothing is sent: it waits (offline) or tries again (server trouble), never fails at once', async () => {
+    const payload = { id: 't1', base: [], tags: ['X'] };
+    const offline = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    expect((await sendOrQueue({ kind: 'task.tags', payload }, { doFetch: offline, storage: fakeStorage(), userId: A })).queued).toBe(true);
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.tags', payload, userId: A });
+    expect(await flushQueue(s, makePerformMutation(offline), { userId: A })).toMatchObject({ synced: 0, failed: 0, paused: true });
+    const trouble = vi.fn(async (path, init) => (init.method === 'GET' ? jsonRes({ error: { message: 'Server error' } }, 500) : jsonRes({ data: [] })));
+    expect(await flushQueue(s, makePerformMutation(trouble), { userId: A })).toMatchObject({ synced: 0, failed: 0, paused: true });
+    expect((await getQueue(s))[0]).toMatchObject({ status: 'pending', attempts: 1 });
+    expect(trouble.mock.calls.every(([, i]) => i.method === 'GET')).toBe(true);
+  });
+
+  it('an older change that failed, tried again after a newer change of the same tags synced, can’t undo it', async () => {
+    const server = tagServer([]);
+    const s = fakeStorage();
+    // X added offline; its tries ran out while the server had trouble…
+    await enqueue(s, { kind: 'task.tags', payload: { id: 't1', base: [], tags: ['X'] }, userId: A });
+    // …and meanwhile the person took X off again.
+    await enqueue(s, { kind: 'task.tags', payload: { id: 't1', base: ['X'], tags: [] }, userId: A });
+    const down = vi.fn(async () => jsonRes({ error: { message: 'Server error' } }, 500));
+    await flushQueue(s, makePerformMutation(down), { userId: A, maxAttempts: 1 });
+    expect((await getQueue(s)).map((i) => i.status)).toEqual(['failed', 'failed']);
+    await retryQueued(s, (await getQueue(s))[1].id);
+    expect(await flushQueue(s, makePerformMutation(server.doFetch), { userId: A })).toMatchObject({ synced: 1 });
+    const [old] = await getQueue(s);
+    expect(old).toMatchObject({ status: 'failed', superseded: true, lastError: SUPERSEDED_MESSAGE });
+    // Settings offers to discard it, not to try it again; trying anyway changes nothing.
+    await retryQueued(s, old.id);
+    await flushQueue(s, makePerformMutation(server.doFetch), { userId: A });
+    expect(server.names()).toEqual([]);
+    expect((await getQueue(s))[0]).toMatchObject({ status: 'failed', superseded: true });
+  });
+
+  it('a newer change sent now replaces an older failed one too; one about other tags can still be tried', async () => {
+    const server = tagServer([]);
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.tags', payload: { id: 't1', base: [], tags: ['X', 'Y'] }, userId: A });
+    await flushQueue(s, makePerformMutation(vi.fn(async () => jsonRes({ error: { message: 'Server error' } }, 500))), { userId: A, maxAttempts: 1 });
+    // X taken off again, sent now (a failed change doesn't hold the next one back).
+    expect((await sendOrQueue({ kind: 'task.tags', payload: { id: 't1', base: ['X', 'Y'], tags: ['Y'] } }, { doFetch: server.doFetch, storage: s, userId: A })).queued).toBe(false);
+    const [old] = await getQueue(s);
+    expect(old.superseded).toBeFalsy(); // what is left of it (adding Y) is still the person's to send
+    expect(old.payload).toMatchObject({ base: [], tags: ['Y'] });
+    await retryQueued(s, old.id);
+    await flushQueue(s, makePerformMutation(server.doFetch), { userId: A });
+    expect(server.names()).toEqual(['Y']);
+  });
+
+  it('while it waits, the drawer and lists show it over the task’s tags as last read', () => {
+    const task = { id: 't1', tags: [{ id: 'g1', name: 'Audit', color: '#111111' }, { id: 'g2', name: 'Urgent', color: '#8B1E1E' }] };
+    const waiting = { id: 'q1', kind: 'task.tags', payload: { id: 't1', base: ['Urgent'], tags: ['Site'] }, userId: A, status: 'pending', queuedAt: 0 };
+    expect(applyPending('task:t1', task, [waiting]).data.tags).toEqual([{ id: 'g1', name: 'Audit', color: '#111111' }, { id: 'tmp-tag:site', name: 'Site', color: null }]);
+  });
+
+  it('watching: an older failed watch, tried again after a newer “stop watching” synced, doesn’t watch again', async () => {
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'task.watch', payload: { id: 't1' }, userId: A });
+    await enqueue(s, { kind: 'task.unwatch', payload: { id: 't1' }, userId: A });
+    await flushQueue(s, makePerformMutation(vi.fn(async () => jsonRes({ error: { message: 'Server error' } }, 500))), { userId: A, maxAttempts: 1 });
+    await retryQueued(s, (await getQueue(s))[1].id);
+    const ok = vi.fn(async () => ({ ok: true, status: 204, json: async () => ({}) }));
+    await flushQueue(s, makePerformMutation(ok), { userId: A });
+    expect((await getQueue(s))[0]).toMatchObject({ kind: 'task.watch', status: 'failed', superseded: true });
+    await retryQueued(s, (await getQueue(s))[0].id);
+    await flushQueue(s, makePerformMutation(ok), { userId: A });
+    expect(ok.mock.calls.map(([p, i]) => `${i.method} ${p}`)).toEqual(['DELETE /tasks/t1/watch']);
   });
 });
 

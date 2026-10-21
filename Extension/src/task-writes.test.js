@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { rebaseQueuedVersion, patchHeld, createWriteLane, taskIdOf, isVersionConflict, rememberTask, VERSIONED_KINDS } from './task-writes.js';
+import { rebaseQueuedVersion, patchHeld, createWriteLane, taskIdOf, isVersionConflict, rememberTask, VERSIONED_KINDS, supersede, SUPERSEDED_MESSAGE } from './task-writes.js';
 import { ApiError } from './errors.js';
 
 const item = (kind, payload, id = kind) => ({ id, kind, payload, userId: 'u1', status: 'pending' });
@@ -96,5 +96,35 @@ describe('rememberTask', () => {
     await rememberTask(cache, null);
     await rememberTask(null, { id: 't1' });
     expect(cache.merge).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('supersede: an older failed change that a newer synced one replaced (review I1)', () => {
+  const failed = (kind, payload, id = 'old') => ({ ...item(kind, payload, id), status: 'failed', lastError: '500 — Server error' });
+
+  it('people: taking someone off replaces an older failed adding of them; other people can still be added', () => {
+    const done = item('task.unassign', { id: 't1', userId: 'u2' }, 'new');
+    expect(supersede(done, failed('task.assign', { id: 't1', userIds: ['u2'] }))).toMatchObject({ superseded: true, lastError: SUPERSEDED_MESSAGE });
+    expect(supersede(done, failed('task.assign', { id: 't1', userIds: ['u2', 'u3'] }))).toMatchObject({ payload: { userIds: ['u3'] } });
+    expect(supersede(done, failed('task.assign', { id: 't1', userIds: ['u3'] })).superseded).toBeFalsy();
+    expect(supersede(item('task.assign', { id: 't1', userIds: ['u2'] }, 'new'), failed('task.unassign', { id: 't1', userId: 'u2' })).superseded).toBe(true);
+  });
+
+  it('a comment’s text, and a card’s column: the newer one stands', () => {
+    expect(supersede(item('comment.update', { id: 't1', commentId: 'c1', body: 'v2' }, 'new'), failed('comment.update', { id: 't1', commentId: 'c1', body: 'v1' })).superseded).toBe(true);
+    expect(supersede(item('comment.update', { id: 't1', commentId: 'c2', body: 'v2' }, 'new'), failed('comment.update', { id: 't1', commentId: 'c1', body: 'v1' })).superseded).toBeFalsy();
+    expect(supersede(item('task.move', { id: 't1', columnId: 'c3' }, 'new'), failed('task.move', { id: 't1', columnId: 'c2' })).superseded).toBe(true);
+    // An edit carries its version: the server refuses a stale one, so it is left as it is.
+    const edit = failed('task.update', { id: 't1', patch: { title: 'A' }, expectedVersion: 3 });
+    expect(supersede(item('task.update', { id: 't1', patch: { title: 'B' }, expectedVersion: 3 }, 'new'), edit)).toBe(edit);
+  });
+
+  it('only this person’s failed changes of the same task and the same thing', () => {
+    const done = item('task.watch', { id: 't1' }, 'new');
+    const pending = { ...failed('task.unwatch', { id: 't1' }), status: 'pending' };
+    for (const older of [pending, failed('task.unwatch', { id: 't2' }), { ...failed('task.unwatch', { id: 't1' }), userId: 'u9' }, failed('task.tags', { id: 't1', base: [], tags: ['X'] })]) {
+      expect(supersede(done, older)).toBe(older);
+    }
+    expect(supersede(done, failed('task.unwatch', { id: 't1' })).superseded).toBe(true);
   });
 });

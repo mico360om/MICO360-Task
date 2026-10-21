@@ -18,6 +18,7 @@ import { CAPTURE_KEY } from '../src/quick-add.js';
 import { applyStoredTheme } from '../app/theme.js';
 import { el, mount } from '../app/dom.js';
 import { QuickAddForm, SignedOutView } from './quick-add-form.js';
+import { guardFileDrops } from '../src/file-drop-guard.js';
 
 const local = chrome.storage.local;
 // The access token lives in memory-only session storage (EXT-07), never on disk.
@@ -139,6 +140,8 @@ async function boot() {
   }).catch(() => { /* offline — keep the saved zone */ });
 }
 
+// A file dropped where nothing takes it never opens in the popup (what was typed would be lost).
+guardFileDrops(document);
 boot().catch((e) => {
   document.getElementById('popup').append(el('div', { class: 'errbar', role: 'alert' }, `Couldn’t start: ${e.message}`));
 });

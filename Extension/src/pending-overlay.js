@@ -9,7 +9,7 @@
  * signed-in person's queued items (oldest first). It never changes `data` itself: changed rows are
  * copies. Returns `{ data, applied }`, `applied` being how many queued changes touched this read.
  */
-import { tagRecords } from './tags.js';
+import { tagRecords, mergeTagChange } from './tags.js';
 
 /** The temporary id of something created offline: stable for as long as its change is queued. */
 export function tempId(item) {
@@ -34,8 +34,13 @@ function changedTask(task, item) {
   const p = item.payload || {};
   if (!task || task.id !== p.id) return null;
   if (item.kind === 'task.update') return { ...task, ...patchOf(item) };
-  // Tags it already had keep their colour; a new one has none until the server makes it.
-  if (item.kind === 'task.tags') return { ...task, tags: tagRecords(Array.isArray(p.tags) ? p.tags : [], task.tags) };
+  // Tags it already had keep their colour; a new one has none until the server makes it. A change
+  // that knows the list it started from shows as its additions and removals over the task's tags.
+  if (item.kind === 'task.tags') {
+    const next = Array.isArray(p.tags) ? p.tags : [];
+    const now = Array.isArray(task.tags) ? task.tags.map((t) => t && t.name).filter((n) => typeof n === 'string') : [];
+    return { ...task, tags: tagRecords(Array.isArray(p.base) ? mergeTagChange(now, p.base, next) : next, task.tags) };
+  }
   if (item.kind === 'task.move') {
     const next = { ...task, columnId: p.columnId, columnHidden: false };
     if (p.columnCategory) {

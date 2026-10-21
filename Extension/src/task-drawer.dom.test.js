@@ -179,7 +179,7 @@ describe('the task’s own fields', () => {
 });
 
 describe('tags', () => {
-  it('shows the task’s tags; adds one (Enter or Add) and takes one off, sending the whole list', async () => {
+  it('shows the task’s tags; adds one (Enter or Add) and takes one off, sending the new list with the one it started from', async () => {
     const ctx = drawerCtx({ task: { tags: [{ id: 'g1', name: 'Urgent', color: '#8B1E1E' }] } });
     ctx.write = vi.fn(async (kind, p) => ({ queued: false, data: kind === 'task.tags' ? p.tags.map((name, i) => ({ id: `g${i + 1}`, name, color: '#123456' })) : { id: 't1', version: 4 } }));
     const root = await open(ctx);
@@ -189,13 +189,14 @@ describe('tags', () => {
     input.value = '  client  visit ';
     key(input, 'Enter');
     await settle();
-    expect(ctx.write).toHaveBeenLastCalledWith('task.tags', { id: 't1', tags: ['Urgent', 'client visit'] });
+    // The list it started from goes too: the change is sent over the task's tags as they are then (review I1).
+    expect(ctx.write).toHaveBeenLastCalledWith('task.tags', { id: 't1', base: ['Urgent'], tags: ['Urgent', 'client visit'] });
     expect(byLabel(root, 'Tags').textContent).toContain('client visit');
     expect(active()).toBe(byLabel(root, 'Add a tag')); // ready for the next one
     expect(byLabel(root, 'Add a tag').value).toBe('');
     byLabel(root, 'Remove tag Urgent').click();
     await settle();
-    expect(ctx.write).toHaveBeenLastCalledWith('task.tags', { id: 't1', tags: ['client visit'] });
+    expect(ctx.write).toHaveBeenLastCalledWith('task.tags', { id: 't1', base: ['Urgent', 'client visit'], tags: ['client visit'] });
     expect(byLabel(root, 'Tags').textContent).not.toContain('Urgent');
   });
 
@@ -314,6 +315,13 @@ describe('attachments', () => {
     target.dispatchEvent(e);
     return e;
   };
+  /** A drag event as Chrome sends it: files say so in their types ("Files"). */
+  const drag = (type, target, { files, types } = {}) => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'dataTransfer', { value: { files: files || [], types: types || (files ? ['Files'] : []), dropEffect: 'none' } });
+    target.dispatchEvent(e);
+    return e;
+  };
 
   it('lists the files: a picture as itself, others by kind, with their size; each opens from the server', async () => {
     const root = await open(drawerCtx({ attachments: FILES }));
@@ -389,6 +397,38 @@ describe('attachments', () => {
     await settle();
     expect(typed.defaultPrevented).toBe(false);
     expect(ctx.api.attachments.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a file dropped anywhere in the drawer is attached — Chrome never opens it in the tab, so nothing typed is lost (review M6)', async () => {
+    const ctx = drawerCtx();
+    const root = await open(ctx);
+    const box = byLabel(root, 'New comment');
+    box.value = 'Half-written comment';
+    const over = drag('dragover', box, { files: [] });
+    expect(over.defaultPrevented).toBe(true); // the drop lands here, not on the tab
+    const dropped = drag('drop', box, { files: [new File(['a'], 'site photo.jpg', { type: 'image/jpeg' })] });
+    await settle();
+    expect(dropped.defaultPrevented).toBe(true);
+    expect(ctx.api.attachments.upload.mock.calls.map((c) => c[1].name)).toEqual(['site photo.jpg']);
+    expect(byLabel(root, 'New comment').value).toBe('Half-written comment');
+    // On the files' own zone: attached once, not twice.
+    drag('drop', root.querySelector('.td-drop'), { files: [new File(['b'], 'b.pdf', { type: 'application/pdf' })] });
+    await settle();
+    expect(ctx.api.attachments.upload.mock.calls.map((c) => c[1].name)).toEqual(['site photo.jpg', 'b.pdf']);
+  });
+
+  it('text dragged into a box stays a text drop; a file dropped while the task can’t take one is only kept from opening', async () => {
+    const ctx = drawerCtx();
+    const root = await open(ctx);
+    const text = drag('drop', byLabel(root, 'New comment'), { types: ['text/plain'] });
+    expect(text.defaultPrevented).toBe(false);
+    expect(drag('dragover', byLabel(root, 'New comment'), { types: ['text/plain'] }).defaultPrevented).toBe(false);
+    ctx.isOnline = () => false;
+    const offline = drag('drop', byLabel(root, 'Close'), { files: [new File(['a'], 'a.txt', { type: 'text/plain' })] });
+    await settle();
+    expect(offline.defaultPrevented).toBe(true);
+    expect(ctx.api.attachments.upload).not.toHaveBeenCalled();
+    expect(root.querySelector('[role="alert"]').textContent).toBe('Files can’t be attached offline. Attach them when you’re connected.');
   });
 
   it('removes a file after asking (Keep is the safe answer, focused); only its uploader or an admin may', async () => {

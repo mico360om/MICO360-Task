@@ -32,6 +32,32 @@ export function normalizeTagNames(names) {
 
 const same = (a, b) => a.toLowerCase() === b.toLowerCase();
 
+/** A tag name as the server tells tags apart: tidied, in any case. */
+export const tagKey = (name) => normalizeTagName(name).toLowerCase();
+
+/**
+ * A change of a task's tags made from the list `base` to the list `next`, applied over the task's
+ * tags as they are now (`current`): the tags it added are added, the ones it took off are taken off,
+ * and everything else stays as it is now — a tag someone else added or took off meanwhile included.
+ * The task's own order first, then the added ones; no name twice (names compare as the server's do).
+ */
+export function mergeTagChange(current, base, next) {
+  const before = new Set(base.map(tagKey));
+  const after = new Set(next.map(tagKey));
+  const seen = new Set();
+  const out = [];
+  const keep = (raw) => {
+    const name = normalizeTagName(raw);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key) || (before.has(key) && !after.has(key))) return;
+    seen.add(key);
+    out.push(name);
+  };
+  for (const name of current) keep(name);
+  for (const name of next) if (!before.has(tagKey(name))) keep(name);
+  return out;
+}
+
 /**
  * Add a typed tag to a task's names: `{ names }`, or the names unchanged with `already` (the tag it
  * has, in any case) or an `error` to show (blank, or one too many).

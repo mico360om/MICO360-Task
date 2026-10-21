@@ -12,6 +12,7 @@ import { ActivitySection } from '../task/activity.js';
 import { DeleteSection } from '../task/delete-task.js';
 import { HeaderActions } from '../task/header.js';
 import { redrawKeepingFocus } from '../task/kit.js';
+import { hasFiles } from '../../src/file-drop-guard.js';
 
 /**
  * Task detail drawer. The sections live in app/task/*.js; this file holds the task's state, loads
@@ -118,9 +119,22 @@ export function TaskDetail(ctx, onClose) {
     el('div', { class: 'scrim', 'aria-hidden': 'true', onClick: onClose }),
     panel,
   );
+  const takesFiles = () => Boolean(s.task && !s.task.pendingDelete && !layered);
   // A picture pasted anywhere in the open task is attached to it (text pasted into a box stays text).
   panel.addEventListener('paste', (e) => {
-    if (s.task && !s.task.pendingDelete && !layered) attachments.onPaste(e);
+    if (takesFiles()) attachments.onPaste(e);
+  });
+  // So is a file dropped anywhere in it — and Chrome never opens one in the tab instead, which would
+  // lose a comment or field being typed (review M6). Text dragged into a box stays a text drop.
+  panel.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = takesFiles() ? 'copy' : 'none';
+  });
+  panel.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    if (takesFiles()) attachments.onDrop(e);
   });
 
   load();

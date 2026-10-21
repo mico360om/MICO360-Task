@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MAX_TAGS, normalizeTagName, normalizeTagNames, withTag, withoutTag, tagRecords, tagChoices } from './tags.js';
+import { MAX_TAGS, normalizeTagName, normalizeTagNames, withTag, withoutTag, tagRecords, tagChoices, mergeTagChange } from './tags.js';
 
 describe('task tags — the server’s rules, said before sending', () => {
   it('tidies a name as the server does: trimmed, single spaces, at most 40 characters', () => {
@@ -28,6 +28,21 @@ describe('task tags — the server’s rules, said before sending', () => {
       { id: 'g1', name: 'Urgent', color: '#8B1E1E' },
       { id: 'tmp-tag:new one', name: 'New one', color: null },
     ]);
+  });
+
+  it('a change made from an older list keeps what someone else changed meanwhile', () => {
+    // Urgent taken off [Urgent, Client] on this device; someone else added Audit meanwhile.
+    expect(mergeTagChange(['Audit', 'Client', 'Urgent'], ['Urgent', 'Client'], ['Client'])).toEqual(['Audit', 'Client']);
+    // Site added here; someone else took Client off meanwhile: it stays off.
+    expect(mergeTagChange(['Urgent'], ['Urgent', 'Client'], ['Urgent', 'Client', 'Site'])).toEqual(['Urgent', 'Site']);
+    // Nothing changed here: the task's tags as they are.
+    expect(mergeTagChange(['A', 'B'], ['A'], ['A'])).toEqual(['A', 'B']);
+  });
+
+  it('compares names as the server does (tidied, any case) and lists none twice', () => {
+    expect(mergeTagChange(['Urgent', 'Client visit'], ['URGENT'], [])).toEqual(['Client visit']);
+    expect(mergeTagChange(['Client visit'], [], ['  client   VISIT '])).toEqual(['Client visit']);
+    expect(mergeTagChange([], [], ['New', 'new'])).toEqual(['New']);
   });
 
   it('suggests the workspace’s tags the task doesn’t have yet', () => {

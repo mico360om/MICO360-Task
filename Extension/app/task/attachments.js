@@ -9,6 +9,7 @@ import { fileKind, attachmentUrl, KIND_LABEL } from '../../src/file-kind.js';
 import { pastedFiles, isTypingTarget } from '../../src/clipboard-files.js';
 import { fileFailure, formatSize } from '../../src/quick-add.js';
 import { confirmBox, labelled, redrawKeepingFocus, section } from './kit.js';
+import { hasFiles } from '../../src/file-drop-guard.js';
 
 /** The server's upload limit, said up front (as on the web). */
 const MAX_UPLOAD_MB = 10;
@@ -30,12 +31,12 @@ export function AttachmentsSection(d) {
   node.addEventListener('dragleave', (e) => {
     if (!e.relatedTarget || !node.contains(e.relatedTarget)) node.classList.remove('dragging');
   });
-  node.addEventListener('drop', (e) => {
-    if (!hasFiles(e)) return;
-    e.preventDefault();
+
+  /** Files dropped anywhere in the drawer (task-detail.js takes the drop, here or elsewhere in it). */
+  function onDrop(e) {
     node.classList.remove('dragging');
-    uploadAll(Array.from(e.dataTransfer.files || []));
-  });
+    uploadAll(Array.from((e.dataTransfer && e.dataTransfer.files) || []));
+  }
 
   const files = () => d.s.attachments;
   const url = (a) => attachmentUrl(d.ctx.apiBase, a.url);
@@ -214,9 +215,5 @@ export function AttachmentsSection(d) {
     uploadAll(got);
   }
 
-  return { node, render, onPaste };
-}
-
-function hasFiles(e) {
-  return Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files');
+  return { node, render, onPaste, onDrop };
 }
