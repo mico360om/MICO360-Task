@@ -162,11 +162,12 @@ describe('a click on the desktop alert', () => {
     expect(session.data[ALERT_TARGET_KEY]).toBeUndefined();
   });
 
-  it('a meeting opens on the website; a notification about nothing in particular opens Notifications', async () => {
+  it('a meeting opens its page here (Stage 6); a notification about nothing in particular opens Notifications', async () => {
     const open = vi.fn();
     const openUrl = vi.fn();
     await openAlert({ session: fakeStorage({ [ALERT_TARGET_KEY]: { id: 'n3', entityType: 'meeting', entityId: 'mt1', userId: 'me' } }), open, openUrl, markRead: vi.fn(async () => {}), appBase: 'https://task.mico360.com/', userId: 'me' });
-    expect(openUrl).toHaveBeenCalledWith('https://task.mico360.com/meetings/mt1');
+    expect(open).toHaveBeenCalledWith('#/meeting/mt1');
+    expect(openUrl).not.toHaveBeenCalled();
     await openAlert({ session: fakeStorage({ [ALERT_TARGET_KEY]: { id: 'n4', entityType: 'project', entityId: 'p1', userId: 'me' } }), open, openUrl, markRead: vi.fn(async () => {}), appBase: '', userId: 'me' });
     expect(open).toHaveBeenLastCalledWith('#/notifications');
     await openAlert({ session: fakeStorage(), open, openUrl, markRead: vi.fn(), appBase: '', userId: 'me' });

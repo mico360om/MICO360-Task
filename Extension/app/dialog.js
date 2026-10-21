@@ -48,8 +48,12 @@ export function showModal(node, { onEscape } = {}) {
 
   let last = null; // the control that had focus
   let heading = null; // where a Tab press is taking focus (a blur-save may redraw it away first)
+  // Another dialog opened over this one (search over the task panel) makes this one inert: until it
+  // closes, the dialog on top has the keys and the focus.
+  const covered = () => !!node.closest('[inert]');
 
   function onFocusIn(e) {
+    if (covered()) return;
     if (panel.contains(e.target)) {
       if (e.target !== panel) last = describe(e.target);
       heading = null;
@@ -88,6 +92,7 @@ export function showModal(node, { onEscape } = {}) {
   }
 
   function onKeyDown(e) {
+    if (covered()) return;
     if (e.key === 'Tab') {
       trap(e);
     } else if (e.key === 'Escape' && !e.defaultPrevented) {
@@ -113,7 +118,7 @@ export function showModal(node, { onEscape } = {}) {
     looking = true;
     setTimeout(() => {
       looking = false;
-      if (released || inPlace()) return;
+      if (released || inPlace() || covered()) return;
       const again = findAgain(panel, heading) || findAgain(panel, last);
       heading = null;
       (again || panel).focus();

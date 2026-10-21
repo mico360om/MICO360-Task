@@ -11,6 +11,11 @@ const event = (name) => ({ addListener: (fn) => { (listeners[name] ||= []).push(
 const settle = async () => {
   for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
 };
+/** The address bar waits until typing stops before it asks (Stage 6 review fix #10). */
+const typingStops = async () => {
+  await new Promise((r) => setTimeout(r, 220));
+  await settle();
+};
 const chrome = {
   storage: { local: fakeStorage(), session: fakeStorage() },
   runtime: {
@@ -24,7 +29,10 @@ const chrome = {
   action: { onClicked: event('actionClicked'), setBadgeText: vi.fn(), setBadgeBackgroundColor: vi.fn(), openPopup: vi.fn(async () => {}) },
   alarms: { get: vi.fn(async () => ({ name: 'poll' })), create: vi.fn(), onAlarm: event('alarm') },
   notifications: { onClicked: event('notificationClicked'), clear: vi.fn(), create: vi.fn() },
+  omnibox: { onInputStarted: event('omniStarted'), onInputChanged: event('omniChanged'), onInputEntered: event('omniEntered'), setDefaultSuggestion: vi.fn() },
   contextMenus: { removeAll: vi.fn(async () => {}), create: vi.fn(), onClicked: event('menuClicked') },
+  commands: { onCommand: event('command') },
+  sidePanel: { open: vi.fn(async () => {}), setPanelBehavior: vi.fn(async () => {}) },
   tabs: { create: vi.fn(async () => ({})), update: vi.fn(async () => ({})) },
   windows: { create: vi.fn(async () => ({})), update: vi.fn(async () => {}) },
 };
@@ -70,5 +78,70 @@ describe('background worker: a session that ended (review fix #6)', () => {
     listeners.alarm[0]({ name: 'poll' });
     await settle();
     expect(chrome.notifications.clear).toHaveBeenCalledWith(NOTIFICATION_ID);
+  });
+});
+
+describe('background worker: “mico” in the address bar (Stage 6)', () => {
+  it('listens to the address bar', () => {
+    expect(listeners.omniChanged).toHaveLength(1);
+    expect(listeners.omniEntered).toHaveLength(1);
+  });
+
+  it('signed out: suggests nothing, and says to sign in', async () => {
+    const suggest = vi.fn();
+    listeners.omniChanged[0]('rig', suggest);
+    await typingStops();
+    expect(suggest).toHaveBeenCalledWith([]);
+    expect(chrome.omnibox.setDefaultSuggestion).toHaveBeenLastCalledWith({ description: 'Sign in to MICO360 Tasks to search it from here' });
+  });
+
+  it('review fix #10: waits until typing stops (~150 ms) — one answer for the words last typed, not one per key', async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const last = vi.fn();
+    listeners.omniChanged[0]('r', first);
+    listeners.omniChanged[0]('ri', second);
+    listeners.omniChanged[0]('rig', last);
+    await settle();
+    expect(last).not.toHaveBeenCalled(); // not yet: still typing
+    await typingStops();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+    expect(last).toHaveBeenCalledTimes(1);
+  });
+
+  it('review fix #10: Enter opens it where Chrome says — this tab, a new tab, or a new tab behind', async () => {
+    chrome.tabs.create.mockClear();
+    chrome.tabs.update.mockClear();
+    listeners.omniEntered[0]('rig valves', 'currentTab');
+    await settle();
+    expect(chrome.tabs.update).toHaveBeenCalledWith({ url: 'chrome-extension://ext/app/app.html#/search?q=rig%20valves' });
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+    listeners.omniEntered[0]('task:t1', 'newForegroundTab');
+    await settle();
+    expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'chrome-extension://ext/app/app.html#/task/t1', active: true });
+    listeners.omniEntered[0]('task:t1', 'newBackgroundTab');
+    await settle();
+    expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'chrome-extension://ext/app/app.html#/task/t1', active: false });
+  });
+});
+
+describe('background worker: the side panel (Stage 7)', () => {
+  it('its keyboard command opens the side panel in the window it was pressed in — at once, as Chrome needs', () => {
+    expect(listeners.command).toHaveLength(1);
+    chrome.sidePanel.open.mockClear();
+    listeners.command[0]('open-side-panel', { id: 9, windowId: 4 });
+    expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 4 }); // nothing awaited first
+  });
+
+  it('other commands, and a press with no window, open nothing', () => {
+    chrome.sidePanel.open.mockClear();
+    listeners.command[0]('something-else', { id: 9, windowId: 4 });
+    listeners.command[0]('open-side-panel', undefined);
+    expect(chrome.sidePanel.open).not.toHaveBeenCalled();
+  });
+
+  it('leaves the toolbar button to the popup (it never sets the side panel to open on a toolbar click)', () => {
+    expect(chrome.sidePanel.setPanelBehavior).not.toHaveBeenCalled();
   });
 });

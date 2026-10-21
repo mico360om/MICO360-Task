@@ -85,18 +85,17 @@ export function FieldsSection(d) {
     return out;
   }
 
-  /** "From meeting: …" opens it on the website; someone not part of it only learns there is one. */
+  /** "From meeting: …" opens its page here (Stage 6); someone not part of it only learns there is one. */
   function meetingBadge(m) {
-    const base = String(d.ctx.appBase || '').replace(/\/+$/, '');
-    if (!m.canView || !m.title || !m.id || !base) {
+    if (!m.canView || !m.title || !m.id) {
       return el('span', { class: 'td-badge' }, el('span', { 'aria-hidden': 'true' }, '📅 '), 'From a meeting you’re not part of');
     }
     const start = m.startAt ? new Date(m.startAt) : null;
     const day = start && !Number.isNaN(start.getTime()) ? formatDayKey(zonedDayKey(start, zone())) : '';
     return el('a', {
-      class: 'td-badge brand link', href: `${base}/meetings/${encodeURIComponent(m.id)}`, target: '_blank', rel: 'noopener noreferrer',
-      title: 'Open the meeting this task was created from (on the website)',
-    }, el('span', { 'aria-hidden': 'true' }, '📅 '), `From meeting: ${m.title}${day ? ` · ${day}` : ''} ↗`);
+      class: 'td-badge brand link', href: `#/meeting/${encodeURIComponent(m.id)}`,
+      title: 'Open the meeting this task was created from',
+    }, el('span', { 'aria-hidden': 'true' }, '📅 '), `From meeting: ${m.title}${day ? ` · ${day}` : ''}`);
   }
 
   /** A repeating task: "Edits apply to: This task / Entire series" (title, description, priority). */

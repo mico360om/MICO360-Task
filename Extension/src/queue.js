@@ -283,8 +283,25 @@ export function mutationRequest(item) {
       const clientId = p.clientId || item.idempotencyKey;
       return post(`/conversations/${p.conversationId}/messages`, { body: p.body, ...(clientId ? { clientId } : {}) });
     }
+    case 'meeting.respond':
+      // Your answer to the invitation: the one thing an invitee may change on their own row.
+      return {
+        path: `/meetings/${encodeURIComponent(p.meetingId)}/attendees/${encodeURIComponent(p.attendeeId)}`,
+        init: { method: 'PATCH', body: JSON.stringify({ response: p.response }) },
+      };
     default:
       return null;
+  }
+}
+
+/** "Accept “Rig review”" — what an answer to a meeting invitation does, for Settings → Sync. */
+function describeAnswer(p) {
+  const what = p.title ? `“${p.title}”` : 'a meeting';
+  switch (p.response) {
+    case 'ACCEPTED': return `Accept ${what}`;
+    case 'TENTATIVE': return `Answer Maybe to ${what}`;
+    case 'DECLINED': return `Decline ${what}`;
+    default: return `Take back your answer to ${what}`;
   }
 }
 
@@ -310,6 +327,7 @@ export function describeMutation(item) {
     case 'notification.read': return 'Mark a notification read';
     case 'notification.readAll': return 'Mark all notifications read';
     case 'chat.send': return 'Chat message';
+    case 'meeting.respond': return describeAnswer(p);
     default: return 'Change';
   }
 }

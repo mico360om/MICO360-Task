@@ -90,7 +90,7 @@ export async function pollNotifications({ authedFetch, local, session, notificat
 
 /**
  * The desktop alert was clicked. One that said what it was about opens that item (a task in the
- * drawer, a conversation in Chat, a meeting on the website) and marks it read; any other opens
+ * drawer, a conversation in Chat, a meeting on its page) and marks it read; any other opens
  * Notifications. `open(hash)` opens the app, `openUrl(url)` the website, `markRead(id)` sends the
  * read now or keeps it for later.
  */

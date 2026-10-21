@@ -25,20 +25,24 @@ export function taskIdOf(item) {
 
 /**
  * What a queued change is about, for keeping changes of one thing in order: a task (its changes,
- * see LANE), or a conversation (its messages). Null for anything else.
+ * see LANE), a conversation (its messages), or one meeting invitation (your answer to it). Null
+ * for anything else.
  */
 export function subjectOf(item) {
   const task = taskIdOf(item);
   if (task) return `task:${task}`;
-  const p = item && item.kind === 'chat.send' ? item.payload || {} : null;
-  return p && p.conversationId ? `chat:${p.conversationId}` : null;
+  const p = (item && item.payload) || {};
+  if (item && item.kind === 'chat.send') return p.conversationId ? `chat:${p.conversationId}` : null;
+  if (item && item.kind === 'meeting.respond') return p.meetingId && p.attendeeId ? `answer:${p.meetingId}:${p.attendeeId}` : null;
+  return null;
 }
 
 /**
  * Changes of one thing that must reach the server in the order they were made, or an older one
  * replayed late would undo a newer one sent straight away: a task's edits and moves (they also carry
- * its version), its whole list of tags, its people, whether you watch it, and one comment's text.
- * A conversation's messages too: one kept on this device goes before the ones written after it.
+ * its version), its whole list of tags, its people, whether you watch it, one comment's text, and
+ * your answer to a meeting invitation. A conversation's messages too: one kept on this device goes
+ * before the ones written after it.
  */
 const LANE = {
   'task.update': 'version', 'task.move': 'version',
@@ -47,6 +51,7 @@ const LANE = {
   'task.watch': 'watch', 'task.unwatch': 'watch',
   'comment.update': 'comment', 'comment.delete': 'comment',
   'chat.send': 'chat',
+  'meeting.respond': 'answer',
 };
 
 /** Kinds sent behind this person's waiting changes they must follow (see `mustFollow`). */
@@ -120,7 +125,7 @@ export function supersede(done, older) {
     if (userIds.length === peopleOf(older).length) return older;
     return userIds.length ? { ...older, payload: { ...older.payload, userIds } } : superseded(older);
   }
-  return superseded(older); // watching; one comment's text
+  return superseded(older); // watching; one comment's text; an answer to an invitation
 }
 
 /** The server refused an edit because the task changed since it was loaded. */

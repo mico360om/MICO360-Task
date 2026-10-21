@@ -62,8 +62,8 @@ export function minutesState(recordStatus: string | undefined, noteCount: number
 
 /** What the meetings list needs about each meeting, read in one go for the whole list. */
 export interface MeetingListData {
-  /** Attendees with their display names, in the order they were added. */
-  attendees: Array<{ meetingId: string; userId: string | null; name: string }>;
+  /** Attendees with their display names, in the order they were added (with their row id and answer). */
+  attendees: Array<{ meetingId: string; userId: string | null; name: string; id?: string; response?: string }>;
   /** Notes taken per meeting (any kind, not deleted). */
   noteCounts: Record<string, number>;
   /** Notes recorded as decisions per meeting. */
@@ -74,11 +74,21 @@ export interface MeetingListData {
   openActionItemCounts: Record<string, number>;
 }
 
-/** Each listed meeting's people (the first four by name), minutes, decisions and open action items. */
-export function buildMeetingListCounts(ids: string[], data: MeetingListData) {
+/**
+ * Each listed meeting's people (the first four by name), minutes, decisions and open action items.
+ * With `viewerId`, also that person's own row on it (`mine`: its id and answer, or null), so a list
+ * of meetings can show your answers without reading each meeting's people.
+ */
+export function buildMeetingListCounts(ids: string[], data: MeetingListData, viewerId?: string) {
   const minutesOf = new Map(data.minutes.map((x) => [x.meetingId, x.status]));
   const people = new Map<string, string[]>();
   for (const a of data.attendees) people.set(a.meetingId, [...(people.get(a.meetingId) ?? []), a.name]);
+  const mineOf = new Map<string, { attendeeId: string; response: string }>();
+  if (viewerId) {
+    for (const a of data.attendees) {
+      if (a.userId === viewerId && a.id && !mineOf.has(a.meetingId)) mineOf.set(a.meetingId, { attendeeId: a.id, response: a.response ?? 'PENDING' });
+    }
+  }
   return Object.fromEntries(
     ids.map((id) => {
       const names = people.get(id) ?? [];
@@ -90,6 +100,7 @@ export function buildMeetingListCounts(ids: string[], data: MeetingListData) {
           attendees: names.slice(0, 4),
           minutes: minutesState(minutesOf.get(id), data.noteCounts[id] ?? 0),
           decisionCount: data.decisionCounts[id] ?? 0,
+          ...(viewerId ? { mine: mineOf.get(id) ?? null } : {}),
         },
       ];
     }),

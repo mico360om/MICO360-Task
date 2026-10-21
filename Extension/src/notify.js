@@ -138,14 +138,15 @@ export function setToolbarBadge(action, count) {
 
 /**
  * Where clicking a notification takes the person (M7), as the web's notification links do: a task
- * opens in the task drawer, a conversation in Chat, a meeting on the website (the extension has no
- * meetings screen). Returns `{ hash }` for a screen here, `{ url }` for the website, or null.
+ * opens in the task drawer, a conversation in Chat, a meeting on its page (Stage 6; its notes and
+ * minutes are a click away on the website). Returns `{ hash }` for a screen here, or null.
+ * (`appBase` is kept for callers: nothing opens on the website any more.)
  */
-export function notificationTarget(n, appBase) {
+export function notificationTarget(n, _appBase) {
   const type = String((n && n.entityType) || '').toLowerCase();
   const id = n && typeof n.entityId === 'string' && n.entityId ? n.entityId : null;
   if (type === 'task' && id) return { hash: `#/task/${encodeURIComponent(id)}` };
   if (type === 'conversation') return { hash: id ? `#/chat/${encodeURIComponent(id)}` : '#/chat' };
-  if (type === 'meeting' && id && appBase) return { url: `${String(appBase).replace(/\/+$/, '')}/meetings/${encodeURIComponent(id)}` };
+  if (type === 'meeting' && id) return { hash: `#/meeting/${encodeURIComponent(id)}` };
   return null;
 }

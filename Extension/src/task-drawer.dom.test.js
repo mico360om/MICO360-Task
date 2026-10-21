@@ -120,19 +120,18 @@ describe('the task’s own fields', () => {
     expect(ctx.write).toHaveBeenLastCalledWith('task.update', { id: 't1', patch: { startDate: null }, expectedVersion: 4 });
   });
 
-  it('“From meeting” opens that meeting on the website; a meeting you’re not part of is only mentioned', async () => {
+  it('“From meeting” opens that meeting’s page here (Stage 6); a meeting you’re not part of is only mentioned', async () => {
     const root = await open(drawerCtx({ task: { meeting: { id: 'm1', title: 'Weekly review', startAt: '2026-10-19T05:00:00.000Z', canView: true } } }));
-    const link = root.querySelector('a[href="http://localhost:5173/meetings/m1"]');
-    expect(link.textContent).toBe(`📅 From meeting: Weekly review · ${formatDayKey('2026-10-19')} ↗`);
+    const link = root.querySelector('a[href="#/meeting/m1"]');
+    expect(link.textContent).toBe(`📅 From meeting: Weekly review · ${formatDayKey('2026-10-19')}`);
     expect(link.querySelector('[aria-hidden="true"]').textContent).toBe('📅 ');
-    expect(link.target).toBe('_blank');
-    expect(link.rel).toContain('noopener');
-    expect(link.getAttribute('title')).toBe('Open the meeting this task was created from (on the website)');
+    expect(link.hasAttribute('target')).toBe(false);
+    expect(link.getAttribute('title')).toBe('Open the meeting this task was created from');
 
     document.body.innerHTML = '';
     const other = await open(drawerCtx({ task: { meeting: { id: 'm2', title: null, startAt: null, canView: false } } }));
     expect(other.textContent).toContain('From a meeting you’re not part of');
-    expect(other.querySelector('a[href*="/meetings/"]')).toBeNull();
+    expect(other.querySelector('a[href*="/meeting"]')).toBeNull();
   });
 
   it('a repeating task: edits go to this copy, or — chosen — to every open copy of the series; the repeat itself never does', async () => {

@@ -55,8 +55,17 @@ describe('refreshOnReturn', () => {
     for (const r of [{ name: 'chat' }, { name: 'chat-thread' }, { name: 'notifications' }]) expect(refreshOnReturn(r, false)).toBe(true);
   });
 
+  it('Stage 6: the meetings list and a meeting’s page read themselves again (an answer given elsewhere shows)', () => {
+    for (const r of [{ name: 'meetings' }, { name: 'meeting' }]) expect(refreshOnReturn(r, false)).toBe(true);
+  });
+
+  it('Stage 7: My Tasks (in the app and the side panel) and the side panel’s Today read themselves again in place (the search and filters stay)', () => {
+    for (const r of [{ name: 'my-tasks' }, { name: 'today' }]) expect(refreshOnReturn(r, false)).toBe(true);
+    expect(refreshOnReturn({ name: 'today' }, true)).toBe(false); // not under the task panel
+  });
+
   it('leaves screens with typing in progress alone, and never reloads under an open task drawer', () => {
-    for (const r of [{ name: 'my-tasks' }, { name: 'settings' }, { name: 'reports' }]) expect(refreshOnReturn(r, false)).toBe(false);
+    for (const r of [{ name: 'add' }, { name: 'settings' }, { name: 'reports' }, { name: 'search' }]) expect(refreshOnReturn(r, false)).toBe(false);
     expect(refreshOnReturn({ name: 'board' }, true)).toBe(false);
     expect(refreshOnReturn(null, false)).toBe(false);
   });

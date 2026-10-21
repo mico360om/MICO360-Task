@@ -4,7 +4,7 @@ import { notificationTarget } from '../../src/notify.js';
 
 /**
  * Notifications list. A click marks one read and opens what it is about (a task, a conversation, a
- * meeting on the website), as on the web (M7). Marking one or all read works offline (queued) and
+ * meeting's page — Stage 6), as on the web (M7). Marking one or all read works offline (queued) and
  * syncs on reconnect; a change that fails is shown and undone, never swallowed.
  *
  * It reads itself again in place (Stage 5) when the tab is shown again or the unread count changes

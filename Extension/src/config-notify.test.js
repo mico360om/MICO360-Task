@@ -123,16 +123,17 @@ describe('findAppContext (EXT-07: focus the app tab without the "tabs" permissio
 
 describe('notificationTarget (M7: a notification opens what it is about, as on the web)', () => {
   const APP = 'https://task.mico360.com';
-  it('a task opens in the task drawer, a conversation in Chat, a meeting on the website', () => {
+  it('a task opens in the task drawer, a conversation in Chat, a meeting on its page — all here (Stage 6)', () => {
     expect(notificationTarget({ entityType: 'task', entityId: 't1' }, APP)).toEqual({ hash: '#/task/t1' });
     expect(notificationTarget({ entityType: 'TASK', entityId: 't1' }, APP)).toEqual({ hash: '#/task/t1' });
     expect(notificationTarget({ entityType: 'conversation', entityId: 'cv 1' }, APP)).toEqual({ hash: '#/chat/cv%201' });
     expect(notificationTarget({ entityType: 'conversation', entityId: null }, APP)).toEqual({ hash: '#/chat' });
-    expect(notificationTarget({ entityType: 'meeting', entityId: 'm1' }, APP)).toEqual({ url: 'https://task.mico360.com/meetings/m1' });
+    expect(notificationTarget({ entityType: 'meeting', entityId: 'm1' }, APP)).toEqual({ hash: '#/meeting/m1' });
+    expect(notificationTarget({ entityType: 'meeting', entityId: 'm 1' }, '')).toEqual({ hash: '#/meeting/m%201' });
   });
   it('anything else opens nothing', () => {
     expect(notificationTarget({ entityType: 'task', entityId: null }, APP)).toBeNull();
-    expect(notificationTarget({ entityType: 'meeting', entityId: 'm1' }, '')).toBeNull();
+    expect(notificationTarget({ entityType: 'meeting', entityId: null }, APP)).toBeNull();
     expect(notificationTarget({}, APP)).toBeNull();
     expect(notificationTarget(null, APP)).toBeNull();
   });

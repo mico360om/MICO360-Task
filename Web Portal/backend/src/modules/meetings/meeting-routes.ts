@@ -126,8 +126,8 @@ export interface MeetingRouteDeps {
   notify?: Pick<MeetingNotifyService, 'sendInvites' | 'sendCancellation'> & Partial<Pick<MeetingNotifyService, 'previewInvites'>>;
   /** Structured logger for best-effort background sends. */
   logger?: Pick<Logger, 'error'> & Partial<Pick<Logger, 'warn'>>;
-  /** Attendee and open action-item counts per meeting id (one lookup for the whole list). */
-  listCounts?: (meetingIds: string[]) => Promise<Record<string, MeetingListCounts>>;
+  /** Attendee and open action-item counts per meeting id (one lookup for the whole list), and `viewerId`'s own row on each. */
+  listCounts?: (meetingIds: string[], viewerId?: string) => Promise<Record<string, MeetingListCounts>>;
   /** Repeating meetings (creates a series' meetings; ?scope=series changes all upcoming ones). */
   series?: MeetingSeriesService;
   /** Enables GET /projects/:id/meetings-overview (the project dashboard's meetings). */
@@ -170,6 +170,8 @@ export interface MeetingListCounts {
   minutes?: MinutesState;
   /** Notes recorded as decisions. */
   decisionCount?: number;
+  /** The caller's own row on the meeting (its id and answer), or null when they aren't on it. */
+  mine?: { attendeeId: string; response: string } | null;
 }
 
 /** Did a change alter what invitees see in their calendar (so an updated invitation is due)? */
@@ -268,11 +270,15 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     });
     const flagged = await withEditFlags(req, data);
     if (!deps.listCounts || flagged.length === 0) return { data: flagged };
-    const counts = await deps.listCounts(flagged.map((m) => m.id));
+    const counts = await deps.listCounts(flagged.map((m) => m.id), req.user!.id);
     return {
       data: flagged.map((m) => {
         const c = counts[m.id];
-        return { ...m, attendeeCount: c?.attendeeCount ?? 0, openActionItemCount: c?.openActionItemCount ?? 0, attendees: c?.attendees ?? [], minutes: c?.minutes ?? 'NONE', decisionCount: c?.decisionCount ?? 0 };
+        return {
+          ...m, attendeeCount: c?.attendeeCount ?? 0, openActionItemCount: c?.openActionItemCount ?? 0, attendees: c?.attendees ?? [], minutes: c?.minutes ?? 'NONE', decisionCount: c?.decisionCount ?? 0,
+          // Your own row and answer: a list shows them without reading each meeting's people.
+          myAttendeeId: c?.mine?.attendeeId ?? null, myResponse: c?.mine?.response ?? null,
+        };
       }),
     };
   });

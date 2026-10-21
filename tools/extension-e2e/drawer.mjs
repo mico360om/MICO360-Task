@@ -63,7 +63,8 @@ try {
 
   ck('the drawer opens for the task, named after it', (await evaluate(`${D}?.getAttribute('aria-label')`)) === `Task ${T.key}: ${TITLE}`);
   const link = await evaluate(`(() => { const a = [...${D}.querySelectorAll('a')].find((x) => /From meeting/.test(x.textContent)); return a && { href: a.href, target: a.target, text: a.textContent }; })()`);
-  ck('“From meeting” names the meeting and opens it on the website, in a new tab', !!link && link.href.endsWith(`/meetings/${meeting.id}`) && link.target === '_blank' && link.text.includes(meeting.title), JSON.stringify(link));
+  // Stage 6: the meeting has its page in the extension now (its notes and minutes are a click away on the website).
+  ck('“From meeting” names the meeting and opens its page here', !!link && link.href.endsWith(`#/meeting/${meeting.id}`) && link.target === '' && link.text.includes(meeting.title), JSON.stringify(link));
   await shot('01-drawer.png');
 
   // ---- Milestone and start date -----------------------------------------------------------

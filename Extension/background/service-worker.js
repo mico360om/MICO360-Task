@@ -5,9 +5,13 @@ import { createAuth } from '../src/auth.js';
 import { ensureSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { rememberTask } from '../src/task-writes.js';
-import { openAppTab } from '../src/open-app.js';
+import { openAppTab, APP_PATH } from '../src/open-app.js';
 import { createMenu, onMenuClick } from '../src/context-menu.js';
 import { pollNotifications, openAlert } from '../src/background-poll.js';
+import { readSessionUser } from '../src/auth.js';
+import { searchable } from '../src/search.js';
+import { omniboxSuggestions, omniboxTarget, defaultSuggestion } from '../src/omnibox.js';
+import { openSidePanel, PANEL_COMMAND } from '../src/side-panel.js';
 
 const local = chrome.storage.local;
 const sessionStore = chrome.storage.session;
@@ -99,6 +103,75 @@ function openApp(hash = '') {
   return openAppTab(chrome, hash);
 }
 
+// ---- "mico" in the address bar (Stage 6) ----------------------------------------------------
+
+let omniAsked = 0; // the newest words typed: an older answer arriving late is dropped
+
+/** Whether the signed-in person is an admin (admin pages are suggested only to them). */
+async function isAdmin() {
+  try {
+    const u = await readSessionUser(local);
+    return !!(u && Array.isArray(u.roles) && u.roles.includes('ADMIN'));
+  } catch {
+    return false;
+  }
+}
+
+/** How long the address bar waits after the last key before it asks (one search per pause, not per key). */
+const OMNI_WAIT_MS = 150;
+
+/** Suggestions for the words typed after "mico": pages, and what GET /search finds. */
+async function omniboxSuggest(text, suggest) {
+  const mine = (omniAsked += 1);
+  await new Promise((r) => setTimeout(r, OMNI_WAIT_MS));
+  if (mine !== omniAsked) return; // more was typed meanwhile: that answer is the one shown
+  let ctx = null;
+  try { ctx = await signedIn(); } catch { ctx = null; }
+  try { chrome.omnibox.setDefaultSuggestion({ description: defaultSuggestion(!!ctx) }); } catch { /* older Chrome */ }
+  if (!ctx) {
+    suggest([]);
+    return;
+  }
+  let results = null;
+  if (searchable(text)) {
+    try {
+      const res = await ctx.auth.authedFetch(`/search?q=${encodeURIComponent(text.trim())}`);
+      const json = res && res.ok ? await res.json() : null;
+      results = json && typeof json === 'object' ? json.data : null;
+    } catch {
+      results = null; // offline: the pages still show
+    }
+  }
+  if (mine !== omniAsked) return;
+  suggest(omniboxSuggestions(results, text, { isAdmin: await isAdmin() }));
+}
+
+/**
+ * Enter: a chosen suggestion opens here (or a page on the website); words open the Search screen.
+ * Where, as Chrome says (`disposition`): this tab (Enter), a new tab (Alt+Enter) or one behind.
+ */
+async function omniboxOpen(text, disposition) {
+  const { appBase } = resolveBases(await local.get(['apiBase', 'appBase']));
+  const target = omniboxTarget(text, { appBase, isAdmin: await isAdmin() });
+  const url = target.url || chrome.runtime.getURL(APP_PATH) + target.hash;
+  if (disposition === 'newForegroundTab' || disposition === 'newBackgroundTab') {
+    await chrome.tabs.create({ url, active: disposition === 'newForegroundTab' });
+    return;
+  }
+  try {
+    await chrome.tabs.update({ url }); // the tab the words were typed in
+  } catch {
+    await chrome.tabs.create({ url });
+  }
+}
+
+chrome.omnibox?.onInputChanged.addListener((text, suggest) => {
+  void omniboxSuggest(text, suggest).catch(() => suggest([]));
+});
+chrome.omnibox?.onInputEntered.addListener((text, disposition) => {
+  void omniboxOpen(text, disposition).catch(() => openApp('#/'));
+});
+
 /** The polling alarm can be lost when the browser restarts; make sure it exists (EXT-06). */
 async function ensurePollAlarm() {
   try {
@@ -111,6 +184,13 @@ async function ensurePollAlarm() {
 
 // The toolbar button opens the quick-capture popup (action.default_popup), as does the keyboard
 // shortcut (commands._execute_action); its "Open MICO360 Tasks" button opens the full app.
+
+// The side panel's own keyboard command (Stage 7; no key is chosen for you): it opens in the window
+// the keys were pressed in. Chrome opens it only straight from the key press, so nothing is awaited.
+chrome.commands?.onCommand.addListener((command, tab) => {
+  if (command !== PANEL_COMMAND || !tab) return;
+  void openSidePanel(chrome, tab.windowId);
+});
 
 chrome.notifications?.onClicked.addListener((id) => {
   if (id !== NOTIFICATION_ID) return;

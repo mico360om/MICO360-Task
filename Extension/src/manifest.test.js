@@ -19,8 +19,8 @@ function packagedText() {
   return out.join('\n');
 }
 
-/** The extension's pages: the toolbar popup and the full app (opened in a tab, src/open-app.js). */
-const PAGES = [manifest.action.default_popup, 'app/app.html'];
+/** The extension's pages: the toolbar popup, the full app (opened in a tab, src/open-app.js) and the side panel. */
+const PAGES = [manifest.action.default_popup, 'app/app.html', manifest.side_panel && manifest.side_panel.default_path].filter(Boolean);
 
 /** Every file the pages and the background worker load, following scripts, styles and imports. */
 function reachable() {
@@ -47,20 +47,44 @@ describe('manifest.json', () => {
   });
 
   it('asks only for the permissions it uses, keeping unlimitedStorage (installed copies have it; without it a full store could refuse the sign-in token)', () => {
-    expect([...manifest.permissions].sort()).toEqual(['activeTab', 'alarms', 'contextMenus', 'notifications', 'storage', 'unlimitedStorage']);
+    expect([...manifest.permissions].sort()).toEqual(['activeTab', 'alarms', 'contextMenus', 'notifications', 'sidePanel', 'storage', 'unlimitedStorage']);
     expect(manifest.host_permissions).toEqual(['https://task.mico360.com/*']);
   });
 
   it('quick capture adds no install warning: the right-click menu (contextMenus) and the page you are on (activeTab) need none, so an update isn’t held for approval', () => {
     const BEFORE = ['alarms', 'notifications', 'storage', 'unlimitedStorage']; // 1.6.0
     const NO_WARNING = new Set(['activeTab', 'alarms', 'contextMenus', 'storage', 'unlimitedStorage']);
-    const added = manifest.permissions.filter((p) => !BEFORE.includes(p));
+    const added = manifest.permissions.filter((p) => !BEFORE.includes(p) && p !== 'sidePanel'); // Stage 7's, below
     expect(added.sort()).toEqual(['activeTab', 'contextMenus']);
     expect(added.filter((p) => !NO_WARNING.has(p))).toEqual([]);
     // No content script, and no access to pages beyond the one you open the popup on.
     expect(manifest.content_scripts).toBeUndefined();
     expect(manifest.permissions).not.toContain('tabs');
     expect(manifest.permissions).not.toContain('scripting');
+  });
+
+  it('Stage 6: “mico” in the address bar is a manifest key, not a permission — no install warning, no new access', () => {
+    expect(manifest.omnibox).toEqual({ keyword: 'mico' });
+    expect(manifest.permissions).not.toContain('search');
+    expect(manifest.permissions).not.toContain('tabs');
+    expect(manifest.host_permissions).toEqual(['https://task.mico360.com/*']);
+  });
+
+  it('Stage 7: the side panel is the app page made for it, and its permission shows no install warning (Chrome’s own list is compared by tools/extension-e2e/sidepanel.mjs)', () => {
+    expect(manifest.side_panel).toEqual({ default_path: 'app/panel.html' });
+    expect(existsSync(resolve(ext, manifest.side_panel.default_path))).toBe(true);
+    expect(manifest.permissions).toContain('sidePanel');
+    // chrome.sidePanel is there from Chrome 114, and sidePanel.open() (a button that opens it) from 116.
+    expect(Number(manifest.minimum_chrome_version)).toBeGreaterThanOrEqual(116);
+    // The toolbar button still opens the popup; no host access or other permission comes with it.
+    expect(manifest.action.default_popup).toBe('popup/popup.html');
+    expect(manifest.host_permissions).toEqual(['https://task.mico360.com/*']);
+    expect(manifest.permissions).not.toContain('tabs');
+  });
+
+  it('Stage 7: a keyboard command opens the side panel, with no key chosen for you (none is free everywhere; set one at chrome://extensions/shortcuts)', () => {
+    expect(manifest.commands['open-side-panel']).toEqual({ description: 'Open the side panel' });
+    expect(Object.values(manifest.commands).filter((c) => c.suggested_key)).toHaveLength(1); // only the popup's Ctrl+Shift+K
   });
 
   it('the toolbar button opens the quick-capture popup, and a keyboard shortcut opens it too', () => {
@@ -85,7 +109,9 @@ describe('manifest.json', () => {
 });
 
 /** Packaged modules nothing imports yet, and why they stay. */
-const NOT_YET_USED = {};
+const NOT_YET_USED = {
+  'app/screens/today.js': 'Stage 7: the side panel’s Today — the panel layout of app/app.js shows it in the next step',
+};
 
 describe('packaged code', () => {
   it('every module is used by a page (the popup, the app) or the background worker', () => {
