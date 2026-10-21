@@ -710,3 +710,15 @@ describe('resourcesApi: User Management, search and About (6b)', () => {
     expect(calls.map((c) => c.path)).toEqual([`/search?q=${encodeURIComponent('a&b c/مراجعة')}`, '/version', '/releases']);
   });
 });
+
+describe('resourcesApi.notifications.markAllRead (5c review #9)', () => {
+  it('sends the newest time shown, or no body at all (older servers)', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).notifications.markAllRead('2026-10-21T10:30:00.000Z');
+    await resourcesApi(client).notifications.markAllRead();
+    expect(calls).toEqual([
+      { method: 'POST', path: '/notifications/read-all', body: { upTo: '2026-10-21T10:30:00.000Z' } },
+      { method: 'POST', path: '/notifications/read-all', body: undefined },
+    ]);
+  });
+});

@@ -1,4 +1,5 @@
 import { isNetworkError } from './api-client';
+import { isSafeId } from './ids';
 import type { QueuedMutation } from './sync-queue';
 import type { KeyRefresh } from './refresh';
 import type { ApiNotification } from './types';
@@ -45,29 +46,87 @@ const PUSH_QUIET_MS = 10_000;
  * The app icon's number for the whole run of the app: set from each count the server gives (once
  * per change, see launcherBadgeStep), and cleared at sign-out. `set` is the phone's (expo-
  * notifications' setBadgeCountAsync); a phone that can't draw numbers just says no.
+ *
+ * A "none" that comes just after a push (or just after the app comes back to the front, when a push
+ * that came while it was away wasn't heard) is held, not dropped: it goes on the icon when the quiet
+ * time ends, unless a newer count came meanwhile — so the icon never keeps a number nobody has
+ * (5c review #1). After sign-out nothing reaches the icon until `start` (the next person signed in):
+ * a poll still on its way can't put the last person's number back (#5).
  */
-export function createLauncherBadge({ set, now = Date.now }: { set: (n: number) => Promise<unknown>; now?: () => number }) {
+export function createLauncherBadge({
+  set,
+  now = Date.now,
+  later = (fn, ms) => void setTimeout(fn, ms),
+}: {
+  set: (n: number) => Promise<unknown>;
+  now?: () => number;
+  /** Run `fn` after `ms` (a timer; injected in tests). */
+  later?: (fn: () => void, ms: number) => void;
+}) {
   let shown: number | null = null;
-  let lastPush = Number.NEGATIVE_INFINITY;
+  let quietFrom = Number.NEGATIVE_INFINITY;
+  let held: { n: number; seq: number } | null = null;
+  let seq = 0;
+  let off = false;
   const apply = (n: number) => {
     shown = n;
     void set(n).catch(() => {});
   };
+  const quiet = () => {
+    quietFrom = now();
+  };
+  const count = (next: number | null | undefined, fromHeld = false): void => {
+    if (off) return;
+    if (!fromHeld) {
+      seq += 1;
+      held = null;
+    }
+    const inQuiet = now() - quietFrom < PUSH_QUIET_MS;
+    const step = launcherBadgeStep({ shown, next, pushJustArrived: inQuiet });
+    if (step !== null) {
+      apply(step);
+      return;
+    }
+    // Held back (a "none" in the quiet time): tried again when the quiet time ends.
+    if (inQuiet && next === 0 && shown !== 0 && !fromHeld) {
+      const mine = { n: 0, seq };
+      held = mine;
+      later(() => {
+        if (held === mine) count(mine.n, true);
+      }, Math.max(0, quietFrom + PUSH_QUIET_MS - now()) + 1);
+    }
+  };
   return {
     /** A push came in: a count of none just after it may be older than the push. */
-    pushArrived(): void {
-      lastPush = now();
-    },
+    pushArrived: quiet,
+    /** The app came back to the front: a push that came while it was away wasn't heard (#3). */
+    resumed: quiet,
     /** The server's unread count (undefined while not known). */
-    count(next: number | null | undefined): void {
-      const step = launcherBadgeStep({ shown, next, pushJustArrived: now() - lastPush < PUSH_QUIET_MS });
-      if (step !== null) apply(step);
-    },
-    /** Sign-out: no number, and the app's notifications off the phone's list. */
+    count: (next: number | null | undefined) => count(next),
+    /** Sign-out: no number, the app's notifications off the phone's list, and nothing more until `start`. */
     clear(): void {
+      off = true;
+      held = null;
       apply(0);
     },
+    /** Someone is signed in: their counts reach the icon. */
+    start(): void {
+      off = false;
+    },
   };
+}
+
+/**
+ * The unread count from a query-cache event, when it is the server's own answer to the count — not
+ * the app's quick local update (setQueryData, marked `manual`), which may be ahead of or behind the
+ * server and must never clear the phone's notifications (5c review #3). Undefined otherwise.
+ */
+export function serverCount(event: { type: string; action?: { type: string; manual?: boolean }; query: { queryKey: readonly unknown[]; state: { data?: unknown } } }): number | undefined {
+  if (event.type !== 'updated' || event.action?.type !== 'success' || event.action.manual) return undefined;
+  const key = event.query.queryKey;
+  if (key.length !== 2 || key[0] !== 'notifications' || key[1] !== 'unread') return undefined;
+  const count = (event.query.state.data as { count?: unknown } | undefined)?.count;
+  return typeof count === 'number' && Number.isFinite(count) ? count : undefined;
 }
 
 /** The number on the Alerts tab: none at 0, the count up to 99, then "99+" (the website's bell). */
@@ -176,4 +235,56 @@ export function markAllProblem(error: unknown): string {
   return isNetworkError(error)
     ? 'Marking all as read needs a connection. Try again when you’re back online.'
     : 'Couldn’t mark everything as read. Please try again.';
+}
+
+/**
+ * The alert a tapped push is for, named by the push itself (servers since the 5c review send
+ * `notificationId`), or null for an older server's push (then the list, fresh, is searched).
+ */
+export function pushNotificationId(data: Record<string, unknown>): string | null {
+  return isSafeId(data.notificationId) ? data.notificationId : null;
+}
+
+/**
+ * Run `fn` once the app is shown: at once, or when the fingerprint lock stops covering it — nothing
+ * is read while the app is covered (lane/app's rule). Returns a function that calls it off.
+ */
+export function whenShown(gate: { covered: () => boolean; subscribe: (listener: () => void) => () => void }, fn: () => void): () => void {
+  if (!gate.covered()) {
+    fn();
+    return () => {};
+  }
+  let done = false;
+  const stop = gate.subscribe(() => {
+    if (done || gate.covered()) return;
+    done = true;
+    stop();
+    fn();
+  });
+  return () => {
+    done = true;
+    stop();
+  };
+}
+
+/** The server's count went up since its last answer: alerts came in that the list doesn't have yet (#11). */
+export function listBehindCount(previous: number | undefined, next: number): boolean {
+  return previous !== undefined && next > previous;
+}
+
+/** The newest alert's time in the list shown ("Mark all read" reads up to it, #9), or undefined. */
+export function newestShown(list: readonly Pick<ApiNotification, 'createdAt'>[] | null | undefined): string | undefined {
+  let best: { t: number; iso: string } | null = null;
+  for (const x of list ?? []) {
+    const t = Date.parse(x.createdAt);
+    if (!Number.isNaN(t) && (!best || t > best.t)) best = { t, iso: x.createdAt };
+  }
+  return best?.iso;
+}
+
+/** "Mark all read" done up to `upTo`: what came in later stays unread (no `upTo`: everything). */
+export function allReadUpTo(list: ApiNotification[] | undefined, readAt: string, upTo: string | undefined): ApiNotification[] | undefined {
+  if (!upTo) return allRead(list, readAt);
+  const limit = Date.parse(upTo);
+  return list?.map((x) => (x.readAt || Date.parse(x.createdAt) > limit ? x : { ...x, readAt }));
 }

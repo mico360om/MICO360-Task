@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, AccessibilityInfo, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -11,7 +11,7 @@ import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
 import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { dismissTrayAbout } from '../adapters/alerts';
-import { ALERTS_REFRESH, allRead, markAllProblem } from '../lib/alerts';
+import { ALERTS_REFRESH, allReadUpTo, markAllProblem, newestShown } from '../lib/alerts';
 import { relativeTime } from '../lib/relative-time';
 import { refresh } from '../lib/refresh';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -46,14 +46,23 @@ export function NotificationsScreen({ navigation }: TabScreenProps<'Notification
   const list = useMemo(() => q.data ?? [], [q.data]);
   const unread = list.filter((n) => !n.readAt).length;
 
+  // Coming to the Alerts tab shows what the tab's number counts: an out-of-date list is asked for again (5c review #11).
+  useEffect(
+    () => navigation.addListener('focus', () => void qc.refetchQueries({ queryKey: ['notifications'], exact: true, stale: true }, { cancelRefetch: false })),
+    [navigation, qc],
+  );
+
   const markAll = () => {
     setMarkingAll(true);
     setMarkAllErr(null);
+    // Only what this list shows is read: one that came in meanwhile stays unread (5c review #9).
+    const upTo = newestShown(list);
     void resources.notifications
-      .markAllRead()
+      .markAllRead(upTo)
       .then(() => {
-        qc.setQueryData<ApiNotification[]>(['notifications'], (l) => allRead(l, new Date().toISOString()));
-        qc.setQueryData<{ count: number }>(['notifications', 'unread'], { count: 0 });
+        const after = allReadUpTo(qc.getQueryData<ApiNotification[]>(['notifications']), new Date().toISOString(), upTo);
+        qc.setQueryData<ApiNotification[]>(['notifications'], after);
+        qc.setQueryData<{ count: number }>(['notifications', 'unread'], { count: (after ?? []).filter((x) => !x.readAt).length });
         refresh(qc, ALERTS_REFRESH);
         AccessibilityInfo.announceForAccessibility('All alerts marked as read.');
       })

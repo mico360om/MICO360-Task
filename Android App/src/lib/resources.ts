@@ -419,7 +419,8 @@ export function resourcesApi(client: ApiClient) {
       list: () => data(client.get<Envelope<ApiNotification[]>>('/notifications')),
       unreadCount: () => data(client.get<Envelope<{ count: number }>>('/notifications/unread-count')),
       markRead: (id: string) => data(client.put<Envelope<ApiNotification>>(`/notifications/${id}/read`)),
-      markAllRead: () => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all')),
+      /** Read everything shown: `upTo` (the newest shown) leaves what came in meanwhile unread (5c review). */
+      markAllRead: (upTo?: string) => data(client.post<Envelope<{ updated: number }>>('/notifications/read-all', upTo ? { upTo } : undefined)),
       // Which notifications you get and when "due soon" reminders arrive (shared with the web app).
       preferences: () => data(client.get<Envelope<NotificationPreferences>>('/notifications/preferences')),
       // Saving them: `preferences.save` below sends only what changed (a whole object would wipe the daily emails).

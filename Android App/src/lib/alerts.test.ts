@@ -13,6 +13,12 @@ import {
   markedRead,
   trayIdsAbout,
   withPendingReads,
+  serverCount,
+  pushNotificationId,
+  whenShown,
+  listBehindCount,
+  newestShown,
+  allReadUpTo,
 } from './alerts';
 import { NetworkError, ApiError } from './api-client';
 import type { ApiNotification } from './types';
@@ -109,6 +115,7 @@ describe('the app icon’s number, kept for the whole run (5c)', () => {
     const { badge, set } = make();
     badge.count(4);
     badge.clear();
+    badge.start(); // the next person signed in (5c review #5)
     badge.count(4);
     expect(set).toEqual([4, 0, 4]);
   });
@@ -221,5 +228,151 @@ describe('“Mark all read” that didn’t happen (5c)', () => {
   });
   it('otherwise asks to try again', () => {
     expect(markAllProblem(new ApiError(500, 'ERROR', 'boom'))).toBe('Couldn’t mark everything as read. Please try again.');
+  });
+});
+
+describe('the app icon’s number never sticks, follows only the server, and is the next person’s alone (5c review)', () => {
+  const make = () => {
+    let t = 1_000_000;
+    const set: number[] = [];
+    const timers: { at: number; fn: () => void }[] = [];
+    const badge = createLauncherBadge({ set: async (n) => void set.push(n), now: () => t, later: (fn, ms) => void timers.push({ at: t + ms, fn }) });
+    const tick = (ms: number) => {
+      t += ms;
+      for (const timer of timers.splice(0).filter((x) => (x.at <= t ? (x.fn(), false) : true))) timers.push(timer);
+    };
+    return { badge, set, tick, timers };
+  };
+
+  it('a “none” held back just after a push is put on the icon when the quiet time ends (#1)', () => {
+    const { badge, set, tick } = make();
+    badge.count(1);
+    badge.pushArrived();
+    tick(2_000);
+    badge.count(0); // the push was read at once: held, not lost
+    expect(set).toEqual([1]);
+    tick(8_100);
+    expect(set).toEqual([1, 0]);
+  });
+
+  it('a held “none” isn’t put on the icon when a newer count came meanwhile', () => {
+    const { badge, set, tick } = make();
+    badge.count(1);
+    badge.pushArrived();
+    badge.count(0);
+    tick(1_000);
+    badge.count(2);
+    tick(10_000);
+    expect(set).toEqual([1, 2]);
+  });
+
+  it('coming back to the app starts the same quiet time (a push while away wasn’t heard) (#3)', () => {
+    const { badge, set, tick } = make();
+    badge.count(3);
+    badge.resumed();
+    badge.count(0);
+    expect(set).toEqual([3]);
+    tick(10_100);
+    expect(set).toEqual([3, 0]);
+  });
+
+  it('after sign-out no count reaches the icon until the next person is signed in (#5)', () => {
+    const { badge, set, tick } = make();
+    badge.count(4);
+    badge.pushArrived();
+    badge.count(0); // held
+    badge.clear();
+    badge.count(4); // a poll still on its way for the person who left
+    tick(20_000); // the held "none" isn't applied for them either
+    expect(set).toEqual([4, 0]);
+    badge.start();
+    badge.count(2);
+    expect(set).toEqual([4, 0, 2]);
+  });
+
+  it('only the server’s own answers to the count move the icon — not the app’s quick local updates (#3)', () => {
+    const query = (key: unknown[], data: unknown) => ({ queryKey: key, state: { data } });
+    const fetched = { type: 'updated', action: { type: 'success' }, query: query(['notifications', 'unread'], { count: 2 }) };
+    expect(serverCount(fetched)).toBe(2);
+    expect(serverCount({ ...fetched, action: { type: 'success', manual: true } })).toBeUndefined();
+    expect(serverCount({ ...fetched, action: { type: 'error' } })).toBeUndefined();
+    expect(serverCount({ ...fetched, query: query(['notifications'], []) })).toBeUndefined();
+    expect(serverCount({ ...fetched, query: query(['notifications', 'unread'], undefined) })).toBeUndefined();
+    expect(serverCount({ type: 'added', query: fetched.query })).toBeUndefined();
+  });
+});
+
+describe('a tapped push reads exactly its alert, and only once the app is shown (5c review #2, #8)', () => {
+  it('takes the alert’s id from the push (servers since this fix); an id that isn’t one is ignored', () => {
+    expect(pushNotificationId({ entityType: 'task', entityId: 't1', notificationId: 'cmg1n0001' })).toBe('cmg1n0001');
+    expect(pushNotificationId({ entityType: 'task', entityId: 't1' })).toBeNull();
+    expect(pushNotificationId({ notificationId: '../read-all' })).toBeNull();
+    expect(pushNotificationId({ notificationId: 42 })).toBeNull();
+  });
+
+  it('waits while the fingerprint lock covers the app, then reads once', () => {
+    let covered = true;
+    const listeners = new Set<() => void>();
+    const gate = { covered: () => covered, subscribe: (l: () => void) => (listeners.add(l), () => void listeners.delete(l)) };
+    const tell = () => [...listeners].forEach((l) => l());
+    const ran: string[] = [];
+    whenShown(gate, () => ran.push('read'));
+    tell();
+    expect(ran).toEqual([]);
+    covered = false;
+    tell();
+    tell();
+    expect(ran).toEqual(['read']);
+    expect(listeners.size).toBe(0);
+    whenShown(gate, () => ran.push('at once'));
+    expect(ran).toEqual(['read', 'at once']);
+  });
+
+  it('can be called off before it runs (signed out meanwhile)', () => {
+    let covered = true;
+    const listeners = new Set<() => void>();
+    const gate = { covered: () => covered, subscribe: (l: () => void) => (listeners.add(l), () => void listeners.delete(l)) };
+    const ran: string[] = [];
+    const cancel = whenShown(gate, () => ran.push('read'));
+    cancel();
+    covered = false;
+    [...listeners].forEach((l) => l());
+    expect(ran).toEqual([]);
+    expect(listeners.size).toBe(0);
+  });
+});
+
+describe('the Alerts list keeps up with the tab’s number (5c review #11)', () => {
+  it('a higher count from the server (no push heard) means newer alerts: the list is asked for again', () => {
+    expect(listBehindCount(undefined, 2)).toBe(false);
+    expect(listBehindCount(2, 3)).toBe(true);
+    expect(listBehindCount(3, 3)).toBe(false);
+    expect(listBehindCount(3, 1)).toBe(false);
+  });
+});
+
+describe('“Mark all read” reads only what was shown (5c review #9)', () => {
+  const list = [
+    n('new', null, { createdAt: '2026-10-21T10:30:00.000Z' }),
+    n('old', null, { createdAt: '2026-10-21T08:00:00.000Z' }),
+    n('read', '2026-10-21T09:00:00.000Z', { createdAt: '2026-10-21T07:00:00.000Z' }),
+  ];
+
+  it('sends the newest alert’s time; none shown, none sent', () => {
+    expect(newestShown(list)).toBe('2026-10-21T10:30:00.000Z');
+    expect(newestShown([])).toBeUndefined();
+    expect(newestShown(undefined)).toBeUndefined();
+  });
+
+  it('shows read only what came in by then: one that arrived after stays unread', () => {
+    const later = [n('newer', null, { createdAt: '2026-10-21T11:00:00.000Z' }), ...list];
+    const after = allReadUpTo(later, '2026-10-21T11:05:00.000Z', '2026-10-21T10:30:00.000Z');
+    expect(after?.map((x) => [x.id, x.readAt])).toEqual([
+      ['newer', null],
+      ['new', '2026-10-21T11:05:00.000Z'],
+      ['old', '2026-10-21T11:05:00.000Z'],
+      ['read', '2026-10-21T09:00:00.000Z'],
+    ]);
+    expect(allReadUpTo(later, 'x', undefined)?.every((a) => a.readAt)).toBe(true);
   });
 });
