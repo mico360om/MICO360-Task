@@ -57,7 +57,8 @@ export function taskRow(task, onClick, { timeZone = DEFAULT_TIME_ZONE } = {}) {
   const due = dueKey ? formatDayKey(dueKey, { weekday: false }) : '';
   const overdue = !done && isOverdue(task.dueDate, timeZone);
   const label = [task.key, `${PRIORITY_LABEL[task.priority] || ''} priority`, task.title, due ? `due ${due}` : null, overdue ? 'overdue' : null, isRecurring(task) ? 'repeats' : null, done ? 'done' : task.progress > 0 ? `${task.progress}% complete` : null].filter(Boolean).join(', ');
-  return el('button', { class: `task-row${done ? ' done' : ''}`, type: 'button', 'aria-label': label, onClick },
+  // data-task-id: closing the task drawer puts focus back on this row (app/dialog.js returnFocus).
+  return el('button', { class: `task-row${done ? ' done' : ''}`, type: 'button', 'aria-label': label, dataset: { taskId: task.id }, onClick },
     el('span', { class: 'prio', style: { background: `var(${priorityVar(task.priority)})` } }),
     el('span', { class: 'body' },
       el('span', { class: 'tt' }, task.title),

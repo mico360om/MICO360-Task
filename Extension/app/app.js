@@ -12,6 +12,7 @@ import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { versionStatus, aboutUrl } from '../src/version.js';
 import { applyStoredTheme } from './theme.js';
 import { updateNotice } from './components.js';
+import { showModal, returnFocus } from './dialog.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -426,11 +427,20 @@ class App {
     const { route, params } = matched;
 
     if (route.overlay) {
+      // What opened the drawer (a board card, a task row), so focus can go back to it on close.
+      if (!this.overlay) {
+        const a = document.activeElement;
+        this.opener = { el: a && this.content.contains(a) ? a : null, taskId: params.taskId };
+      }
       this.closeOverlay();
       this.overlay = route.screen(this.ctx(params, query), () => this.closeOverlay(true));
       document.body.append(this.overlay);
+      // A modal dialog: focus moves in and stays in, the page behind is inert, Escape closes it.
+      this.releaseModal = showModal(this.overlay, { onEscape: () => this.closeOverlay(true) });
       return;
     }
+    const opener = this.opener; // set while a drawer is (or just was) open
+    this.opener = null;
     this.closeOverlay();
     this.contentBase = window.location.hash || '#/';
     this.titleEl.textContent = route.title;
@@ -442,9 +452,12 @@ class App {
     } catch (e) {
       this.content.append(el('div', { class: 'errbar' }, `Screen error: ${e.message}`));
     }
+    // Back from the drawer: focus the card or row that opened it once the screen has drawn it again.
+    if (opener) returnFocus(this.content, opener);
   }
 
   closeOverlay(navigateBack) {
+    if (this.releaseModal) { this.releaseModal(); this.releaseModal = null; }
     if (this.overlay) { this.overlay.remove(); this.overlay = null; }
     if (navigateBack) {
       if (this.contentBase && this.contentBase !== window.location.hash) window.location.hash = this.contentBase;

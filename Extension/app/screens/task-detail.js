@@ -17,6 +17,8 @@ const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
  * Task detail drawer — edit title/description/priority, due date and repeat, checklist, assignees and
  * comments (offline-queued). Each edit is sent against the task's version, one at a time (H1): the
  * server refuses an edit made over someone else's change, and the drawer then says so and reloads.
+ * It is a modal dialog (role="dialog", aria-modal, named after the task); the app shows it with
+ * showModal (app/dialog.js): focus moves in and stays in, and Escape closes it.
  */
 export function TaskDetail(ctx, onClose) {
   const taskId = ctx.params.taskId;
@@ -37,12 +39,13 @@ export function TaskDetail(ctx, onClose) {
   const titleEl = el('h2', {}, 'Task');
   const exportBox = el('div', { class: 'export-box' });
   const body = el('div', { class: 'drawer-body' }, Loader());
+  const panel = el('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Task details', tabindex: '-1' },
+    el('div', { class: 'drawer-head' }, titleEl, exportBox, el('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: onClose }, '✕')),
+    body,
+  );
   const root = el('div', {},
-    el('div', { class: 'scrim', onClick: onClose }),
-    el('div', { class: 'drawer' },
-      el('div', { class: 'drawer-head' }, titleEl, exportBox, el('button', { class: 'iconbtn', 'aria-label': 'Close', onClick: onClose }, '✕')),
-      body,
-    ),
+    el('div', { class: 'scrim', 'aria-hidden': 'true', onClick: onClose }),
+    panel,
   );
 
   load();
@@ -79,6 +82,7 @@ export function TaskDetail(ctx, onClose) {
   function renderBody() {
     if (!task) return;
     titleEl.textContent = task.key || 'Task';
+    panel.setAttribute('aria-label', `Task ${task.key ? `${task.key}: ` : ''}${task.title || ''}`.trim());
     renderExport();
     mount(body,
       err ? el('div', { class: 'errbar', role: 'alert' }, el('span', {}, err)) : null,

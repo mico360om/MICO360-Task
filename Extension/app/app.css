@@ -157,6 +157,18 @@ button { font: inherit; }
 .tcard .row { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
 .tcard .k { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--ink3); }
 .column.drop { outline: 2px dashed color-mix(in srgb, var(--brand) 50%, transparent); outline-offset: -4px; }
+/* A card and its "Move to…" button (a sibling, so the card stays one button) and menu. */
+.tcard-wrap { position: relative; }
+.tcard-wrap.has-move .tcard .tt { padding-right: 26px; }
+.tcard-move { position: absolute; top: 5px; right: 5px; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink2); font-size: 16px; line-height: 1; cursor: pointer; }
+.tcard-move:hover, .tcard-move[aria-expanded="true"] { background: var(--surface2); border-color: var(--line); color: var(--ink); }
+.menu { margin-top: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; display: flex; flex-direction: column; }
+.menu-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: transparent; color: var(--ink); padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 32px; }
+.menu-item:hover, .menu-item:focus { background: var(--surface2); outline: none; }
+.menu-item:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.menu-item .cdot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+/* The task drawer takes focus itself only so a screen reader announces it. */
+.drawer:focus { outline: none; }
 
 /* ---- Project cards ---- */
 .project { display: block; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: var(--surface); cursor: pointer; }
