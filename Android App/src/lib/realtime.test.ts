@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { applyTaskEvent, taskEventRefreshes, boardRefreshes, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from './realtime';
+import { applyTaskEvent, taskEventRefreshes, boardRefreshes, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval, createJoinMemory, afterRemoval } from './realtime';
+import { ApiError, NetworkError } from './api-client';
 import type { ApiTask } from './types';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
@@ -161,5 +162,38 @@ describe('task part events — assignees, tags, watchers, checklist and comments
     expect(taskPartRefreshes('task:tagged', {})).toEqual([]);
     expect(taskPartRefreshes('task:tagged', null)).toEqual([]);
     expect(taskPartRefreshes('noise', { taskId: 't1' })).toEqual([]);
+  });
+});
+
+describe('back on a project after looking at something over it (5b review #5)', () => {
+  it('the first connection on return refreshes the board, as a reconnect does — not the very first one', () => {
+    const joins = createJoinMemory();
+    expect(joins.returning('p1')).toBe(false); // first time: the screen has just loaded it
+    expect(joins.returning('p1')).toBe(true); // back from a task opened over it
+    expect(joins.returning('p2')).toBe(false);
+    expect(joins.returning('p1')).toBe(true);
+  });
+});
+
+describe('"you were removed from this project" (5b review #6)', () => {
+  it('leaves only when the project can no longer be opened; someone who still sees it (an administrator) stays and listens again', async () => {
+    const gone = () => Promise.reject(new ApiError(404, 'NOT_FOUND', 'Project not found.'));
+    const refused = () => Promise.reject(new ApiError(403, 'FORBIDDEN', 'You do not have access to this project.'));
+    expect(await afterRemoval(gone)).toBe('gone');
+    expect(await afterRemoval(refused)).toBe('gone');
+    expect(await afterRemoval(async () => ({ id: 'p1' }))).toBe('still-allowed');
+    // Offline: can't tell — the screen stays on what it has (it hears no more of the project).
+    expect(await afterRemoval(() => Promise.reject(new NetworkError('offline')))).toBe('unknown');
+  });
+});
+
+describe('the live board hook (5b review #5, #6)', () => {
+  it('refreshes on the first connection back, and checks the project before leaving it on a removal', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const hook = readFileSync(resolve(__dirname, '../core/useBoardRealtime.ts'), 'utf8');
+    expect(hook).toMatch(/if \(isReconnect \|\| back\) later\(boardRefreshes\(projectId\)\);/);
+    expect(hook).toMatch(/afterRemoval\(\(\) => services\.resources\.projects\.get\(projectId\)\)/);
+    expect(hook).toMatch(/if \(outcome === 'gone'\) onRemovedRef\.current\?\.\(\);/);
   });
 });

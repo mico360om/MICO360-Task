@@ -3,7 +3,17 @@ import { LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import { connectAuthedSocket } from './authed-socket';
-import { taskEventRefreshes, boardRefreshes, taskPartRefreshes, TASK_EVENTS, TASK_PART_EVENTS, PROJECT_REMOVED_EVENT, isProjectRemoval } from '../lib/realtime';
+import {
+  afterRemoval,
+  boardRefreshes,
+  createJoinMemory,
+  isProjectRemoval,
+  PROJECT_REMOVED_EVENT,
+  taskEventRefreshes,
+  taskPartRefreshes,
+  TASK_EVENTS,
+  TASK_PART_EVENTS,
+} from '../lib/realtime';
 import { refresh } from '../lib/refresh';
 import { createRefreshBatcher } from '../lib/refresh-batch';
 import type { ApiTask } from '../lib/types';
@@ -27,8 +37,11 @@ function animateNext(): void {
  * comments) refreshes only that part. Column changes refresh the columns. Events are gathered for
  * about 300 ms and refreshed in one pass, with one animation (a carry-forward or a bulk move sends
  * dozens). After a reconnect the board is refetched, since events may have been missed while the
- * socket was down. When the server says the user was removed from this project
- * (`project:removed`), `onProjectRemoved` runs so the screen can leave the board.
+ * socket was down — and when the screen comes back after it stopped listening (a task opened over
+ * it): it missed what happened meanwhile (5b review). When the server says the user was removed
+ * from this project (`project:removed`), the project is read again: `onProjectRemoved` runs (the
+ * screen leaves) only when it can't be opened any more; someone who still sees it (an
+ * administrator) stays, listening again.
  */
 export function useBoardRealtime(projectId: string | undefined, onProjectRemoved?: () => void): void {
   const services = useServices();
@@ -36,6 +49,8 @@ export function useBoardRealtime(projectId: string | undefined, onProjectRemoved
   const qc = useQueryClient();
   const onRemovedRef = useRef(onProjectRemoved);
   onRemovedRef.current = onProjectRemoved;
+  // Projects this screen listened to before: coming back to one refreshes it (5b review).
+  const joins = useRef(createJoinMemory()).current;
 
   useEffect(() => {
     if (!projectId || !userId) return;
@@ -51,9 +66,12 @@ export function useBoardRealtime(projectId: string | undefined, onProjectRemoved
       batch.add(targets);
     };
 
+    let first = true;
     const { socket, dispose } = connectAuthedSocket(services, (s, isReconnect) => {
       s.emit('join', { projectId });
-      if (isReconnect) later(boardRefreshes(projectId));
+      const back = first && joins.returning(projectId);
+      first = false;
+      if (isReconnect || back) later(boardRefreshes(projectId));
     });
 
     for (const ev of TASK_EVENTS) {
@@ -74,7 +92,15 @@ export function useBoardRealtime(projectId: string | undefined, onProjectRemoved
     socket.on(PROJECT_REMOVED_EVENT, (payload: unknown) => {
       if (!isProjectRemoval(payload, projectId)) return;
       void qc.invalidateQueries({ queryKey: ['projects'] });
-      onRemovedRef.current?.();
+      void afterRemoval(() => services.resources.projects.get(projectId)).then((outcome) => {
+        if (outcome === 'gone') onRemovedRef.current?.();
+        else if (outcome === 'still-allowed' && socket.connected) {
+          // Still allowed (an administrator): back in the project's room, and up to date.
+          socket.emit('join', { projectId });
+          later(boardRefreshes(projectId));
+          void qc.invalidateQueries({ queryKey: ['project', projectId] });
+        }
+      });
     });
 
     return () => {
@@ -84,5 +110,5 @@ export function useBoardRealtime(projectId: string | undefined, onProjectRemoved
       batch.flush();
     };
     // Reconnect only when the project, the signed-in user or the services change.
-  }, [projectId, userId, services, qc]);
+  }, [projectId, userId, services, qc, joins]);
 }

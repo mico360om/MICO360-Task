@@ -1,5 +1,6 @@
 import type { ApiTask } from './types';
 import type { KeyRefresh, Refresh } from './refresh';
+import { ApiError, isNetworkError } from './api-client';
 import { MY_ACTION_ITEMS } from './task-cache';
 
 /** Realtime task events broadcast by the API over socket.io (mirrors the server's event names). */
@@ -134,4 +135,37 @@ export const PROJECT_REMOVED_EVENT = 'project:removed';
 /** Is this `project:removed` payload about the given project? */
 export function isProjectRemoval(payload: unknown, projectId: string): boolean {
   return !!projectId && typeof (payload as { projectId?: unknown } | null)?.projectId === 'string' && (payload as { projectId: string }).projectId === projectId;
+}
+
+/**
+ * After `project:removed` (5b review): the server sends it to anyone taken off the team, but an
+ * administrator still sees every project. So the project is read again: 'gone' when it can't be
+ * opened any more (404/403 — leave it), 'still-allowed' when it can (stay, and listen again),
+ * 'unknown' when there is no answer (stay on what is shown).
+ */
+export async function afterRemoval(getProject: () => Promise<unknown>): Promise<'gone' | 'still-allowed' | 'unknown'> {
+  try {
+    await getProject();
+    return 'still-allowed';
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 403)) return 'gone';
+    if (isNetworkError(e)) return 'unknown';
+    return 'unknown';
+  }
+}
+
+/**
+ * The projects a screen has listened to while it is open (5b review): a screen that stops
+ * listening while something is opened over it (a task) has missed what happened meanwhile, so the
+ * first connection when it is back refreshes it, as a reconnect does. The very first one doesn't.
+ */
+export function createJoinMemory() {
+  const seen = new Set<string>();
+  return {
+    returning(projectId: string): boolean {
+      if (seen.has(projectId)) return true;
+      seen.add(projectId);
+      return false;
+    },
+  };
 }
