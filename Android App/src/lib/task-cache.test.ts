@@ -63,6 +63,22 @@ describe('afterTaskSaved (an edit refreshes what it changed, not the whole task 
     expect(detail?.meeting).toEqual({ id: 'm1', title: 'Weekly', startAt: null, canView: true });
   });
 
+  it('keeps the saved task when an older load of its details lands after the save', async () => {
+    const qc = seeded();
+    let answer!: (task: ApiTask) => void;
+    // A load of the details started before the save's answer came (the app came back to the front)…
+    const loading = qc.fetchQuery({ queryKey: ['task', 't1'], queryFn: () => new Promise<ApiTask>((r) => (answer = r)), staleTime: 0 });
+    // …the save's answer arrives first…
+    afterTaskSaved(qc, 't1', { ...t('t1'), title: 'Renamed', version: 4 }, { title: 'Renamed' });
+    // …and the older load lands after it, with the task as it was before the edit.
+    answer({ ...t('t1'), title: 'Old', version: 3 });
+    await loading.catch(() => {});
+    const detail = qc.getQueryData<ApiTask & { meeting?: unknown }>(['task', 't1']);
+    expect(detail?.title).toBe('Renamed');
+    expect(detail?.version).toBe(4);
+    expect(detail?.meeting).toEqual({ id: 'm1', title: 'Weekly', startAt: null, canView: true });
+  });
+
   it('refreshes the task’s activity and the lists that show it, nothing else', () => {
     const qc = seeded();
     afterTaskSaved(qc, 't1', { ...t('t1'), title: 'Renamed', version: 4 }, { title: 'Renamed' });
