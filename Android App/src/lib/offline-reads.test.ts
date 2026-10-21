@@ -220,3 +220,15 @@ describe('the board lays the moves still waiting over what it is given', () => {
     expect(columns()).toEqual(['t1:c4', 't2:c1', 't3:c1']);
   });
 });
+
+describe('a card moved offline to a chosen place stays there (4b)', () => {
+  it('a waiting move that names where the card shows puts it there, in its new column', () => {
+    const tasks = [
+      { ...task('t1', 'c1'), position: 0 },
+      { ...task('t2', 'c2'), position: 0 },
+      { ...task('t3', 'c2'), position: 1 },
+    ];
+    const moved = withPendingMoves(tasks, [{ kind: 'task.move', payload: { id: 't1', columnId: 'c2', position: 1, at: 0.5 } }]);
+    expect(moved.find((t) => t.id === 't1')).toMatchObject({ columnId: 'c2', position: 0.5 });
+  });
+});

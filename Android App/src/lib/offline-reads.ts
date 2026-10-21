@@ -16,19 +16,22 @@ export interface OfflineReadsDeps {
  * comes back when nothing changes.
  */
 export function withPendingMoves<T extends { id: string; columnId: string }>(tasks: T[], pending: readonly Pick<QueuedMutation, 'kind' | 'payload'>[]): T[] {
-  const movedTo = new Map<string, string>();
+  const movedTo = new Map<string, { columnId: string; at?: number }>();
   for (const m of pending) {
     if (m.kind !== 'task.move') continue;
-    const p = (m.payload ?? {}) as { id?: unknown; columnId?: unknown };
-    if (typeof p.id === 'string' && typeof p.columnId === 'string') movedTo.set(p.id, p.columnId);
+    const p = (m.payload ?? {}) as { id?: unknown; columnId?: unknown; at?: unknown };
+    // `at`: where the card shows in its new column, between its new neighbours (4b).
+    if (typeof p.id === 'string' && typeof p.columnId === 'string') movedTo.set(p.id, { columnId: p.columnId, ...(typeof p.at === 'number' ? { at: p.at } : {}) });
   }
   if (movedTo.size === 0 || !Array.isArray(tasks)) return tasks;
   let changed = false;
   const next = tasks.map((t) => {
-    const columnId = movedTo.get(t.id);
-    if (columnId === undefined || columnId === t.columnId) return t;
+    const move = movedTo.get(t.id);
+    if (move === undefined) return t;
+    const placed = move.at !== undefined && (t as { position?: unknown }).position !== move.at;
+    if (move.columnId === t.columnId && !placed) return t;
     changed = true;
-    return { ...t, columnId };
+    return { ...t, columnId: move.columnId, ...(placed ? { position: move.at } : {}) };
   });
   return changed ? next : tasks;
 }

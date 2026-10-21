@@ -781,3 +781,20 @@ describe('resourcesApi.projects: creating, editing and the team (5b)', () => {
     expect(calls[0]!.opts?.timeoutMs).toBe(AI_TIMEOUT_MS);
   });
 });
+
+describe('resourcesApi — the board’s order and its columns (4b)', () => {
+  it('reorders a column’s cards, and adds, changes and deletes columns, every id encoded', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client);
+    await api.tasks.reorder('c1', ['t2', 't1']);
+    await api.columns.add('p1', { name: 'In Review' });
+    await api.columns.update('c/2', { name: 'Waiting', color: '#1E5A8B', category: 'BLOCKED', enabled: false, position: 3 });
+    await api.columns.remove('c2');
+    expect(calls).toEqual([
+      { method: 'PUT', path: '/columns/c1/tasks/reorder', body: { orderedIds: ['t2', 't1'] } },
+      { method: 'POST', path: '/projects/p1/columns', body: { name: 'In Review' } },
+      { method: 'PUT', path: '/columns/c%2F2', body: { name: 'Waiting', color: '#1E5A8B', category: 'BLOCKED', enabled: false, position: 3 } },
+      { method: 'DELETE', path: '/columns/c2' },
+    ]);
+  });
+});

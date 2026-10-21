@@ -11,6 +11,7 @@ import type {
   ApiChecklist,
   ApiChecklistItem,
   ApiColumn,
+  ColumnCategory,
   ApiComment,
   ApiConversation,
   ApiConversationSummary,
@@ -201,6 +202,14 @@ export function resourcesApi(client: ApiClient) {
         data(client.patch<Envelope<ApiMember[]>>(`/projects/${seg(id)}/members/${seg(userId)}`, { role })),
       removeMember: (id: string, userId: string) => client.del<void>(`/projects/${seg(id)}/members/${seg(userId)}`),
     },
+    /** A project's board columns (4b): for those who manage the project (the server decides). */
+    columns: {
+      add: (projectId: string, input: { name: string; category?: ColumnCategory; color?: string }) =>
+        data(client.post<Envelope<ApiColumn>>(`/projects/${seg(projectId)}/columns`, input)),
+      update: (id: string, patch: Partial<Pick<ApiColumn, 'name' | 'category' | 'color' | 'enabled' | 'position'>>) =>
+        data(client.put<Envelope<ApiColumn>>(`/columns/${seg(id)}`, patch)),
+      remove: (id: string) => client.del<void>(`/columns/${seg(id)}`),
+    },
     tasks: {
       list: (params: TaskListParams = {}) =>
         data(
@@ -240,6 +249,8 @@ export function resourcesApi(client: ApiClient) {
         data(client.put<Envelope<ApiTask>>(`/tasks/${seg(id)}`, body)),
       move: (id: string, columnId: string, position?: number) =>
         data(client.patch<Envelope<ApiTask>>(`/tasks/${seg(id)}/move`, { columnId, position })),
+      /** A column's cards in a new order (the website sends it after a drop — 4b). */
+      reorder: (columnId: string, orderedIds: string[]) => client.put<unknown>(`/columns/${seg(columnId)}/tasks/reorder`, { orderedIds }),
       /** Delete a task — with 'series', every copy of a repeating task. */
       remove: (id: string, scope?: 'series') => client.del<void>(scope ? `/tasks/${seg(id)}?scope=series` : `/tasks/${seg(id)}`),
       // Tags: read a task's tags, replace the whole set (find-or-create by name), or detach one.
