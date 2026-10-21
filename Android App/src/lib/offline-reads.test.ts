@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { QueryObserver, focusManager, onlineManager, type QueryClient } from '@tanstack/react-query';
-import { createQueryClient, followAppState, type AppStateLike } from './query-client';
+import { createQueryClient, followAppState, followConnectivity, type AppStateLike } from './query-client';
+import { createConnectivity } from './connectivity';
 import { createReadCache } from './read-cache';
 import { createSyncQueue } from './sync-queue';
 import { createOfflineReads, withPendingMoves } from './offline-reads';
@@ -100,6 +101,61 @@ async function boardApp() {
   const columns = () => (client.getQueryData<ApiTask[]>(BOARD_KEY) ?? []).map((t) => `${t.id}:${t.columnId}`);
   return { client, queue, server, observer, moveOffline, columns };
 }
+
+describe('a list answered from the offline copy counts as out of date', () => {
+  /** My Tasks as the app reads it, with the app's connectivity followed by TanStack. */
+  async function myTasksApp() {
+    const cache = createReadCache({ store: fakeStore(), getUserId: () => 'u1' });
+    const reads = createOfflineReads({ cache, pendingChanges: () => [] });
+    const client = createQueryClient({ answeredFromCopy: reads.answeredFromCopy });
+    client.mount();
+    clients.push(client);
+    const connectivity = createConnectivity();
+    followConnectivity(connectivity);
+    const state = { online: true };
+    const mine = vi.fn(async () => {
+      if (!state.online) throw new NetworkError('Network request failed.');
+      return [task('t1', 'c1')];
+    });
+    const observer = new QueryObserver(client, { queryKey: ['tasks', 'mine'], queryFn: ({ queryKey }) => reads.read(queryKey, 'tasks.mine', mine) });
+    observer.subscribe(() => {});
+    await vi.waitFor(() => expect(observer.getCurrentResult().data).toBeDefined());
+    await cache.settled();
+    return { connectivity, state, mine, observer };
+  }
+
+  it('is fetched again once the server can be reached, though it was answered moments ago', async () => {
+    const { connectivity, state, mine, observer } = await myTasksApp();
+    // A refresh with no connection: the offline copy answers.
+    state.online = false;
+    connectivity.unreachable();
+    await observer.refetch();
+    expect(mine).toHaveBeenCalledTimes(2);
+    expect(observer.getCurrentResult().isStale).toBe(true);
+
+    // The connection comes back.
+    state.online = true;
+    connectivity.reachable();
+    await vi.waitFor(() => expect(mine).toHaveBeenCalledTimes(3));
+  });
+
+  it('counts as fresh again once the server answered', async () => {
+    const { connectivity, state, mine, observer } = await myTasksApp();
+    state.online = false;
+    connectivity.unreachable();
+    await observer.refetch();
+    state.online = true;
+    connectivity.reachable();
+    await vi.waitFor(() => expect(mine).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(observer.getCurrentResult().fetchStatus).toBe('idle'));
+
+    expect(observer.getCurrentResult().isStale).toBe(false);
+    connectivity.unreachable();
+    connectivity.reachable();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(mine).toHaveBeenCalledTimes(3);
+  });
+});
 
 describe('withPendingMoves', () => {
   const move = (id: string, columnId: string) => ({ kind: 'task.move', payload: { id, columnId } });

@@ -73,7 +73,6 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   // A server chosen on the sign-in screen (e.g. a self-hosted office server) wins over the build's.
   const baseUrl = opts.apiBaseUrl || defaultBaseUrl;
 
-  const queryClient = createQueryClient();
   const connectivity = createConnectivity();
 
   const session = createSessionStore({ store: secureStore });
@@ -160,7 +159,10 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     // A task edit queued after an earlier one of this phone's moves on to the version that one made.
     rebase: rebaseQueuedVersion,
   });
+  // The lists read through the offline copy; one it answered is out of date at once (refreshed when
+  // back online or back in the app), and the board shows the moves still waiting (offline-reads).
   const reads = createOfflineReads({ cache, pendingChanges: () => queue.pendingFor(currentUserId()) });
+  const queryClient = createQueryClient({ answeredFromCopy: reads.answeredFromCopy });
 
   const sync = createSyncController({
     queue,
