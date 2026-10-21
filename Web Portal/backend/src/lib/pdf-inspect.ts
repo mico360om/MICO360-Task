@@ -8,9 +8,25 @@
  */
 import { inflateSync } from 'node:zlib';
 
+/** A line the text engine drew: where, how big, and in which faces. */
+export interface DrawnLine {
+  /** Its logical text (the /ActualText). */
+  text: string;
+  /** Left edge of its first drawn piece, in points from the page's left edge. */
+  x: number;
+  /** Its baseline, in points from the top of the page. */
+  y: number;
+  /** Font size in points. */
+  size: number;
+  /** The face of each drawn piece, in drawing order: PostScript names without the subset tag (IBMPlexSans-SemiBold). */
+  fonts: string[];
+}
+
 export interface InspectedPdf {
   /** Logical text of each drawn line, per page, in drawing order. */
   pages: string[][];
+  /** The same lines with their position, size and faces, per page. */
+  lines: DrawnLine[][];
   /** Decoded (inflated) content stream of each page, as latin1 text. */
   contents: string[];
   /** Object bodies (dictionaries, without stream data) by object number. */
@@ -77,7 +93,12 @@ function decodeTextString(bytes: Buffer): string {
 
 /** Every "/ActualText (...)" in a content stream, decoded, in order. */
 export function actualTexts(content: string): string[] {
-  const out: string[] = [];
+  return markedTexts(content).map((t) => t.text);
+}
+
+/** Every "/ActualText (...)" in a content stream with where its body ends. */
+function markedTexts(content: string): Array<{ text: string; end: number }> {
+  const out: Array<{ text: string; end: number }> = [];
   const re = /\/ActualText\s*\(/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(content))) {
@@ -95,10 +116,28 @@ export function actualTexts(content: string): string[] {
       if (c === ')' && --depth === 0) break;
       body += c;
     }
-    out.push(decodeTextString(unescapeLiteral(body)));
+    out.push({ text: decodeTextString(unescapeLiteral(body)), end: i });
     re.lastIndex = i;
   }
   return out;
+}
+
+/** The drawn lines of a content stream; `fonts` names each /F resource of the page. */
+function drawnLines(content: string, fonts: Map<string, string>): DrawnLine[] {
+  return markedTexts(content).map(({ text, end }) => {
+    const stop = content.indexOf('EMC', end);
+    const body = content.slice(end, stop === -1 ? undefined : stop);
+    const flip = /1 0 0 -1 0 ([\d.]+) cm/.exec(body);
+    const tm = /([-\d.]+) ([-\d.]+) Tm/.exec(body);
+    const pageHeight = Number(flip?.[1] ?? 0);
+    return {
+      text,
+      x: Number(tm?.[1] ?? NaN),
+      y: pageHeight - Number(tm?.[2] ?? NaN),
+      size: Number(/\/F\d+ ([\d.]+) Tf/.exec(body)?.[1] ?? NaN),
+      fonts: [...body.matchAll(/\/(F\d+) [\d.]+ Tf/g)].map((f) => fonts.get(f[1]!) ?? f[1]!),
+    };
+  });
 }
 
 export function inspectPdf(pdf: Buffer): InspectedPdf {
@@ -132,14 +171,25 @@ export function inspectPdf(pdf: Buffer): InspectedPdf {
   const kids = [...(/\/Kids \[([^\]]*)\]/.exec(pagesDict)?.[1] ?? '').matchAll(/(\d+) 0 R/g)].map((k) => Number(k[1]));
 
   const pages: string[][] = [];
+  const lines: DrawnLine[][] = [];
   const contents: string[] = [];
   for (const kid of kids) {
     const page = get(kid).dict;
     const content = get(ref(page, 'Contents')).stream?.toString('latin1') ?? '';
     contents.push(content);
     pages.push(actualTexts(content));
+    // The page's fonts: /F2 → "IBMPlexSans-SemiBold".
+    const resourcesRef = ref(page, 'Resources');
+    const resources = Number.isFinite(resourcesRef) ? get(resourcesRef).dict : page;
+    const fontDict = /\/Font\s*<<([^>]*)>>/.exec(resources)?.[1] ?? '';
+    const fonts = new Map<string, string>();
+    for (const f of fontDict.matchAll(/\/(F\d+) (\d+) 0 R/g)) {
+      const base = /\/BaseFont \/(?:[A-Z]{6}\+)?([^\s/>]+)/.exec(get(Number(f[2])).dict)?.[1];
+      if (base) fonts.set(f[1]!, base);
+    }
+    lines.push(drawnLines(content, fonts));
   }
   const objects = new Map<number, string>();
   for (let i = 1; i < count; i++) if ((offsets[i] ?? -1) >= 0) objects.set(i, get(i).dict);
-  return { pages, contents, objects };
+  return { pages, lines, contents, objects };
 }

@@ -248,4 +248,92 @@ describe('PdfDocument — no clipping, no orphans', () => {
     doc.table([{ header: 'Key' }, { header: 'Due' }], [['MICO-1', '1 Oct 2026 · Overdue']], { cellColor: (r, c) => (c === 1 ? [0.72, 0.16, 0.16] : null) });
     expect(inspectPdf(doc.build()).contents[0]).toMatch(/0\.72\d* 0\.16\d* 0\.16\d* scn/);
   });
+
+  it('never cuts a long name in an identity header: it shrinks, then wraps, and the header grows to hold it', () => {
+    const name = 'Rig Inspection Portal maintenance programme for the northern concession, phase two of the 2026 to 2027 works';
+    const doc = new PdfDocument();
+    doc.identityHeader({ initials: 'RI', eyebrow: 'Task', title: name, subtitle: 'RIG  ·  Project no. PDO-2026-014' });
+    doc.text('After the header');
+    const lines = inspectPdf(doc.build()).lines[0]!;
+    expect(lines.map((l) => l.text).join(' ')).toContain(name);
+    expect(lines.map((l) => l.text)).toContain('RIG  ·  Project no. PDO-2026-014');
+    const after = lines.find((l) => l.text === 'After the header')!;
+    const subtitle = lines.find((l) => l.text === 'RIG  ·  Project no. PDO-2026-014')!;
+    expect(after.y).toBeGreaterThan(subtitle.y + 12);
+  });
+
+  it('keeps a short name in an identity header on one line at full size', () => {
+    const doc = new PdfDocument();
+    doc.identityHeader({ initials: 'FC', eyebrow: 'Task', title: 'Falcon CRM', subtitle: 'FAL' });
+    const title = inspectPdf(doc.build()).lines[0]!.find((l) => l.text === 'Falcon CRM')!;
+    expect(title.size).toBe(17);
+  });
+});
+
+describe('PdfDocument — nested and formatted text, checklists, pictures', () => {
+  it('insets a nested block (a reply) from the left whatever its direction, with a thin rule beside it', () => {
+    const doc = new PdfDocument();
+    doc.text('Top level comment');
+    doc.text('A reply in English', { inset: 24, bar: [0.2, 0.4, 0.6] });
+    doc.text('رد باللغة العربية على التعليق', { inset: 24, bar: [0.2, 0.4, 0.6] });
+    const { lines, contents } = inspectPdf(doc.build());
+    const at = (t: string) => lines[0]!.find((l) => l.text === t)!;
+    expect(at('Top level comment').x).toBeCloseTo(54, 1);
+    expect(at('A reply in English').x).toBeCloseTo(78, 1);
+    // An Arabic reply is set from the right edge, inside the nested column.
+    expect(at('رد باللغة العربية على التعليق').x).toBeGreaterThan(300);
+    expect(contents[0]).toMatch(/0\.2 0\.4 0\.6 scn/);
+  });
+
+  it('draws formatted runs in their own faces on one line (a bold @mention in a sentence)', () => {
+    const doc = new PdfDocument();
+    doc.styledText([{ text: 'Thanks ' }, { text: '@omar', bold: true }, { text: ' for the figures' }], { size: 10 });
+    const line = inspectPdf(doc.build()).lines[0]!.find((l) => l.text === 'Thanks @omar for the figures')!;
+    expect(line.fonts).toEqual(['IBMPlexSans-Regular', 'IBMPlexSans-SemiBold', 'IBMPlexSans-Regular']);
+  });
+
+  it('draws checklist boxes (a tick in the done ones), wraps a long item in full and sets an Arabic item from the right', () => {
+    const long = 'Confirm with the vendor that the signed contract, the insurance certificate and the HSE plan are all uploaded to the shared folder before the kickoff meeting on Sunday, and chase anyone who has not sent theirs';
+    const doc = new PdfDocument();
+    doc.checkItem('Collect figures', true).checkItem(long, false).checkItem('مراجعة العقد مع المورد قبل الاجتماع', false);
+    const { lines, contents } = inspectPdf(doc.build());
+    const text = lines[0]!.map((l) => l.text);
+    expect(text).toContain('Collect figures');
+    expect(text.filter((t) => long.includes(t)).join(' ')).toBe(long);
+    expect(lines[0]!.find((l) => l.text === 'مراجعة العقد مع المورد قبل الاجتماع')!.x).toBeGreaterThan(300);
+    // Boxes are drawn shapes, not font glyphs; one is filled green with a white tick.
+    expect(text.join('')).not.toMatch(/[☐☑✓]/);
+    expect(contents[0]!.match(/1 1 1 SCN/g)).toHaveLength(1);
+    expect(contents[0]).toMatch(/0\.18\d* 0\.49\d* 0\.3[23]\d* scn/);
+  });
+
+  it('lays pictures out three to a row with each file name under its picture', async () => {
+    const sharp = (await import('sharp')).default;
+    const jpeg = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#336699' } }).jpeg().toBuffer();
+    const doc = new PdfDocument();
+    const image = doc.prepareImage(jpeg)!;
+    doc.imageGrid(Array.from({ length: 7 }, (_, i) => ({ image, caption: `photo-${i + 1}.jpg` })));
+    const { lines, contents } = inspectPdf(doc.build());
+    expect(contents[0]!.match(/\/I\d+ Do/g)).toHaveLength(7);
+    const at = (t: string) => lines[0]!.find((l) => l.text === t)!;
+    expect(at('photo-1.jpg').y).toBe(at('photo-3.jpg').y);
+    expect(at('photo-1.jpg').x).toBeLessThan(at('photo-2.jpg').x);
+    expect(at('photo-2.jpg').x).toBeLessThan(at('photo-3.jpg').x);
+    expect(at('photo-4.jpg').y).toBeGreaterThan(at('photo-1.jpg').y + 60);
+    expect(at('photo-4.jpg').x).toBe(at('photo-1.jpg').x);
+    expect(at('photo-7.jpg').y).toBeGreaterThan(at('photo-4.jpg').y);
+  });
+
+  it('says which pictures it can print: JPEG and PNG yes, WebP or a damaged file no', async () => {
+    const sharp = (await import('sharp')).default;
+    const base = sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 30, g: 90, b: 139, alpha: 0.5 } } });
+    const doc = new PdfDocument();
+    expect(doc.prepareImage(await base.clone().jpeg().toBuffer())).not.toBeNull();
+    expect(doc.prepareImage(await base.clone().png().toBuffer())).not.toBeNull(); // see-through: flattened onto white
+    expect(doc.prepareImage(await base.clone().webp().toBuffer())).toBeNull();
+    expect(doc.prepareImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]))).toBeNull(); // a JPEG cut short
+    expect(doc.prepareImage(Buffer.from('not a picture'))).toBeNull();
+    doc.text('Still fine');
+    expect(inspectPdf(doc.build()).pages[0]).toContain('Still fine');
+  });
 });

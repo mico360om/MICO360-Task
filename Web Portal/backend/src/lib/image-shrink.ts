@@ -29,10 +29,19 @@ export interface ImageShrinker {
    * (a project's logo in the minutes); null when it can't be read or the library can't load.
    */
   toPrintable(content: Buffer): Promise<Buffer | null>;
+  /**
+   * Any picture as a small upright JPEG on white (at most 600 pixels on its long side), which a PDF
+   * embeds as it is and keeps small (a task's attached photos); null when it can't be read or the
+   * library can't load.
+   */
+  toThumbnail(content: Buffer): Promise<Buffer | null>;
 }
 
 /** A logo in a document is printed small: this many pixels on its long side is plenty. */
 const PRINTABLE_MAX_SIDE = 512;
+
+/** A photo printed a third of a page wide: this many pixels on its long side keeps it sharp. */
+const THUMBNAIL_MAX_SIDE = 600;
 
 /** An animated PNG says so in an acTL chunk before its first image data. */
 export function isAnimatedPng(content: Buffer): boolean {
@@ -120,10 +129,28 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
     }
   }
 
+  async function toThumbnail(content: Buffer): Promise<Buffer | null> {
+    const sharp = await library();
+    if (!sharp) return null;
+    try {
+      return await sharp(content, { limitInputPixels: MAX_INPUT_PIXELS })
+        .rotate()
+        .resize({ width: THUMBNAIL_MAX_SIDE, height: THUMBNAIL_MAX_SIDE, fit: 'inside', withoutEnlargement: true })
+        .flatten({ background: '#ffffff' })
+        .toColourspace('srgb')
+        .jpeg({ quality: 80, mozjpeg: true })
+        .toBuffer();
+    } catch (err) {
+      warn('A picture could not be prepared for a document', { err, bytes: content.length });
+      return null;
+    }
+  }
+
   return {
     shrink,
     check: async () => (await library()) !== null,
     status: () => available,
     toPrintable,
+    toThumbnail,
   };
 }

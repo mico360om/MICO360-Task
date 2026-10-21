@@ -307,6 +307,9 @@ function spanWidth(p: Paragraph, a: number, b: number): number {
 
 const EPSILON = 0.01;
 
+/** Where a long link or path may break: after one of these. */
+const LINK_BREAK_AFTER = new Set(['/', '?', '&', '=', '-', '_', '.', '#', ',', ';']);
+
 function isMark(cp: number): boolean {
   // Combining marks (Arabic harakat, Latin diacritics) must stay with their base letter.
   return (cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x064b && cp <= 0x065f) || cp === 0x0670 || (cp >= 0x06d6 && cp <= 0x06ed) || (cp >= 0x08d3 && cp <= 0x08ff);
@@ -366,6 +369,13 @@ function wrapRanges(p: Paragraph, maxWidth: number | undefined): Array<[number, 
         lineStart = cs;
         lineEnd = wordEnd;
         lineWidth = spanWidth(p, cs, wordEnd);
+        break;
+      }
+      // A link reads best broken after one of its slashes or other punctuation, as long as the line
+      // still comes out reasonably full; otherwise it breaks where the line ends.
+      for (let b = ce; b > cs + 1; b--) {
+        if (!LINK_BREAK_AFTER.has(s[b - 1]!)) continue;
+        if (spanWidth(p, cs, b) >= maxWidth * 0.4) ce = b;
         break;
       }
       lines.push([cs, ce]);
