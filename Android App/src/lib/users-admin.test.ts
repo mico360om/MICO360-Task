@@ -414,6 +414,30 @@ describe('sending user changes (userActions)', () => {
     expect(statusAfterSaveText((err as StatusAfterSaveError).inner)).toContain('This is the last active administrator.');
   });
 
+  it('each change goes as the person who made it: Save’s details and status both, even if someone else signs in between (lib/owned-write)', async () => {
+    const sent: string[] = [];
+    let signedIn = 'admin-a';
+    const as = (who: string): UserApi =>
+      api({
+        update: async (id, patch) => {
+          sent.push(`${who} update ${id}`);
+          signedIn = 'admin-b'; // someone else signs in while the details are on their way
+          return user({ ...omar, ...patch });
+        },
+        setStatus: async (id, status) => {
+          sent.push(`${who} status ${id}`);
+          return user({ ...omar, status });
+        },
+      });
+    const a = userActions({ api: () => as(signedIn), isOnline: online });
+    await a.save(omar, { ...editFormOf(omar), status: 'SUSPENDED' }, false);
+    expect(sent).toEqual(['admin-a update u1', 'admin-a status u1']);
+    // The next change is made by whoever is signed in then.
+    sent.length = 0;
+    await a.setStatus(omar, 'ACTIVE');
+    expect(sent).toEqual(['admin-b status u1']);
+  });
+
   it('deleting someone already gone counts as deleted', async () => {
     const a = userActions({ api: api({ remove: async () => Promise.reject(refused(404, 'NOT_FOUND', 'User not found.')) }), isOnline: online });
     await expect(a.remove(omar)).resolves.toBeUndefined();

@@ -325,45 +325,51 @@ export class StatusAfterSaveError extends Error {
  * knows it is offline (they need a connection, as on the website); a new account carries its try's
  * key; Save sends the details, then the status if it changed (never your own); a delete answered
  * "not found" was already done.
+ *
+ * `api` may be asked for per change (a function): the server as the person signed in when the change
+ * is made (lib/owned-write). All of one change's requests — Save's details, then its status — then go
+ * as that person only, never with the session of someone who signed in between them.
  */
-export function userActions({ api, isOnline }: { api: UserApi; isOnline: () => boolean }) {
+export function userActions({ api, isOnline }: { api: UserApi | (() => UserApi); isOnline: () => boolean }) {
   const online = () => {
     if (!isOnline()) throw new UserChangeNotSent();
   };
+  const now = typeof api === 'function' ? api : () => api;
   return {
     async create(form: NewUserForm, idempotencyKey: string): Promise<ApiAdminUser> {
       online();
-      return api.create(newUserBody(form), idempotencyKey);
+      return now().create(newUserBody(form), idempotencyKey);
     },
     async save(user: ApiAdminUser, form: UserEditForm, isSelf: boolean): Promise<ApiAdminUser> {
       online();
-      const saved = await api.update(user.id, userPatch(form, isSelf));
+      const as = now();
+      const saved = await as.update(user.id, userPatch(form, isSelf));
       if (isSelf || form.status === user.status) return saved;
       try {
-        return await api.setStatus(user.id, form.status);
+        return await as.setStatus(user.id, form.status);
       } catch (e) {
         throw new StatusAfterSaveError(saved, e);
       }
     },
     async setStatus(user: ApiAdminUser, status: UserStatus): Promise<ApiAdminUser> {
       online();
-      return api.setStatus(user.id, status);
+      return now().setStatus(user.id, status);
     },
     async unlock(user: ApiAdminUser): Promise<void> {
       online();
-      await api.unlock(user.id);
+      await now().unlock(user.id);
     },
     async remove(user: ApiAdminUser): Promise<void> {
       online();
       try {
-        await api.remove(user.id);
+        await now().remove(user.id);
       } catch (e) {
         if (!deletedAlready(e)) throw e;
       }
     },
     async resetPassword(user: ApiAdminUser, password: string): Promise<void> {
       online();
-      await api.resetPassword(user.id, password);
+      await now().resetPassword(user.id, password);
     },
   };
 }

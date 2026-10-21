@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { userActions, type ApiAdminUser } from '../lib/users-admin';
+import { owned } from './queries';
+import { userActions, type ApiAdminUser, type UserApi } from '../lib/users-admin';
 
 /** The user list's key; the people directory (chat names, pickers) follows the same changes. */
 export const USERS_KEY = ['admin', 'users'] as const;
@@ -24,23 +25,30 @@ export function useAdminUser(userId: string | undefined): { user: ApiAdminUser |
   return { user, query };
 }
 
-/** The changes an administrator makes (lib/users-admin userActions): sent only when connected. */
+/**
+ * The changes an administrator makes (lib/users-admin userActions): sent only when connected, each as
+ * the administrator who made it (lib/owned-write) — the server is taken for that person as the change
+ * is made, so none of its requests goes with the session of someone who signed in meanwhile.
+ */
 export function useUserActions() {
-  const { resources, connectivity } = useServices();
+  const services = useServices();
   return useMemo(
     () =>
       userActions({
-        api: {
-          create: (body, key) => resources.users.create(body, key),
-          update: (id, patch) => resources.users.update(id, patch),
-          setStatus: (id, status) => resources.users.setStatus(id, status),
-          remove: (id) => resources.users.remove(id),
-          unlock: (id) => resources.users.unlock(id),
-          resetPassword: (id, password) => resources.users.resetPassword(id, password),
+        api: (): UserApi => {
+          const users = owned(services).resources.users;
+          return {
+            create: (body, key) => users.create(body, key),
+            update: (id, patch) => users.update(id, patch),
+            setStatus: (id, status) => users.setStatus(id, status),
+            remove: (id) => users.remove(id),
+            unlock: (id) => users.unlock(id),
+            resetPassword: (id, password) => users.resetPassword(id, password),
+          };
         },
-        isOnline: () => connectivity.isOnline(),
+        isOnline: () => services.connectivity.isOnline(),
       }),
-    [resources, connectivity],
+    [services],
   );
 }
 
