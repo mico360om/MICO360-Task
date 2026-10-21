@@ -610,3 +610,36 @@ describe('every refresh caller says whose request it is (5b review #3)', () => {
     expect(socket).toMatch(/refresh: \(\) => services\.api\.refreshSession\(owner\)/);
   });
 });
+
+describe('a refresh is joined only by its own person’s requests (4b review #16)', () => {
+  it('B’s 401 while A’s refresh is still on its way waits for it, then gets its own — never “signed in as someone else”', async () => {
+    let user: string | null = 'ann';
+    let token = 'ann-old';
+    let releaseAnn!: () => void;
+    const refreshTokens = vi.fn(async () => {
+      if (user === 'ann') {
+        await new Promise<void>((r) => (releaseAnn = r));
+        return 'changed' as const; // Ann signed out meanwhile: her refresh ends for nobody
+      }
+      token = 'bob-new';
+      return 'ok' as const;
+    });
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>).Authorization;
+      if (auth === 'Bearer ann-old' || auth === 'Bearer bob-old') return jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'expired' } }, 401);
+      return jsonResponse({ data: { ok: auth } });
+    });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => token, getUserId: () => user, fetchImpl: fetchImpl as unknown as typeof fetch, refreshTokens });
+    // Ann's request gets a 401 and starts a refresh; she signs out and Bob signs in meanwhile.
+    const ann = api.get('/tasks').catch((e: unknown) => e);
+    await vi.waitFor(() => expect(refreshTokens).toHaveBeenCalledTimes(1));
+    user = 'bob';
+    token = 'bob-old';
+    const bob = api.get('/tasks/mine');
+    await new Promise((r) => setTimeout(r, 0));
+    releaseAnn();
+    await expect(bob).resolves.toEqual({ data: { ok: 'Bearer bob-new' } });
+    expect(refreshTokens).toHaveBeenCalledTimes(2);
+    expect(await ann).toMatchObject({ code: 'SESSION_CHANGED' });
+  });
+});

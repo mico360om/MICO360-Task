@@ -183,18 +183,20 @@ export function createApiClient({
   }
 
   // Single-flight refresh: N parallel 401s share ONE /auth/refresh. The server single-uses
-  // refresh tokens, so N rotating refreshes would revoke every result but the last.
-  let refreshing: Promise<RefreshOutcome> | null = null;
-  function sharedRefresh(): Promise<RefreshOutcome> {
+  // refresh tokens, so N rotating refreshes would revoke every result but the last. Each refresh
+  // is for one person: only their requests join it (4b review #16).
+  let refreshing: { promise: Promise<RefreshOutcome>; owner: string | null | undefined } | null = null;
+  function sharedRefresh(owner: string | null | undefined): Promise<RefreshOutcome> {
     if (!refreshTokens) return Promise.resolve('invalid');
     if (!refreshing) {
-      refreshing = refreshTokens()
+      const promise: Promise<RefreshOutcome> = refreshTokens()
         .then(normalizeOutcome, () => 'transient' as const)
         .finally(() => {
-          refreshing = null;
+          if (refreshing?.promise === promise) refreshing = null;
         });
+      refreshing = { promise, owner };
     }
-    return refreshing;
+    return refreshing.promise;
   }
 
   /** Whose session the phone holds now (undefined: the app doesn't say — no check). */
@@ -208,7 +210,13 @@ export function createApiClient({
   async function refreshOnce(expected?: string | null): Promise<RefreshOutcome> {
     const check = !!expected && !!getUserId;
     if (check && (await holder()) !== expected) return 'changed';
-    const outcome = await sharedRefresh();
+    // A refresh still on its way for someone else (the person before): its end is waited for, then
+    // one for this person — never its "someone else is signed in" (4b review #16).
+    while (check && refreshing && refreshing.owner !== expected) {
+      await refreshing.promise.catch(() => undefined);
+      if ((await holder()) !== expected) return 'changed';
+    }
+    const outcome = await sharedRefresh(check ? expected : await holder());
     if (check && outcome === 'ok' && (await holder()) !== expected) return 'changed';
     return outcome;
   }

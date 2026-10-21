@@ -314,3 +314,21 @@ describe('a late outcome is told only to the person who asked (5b review #1)', (
     expect(lateOutcomeFor(done, 'u1', null)).toBe('Password changed. Sign in again with your new password.');
   });
 });
+
+describe('closing an unused fresh session never holds the refresh gate (4b review #15)', () => {
+  it('the change ends (and the gate frees) while the revoke is still on its way', async () => {
+    const { d } = deps();
+    let signingOut = false;
+    d.send.mockImplementationOnce(async () => {
+      signingOut = true;
+      return { accessToken: 'new-access', refreshToken: 'new-refresh' };
+    });
+    // A revoke that never answers (a hanging connection).
+    const revoke = vi.fn(() => new Promise<void>(() => {}));
+    const gate = createChangeGate();
+    const done = createPasswordChange({ ...d, revoke, gate, isSigningOut: () => signingOut })('old-pass1', 'abcd1234');
+    const result = await Promise.race([done.then(() => 'ended'), new Promise((r) => setTimeout(() => r('held'), 50))]);
+    expect(result).toBe('ended');
+    expect(revoke).toHaveBeenCalledWith('new-refresh');
+  });
+});

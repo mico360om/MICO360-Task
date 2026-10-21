@@ -165,8 +165,9 @@ export function createPasswordChange(deps: PasswordChangeDeps) {
         await deps.session.setSession({ user: held.user, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken });
         return { keptHere: true, signedOut: false, someoneElse: false };
       }
-      // Not kept: a session nobody holds is closed on the server (quietly — the change itself worked).
-      if (fresh?.refreshToken) await deps.revoke?.(fresh.refreshToken).catch(() => {});
+      // Not kept: a session nobody holds is closed on the server (quietly — the change itself worked),
+      // without waiting: a hanging connection must never hold the refresh gate (4b review #15).
+      if (fresh?.refreshToken && deps.revoke) void Promise.resolve(deps.revoke(fresh.refreshToken)).catch(() => {});
       return { keptHere: false, signedOut: signingOut, someoneElse };
     });
     // Someone else's phone now: their fingerprint sign-in, notifications and screen are left alone.

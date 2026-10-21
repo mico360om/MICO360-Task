@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ApiError, NetworkError } from './api-client';
-import { COLUMN_COLORS, COLUMN_TEXT, columnActionError, columnNameProblem, columnOrderSteps, columnSwapSteps, orderedColumns } from './board-columns';
+import { COLUMN_COLORS, COLUMN_TEXT, columnActionError, columnNameProblem, columnOrderSteps, columnSwapSteps, moveColumn, orderedColumns } from './board-columns';
 import type { ApiColumn } from './types';
 
 const col = (id: string, position: number, patch: Partial<ApiColumn> = {}): ApiColumn => ({ id, projectId: 'p1', name: id, category: 'TODO', position, color: '#1E5A8B', enabled: true, ...patch });
@@ -48,5 +50,53 @@ describe('Manage columns (4b), as on the website', () => {
   it('offers colours to choose from, each with a name', () => {
     expect(COLUMN_COLORS.length).toBeGreaterThanOrEqual(10);
     for (const c of COLUMN_COLORS) expect(c.name).toBeTruthy();
+  });
+});
+
+describe('moving a column up or down puts back what went when a step fails (4b review #14)', () => {
+  const cols = [col('a', 0), col('b', 1), col('c', 2)];
+
+  it('the third step refused: the second and first are undone, newest first — nothing is left at a parked place', async () => {
+    const sent: [string, number][] = [];
+    const refusal = new ApiError(409, 'CONFLICT', 'That place is taken.');
+    const update = async (id: string, position: number) => {
+      sent.push([id, position]);
+      if (sent.length === 3) throw refusal;
+    };
+    await expect(moveColumn(cols, 'b', 'down', update)).rejects.toBe(refusal);
+    // b parked at -2, c to 1, (b to 2 refused) — then c back to 2, b back to 1.
+    expect(sent).toEqual([
+      ['b', -2],
+      ['c', 1],
+      ['b', 2],
+      ['c', 2],
+      ['b', 1],
+    ]);
+  });
+
+  it('the second step refused: the parked column goes back', async () => {
+    const sent: [string, number][] = [];
+    const update = async (id: string, position: number) => {
+      sent.push([id, position]);
+      if (sent.length === 2) throw new NetworkError('offline');
+    };
+    await expect(moveColumn(cols, 'b', 'up', update)).rejects.toBeInstanceOf(NetworkError);
+    expect(sent).toEqual([
+      ['b', -2],
+      ['a', 1],
+      ['b', 1],
+    ]);
+  });
+
+  it('all three went: nothing more is sent; the column actions use it', async () => {
+    const sent: [string, number][] = [];
+    await moveColumn(cols, 'a', 'down', async (id, position) => void sent.push([id, position]));
+    expect(sent).toEqual([
+      ['a', -1],
+      ['b', 0],
+      ['a', 1],
+    ]);
+    const core = readFileSync(resolve(__dirname, '../core/board-queries.ts'), 'utf8');
+    expect(core).toMatch(/moveColumn\(columns, id, dir, \(cid, position\) => r\.columns\.update\(cid, \{ position \}\)\)/);
   });
 });

@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { owned } from './queries';
 import { itemLanes } from '../lib/item-lanes';
-import { columnActionError, columnSwapSteps } from '../lib/board-columns';
+import { columnActionError, moveColumn } from '../lib/board-columns';
 import type { ResourcesApi } from '../lib/resources';
 import type { ApiColumn, ColumnCategory } from '../lib/types';
 
@@ -46,11 +46,11 @@ export function useColumnActions(projectId: string) {
       setCategory: (id: string, category: ColumnCategory) => run(one(id), (r) => r.columns.update(id, { category })),
       setEnabled: (id: string, enabled: boolean) => run(one(id), (r) => r.columns.update(id, { enabled })),
       remove: (id: string) => run(one(id), (r) => r.columns.remove(id)),
-      /** Up or down one: three changes in order through a free place (the server keeps places unique). */
-      move: (columns: ApiColumn[], id: string, dir: 'up' | 'down') =>
-        run(all, async (r) => {
-          for (const step of columnSwapSteps(columns, id, dir)) await r.columns.update(step.id, { position: step.position });
-        }),
+      /**
+       * Up or down one: three changes in order through a free place (the server keeps places
+       * unique); a failed step puts back the ones that went (moveColumn), and the server's words are told.
+       */
+      move: (columns: ApiColumn[], id: string, dir: 'up' | 'down') => run(all, (r) => moveColumn(columns, id, dir, (cid, position) => r.columns.update(cid, { position }))),
     };
   }, [projectId, run]);
 }

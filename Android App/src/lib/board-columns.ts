@@ -69,6 +69,27 @@ export function columnSwapSteps(columns: readonly ApiColumn[], id: string, dir: 
   ];
 }
 
+/**
+ * Up or down one, sent step by step (columnSwapSteps). When a step fails, the steps that went are
+ * put back, newest first (4b review #14): nothing is left at the free place it was parked in (a
+ * later move could collide with it). Putting back is best effort; the first failure is what's told.
+ */
+export async function moveColumn(columns: readonly ApiColumn[], id: string, dir: 'up' | 'down', update: (id: string, position: number) => Promise<unknown>): Promise<void> {
+  const at = new Map(columns.map((c) => [c.id, c.position]));
+  const done: { id: string; was: number }[] = [];
+  try {
+    for (const step of columnSwapSteps(columns, id, dir)) {
+      const was = at.get(step.id)!;
+      await update(step.id, step.position);
+      at.set(step.id, step.position);
+      done.push({ id: step.id, was });
+    }
+  } catch (e) {
+    for (const step of done.reverse()) await Promise.resolve(update(step.id, step.was)).catch(() => {});
+    throw e;
+  }
+}
+
 /** A whole new order, in two passes (out of the way, then into place), as the website's drag sends it. */
 export function columnOrderSteps(orderedIds: readonly string[]): { id: string; position: number }[] {
   return [...orderedIds.map((id, i) => ({ id, position: -1000 - i })), ...orderedIds.map((id, i) => ({ id, position: i }))];
