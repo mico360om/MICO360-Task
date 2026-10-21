@@ -4,8 +4,55 @@ import { isRecurring } from '../src/recurrence.js';
 import { dueDayKey, formatDayKey, isOverdue } from '../src/due-date.js';
 import { DEFAULT_TIME_ZONE } from '../src/config.js';
 import { messageFor } from '../src/errors.js';
+import { projectLook, PROJECT_ICON_PATHS, projectStatusLabel } from '../src/project-identity.js';
+import { attachmentUrl } from '../src/file-kind.js';
 
 export { isDone };
+
+const SVG = 'http://www.w3.org/2000/svg';
+
+/** An outline icon from 24×24 paths (decorative). */
+export function svgIcon(paths, size = 18, strokeWidth = 1.9) {
+  const svg = document.createElementNS(SVG, 'svg');
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', 'stroke-width': strokeWidth, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false' })) {
+    svg.setAttribute(k, String(v));
+  }
+  for (const d of paths) {
+    const p = document.createElementNS(SVG, 'path');
+    p.setAttribute('d', d);
+    svg.append(p);
+  }
+  return svg;
+}
+
+const AVATAR_ICON = { xs: 12, sm: 14, md: 18, lg: 22 };
+
+/**
+ * A project's picture, as on the web (components/ProjectAvatar.tsx): its uploaded image, else its
+ * icon on its colour, else its initials. An image that won't load falls back to the icon or
+ * initials. Decorative (the name is written beside it) unless `label` is set.
+ */
+export function ProjectAvatar(project, { size = 'md', apiBase = '', label = false } = {}) {
+  const look = projectLook(project);
+  const a11y = label ? { role: 'img', 'aria-label': project.name, title: project.name } : { 'aria-hidden': 'true' };
+  const src = look.kind === 'image' ? attachmentUrl(apiBase, look.src) || (/^(https?:|data:|blob:)/.test(look.src) ? look.src : null) : null;
+  if (src) {
+    const img = el('img', { src, alt: '', draggable: 'false' });
+    const node = el('span', { class: `pavatar ${size}`, ...a11y, dataset: { projectAvatar: 'image' } }, img);
+    img.addEventListener('error', () => node.replaceWith(ProjectAvatar({ ...project, imageUrl: null }, { size, apiBase, label })));
+    return node;
+  }
+  const fallback = look.kind === 'image' ? projectLook({ ...project, imageUrl: null }) : look;
+  return el('span', {
+    class: `pavatar ${size}`, ...a11y, dataset: { projectAvatar: fallback.kind },
+    style: { background: fallback.color, color: fallback.fg },
+  }, fallback.kind === 'icon' ? svgIcon(PROJECT_ICON_PATHS[fallback.icon], AVATAR_ICON[size] || 18) : fallback.text);
+}
+
+/** A project's status in words, coloured as on the web (Planning, Active, On hold, Completed, Archived). */
+export function projectStatusPill(status) {
+  return status ? el('span', { class: `pill pstatus s-${status}` }, projectStatusLabel(status)) : null;
+}
 
 export const CAT_LABEL = { BACKLOG: 'Backlog', TODO: 'To do', IN_PROGRESS: 'In progress', BLOCKED: 'Blocked', REVIEW: 'Review', DONE: 'Done' };
 export const PRIORITY_LABEL = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };

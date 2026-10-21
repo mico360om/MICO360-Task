@@ -167,11 +167,31 @@ button { font: inherit; }
 .drawer:focus { outline: none; }
 
 /* ---- Project cards ---- */
-.project { display: block; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: var(--surface); cursor: pointer; }
-.project:hover { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.project { display: flex; flex-direction: column; border: 1px solid var(--line); border-top: 3px solid var(--brand); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.project:hover, .project:focus-within { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
+.project-open { display: flex; flex-direction: column; gap: 10px; flex: 1; width: 100%; text-align: left; border: none; background: transparent; color: inherit; padding: 14px 16px 12px; cursor: pointer; }
+.project-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.project-codes { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .project .code { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--brand); }
-.project .nm { font-size: 16px; font-weight: 700; margin-top: 4px; }
-.project .ds { font-size: 13px; color: var(--ink2); margin-top: 4px; }
+.project .pnumber { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink2); background: var(--ground); border-radius: 6px; padding: 1px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project .nm { font-size: 16px; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.project .ds { font-size: 13px; color: var(--ink2); }
+.project-foot { border-top: 1px solid var(--line2); padding: 8px 16px; font-size: 12.5px; font-weight: 600; }
+.pill.pstatus { text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.pstatus.s-PLANNING { color: var(--info); background: var(--info-soft); }
+.pstatus.s-ACTIVE { color: var(--success); background: var(--success-soft); }
+.pstatus.s-ON_HOLD { color: var(--warning); background: var(--warning-soft); }
+.pstatus.s-COMPLETED { color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--surface)); }
+.pstatus.s-ARCHIVED { color: var(--ink2); background: var(--ground); }
+/* A project's picture: its image, or its icon or initials on its colour (the colour comes inline). */
+.pavatar { display: inline-grid; place-items: center; flex: none; overflow: hidden; font-weight: 700; line-height: 1; border-radius: 8px; }
+.pavatar img { width: 100%; height: 100%; object-fit: cover; }
+.pavatar.xs { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; }
+.pavatar.sm { width: 24px; height: 24px; border-radius: 6px; font-size: 10px; }
+.pavatar.md { width: 32px; height: 32px; font-size: 12px; }
+.pavatar.lg { width: 44px; height: 44px; border-radius: 12px; font-size: 14px; }
 .progress-track { height: 7px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 10px; }
 .progress-fill { height: 100%; background: var(--success); }
 
