@@ -6,7 +6,7 @@ import { createProjectService } from './project-service';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import type { CreateProjectData, ProjectRecord, ProjectRepository } from './project-repository';
-import { PROJECT_ICONS, PROJECT_ICON_PATHS } from './project-icons';
+import { PROJECT_ICONS, PROJECT_ICON_PATHS, projectInitials } from './project-icons';
 import { jpegHeader, pngHeader, webpLossy } from '../../lib/test-images';
 
 /** Projects in memory; deleted ones keep their code (as the database's unique index does). */
@@ -168,5 +168,12 @@ describe('project icons', () => {
     const lines = [...readFileSync(web, 'utf8').matchAll(/^\s{2}'?([a-z-]+)'?: \[(.*)\],$/gm)];
     const webPaths = Object.fromEntries(lines.map((m) => [m[1], [...m[2]!.matchAll(/'([^']+)'/g)].map((p) => p[1])]));
     expect(webPaths).toEqual(PROJECT_ICON_PATHS);
+  });
+
+  it('gives a project the same two initials as the web app’s tile, in any script', () => {
+    expect(projectInitials('Falcon CRM')).toBe('FC');
+    expect(projectInitials('falcon')).toBe('FA');
+    expect(projectInitials('مشروع الحفر')).toBe('ما');
+    expect(projectInitials('   ')).toBe('?');
   });
 });

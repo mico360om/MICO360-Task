@@ -249,6 +249,18 @@ describe('PdfDocument — no clipping, no orphans', () => {
     expect(inspectPdf(doc.build()).contents[0]).toMatch(/0\.72\d* 0\.16\d* 0\.16\d* scn/);
   });
 
+  it('can give the spare width to one column, so the others hug their content (an Arabic name sits by its own words)', () => {
+    const cols = [{ header: 'Who' }, { header: 'What' }];
+    const rows = [['سارة البلوشي', 'Moved the task'], ['Omar Ahmed', 'Commented']];
+    const whatX = (wide?: number) => {
+      const doc = new PdfDocument();
+      doc.table(cols, rows, wide === undefined ? {} : { wide });
+      return inspectPdf(doc.build()).lines[0]!.find((l) => l.text === 'What')!.x;
+    };
+    expect(whatX()).toBeGreaterThan(200); // shared out: "Who" is stretched wide
+    expect(whatX(1)).toBeLessThan(140); // "Who" is only as wide as its longest name
+  });
+
   it('never cuts a long name in an identity header: it shrinks, then wraps, and the header grows to hold it', () => {
     const name = 'Rig Inspection Portal maintenance programme for the northern concession, phase two of the 2026 to 2027 works';
     const doc = new PdfDocument();

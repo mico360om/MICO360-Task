@@ -915,11 +915,16 @@ export class PdfDocument {
   table(
     columns: TableColumn[],
     rows: ReadonlyArray<ReadonlyArray<string>>,
-    options: { size?: number; cellColor?: (row: number, col: number) => RGB | null } = {},
+    options: {
+      size?: number;
+      cellColor?: (row: number, col: number) => RGB | null;
+      /** The column that takes the width left over (the others keep their natural width); by default every column gets a share. */
+      wide?: number;
+    } = {},
   ): this {
     const n = columns.length;
     if (n === 0) return this;
-    const layout = this.tableLayout(columns, rows, options.size ?? 8.5);
+    const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide);
     const { size, padX, padY, total, box, widths, numeric, header, body } = layout;
 
     const drawRow = (row: { laid: TextLine[][]; height: number }, fill: RGB | null, ri: number | null) => {
@@ -952,13 +957,13 @@ export class PdfDocument {
   }
 
   /** The height a table would take if drawn now on one page (header + every row), in points. */
-  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number } = {}): number {
+  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number; wide?: number } = {}): number {
     if (columns.length === 0) return 0;
-    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5);
+    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide);
     return header.height + body.reduce((s, r) => s + r.height, 0);
   }
 
-  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number) {
+  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number, wide?: number) {
     const n = columns.length;
     const padX = 5;
     const padY = 3;
@@ -975,7 +980,12 @@ export class PdfDocument {
     });
     const naturalSum = natural.reduce((a, b) => a + b, 0);
     const widths = new Array<number>(n).fill(0);
-    if (naturalSum <= total) {
+    if (naturalSum <= total && wide !== undefined && wide >= 0 && wide < n) {
+      // The other columns get a little air (up to 14 pt each); the wide one takes the rest.
+      const air = n > 1 ? Math.min(14, (total - naturalSum) / n) : 0;
+      natural.forEach((w, i) => (widths[i] = w + air));
+      widths[wide] = natural[wide]! + (total - naturalSum) - air * (n - 1);
+    } else if (naturalSum <= total) {
       natural.forEach((w, i) => (widths[i] = w + (total - naturalSum) * (w / naturalSum)));
     } else {
       // Columns narrower than a fair share keep their natural width; the rest split what is left.

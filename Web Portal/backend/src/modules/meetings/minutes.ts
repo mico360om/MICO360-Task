@@ -2,7 +2,7 @@ import { BULLET, PdfDocument, hexToRgb, type PdfRichBlock, type RGB } from '../.
 import { linkNeedsAddress, listMarkers, noteText, parseRichHtml } from '../../lib/rich-text';
 import type { StyledRun } from '../../lib/pdf-text';
 import { printableImage } from '../../lib/pdf-image';
-import { PROJECT_ICON_PATHS, type ProjectIcon } from '../projects/project-icons';
+import { PROJECT_ICON_PATHS, projectInitials, type ProjectIcon } from '../projects/project-icons';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { isValidTimeZone } from './meeting-validation';
 import type { FinalMinutesContent } from './final-minutes';
@@ -247,7 +247,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     doc.identityHeader({
       image,
       icon: !image && project.icon && project.icon in PROJECT_ICON_PATHS ? PROJECT_ICON_PATHS[project.icon as ProjectIcon] : null,
-      initials: initialsOf(project.name),
+      initials: projectInitials(project.name),
       color: project.color ? hexToRgb(project.color, hexToRgb(brand.colors?.brand ?? '#8B1E1E')) : undefined,
       eyebrow: 'Minutes of Meeting',
       title: project.name,
@@ -510,14 +510,6 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   }
 
   return doc.build();
-}
-
-/** Up to two initials for a project's tile: "Falcon CRM" → "FC", "Falcon" → "FA". */
-function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
-  const letters = words.length > 1 ? [[...words[0]!][0], [...words[1]!][0]] : [...words[0]!].slice(0, 2);
-  return letters.join('').toUpperCase();
 }
 
 /** The meeting's tracked action items: what, who, when it is due, how urgent, where it stands, its task. */

@@ -33,6 +33,19 @@ export const PROJECT_ICON_PATHS = {
 export type ProjectIcon = keyof typeof PROJECT_ICON_PATHS;
 export const PROJECT_ICONS = Object.keys(PROJECT_ICON_PATHS) as [ProjectIcon, ...ProjectIcon[]];
 
+/** The icon's outline paths, or null for a name that isn't one of PROJECT_ICONS. */
+export function projectIconPaths(icon: string | null | undefined): readonly string[] | null {
+  return icon && Object.prototype.hasOwnProperty.call(PROJECT_ICON_PATHS, icon) ? PROJECT_ICON_PATHS[icon as ProjectIcon] : null;
+}
+
+/** Two letters for the project's tile, as the web app shows them: the first letters of the first two words (any script). */
+export function projectInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const pick = words.length > 1 ? `${[...words[0]!][0]}${[...words[1]!][0]}` : [...words[0]!].slice(0, 2).join('');
+  return pick.toLocaleUpperCase();
+}
+
 /** A colour as #RRGGBB (the project's tile and accents). */
 export const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 

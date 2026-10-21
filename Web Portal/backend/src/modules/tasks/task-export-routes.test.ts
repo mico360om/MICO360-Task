@@ -1,17 +1,29 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import Fastify from 'fastify';
-import { registerTaskExportRoutes } from './task-export-routes';
-import type { TaskExportData } from './task-export';
+import sharp from 'sharp';
+import { registerTaskExportRoutes, type TaskExportRouteDeps } from './task-export-routes';
+import type { TaskExportAttachment, TaskExportData } from './task-export';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
 
+const attachment = (filename: string, mimeType: string): TaskExportAttachment => ({
+  filename, mimeType, sizeBytes: 2048, storageKey: `key-${filename}`, uploadedBy: 'Omar Ahmed', uploadedAt: new Date('2026-09-01T00:00:00Z'),
+});
+
 const data: TaskExportData = {
-  key: 'MICO-7', title: 'Inspect the rig', description: null, projectName: 'Rig Inspection Portal', projectCode: 'RIG', status: 'To do', category: 'TODO', priority: 'NORMAL',
+  key: 'MICO-7', title: 'Inspect the rig', description: null, projectName: 'Rig Inspection Portal', projectCode: 'RIG', projectNumber: null, projectColor: null, projectIcon: null,
+  status: 'To do', category: 'TODO', priority: 'NORMAL',
   startDate: null, dueDate: null, completedAt: null, createdAt: new Date('2026-09-01T00:00:00Z'), updatedAt: new Date('2026-09-01T00:00:00Z'), progress: 0, estimatedHours: null, actualHours: null,
-  createdBy: 'Aisha Khan', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, checklist: [], blockedBy: [], blocks: [], attachments: [], comments: [], activity: [],
+  createdBy: 'Aisha Khan', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, isMilestone: false, meeting: null,
+  checklist: [], blockedBy: [], blocks: [], attachments: [], comments: [], mentionable: [], activity: [],
 };
 
-async function makeApp(opts: { canView?: boolean; userId?: string | null } = {}) {
+const withFiles: TaskExportData = {
+  ...data,
+  attachments: [attachment('deck.jpg', 'image/jpeg'), attachment('notes.xlsx', 'application/vnd.ms-excel'), attachment('site.png', 'image/png')],
+};
+
+async function makeApp(opts: { canView?: boolean; userId?: string | null; task?: TaskExportData; extra?: Partial<TaskExportRouteDeps> } = {}) {
   const app = Fastify();
   const guard = {
     authenticate: async (req: { user?: unknown }, reply: { status: (n: number) => { send: (b: unknown) => unknown } }) => {
@@ -21,13 +33,17 @@ async function makeApp(opts: { canView?: boolean; userId?: string | null } = {})
   };
   await registerTaskExportRoutes(app, {
     guard: guard as never,
-    source: { async load(id) { return id === 't1' ? data : null; } },
+    source: { async load(id) { return id === 't1' ? (opts.task ?? data) : null; } },
     canViewTask: async () => opts.canView ?? true,
     userName: async () => 'Omar Ahmed',
     timeZone: 'Asia/Muscat',
+    ...opts.extra,
   });
   return app;
 }
+
+/** Pictures 40 pixels wide embedded in a PDF. */
+const pictures = (pdf: Buffer) => [...inspectPdf(pdf).objects.values()].filter((d) => /\/Subtype \/Image/.test(d) && /\/Width 40\b/.test(d)).length;
 
 describe('Task export routes', () => {
   it('downloads a task as an .xlsx workbook named after its key', async () => {
@@ -47,6 +63,39 @@ describe('Task export routes', () => {
     expect(res.headers['content-type']).toBe('application/pdf');
     expect(res.headers['content-disposition']).toMatch(/MICO-7-inspect-the-rig\.pdf/);
     expect(inspectPdf(res.rawPayload).pages.flat()).toContain('Inspect the rig');
+  });
+
+  it('puts the task’s pictures in the PDF, read from storage and made small; the workbook reads nothing', async () => {
+    const jpeg = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#336699' } }).jpeg().toBuffer();
+    const readAttachment = vi.fn(async () => Buffer.from('stored picture'));
+    const pictureThumbnail = vi.fn(async () => jpeg);
+    const app = await makeApp({ task: withFiles, extra: { readAttachment, pictureThumbnail } });
+    const res = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(readAttachment.mock.calls.map((c: unknown[]) => c[0])).toEqual(['key-deck.jpg', 'key-site.png']);
+    expect(pictureThumbnail).toHaveBeenCalledTimes(2);
+    expect(pictures(res.rawPayload)).toBe(2);
+    expect(inspectPdf(res.rawPayload).pages.flat()).toEqual(expect.arrayContaining(['deck.jpg', 'site.png', 'notes.xlsx']));
+
+    readAttachment.mockClear();
+    expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.xlsx' })).statusCode).toBe(200);
+    expect(readAttachment).not.toHaveBeenCalled();
+  });
+
+  it('still makes the PDF without file storage: the pictures are listed', async () => {
+    const res = await (await makeApp({ task: withFiles })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(pictures(res.rawPayload)).toBe(0);
+    expect(inspectPdf(res.rawPayload).pages.flat()).toEqual(expect.arrayContaining(['3 files', 'deck.jpg', 'site.png', 'notes.xlsx']));
+  });
+
+  it('still makes the PDF when a stored picture can’t be read: it is listed', async () => {
+    const readAttachment = async () => {
+      throw new Error('ENOENT');
+    };
+    const res = await (await makeApp({ task: withFiles, extra: { readAttachment } })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(inspectPdf(res.rawPayload).pages.flat()).toContain('deck.jpg (picture could not be shown)');
   });
 
   it('hides tasks the user cannot see (404), like opening the task', async () => {
