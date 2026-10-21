@@ -122,6 +122,17 @@ describe('taskPdf: header', () => {
     expect(contents[0]).toMatch(/1 1 1 SCN/); // white outlines
   });
 
+  it('shows the project’s uploaded picture as its badge; a see-through logo is set on white, so the PDF stays whole', async () => {
+    const logo = await sharp({ create: { width: 48, height: 48, channels: 4, background: { r: 200, g: 40, b: 30, alpha: 0.5 } } }).png().toBuffer();
+    const { pages, contents, objects } = inspectPdf(taskPdf(task({ projectIcon: 'rocket', projectImage: logo }), ctx));
+    const images = [...objects.values()].filter((d) => /\/Subtype \/Image/.test(d) && /\/Width 48\b/.test(d));
+    expect(images).toHaveLength(1);
+    expect([...objects.values()].some((d) => /\/Type \/XObject/.test(d) && !/\/Subtype/.test(d))).toBe(false); // no half-written picture
+    expect(contents[0]).toMatch(/\/I\d+ Do/);
+    expect(inspectPdf(taskPdf(task({ projectImage: logo }), ctx)).contents[0]).toBe(contents[0]); // the picture, not the icon over it
+    expect(pages[0]).not.toContain('MP');
+  });
+
   it('sets the title from its start edge (left for English, right for Arabic), smaller as it gets longer', () => {
     const titleLines = (title: string) => linesOf(taskPdf(task({ title }), ctx)).filter((l) => title.includes(l.text) && l.text.length > 2 && l.size >= 13);
     const short = titleLines('Monthly sales review');

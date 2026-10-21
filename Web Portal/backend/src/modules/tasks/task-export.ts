@@ -309,7 +309,7 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   // Header: the project's badge (its picture, else its icon, else its initials, on its colour), name
   // and number; then the task's key, its title from its start edge, and who made this PDF when.
   doc.identityHeader({
-    image: t.projectImage ?? null,
+    image: t.projectImage ? printableImage(t.projectImage) : null, // a see-through PNG set on white, as the minutes PDF does
     icon: projectIconPaths(t.projectIcon),
     initials: projectInitials(t.projectName),
     color: t.projectColor ? hexToRgb(t.projectColor, brand) : undefined,
