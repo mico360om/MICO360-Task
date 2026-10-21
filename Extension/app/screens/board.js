@@ -215,7 +215,7 @@ export function BoardScreen(ctx) {
         items: () => columns.filter((c) => c.id !== task.columnId).map((c) => ({
           label: c.name,
           swatch: `var(${catVar(c.category)})`,
-          onPick: () => moveTask(task.id, c, { fromKeyboard: true }),
+          onPick: () => moveTask(task.id, c, { fromMenu: true }),
         })),
       }));
     }
@@ -227,14 +227,14 @@ export function BoardScreen(ctx) {
     live.textContent = text;
   }
 
-  async function moveTask(id, targetCol, { fromKeyboard = false } = {}) {
+  async function moveTask(id, targetCol, { fromMenu = false } = {}) {
     draggingId = null;
     if (!id) return;
     const task = tasks.find((t) => t.id === id);
     if (!task || task.columnId === targetCol.id) return;
-    if (fromKeyboard) focusTaskId = id; // focus follows the card to its new column
+    if (fromMenu) focusTaskId = id; // focus follows the card to its new column
     if (isTempId(String(id))) { err = 'This task is still waiting to sync — move it after it syncs.'; render(); return; }
-    if (fromKeyboard) announce(`Moved “${task.title}” to ${targetCol.name}.`);
+    if (fromMenu) announce(`Moved “${task.title}” to ${targetCol.name}.`);
 
     const before = { columnId: task.columnId, columnCategory: task.columnCategory, completedAt: task.completedAt, progress: task.progress };
     // Completing a repeating task makes its next copy on the server — reload to show it.

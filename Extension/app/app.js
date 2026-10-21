@@ -327,7 +327,7 @@ class App {
       el('div', { class: 'side-foot' }, this.userEl,
         el('a', { class: 'side-ver', href: '#/settings', title: 'Versions and updates: Settings → About' }, `Version ${this.manifest?.version || ''}`)),
     );
-    this.titleEl = el('h1', { tabindex: '-1' }, 'Dashboard');
+    this.titleEl = el('h1', {}, 'Dashboard');
     this.connEl = el('span', { class: 'conn' });
     this.offbar = el('div', { class: 'offbar hidden' }, 'Offline — showing saved data. Changes will sync when you reconnect.');
     this.updateEl = el('div');
