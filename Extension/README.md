@@ -39,10 +39,16 @@ cached data and queued changes so tokens never follow a host change.
 
 ## Session & permissions
 
-The access token is kept in `chrome.storage.session` (memory only); the 30-day refresh token lives
-in `chrome.storage.local`. The app tab and the service worker share one token refresh at a time
+It needs Chrome 116 or later (`minimum_chrome_version`). The access token is kept in
+`chrome.storage.session` (memory only, never on disk); the 30-day refresh token lives in
+`chrome.storage.local`. The app tab and the service worker share one token refresh at a time
 (Web Locks), and an ended session returns to the sign-in screen. No `tabs` permission is needed —
 the open app tab is found with `chrome.runtime.getContexts` (Chrome 116+).
+
+Permissions: `storage` (settings, the session, offline copies and the sync queue), `alarms` (the
+one-minute background check), `notifications` (the unread alert). There is no `unlimitedStorage`:
+Chrome's 10 MB is plenty for the 200 offline copies kept (`src/read-cache.js`), and when storage is
+full those copies make room for changes waiting to sync, never the other way round.
 
 ## Structure
 

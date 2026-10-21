@@ -17,6 +17,7 @@
  */
 import { withLock } from './locks.js';
 import { ApiError, QueueError } from './errors.js';
+import { pruneCache, MAX_CACHE_ENTRIES } from './read-cache.js';
 import { VERSIONED_KINDS, taskIdOf, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE } from './task-writes.js';
 
 const KEY = 'syncQueue';
@@ -37,10 +38,35 @@ async function readQueue(storage) {
 async function mutateQueue(storage, change) {
   const { value } = await withLock(QUEUE_LOCK, async () => {
     const next = change(await readQueue(storage));
-    await storage.set({ [KEY]: next });
+    await saveQueue(storage, next);
     return next;
   });
   return value;
+}
+
+/**
+ * Write the queue. The device's storage for the extension is 10 MB (no unlimitedStorage); when it is
+ * full, the saved copies of screens give way — the older half, then all of them — so a change waiting
+ * to sync is never refused for their sake. Only when even that fails does the write fail (EXT-05).
+ */
+async function saveQueue(storage, next) {
+  let failure;
+  for (const keep of [null, Math.floor(MAX_CACHE_ENTRIES / 2), 0]) {
+    if (keep !== null) {
+      try {
+        if (!(await pruneCache(storage, keep))) continue; // nothing to drop: trying again can't help
+      } catch {
+        continue;
+      }
+    }
+    try {
+      await storage.set({ [KEY]: next });
+      return;
+    } catch (e) {
+      failure = e;
+    }
+  }
+  throw failure;
 }
 
 export function newIdempotencyKey() {

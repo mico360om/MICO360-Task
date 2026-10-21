@@ -24,8 +24,8 @@ import { SettingsScreen } from './screens/settings.js';
 import { ReportsScreen } from './screens/reports.js';
 
 const storage = chrome.storage.local;
-// The access token lives in memory-only session storage (EXT-07); local is the fallback on old Chrome.
-const sessionStore = chrome.storage.session || null;
+// The access token lives in memory-only session storage (EXT-07), never on disk.
+const sessionStore = chrome.storage.session;
 const NOTICE_KEY = 'mico360.loginNotice';
 
 const NAV = [

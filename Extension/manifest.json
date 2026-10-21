@@ -3,6 +3,7 @@
   "name": "MICO360 Tasks",
   "version": "1.5.1",
   "description": "Manage daily work on a Kanban board — MICO360 Tasks.",
+  "minimum_chrome_version": "116",
   "action": {
     "default_title": "Open MICO360 Tasks",
     "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
@@ -11,7 +12,7 @@
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
-  "permissions": ["storage", "unlimitedStorage", "alarms", "notifications"],
+  "permissions": ["storage", "alarms", "notifications"],
   "host_permissions": ["https://task.mico360.com/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }

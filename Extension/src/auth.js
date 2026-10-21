@@ -73,9 +73,14 @@ export async function readSessionUser(local) {
   return publicUser(o.sessionUser);
 }
 
-/** Token persistence split across chrome.storage.session (access) and chrome.storage.local (the rest). */
+/**
+ * Token persistence split across chrome.storage.session (access) and chrome.storage.local (the rest).
+ * Session storage is always there from Chrome 102 (the manifest needs 116), so the access token is
+ * never written to disk: without it there is no token store at all.
+ */
 export function createTokenStore({ local, session }) {
-  const mem = session || local; // fall back to local only where storage.session doesn't exist
+  if (!session || session === local) throw new Error('The access token needs Chrome’s session storage (chrome.storage.session).');
+  const mem = session;
   return {
     async get() {
       const [a, b] = await Promise.all([
@@ -103,8 +108,8 @@ export function createTokenStore({ local, session }) {
     },
     async clear() {
       await mem.remove('accessToken');
-      if (mem !== local) await local.remove('accessToken'); // pre-hardening location
-      await local.remove(['refreshToken', 'sessionUserId', 'sessionApiBase', 'sessionUser']);
+      // 'accessToken' in local storage: where versions before EXT-07 kept it.
+      await local.remove(['accessToken', 'refreshToken', 'sessionUserId', 'sessionApiBase', 'sessionUser']);
     },
   };
 }
