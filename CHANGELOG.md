@@ -78,6 +78,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Links from the website and its emails — including the password-reset link — open in the Android app
   again: the website now names the app's current signing key (since app 1.1.0 only the old, retired
   key was listed, so Android wouldn't hand the links to the app).
+- Editing a repeating task for the entire series now says what goes to every copy — the title,
+  description and priority — and that dates change on this copy only (it wrongly named the due date).
 
 ## [1.7.0] - 2026-10-21
 
