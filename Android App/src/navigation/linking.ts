@@ -17,15 +17,32 @@ import { isSafeId } from '../lib/ids';
 
 export const LINKING_PREFIXES = ['mico360://', 'https://task.mico360.com'];
 
-/** One value from a link's query (decoded), or null. */
+/**
+ * The longest link the app reads (6b review). A real one — a task, a meeting, a reset token — is
+ * well under 200 characters; a longer one opens nothing and is never scanned, so a crafted link
+ * can't keep the app's one JS thread busy (the app would stop answering, and Recents can open the
+ * link again). Every step below reads a link once from start to end (no regex that backtracks).
+ */
+export const MAX_LINK_LENGTH = 2048;
+
+/** One value from a link's query (decoded), or null: the first `name=` in it, as before. */
 function queryValue(query: string, name: string): string | null {
-  const m = new RegExp(`(?:^|[?&])${name}=([^&#]*)`).exec(query);
-  if (!m || !m[1]) return null;
+  const key = `${name}=`;
+  const part = query.split(/[?&]/).find((p) => p.startsWith(key));
+  const raw = part?.slice(key.length) ?? '';
+  if (!raw) return null;
   try {
-    return decodeURIComponent(m[1]);
+    return decodeURIComponent(raw);
   } catch {
-    return m[1];
+    return raw;
   }
+}
+
+/** The page without the slashes at its end, counted back from the end (once, not a regex). */
+function withoutTrailingSlashes(page: string): string {
+  let end = page.length;
+  while (end > 0 && page[end - 1] === '/') end -= 1;
+  return page.slice(0, end);
 }
 
 /** A value put into a path, encoded: one that isn't an id stays in its place and opens nothing (withoutLinkTitles). */
@@ -37,12 +54,13 @@ const segment = (v: string) => encodeURIComponent(v);
  * - a task: `?task=<id>` on any page (how the website opens one, and what its emails send) → `task/<id>`;
  * - `/projects/<id>` → `project/<id>`; `/board?project=<id>` → its board; `/board` → the projects;
  * - `/meetings/<id>` → `meeting/<id>` (2a); `/chat?conversation=<id>` → the thread; `/dashboard` → `home`.
- * Anything else is left as is.
+ * Anything else is left as is; a link longer than MAX_LINK_LENGTH reads as no path (it opens nothing).
  */
 export function normalizeLinkPath(path: string): string {
+  if (path.length > MAX_LINK_LENGTH) return '';
   const m = /^(\/?)([^?#]*)(\?[^#]*)?/.exec(path);
   const lead = m?.[1] ?? '';
-  const page = (m?.[2] ?? '').replace(/\/+$/, '');
+  const page = withoutTrailingSlashes(m?.[2] ?? '');
   const query = m?.[3] ?? '';
   const task = queryValue(query, 'task');
   if (task) return `${lead}task/${segment(task)}`;

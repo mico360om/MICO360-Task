@@ -95,8 +95,9 @@ const TAB_ICON = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.icon])) as R
 const linking = {
   prefixes: LINKING_PREFIXES,
   config: linkingConfig,
-  // /meetings/<id> (the website's path) opens the meeting as well as meeting/<id>. Today that is
-  // mico360://meetings/<id> only: the https App Link covers /reset alone until Stage 6b adds paths.
+  // The website's addresses (/meetings/<id>, ?task=<id>, …) open the same screens as the app's own
+  // links (normalizeLinkPath, 6b). A link longer than any real one opens nothing: it is dropped
+  // before React Navigation matches it to a screen, so it never keeps the JS thread busy (6b review).
   // A link never names a screen (?title=…): only the app sets the titles of the screens it opens.
   getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) =>
     withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), options)),

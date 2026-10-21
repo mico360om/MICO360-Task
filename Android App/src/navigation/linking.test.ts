@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getStateFromPath } from '@react-navigation/core';
-import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
+import { LINKING_PREFIXES, MAX_LINK_LENGTH, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import { createPendingAction } from './pending-action';
 import { requiresSession, targetToAction } from './nav-actions';
 
@@ -169,5 +169,56 @@ describe('website addresses open in the app (6b)', () => {
     expect(normalizeLinkPath('project/p1/board')).toBe('project/p1/board');
     expect(normalizeLinkPath('reset?token=AbC')).toBe('reset?token=AbC');
     expect(first('home')).toMatchObject({ name: 'Tabs' });
+  });
+});
+
+/**
+ * A crafted long link can't freeze the app (6b review): every link is read on the app's one JS
+ * thread before a screen opens, and stripping a page's trailing slashes with a regex took seconds
+ * on a long run of slashes (the app stops answering, and Recents can open the link again). A link
+ * longer than any real one opens nothing and is never scanned; one up to that length reads at once.
+ */
+describe('a crafted long link opens nothing, at once (6b review)', () => {
+  const open = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
+  const ms = (f: () => unknown) => {
+    const t = performance.now();
+    f();
+    return performance.now() - t;
+  };
+  const N = 100_000;
+  // The slashes first: the slowest shape the old reading had.
+  const crafted = [
+    `${'/'.repeat(N)}x`,
+    `projects/p1${'/'.repeat(N)}x`,
+    `/meetings/m1${'/'.repeat(N)}?task=t1`,
+    `/my-tasks?${'&task'.repeat(N / 5)}`,
+    `/chat?${'?'.repeat(N)}\nx`,
+    'a/'.repeat(N / 2),
+  ];
+
+  it('reads a 100,000-character link in under 50 ms', () => {
+    for (const path of crafted) {
+      expect(ms(() => normalizeLinkPath(path)), path.slice(0, 16)).toBeLessThan(50);
+      expect(ms(() => open(path)), path.slice(0, 16)).toBeLessThan(50);
+    }
+  });
+
+  it('a link longer than any real one opens nothing', () => {
+    for (const path of crafted) expect(open(path), path.slice(0, 16)).toBeUndefined();
+    expect(open(`/my-tasks?task=t1&x=${'a'.repeat(MAX_LINK_LENGTH)}`)).toBeUndefined();
+  });
+
+  it('a link up to that length is read as before, just as fast', () => {
+    const slashes = `/projects/p1${'/'.repeat(MAX_LINK_LENGTH - 13)}x`;
+    expect(slashes.length).toBe(MAX_LINK_LENGTH);
+    expect(ms(() => open(slashes))).toBeLessThan(50);
+    const marks = `/chat?${'?'.repeat(MAX_LINK_LENGTH - 8)}\nx`;
+    expect(marks.length).toBe(MAX_LINK_LENGTH);
+    expect(ms(() => open(marks))).toBeLessThan(50);
+    // Trailing slashes still drop, as before: a page with a slash at its end is the page.
+    expect(normalizeLinkPath('/dashboard///')).toBe('/home');
+    expect(normalizeLinkPath('/board/?project=p1')).toBe('/project/p1/board');
+    const task = open(`/my-tasks?task=t1&from=${'m'.repeat(MAX_LINK_LENGTH - 30)}`)?.routes[0];
+    expect(task).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
   });
 });
