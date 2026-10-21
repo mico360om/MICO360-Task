@@ -1,0 +1,61 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+describe('the board screen (4b)', () => {
+  const screen = src('screens/BoardScreen.tsx');
+
+  it('lays its columns and their cards out as virtualized lists, not mapped scroll views', () => {
+    expect(screen).toMatch(/<FlatList\s+horizontal\s+data=\{board\}/);
+    expect(screen).toMatch(/<FlatList\s+data=\{cards\}/);
+    expect(screen).not.toMatch(/ScrollView/);
+  });
+
+  it('draws each column in its own colour (the website’s column.color), with its count and “+”', () => {
+    expect(screen).toMatch(/styles\.columnStripe, \{ backgroundColor: column\.color \}/);
+    expect(screen).toMatch(/styles\.dot, \{ backgroundColor: column\.color \}/);
+    expect(screen).not.toMatch(/categoryColorOf/);
+    expect(screen).toMatch(/accessibilityLabel=\{`Add a task to \$\{column\.name\}`\}/);
+  });
+
+  it('moves cards through the task write path, then the column’s order, as the website does', () => {
+    expect(screen).toMatch(/move\.mutateAsync\(\{ id, columnId, position, at \}\)/);
+    expect(screen).toMatch(/reorder\.mutateAsync\(\{ columnId, orderedIds \}\)/);
+    expect(screen).toMatch(/moveCard\(writes, \{ id: task\.id, toColumnId, plan \}\)/);
+    expect(screen).toMatch(/reorderCards\(writes, \{ columnId, orderedIds \}\)/);
+  });
+
+  it('picks the board’s day from a calendar, and offers Manage columns only to those the server lets manage the project', () => {
+    expect(screen).toMatch(/<DayPicker/);
+    expect(screen).toMatch(/const canManage = canManageProject\(user, membersQ\.data \?\? \[\]\);/);
+    expect(screen).toMatch(/\{canManage \? \(/);
+    expect(screen).toMatch(/navigation\.navigate\('BoardColumns', \{ projectId, projectName \}\)/);
+  });
+
+  it('a card can be placed with TalkBack: Move…, Move up and Move down are its actions', () => {
+    const card = src('components/board/BoardCard.tsx');
+    expect(card).toMatch(/\{ name: 'longpress', label: 'Move…' \}/);
+    expect(card).toMatch(/\{ name: 'moveUp', label: 'Move up' \}/);
+    expect(card).toMatch(/\{ name: 'moveDown', label: 'Move down' \}/);
+    expect(card).toMatch(/accessibilityLabel=\{view\.label\}/);
+  });
+
+  it('a card’s faces come from this server only (one rule: serverFileHref)', () => {
+    expect(screen).toMatch(/serverFileHref\(baseUrl, u\.avatarUrl\)/);
+  });
+});
+
+describe('Manage columns (4b)', () => {
+  const screen = src('screens/BoardColumnsScreen.tsx');
+  it('is for those the server lets manage the project; every change goes through the column actions', () => {
+    expect(screen).toMatch(/if \(!canManageProject\(user, membersQ\.data \?\? \[\]\)\)/);
+    for (const a of ['add', 'rename', 'recolour', 'setCategory', 'setEnabled', 'remove', 'move']) expect(screen, a).toMatch(new RegExp(`actions\\.${a}\\(`));
+  });
+
+  it('asks before deleting, and says that a column with tasks can’t be deleted', () => {
+    expect(screen).toMatch(/Alert\.alert\('Delete column\?'/);
+    expect(screen).toMatch(/A column that still has tasks can’t be deleted — move them to another column first\./);
+  });
+});

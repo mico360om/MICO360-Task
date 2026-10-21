@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { transformSync } from 'esbuild';
-import { boardCard, cardView, composeBoard, type BoardCard } from './board';
+import { boardCard, cardView, composeBoard, personInitials, type BoardCard } from './board';
 import type { ApiColumn, ApiTask } from './types';
 
 const col = (id: string, patch: Partial<ApiColumn> = {}): ApiColumn => ({ id, projectId: 'p1', name: id, category: 'TODO', position: 0, color: '#1E5A8B', enabled: true, ...patch });
@@ -118,5 +118,14 @@ describe('the cards follow the website’s card rules (drift)', () => {
     expect(card).toMatch(/c && c\.attachments > 0 \?/);
     expect(card).toMatch(/task\.assignees\.length === 1 \?/);
     expect(web('lib/due-display.ts')).toMatch(/opts: Intl\.DateTimeFormatOptions = \{ month: 'short', day: 'numeric', year: 'numeric' \}/);
+  });
+});
+
+describe('a face without a photo shows initials, as the website’s Avatar does (4b)', () => {
+  it('the first letters of the first two words', () => {
+    expect(personInitials('Ann Lee')).toBe('AL');
+    expect(personInitials('  maryam  al balushi ')).toBe('MA');
+    expect(personInitials('omar')).toBe('O');
+    expect(readFileSync(resolve(__dirname, '../../../Web Portal/frontend/src/components/ui/Avatar.tsx'), 'utf8')).toMatch(/\.split\(\/\\s\+\/\)\s*\.map\(\(part\) => part\[0\] \?\? ''\)\s*\.slice\(0, 2\)/);
   });
 });

@@ -15,6 +15,7 @@ import { answerFailed, answerScope } from '../lib/meeting-cache';
 import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
 import { pendingKeys, settleShownAgenda, settleShownAttendees } from '../lib/pending-keys';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
+import { withOrder } from '../lib/board-move';
 import { useDebouncedValue } from './useDebounced';
 import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-thread';
 import { threadKey } from '../lib/chat-cache';
@@ -550,21 +551,23 @@ export function useMoveTask(projectId: string) {
     // behind an older change of the task still on this phone, and is kept here when it gets no
     // answer (write-order) — so a quick second move can't overtake the first. Its project goes
     // with it, so the replay refreshes that project's board days (refreshesAfterReplay).
-    mutationFn: ({ id, columnId, position }: { id: string; columnId: string; position?: number }) =>
+    // `position`: its index in the new column (4b); `at`: where it shows meanwhile — kept with a
+    // move saved on this phone, so the board shows it there until it is sent (offline-reads).
+    mutationFn: ({ id, columnId, position, at }: { id: string; columnId: string; position?: number; at?: number }) =>
       taskWrites.run(id, () =>
-        sendInOrder(writeOrder(services), { kind: 'task.move', payload: { id, columnId, position, projectId } }, async () => {
+        sendInOrder(writeOrder(services), { kind: 'task.move', payload: { id, columnId, position, projectId, ...(at !== undefined ? { at } : {}) } }, async () => {
           const moved = await resources.tasks.move(id, columnId, position);
           taskWrites.note(id, moved?.version);
           return moved;
         }),
       ),
     // Optimistic move: the card jumps columns immediately, then we reconcile with the server.
-    onMutate: async ({ id, columnId }) => {
+    onMutate: async ({ id, columnId, at }) => {
       await qc.cancelQueries({ queryKey: boardPrefix });
       await qc.cancelQueries({ queryKey: ['task', id], exact: true });
       const boards = qc.getQueriesData<ApiTask[]>({ queryKey: boardPrefix });
       const detail = qc.getQueryData<ApiTask>(['task', id]);
-      qc.setQueriesData<ApiTask[]>({ queryKey: boardPrefix }, (list) => list?.map((t) => (t.id === id ? { ...t, columnId } : t)));
+      qc.setQueriesData<ApiTask[]>({ queryKey: boardPrefix }, (list) => list?.map((t) => (t.id === id ? { ...t, columnId, ...(at !== undefined ? { position: at } : {}) } : t)));
       if (detail) qc.setQueryData<ApiTask>(['task', id], { ...detail, columnId });
       return { boards, detail };
     },
@@ -584,6 +587,32 @@ export function useMoveTask(projectId: string) {
       // offline copy still has the card where it was — offline-reads).
       if (!refetchAfterMove(err)) return;
       refresh(qc, moveRefreshes(vars.id, projectId));
+    },
+  });
+}
+
+/**
+ * A column's cards in a new order (4b): sent in the column's own lane, shown at once, put back when
+ * it doesn't go (it needs a connection, as on the website — lib/board-writes).
+ */
+export function useReorderColumn(projectId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  const boardPrefix = ['tasks', 'project', projectId];
+  return useMutation({
+    mutationFn: ({ columnId, orderedIds }: { columnId: string; orderedIds: string[] }) =>
+      itemLanes.run(`column-order:${columnId}`, () => resources.tasks.reorder(columnId, orderedIds)),
+    onMutate: async ({ columnId, orderedIds }) => {
+      await qc.cancelQueries({ queryKey: boardPrefix });
+      const boards = qc.getQueriesData<ApiTask[]>({ queryKey: boardPrefix });
+      qc.setQueriesData<ApiTask[]>({ queryKey: boardPrefix }, (list) => (list ? withOrder(list, columnId, orderedIds) : list));
+      return { boards };
+    },
+    onError: (_err, _vars, ctx) => {
+      for (const [key, data] of ctx?.boards ?? []) qc.setQueryData(key, data);
+    },
+    onSettled: (_data, err) => {
+      if (!isNetworkError(err)) void qc.invalidateQueries({ queryKey: boardPrefix });
     },
   });
 }

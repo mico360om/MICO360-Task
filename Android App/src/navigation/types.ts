@@ -20,6 +20,8 @@ export type TabsParamList = {
 export type AppStackParamList = {
   Tabs: NavigatorScreenParams<TabsParamList> | undefined;
   Board: { projectId: string; projectName?: string };
+  /** Manage columns (4b): for an administrator or a manager of the project. */
+  BoardColumns: { projectId: string; projectName?: string };
   ProjectDetail: { projectId: string; projectName?: string };
   TaskDetail: { taskId: string; title?: string };
   /**
