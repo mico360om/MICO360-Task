@@ -1,16 +1,21 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native';
+import { View, Text, Pressable, StyleSheet, I18nManager, type LayoutChangeEvent } from 'react-native';
 import { useColors } from '../core/theme';
 import {
+  alignRight,
   barPct,
   barsSummary,
+  chartRow,
   chartRows,
   chartSummary,
   dashedLine,
   gridValues,
   lineSegments,
   niceCeil,
+  placeSegment,
+  plotLeft,
   sampleWithPeaks,
+  type ChartDirection,
   type Segment,
 } from '../lib/chart';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -73,11 +78,15 @@ const PLOT_HEIGHT = 160;
 /** At most this many points of a line are drawn (the numbers list every day). */
 const MAX_POINTS = 60;
 
+/** The phone's layout direction (lib/chart ChartDirection): it changes only with a restart of the app. */
+const dir: ChartDirection = { rtl: I18nManager.isRTL, swapsLeft: I18nManager.isRTL && I18nManager.doLeftAndRightSwapInRTL !== false };
+
 /**
  * A line chart: the scale's values beside the plot, grid lines, the lines, the first and last day, a
- * key. The plot is drawn left to right on any phone (an Arabic phone mirrors layouts, not charts);
- * the values sit in their own column — never under the lines, never above the plot at a large font
- * (5c review #13). Kept as it is while the screen re-renders with the same lines (typing a date).
+ * key. The plot is drawn left to right on any phone (an Arabic phone mirrors layouts, not charts:
+ * lib/chart's chartRow and plotLeft undo Android's mirroring, 6b review); the values sit in their own
+ * column — never under the lines, never above the plot at a large font (5c review #13). Kept as it
+ * is while the screen re-renders with the same lines (typing a date).
  */
 export const LineChart = React.memo(function LineChart({ title, labels, lines, days }: { title: string; labels: string[]; lines: Line[]; days?: string[] }) {
   const c = useColors();
@@ -104,8 +113,8 @@ export const LineChart = React.memo(function LineChart({ title, labels, lines, d
   return (
     <View style={s.lineWrap}>
       <View accessible accessibilityRole="image" accessibilityLabel={summary}>
-        <View style={s.plotRow} importantForAccessibility="no-hide-descendants">
-          <View style={s.gutter}>
+        <View style={[s.plotRow, { flexDirection: chartRow(dir) }]} importantForAccessibility="no-hide-descendants">
+          <View style={[s.gutter, { alignItems: alignRight(dir) }]}>
             {[...gridValues(top)].reverse().map((v, i) => (
               <Text key={`v${i}`} style={s.gridLabel} numberOfLines={1}>
                 {v}
@@ -122,13 +131,17 @@ export const LineChart = React.memo(function LineChart({ title, labels, lines, d
                     <React.Fragment key={l.name}>
                       {l.area ? <Area values={l.values} idx={idx} width={width} top={top} color={l.color} /> : null}
                       {pieces(l, idx, width, top).map((seg, i) => (
-                        <View key={i} style={[s.seg, place(seg), { backgroundColor: l.color }]} />
+                        <View key={i} style={[s.seg, placeSegment(seg, width, dir), { backgroundColor: l.color }]} />
                       ))}
                       {!l.dashed && l.values.length > 0 ? (
                         <View
                           style={[
                             s.end,
-                            { backgroundColor: l.color, left: (n <= 1 ? width / 2 : width) - 4, top: y(l.values[l.values.length - 1] ?? 0) - 4 },
+                            {
+                              backgroundColor: l.color,
+                              left: plotLeft((n <= 1 ? width / 2 : width) - END_DOT / 2, END_DOT, width, dir),
+                              top: y(l.values[l.values.length - 1] ?? 0) - END_DOT / 2,
+                            },
                           ]}
                         />
                       ) : null}
@@ -136,7 +149,7 @@ export const LineChart = React.memo(function LineChart({ title, labels, lines, d
                   ))
                 : null}
             </View>
-            <View style={s.axis}>
+            <View style={[s.axis, { flexDirection: chartRow(dir) }]}>
               <Text style={s.axisLabel}>{labels[0]}</Text>
               {labels.length > 1 ? <Text style={s.axisLabel}>{labels[labels.length - 1]}</Text> : null}
             </View>
@@ -183,8 +196,8 @@ function pieces(l: Line, idx: number[], width: number, top: number): Segment[] {
   return l.dashed ? dashedLine(segs) : segs;
 }
 
-/** Where a piece goes: placed by its corner, then turned about its centre. */
-const place = (seg: Segment) => ({ left: seg.left, top: seg.top, width: seg.width, height: seg.height, transform: [{ rotate: `${seg.angle}rad` }] });
+/** The dot at a line's last point. */
+const END_DOT = 8;
 
 /** The shaded area under a line: a faint column under each drawn point. */
 function Area({ values, idx, width, top, color }: { values: number[]; idx: number[]; width: number; top: number; color: string }) {
@@ -197,8 +210,8 @@ function Area({ values, idx, width, top, color }: { values: number[]; idx: numbe
         const h = (v / top) * PLOT_HEIGHT;
         const x = n <= 1 ? width / 2 : (i / (n - 1)) * width;
         const left = Math.max(0, x - col / 2);
-        const right = Math.min(width, x + col / 2);
-        return <View key={i} style={{ position: 'absolute', left, width: Math.max(0, right - left), top: PLOT_HEIGHT - h, height: h, backgroundColor: color, opacity: 0.1 }} />;
+        const w = Math.max(0, Math.min(width, x + col / 2) - left);
+        return <View key={i} style={{ position: 'absolute', left: plotLeft(left, w, width, dir), width: w, top: PLOT_HEIGHT - h, height: h, backgroundColor: color, opacity: 0.1 }} />;
       })}
     </>
   );
@@ -218,15 +231,16 @@ const makeStyles = (c: Palette) =>
     fill: { height: '100%', borderRadius: radius.pill },
     lineWrap: { gap: spacing.sm },
     flex: { flex: 1 },
-    // Charts read left to right on every phone (5c review #13).
-    plotRow: { flexDirection: 'row', direction: 'ltr', gap: spacing.xs, marginTop: spacing.md },
-    gutter: { height: PLOT_HEIGHT, justifyContent: 'space-between', alignItems: 'flex-end', minWidth: 24 },
+    // Charts read left to right on every phone (5c review #13): the row's direction and the gutter's
+    // alignment are set with the phone's direction (chartRow, alignRight).
+    plotRow: { gap: spacing.xs, marginTop: spacing.md },
+    gutter: { height: PLOT_HEIGHT, justifyContent: 'space-between', minWidth: 24 },
     plot: { height: PLOT_HEIGHT, borderBottomWidth: 1, borderBottomColor: c.line },
     grid: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: c.line },
     gridLabel: { fontSize: fontSize.xs, color: c.ink2, textAlign: 'right' },
     seg: { position: 'absolute', borderRadius: 1 },
     end: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
-    axis: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, marginTop: 4 },
+    axis: { justifyContent: 'space-between', gap: spacing.sm, marginTop: 4 },
     axisLabel: { fontSize: fontSize.xs, color: c.ink2 },
     legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.xs },
     legendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },

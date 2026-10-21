@@ -93,6 +93,40 @@ export function dashed(seg: Segment, dash = 5, gap = 4): Segment[] {
   return out;
 }
 
+/**
+ * How the phone lays a chart out (6b review). Charts read left to right on every phone (5c review
+ * #13), but on a right-to-left phone (Arabic) Android lays a row out from the right and reads a
+ * view's `left` from the right edge — React Native swaps left and right there, and its `direction`
+ * style is iOS-only. The helpers below undo both, so a piece lands where it does on any other phone;
+ * Android turns a view about its centre whatever the direction, so its angle stays as it is.
+ */
+export interface ChartDirection {
+  /** Rows are laid out right to left (React Native's I18nManager.isRTL). */
+  rtl: boolean;
+  /** …and a view's `left` is read from the right edge (I18nManager.doLeftAndRightSwapInRTL, on by default). */
+  swapsLeft: boolean;
+}
+
+/** A row of the chart whose first child is on the left, on any phone. */
+export function chartRow(d: ChartDirection): 'row' | 'row-reverse' {
+  return d.rtl ? 'row-reverse' : 'row';
+}
+
+/** In a column of the chart, its children against the right edge (the scale's values next to the plot), on any phone. */
+export function alignRight(d: ChartDirection): 'flex-end' | 'flex-start' {
+  return d.rtl ? 'flex-start' : 'flex-end';
+}
+
+/** The `left` that puts a box `width` wide at `left` from the plot's left edge, on any phone. */
+export function plotLeft(left: number, width: number, plotWidth: number, d: ChartDirection): number {
+  return d.swapsLeft ? plotWidth - left - width : left;
+}
+
+/** Where a piece goes: placed by its corner, then turned about its centre. */
+export function placeSegment(seg: Segment, plotWidth: number, d: ChartDirection) {
+  return { left: plotLeft(seg.left, seg.width, plotWidth, d), top: seg.top, width: seg.width, height: seg.height, transform: [{ rotate: `${seg.angle}rad` }] };
+}
+
 /** A bar's width as a share (0–100) of the largest value (the website's bar chart). */
 export function barPct(value: number, values: readonly number[]): number {
   const max = Math.max(1, ...values);

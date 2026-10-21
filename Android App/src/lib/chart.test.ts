@@ -15,6 +15,11 @@ import {
   tickIndexes,
   dashedLine,
   sampleWithPeaks,
+  alignRight,
+  chartRow,
+  placeSegment,
+  plotLeft,
+  type ChartDirection,
 } from './chart';
 
 describe('chart scale (5c), as the website’s line chart', () => {
@@ -197,10 +202,63 @@ describe('5c review: the Reports screen and its charts', () => {
   });
 
   it('the plot is drawn left to right on any phone, its values beside it (not under the lines), and kept between keystrokes (#13)', () => {
-    expect(charts).toMatch(/direction: 'ltr'/);
     expect(charts).toMatch(/export const LineChart = React\.memo\(/);
     expect(charts).not.toMatch(/gridLabel: \{ position: 'absolute', left: 0/);
     expect(charts).toMatch(/sampleWithPeaks\(/);
     expect(charts).toMatch(/dashedLine\(/);
+  });
+
+  it('on an Arabic phone too: the plot’s rows and pieces follow the phone’s direction, read once (6b review)', () => {
+    // `direction` is an iOS-only style on React Native 0.74: on Android it changed nothing.
+    expect(charts).not.toMatch(/direction: 'ltr'/);
+    expect(charts).toMatch(/I18nManager\.isRTL/);
+    expect(charts).toMatch(/I18nManager\.doLeftAndRightSwapInRTL/);
+    expect(charts).toMatch(/placeSegment\(seg, width, dir\)/);
+    expect(charts).toMatch(/chartRow\(dir\)/);
+    expect(charts).toMatch(/plotLeft\(/);
+  });
+});
+
+/**
+ * 6b review: on a right-to-left phone (Arabic) Android lays a row out from the right and reads a
+ * view's `left` from the right edge (React Native swaps left and right; the `direction` style is
+ * iOS-only). The chart still reads left to right there (5c review #13): the scale on the left, the
+ * first day on the left, each piece of a line where it is on any other phone, at the same slant.
+ */
+describe('a chart on a right-to-left phone (6b review)', () => {
+  const LTR: ChartDirection = { rtl: false, swapsLeft: false };
+  const RTL: ChartDirection = { rtl: true, swapsLeft: true };
+  const P = 300;
+  /** Where Android puts a box with this `left` on the screen, from the plot's left edge. */
+  const onScreen = (left: number, width: number, d: ChartDirection) => (d.swapsLeft ? P - left - width : left);
+  /** Is a row's first child on the left of the screen? */
+  const firstOnLeft = (flexDirection: 'row' | 'row-reverse', d: ChartDirection) => (flexDirection === 'row') !== d.rtl;
+  const segs = lineSegments([0, 80, 20, 100], [0, 1, 2, 3], { width: P, height: 160, top: 100 });
+
+  it('each piece of a line sits where it does on any phone, at the same slant', () => {
+    for (const d of [LTR, RTL]) {
+      const placed = segs.map((s) => placeSegment(s, P, d));
+      expect(placed.map((p) => Math.round(onScreen(p.left, p.width, d)))).toEqual(segs.map((s) => Math.round(s.left)));
+      // Android turns a view about its centre whatever the direction: the angle stays the line's.
+      expect(placed.map((p) => p.transform)).toEqual(segs.map((s) => [{ rotate: `${s.angle}rad` }]));
+      expect(placed.map((p) => [p.top, p.width, p.height])).toEqual(segs.map((s) => [s.top, s.width, s.height]));
+    }
+  });
+
+  it('the last point’s dot and the shaded columns too', () => {
+    expect(onScreen(plotLeft(P - 4, 8, P, RTL), 8, RTL)).toBe(P - 4);
+    expect(onScreen(plotLeft(0, 25, P, RTL), 25, RTL)).toBe(0);
+    expect(plotLeft(10, 5, P, LTR)).toBe(10);
+    // A phone told not to swap left and right reads `left` as it is.
+    expect(plotLeft(10, 5, P, { rtl: true, swapsLeft: false })).toBe(10);
+  });
+
+  it('the scale is on the left of the plot, its values against it, and the first day on the left of the last', () => {
+    expect(firstOnLeft(chartRow(RTL), RTL)).toBe(true);
+    expect(firstOnLeft(chartRow(LTR), LTR)).toBe(true);
+    // A column's flex-start is its right edge on a right-to-left phone.
+    const onRight = (align: 'flex-end' | 'flex-start', d: ChartDirection) => (align === 'flex-end') !== d.rtl;
+    expect(onRight(alignRight(RTL), RTL)).toBe(true);
+    expect(onRight(alignRight(LTR), LTR)).toBe(true);
   });
 });
