@@ -61,9 +61,12 @@ describe('taskEventRefreshes (MOB-04, precise since 1c)', () => {
   const exact = (...queryKey: string[]) => ({ queryKey, exact: true });
   const board = [{ queryKey: ['tasks', 'project', 'p1'] }, exact('project', 'p1', 'progress')];
 
-  it('a change to a task: its project’s board days and progress, the lists holding it, the task and its activity', () => {
+  // A meeting's action item follows its task into Done and out of it (and loses its task when it's deleted).
+  const myItems = { queryKey: ['action-items', 'mine'] };
+
+  it('a change to a task: its project’s board days and progress, the lists holding it, the task, its activity and My Action Items', () => {
     for (const ev of ['task:updated', 'task:moved']) {
-      expect(taskEventRefreshes(ev, 'p1', { id: 't9' })).toEqual([...board, { listsHolding: 't9' }, exact('task', 't9'), exact('task', 't9', 'activity')]);
+      expect(taskEventRefreshes(ev, 'p1', { id: 't9' })).toEqual([...board, { listsHolding: 't9' }, exact('task', 't9'), exact('task', 't9', 'activity'), myItems]);
     }
   });
 
@@ -71,22 +74,23 @@ describe('taskEventRefreshes (MOB-04, precise since 1c)', () => {
     expect(taskEventRefreshes('task:updated', 'p1', { id: 't9' })).not.toContainEqual({ queryKey: ['task', 't9'] });
   });
 
-  it('a new task may be yours: My tasks too', () => {
+  it('a new task may be yours: My tasks too (but it has no action item yet)', () => {
     expect(taskEventRefreshes('task:created', 'p1', { id: 't9' })).toContainEqual({ queryKey: ['tasks', 'mine'] });
+    expect(taskEventRefreshes('task:created', 'p1', { id: 't9' })).not.toContainEqual(myItems);
     expect(taskEventRefreshes('task:updated', 'p1', { id: 't9' })).not.toContainEqual({ queryKey: ['tasks', 'mine'] });
   });
 
-  it('a deleted task: the lists holding it and its details (which then say it’s gone)', () => {
-    expect(taskEventRefreshes('task:deleted', 'p1', { id: 't9' })).toEqual([...board, { listsHolding: 't9' }, exact('task', 't9')]);
+  it('a deleted task: the lists holding it, its details (which then say it’s gone) and My Action Items', () => {
+    expect(taskEventRefreshes('task:deleted', 'p1', { id: 't9' })).toEqual([...board, { listsHolding: 't9' }, exact('task', 't9'), myItems]);
   });
 
-  it('without a task id: the board, My tasks and progress', () => {
-    expect(taskEventRefreshes('task:updated', 'p1', {})).toEqual([...board, { queryKey: ['tasks', 'mine'] }]);
-    expect(taskEventRefreshes('task:moved', 'p1', null)).toEqual([...board, { queryKey: ['tasks', 'mine'] }]);
+  it('without a task id: the board, My tasks, progress and My Action Items', () => {
+    expect(taskEventRefreshes('task:updated', 'p1', {})).toEqual([...board, { queryKey: ['tasks', 'mine'] }, myItems]);
+    expect(taskEventRefreshes('task:moved', 'p1', null)).toEqual([...board, { queryKey: ['tasks', 'mine'] }, myItems]);
   });
 
-  it('after a reconnect: the board, its columns, My tasks and progress', () => {
-    expect(boardRefreshes('p1')).toEqual([...board, { queryKey: ['tasks', 'mine'] }, { queryKey: ['columns', 'p1'] }]);
+  it('after a reconnect: the board, its columns, My tasks, progress and My Action Items', () => {
+    expect(boardRefreshes('p1')).toEqual([...board, { queryKey: ['tasks', 'mine'] }, { queryKey: ['columns', 'p1'] }, myItems]);
   });
 
   it('listens to create / update / move / delete', () => {

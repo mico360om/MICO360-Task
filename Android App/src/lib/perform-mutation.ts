@@ -2,7 +2,7 @@ import { ApiError, isNetworkError } from './api-client';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
 import { taskHoldsEdit } from './task-writes';
-import { editRefreshes, moveRefreshes } from './task-cache';
+import { editRefreshes, moveRefreshes, MY_ACTION_ITEMS } from './task-cache';
 import type { Refresh } from './refresh';
 import type { ApiTask } from './types';
 
@@ -113,7 +113,7 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
       // Queued with its project: what the move refreshes online, its project's board days included
       // (finishing a repeating task adds its next copy to a later day). Older items name no project.
       if (typeof p.projectId === 'string' && p.projectId) return moveRefreshes(id, p.projectId);
-      return [part(), part('activity'), { listsHolding: id }, { progressFor: id }];
+      return [part(), part('activity'), { listsHolding: id }, { progressFor: id }, MY_ACTION_ITEMS];
     case 'task.update':
       // The task itself first, then what the edit changed (its activity, the lists showing it…).
       return [part(), ...editRefreshes(id, typeof p.patch === 'object' && p.patch ? p.patch : {})];

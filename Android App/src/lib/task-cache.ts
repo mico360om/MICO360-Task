@@ -15,11 +15,15 @@ export function editRefreshes(taskId: string, patch: object): Refresh[] {
   return targets;
 }
 
+/** My Action Items, open and all (core/queries useMyActionItems). */
+export const MY_ACTION_ITEMS: Refresh = { queryKey: ['action-items', 'mine'] };
+
 /**
  * What a move refreshes once the server answered: the task, its activity (the timeline notes the
  * move), its project's board days (finishing a repeating task adds its next copy to a later day —
- * only the day on screen is fetched again), the other lists holding it (My Tasks when it's yours)
- * and its project's progress.
+ * only the day on screen is fetched again), the other lists holding it (My Tasks when it's yours),
+ * its project's progress and My Action Items (a meeting's action item follows its task into Done
+ * and out of it).
  */
 export function moveRefreshes(taskId: string, projectId: string): Refresh[] {
   return [
@@ -28,6 +32,7 @@ export function moveRefreshes(taskId: string, projectId: string): Refresh[] {
     { queryKey: ['tasks', 'project', projectId] },
     { listsHolding: taskId },
     { queryKey: ['project', projectId, 'progress'], exact: true },
+    MY_ACTION_ITEMS,
   ];
 }
 

@@ -76,6 +76,38 @@ describe('refresh (one pass over the cache, each query at most once)', () => {
     expect(refreshed(qc, ['project', 'p2', 'details'])).toBe(false);
   });
 
+  it('refreshes the meetings overview of the meeting’s own project (found in its details or a list)', () => {
+    const qc = client();
+    qc.setQueryData(['project', 'p1', 'meetings'], { meetings: [] });
+    qc.setQueryData(['project', 'p2', 'meetings'], { meetings: [] });
+    qc.setQueryData(['project', 'p1', 'progress'], {});
+    qc.setQueryData(['meeting', 'm1'], { id: 'm1', projectId: 'p2' });
+    refresh(qc, [{ projectMeetingsOf: 'm1' }]);
+    expect(refreshed(qc, ['project', 'p2', 'meetings'])).toBe(true);
+    expect(refreshed(qc, ['project', 'p1', 'meetings'])).toBe(false);
+    expect(refreshed(qc, ['project', 'p1', 'progress'])).toBe(false);
+
+    const qc2 = client();
+    qc2.setQueryData(['project', 'p1', 'meetings'], { meetings: [] });
+    qc2.setQueryData(['project', 'p2', 'meetings'], { meetings: [{ id: 'm7' }] });
+    qc2.setQueryData(['meetings', 'list', 'all'], [{ id: 'm3', projectId: 'p1' }]);
+    refresh(qc2, [{ projectMeetingsOf: 'm3' }, { projectMeetingsOf: 'm7' }]);
+    expect(refreshed(qc2, ['project', 'p1', 'meetings'])).toBe(true);
+    expect(refreshed(qc2, ['project', 'p2', 'meetings'])).toBe(true);
+  });
+
+  it('refreshes no project’s meetings for a standalone meeting, and every project’s when the meeting is unknown', () => {
+    const qc = client();
+    qc.setQueryData(['project', 'p1', 'meetings'], { meetings: [] });
+    qc.setQueryData(['project', 'p2', 'meetings'], null);
+    qc.setQueryData(['meeting', 'solo'], { id: 'solo', projectId: null });
+    refresh(qc, [{ projectMeetingsOf: 'solo' }]);
+    expect(refreshed(qc, ['project', 'p1', 'meetings'])).toBe(false);
+    refresh(qc, [{ projectMeetingsOf: 'new' }]);
+    expect(refreshed(qc, ['project', 'p1', 'meetings'])).toBe(true);
+    expect(refreshed(qc, ['project', 'p2', 'meetings'])).toBe(true);
+  });
+
   it('can refresh every task’s own details without their parts', () => {
     const qc = client();
     qc.setQueryData(['task', 't1'], task('t1'));

@@ -142,6 +142,14 @@ describe('moveRefreshes', () => {
     expect(refreshedKeys(qc)).not.toContain('["tasks","mine"]');
     expect(refreshedKeys(qc)).not.toContain('["task","t1","comments"]');
   });
+
+  it('refreshes My Action Items (open and all): an action item follows its task into Done and out of it', () => {
+    const qc = seeded();
+    qc.setQueryData(['action-items', 'mine', 'open'], []);
+    qc.setQueryData(['action-items', 'mine', 'all'], []);
+    refresh(qc, moveRefreshes('t1', 'p1'));
+    expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["action-items","mine","open"]', '["action-items","mine","all"]']));
+  });
 });
 
 describe('afterTaskDeleted', () => {

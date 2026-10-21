@@ -149,8 +149,8 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
     ]);
   });
 
-  it('a move: the task, its activity, the lists holding it and its project’s progress', () => {
-    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2' }))).toEqual([...task('t1'), { progressFor: 't1' }]);
+  it('a move: the task, its activity, the lists holding it, its project’s progress and My Action Items', () => {
+    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2' }))).toEqual([...task('t1'), { progressFor: 't1' }, { queryKey: ['action-items', 'mine'] }]);
   });
 
   it('a move queued with its project: what the same move made online refreshes, its project’s board days too', () => {
@@ -158,7 +158,7 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
     const replayed = refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: 'p1' }));
     expect(replayed).toContainEqual({ queryKey: ['tasks', 'project', 'p1'] });
     expect(replayed).toEqual(moveRefreshes('t1', 'p1'));
-    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: '' }))).toEqual([...task('t1'), { progressFor: 't1' }]);
+    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: '' }))).toEqual([...task('t1'), { progressFor: 't1' }, { queryKey: ['action-items', 'mine'] }]);
   });
 
   it('an edit: what the edit changed', () => {

@@ -13,9 +13,11 @@ export interface KeyRefresh {
  *   that holds this task, and no other;
  * - `progressFor`: the progress figures of this task's project (every project's, when the task
  *   isn't in the cache);
- * - `taskDetails`: every task's own details, without their parts (a change to a whole series).
+ * - `taskDetails`: every task's own details, without their parts (a change to a whole series);
+ * - `projectMeetingsOf`: the meetings overview of this meeting's project (none for a standalone
+ *   meeting; every project's when the meeting isn't in the cache).
  */
-export type Refresh = KeyRefresh | { listsHolding: string } | { progressFor: string } | { taskDetails: 'all' };
+export type Refresh = KeyRefresh | { listsHolding: string } | { progressFor: string } | { taskDetails: 'all' } | { projectMeetingsOf: string };
 
 type Task = { id?: unknown; projectId?: unknown };
 
@@ -32,6 +34,25 @@ function projectOf(qc: QueryClient, taskId: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The project a cached meeting belongs to: from its details, a meetings list or a project's
+ * meetings overview holding it. null for a standalone meeting, undefined when it isn't cached.
+ */
+function meetingProjectOf(qc: QueryClient, meetingId: string): string | null | undefined {
+  if (!meetingId) return undefined;
+  const own = qc.getQueryData(['meeting', meetingId]) as Task | undefined;
+  if (own && (typeof own.projectId === 'string' || own.projectId === null)) return own.projectId;
+  for (const [, data] of qc.getQueriesData<Task[]>({ queryKey: ['meetings'] })) {
+    const found = Array.isArray(data) ? data.find((m) => m?.id === meetingId) : undefined;
+    if (found && (typeof found.projectId === 'string' || found.projectId === null)) return found.projectId;
+  }
+  for (const q of qc.getQueryCache().findAll({ queryKey: ['project'] })) {
+    const list = (q.state.data as { meetings?: unknown } | null | undefined)?.meetings;
+    if (q.queryKey[2] === 'meetings' && holds(list, meetingId) && typeof q.queryKey[1] === 'string') return q.queryKey[1];
+  }
+  return undefined;
+}
+
 function matcher(qc: QueryClient, target: Refresh): (q: Query) => boolean {
   if ('listsHolding' in target) {
     return (q) => q.queryKey[0] === 'tasks' && holds(q.state.data, target.listsHolding);
@@ -41,6 +62,11 @@ function matcher(qc: QueryClient, target: Refresh): (q: Query) => boolean {
     return (q) => q.queryKey[0] === 'project' && q.queryKey[2] === 'progress' && q.queryKey.length === 3 && (!projectId || q.queryKey[1] === projectId);
   }
   if ('taskDetails' in target) return (q) => q.queryKey[0] === 'task' && q.queryKey.length === 2;
+  if ('projectMeetingsOf' in target) {
+    const projectId = meetingProjectOf(qc, target.projectMeetingsOf);
+    if (projectId === null) return () => false;
+    return (q) => q.queryKey[0] === 'project' && q.queryKey[2] === 'meetings' && q.queryKey.length === 3 && (!projectId || q.queryKey[1] === projectId);
+  }
   return (q) => matchQuery({ queryKey: target.queryKey, exact: target.exact }, q);
 }
 

@@ -1,5 +1,6 @@
 import type { ApiTask } from './types';
 import type { KeyRefresh, Refresh } from './refresh';
+import { MY_ACTION_ITEMS } from './task-cache';
 
 /** Realtime task events broadcast by the API over socket.io (mirrors the server's event names). */
 export type TaskEvent =
@@ -41,7 +42,9 @@ export function applyTaskEvent(tasks: ApiTask[], event: TaskEvent): ApiTask[] {
  * other lists holding the task (My tasks when it's yours), and the task's own details and
  * activity — never its other parts, which have their own events (taskPartRefreshes). A new task
  * may be yours, so it refreshes My tasks too (being assigned later arrives as `task:assignees`).
- * Events are gathered and applied together (refresh-batch).
+ * Any other change refreshes My Action Items: a meeting's action item follows its task into Done
+ * and out of it, and loses its task when the task is deleted. Events are gathered and applied
+ * together (refresh-batch).
  */
 export function taskEventRefreshes(event: string, projectId: string, payload?: unknown): Refresh[] {
   const raw = (payload as { id?: unknown } | null | undefined)?.id;
@@ -52,16 +55,18 @@ export function taskEventRefreshes(event: string, projectId: string, payload?: u
     targets.push({ listsHolding: id }, { queryKey: ['task', id], exact: true });
     if (event !== 'task:deleted') targets.push({ queryKey: ['task', id, 'activity'], exact: true });
   }
+  if (event !== 'task:created') targets.push(MY_ACTION_ITEMS);
   return targets;
 }
 
-/** After the board's socket reconnects (events may have been missed): the board, My tasks, progress and columns. */
+/** After the board's socket reconnects (events may have been missed): the board, My tasks, progress, columns and My Action Items. */
 export function boardRefreshes(projectId: string): Refresh[] {
   return [
     { queryKey: ['tasks', 'project', projectId] },
     { queryKey: ['project', projectId, 'progress'], exact: true },
     { queryKey: ['tasks', 'mine'] },
     { queryKey: ['columns', projectId] },
+    MY_ACTION_ITEMS,
   ];
 }
 
