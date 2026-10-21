@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createSyncController } from './sync-controller';
 import type { FlushResult, QueuedMutation } from './sync-queue';
 
@@ -13,7 +15,7 @@ const m = (id: string, userId = 'u1'): QueuedMutation => ({
   status: 'pending',
 });
 
-type FlushFn = (userId: string, opts?: { shouldContinue?: () => boolean }) => Promise<FlushResult>;
+type FlushFn = (userId: string, opts?: { shouldContinue?: () => boolean; skipWait?: boolean }) => Promise<FlushResult>;
 
 function fakeQueue(items: QueuedMutation[], flushImpl?: FlushFn) {
   const fallback: FlushFn = async () => ({ synced: items.length, done: items, failed: [], remaining: 0 });
@@ -97,5 +99,31 @@ describe('"Sync now" while a sync is running (4a review #1)', () => {
     await Promise.all([first, second, third]);
     expect(queue.flush).toHaveBeenCalledTimes(2);
     expect(controller.isFlushing()).toBe(false);
+  });
+});
+
+describe('"Sync now" sends what is waiting out its time after no answer (4b review #6)', () => {
+  it('asks the queue to skip the wait — an automatic sync never does', async () => {
+    const queue = fakeQueue([m('1')]);
+    const controller = createSyncController({ queue, getUserId: () => 'u1' });
+    await controller.trigger();
+    expect(queue.flush.mock.calls[0]![1]).not.toMatchObject({ skipWait: true });
+    await controller.trigger({ skipWait: true });
+    expect(queue.flush.mock.calls[1]![1]).toMatchObject({ skipWait: true });
+  });
+
+  it('pressed while a sync runs: the one right after it skips the wait', async () => {
+    let release!: () => void;
+    const queue = fakeQueue([m('1')], (_u, _o) => new Promise((res) => (release = () => res({ synced: 0, done: [], failed: [], remaining: 1 }))));
+    const controller = createSyncController({ queue, getUserId: () => 'u1' });
+    const first = controller.trigger();
+    const again = controller.trigger({ skipWait: true });
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    await Promise.all([first, again]);
+    expect(queue.flush.mock.calls[1]![1]).toMatchObject({ skipWait: true });
+    const status = readFileSync(resolve(__dirname, '../components/SyncStatus.tsx'), 'utf8');
+    expect(status).toMatch(/await sync\.trigger\(\{ skipWait: true \}\);/);
   });
 });

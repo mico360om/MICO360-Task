@@ -36,7 +36,8 @@ export function SyncStatus({ only }: { only?: (m: QueuedMutation) => boolean } =
   const syncNow = async () => {
     setSyncing(true);
     try {
-      await sync.trigger();
+      // Asked by the person: what waits out its time after no answer goes too (4b review #6).
+      await sync.trigger({ skipWait: true });
     } finally {
       setSyncing(false);
     }

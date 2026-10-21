@@ -243,7 +243,11 @@ export function createSyncQueue(options: SyncQueueOptions) {
 
   const errorText = (e: unknown) => (e instanceof Error && e.message ? e.message : 'Could not be saved.');
 
-  async function flush(userId: string, opts: { shouldContinue?: () => boolean } = {}): Promise<FlushResult> {
+  /**
+   * Replay this user's changes. `skipWait`: the person asked ("Sync now" — 4b review #6), so a
+   * change waiting out its time after no answer goes now as well.
+   */
+  async function flush(userId: string, opts: { shouldContinue?: () => boolean; skipWait?: boolean } = {}): Promise<FlushResult> {
     let synced = 0;
     const done: QueuedMutation[] = [];
     const failed: QueuedMutation[] = [];
@@ -293,7 +297,10 @@ export function createSyncQueue(options: SyncQueueOptions) {
         if (held.has(lane) || busy.has(lane)) continue;
         if (!(x.timeouts ?? 0)) return x;
         if (busy.size >= MAX_ASIDE) continue;
-        if (x.lastTryAt !== undefined && t < x.lastTryAt + retryDelay(x.timeouts ?? 0)) continue;
+        // A last try "in the future" (the phone's clock was set back) can't say how long it has
+        // waited: it goes now, and its next wait counts from this try — never a wait of days (4b review #5).
+        const last = x.lastTryAt;
+        if (!opts.skipWait && last !== undefined && last <= t && t < last + retryDelay(x.timeouts ?? 0)) continue;
         unanswered ??= x;
       }
       return unanswered;
@@ -303,7 +310,9 @@ export function createSyncQueue(options: SyncQueueOptions) {
       // The server forgets a key after a day (4a review): a create it may have saved isn't sent
       // again under its key so late — it asks the person to check first.
       const life = options.keyLifetime;
-      if (life && (m.timeouts ?? 0) > 0 && life.applies(m) && now() - (m.firstUnansweredAt ?? m.createdAt) >= life.ms) {
+      // Since its first try that may have reached the server (older items: when it was made).
+      const since = m.firstUnansweredAt ?? ((m.timeouts ?? 0) > 0 ? m.createdAt : undefined);
+      if (life && since !== undefined && life.applies(m) && now() - since >= life.ms) {
         await fail(m, { lastError: KEY_EXPIRED_TEXT });
         return;
       }
@@ -317,8 +326,12 @@ export function createSyncQueue(options: SyncQueueOptions) {
       } catch (error) {
         const kind = classify(error);
         if (kind === 'offline') {
-          // No connection at all: everything waits, nothing is counted.
-          if (!isTimeout(error)) return pause('offline');
+          if (!isTimeout(error)) {
+            // The connection dropped: everything waits, nothing is counted. A create sent under its
+            // key may have reached the server before it did, so its day starts now (4b review #7).
+            if (options.keyLifetime?.applies(m) && m.firstUnansweredAt === undefined) await update(m.id, { firstUnansweredAt: now() });
+            return pause('offline');
+          }
           // The request went and no answer came in time. It may be saved, so it is never failed (3b
           // review): it keeps waiting at the head of its lane — a later change of the same item can't
           // overtake it with a version it never moved on — and is sent again once its wait is over
@@ -415,7 +428,17 @@ export function createSyncQueue(options: SyncQueueOptions) {
      */
     retry: (id: string) => {
       const m = queue.find((x) => x.id === id);
-      return update(id, { status: 'pending', attempts: 0, timeouts: 0, lastError: undefined, refused: undefined, ...(m?.refused ? { idempotencyKey: genKey() } : {}) });
+      // Its waits start afresh too (4b review #4): a "hasn't answered for a day" item isn't stopped again at once.
+      return update(id, {
+        status: 'pending',
+        attempts: 0,
+        timeouts: 0,
+        lastTryAt: undefined,
+        firstUnansweredAt: undefined,
+        lastError: undefined,
+        refused: undefined,
+        ...(m?.refused ? { idempotencyKey: genKey() } : {}),
+      });
     },
     /** Throw away one item (the user chose to discard a change that cannot be saved). */
     discard: (id: string) => commit(queue.filter((m) => m.id !== id)),

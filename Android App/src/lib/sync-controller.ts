@@ -3,7 +3,7 @@ import type { FlushResult, QueuedMutation } from './sync-queue';
 export interface SyncControllerDeps {
   queue: {
     pendingFor: (userId: string | null | undefined) => QueuedMutation[];
-    flush: (userId: string, opts?: { shouldContinue?: () => boolean }) => Promise<FlushResult>;
+    flush: (userId: string, opts?: { shouldContinue?: () => boolean; skipWait?: boolean }) => Promise<FlushResult>;
   };
   /** The signed-in user's id, or null when signed out. Only their own changes are replayed. */
   getUserId: () => string | null | undefined;
@@ -22,11 +22,15 @@ export interface SyncControllerDeps {
 export function createSyncController({ queue, getUserId, onFlushed }: SyncControllerDeps) {
   let running: Promise<FlushResult | null> | null = null;
   let again = false;
+  /** "Sync now" was pressed: the next flush sends what is waiting out its time too (4b review #6). */
+  let asked = false;
 
   async function once(): Promise<FlushResult | null> {
     const userId = getUserId();
+    const skipWait = asked;
+    asked = false;
     if (!userId || queue.pendingFor(userId).length === 0) return null;
-    const result = await queue.flush(userId, { shouldContinue: () => getUserId() === userId });
+    const result = await queue.flush(userId, { shouldContinue: () => getUserId() === userId, ...(skipWait ? { skipWait } : {}) });
     if (result.synced > 0 || result.failed.length > 0) onFlushed?.(result);
     return result;
   }
@@ -40,7 +44,9 @@ export function createSyncController({ queue, getUserId, onFlushed }: SyncContro
     return result;
   }
 
-  function trigger(): Promise<FlushResult | null> {
+  /** `skipWait`: the person asked (Sync now) — changes waiting out their time after no answer go too. */
+  function trigger(opts: { skipWait?: boolean } = {}): Promise<FlushResult | null> {
+    if (opts.skipWait) asked = true;
     if (running) {
       again = true;
       return running;

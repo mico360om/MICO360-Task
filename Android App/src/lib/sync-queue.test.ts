@@ -614,3 +614,82 @@ describe('a change the server doesn’t answer is tried again later, not on ever
     expect(m).toMatchObject({ timeouts: 1, lastTryAt: c.now(), firstUnansweredAt: c.now() });
   });
 });
+
+describe('the queue’s waits after no answer, reviewed (4b review #4–#7)', () => {
+  function clock(start = 1_000_000) {
+    let t = start;
+    return { now: () => t, tick: (ms: number) => (t += ms), set: (ms: number) => (t = ms) };
+  }
+  const dropped = () => new NetworkError('Network request failed.');
+
+  it('#4 Retry on “hasn’t answered for a day” starts afresh: it is sent, not stopped again at once', async () => {
+    const c = clock();
+    const perform = vi.fn(async () => {
+      throw slow();
+    });
+    const q = createSyncQueue(opts({ perform, now: c.now, keyLifetime: { ms: KEY_SAFE_MS, applies: () => true } }));
+    await q.enqueue('task.create', { title: 'Pump' }, A);
+    await q.flush('userA');
+    c.tick(KEY_SAFE_MS);
+    await q.flush('userA');
+    const stopped = q.failedFor('userA')[0]!;
+    expect(stopped.lastError).toBe(KEY_EXPIRED_TEXT);
+    // The person checked: Retry. It goes, and another try without an answer doesn't stop it at once.
+    await q.retry(stopped.id);
+    perform.mockClear();
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(1);
+    c.tick(retryDelay(1));
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(2);
+    expect(q.failedFor('userA')).toEqual([]);
+  });
+
+  it('#5 the phone’s clock moved back doesn’t strand a change (its last try “in the future” counts as now)', async () => {
+    const c = clock(10_000_000);
+    const perform = vi.fn(async () => {
+      throw slow();
+    });
+    const q = createSyncQueue(opts({ perform, now: c.now }));
+    await q.enqueue('meeting.note.add', { meetingId: 'm1', body: 'long note' }, A);
+    await q.flush('userA');
+    // The clock is set back a day.
+    c.set(10_000_000 - 86_400_000);
+    c.tick(retryDelay(1));
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(2);
+  });
+
+  it('#6 “Sync now” sends a change waiting out its time after no answer, rather than nothing', async () => {
+    const c = clock();
+    const perform = vi.fn(async () => {
+      throw slow();
+    });
+    const q = createSyncQueue(opts({ perform, now: c.now }));
+    await q.enqueue('meeting.note.add', { meetingId: 'm1', body: 'long note' }, A);
+    await q.flush('userA');
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(1); // an automatic sync waits
+    await q.flush('userA', { skipWait: true });
+    expect(perform).toHaveBeenCalledTimes(2); // the person asked: it goes
+  });
+
+  it('#7 a create whose connection dropped once it was sent counts toward the day’s stop too (it may have reached the server)', async () => {
+    const c = clock();
+    const perform = vi.fn(async () => {
+      throw dropped();
+    });
+    const q = createSyncQueue(opts({ perform, now: c.now, keyLifetime: { ms: KEY_SAFE_MS, applies: (m) => m.kind === 'task.create' } }));
+    await q.enqueue('task.create', { title: 'Pump' }, A);
+    await q.flush('userA');
+    expect(q.pendingFor('userA')[0]!.firstUnansweredAt).toBe(c.now());
+    c.tick(KEY_SAFE_MS);
+    await q.flush('userA');
+    expect(q.failedFor('userA')[0]).toMatchObject({ lastError: KEY_EXPIRED_TEXT });
+    // A change that isn't a keyed create just waits for the connection, as before.
+    const q2 = createSyncQueue(opts({ perform, now: c.now, keyLifetime: { ms: KEY_SAFE_MS, applies: (m) => m.kind === 'task.create' } }));
+    await q2.enqueue('task.update', { id: 't1', patch: { title: 'x' } }, A);
+    await q2.flush('userA');
+    expect(q2.pendingFor('userA')[0]!.firstUnansweredAt).toBeUndefined();
+  });
+});
