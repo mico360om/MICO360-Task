@@ -8,10 +8,9 @@ import { useColors } from '../core/theme';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { Button, ErrorNote, Loader, TextField } from '../components/ui';
 import { ChipChoice, SheetMessage } from '../components/meeting/sheet-kit';
-import { COLUMN_COLORS, COLUMN_TEXT, columnNameProblem, orderedColumns } from '../lib/board-columns';
+import { COLUMN_COLORS, COLUMN_TEXT, columnNameProblem, manageColumnsGate, orderedColumns } from '../lib/board-columns';
 import { CATEGORY_LABEL } from '../lib/task-status';
 import { colorName, customColor } from '../lib/project-identity';
-import { canManageProject } from '../lib/project-team';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiColumn, ColumnCategory } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
@@ -41,11 +40,13 @@ export function BoardColumnsScreen({ route }: AppScreenProps<'BoardColumns'>) {
   const columns = useMemo(() => orderedColumns(columnsQ.data ?? []), [columnsQ.data]);
 
   if (columnsQ.isLoading || membersQ.isLoading) return <Loader />;
-  if (!canManageProject(user, membersQ.data ?? [])) {
+  // The server's rule; offline with the team not kept here it can't be checked — said so, never a refusal (4b review #13).
+  const gate = manageColumnsGate(user, membersQ.data ?? [], { membersKnown: !!membersQ.data });
+  if (gate !== 'ok') {
     return (
       <View style={s.safe}>
         <View style={s.body}>
-          <ErrorNote message={COLUMN_TEXT.refused} />
+          {gate === 'refused' ? <ErrorNote message={COLUMN_TEXT.refused} /> : <ErrorNote message={COLUMN_TEXT.needsConnection} onRetry={() => void membersQ.refetch()} retrying={membersQ.isRefetching} />}
         </View>
       </View>
     );

@@ -18,6 +18,8 @@ import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { MoveCardSheet } from '../components/board/MoveCardSheet';
 import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
+import { notice } from '../components/notice';
+import { emptyBoardText } from '../lib/board-columns';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
 import type { ApiTask } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
@@ -92,7 +94,11 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       const plan = movePlan((dest?.tasks ?? []).filter((t) => t.id !== task.id), task.id, place);
       const out = await moveCard(writes, { id: task.id, toColumnId, plan });
       if (out.kind === 'moved') tell(`Moved to ${dest?.column.name ?? 'the column'}.`);
-      else tell(out.message, out.kind !== 'kept');
+      else {
+        tell(out.message, out.kind !== 'kept');
+        // Kept on this phone: shown as well as said (4b review #10).
+        if (out.kind === 'kept') notice(out.message);
+      }
     },
     [board, writes],
   );
@@ -155,7 +161,8 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
         // Never show a failed load as an empty board ("No tasks") — MOB-08.
         <ErrorNote message="Couldn't load the tasks for this day. Check your connection and try again." onRetry={() => void tasksQ.refetch()} retrying={tasksQ.isRefetching} />
       ) : board.length === 0 ? (
-        <EmptyState title="No columns" subtitle={canManage ? 'This project has no board columns yet. Add one in Manage columns.' : 'This project has no board columns yet.'} />
+        // No columns at all, or every one switched off (4b review #13).
+        <EmptyState {...emptyBoardText({ columns: columnsQ.data?.length ?? 0, canManage })} />
       ) : (
         <FlatList
           horizontal

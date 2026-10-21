@@ -18,6 +18,7 @@ import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
 import { StatusMoveSheet } from '../components/board/StatusMoveSheet';
 import { ProjectFilterSheet } from '../components/board/ProjectFilterSheet';
+import { notice } from '../components/notice';
 import { Loader, EmptyState, ErrorNote } from '../components/ui';
 import type { BoardCard as Card } from '../lib/board';
 import type { ApiTask, ColumnCategory } from '../lib/types';
@@ -73,7 +74,11 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
       const name = projectById.get(task.projectId)?.name ?? null;
       const out = await statusMove(task, status, name);
       if (out.kind === 'moved') tell(`Moved to ${STATUS_NAME[status]}.`);
-      else if (out.kind !== 'same') tell(out.message, out.kind !== 'kept');
+      else if (out.kind !== 'same') {
+        tell(out.message, out.kind !== 'kept');
+        // Kept on this phone: shown as well as said (4b review #10).
+        if (out.kind === 'kept') notice(out.message);
+      }
     },
     [statusMove, projectById],
   );

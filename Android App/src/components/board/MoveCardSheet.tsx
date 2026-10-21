@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, FlatList, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Sheet, FieldLabel } from '../meeting/sheet-kit';
-import { Button } from '../ui';
-import { moveTargets, placeChoices, placeOrder, stepOrder, type Place } from '../../lib/board-move';
+import { Button, TextField } from '../ui';
+import { findPlaces, moveTargets, placeChoices, placeOrder, stepOrder, type Place } from '../../lib/board-move';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { BoardColumn } from '../../lib/board';
 import type { ApiTask } from '../../lib/types';
@@ -33,12 +33,17 @@ export function MoveCardSheet({
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const [to, setTo] = useState<string | null>(null);
+  const [q, setQ] = useState('');
   useEffect(() => setTo(null), [task?.id]);
+  useEffect(() => setQ(''), [to]);
 
   const own = task ? board.find((b) => b.column.id === task.columnId) : undefined;
   const ownTasks = own?.tasks ?? [];
   const targets = task ? moveTargets(board.map((b) => b.column), task.columnId) : [];
   const dest = to ? board.find((b) => b.column.id === to) : undefined;
+  // A long column's places (one after each card) are a virtualized list, found by typing (4b review #11).
+  const places = useMemo(() => (dest && task ? placeChoices(dest.tasks, task.id) : []), [dest, task]);
+  const shownPlaces = useMemo(() => findPlaces(places, q), [places, q]);
 
   const here: { label: string; order: string[] | null }[] = task && own
     ? [
@@ -62,12 +67,24 @@ export function MoveCardSheet({
       subtitle={dest ? 'Where in the column?' : task ? `${task.key}${own ? ` · in ${own.column.name}` : ''}` : null}
       onClose={close}
       closeLabel="Close, without moving the task"
+      scroll={!dest}
       footer={dest ? <Button title="Back" variant="ghost" onPress={() => setTo(null)} style={s.flex} /> : <Button title="Cancel" variant="ghost" onPress={close} style={s.flex} />}
     >
       {dest && task ? (
-        placeChoices(dest.tasks, task.id).map((choice) => (
-          <MoveOption key={typeof choice.place === 'string' ? choice.place : `after:${choice.place.after}`} label={choice.label} onPress={() => onMove(dest.column.id, choice.place)} />
-        ))
+        <>
+          {places.length > 8 ? <TextField value={q} onChangeText={setQ} placeholder="Find a card" accessibilityLabel={`Find a card in ${dest.column.name}`} autoCapitalize="none" /> : null}
+          <FlatList
+            data={shownPlaces}
+            keyExtractor={(choice) => (typeof choice.place === 'string' ? choice.place : `after:${choice.place.after}`)}
+            renderItem={({ item: choice }) => <MoveOption label={choice.label} onPress={() => onMove(dest.column.id, choice.place)} />}
+            initialNumToRender={12}
+            windowSize={7}
+            keyboardShouldPersistTaps="handled"
+            style={s.places}
+            accessibilityLabel={`Places in ${dest.column.name}`}
+            ListEmptyComponent={<Text style={s.none}>No card matches.</Text>}
+          />
+        </>
       ) : (
         <>
           {own && shownHere.length ? (
@@ -121,6 +138,7 @@ export function MoveOption({ label, a11y, dot, trailing, onPress }: { label: str
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     flex: { flex: 1 },
+    places: { flexGrow: 0, flexShrink: 1 },
     group: { gap: 2, marginBottom: spacing.md },
     none: { fontSize: fontSize.sm, color: c.ink3, paddingVertical: spacing.sm },
     option: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: radius.md, minHeight: 48 },

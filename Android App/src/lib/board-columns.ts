@@ -7,6 +7,7 @@
  */
 import { ApiError } from './api-client';
 import { COLOR_NAMES, PROJECT_COLORS } from './project-identity';
+import { canManageProject } from './project-team';
 import type { ApiColumn } from './types';
 
 export const COLUMN_TEXT = {
@@ -14,7 +15,30 @@ export const COLUMN_TEXT = {
   addNote: 'New columns start as a “To do” stage — set its mapped status after adding.',
   connection: 'Couldn’t save that column change. Check your connection and try again.',
   refused: 'Only an administrator or a manager of this project can change its columns.',
+  /** Offline, with the project's team not kept on this phone: who manages it can't be checked (4b review #13). */
+  needsConnection: 'Needs a connection to check who can manage columns. Check your connection and try again.',
 } as const;
+
+/** What an empty board says (4b review #13): no columns at all, or every one switched off. */
+export function emptyBoardText({ columns, canManage }: { columns: number; canManage: boolean }): { title: string; subtitle: string } {
+  if (columns === 0) return { title: 'No columns', subtitle: canManage ? 'This project has no board columns yet. Add one in Manage columns.' : 'This project has no board columns yet.' };
+  return { title: 'All columns are hidden', subtitle: canManage ? 'Every column of this project is switched off. Turn one on in Manage columns.' : 'Every column of this project is switched off.' };
+}
+
+/**
+ * May this person manage the columns (the server's rule, lib/project-team)? An administrator
+ * always; anyone else by the project's team — and when that couldn't be read (offline, nothing
+ * kept), it can't be said: 'needs-connection', never a refusal.
+ */
+export function manageColumnsGate(
+  user: { id: string; roles: string[] } | null,
+  members: readonly { id: string; role: 'MEMBER' | 'MANAGER' }[],
+  o: { membersKnown: boolean },
+): 'ok' | 'refused' | 'needs-connection' {
+  if (user?.roles.includes('ADMIN')) return 'ok';
+  if (!o.membersKnown) return 'needs-connection';
+  return canManageProject(user, [...members]) ? 'ok' : 'refused';
+}
 
 /** Every column, hidden ones too, in board order. */
 export function orderedColumns(columns: readonly ApiColumn[]): ApiColumn[] {

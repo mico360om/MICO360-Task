@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { View, Text, StyleSheet, Alert, Pressable, Platform, ToastAndroid, AccessibilityInfo, type ScrollView, type TextInput } from 'react-native';
+import { View, Text, StyleSheet, Alert, Pressable, AccessibilityInfo, type ScrollView, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { useQueryClient } from '@tanstack/react-query';
@@ -7,6 +7,8 @@ import { useDirectory, useProjectColumns, useProjectMembers, useProjects } from 
 import { useDatePreferences } from '../core/calendar-queries';
 import { useLastProject, useSendNewTask } from '../core/new-task';
 import { useServices } from '../core/providers';
+// A short notice that stays after the form has closed (Android's own toast; TalkBack reads it).
+import { notice } from '../components/notice';
 import { useColors } from '../core/theme';
 import { pickedFiles } from '../adapters/picked-files';
 import { Button, ErrorNote, TextField } from '../components/ui';
@@ -62,11 +64,6 @@ import type { AppScreenProps } from '../navigation/types';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
-/** A short notice that stays after the form has closed (Android's own toast; TalkBack reads it). */
-function notice(text: string) {
-  if (Platform.OS === 'android') ToastAndroid.show(text, ToastAndroid.LONG);
-  else Alert.alert(text);
-}
 
 /**
  * New task (4a) — the website's New task form: where it goes (project and column), what it is,

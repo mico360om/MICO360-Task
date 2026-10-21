@@ -10,7 +10,7 @@
  */
 import { isNetworkError } from './api-client';
 import { boardCard, type BoardCard } from './board';
-import { BOARD_TEXT, type MoveOutcome } from './board-writes';
+import { moveRefusedText, type MoveOutcome } from './board-writes';
 import { keptOnPhoneText } from './write-order';
 import type { ApiColumn, ApiProject, ApiTask, ColumnCategory } from './types';
 
@@ -129,7 +129,7 @@ export async function moveToStatus(move: (id: string, columnId: string) => Promi
     return { kind: 'moved' };
   } catch (e) {
     if (isNetworkError(e)) return { kind: 'kept', message: keptOnPhoneText(e) };
-    return { kind: 'refused', message: BOARD_TEXT.moveRefused };
+    return { kind: 'refused', message: moveRefusedText(e) };
   }
 }
 

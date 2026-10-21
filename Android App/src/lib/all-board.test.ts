@@ -150,7 +150,8 @@ describe('moving a card to a status: into its own project’s first column of th
     const refused = await moveToStatus(async () => {
       throw new ApiError(400, 'VALIDATION', 'No.');
     }, { id: '1', columnId: 'd' });
-    expect(refused).toEqual({ kind: 'refused', message: BOARD_TEXT.moveRefused });
+    expect(refused).toEqual({ kind: 'refused', message: 'Couldn’t move that task — it was put back. No.' });
+    expect(BOARD_TEXT.moveRefused).toMatch(/^Couldn’t move that task — it was put back\./);
   });
 });
 

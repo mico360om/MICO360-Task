@@ -56,7 +56,8 @@ describe('the board screen (4b)', () => {
 describe('Manage columns (4b)', () => {
   const screen = src('screens/BoardColumnsScreen.tsx');
   it('is for those the server lets manage the project; every change goes through the column actions', () => {
-    expect(screen).toMatch(/if \(!canManageProject\(user, membersQ\.data \?\? \[\]\)\)/);
+    expect(screen).toMatch(/const gate = manageColumnsGate\(user, membersQ\.data \?\? \[\], \{ membersKnown: !!membersQ\.data \}\);/);
+    expect(screen).toMatch(/gate === 'refused' \? <ErrorNote message=\{COLUMN_TEXT\.refused\} \/>/);
     for (const a of ['add', 'rename', 'recolour', 'setCategory', 'setEnabled', 'remove', 'move']) expect(screen, a).toMatch(new RegExp(`actions\\.${a}\\(`));
   });
 

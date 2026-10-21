@@ -1,4 +1,5 @@
 import { appTimeZone, dueDayKey, isOverdue } from './due-date';
+import { dateFormat } from './intl-cache';
 import { displayName, type ApiColumn, type ApiTask, type Priority } from './types';
 
 export interface BoardColumn {
@@ -94,7 +95,8 @@ export function personInitials(name: string): string {
 export function cardDueText(due: string | null, timeZone: string = appTimeZone()): string | null {
   const key = dueDayKey(due, timeZone);
   if (!key) return null;
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
+  // Made once (lib/intl-cache), not once per card drawn (4b review #12).
+  return dateFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
 }
 
 export interface CardBadge {

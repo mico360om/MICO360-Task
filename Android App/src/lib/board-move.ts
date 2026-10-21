@@ -79,6 +79,12 @@ export function placeChoices(columnTasks: readonly (Placed & { key: string; titl
   return out;
 }
 
+/** The places whose words hold what was typed (a long column's "after a card" list — 4b review #11). */
+export function findPlaces<T extends { label: string }>(places: readonly T[], q: string): T[] {
+  const needle = q.trim().toLowerCase();
+  return needle ? places.filter((p) => p.label.toLowerCase().includes(needle)) : [...places];
+}
+
 /** A column's cards in a new order, at once (each one's place is its index), before the server answers. */
 export function withOrder<T extends { id: string; columnId: string; position: number }>(tasks: readonly T[], columnId: string, orderedIds: readonly string[]): T[] {
   const index = new Map(orderedIds.map((id, i) => [id, i]));

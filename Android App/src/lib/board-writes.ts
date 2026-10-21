@@ -5,14 +5,22 @@
  * on the website (a refused or unsent one puts the card back). Pure (the requests come in), so it is
  * tested here.
  */
-import { isNetworkError } from './api-client';
+import { ApiError, isNetworkError } from './api-client';
 import { keptOnPhoneText } from './write-order';
 
 export const BOARD_TEXT = {
   moveRefused: 'Couldn’t move that task — it was put back. Please try again.',
   orderNeedsConnection: 'Changing the order needs a connection — the card was put back.',
   orderNotSaved: 'Moved. Its place in the column wasn’t saved — check your connection, then place it again.',
+  /** A move kept on this phone goes later with its place as a number: the column may have changed by then (4b review #8). */
+  placeMayChange: 'Its place in the column may change when it syncs.',
 } as const;
+
+/** A refused move: the card went back, and why — the server's own reason when it gave one (4b review #9). */
+export function moveRefusedText(e: unknown): string {
+  if (e instanceof ApiError && e.status < 500 && e.message && !/^Request failed/.test(e.message)) return `Couldn’t move that task — it was put back. ${e.message}`;
+  return BOARD_TEXT.moveRefused;
+}
 
 export type MoveOutcome =
   | { kind: 'moved' }
@@ -43,8 +51,9 @@ export async function moveCard(deps: MoveDeps, req: { id: string; toColumnId: st
   try {
     await deps.move(req.id, req.toColumnId, req.plan.index, req.plan.at);
   } catch (e) {
-    if (isNetworkError(e)) return { kind: 'kept', message: keptOnPhoneText(e) };
-    return { kind: 'refused', message: BOARD_TEXT.moveRefused };
+    // Kept: a place among other cards is sent as its number, so it may land elsewhere (4b review #8).
+    if (isNetworkError(e)) return { kind: 'kept', message: req.plan.orderedIds.length >= 2 ? `${keptOnPhoneText(e)} ${BOARD_TEXT.placeMayChange}` : keptOnPhoneText(e) };
+    return { kind: 'refused', message: moveRefusedText(e) };
   }
   if (req.plan.orderedIds.length < 2) return { kind: 'moved' };
   try {
@@ -60,6 +69,6 @@ export async function reorderCards(deps: Pick<MoveDeps, 'reorder'>, req: { colum
     await deps.reorder(req.columnId, req.orderedIds);
     return { kind: 'done' };
   } catch (e) {
-    return { kind: 'put-back', message: isNetworkError(e) ? BOARD_TEXT.orderNeedsConnection : BOARD_TEXT.moveRefused };
+    return { kind: 'put-back', message: isNetworkError(e) ? BOARD_TEXT.orderNeedsConnection : moveRefusedText(e) };
   }
 }

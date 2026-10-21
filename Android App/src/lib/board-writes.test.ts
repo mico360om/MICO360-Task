@@ -26,12 +26,14 @@ describe('moving a card on the board (4b): the move, then the column’s order, 
 
   it('offline the move is kept on the phone with its place (the order goes when it is sent); a refusal puts the card back', async () => {
     const offline = { move: vi.fn(async () => Promise.reject(kept(new NetworkError('Network request failed.')))), reorder: vi.fn(async () => {}) };
-    expect(await moveCard(offline, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'kept', message: 'Saved on this phone — will sync when you’re online.' });
+    // Its place among other cards may change when it syncs (4b review #8).
+    expect(await moveCard(offline, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'kept', message: `Saved on this phone — will sync when you’re online. ${BOARD_TEXT.placeMayChange}` });
     expect(offline.reorder).not.toHaveBeenCalled();
     const behind = { move: vi.fn(async () => Promise.reject(new WaitingBehindError())), reorder: vi.fn(async () => {}) };
     expect((await moveCard(behind, { id: 'x', toColumnId: 'c2', plan })).kind).toBe('kept');
     const refused = { move: vi.fn(async () => Promise.reject(new ApiError(403, 'FORBIDDEN', 'You do not have permission to do that.'))), reorder: vi.fn(async () => {}) };
-    expect(await moveCard(refused, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'refused', message: BOARD_TEXT.moveRefused });
+    // The server's reason is said (4b review #9).
+    expect(await moveCard(refused, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'refused', message: 'Couldn’t move that task — it was put back. You do not have permission to do that.' });
   });
 
   it('moved, but its place not saved (the connection went): it says so', async () => {
@@ -48,7 +50,7 @@ describe('changing a card’s place in its own column (4b)', () => {
     const offline = { reorder: vi.fn(async () => Promise.reject(new NetworkError('Network request failed.'))) };
     expect(await reorderCards(offline, { columnId: 'c1', orderedIds: ['b', 'a'] })).toEqual({ kind: 'put-back', message: BOARD_TEXT.orderNeedsConnection });
     const refused = { reorder: vi.fn(async () => Promise.reject(new ApiError(403, 'FORBIDDEN', 'x'))) };
-    expect(await reorderCards(refused, { columnId: 'c1', orderedIds: ['b', 'a'] })).toEqual({ kind: 'put-back', message: BOARD_TEXT.moveRefused });
+    expect(await reorderCards(refused, { columnId: 'c1', orderedIds: ['b', 'a'] })).toEqual({ kind: 'put-back', message: 'Couldn’t move that task — it was put back. x' });
   });
 
   it('in the website’s words', () => {

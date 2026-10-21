@@ -27,6 +27,7 @@ export function Sheet({
   closeLabel,
   footer,
   children,
+  scroll = true,
 }: {
   visible: boolean;
   title: string;
@@ -36,6 +37,8 @@ export function Sheet({
   closeLabel?: string;
   footer?: React.ReactNode;
   children: React.ReactNode;
+  /** false: its fields don't scroll as one — a long list in it scrolls (and is virtualized) itself. */
+  scroll?: boolean;
 }) {
   const s = useSheetStyles();
   const insets = useSafeAreaInsets();
@@ -49,9 +52,13 @@ export function Sheet({
             {title}
           </Text>
           {subtitle ? <Text style={s.subtitle}>{subtitle}</Text> : null}
-          <KeyboardAwareScrollView style={s.body} contentContainerStyle={s.bodyContent}>
-            {children}
-          </KeyboardAwareScrollView>
+          {scroll ? (
+            <KeyboardAwareScrollView style={s.body} contentContainerStyle={s.bodyContent}>
+              {children}
+            </KeyboardAwareScrollView>
+          ) : (
+            <View style={[s.body, s.bodyContent]}>{children}</View>
+          )}
           {footer ? <View style={s.footer}>{footer}</View> : null}
         </View>
       </KeyboardAvoidingView>
