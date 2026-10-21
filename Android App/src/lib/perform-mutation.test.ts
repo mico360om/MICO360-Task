@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { performMutation, describeMutation, refreshesAfterReplay, waitingReason } from './perform-mutation';
+import { performMutation, describeMutation, isKeyedCreate, refreshesAfterReplay, waitingReason } from './perform-mutation';
 
 describe('waitingReason — why a waiting change can be discarded (2c review fix 4)', () => {
   it('says the server hasn’t answered, or that it has waited a long while', () => {
@@ -293,5 +293,19 @@ describe('meeting changes made offline (2b: notes, action items, the agenda’s 
     expect(describeMutation({ kind: 'meeting.agenda.covered', payload: { completed: true } })).toBe('Tick off an agenda item');
     expect(describeMutation({ kind: 'meeting.agenda.covered', payload: { completed: false } })).toBe('Untick an agenda item');
     expect(describeMutation({ kind: 'meeting.attendance', payload: {} })).toBe('Record attendance');
+  });
+});
+
+describe('the changes a lost key could make twice (4a review #1)', () => {
+  it('are the creates sent under an idempotency key — not chat messages (their client id keeps them single) nor edits', () => {
+    for (const kind of ['task.create', 'checklist.add', 'comment.add', 'meeting.note.add', 'meeting.action.add']) expect(isKeyedCreate({ kind }), kind).toBe(true);
+    for (const kind of ['chat.send', 'task.update', 'task.move', 'checklist.update', 'meeting.attendance', 'notification.read']) expect(isKeyedCreate({ kind }), kind).toBe(false);
+  });
+
+  it('the app’s queue stops those after a day without an answer', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const services = readFileSync(resolve(__dirname, '../core/services.ts'), 'utf8');
+    expect(services).toMatch(/keyLifetime: \{ ms: KEY_SAFE_MS, applies: isKeyedCreate \}/);
   });
 });

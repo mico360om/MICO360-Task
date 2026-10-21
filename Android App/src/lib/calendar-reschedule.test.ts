@@ -106,7 +106,7 @@ describe('what the screen says', () => {
     // earlier change still waiting, or no answer in time — the person may well be online.
     expect(queuedMoveText(task({}), '2026-10-13', new NetworkError('Network request failed.'))).toBe('Moving MICO-1 to Tue 13 Oct. Saved on this phone — will sync when you’re online.');
     expect(queuedMoveText(task({}), '2026-10-13', new WaitingBehindError())).toBe(
-      'Moving MICO-1 to Tue 13 Oct. Saved on this phone — it goes after an earlier change to this that is still waiting to sync.',
+      'Moving MICO-1 to Tue 13 Oct. Saved on this phone — it goes after an earlier change to this that is still waiting to sync. If that one is stuck, you can discard it from “waiting to sync” in Settings.',
     );
     expect(queuedMoveText(task({}), '2026-10-13', new NetworkError('The server took too long to respond.', { timedOut: true }))).toBe(
       'Moving MICO-1 to Tue 13 Oct. The server didn’t answer in time — saved on this phone and sent again shortly.',

@@ -7,7 +7,7 @@ import { dropOvertaken, isKeptOnPhone, keptOnPhoneText, queueOnOffline, sendInOr
 
 describe('what the screen says about a change kept on this phone (2c review fix 4)', () => {
   it('one waiting behind an earlier change is not blamed on the connection', () => {
-    expect(keptOnPhoneText(new WaitingBehindError())).toBe('Saved on this phone — it goes after an earlier change to this that is still waiting to sync.');
+    expect(keptOnPhoneText(new WaitingBehindError())).toMatch(/^Saved on this phone — it goes after an earlier change to this that is still waiting to sync\./);
     expect(keptOnPhoneText(new NetworkError('The server took too long to respond.', { timedOut: true }))).toBe(
       'The server didn’t answer in time — saved on this phone and sent again shortly.',
     );
@@ -67,7 +67,9 @@ function fakeServer() {
 
 async function setup() {
   const server = fakeServer();
-  const queue = createSyncQueue({ store: fakeStore(), perform: (m) => performMutation(server.resources, m) });
+  // Each sync here comes after the wait a change without an answer has before its next try (4a review).
+  let clock = 1_000;
+  const queue = createSyncQueue({ store: fakeStore(), perform: (m) => performMutation(server.resources, m), now: () => (clock += 11 * 60_000) });
   await queue.load();
   const sync = vi.fn();
   const deps = { queue, userId: () => 'u1', sync };
@@ -260,5 +262,13 @@ describe('after the sync, a refused older change can’t be retried over a newer
     await dropOvertaken(queue, 'u1', result.done);
     // a2's refused tick is gone (its Retry would tick it again over the untick); a9's stays.
     expect(queue.failedFor('u1').map((m) => (m.payload as { itemId: string }).itemId)).toEqual(['a9']);
+  });
+});
+
+describe('a change waiting behind a stuck one says where to discard it (4a review #1)', () => {
+  it('points to the list of changes waiting to sync', () => {
+    expect(keptOnPhoneText(new WaitingBehindError())).toBe(
+      'Saved on this phone — it goes after an earlier change to this that is still waiting to sync. If that one is stuck, you can discard it from “waiting to sync” in Settings.',
+    );
   });
 });

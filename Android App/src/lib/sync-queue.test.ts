@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSyncQueue, classifyReplayError, NO_ANSWER_TEXT, waitingTooLong, type QueuedMutation } from './sync-queue';
+import { createSyncQueue, classifyReplayError, KEY_EXPIRED_TEXT, KEY_SAFE_MS, NO_ANSWER_TEXT, retryDelay, waitingTooLong, type QueuedMutation } from './sync-queue';
 import { replayLane } from './write-order';
 import { rebaseQueuedVersion } from './task-writes';
 import { createMemoryStore } from './storage';
@@ -8,6 +8,11 @@ import { ApiError, NetworkError } from './api-client';
 const slow = () => new NetworkError('The server took too long to respond.', { timedOut: true });
 /** Every change in a lane of its own, named by its payload (the app's lanes are tested in write-order). */
 const byPayload = (m: QueuedMutation) => String((m.payload as { lane?: unknown } | null)?.lane ?? m.id);
+/** A clock past every retry wait each time it is read (each sync tries an unanswered change again — 4a review). */
+const later = () => {
+  let t = 1000;
+  return () => (t += 11 * 60_000);
+};
 
 describe('a change the server keeps not answering (2c review fix 4, 3a review fix 11, 3b review fixes 1, 2 and 4)', () => {
   it('counts each time-out but never marks it failed: it keeps waiting (Discard is offered) and goes once the server answers', async () => {
@@ -15,7 +20,7 @@ describe('a change the server keeps not answering (2c review fix 4, 3a review fi
     const perform = vi.fn(async () => {
       if (hang) throw slow();
     });
-    const q = createSyncQueue(opts({ perform }));
+    const q = createSyncQueue(opts({ perform, now: later() }));
     await q.enqueue('chat.send', { conversationId: 'c1', body: 'hi' }, A);
     expect((await q.flush('userA')).pausedBy).toBe('offline');
     expect(q.pendingFor('userA')[0]).toMatchObject({ timeouts: 1, attempts: 0 });
@@ -36,7 +41,7 @@ describe('a change the server keeps not answering (2c review fix 4, 3a review fi
       sent.push(p.patch);
       return { id: 't1', version: (p.patch.expectedVersion ?? 0) + 1 };
     });
-    const q = createSyncQueue(opts({ perform, lane: replayLane, rebase: rebaseQueuedVersion }));
+    const q = createSyncQueue(opts({ perform, lane: replayLane, rebase: rebaseQueuedVersion, now: later() }));
     await q.enqueue('task.update', { id: 't1', patch: { title: 'A', expectedVersion: 3 } }, A);
     await q.enqueue('task.update', { id: 't1', patch: { description: 'B', expectedVersion: 3 } }, A);
     for (let i = 0; i < 3; i++) await q.flush('userA');
@@ -70,7 +75,7 @@ describe('a change the server keeps not answering (2c review fix 4, 3a review fi
       order.push(p.body);
       if (p.body === 'stuck') throw slow();
     });
-    const q = createSyncQueue(opts({ perform, lane: byPayload }));
+    const q = createSyncQueue(opts({ perform, lane: byPayload, now: later() }));
     await q.enqueue('meeting.note.add', { lane: 'notes:m1', body: 'stuck' }, A);
     await q.flush('userA');
     await q.enqueue('chat.send', { lane: 'chat:c1', body: 'new message' }, A);
@@ -167,7 +172,7 @@ describe('Retry after a refusal (3a review fix 7)', () => {
       if (fail === 'slow') throw slow();
       if (fail === 'down') throw new ApiError(503, 'UNAVAILABLE', 'down');
     });
-    const q = createSyncQueue(opts({ perform, maxAttempts: 2 }));
+    const q = createSyncQueue(opts({ perform, maxAttempts: 2, now: later() }));
     await q.enqueue('task.create', { title: 'x' }, { ...A, idempotencyKey: 'first' });
     for (let i = 0; i < 3; i++) await q.flush('userA');
     fail = 'down';
@@ -516,5 +521,96 @@ describe('classifyReplayError', () => {
     expect(classifyReplayError(new ApiError(503, 'UNAVAILABLE', ''))).toBe('transient');
     expect(classifyReplayError(new ApiError(404, 'NOT_FOUND', ''))).toBe('permanent');
     expect(classifyReplayError(new Error('???'))).toBe('transient');
+  });
+});
+
+describe('a change the server doesn’t answer is tried again later, not on every sync (4a review #1)', () => {
+  /** A clock the test moves. */
+  function clock(start = 1_000_000) {
+    let t = start;
+    return { now: () => t, tick: (ms: number) => (t += ms) };
+  }
+
+  it('waits longer after each try with no answer (30 s, 1 min, 2 min … at most 10 min), then goes again', async () => {
+    const c = clock();
+    const perform = vi.fn(async () => {
+      throw slow();
+    });
+    const q = createSyncQueue(opts({ perform, now: c.now }));
+    await q.enqueue('meeting.note.add', { meetingId: 'm1', body: 'long note' }, A);
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(1);
+    await q.flush('userA'); // the next sync, 15 s later: not yet
+    expect(perform).toHaveBeenCalledTimes(1);
+    c.tick(29_000);
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(1);
+    c.tick(1_000);
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(2);
+    c.tick(59_000);
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(2);
+    c.tick(1_000);
+    await q.flush('userA');
+    expect(perform).toHaveBeenCalledTimes(3);
+    expect(retryDelay(1)).toBe(30_000);
+    expect(retryDelay(2)).toBe(60_000);
+    expect(retryDelay(9)).toBe(600_000);
+  });
+
+  it('a new message goes at once while a stuck change’s try is still on its way', async () => {
+    const c = clock();
+    const sent: string[] = [];
+    let stuckTry!: () => void;
+    const perform = vi.fn((m: QueuedMutation) => {
+      const p = m.payload as { lane: string; body: string };
+      if (p.body === 'stuck') return new Promise<void>((_r, reject) => (stuckTry = () => reject(slow())));
+      sent.push(p.body);
+      return Promise.resolve();
+    });
+    const q = createSyncQueue(opts({ perform, lane: byPayload, now: c.now }));
+    // A long note the server didn't answer: its next try, a minute later, hangs again.
+    await q.enqueue('meeting.note.add', { lane: 'notes:m1', body: 'stuck' }, { ...A, answerLost: true });
+    c.tick(60_000);
+    const flushing = q.flush('userA');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(perform).toHaveBeenCalledTimes(1);
+    await q.enqueue('chat.send', { lane: 'chat:c1', body: 'new message' }, A);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual(['new message']); // not after the stuck note's 20 s
+    stuckTry();
+    const res = await flushing;
+    expect(res.synced).toBe(1);
+    expect(q.pendingFor('userA')).toHaveLength(1);
+  });
+
+  it('a create the server hasn’t answered for a day isn’t sent again under its key (the server forgets keys after 24 h): it asks you to check', async () => {
+    const c = clock();
+    const perform = vi.fn(async () => {
+      throw slow();
+    });
+    const keyed = (m: QueuedMutation) => m.kind !== 'chat.send';
+    const q = createSyncQueue(opts({ perform, now: c.now, keyLifetime: { ms: KEY_SAFE_MS, applies: keyed } }));
+    await q.enqueue('task.create', { title: 'Pump' }, A);
+    await q.enqueue('chat.send', { conversationId: 'c1', body: 'hi' }, B);
+    await q.flush('userA');
+    await q.flush('userB');
+    c.tick(KEY_SAFE_MS);
+    perform.mockClear();
+    const res = await q.flush('userA');
+    await q.flush('userB');
+    expect(res.failed.map((m) => m.kind)).toEqual(['task.create']);
+    expect(q.failedFor('userA')[0]).toMatchObject({ lastError: KEY_EXPIRED_TEXT });
+    expect(q.failedFor('userA')[0]!.refused).toBeUndefined();
+    expect(perform).toHaveBeenCalledTimes(1); // only the message (its client id keeps it from being stored twice)
+    expect(KEY_SAFE_MS).toBe(23 * 60 * 60_000);
+  });
+
+  it('a change kept after its live try got no answer starts out waiting (and counted) like one the sync tried', async () => {
+    const c = clock();
+    const q = createSyncQueue(opts({ now: c.now }));
+    const m = await q.enqueue('task.create', { title: 'Pump' }, { ...A, answerLost: true });
+    expect(m).toMatchObject({ timeouts: 1, lastTryAt: c.now(), firstUnansweredAt: c.now() });
   });
 });

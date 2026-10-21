@@ -14,8 +14,8 @@ import { resourcesApi } from '../lib/resources';
 import { createReadCache } from '../lib/read-cache';
 import { createOfflineReads, type OfflineReads } from '../lib/offline-reads';
 import { chatThreadCopyKey, offlineCopyCaps } from '../lib/offline-copy';
-import { createSyncQueue, type QueuedMutation } from '../lib/sync-queue';
-import { performMutation, refreshesAfterReplay } from '../lib/perform-mutation';
+import { createSyncQueue, KEY_SAFE_MS, type QueuedMutation } from '../lib/sync-queue';
+import { isKeyedCreate, performMutation, refreshesAfterReplay } from '../lib/perform-mutation';
 import { refresh } from '../lib/refresh';
 import { noteReplayed, rebaseQueuedVersion, taskWrites } from '../lib/task-writes';
 import { dropOvertaken, replayLane } from '../lib/write-order';
@@ -216,6 +216,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     // A change waits only behind earlier changes of its own item or conversation: one the server
     // doesn't answer holds its lane, not every chat message behind it (2c and 3a reviews).
     lane: replayLane,
+    // A create the server hasn't answered for a day isn't sent again under its key (4a review).
+    keyLifetime: { ms: KEY_SAFE_MS, applies: isKeyedCreate },
   });
   // The lists read through the offline copy; one it answered is out of date at once (refreshed when
   // back online or back in the app), and the board shows the moves still waiting (offline-reads).

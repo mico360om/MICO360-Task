@@ -58,12 +58,12 @@ describe('createSyncController (A8 sync-on-reconnect)', () => {
     });
     const controller = createSyncController({ queue, getUserId: () => 'u1' });
     const first = controller.trigger();
-    const second = await controller.trigger(); // while first is still awaiting the gate
-    expect(second).toBeNull();
+    const second = controller.trigger(); // while first is still awaiting the gate: the same run
+    expect(second).toBe(first);
+    expect(queue.flush).toHaveBeenCalledOnce();
     expect(controller.isFlushing()).toBe(true);
     release();
     await first;
-    expect(queue.flush).toHaveBeenCalledOnce();
     expect(controller.isFlushing()).toBe(false);
   });
 
@@ -76,5 +76,26 @@ describe('createSyncController (A8 sync-on-reconnect)', () => {
     expect(shouldContinue()).toBe(true);
     user = null;
     expect(shouldContinue()).toBe(false);
+  });
+});
+
+describe('"Sync now" while a sync is running (4a review #1)', () => {
+  it('runs one more sync right after it, instead of doing nothing (never two at once)', async () => {
+    let release!: () => void;
+    let calls = 0;
+    const queue = fakeQueue([m('1')], async () => {
+      calls += 1;
+      if (calls === 1) await new Promise<void>((r) => (release = r));
+      return { synced: 1, done: [m('1')], failed: [], remaining: 0 };
+    });
+    const controller = createSyncController({ queue, getUserId: () => 'u1' });
+    const first = controller.trigger();
+    const second = controller.trigger(); // Sync now, while the first is still running
+    const third = controller.trigger();
+    expect(queue.flush).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([first, second, third]);
+    expect(queue.flush).toHaveBeenCalledTimes(2);
+    expect(controller.isFlushing()).toBe(false);
   });
 });

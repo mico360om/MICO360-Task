@@ -231,6 +231,17 @@ export function waitingReason(m: Pick<QueuedMutation, 'createdAt' | 'timeouts'>,
   return `Waiting to sync for ${hours} hours.`;
 }
 
+/**
+ * The creates sent under an idempotency key (4a review): a try of one the server may have saved
+ * could make it twice once the server has forgotten the key (after 24 h). Chat messages are not
+ * among them (their client id keeps them single), nor edits (sending one again does no harm).
+ */
+const KEYED_CREATES: ReadonlySet<string> = new Set(['task.create', 'checklist.add', 'comment.add', 'meeting.note.add', 'meeting.action.add']);
+
+export function isKeyedCreate(m: { kind: string }): boolean {
+  return KEYED_CREATES.has(m.kind);
+}
+
 /** Short, human description of a queued change for the "waiting to sync / couldn't save" list. */
 export function describeMutation(m: Pick<QueuedMutation, 'kind' | 'payload'>): string {
   const p = (m.payload ?? {}) as Record<string, unknown>;

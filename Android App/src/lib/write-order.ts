@@ -150,7 +150,7 @@ export class WaitingBehindError extends NetworkError {
  * waits for one.
  */
 export function keptOnPhoneText(e: unknown): string {
-  if (e instanceof WaitingBehindError) return 'Saved on this phone — it goes after an earlier change to this that is still waiting to sync.';
+  if (e instanceof WaitingBehindError) return 'Saved on this phone — it goes after an earlier change to this that is still waiting to sync. If that one is stuck, you can discard it from “waiting to sync” in Settings.';
   if (isNetworkError(e) && (e as { timedOut?: unknown }).timedOut === true) return 'The server didn’t answer in time — saved on this phone and sent again shortly.';
   return 'Saved on this phone — will sync when you’re online.';
 }
@@ -172,7 +172,7 @@ export function isKeptOnPhone(error: unknown): boolean {
 export async function sendInOrder<T>(deps: WriteOrderDeps, write: Write, send: () => Promise<T>): Promise<T> {
   const userId = deps.userId();
   const target = writeTarget(write.kind, write.payload);
-  const keep = () => deps.queue.enqueue(write.kind, write.payload, { userId: userId!, idempotencyKey: write.idempotencyKey });
+  const keep = (answerLost = false) => deps.queue.enqueue(write.kind, write.payload, { userId: userId!, idempotencyKey: write.idempotencyKey, ...(answerLost ? { answerLost } : {}) });
   if (userId && target && deps.queue.pendingFor(userId).some((m) => writeTarget(m.kind, m.payload) === target)) {
     await keep();
     deps.sync?.();
@@ -185,7 +185,8 @@ export async function sendInOrder<T>(deps: WriteOrderDeps, write: Write, send: (
     if (userId && isNetworkError(e) && e && typeof e === 'object') {
       // Kept for the person who made it, and only while they are still signed in: sign-out dropped
       // their changes, and one that came back now would replay at the next sign-in (2c review).
-      if (deps.userId() === userId) await keep();
+      // One whose try got no answer may be saved: it starts out waiting before its next try (4a review).
+      if (deps.userId() === userId) await keep((e as { timedOut?: unknown }).timedOut === true);
       // Either way nothing more is kept (the screen's offline path would keep it for whoever is in).
       (e as Record<symbol, unknown>)[KEPT] = true;
     }
@@ -213,7 +214,8 @@ export async function queueOnOffline(
   idempotencyKey?: string,
 ): Promise<void> {
   if (!userId || !isNetworkError(err) || isKeptOnPhone(err)) return;
-  await queue.enqueue(kind, payload, { userId, idempotencyKey });
+  const answerLost = (err as { timedOut?: unknown }).timedOut === true;
+  await queue.enqueue(kind, payload, { userId, idempotencyKey, ...(answerLost ? { answerLost } : {}) });
 }
 
 /**

@@ -24,6 +24,10 @@ export interface QueuedMutation {
   attempts: number;
   /** Tries the server didn't answer in time (a timeout, not "no connection"); older builds leave it out. */
   timeouts?: number;
+  /** When the last try without an answer was made: the next waits retryDelay(timeouts) after it (4a review). */
+  lastTryAt?: number;
+  /** When a try first went without an answer: the server keeps its key for a day from about then. */
+  firstUnansweredAt?: number;
   /** It was refused, and the server keeps that refusal under its key: a Retry goes under a new key. */
   refused?: boolean;
   status: MutationStatus;
@@ -33,6 +37,26 @@ export interface QueuedMutation {
 
 /** Why a change the server never answered stopped being sent (it shows with Retry and Discard). */
 export const NO_ANSWER_TEXT = 'The server didn’t answer in time. It may have been saved — check before you retry.';
+
+/**
+ * How long a change the server didn't answer waits before it is sent again (4a review): 30 s after
+ * the first try, then twice as long each time, at most 10 minutes — not on every sync, so a stuck
+ * long note isn't sent twice a minute all day.
+ */
+export function retryDelay(timeouts: number): number {
+  return Math.min(15_000 * 2 ** Math.max(1, timeouts), 10 * 60_000);
+}
+
+/**
+ * The server keeps an idempotency key for 24 hours. A create it may have saved is not sent again
+ * under its key once about that long has passed since its first unanswered try (a retry could
+ * then make it twice): it is stopped with KEY_EXPIRED_TEXT, to be checked first (4a review).
+ */
+export const KEY_SAFE_MS = 23 * 60 * 60_000;
+export const KEY_EXPIRED_TEXT = 'The server hasn’t answered this for a day, so it wasn’t sent again. It may have been saved — check before you retry.';
+
+/** Changes the server didn't answer that are tried again at the same time, aside from the rest. */
+const MAX_ASIDE = 3;
 
 /** A change waiting this long can be discarded from the list (it may be stuck). */
 export const LONG_WAIT_MS = 15 * 60_000;
@@ -64,6 +88,8 @@ export interface EnqueueOptions {
   userId: string;
   /** Reuse the key of the online attempt that just failed; a new one is minted when absent. */
   idempotencyKey?: string;
+  /** Its live try got no answer in time (it may be saved): it starts out counted and waiting (4a review). */
+  answerLost?: boolean;
 }
 
 export interface SyncQueueOptions {
@@ -79,6 +105,8 @@ export interface SyncQueueOptions {
   classifyError?: (error: unknown) => FailureKind;
   /** Server-side failures tolerated before an item is marked failed (default 5). */
   maxAttempts?: number;
+  /** The server's key lifetime (KEY_SAFE_MS) and the changes it matters for (keyed creates — 4a review). */
+  keyLifetime?: { ms: number; applies: (m: QueuedMutation) => boolean };
   /**
    * What a change waits behind (write-order replayLane): changes of one lane go in order, and one
    * that gets no answer or a server hiccup holds only its own lane. Default: one lane for all.
@@ -207,6 +235,7 @@ export function createSyncQueue(options: SyncQueueOptions) {
       idempotencyKey: opts.idempotencyKey || genKey(),
       attempts: 0,
       status: 'pending',
+      ...(opts.answerLost ? { timeouts: 1, lastTryAt: now(), firstUnansweredAt: now() } : {}),
     };
     await commit([...queue, mutation]);
     return mutation;
@@ -219,9 +248,18 @@ export function createSyncQueue(options: SyncQueueOptions) {
     const done: QueuedMutation[] = [];
     const failed: QueuedMutation[] = [];
     let pausedBy: FlushResult['pausedBy'];
+    let stop = false;
+    /** The flush stops here (the first reason is the one told); changes already on their way finish. */
+    const pause = (why: NonNullable<FlushResult['pausedBy']>) => {
+      pausedBy ??= why;
+      stop = true;
+    };
     // Lanes held back for the rest of this flush: their first change got no answer, or a hiccup.
     const held = new Set<string>();
     let heldBy: 'offline' | 'server' | undefined;
+    // Lanes with a change on its way now (4a review): each lane goes in order, one at a time, but a
+    // slow change of one lane never makes another lane's wait — a new message goes at once.
+    const busy = new Map<string, Promise<void>>();
     const fail = async (m: QueuedMutation, patch: Partial<QueuedMutation>) => {
       await update(m.id, { status: 'failed', ...patch });
       failed.push({ ...m, status: 'failed', ...patch });
@@ -229,45 +267,46 @@ export function createSyncQueue(options: SyncQueueOptions) {
     /**
      * One change of a lane got no answer (or a server hiccup): its lane waits, the others go on —
      * unless one already did this flush, then the connection or the server is the problem and the
-     * whole flush pauses. True when the flush must stop.
+     * whole flush pauses.
      */
-    const holdLane = (m: QueuedMutation, why: 'offline' | 'server'): boolean => {
-      if (held.size > 0) {
-        pausedBy = why;
-        return true;
-      }
+    const holdLane = (m: QueuedMutation, why: 'offline' | 'server'): void => {
+      if (held.size > 0) return pause(why);
       held.add(laneOf(m));
       heldBy = why;
-      return false;
     };
 
     /**
-     * The next change to send: the first waiting change of a lane not held — a lane whose first
-     * change got no answer last time goes after the others (3b review), so a stuck note doesn't
-     * make every new message wait out its time-out first. Within a lane the order never changes.
+     * The next change to send: the first waiting change of a lane not held and not busy — a lane
+     * whose first change got no answer last time goes after the others (3b review), and only once
+     * its wait is over (retryDelay — 4a review); until then the rest of its lane waits with it.
+     * Within a lane the order never changes.
      */
     const next = (): QueuedMutation | undefined => {
       const seen = new Set<string>();
       let unanswered: QueuedMutation | undefined;
+      const t = now();
       for (const x of queue) {
         if (x.userId !== userId || x.status !== 'pending') continue;
         const lane = laneOf(x);
         if (seen.has(lane)) continue;
         seen.add(lane);
-        if (held.has(lane)) continue;
+        if (held.has(lane) || busy.has(lane)) continue;
         if (!(x.timeouts ?? 0)) return x;
+        if (busy.size >= MAX_ASIDE) continue;
+        if (x.lastTryAt !== undefined && t < x.lastTryAt + retryDelay(x.timeouts ?? 0)) continue;
         unanswered ??= x;
       }
       return unanswered;
     };
 
-    for (;;) {
-      if (opts.shouldContinue && !opts.shouldContinue()) {
-        pausedBy = 'user-changed';
-        break;
+    async function tryOne(m: QueuedMutation): Promise<void> {
+      // The server forgets a key after a day (4a review): a create it may have saved isn't sent
+      // again under its key so late — it asks the person to check first.
+      const life = options.keyLifetime;
+      if (life && (m.timeouts ?? 0) > 0 && life.applies(m) && now() - (m.firstUnansweredAt ?? m.createdAt) >= life.ms) {
+        await fail(m, { lastError: KEY_EXPIRED_TEXT });
+        return;
       }
-      const m = next();
-      if (!m) break;
       try {
         const result = await perform(m);
         const rest = queue.filter((x) => x.id !== m.id);
@@ -279,26 +318,21 @@ export function createSyncQueue(options: SyncQueueOptions) {
         const kind = classify(error);
         if (kind === 'offline') {
           // No connection at all: everything waits, nothing is counted.
-          if (!isTimeout(error)) {
-            pausedBy = 'offline';
-            break;
-          }
+          if (!isTimeout(error)) return pause('offline');
           // The request went and no answer came in time. It may be saved, so it is never failed (3b
           // review): it keeps waiting at the head of its lane — a later change of the same item can't
-          // overtake it with a version it never moved on — and is sent again in every sync until the
-          // server answers. It is counted ("no answer yet, N tries"), and can be discarded (waitingTooLong).
-          await update(m.id, { timeouts: (m.timeouts ?? 0) + 1 });
-          if (holdLane(m, 'offline')) break;
-          continue;
+          // overtake it with a version it never moved on — and is sent again once its wait is over
+          // (longer after each try — 4a review) until the server answers. It is counted ("no answer
+          // yet, N tries"), and can be discarded (waitingTooLong).
+          const t = now();
+          await update(m.id, { timeouts: (m.timeouts ?? 0) + 1, lastTryAt: t, firstUnansweredAt: m.firstUnansweredAt ?? t });
+          return holdLane(m, 'offline');
         }
-        if (kind === 'unauthorized') {
-          pausedBy = 'unauthorized';
-          break;
-        }
+        if (kind === 'unauthorized') return pause('unauthorized');
         if (kind === 'permanent') {
           // The server keeps this refusal under the key: a Retry goes under a new one (3a review).
           await fail(m, { lastError: errorText(error), refused: true });
-          continue;
+          return;
         }
         const attempts = m.attempts + 1;
         // A refusal the server keeps under this key would come back on every retry (and a "Retry"
@@ -306,12 +340,50 @@ export function createSyncQueue(options: SyncQueueOptions) {
         const rekey = needsNewKey(error) ? { idempotencyKey: genKey() } : {};
         if (attempts >= maxAttempts) {
           await fail(m, { attempts, lastError: errorText(error), ...rekey });
-          continue; // one poisoned item must not block everything behind it
+          return; // one poisoned item must not block everything behind it
         }
         await update(m.id, { attempts, lastError: errorText(error), ...rekey });
         // A hiccup on one change (a meeting note) holds its own lane, not the chat behind it (3a review).
-        if (holdLane(m, 'server')) break;
+        holdLane(m, 'server');
       }
+    }
+
+    // A change added while this flush runs is picked up at once (a new message), not after it.
+    let wake: (() => void) | null = null;
+    const nudge = () => wake?.();
+    listeners.add(nudge);
+    try {
+      for (;;) {
+        if (opts.shouldContinue && !opts.shouldContinue()) pause('user-changed');
+        if (stop) break;
+        const m = next();
+        if (m && (m.timeouts ?? 0) > 0) {
+          // Another try of a change the server didn't answer goes aside: whatever is added or
+          // waiting in other lanes goes meanwhile, not after its time-out (4a review).
+          const lane = laneOf(m);
+          busy.set(
+            lane,
+            tryOne(m).finally(() => {
+              busy.delete(lane);
+              nudge();
+            }),
+          );
+          continue;
+        }
+        if (m) {
+          await tryOne(m);
+          continue;
+        }
+        if (busy.size === 0) break;
+        // Wait for a change on its way to end, or a new one to be added.
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+        wake = null;
+      }
+      await Promise.all(busy.values());
+    } finally {
+      listeners.delete(nudge);
     }
     if (!pausedBy && held.size > 0 && pendingFor(userId).length > 0) pausedBy = heldBy;
 
