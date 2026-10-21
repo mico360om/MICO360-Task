@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { refetchAfterMove } from '../lib/task-status';
@@ -659,6 +659,33 @@ export function useReorderColumn(projectId: string) {
 const sentEdits = new WeakMap<object, object>();
 
 /**
+ * Send one edit of a task through the app's task write path (its details, the Edit form and My
+ * Tasks' bulk actions share it): made as the person making it now (owned), in the task's lane,
+ * against the newest version this phone knows — the loaded task's, else `fallbackVersion` (the
+ * list's, for a task whose details were never opened), or the one its own last write made — behind
+ * an older change of the task still on this phone, and kept here when it gets no answer.
+ */
+export function sendTaskEdit(
+  services: Pick<Services, 'resources' | 'queue' | 'currentUserId' | 'sync' | 'api'>,
+  qc: QueryClient,
+  taskId: string,
+  patch: Partial<ApiTask> & { scope?: 'one' | 'series' },
+  fallbackVersion?: number,
+): Promise<ApiTask> {
+  const w = owned(services);
+  return taskWrites.run(taskId, async () => {
+    const loaded = qc.getQueryData<ApiTask>(['task', taskId])?.version ?? fallbackVersion;
+    const body = withExpectedVersion(patch, taskWrites.expectedVersion(taskId, loaded));
+    sentEdits.set(patch, body);
+    return sendInOrder(w.order, { kind: 'task.update', payload: { id: taskId, patch: body } }, async () => {
+      const updated = await w.resources.tasks.update(taskId, body);
+      taskWrites.note(taskId, updated?.version);
+      return updated;
+    });
+  });
+}
+
+/**
  * Save an edit to a task. It is made against the newest version this phone knows (the loaded task's,
  * or the one its own last write made), so the server refuses it only when someone else changed the
  * task (VERSION_CONFLICT); the task's writes go one after another (task-writes).
@@ -670,20 +697,8 @@ export function useUpdateTask(taskId: string) {
   return useMutation({
     // In the task's lane, the edit waits behind an older change of the task still on this phone
     // (it then follows the version that one makes), and is kept here when it gets no answer.
-    mutationFn: (patch: Partial<ApiTask> & { scope?: 'one' | 'series' }) => {
-      // Whose edit it is, now — not when its lane frees (4b review #1).
-      const w = owned(services);
-      return taskWrites.run(taskId, async () => {
-        const loaded = qc.getQueryData<ApiTask>(['task', taskId])?.version;
-        const body = withExpectedVersion(patch, taskWrites.expectedVersion(taskId, loaded));
-        sentEdits.set(patch, body);
-        return sendInOrder(w.order, { kind: 'task.update', payload: { id: taskId, patch: body } }, async () => {
-          const updated = await w.resources.tasks.update(taskId, body);
-          taskWrites.note(taskId, updated?.version);
-          return updated;
-        });
-      });
-    },
+    // Whose edit it is is taken now — not when its lane frees (4b review #1).
+    mutationFn: (patch: Partial<ApiTask> & { scope?: 'one' | 'series' }) => sendTaskEdit(services, qc, taskId, patch),
     // The details show the saved task at once; only what the edit changed is fetched again (its
     // activity, the lists that show it, and the progress figures after a new due date).
     onSuccess: (saved, patch) => afterTaskSaved(qc, taskId, saved, patch),
