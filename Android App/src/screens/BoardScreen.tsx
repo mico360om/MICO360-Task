@@ -114,6 +114,9 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   // yet stays a comfortable width on tablets/large screens.
   const { width } = useWindowDimensions();
   const columnWidth = Math.round(Math.min(320, Math.max(240, width * 0.82)));
+  // Each column is as tall as the board's area, so its own list of cards scrolls (and is virtualized).
+  const [boardHeight, setBoardHeight] = useState(0);
+  const columnHeight = Math.max(0, boardHeight - spacing.md * 2);
 
   /** New task in this project (its board): in the column chosen (the first one by default), on the day shown. */
   const addTask = useCallback(
@@ -183,9 +186,11 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
         <FlatList
           horizontal
           data={board}
+          style={styles.boardList}
+          onLayout={(e) => setBoardHeight(e.nativeEvent.layout.height)}
           keyExtractor={(b) => b.column.id}
           renderItem={({ item }) => (
-            <BoardColumnView item={item} width={columnWidth} timeZone={timeZone} photoOf={photoOf} onAdd={addTask} onOpen={openTask} onActions={openActions} onStep={step} styles={styles} />
+            <BoardColumnView item={item} width={columnWidth} height={columnHeight} timeZone={timeZone} photoOf={photoOf} onAdd={addTask} onOpen={openTask} onActions={openActions} onStep={step} styles={styles} />
           )}
           contentContainerStyle={styles.board}
           showsHorizontalScrollIndicator={false}
@@ -243,6 +248,7 @@ type Styles = ReturnType<typeof makeStyles>;
 const BoardColumnView = React.memo(function BoardColumnView({
   item,
   width,
+  height,
   timeZone,
   photoOf,
   onAdd,
@@ -253,6 +259,8 @@ const BoardColumnView = React.memo(function BoardColumnView({
 }: {
   item: BoardColumn;
   width: number;
+  /** The board area's height (0 until it is known: the column then sizes to its cards). */
+  height: number;
   timeZone: string;
   photoOf: (id: string) => string | null;
   onAdd: (columnId?: string) => void;
@@ -264,7 +272,7 @@ const BoardColumnView = React.memo(function BoardColumnView({
   const { column, tasks } = item;
   const cards = useMemo(() => tasks.map((t) => boardCard(t, column)), [tasks, column]);
   return (
-    <View style={[styles.column, { width }]}>
+    <View style={[styles.column, { width }, height > 0 ? { height } : null]}>
       <View style={[styles.columnStripe, { backgroundColor: column.color }]} />
       <View style={styles.columnHead}>
         <View style={[styles.dot, { backgroundColor: column.color }]} />
@@ -320,6 +328,7 @@ const makeStyles = (c: Palette) =>
     progressBarTrack: { height: 8, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },
     progressBarFill: { height: 8, backgroundColor: c.category.DONE },
     progressText: { fontSize: fontSize.xs, color: c.ink2, fontWeight: '600' },
+    boardList: { flex: 1 },
     board: { padding: spacing.md, gap: spacing.md },
     column: { backgroundColor: c.ground, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.sm, paddingTop: spacing.sm + 3, overflow: 'hidden' },
     columnStripe: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
