@@ -60,11 +60,14 @@ export function useCalendarMeetingsIn(from: string, to: string, timeZone: string
   });
 }
 
+/** Where your date settings are kept (Settings saves into it: core/account-queries). */
+export const DATE_PREFERENCES_KEY = ['settings', 'date-preferences'];
+
 /** Your date settings (the week start; shared with the website), kept for an offline start. */
 export function useDatePreferences() {
   const { resources, reads } = useServices();
   return useQuery({
-    queryKey: ['settings', 'date-preferences'],
+    queryKey: DATE_PREFERENCES_KEY,
     queryFn: ({ queryKey }) => reads.read(queryKey, 'date-preferences', () => resources.settings.datePreferences()),
     staleTime: 5 * 60_000,
   });

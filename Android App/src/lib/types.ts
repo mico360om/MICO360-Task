@@ -5,6 +5,8 @@ export interface AuthUser {
   email: string;
   username: string;
   roles: string[];
+  /** The profile photo's address (sign-in and refresh replies carry it; older sessions may not). */
+  avatarUrl?: string | null;
 }
 
 export interface Session {
@@ -661,6 +663,8 @@ export interface ApiDirectoryUser {
   lastName: string;
   /** False for an inactive or suspended account: still named in history, but not offered to invite. */
   active?: boolean;
+  /** Their profile photo's address (null: none). */
+  avatarUrl?: string | null;
 }
 
 /** The success envelope: `{ data: T }`. */

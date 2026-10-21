@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextDateZones, parseDateZones } from './date-settings';
+import { WEEK_START_OPTIONS, calendarZoneNote, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, withDatePatch } from './date-settings';
 
 const prev = { company: 'Asia/Dubai', own: 'Europe/London' };
 
@@ -38,5 +38,47 @@ describe('parseDateZones — the zones the phone kept from last time', () => {
   });
   it('an unknown own zone is dropped', () => {
     expect(parseDateZones(JSON.stringify({ company: 'Asia/Dubai', own: 'Mars/Olympus' }))).toEqual({ company: 'Asia/Dubai', own: null });
+  });
+});
+
+describe('Settings → Calendar & dates (the website’s DatePreferences)', () => {
+  it('offers the three week starts in the website’s order', () => {
+    expect(WEEK_START_OPTIONS).toEqual([
+      { value: 6, label: 'Saturday' },
+      { value: 0, label: 'Sunday' },
+      { value: 1, label: 'Monday' },
+    ]);
+  });
+
+  it('changes only what was chosen, the rest as it was (null = the default)', () => {
+    expect(withDatePatch({ timeZone: 'Asia/Dubai', weekStart: 6 }, { weekStart: 1 })).toEqual({ timeZone: 'Asia/Dubai', weekStart: 1 });
+    expect(withDatePatch(undefined, { timeZone: 'Europe/London' })).toEqual({ timeZone: 'Europe/London', weekStart: null });
+    expect(withDatePatch({ timeZone: 'Asia/Dubai', weekStart: null }, { timeZone: null })).toEqual({ timeZone: null, weekStart: null });
+  });
+
+  it('says which zone the calendar uses, in the website’s words', () => {
+    expect(calendarZoneNote(null, 'Asia/Muscat')).toBe('Dates use the company time zone (Asia/Muscat). Due dates without a time always stay on their day.');
+    expect(calendarZoneNote('Europe/London', 'Asia/Muscat')).toBe('Your own: Europe/London. Due dates without a time always stay on their day.');
+  });
+
+  it('lists the zones the phone knows; without the full list (Hermes), a list of its own', () => {
+    expect(supportedTimeZones({ supportedValuesOf: () => ['Asia/Dubai', 'Europe/London'] })).toEqual(['Asia/Dubai', 'Europe/London']);
+    const fallback = supportedTimeZones({});
+    expect(fallback.length).toBeGreaterThan(100);
+    expect(fallback).toContain('Asia/Muscat');
+    expect(fallback).toContain('UTC');
+    expect(fallback).toContain('America/New_York');
+    expect(new Set(fallback).size).toBe(fallback.length);
+  });
+
+  it('labels each zone as the website does, marks the company’s and this phone’s, and always has the chosen one', () => {
+    const choices = timeZoneChoices({ zones: ['Asia/Dubai', 'Asia/Muscat', 'America/New_York'], company: 'Asia/Muscat', own: 'Pacific/Chatham', device: 'Asia/Dubai' });
+    expect(choices).toEqual([
+      { value: 'America/New_York', label: 'America/New York' },
+      { value: 'Asia/Dubai', label: 'Asia/Dubai', hint: 'this phone' },
+      { value: 'Asia/Muscat', label: 'Asia/Muscat', hint: 'company' },
+      { value: 'Pacific/Chatham', label: 'Pacific/Chatham' },
+    ]);
+    expect(timeZoneChoices({ zones: ['Asia/Muscat'], company: 'Asia/Muscat', own: null, device: 'Asia/Muscat' })).toEqual([{ value: 'Asia/Muscat', label: 'Asia/Muscat', hint: 'company · this phone' }]);
   });
 });

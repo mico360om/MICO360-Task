@@ -1,4 +1,5 @@
 import type { DateZones } from './due-date';
+import { TIME_ZONES } from './time-zones';
 
 /** The company's time zone when the server doesn't say (and the app's default). */
 const FALLBACK_TIME_ZONE = 'Asia/Muscat';
@@ -56,6 +57,48 @@ export interface ServerConfig {
 /** Your own date settings (GET /users/me/preferences), shared with the website. */
 export interface DatePreferences {
   timeZone: string | null;
-  /** 0 = Sunday, 1 = Monday, 6 = Saturday; null = the company's. Used by the calendar (later). */
+  /** 0 = Sunday, 1 = Monday, 6 = Saturday; null = the default (Sunday). The calendar's first column. */
   weekStart: 0 | 1 | 6 | null;
+}
+
+// ── Settings → Calendar & dates (6a), as the website's DatePreferences ─────────
+
+/** The first day of the week, in the website's order. */
+export const WEEK_START_OPTIONS: { value: 0 | 1 | 6; label: string }[] = [
+  { value: 6, label: 'Saturday' },
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+];
+
+/** Your date settings with one choice changed (PUT /users/me/preferences changes only what it names). */
+export function withDatePatch(prev: DatePreferences | null | undefined, patch: Partial<DatePreferences>): DatePreferences {
+  return { timeZone: prev?.timeZone ?? null, weekStart: prev?.weekStart ?? null, ...patch };
+}
+
+/** Which zone the calendar uses, in the website's words. */
+export function calendarZoneNote(own: string | null, company: string): string {
+  return `${own ? `Your own: ${own}. ` : `Dates use the company time zone (${company}). `}Due dates without a time always stay on their day.`;
+}
+
+/** The zones this phone knows: the full list where its JavaScript can say, else the app's own list. */
+export function supportedTimeZones(intl: { supportedValuesOf?: (key: string) => string[] } = Intl as never): string[] {
+  let all: string[] | undefined;
+  try {
+    all = intl.supportedValuesOf?.('timeZone');
+  } catch {
+    all = undefined;
+  }
+  return (all?.length ? all : [...TIME_ZONES]).filter(isValidTimeZone);
+}
+
+/**
+ * The zones to choose from, labelled as the website does ("America/New York"), with the company's
+ * and this phone's marked; the one you chose is always there, even when the list doesn't have it.
+ */
+export function timeZoneChoices(opts: { zones: readonly string[]; company: string; own: string | null; device: string | null }): { value: string; label: string; hint?: string }[] {
+  const all = [...new Set([...opts.zones, ...(opts.own ? [opts.own] : []), opts.company])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return all.map((z) => {
+    const marks = [z === opts.company ? 'company' : null, z === opts.device ? 'this phone' : null].filter(Boolean);
+    return { value: z, label: z.replace(/_/g, ' '), ...(marks.length ? { hint: marks.join(' · ') } : {}) };
+  });
 }

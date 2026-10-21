@@ -118,6 +118,8 @@ const MIME: Record<string, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pdf: 'application/pdf',
   csv: 'text/csv',
+  // "Download my data" (6a).
+  json: 'application/json',
 };
 
 /** The file type for the share sheet, from the file's extension. */

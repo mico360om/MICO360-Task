@@ -542,3 +542,54 @@ describe('resourcesApi.calendar (5a)', () => {
     ]);
   });
 });
+
+describe('resourcesApi.account and your settings (6a)', () => {
+  it('changes your own password and hands back the fresh session’s tokens', async () => {
+    const calls: { path: string; body?: unknown }[] = [];
+    const client = {
+      post: (path: string, body?: unknown) => {
+        calls.push({ path, body });
+        return Promise.resolve({ data: { accessToken: 'fake-a', refreshToken: 'fake-r' } });
+      },
+    } as unknown as ApiClient;
+    expect(await resourcesApi(client).account.changePassword('old-pass1', 'abcd1234')).toEqual({ accessToken: 'fake-a', refreshToken: 'fake-r' });
+    expect(calls).toEqual([{ path: '/users/me/password', body: { currentPassword: 'old-pass1', newPassword: 'abcd1234' } }]);
+  });
+
+  it('a server that gives no session back is no session (not an error)', async () => {
+    const client = { post: () => Promise.resolve({}) } as unknown as ApiClient;
+    expect(await resourcesApi(client).account.changePassword('old-pass1', 'abcd1234')).toBeNull();
+  });
+
+  it('uploads the profile photo as the multipart "file" part, and removes it', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).account;
+    await api.uploadAvatar({ uri: 'file:///cache/me.jpg', name: 'me.jpg', type: 'image/jpeg' });
+    expect(calls[0]).toMatchObject({ method: 'UPLOAD', path: '/users/me/avatar' });
+    expect(calls[0]!.body).toBeInstanceOf(FormData);
+    const removing = { del: (path: string) => { calls.push({ method: 'DELETE', path }); return Promise.resolve({ data: { id: 'u1', avatarUrl: null } }); } } as unknown as ApiClient;
+    expect(await resourcesApi(removing).account.removeAvatar()).toEqual({ id: 'u1', avatarUrl: null });
+    expect(calls[1]).toEqual({ method: 'DELETE', path: '/users/me/avatar' });
+  });
+
+  it('saves only the date setting that changed', async () => {
+    const { client, calls } = fakeClient();
+    await resourcesApi(client).settings.setDatePreferences({ weekStart: 6 });
+    await resourcesApi(client).settings.setDatePreferences({ timeZone: null });
+    expect(calls).toEqual([
+      { method: 'PUT', path: '/users/me/preferences', body: { weekStart: 6 } },
+      { method: 'PUT', path: '/users/me/preferences', body: { timeZone: null } },
+    ]);
+  });
+
+  it('saves preferences as given (only the daily email setting that changed), and sends a daily email test', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).preferences;
+    await api.save({ dailyEmails: { time: '07:00' } });
+    await api.sendDailyEmailTest();
+    expect(calls).toEqual([
+      { method: 'PUT', path: '/notifications/preferences', body: { dailyEmails: { time: '07:00' } } },
+      { method: 'POST', path: '/notifications/daily-emails/test', body: undefined },
+    ]);
+  });
+});
