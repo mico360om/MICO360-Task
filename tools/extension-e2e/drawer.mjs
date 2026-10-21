@@ -4,6 +4,8 @@
 // comments with an @mention picked from the keyboard, edited and deleted; the timeline; editing a
 // whole series; and deleting the series. Each change is checked on the server.
 //   node tools/extension-e2e/drawer.mjs        (see lib.mjs for the settings)
+import fs from 'node:fs';
+import path from 'node:path';
 import { launch, openApp, signIn, signedIn, apiSession, credentials, checks, outDir, todayIn, sleep } from './lib.mjs';
 
 const shots = outDir('drawer');
@@ -92,6 +94,19 @@ try {
   await click(byLabel(`Remove tag ${TAG}`));
   await sleep(2000);
   ck('removing it takes it off on the server', !(await get(`/tasks/${T.id}/tags`)).some((t) => t.name === TAG));
+  // Someone else tags the task while the drawer shows the older list: taking ours off keeps theirs.
+  await focus(byLabel('Add a tag'));
+  await insertText(TAG);
+  await press('Enter');
+  await sleep(2000);
+  const THEIRS = `${TAG}-theirs`;
+  await server.call('PUT', `/tasks/${T.id}/tags`, { tags: [TAG, THEIRS] });
+  await click(byLabel(`Remove tag ${TAG}`));
+  await sleep(2000);
+  const tagsNow = (await get(`/tasks/${T.id}/tags`)).map((t) => t.name);
+  ck('taking a tag off keeps one someone else added meanwhile', !tagsNow.includes(TAG) && tagsNow.includes(THEIRS), JSON.stringify(tagsNow));
+  ck('…and the drawer then shows their tag', await evaluate(`${byLabel('Tags')}.textContent.includes(${JSON.stringify(THEIRS)})`));
+  await server.call('PUT', `/tasks/${T.id}/tags`, { tags: [] });
 
   // ---- People and watching ------------------------------------------------------------------
   if (other) {
@@ -141,6 +156,30 @@ try {
   await sleep(3500);
   files = await get(`/tasks/${T.id}/attachments`);
   ck('a screenshot pasted in the drawer is attached as “Pasted image …”', files.some((f) => /^Pasted image \d{4}-\d{2}-\d{2} /.test(f.filename)), JSON.stringify(files.map((f) => f.filename)));
+  // A file really dragged from the desktop and dropped on the comment box (not the files' zone):
+  // attached, and Chrome doesn't open it in the tab — the comment being typed stays.
+  const dropped = path.join(shots, 'dropped-notes.txt');
+  fs.writeFileSync(dropped, 'Dropped from the desktop');
+  await focus(byLabel('New comment'));
+  await insertText('Half-written comment');
+  const page0 = await evaluate('location.href');
+  const dropAt = async (expr) => {
+    const at = await evaluate(`(() => { const n = ${expr}; n.scrollIntoView({ block: 'center' }); const r = n.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+    for (const type of ['dragEnter', 'dragOver', 'drop']) {
+      await browser.send('Input.dispatchDragEvent', { type, x: at.x, y: at.y, data: { items: [], files: [dropped], dragOperationsMask: 1 } }, page.sessionId);
+    }
+    await sleep(3500);
+  };
+  await dropAt(byLabel('New comment'));
+  files = await get(`/tasks/${T.id}/attachments`);
+  const stayed = await evaluate(`({ href: location.href, draft: ${byLabel('New comment')}?.value })`);
+  ck('a file dropped on the comment box is attached', files.some((f) => f.filename === 'dropped-notes.txt'), JSON.stringify(files.map((f) => f.filename)));
+  ck('…the tab stays on the app, with the comment being typed', stayed.href === page0 && stayed.draft === 'Half-written comment', JSON.stringify(stayed));
+  // Dropped on the dimmed page beside the drawer: nothing takes it there, and it doesn't open either.
+  await dropAt(`document.querySelector('.scrim')`);
+  const count = (await get(`/tasks/${T.id}/attachments`)).filter((f) => f.filename === 'dropped-notes.txt').length;
+  ck('a file dropped beside the drawer is neither opened in the tab nor attached', (await evaluate('location.href')) === page0 && count === 1, `${await evaluate('location.href')} · ${count}`);
+  await evaluate(`(() => { const n = ${byLabel('New comment')}; n.value = ''; n.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
   await click(byLabel('Delete site-photo.png'));
   await sleep(500);
   ck('deleting a file asks first, with Keep focused', (await focused()) === 'Keep');
