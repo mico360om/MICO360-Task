@@ -1,13 +1,21 @@
 import { el, mount, timeAgo } from '../dom.js';
 import { getTheme, setTheme } from '../theme.js';
+import { UPDATE_STEPS } from '../components.js';
 import { resolveBases, checkBaseUrl, sameOrigin, DEFAULTS } from '../../src/config.js';
 import { queueStats, describeMutation, retryQueued, removeQueued } from '../../src/queue.js';
+import { versionStatus, aboutUrl } from '../../src/version.js';
+import { isTransientFailure } from '../../src/errors.js';
 import { requestHostAccess } from './login.js';
 
-/** Settings — theme, backend URLs, sync state (incl. changes that failed to sync), sign out. */
+/**
+ * Settings — theme, backend URLs, sync state (incl. changes that failed to sync), sign out, and
+ * About: this extension's version and the server's, and how to update when the server is newer.
+ */
 export function SettingsScreen(ctx) {
   const root = el('div', { style: { maxWidth: '560px' } });
   const syncBody = el('div');
+  const aboutBody = el('div', { class: 'muted' }, 'Checking the server’s version…');
+  const aboutCard = card('About', aboutBody);
   load();
   return root;
 
@@ -46,11 +54,48 @@ export function SettingsScreen(ctx) {
         el('div', { class: 'muted', style: { marginBottom: '10px' } }, ctx.me.email || ctx.me.name),
         el('button', { class: 'btn', onClick: signOut }, 'Sign out'),
       )),
+      aboutCard,
       el('p', { class: 'muted', style: { fontSize: '12px', marginTop: '18px' } },
         el('a', { href: `${bases.appBase}`, target: '_blank', rel: 'noopener' }, 'Open the full web app ↗'),
       ),
     );
     renderSync();
+    renderAbout(bases.appBase);
+  }
+
+  /** The two versions; for a zip install with a newer server, the steps to update (and the card goes first). */
+  async function renderAbout(appBase) {
+    let server = null;
+    let saved = false;
+    let offline = true;
+    try {
+      const r = ctx.api && ctx.api.version ? await ctx.api.version() : null;
+      server = (r && r.data && r.data.version) || null;
+      saved = Boolean(r && r.stale);
+    } catch (e) {
+      server = null;
+      offline = isTransientFailure(e); // else the server answered but can't say (older than /version)
+    }
+    const status = versionStatus({ manifest: ctx.manifest, server });
+    const serverLine = status.server
+      ? `Server version ${status.server}${saved ? ' (saved — you appear to be offline)' : ''}`
+      : `Server version not known${offline ? ' — you appear to be offline' : ''}.`;
+    let note = null;
+    if (status.updateAvailable) {
+      // Most releases change only the website: a newer server doesn't mean a newer extension file.
+      note = el('div', { class: 'infobar', style: { marginTop: '10px', marginBottom: 0 } },
+        el('div', {}, `The website runs version ${status.server}.`),
+        el('div', { style: { fontWeight: '400', marginTop: '4px' } }, `Not every website update needs a new extension. When one does, ${UPDATE_STEPS.charAt(0).toLowerCase()}${UPDATE_STEPS.slice(1)}`));
+    } else if (status.storeInstall) {
+      note = el('div', { class: 'muted', style: { marginTop: '8px', fontSize: '13px' } }, 'Chrome keeps this extension up to date.');
+    }
+    mount(aboutBody,
+      el('div', {}, `Extension version ${status.extension || 'not known'}`),
+      el('div', {}, serverLine),
+      note,
+      el('div', { style: { marginTop: '10px', fontSize: '13px' } },
+        el('a', { href: aboutUrl(appBase), target: '_blank', rel: 'noopener' }, 'What’s new in each release ↗')),
+    );
   }
 
   async function saveBackend(apiValue, appValue, current, saveMsg) {

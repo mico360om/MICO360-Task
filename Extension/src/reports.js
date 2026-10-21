@@ -57,7 +57,7 @@ export function reportFileName(kind, ext, today) {
 export function fileNameFromDisposition(header) {
   const m = /filename="([^"]+)"/i.exec(header || '');
   if (!m) return null;
-  const name = m[1].split(/[\/]/).pop().trim();
+  const name = m[1].split(/[\\/]/).pop().trim();
   return name && name !== '.' && name !== '..' ? name : null;
 }
 

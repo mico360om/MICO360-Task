@@ -132,11 +132,20 @@ export interface EndedMeetingSweep {
   completeEnded(now: Date): Promise<string[]>;
 }
 
+/** At most this many busy meetings are read for one window of free times. */
+export const BUSY_ROWS_LIMIT = 2000;
+
 /** The meetings that make people busy (free times; only the database store has it). */
 export interface BusyMeetingsStore {
   /**
    * Non-cancelled, non-deleted meetings overlapping [from, to) that any of `userIds` organizes or
    * attends, with which of those people are in each. A meeting without an end lasts an hour.
+   * At most BUSY_ROWS_LIMIT, earliest first.
    */
   busyBetween(userIds: string[], from: Date, to: Date, excludeMeetingId?: string): Promise<Array<{ meetingId: string; start: Date; end: Date; title: string; userIds: string[] }>>;
+  /**
+   * Which of these meetings the person may see, in one look-up: theirs (organizer, creator or
+   * invited) or in a project they can see. `projectIds` null means every project (an admin).
+   */
+  visibleTo?(meetingIds: string[], userId: string, projectIds: string[] | null): Promise<Set<string>>;
 }

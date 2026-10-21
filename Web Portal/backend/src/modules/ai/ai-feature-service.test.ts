@@ -378,6 +378,40 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
     }
   });
 
+  it('a misspelled or Arabic name the model pins on one person is still a choice when others share that first name', async () => {
+    for (const said of ['Omer', 'عمر']) {
+      const { svc } = meetingAi({ title: 'Pump test', people: [{ said, ids: ['u4'] }] });
+      const out = await svc.parseMeeting({ text: `pump test with ${said}`, today: '2026-10-21' }, me);
+      expect(out.people, said).toEqual({
+        found: [],
+        choices: [{ said, options: [{ id: 'u4', name: 'Omar Al Rawahi', username: 'omar.r' }, { id: 'u5', name: 'Omar Said', username: 'osaid' }] }],
+        notFound: [],
+      });
+    }
+    // A name nobody else shares stays found.
+    const { svc } = meetingAi({ title: 'Budget', people: [{ said: 'Saara', ids: ['u2'] }] });
+    expect((await svc.parseMeeting({ text: 'budget with Saara', today: '2026-10-21' }, me)).people.found).toEqual([{ id: 'u2', name: 'Sara Al Balushi', username: 'sara' }]);
+  });
+
+  it('checks shared names against everyone, not only the people listed for the model', async () => {
+    const many = Array.from({ length: 320 }, (_, i) => ({ id: `x${i}`, firstName: 'Aaron', lastName: `Person ${String(i).padStart(3, '0')}`, username: `aaron${i}` }));
+    const zaid = [{ id: 'z1', firstName: 'Zaid', lastName: 'Al Hinai', username: 'zaid.h' }, { id: 'z2', firstName: 'Zaid', lastName: 'Khan', username: 'zkhan' }];
+    const prompts: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      prompts.push(JSON.parse(String(init!.body)).messages.map((m: { content: string }) => m.content).join('\n'));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: 'Sync', people: [{ said: 'Zaid', ids: ['z1'] }] }) } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl, listPeople: async () => [...many, ...zaid] });
+    const out = await svc.parseMeeting({ text: 'sync with Zaid', today: '2026-10-21' }, me);
+    expect(prompts[0]).not.toContain('Zaid Al Hinai'); // past the first 300 listed
+    expect(out.people.choices.map((c) => c.options.map((o) => o.id))).toEqual([['z1', 'z2']]);
+  });
+
+  it('suggests no title when the model gives none (never the sentence itself)', async () => {
+    const { svc } = meetingAi({ title: '', startTime: '11:00' });
+    expect((await svc.parseMeeting({ text: 'move it to Tuesday 11am', today: '2026-10-21' }, me)).title).toBeNull();
+  });
+
   it('lists a name nobody has as not found, and never an id outside the list', async () => {
     const { svc } = meetingAi({ title: 'Review', people: [{ said: 'Zainab', ids: [] }, { said: 'Khalid', ids: ['u99'] }, { said: 'Sara', ids: ['u2', 'u99'] }] });
     const out = await svc.parseMeeting({ text: 'review with Zainab, Khalid and Sara', today: '2026-10-21' }, me);

@@ -186,10 +186,11 @@ export function createAiFeatureService({
   async function parseMeeting(input: { text: string; today?: string }, requester?: AiRequester): Promise<DescribedMeeting> {
     const today = input.today ?? todayKey(timeZone, now());
     const { projects, projectList } = await promptProjects(requester);
-    const people = (listPeople ? await listPeople() : [])
+    // Everyone active is checked for shared names; the first 300 (by name) are listed for the model.
+    const everyone = (listPeople ? await listPeople() : [])
       .map((p) => ({ ...p, name: `${p.firstName} ${p.lastName}`.trim() || p.username }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, MAX_PROMPT_PEOPLE);
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const people = everyone.slice(0, MAX_PROMPT_PEOPLE);
     const peopleList = people.length ? `\nPeople (id | name | username), one per line:\n${people.map((p) => `${p.id} | ${p.name} | ${p.username}`).join('\n')}` : '';
     const text = await run(
       [
@@ -214,9 +215,10 @@ export function createAiFeatureService({
     );
     const obj = parseJsonObject(text);
     const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
-    const title = str(obj.title, 300) ?? input.text.trim().slice(0, 300);
+    // No title from the model: none is suggested (the sentence itself, e.g. "move it to Tuesday", isn't one).
+    const title = str(obj.title, 300);
     const rawDescription = str(obj.description, 4000);
-    const description = rawDescription && normalise(rawDescription) !== normalise(title) ? rawDescription : null;
+    const description = rawDescription && normalise(rawDescription) !== normalise(title ?? '') ? rawDescription : null;
     const minutes = typeof obj.minutes === 'number' && Number.isInteger(obj.minutes) && obj.minutes >= 5 && obj.minutes <= 720 ? obj.minutes : null;
     const match = matchProject(input.text, typeof obj.project === 'string' ? obj.project : null, projects);
     const link = str(obj.onlineLink, 2000);
@@ -230,7 +232,7 @@ export function createAiFeatureService({
       project: match ? { id: match.id, code: match.code, number: match.number, name: match.name } : null,
       location: str(obj.location, 200),
       onlineLink: link && /^https?:\/\//i.test(link) && input.text.includes(link) ? link : null,
-      people: matchPeople(obj.people, people),
+      people: matchPeople(obj.people, everyone),
       guests: guestsIn(input.text, obj.guests),
       agenda: (Array.isArray(obj.agenda) ? obj.agenda : []).map((a) => str(a, 300)).filter((a): a is string => !!a).slice(0, MAX_AGENDA_POINTS),
     };
@@ -391,7 +393,7 @@ export interface MeetingCandidate {
 
 /** What a sentence fills in on the new-meeting form (null or empty where it says nothing). */
 export interface DescribedMeeting {
-  title: string;
+  title: string | null;
   description: string | null;
   /** YYYY-MM-DD, company time. */
   date: string | null;
@@ -439,8 +441,10 @@ const MAX_AGENDA_POINTS = 10;
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 /**
- * The model's people, checked: only ids in the list count. A name more than one person goes by is a
- * choice even when the model picked one of them; one id is found; none is "not found".
+ * The model's people, checked: only ids of active people count. A name more than one person goes by
+ * is a choice even when the model picked one of them. So is a one-word name that isn't exactly the
+ * person the model picked ("Omer", "عمر" for Omar) when others share that person's first name: that
+ * is a guess. One id is found; none is "not found".
  */
 function matchPeople(value: unknown, people: Array<MeetingCandidate & { name: string }>): DescribedMeeting['people'] {
   const order = new Map(people.map((p, i) => [p.id, i]));
@@ -452,8 +456,15 @@ function matchPeople(value: unknown, people: Array<MeetingCandidate & { name: st
     if (!said) continue;
     const ids = (Array.isArray(e.ids) ? e.ids : []).filter((id): id is string => typeof id === 'string' && order.has(id));
     const n = normalise(said);
-    const sameName = people.filter((p) => [p.firstName, p.lastName, p.username, p.name].some((x) => normalise(x) === n)).map((p) => p.id);
-    const options = [...new Set([...ids, ...(sameName.length > 1 ? sameName : [])])]
+    const named = (p: MeetingCandidate & { name: string }) => [p.firstName, p.lastName, p.username, p.name].some((x) => normalise(x) === n);
+    const sameName = people.filter(named).map((p) => p.id);
+    let chosen = [...new Set([...ids, ...(sameName.length > 1 ? sameName : [])])];
+    if (chosen.length === 1 && !n.includes(' ')) {
+      const only = people[order.get(chosen[0]!)!]!;
+      const namesakes = people.filter((p) => normalise(p.firstName) === normalise(only.firstName)).map((p) => p.id);
+      if (!named(only) && namesakes.length > 1) chosen = namesakes;
+    }
+    const options = chosen
       .sort((a, b) => order.get(a)! - order.get(b)!)
       .map((id) => ({ id, name: people[order.get(id)!]!.name, username: people[order.get(id)!]!.username }));
     if (options.length === 1) {

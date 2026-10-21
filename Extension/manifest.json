@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "MICO360 Tasks",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Manage daily work on a Kanban board — MICO360 Tasks.",
+  "minimum_chrome_version": "116",
   "action": {
     "default_title": "Open MICO360 Tasks",
     "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }

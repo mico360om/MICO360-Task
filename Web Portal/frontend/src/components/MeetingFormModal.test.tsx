@@ -28,7 +28,9 @@ beforeEach(() => {
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'MICO360', companyName: 'MICO', serverTime: new Date().toISOString() } });
     if (u.endsWith('/users/directory')) return json({ data: directory });
     if (u.endsWith('/meetings/free-times')) return json({ data: freeReply });
-    if (u.endsWith('/projects') && method === 'GET') return json({ data: [{ id: 'p4', name: 'Pump Station Upgrade', code: 'PUMP', number: 'PDO-2026-020', status: 'ACTIVE' }] });
+    if (u.endsWith('/projects') && method === 'GET') {
+      return json({ data: [{ id: 'p4', name: 'Pump Station Upgrade', code: 'PUMP', number: 'PDO-2026-020', status: 'ACTIVE' }, { id: 'p1', name: 'Rig Inspection', code: 'RIG1', number: null, status: 'ACTIVE' }] });
+    }
     if (u.endsWith('/ai/parse-meeting')) {
       return json({
         data: {
@@ -49,12 +51,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-function renderModal(meeting?: Meeting) {
+function renderModal(meeting?: Meeting, opts: { defaultProjectId?: string } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={qc}>
-      <MeetingFormModal meeting={meeting} onClose={onClose} />
+      <MeetingFormModal meeting={meeting} defaultProjectId={opts.defaultProjectId} onClose={onClose} />
     </QueryClientProvider>,
   );
   return { onClose };
@@ -386,6 +388,31 @@ describe('MeetingFormModal: AI help', () => {
     await waitFor(() => expect(posted()).toBeDefined());
     expect(posted()).toMatchObject({ title: 'Weekly site review', projectId: 'p4', location: 'Rig 1 site office', attendees: [{ userId: 'u2' }], agendaItems: [{ title: 'Pump test results', ownerId: null, expectedMinutes: null }] });
     expect(calls.find((c) => c.url.endsWith('/ai/parse-meeting'))!.body).toMatchObject({ text: 'weekly site review Monday 10am for 90 minutes with Sara, PUMP' });
+  });
+
+  async function describeIt() {
+    await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText('Describe the meeting'), 'move it to Monday 10am for 90 minutes, PUMP');
+    await userEvent.click(screen.getByRole('button', { name: 'Fill meeting details' }));
+    const found = await screen.findByRole('group', { name: 'Suggested details' });
+    await waitFor(() => expect(within(found).getByRole('checkbox', { name: /project: pump/i })).toBeInTheDocument());
+    return found;
+  }
+
+  it('editing: a suggestion never starts ticked over what the meeting already has', async () => {
+    renderModal({ ...baseMeeting, location: 'Room 2', projectId: 'p1' });
+    const found = await describeIt();
+    for (const name of [/^title: weekly site review/i, /^when:/i, /^length:/i, /^location:/i, /^project:/i]) {
+      expect(within(found).getByRole('checkbox', { name }), String(name)).not.toBeChecked();
+    }
+    expect(found).toHaveTextContent('Replaces “Weekly sync”');
+  });
+
+  it('a project chosen by the page the form was opened from counts as yours', async () => {
+    renderModal(undefined, { defaultProjectId: 'p1' });
+    const found = await describeIt();
+    expect(within(found).getByRole('checkbox', { name: /^project: pump/i })).not.toBeChecked();
+    expect(within(found).getByRole('checkbox', { name: /^title: weekly site review/i })).toBeChecked();
   });
 
   it('Draft agenda in a new meeting adds the ticked items to the list', async () => {

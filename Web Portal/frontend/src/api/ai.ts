@@ -226,7 +226,8 @@ export interface AiTaskDraft {
 }
 /** What a sentence fills in on the meeting form (company time); empty where it says nothing. */
 export interface AiMeetingDraft {
-  title: string;
+  /** None when the sentence gives no title. */
+  title: string | null;
   description: string | null;
   /** YYYY-MM-DD */
   date: string | null;

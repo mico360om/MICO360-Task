@@ -29,6 +29,9 @@ export function writeErrorMessage(e, fallback) {
 /** Shown when a change is kept on this device until the connection is back (H3). */
 export const SAVED_ON_DEVICE = 'Saved on this device — it will sync when the connection is back.';
 
+/** How to update an extension installed from a zip (Chrome never updates those itself). */
+export const UPDATE_STEPS = 'To update, get the new extension file from your administrator, unzip it over this extension’s folder, then open chrome://extensions and press Reload on MICO360 Tasks. You stay signed in.';
+
 /**
  * The reusable task row (Dashboard, My Tasks, Calendar). Voices priority for screen readers. The due
  * date is shown as its calendar day (never shifted by the viewer's zone) and "Overdue" follows the
@@ -40,7 +43,8 @@ export function taskRow(task, onClick, { timeZone = DEFAULT_TIME_ZONE } = {}) {
   const due = dueKey ? formatDayKey(dueKey, { weekday: false }) : '';
   const overdue = !done && isOverdue(task.dueDate, timeZone);
   const label = [task.key, `${PRIORITY_LABEL[task.priority] || ''} priority`, task.title, due ? `due ${due}` : null, overdue ? 'overdue' : null, isRecurring(task) ? 'repeats' : null, done ? 'done' : task.progress > 0 ? `${task.progress}% complete` : null].filter(Boolean).join(', ');
-  return el('button', { class: `task-row${done ? ' done' : ''}`, type: 'button', 'aria-label': label, onClick },
+  // data-task-id: closing the task drawer puts focus back on this row (app/dialog.js returnFocus).
+  return el('button', { class: `task-row${done ? ' done' : ''}`, type: 'button', 'aria-label': label, dataset: { taskId: task.id }, onClick },
     el('span', { class: 'prio', style: { background: `var(${priorityVar(task.priority)})` } }),
     el('span', { class: 'body' },
       el('span', { class: 'tt' }, task.title),

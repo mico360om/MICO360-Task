@@ -41,6 +41,8 @@ const CREATE_STATUS: MeetingStatus[] = ['DRAFT', 'SCHEDULED', 'IN_PROGRESS'];
 const ALL_STATUS: MeetingStatus[] = ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
 const REPEAT_OPTIONS = [{ value: 'NONE', label: 'Does not repeat' }, ...REPEAT_FREQUENCIES.map((f) => ({ value: f, label: REPEAT_LABEL[f] }))];
 const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/** Describe's "not yours" baseline: every field empty. */
+const UNSET = { title: '', description: '', start: '', end: '', rule: null, projectId: '', location: '', onlineLink: '' };
 
 const RepeatIcon = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-none text-brand">
@@ -79,14 +81,6 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const organizerId = useAuthStore((s) => s.user?.id ?? null);
   // The last sentence given to "Describe the meeting": Draft agenda and Write description use it too.
   const [sentence, setSentence] = useState('');
-  // What the form opened with, so a suggestion never silently replaces what the person set.
-  const [openedFields] = useState(() => ({
-    title: meeting?.title ?? '',
-    description: meeting?.description ?? '',
-    projectId: meeting?.projectId ?? defaultProjectId ?? '',
-    location: meeting?.location ?? '',
-    onlineLink: meeting?.onlineLink ?? '',
-  }));
   const [error, setError] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -318,7 +312,10 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 }}
                 current={{ title, description, start, end, rule, projectId, location, onlineLink }}
                 // Untouched times aren't the person's own (the start is the next whole hour).
-                initial={{ ...openedFields, start: timesTouched.current ? '' : start, end: timesTouched.current ? '' : end, rule: seriesRule }}
+                // What isn't the person's own, so a suggestion may start ticked over it: nothing in
+                // an existing meeting (its saved details are theirs), nor a project the page chose;
+                // only a new meeting's untouched times (the next whole hour).
+                initial={{ ...UNSET, ...(editing || timesTouched.current ? {} : { start, end }) }}
                 onApply={applyDescribed}
                 withPeopleAndAgenda={!editing}
                 projects={openProjects}

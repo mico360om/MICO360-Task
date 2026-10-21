@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -107,11 +106,16 @@ export function RichTextEditor({
   const openLinkRef = useRef<() => void>(() => {});
   const placeholderRef = useRef(placeholder);
   placeholderRef.current = placeholder;
+  /** What the box reported that the page hasn't shown back yet, oldest first. */
+  const reportedRef = useRef<string[]>([]);
 
   const editor = useEditor({
+    // The toolbar shows what is on at the cursor, so it is drawn again after each change.
+    shouldRerenderOnTransaction: true,
     extensions: [
-      StarterKit.configure({ heading: { levels: [3] }, code: false, codeBlock: false, blockquote: false, horizontalRule: false, strike: false }),
-      Underline,
+      // Underline comes with the kit. Its link is replaced by ours below, and no empty paragraph
+      // is added after a list (notes are saved as written).
+      StarterKit.configure({ heading: { levels: [3] }, code: false, codeBlock: false, blockquote: false, horizontalRule: false, strike: false, link: false, trailingNode: false }),
       Highlight,
       // Words typed straight after a link are not part of it (with autolink on, Tiptap would make
       // the link "inclusive" and stretch it over them).
@@ -121,7 +125,9 @@ export function RichTextEditor({
         linkOnPaste: true,
         protocols: ['mailto'],
         HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer nofollow' },
-        validate: (href) => safeHref(href) !== null,
+        // Only web and email addresses, whether typed, pasted or found while writing.
+        isAllowedUri: (href) => safeHref(href) !== null,
+        shouldAutoLink: (href) => safeHref(href) !== null,
       }),
       Placeholder.configure({ placeholder: () => placeholderRef.current ?? '' }),
     ],
@@ -144,14 +150,30 @@ export function RichTextEditor({
         return false;
       },
     },
-    onUpdate: ({ editor: e }) => onChangeRef.current(e.isEmpty ? '' : e.getHTML()),
+    onUpdate: ({ editor: e }) => {
+      const html = e.isEmpty ? '' : e.getHTML();
+      const sent = reportedRef.current;
+      sent.push(html);
+      if (sent.length > 50) sent.splice(0, sent.length - 50);
+      onChangeRef.current(html);
+    },
   });
 
   // The page sets the content too (clearing it after a note is added, or another note to edit).
+  // What the box reported comes back from the page a moment later; when it does, it is the box's
+  // own words, perhaps an older copy (the next key was already pressed), and must not undo what
+  // was typed since. Anything else is the page's own change.
   useEffect(() => {
     if (!editor) return;
+    const sent = reportedRef.current;
+    const own = sent.lastIndexOf(value);
+    if (own !== -1) {
+      sent.splice(0, own + 1);
+      return;
+    }
+    sent.length = 0;
     const current = editor.isEmpty ? '' : editor.getHTML();
-    if (value !== current) editor.commands.setContent(value || '', false);
+    if (value !== current) editor.commands.setContent(value || '', { emitUpdate: false });
   }, [value, editor]);
 
   // The link being written: its address, and the words it is for — remembered when the field

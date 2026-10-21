@@ -1,6 +1,6 @@
 /**
  * Calendar-day rules for due dates and board days (XP-03 / EXT-03). Same rules as the web app's
- * `lib/due-date.ts`.
+ * `lib/due-date.ts` (src/shared-copies.test.js fails when they drift).
  *
  * Due dates are calendar days. Clients send 'YYYY-MM-DD' and the API stores that as UTC midnight,
  * so a due date's calendar day is its UTC date and must never be shifted into another zone:

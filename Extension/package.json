@@ -1,10 +1,12 @@
 {
   "name": "@mico360/extension",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "private": true,
   "type": "module",
   "description": "MICO360 Tasks Chrome extension (Manifest V3).",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "node ../tools/extension-e2e/all.mjs",
+    "lint": "eslint ."
   }
 }

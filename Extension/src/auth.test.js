@@ -54,6 +54,11 @@ describe('token storage (EXT-07)', () => {
     expect(local.data).toEqual({});
   });
 
+  it('never falls back to keeping the access token on disk: without session storage there is no token store', async () => {
+    expect(() => createTokenStore({ local: fakeStorage() })).toThrow(/session storage/);
+    expect(() => createTokenStore({ local: fakeStorage(), session: null })).toThrow(/session storage/);
+  });
+
   it('M12: keeps the signed-in person’s profile from the server (not their tokens) and clears it on sign-out', async () => {
     const local = fakeStorage();
     const t = createTokenStore({ local, session: fakeStorage() });

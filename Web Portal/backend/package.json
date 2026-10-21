@@ -1,6 +1,6 @@
 {
   "name": "@mico360/backend",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "private": true,
   "description": "MICO360 Tasks backend API (Fastify + Prisma + MySQL).",
   "main": "dist/src/server.js",
@@ -44,7 +44,7 @@
     "jsonwebtoken": "^9.0.2",
     "parse5": "^7.3.0",
     "pdfkit": "0.17.2",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "zod": "^3.23.8"
