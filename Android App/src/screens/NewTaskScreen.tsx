@@ -35,6 +35,7 @@ import {
   isDraftDirty,
   keptTry,
   keptTryProblem,
+  leftWhileSendingText,
   leaveWarning,
   NEW_TASK_TEXT,
   newTaskDraft,
@@ -230,7 +231,15 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   // Files still listed when the form goes (discarded) don't stay in the phone's cache.
   const filesRef = useRef(files);
   filesRef.current = files;
-  useEffect(() => () => filesRef.current.forEach((f) => void pickedFiles.forget(f.uri)), []);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      if (busy.current) return; // still sending: the end of submit deletes them (4a review)
+      filesRef.current.forEach((f) => void pickedFiles.forget(f.uri));
+    },
+    [],
+  );
 
   // ── Leaving ──
   const dirty = isDraftDirty(draft, saved, { placeChosen, files: files.length });
@@ -295,6 +304,17 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     try {
       const out = await send({ input: check.input, key: key.current, files, onFile: patchFile });
       const projectId = check.input.projectId;
+      if (!mounted.current) {
+        // The form was left while it was sending (4a review): the files are let go now, and how it
+        // ended is still told. Nothing here moves the screen the person is on now.
+        if (out.kind === 'created' || out.kind === 'files-failed' || out.kind === 'kept') {
+          refresh(qc, createdTaskRefreshes(projectId));
+          if (!projectFixed) rememberProject(projectId);
+        }
+        for (const f of files) void pickedFiles.forget(f.uri);
+        notice(leftWhileSendingText(out));
+        return;
+      }
       switch (out.kind) {
         case 'created':
           refresh(qc, createdTaskRefreshes(projectId));
@@ -335,7 +355,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
       }
     } finally {
       busy.current = false;
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   }
 

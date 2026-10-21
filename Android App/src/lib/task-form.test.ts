@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  leftWhileSendingText,
   TASK_FILES_MAX_BYTES,
   checkTaskFiles,
   keptTry,
@@ -401,5 +402,24 @@ describe('files for a task are checked against the server’s rules before anyth
     expect(screen).toMatch(/checkTaskFiles\(/);
     const form = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
     expect(form).toMatch(/checkTaskFiles\(/);
+  });
+});
+
+describe('leaving the New task form while it is still sending (4a review #3)', () => {
+  const task = { id: 't1', key: 'MICO-7', title: 'Fix pump' } as never;
+  it('says how it ended, even after the form has gone', () => {
+    expect(leftWhileSendingText({ kind: 'created', task })).toBe('Created MICO-7, with its files.');
+    expect(leftWhileSendingText({ kind: 'files-failed', task, failed: [{ key: 'f1', name: 'plan.pdf', reason: 'Please try again.' }] })).toBe(
+      'The task was created, but plan.pdf wasn’t attached: Please try again.',
+    );
+    expect(leftWhileSendingText({ kind: 'kept', message: 'Saved on this phone — will sync when you’re online.' })).toBe('Saved on this phone — will sync when you’re online.');
+    expect(leftWhileSendingText({ kind: 'no-answer', message: NEW_TASK_TEXT.noAnswer })).toBe('The server didn’t answer in time — the task may already be created. Check the board before adding it again.');
+    expect(leftWhileSendingText({ kind: 'refused', message: 'Couldn’t create the task. Please try again.' })).toBe('Couldn’t create the task. Please try again.');
+  });
+
+  it('the files still being sent aren’t deleted when the form goes; the end of the sending deletes them', () => {
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/if \(busy\.current\) return; \/\/ still sending: the end of submit deletes them/);
+    expect(screen).toMatch(/notice\(leftWhileSendingText\(out\)\)/);
   });
 });

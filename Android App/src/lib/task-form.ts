@@ -299,6 +299,23 @@ export function createdWithoutFilesText(failed: readonly { name: string; reason:
     : `The task was created, but these files weren’t attached: ${failed.map((f) => `${f.name} (${f.reason})`).join('; ')}. Add them from the task.`;
 }
 
+/**
+ * How a New task ended after its form was left while it was still sending (4a review): said in a
+ * toast, since the form is gone.
+ */
+export function leftWhileSendingText(out: NewTaskOutcome): string {
+  switch (out.kind) {
+    case 'created':
+      return `Created ${out.task.key}, with its files.`;
+    case 'files-failed':
+      return createdWithoutFilesText(out.failed);
+    case 'no-answer':
+      return 'The server didn’t answer in time — the task may already be created. Check the board before adding it again.';
+    default:
+      return out.message;
+  }
+}
+
 function reasonOf(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 403) return 'You don’t have permission to do that.';
