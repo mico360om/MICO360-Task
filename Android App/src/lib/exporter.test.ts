@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createExporter, type ExportFiles } from './exporter';
+import { EXPORT_TIMEOUT_MS, createExporter, type ExportFiles } from './exporter';
 import { ApiError, NetworkError } from './api-client';
 
 function fakeFiles(responses: { status: number; headers?: Record<string, string> }[]) {
@@ -109,8 +109,17 @@ describe('exporter — someone else signed in meanwhile (6a review)', () => {
 describe('exporter — renewed only for the person it was asked by (5b review #3)', () => {
   it('asks the refresh for the person whose session the download was sent with', async () => {
     const { files } = fakeFiles([{ status: 401 }, { status: 200 }]);
-    let user = 'ann';
+    const user = 'ann';
     const refreshSession = vi.fn(async (expected?: string | null) => (expected === user ? ('ok' as const) : ('changed' as const)));
+    const ex = exporter(files, { refreshSession, getUserId: () => user });
+    await ex.exportFile('/reports/export.xlsx', 'r.xlsx', 'Report');
+    expect(refreshSession).toHaveBeenCalledWith('ann');
+  });
+
+  it('when someone else signed in while it was on its way, it stops: no refresh is asked for anyone (4b review #2)', async () => {
+    const { files } = fakeFiles([]);
+    let user = 'ann';
+    const refreshSession = vi.fn(async () => 'ok' as const);
     // While the download is on its way, Ann signs out and Bob signs in.
     files.download = vi.fn(async (_url: string, name: string) => {
       user = 'bob';
@@ -118,8 +127,59 @@ describe('exporter — renewed only for the person it was asked by (5b review #3
     });
     const ex = exporter(files, { refreshSession, getUserId: () => user });
     await expect(ex.exportFile('/reports/export.xlsx', 'r.xlsx', 'Report')).rejects.toMatchObject({ code: 'SESSION_CHANGED' });
-    expect(refreshSession).toHaveBeenCalledWith('ann');
+    expect(refreshSession).not.toHaveBeenCalled();
     expect(files.download).toHaveBeenCalledTimes(1);
     expect(files.share).not.toHaveBeenCalled();
+  });
+});
+
+describe('exporter — the file is only ever opened for the person who asked for it (4b review #2)', () => {
+  it('a download that ends after a switch of person is deleted and never shared', async () => {
+    const { files } = fakeFiles([]);
+    let user: string | null = 'ann';
+    files.download = vi.fn(async (_url: string, name: string) => {
+      // Ann signs out (her exports are cleared) and Bob signs in while her data is on its way.
+      user = null;
+      user = 'bob';
+      return { status: 200, headers: {}, uri: `file:///cache/exports/${name}` };
+    });
+    const ex = exporter(files, { getUserId: () => user });
+    await expect(ex.exportFile('/users/me/export', 'my-data.zip', 'Your data')).rejects.toMatchObject({ code: 'SESSION_CHANGED' });
+    expect(files.share).not.toHaveBeenCalled();
+    expect(files.remove).toHaveBeenCalledWith('file:///cache/exports/my-data.zip');
+  });
+
+  it('checks again just before the share sheet (a switch while the file was being named)', async () => {
+    const { files } = fakeFiles([{ status: 200, headers: { 'Content-Disposition': 'attachment; filename="Report-2026.xlsx"' } }]);
+    let user: string | null = 'ann';
+    files.rename = vi.fn(async (uri: string, name: string) => {
+      user = 'bob';
+      return uri.replace(/[^/]+$/, name);
+    });
+    const ex = exporter(files, { getUserId: () => user });
+    await expect(ex.exportFile('/reports/export.xlsx', 'r.xlsx', 'Report')).rejects.toMatchObject({ code: 'SESSION_CHANGED' });
+    expect(files.share).not.toHaveBeenCalled();
+    expect(files.remove).toHaveBeenCalledWith('file:///cache/exports/Report-2026.xlsx');
+  });
+
+  it('a download that takes too long stops (a time limit), and a file that arrives later is deleted', async () => {
+    vi.useFakeTimers();
+    try {
+      const { files } = fakeFiles([]);
+      let finish!: (v: { status: number; headers: Record<string, string>; uri: string }) => void;
+      files.download = vi.fn(() => new Promise<{ status: number; headers: Record<string, string>; uri: string }>((res) => (finish = res)));
+      const ex = exporter(files, { getUserId: () => 'ann' });
+      const out = ex.exportFile('/reports/export.xlsx', 'r.xlsx', 'Report').catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(EXPORT_TIMEOUT_MS + 1);
+      const err = (await out) as NetworkError;
+      expect(err).toBeInstanceOf(NetworkError);
+      expect(err.timedOut).toBe(true);
+      finish({ status: 200, headers: {}, uri: 'file:///cache/exports/r.xlsx' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(files.remove).toHaveBeenCalledWith('file:///cache/exports/r.xlsx');
+      expect(files.share).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

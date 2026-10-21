@@ -25,11 +25,25 @@ async function prune(): Promise<void> {
 
 /** The file side of an export: expo-file-system downloads, expo-sharing opens the share sheet. */
 export const exportFiles: ExportFiles = {
-  async download(url, name, headers) {
+  async download(url, name, headers, opts) {
     await FileSystem.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => {});
     await prune();
-    const res = await FileSystem.downloadAsync(url, DIR + safe(name), { headers });
-    return { status: res.status, headers: res.headers ?? {}, uri: res.uri };
+    const to = DIR + safe(name);
+    // Stopped after its time limit (4b review #2), and its partial file deleted.
+    const task = FileSystem.createDownloadResumable(url, to, { headers });
+    const timer = opts?.timeoutMs
+      ? setTimeout(() => {
+          void task.cancelAsync().catch(() => {});
+          void FileSystem.deleteAsync(to, { idempotent: true }).catch(() => {});
+        }, opts.timeoutMs)
+      : undefined;
+    try {
+      const res = await task.downloadAsync();
+      if (!res) throw new Error('The download was stopped.');
+      return { status: res.status, headers: res.headers ?? {}, uri: res.uri };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   },
   async rename(uri, name) {
     const to = DIR + safe(name);
