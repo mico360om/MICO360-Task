@@ -10,7 +10,7 @@ import { el, clear, mount, saveFile } from './dom.js';
 import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
-import { showModal, returnFocus } from './dialog.js';
+import { showModal, returnFocus, createRouteHold } from './dialog.js';
 import { guardFileDrops } from '../src/file-drop-guard.js';
 
 import { LoginScreen } from './screens/login.js';
@@ -169,6 +169,10 @@ class App {
     Object.assign(this, deps);
     this.contentBase = null; // last non-overlay hash, so the task drawer can layer over it
     this.overlay = null;
+    // While a dialog is open over the screen (a board's New task form), the screen isn't drawn
+    // again under it — not on coming back to the tab, nor on a hash change: those wait until it has
+    // closed. The task drawer doesn't count (a route change is how it closes).
+    this.hold = createRouteHold(document, { except: () => this.overlay });
   }
 
   ctx(params, query) {
@@ -189,8 +193,12 @@ class App {
       // A page of the website (e.g. a meeting a notification is about) in a new tab.
       openExternal: (url) => { window.open(url, '_blank', 'noopener'); },
       reload: () => window.location.reload(),
+      // Read the screen now shown again (once no dialog is open over it).
+      refresh: () => this.refresh(),
+      // Say something to screen readers from the app's own live region (it outlives a screen).
+      announce: (text) => this.announce(text),
       saveFile,
-      write: (kind, payload) => this.write(kind, payload),
+      write: (kind, payload, opts) => this.write(kind, payload, opts),
       afterMutation: () => this.refreshMeta(),
       requestSync: () => this.sync(),
       signOut: () => this.signOut(),
@@ -202,14 +210,18 @@ class App {
    * reply keeps its offline copy at the new version (H1). A change queued behind others while online
    * (one edit of a task at a time) is synced straight away, unless a waiting change keeps failing. One
    * whose own send failed waits for the next alarm or reconnect: trying it again at once would only
-   * spend one of its tries.
+   * spend one of its tries. The new-task form (a board's "Add a task") gives its task's own key
+   * (`idempotencyKey`, so trying again can't make a second task) and `hold` (a task with files is
+   * never queued: the form offers to save it without them).
    */
-  async write(kind, payload) {
+  async write(kind, payload, { idempotencyKey, hold = false } = {}) {
     const r = await sendOrQueue({ kind, payload }, {
       doFetch: (path, init) => this.auth.authedFetch(path, init),
       storage: this.storage,
       userId: this.me.id,
       onTask: (t) => rememberTask(this.cache, t),
+      ...(idempotencyKey ? { newKey: () => idempotencyKey } : {}),
+      hold,
     });
     if (r.syncNow && this.state.online) void this.sync();
     return r;
@@ -217,7 +229,7 @@ class App {
 
   start() {
     this.renderShell();
-    window.addEventListener('hashchange', () => this.route());
+    window.addEventListener('hashchange', () => this.hold.run(() => this.route()));
     window.addEventListener('online', () => { this.state.online = true; this.renderStatus(); this.sync(); });
     window.addEventListener('offline', () => { this.state.online = false; this.renderStatus(); });
     // No live connection: coming back to the tab reloads task screens, so changes made elsewhere
@@ -225,7 +237,7 @@ class App {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') return;
       const matched = matchRoute(ROUTES, parseHash(window.location.hash).path);
-      if (refreshOnReturn(matched && matched.route, Boolean(this.overlay))) this.route();
+      if (refreshOnReturn(matched && matched.route, Boolean(this.overlay))) this.refresh();
     });
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
@@ -250,7 +262,9 @@ class App {
       if (tz !== this.timeZone) {
         this.timeZone = tz;
         await this.storage.set({ companyTimeZone: tz });
-        this.route();
+        // Built again in the company's zone — not under a dialog, nor under the task drawer (the
+        // screen is built again when the drawer closes).
+        this.hold.run(() => { if (!this.overlay) this.route(); });
       } else {
         await this.storage.set({ companyTimeZone: tz });
       }
@@ -303,10 +317,12 @@ class App {
     this.connEl = el('span', { class: 'conn' });
     this.offbar = el('div', { class: 'offbar hidden' }, 'Offline — showing saved data. Changes will sync when you reconnect.');
     this.content = el('div', { class: 'content' });
+    this.live = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
     const main = el('main', { class: 'main' },
       el('div', { class: 'topbar' }, this.titleEl, el('span', { class: 'sp' }), this.connEl),
       this.offbar,
       this.content,
+      this.live,
     );
     mount(this.root, el('div', { class: 'app' }, sidebar, main));
     this.renderStatus();
@@ -389,6 +405,25 @@ class App {
     await endSession({ local: this.storage, session: sessionStore });
     try { await chrome.action.setBadgeText({ text: '' }); } catch { /* ignore */ }
     reloadWithNotice('');
+  }
+
+  /** Say `text` to screen readers (the app's polite live region, which outlives any screen). */
+  announce(text) {
+    this.live.textContent = text || '';
+  }
+
+  /**
+   * Read the screen now shown again: in place when it can (a board keeps its dialogs, focus and
+   * announcements), else built again. Held while a dialog is open over it; skipped under the task
+   * drawer (closing the drawer builds the screen again anyway).
+   */
+  refresh() {
+    this.hold.run(() => {
+      if (this.overlay) return;
+      const screen = this.content.firstElementChild;
+      const inPlace = screen && typeof screen.refresh === 'function' ? screen.refresh() : null;
+      if (!inPlace) this.route();
+    });
   }
 
   route() {

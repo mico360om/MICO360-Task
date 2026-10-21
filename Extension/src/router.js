@@ -57,7 +57,8 @@ const REFRESH_ON_RETURN = new Set(['board', 'dashboard', 'calendar']);
 /**
  * Whether to reload the current screen when the user comes back to the app tab — the extension has
  * no live connection, so this is how a copy of a recurring task made in another app shows up.
- * Never while the task drawer is open over it.
+ * Never while the task drawer is open over it; while another dialog is open over it (a board's New
+ * task form) the reload waits until it has closed (app/dialog.js createRouteHold).
  */
 export function refreshOnReturn(route, overlayOpen) {
   return Boolean(route && !overlayOpen && REFRESH_ON_RETURN.has(route.name));

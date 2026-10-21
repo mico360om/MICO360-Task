@@ -15,6 +15,7 @@
  * Built with el() (no HTML strings); the context comes from popup.js (or a test).
  */
 import { el, mount } from '../app/dom.js';
+import { ProjectAvatar } from '../app/components.js';
 import { todayKey } from '../src/due-date.js';
 import { getQueue } from '../src/queue.js';
 import { messageFor } from '../src/errors.js';
@@ -59,7 +60,17 @@ export function SignedOutView(ctx, message) {
   );
 }
 
+/**
+ * `ctx.place` ({ project, columnId, boardDate }): the form opens from a board's "Add a task" in the
+ * app (Stage 4), as on the web — a "New task" dialog in that project (shown, not changed), starting
+ * in that column, on the board's day. It then has no "Open MICO360 Tasks", recent tasks, shortcut
+ * tip, "Add this page" or kept draft (the app tab doesn't close by itself); closing it with
+ * something typed asks first ("Discard this task?"). `ctx.onDone({ task } | { item, payload })`
+ * hears when the task is created or kept on this device, `ctx.onCancel()` when it is closed.
+ * The returned element's `requestClose()` closes it the same way (Escape, Close, the page behind).
+ */
 export function QuickAddForm(ctx) {
+  const place = ctx.place && ctx.place.project && ctx.place.project.id ? ctx.place : null;
   // ---- State --------------------------------------------------------------------------------
   const state = {
     fields: { ...BLANK, assigneeIds: [] },
@@ -134,12 +145,19 @@ export function QuickAddForm(ctx) {
   const recentBox = el('section', { class: 'qa-recent', 'aria-label': 'Recently added' });
   const footer = el('footer', { class: 'qa-foot' });
 
+  // From a board: its project, shown (as on the web) — the column can still be changed.
+  const projectField = place
+    ? el('div', {}, el('span', { class: 'lbl', id: 'qa-project-lbl' }, 'Project'),
+      el('div', { class: 'field qa-fixed', id: 'qa-project', role: 'group', 'aria-labelledby': 'qa-project-lbl' },
+        ProjectAvatar(place.project, { size: 'sm', apiBase: ctx.apiBase }),
+        el('span', { dir: 'auto' }, place.project.name || place.project.code || 'Project')))
+    : el('div', {}, el('label', { class: 'lbl', for: 'qa-project' }, 'Project'), projectSel);
   const form = el('form', { class: 'qa-form', 'aria-label': 'New task', novalidate: 'novalidate' },
     bannerBox,
     describeBox,
     el('div', {}, el('label', { class: 'lbl', for: 'qa-title' }, 'Task title', el('span', { class: 'qa-req', 'aria-hidden': 'true' }, ' *')), titleInput, titleErr),
     el('div', { class: 'qa-row' },
-      el('div', {}, el('label', { class: 'lbl', for: 'qa-project' }, 'Project'), projectSel),
+      projectField,
       el('div', {}, el('label', { class: 'lbl', for: 'qa-column' }, 'Column'), columnSel)),
     noticeBox,
     el('div', { class: 'qa-row' },
@@ -150,13 +168,20 @@ export function QuickAddForm(ctx) {
     el('div', {},
       el('div', { class: 'qa-label-row' },
         el('label', { class: 'lbl', for: 'qa-desc' }, 'Description ', el('span', { class: 'qa-opt' }, '(optional)')),
-        el('button', { class: 'linkbtn', type: 'button', title: 'Put this page’s title and address into the description', onClick: () => addPage() }, 'Add this page')),
+        place ? null : el('button', { class: 'linkbtn', type: 'button', title: 'Put this page’s title and address into the description', onClick: () => addPage() }, 'Add this page')),
       descInput, pageNote),
     el('div', {}, el('span', { class: 'lbl' }, 'Attachments ', el('span', { class: 'qa-opt' }, '(optional)')), filesList, dropZone),
     el('div', { class: 'qa-actions' }, clearBtn, el('span', { class: 'sp' }), createBtn),
   );
 
-  const root = el('div', { class: 'qa' }, header(ctx), offbar, form, recentBox, footer, announcer);
+  const root = place
+    ? el('div', { class: 'qa qa-in-app' },
+      el('header', { class: 'qa-head' },
+        el('h2', { class: 'qa-brand', id: 'qa-dialog-title' }, 'New task'),
+        el('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: () => requestClose() }, el('span', { 'aria-hidden': 'true' }, '✕'))),
+      offbar, form, announcer)
+    : el('div', { class: 'qa' }, header(ctx), offbar, form, recentBox, footer, announcer);
+  root.requestClose = () => requestClose();
 
   // ---- Events -------------------------------------------------------------------------------
   titleInput.addEventListener('input', () => {
@@ -224,6 +249,14 @@ export function QuickAddForm(ctx) {
   }
   // In a window of its own the form stays open: a new right-click capture comes to it (popup.js).
   if (typeof ctx.onCapture === 'function') ctx.onCapture((capture) => useCapture(capture));
+  // In the app, Escape closes the dialog — asking first when something was typed.
+  if (place) {
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      requestClose();
+    });
+  }
 
   onConnection();
   renderProjects();
@@ -231,10 +264,46 @@ export function QuickAddForm(ctx) {
   renderPeople();
   renderFiles();
   renderActions();
-  void init();
+  void (place ? initInApp() : init());
   return root;
 
   // ---- Loading ------------------------------------------------------------------------------
+  /** From a board: its project and column, nothing kept from before (the app's form isn't the popup's). */
+  async function initInApp() {
+    state.projects = [place.project];
+    state.projectsLoaded = true;
+    state.fields.projectId = place.project.id;
+    state.fields.columnId = place.columnId || '';
+    state.initial = { ...BLANK, projectId: place.project.id };
+    syncInputs(); // the fields show what will be sent (Normal priority, …)
+    renderProjects();
+    await loadPlace();
+  }
+
+  /**
+   * Close the dialog in the app: at once when nothing was typed (or the task exists already: then
+   * it is done); otherwise ask first, with "Keep editing" focused, as on the web.
+   */
+  function requestClose() {
+    if (!place || state.saving) return;
+    if (state.created) {
+      const task = state.created;
+      state.created = null;
+      finished(task);
+      return;
+    }
+    if (!isDirty()) {
+      ctx.onCancel();
+      return;
+    }
+    setBanner('info', 'Discard this task? What you entered hasn’t been saved.', [
+      { label: 'Keep editing', onClick: () => { setBanner(null); titleInput.focus(); } },
+      { label: 'Discard', onClick: () => ctx.onCancel() },
+    ]);
+    const keep = bannerBox.querySelector('button');
+    if (keep) keep.focus();
+  }
+
   async function init() {
     // The form not sent last time (only this person's), then what the right-click menu captured.
     let restored = null; // { files, maybeSent }: how the form not sent last time comes back
@@ -566,6 +635,7 @@ export function QuickAddForm(ctx) {
   }
 
   async function renderRecent() {
+    if (place) return; // the app shows the task on its board instead
     let entries = [];
     let queue = [];
     try {
@@ -616,6 +686,7 @@ export function QuickAddForm(ctx) {
    * `draftWrite` settles when this write is done.
    */
   function saveDraft() {
+    if (place) return draftWrite; // the app's dialog keeps no draft (the popup's stays the popup's)
     let value = null;
     if (state.created) {
       const t = state.created;
@@ -806,6 +877,8 @@ export function QuickAddForm(ctx) {
       return;
     }
     const payload = buildQuickAddPayload(f);
+    // From a board: the task lands on the day the board shows, as on the web.
+    if (place && place.boardDate) payload.boardDate = place.boardDate;
     const payloadJSON = JSON.stringify(payload);
     const withFiles = state.files.length > 0;
     // One key per task, not per click: the offline queue reuses it, and so does sending the same task
@@ -982,6 +1055,10 @@ export function QuickAddForm(ctx) {
   async function queued(item, payload, message) {
     await rememberProject(payload.projectId);
     await addRecent({ queuedKey: item && item.idempotencyKey, title: payload.title, projectId: payload.projectId, at: Date.now() });
+    if (place) {
+      ctx.onDone({ item, payload, message }); // the board shows it, saved on this device
+      return;
+    }
     resetForm();
     setBanner('info', message);
     titleInput.focus();
@@ -998,6 +1075,10 @@ export function QuickAddForm(ctx) {
   }
 
   function succeed(task, extra = '') {
+    if (place) {
+      ctx.onDone({ task, message: `${createdMessage(task)}${extra}` }); // the dialog closes; the board shows the card
+      return;
+    }
     resetForm();
     setBanner('success', `${createdMessage(task)}${extra}`, task && task.id ? { label: 'Open it', onClick: () => openFull(ctx, `#/task/${encodeURIComponent(task.id)}`) } : undefined);
     titleInput.focus();

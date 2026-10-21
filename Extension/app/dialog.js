@@ -135,6 +135,59 @@ export function showModal(node, { onEscape } = {}) {
 }
 
 /**
+ * Whether a modal dialog is open over the screen (a board's New task form): any `aria-modal` dialog
+ * that isn't inside `except` — the task drawer, the app's own overlay, which a route change closes
+ * together with what it shows (a picture's preview).
+ */
+export function modalOpen(doc, except = null) {
+  return [...doc.querySelectorAll('[aria-modal="true"]')].some((n) => !(except && except.contains(n)));
+}
+
+/**
+ * Screen refreshes and route changes, held back while a modal dialog is open over the screen: the
+ * dialog reports back to the screen that opened it (a New task form puts its card on that board),
+ * so drawing the screen again under it — coming back to the tab, a hash change — would lose what the
+ * dialog did. `run(fn)` runs `fn` now (true), or once no dialog is open any more (false), after the
+ * dialog's close has put focus back. Several held at once run as one: the last one asked for.
+ * `except()`: the overlay whose dialogs don't count (see modalOpen).
+ */
+export function createRouteHold(doc, { except = () => null } = {}) {
+  let held = null;
+  let observer = null;
+  let timer = null;
+  const busy = () => modalOpen(doc, except());
+
+  function check() {
+    timer = null;
+    if (!held || busy()) return;
+    const fn = held;
+    held = null;
+    if (observer) { observer.disconnect(); observer = null; }
+    fn();
+  }
+
+  return {
+    busy,
+    held: () => held !== null,
+    run(fn) {
+      if (!busy()) {
+        fn();
+        return true;
+      }
+      held = fn;
+      if (!observer) {
+        // A dialog closes by leaving the page (or losing aria-modal). Look once the close is over.
+        observer = new MutationObserver(() => {
+          if (!timer) timer = setTimeout(check, 0);
+        });
+        observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
+      }
+      return false;
+    },
+  };
+}
+
+/**
  * Give focus back to what opened a dialog, once the screen under it has been drawn again: the same
  * element if it is still in `container`, else the one with the same `data-task-id` when it appears
  * (screens reload their data first). Nothing happens if focus has moved on meanwhile; it gives up

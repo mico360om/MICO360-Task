@@ -127,6 +127,12 @@ button { font: inherit; }
 .task-row.done .tt { text-decoration: line-through; color: var(--ink2); }
 .task-row .meta { font-size: 12px; color: var(--ink2); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
 .task-row .k { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink3); }
+/* My Tasks: a row and its "Mark done" button side by side (two controls, not one inside the other). */
+.task-row-wrap { display: flex; gap: 8px; align-items: stretch; }
+.task-row-wrap .task-row { flex: 1; min-width: 0; }
+.task-row-wrap .mark-done { flex: none; align-self: center; white-space: nowrap; }
+.mt-select { width: auto; min-width: 140px; max-width: 220px; padding-top: 6px; padding-bottom: 6px; }
+.mt-sort { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
 
 .pill { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 2px 8px; border-radius: 999px; background: var(--ground); color: var(--ink2); white-space: nowrap; }
 .pill.LOW { color: var(--ink2); } .pill.NORMAL { color: var(--info); background: var(--info-soft); }
@@ -149,13 +155,40 @@ button { font: inherit; }
 .tcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; cursor: grab; box-shadow: 0 1px 2px rgba(33,27,26,.04); }
 .tcard:hover { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
 .tcard.dragging { opacity: .5; }
-.tcard .tt { font-weight: 600; font-size: 13px; }
+.tcard .tt { font-weight: 600; font-size: 13px; margin-top: 6px; overflow-wrap: anywhere; }
 .tcard .row { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.tcard .row.top { margin-top: 0; min-height: 22px; }
+.tcard .row.meta { flex-wrap: wrap; gap: 4px 10px; }
 .tcard .k { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--ink3); }
+/* Overdue and blocked cards stand out in their column (as on the web). */
+.tcard.overdue { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent); }
+.tcard.blocked { border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 30%, transparent); }
+.tcard svg { flex: none; }
+.tdue, .tcount { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--ink2); }
+.tdue.overdue { background: var(--danger-soft); color: var(--danger); font-weight: 700; border-radius: 5px; padding: 0 4px; }
+.tblocked { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--danger); background: var(--danger-soft); border-radius: 5px; padding: 1px 6px; }
+.tflag { display: inline-flex; color: var(--brand); }
+.tcard .row.foot { gap: 8px; }
+.tprogress { flex: 1; height: 5px; background: var(--ground); border-radius: 999px; overflow: hidden; }
+.tprogress > span { display: block; height: 100%; background: var(--brand); border-radius: 999px; }
+.tpct { width: 32px; text-align: right; font-size: 11px; color: var(--ink3); font-variant-numeric: tabular-nums; }
+.tpeople { display: inline-flex; align-items: center; gap: 4px; flex: none; min-width: 0; }
+.tperson { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ink2); }
+.tavatar, .tmore { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: 9.5px; font-weight: 700; background: var(--info-soft); color: var(--info); border: 1px solid var(--surface); }
+.tavatar + .tavatar, .tavatar + .tmore { margin-left: -9px; }
+.tmore { background: var(--ground); color: var(--ink2); }
 .column.drop { outline: 2px dashed color-mix(in srgb, var(--brand) 50%, transparent); outline-offset: -4px; }
+.column-head .col-add { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; }
+.column-head .col-add:hover { color: var(--brand); }
+/* An empty column's box: it starts the column's first task. */
+.column-empty { display: flex; flex-direction: column; align-items: center; gap: 3px; border: 1px dashed var(--line); border-radius: 10px; background: transparent; color: var(--ink3); padding: 22px 10px; cursor: pointer; text-align: center; }
+.column-empty:hover, .column-empty:focus-visible { border-color: color-mix(in srgb, var(--brand) 60%, var(--line)); background: color-mix(in srgb, var(--brand) 4%, transparent); }
+.column-empty .ce-title { font-size: 12px; font-weight: 600; }
+.column-empty .ce-hint { font-size: 11px; }
+.column-empty .ce-link { color: var(--brand); font-weight: 700; }
 /* A card and its "Move to…" button (a sibling, so the card stays one button) and menu. */
 .tcard-wrap { position: relative; }
-.tcard-wrap.has-move .tcard .tt { padding-right: 26px; }
+.tcard-wrap.has-move .tcard .row.top { padding-right: 28px; }
 .tcard-move { position: absolute; top: 5px; right: 5px; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink2); font-size: 16px; line-height: 1; cursor: pointer; }
 .tcard-move:hover, .tcard-move[aria-expanded="true"] { background: var(--surface2); border-color: var(--line); color: var(--ink); }
 .menu { margin-top: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; display: flex; flex-direction: column; }
@@ -165,13 +198,41 @@ button { font: inherit; }
 .menu-item .cdot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 /* The task drawer takes focus itself only so a screen reader announces it. */
 .drawer:focus { outline: none; }
+/* The New task dialog (a board's "Add a task"): the new-task form, centred over the app. */
+.modal-layer .scrim { z-index: 50; }
+.modal.qa-modal { position: fixed; z-index: 51; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100% - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; background: var(--surface); border-radius: var(--radius); box-shadow: 0 24px 60px -20px rgba(0,0,0,.5); }
+.modal.qa-modal:focus { outline: none; }
+.qa-in-app .qa-head { border-radius: var(--radius) var(--radius) 0 0; }
+.qa-in-app .qa-brand { font-size: 16px; }
+.qa-fixed { display: flex; align-items: center; gap: 8px; min-height: 34px; background: var(--ground); color: var(--ink); overflow: hidden; }
+.qa-fixed > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- Project cards ---- */
-.project { display: block; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: var(--surface); cursor: pointer; }
-.project:hover { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.project { display: flex; flex-direction: column; border: 1px solid var(--line); border-top: 3px solid var(--brand); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.project:hover, .project:focus-within { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
+.project-open { display: flex; flex-direction: column; gap: 10px; flex: 1; width: 100%; text-align: left; border: none; background: transparent; color: inherit; padding: 14px 16px 12px; cursor: pointer; }
+.project-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.project-codes { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .project .code { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--brand); }
-.project .nm { font-size: 16px; font-weight: 700; margin-top: 4px; }
-.project .ds { font-size: 13px; color: var(--ink2); margin-top: 4px; }
+.project .pnumber { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink2); background: var(--ground); border-radius: 6px; padding: 1px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project .nm { font-size: 16px; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.project .ds { font-size: 13px; color: var(--ink2); }
+.project-foot { border-top: 1px solid var(--line2); padding: 8px 16px; font-size: 12.5px; font-weight: 600; }
+.pill.pstatus { text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.pstatus.s-PLANNING { color: var(--info); background: var(--info-soft); }
+.pstatus.s-ACTIVE { color: var(--success); background: var(--success-soft); }
+.pstatus.s-ON_HOLD { color: var(--warning); background: var(--warning-soft); }
+.pstatus.s-COMPLETED { color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--surface)); }
+.pstatus.s-ARCHIVED { color: var(--ink2); background: var(--ground); }
+/* A project's picture: its image, or its icon or initials on its colour (the colour comes inline). */
+.pavatar { display: inline-grid; place-items: center; flex: none; overflow: hidden; font-weight: 700; line-height: 1; border-radius: 8px; }
+.pavatar img { width: 100%; height: 100%; object-fit: cover; }
+.pavatar.xs { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; }
+.pavatar.sm { width: 24px; height: 24px; border-radius: 6px; font-size: 10px; }
+.pavatar.md { width: 32px; height: 32px; font-size: 12px; }
+.pavatar.lg { width: 44px; height: 44px; border-radius: 12px; font-size: 14px; }
 .progress-track { height: 7px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 10px; }
 .progress-fill { height: 100%; background: var(--success); }
 
@@ -201,7 +262,7 @@ label.lbl { display: block; font-size: 12px; font-weight: 700; margin: 0 0 5px; 
 .row-fields > * { flex: 1; min-width: 120px; }
 .btn { font: inherit; font-weight: 600; padding: 9px 15px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
 .btn:hover { border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
-.btn:disabled { opacity: .55; cursor: default; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .55; cursor: default; }
 .btn.primary { background: linear-gradient(135deg, var(--brand2), var(--brand)); color: var(--brand-ink); border-color: transparent; }
 .btn.sm { padding: 6px 11px; font-size: 12.5px; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--brand); }
