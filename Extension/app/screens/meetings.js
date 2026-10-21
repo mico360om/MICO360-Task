@@ -1,4 +1,4 @@
-import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
+import { el, mount, Loader, ErrorState, Empty, redrawKeepingFocus } from '../dom.js';
 import { UpNext } from '../meeting/up-next.js';
 import {
   nextUpMeeting, upcomingGroups, isUnderWay, formatMeetingTimes, meetingPlace, meetingStatusLabel, myInvitation, myAnswerText, answersFor, meetingWebUrl,
@@ -53,7 +53,7 @@ export function MeetingsScreen(ctx) {
     const answers = answersFor(people, ctx.me.id);
     const mine = up ? myInvitation((people.find((x) => x.meetingId === up.id) || {}).people, ctx.me.id) : null;
     loaded = true;
-    render({ all, up, groups, answers, mine, projects, directory, stale: !!list.stale, now });
+    redrawKeepingFocus(root, () => render({ all, up, groups, answers, mine, projects, directory, stale: !!list.stale, now }));
   }
 
   function render({ up, groups, answers, mine, projects, directory, stale, now }) {

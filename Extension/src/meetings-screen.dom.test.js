@@ -216,6 +216,22 @@ describe('a meeting’s page', () => {
     expect(document.activeElement).toBe(accept); // the answer buttons weren't drawn again
   });
 
+  it('read again (coming back to the tab): focus stays on the same control', async () => {
+    const ctx = ctxFor({ params: { meetingId: 'next' } });
+    const root = await open(MeetingScreen, ctx);
+    byText(root.querySelector('[aria-label="Your answer"]'), 'button', 'Maybe').focus();
+    root.refresh();
+    await settle();
+    expect(document.activeElement.textContent).toBe('Maybe');
+    expect(root.contains(document.activeElement)).toBe(true);
+    document.body.innerHTML = '';
+    const list = await open(MeetingsScreen, ctxFor());
+    byLabel(list, 'Open Safety walk').focus();
+    list.refresh();
+    await settle();
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Open Safety walk');
+  });
+
   it('Join only for a secure (https) link', async () => {
     const root = await open(MeetingScreen, ctxFor({ params: { meetingId: 'week' } }));
     expect(byText(root, 'a', 'Join online')).toBeUndefined();

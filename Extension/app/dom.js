@@ -61,6 +61,23 @@ export function timeAgo(iso, now = Date.now()) {
   return `${d}d ago`;
 }
 
+/**
+ * Run `draw()` — which replaces what `root` holds — and give focus back to the same control when
+ * it had focus before: the one of the same kind with the same focus key, answer, label or words.
+ */
+export function redrawKeepingFocus(root, draw) {
+  const a = document.activeElement;
+  const was = a && a !== root && root.contains(a)
+    ? { tag: a.tagName, key: a.dataset.focusKey || null, answer: a.dataset.answer || null, label: a.getAttribute('aria-label'), text: a.textContent.trim() }
+    : null;
+  draw();
+  if (!was || (document.activeElement && root.contains(document.activeElement))) return;
+  const same = [...root.querySelectorAll(was.tag)].find((n) => (was.key ? n.dataset.focusKey === was.key
+    : was.answer ? n.dataset.answer === was.answer
+      : was.label ? n.getAttribute('aria-label') === was.label : n.textContent.trim() === was.text));
+  if (same) same.focus();
+}
+
 /** A themed status/priority pill. */
 export function pill(text, cls) {
   return el('span', { class: `pill ${cls || ''}` }, text);

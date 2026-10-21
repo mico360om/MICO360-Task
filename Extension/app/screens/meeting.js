@@ -1,4 +1,4 @@
-import { el, mount, Loader } from '../dom.js';
+import { el, mount, Loader, redrawKeepingFocus } from '../dom.js';
 import { AnswerControl } from '../meeting/answer.js';
 import {
   formatMeetingDay, formatMeetingTimes, safeJoinLink, meetingStatusLabel, responseLabel, responseSummary, responseLine,
@@ -42,10 +42,10 @@ export function MeetingScreen(ctx) {
       soft(ctx.api.directory ? ctx.api.directory() : null),
     ]);
     shown = true;
-    render(meeting, {
+    redrawKeepingFocus(root, () => render(meeting, {
       stale: !!m.stale, people: people ? rows(people.data) : null, agenda: agenda ? rows(agenda.data) : null,
       projects: rows(projects && projects.data), directory: rows(directory && directory.data),
-    });
+    }));
   }
 
   /** The web's words: a meeting that is gone (or not yours to see) can't be retried; a failed read can. */
