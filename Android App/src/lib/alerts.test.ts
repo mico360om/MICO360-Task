@@ -290,6 +290,33 @@ describe('the app icon’s number never sticks, follows only the server, and is 
     expect(set).toEqual([4, 0, 2]);
   });
 
+  // 6b review: sign-out clears the icon, turns push off (which can take seconds, and sign-out moves
+  // on after its time limit), then clears it again. A second clear that comes after the next
+  // sign-in must not switch that person's number off.
+  it('a sign-out’s late second clear leaves the next person’s number alone (6b review)', () => {
+    const { badge, set } = make();
+    badge.count(4);
+    const signOut = badge.clear(); // signing out…
+    badge.start(); // …someone signed in before the push was off
+    badge.count(2);
+    badge.clear(signOut); // the sign-out's second clear, late
+    badge.count(3);
+    expect(set).toEqual([4, 0, 2, 3]);
+  });
+
+  it('a sign-out’s second clear in time clears again, and nothing reaches the icon until the next sign-in', () => {
+    const { badge, set } = make();
+    badge.count(4);
+    const signOut = badge.clear();
+    badge.count(4); // a poll still on its way
+    badge.clear(signOut);
+    badge.count(5);
+    expect(set).toEqual([4, 0, 0]);
+    badge.start();
+    badge.count(1);
+    expect(set).toEqual([4, 0, 0, 1]);
+  });
+
   it('only the server’s own answers to the count move the icon — not the app’s quick local updates (#3)', () => {
     const query = (key: unknown[], data: unknown) => ({ queryKey: key, state: { data } });
     const fetched = { type: 'updated', action: { type: 'success' }, query: query(['notifications', 'unread'], { count: 2 }) };

@@ -68,6 +68,8 @@ export function createLauncherBadge({
   let held: { n: number; seq: number } | null = null;
   let seq = 0;
   let off = false;
+  /** How many times someone signed in (`start`): which sign-in a clear belongs to. */
+  let signIns = 0;
   const apply = (n: number) => {
     shown = n;
     void set(n).catch(() => {});
@@ -103,15 +105,23 @@ export function createLauncherBadge({
     resumed: quiet,
     /** The server's unread count (undefined while not known). */
     count: (next: number | null | undefined) => count(next),
-    /** Sign-out: no number, the app's notifications off the phone's list, and nothing more until `start`. */
-    clear(): void {
+    /**
+     * Sign-out: no number, the app's notifications off the phone's list, and nothing more until
+     * `start`. Returns the sign-in it ends; a later clear for it (`since`: once the push is off,
+     * which can finish after the sign-out moved on) is skipped when someone signed in meanwhile —
+     * it would switch the next person's number off (6b review).
+     */
+    clear(since?: number): number {
+      if (since !== undefined && since !== signIns) return signIns;
       off = true;
       held = null;
       apply(0);
+      return signIns;
     },
     /** Someone is signed in: their counts reach the icon. */
     start(): void {
       off = false;
+      signIns += 1;
     },
   };
 }
