@@ -363,13 +363,24 @@ class App {
 
   async refreshMeta() {
     await this.refreshQueueCounts();
+    const before = this.state.unread;
+    let counted = false;
     try {
       // Notifications marked read but still waiting to sync are already left out (H3).
       const c = (await this.api.notifications.unreadCount()).data;
       this.state.unread = typeof c?.count === 'number' ? c.count : 0;
+      counted = true;
     } catch { /* offline */ }
     this.renderBadge();
     this.renderStatus();
+    // Something new (or read elsewhere): the Notifications screen reads itself again in place (Stage 5).
+    if (counted && this.state.unread !== before && this.routeName() === 'notifications') this.refresh();
+  }
+
+  /** The name of the route shown under any drawer (e.g. 'notifications'). */
+  routeName() {
+    const matched = matchRoute(ROUTES, parseHash(this.contentBase || window.location.hash).path);
+    return matched ? matched.route.name : null;
   }
 
   /** The unread count in the sidebar and, at the same moment, on the toolbar icon (M7). */
