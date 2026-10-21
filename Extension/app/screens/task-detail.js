@@ -1,60 +1,131 @@
-import { el, mount, Loader, ErrorState, timeAgo, pill } from '../dom.js';
-import { PRIORITY_LABEL, writeErrorMessage, SAVED_ON_DEVICE } from '../components.js';
-import { dueDayKey, todayKey } from '../../src/due-date.js';
-import { DEFAULT_TIME_ZONE } from '../../src/config.js';
-import { taskExportPath, taskFileName } from '../../src/reports.js';
+import { el, mount, Loader } from '../dom.js';
+import { writeErrorMessage, SAVED_ON_DEVICE } from '../components.js';
 import { getQueue } from '../../src/queue.js';
 import { VERSIONED_KINDS, taskIdOf, isVersionConflict, createWriteLane, CONFLICT_MESSAGE } from '../../src/task-writes.js';
-import { isTempId, tempId } from '../../src/pending-overlay.js';
-import {
-  FREQS, FREQ_LABEL, UNIT_LABEL, DAY_NAMES, WEEKDAY_NAMES, WEEK_OF_MONTH, recurrenceSummary, withFreq, withInterval,
-  toggleWeekday, withMonthlyMode, withNth, withDayOfMonth, withEnds, endsMode, withCreateNext, togglePaused, isEarlierCopy,
-} from '../../src/recurrence.js';
-
-const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+import { FieldsSection } from '../task/fields.js';
+import { ChecklistSection } from '../task/checklist.js';
+import { PeopleSection } from '../task/people.js';
+import { TagsSection } from '../task/tags.js';
+import { AttachmentsSection } from '../task/attachments.js';
+import { CommentsSection } from '../task/comments.js';
+import { ActivitySection } from '../task/activity.js';
+import { DeleteSection } from '../task/delete-task.js';
+import { HeaderActions } from '../task/header.js';
+import { redrawKeepingFocus } from '../task/kit.js';
 
 /**
- * Task detail drawer — edit title/description/priority, due date and repeat, checklist, assignees and
- * comments (offline-queued). Each edit is sent against the task's version, one at a time (H1): the
- * server refuses an edit made over someone else's change, and the drawer then says so and reloads.
+ * Task detail drawer. The sections live in app/task/*.js; this file holds the task's state, loads
+ * it, and gives the sections one way to save (`d.updateTask` for the task's own fields, `d.send` for
+ * everything else), to report a problem (`d.fail`) and to say what happened (`d.announce`).
+ *
+ * Each edit of the task's fields is sent against the task's version, one at a time (H1): the server
+ * refuses an edit made over someone else's change, and the drawer then says so and reloads. Every
+ * change is sent now or kept on this device and synced later ("Saved on this device").
+ *
  * It is a modal dialog (role="dialog", aria-modal, named after the task); the app shows it with
- * showModal (app/dialog.js): focus moves in and stays in, and Escape closes it.
+ * showModal (app/dialog.js): focus moves in and stays in, and Escape closes it. A section draws only
+ * itself again, keeping focus on the same control (kit.js `redrawKeepingFocus`). The messages are
+ * live regions that stay on the page (never display:none), so a screen reader hears each one.
  */
 export function TaskDetail(ctx, onClose) {
   const taskId = ctx.params.taskId;
 
   // State — declared before load()/return (see the TDZ pitfall in the screen contract).
-  let task = null;
-  let assignees = [];
-  let checklist = { items: [], done: 0, total: 0 };
-  let comments = [];
-  let directory = [];
+  // Read with the task, after it (see EXTRAS): undefined while loading, null when it can't be had.
+  const s = {
+    task: null,
+    assignees: [],
+    checklist: { items: [], done: 0, total: 0 },
+    comments: [],
+    directory: [],
+    members: undefined,
+    mentionable: undefined,
+    tagCatalog: undefined,
+    watching: undefined,
+    watchers: undefined,
+    attachments: undefined,
+    activity: undefined,
+  };
+  let loads = 0;           // each load's number: answers to an earlier one are dropped
+  let layered = null;      // a layer over the drawer (a picture's preview)
+  let rereading = null;    // the timeline being read again after a change ('again' when another is due)
   let err = '';
   let notice = '';         // "Saved on this device" while this task has changes waiting to sync
-  let exporting = null;
   let hadQueued = false;   // this drawer showed or kept changes saved on this device
   let generation = 0;      // bumped when a refused edit reloads the task: edits made before it are dropped
   const lane = createWriteLane(); // one edit of this task at a time
 
   const titleEl = el('h2', {}, 'Task');
-  const exportBox = el('div', { class: 'export-box' });
-  const body = el('div', { class: 'drawer-body' }, Loader());
+  const errRegion = el('div', { class: 'td-live', role: 'alert' });
+  const noticeRegion = el('div', { class: 'td-live', role: 'status' });
+  const announcer = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
+  const content = el('div', { class: 'td-content' }, Loader());
+
+  const d = {
+    ctx, taskId, s,
+    online: () => !ctx.isOnline || ctx.isOnline(),
+    isAdmin: () => ((ctx.me && ctx.me.roles) || []).includes('ADMIN'),
+    name: displayName,
+    updateTask,
+    send,
+    changed,
+    fail,
+    clearError,
+    announce,
+    layer,
+    close: onClose,
+  };
+  const header = HeaderActions(d);
+  const fields = FieldsSection(d);
+  const tags = TagsSection(d);
+  const people = PeopleSection(d);
+  const attachments = AttachmentsSection(d);
+  const checklist = ChecklistSection(d);
+  const comments = CommentsSection(d);
+  const activity = ActivitySection(d);
+  const footer = DeleteSection(d);
+  const sections = [fields, tags, people, attachments, checklist, comments, activity];
+
+  /**
+   * The task's other details, read once it is shown — each on its own, so one that can't be had
+   * (offline with no saved copy) leaves only its own part empty. `read(task)` returns the read (or
+   * null when this server has none), `take` keeps its answer, `shows` are the parts drawn again.
+   */
+  const call = (fn, ...args) => (typeof fn === 'function' ? fn(...args) : null);
+  const EXTRAS = [
+    { read: (t) => (t.projectId ? call(ctx.api.projects && ctx.api.projects.members, t.projectId) : null), take: (v) => { s.members = list(v); }, shows: [people, footer] },
+    { read: () => call(ctx.api.tasks.mentionable, taskId), take: (v) => { s.mentionable = list(v); }, shows: [people, comments] },
+    { read: () => call(ctx.api.tags), take: (v) => { s.tagCatalog = list(v); }, shows: [tags] },
+    { read: () => call(ctx.api.tasks.watch, taskId), take: (v) => { s.watching = v && typeof v.watching === 'boolean' ? v.watching : null; }, shows: [header] },
+    { read: () => call(ctx.api.tasks.watchers, taskId), take: (v) => { s.watchers = list(v); }, shows: [header] },
+    { read: () => call(ctx.api.tasks.attachments, taskId), take: (v) => { s.attachments = list(v); }, shows: [attachments] },
+    { read: () => call(ctx.api.tasks.activity, taskId), take: (v) => { s.activity = list(v); }, shows: [activity] },
+  ];
+  const list = (v) => (Array.isArray(v) ? v : null);
+
   const panel = el('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Task details', tabindex: '-1' },
-    el('div', { class: 'drawer-head' }, titleEl, exportBox, el('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: onClose }, '✕')),
-    body,
+    el('div', { class: 'drawer-head' }, titleEl, header.node, el('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: onClose }, '✕')),
+    el('div', { class: 'drawer-body' }, errRegion, noticeRegion, announcer, content),
+    footer.node,
   );
   const root = el('div', {},
     el('div', { class: 'scrim', 'aria-hidden': 'true', onClick: onClose }),
     panel,
   );
+  // A picture pasted anywhere in the open task is attached to it (text pasted into a box stays text).
+  panel.addEventListener('paste', (e) => {
+    if (s.task && !s.task.pendingDelete && !layered) attachments.onPaste(e);
+  });
 
   load();
   return root;
 
   /** Load (or reload) the task. `message` is shown above it, e.g. why it was reloaded. */
   async function load(message) {
-    mount(body, Loader());
+    const id = (loads += 1);
+    mount(content, Loader());
     err = typeof message === 'string' ? message : '';
+    renderMessages();
     try {
       const reads = await Promise.all([
         ctx.api.tasks.get(taskId),
@@ -63,267 +134,199 @@ export function TaskDetail(ctx, onClose) {
         ctx.api.tasks.comments(taskId),
       ]);
       const [t, asg, chk, cm] = reads;
-      task = t.data ?? null;
-      assignees = asg.data ?? [];
+      s.task = t.data ?? null;
+      s.assignees = asg.data ?? [];
       const c = chk.data ?? {};
-      checklist = { items: c.items ?? [], done: c.done ?? 0, total: c.total ?? 0 };
-      comments = cm.data ?? [];
+      s.checklist = { items: c.items ?? [], done: c.done ?? 0, total: c.total ?? 0 };
+      s.comments = cm.data ?? [];
       // Changes kept on this device are shown on top of the server's copy (H3): say so.
       const waiting = reads.reduce((n, r) => n + ((r && r.pending) || 0), 0);
       if (waiting) hadQueued = true;
       notice = waiting ? SAVED_ON_DEVICE : '';
-      try { directory = (await ctx.api.directory()).data ?? []; } catch { directory = []; }
-      renderBody();
+      try { s.directory = (await ctx.api.directory()).data ?? []; } catch { s.directory = []; }
+      if (id !== loads) return;
+      renderAll();
+      if (s.task && !s.task.pendingDelete) loadExtras(id);
     } catch (e) {
-      mount(body, ErrorState(writeErrorMessage(e, 'Could not load this task.'), () => load()));
+      if (id !== loads) return;
+      err = writeErrorMessage(e, 'Could not load this task.');
+      renderMessages();
+      mount(content, el('div', { class: 'state' }, el('button', { class: 'btn sm', type: 'button', onClick: () => load() }, 'Retry')));
     }
   }
 
-  function renderBody() {
-    if (!task) return;
-    titleEl.textContent = task.key || 'Task';
-    panel.setAttribute('aria-label', `Task ${task.key ? `${task.key}: ` : ''}${task.title || ''}`.trim());
-    renderExport();
-    mount(body,
-      err ? el('div', { class: 'errbar', role: 'alert' }, el('span', {}, err)) : null,
-      notice ? el('div', { class: 'infobar', role: 'status' }, notice) : null,
-      titleField(),
-      prioritySection(),
-      scheduleSection(),
-      descriptionSection(),
-      checklistSection(),
-      assigneesSection(),
-      commentsSection(),
-    );
+  function loadExtras(id) {
+    const task = s.task;
+    for (const extra of EXTRAS) {
+      let reading;
+      try {
+        reading = extra.read(task);
+      } catch {
+        reading = null;
+      }
+      Promise.resolve(reading).then((r) => {
+        if (id !== loads) return;
+        extra.take(r ? r.data : null);
+        if (r && r.pending) {
+          hadQueued = true;
+          notice = SAVED_ON_DEVICE;
+          renderMessages();
+        }
+      }, () => {
+        if (id === loads) extra.take(null);
+      }).then(() => {
+        if (id === loads) for (const x of extra.shows) x.render();
+      });
+    }
   }
 
-  // ---- Export (Excel / PDF) ---------------------------------------------
-  function renderExport() {
-    mount(exportBox, [['xlsx', 'Excel'], ['pdf', 'PDF']].map(([format, label]) => el('button', {
-      class: 'btn sm', type: 'button', 'aria-label': `Export task as ${label}`, title: `Download this task as ${label}`,
-      disabled: exporting !== null, onClick: () => exportTask(format),
-    }, exporting === format ? '…' : `⬇ ${label}`)));
-  }
-
-  async function exportTask(format) {
-    if (ctx.isOnline && !ctx.isOnline()) {
-      err = 'Exports need a connection — you appear to be offline.';
-      renderBody();
+  function renderAll() {
+    if (!s.task) return;
+    renderHead();
+    if (s.task.pendingDelete) {
+      // Deleted on this device and not synced yet: there is nothing left to change.
+      notice = 'You deleted this task on this device. It will be removed when the connection is back.';
+      renderMessages();
+      mount(header.node);
+      mount(content);
+      footer.render();
       return;
     }
-    exporting = format;
+    renderMessages();
+    header.render();
+    mount(content, sections.map((x) => x.node));
+    for (const x of sections) x.render();
+    footer.render();
+  }
+
+  function renderHead() {
+    const t = s.task;
+    titleEl.textContent = t.key || 'Task';
+    panel.setAttribute('aria-label', `Task ${t.key ? `${t.key}: ` : ''}${t.title || ''}`.trim());
+  }
+
+  function renderMessages() {
+    redrawKeepingFocus(errRegion, () => mount(errRegion, err ? el('div', { class: 'errbar' }, el('span', {}, err)) : null));
+    mount(noticeRegion, notice ? el('div', { class: 'infobar' }, notice) : null);
+  }
+
+  // ---- What sections use ------------------------------------------------------------------
+
+  /** A problem to show (the server's own words for a 4xx answer, H2), or `fallback`. */
+  function fail(e, fallback) {
+    err = writeErrorMessage(e, fallback);
+    renderMessages();
+  }
+
+  function clearError() {
+    if (!err) return;
     err = '';
-    renderExport();
-    try {
-      const { blob, fileName } = await ctx.api.download(taskExportPath(taskId, format));
-      ctx.saveFile(blob, fileName || taskFileName(task, format));
-    } catch (e) {
-      err = writeErrorMessage(e, 'Couldn’t export the task. Please try again.');
-    } finally {
-      exporting = null;
-      renderBody();
-    }
+    renderMessages();
   }
 
-  // ---- Title -------------------------------------------------------------
-  function titleField() {
-    const input = el('input', { class: 'field', value: task.title || '', 'aria-label': 'Task title', style: { fontWeight: '700', fontSize: '15px' } });
-    input.addEventListener('blur', () => {
-      const v = input.value.trim();
-      if (v && v !== task.title) updateTask({ title: v });
-    });
-    return el('div', {},
-      el('label', { class: 'lbl' }, task.key || 'Task'),
-      input,
-    );
+  /** Said to screen readers only (what a click did), e.g. "Attached site.png." */
+  function announce(text) {
+    announcer.textContent = '';
+    announcer.textContent = text;
   }
-
-  // ---- Priority ----------------------------------------------------------
-  function prioritySection() {
-    return section('Priority',
-      el('div', { class: 'toolbar', style: { margin: 0 } },
-        PRIORITIES.map((p) => el('button', {
-          class: `chip${task.priority === p ? ' on' : ''}`, type: 'button',
-          onClick: () => { if (task.priority !== p) updateTask({ priority: p }); },
-        }, PRIORITY_LABEL[p])),
-      ),
-    );
-  }
-
-  // ---- Due date + repeat -------------------------------------------------
-  function scheduleSection() {
-    const timeZone = ctx.timeZone || DEFAULT_TIME_ZONE;
-    const dueKey = dueDayKey(task.dueDate, timeZone) || '';
-    const due = el('input', { class: 'field', type: 'date', value: dueKey, 'aria-label': 'Due date', style: { maxWidth: '190px' } });
-    due.addEventListener('change', () => { if (due.value !== dueKey) updateTask({ dueDate: due.value || null }); });
-    return el('div', {},
-      section('Due date', due),
-      section('Repeat', repeatEditor(dueKey || todayKey(timeZone))),
-    );
-  }
-
-  /** The repeat rule editor; each change is saved (or queued) like any other edit. */
-  function repeatEditor(dueKey) {
-    const rule = task.recurrenceRule || null;
-    if (isEarlierCopy(task)) {
-      // Repeating an earlier copy would start a second, parallel series.
-      return el('div', { class: 'muted', style: { fontSize: '13px' } }, '🔁 An earlier copy of a repeating series — change the repeat on its newest copy.');
-    }
-    const setRule = (next) => updateTask({ recurrenceRule: next });
-    const rows = [row(select('Repeat', [['NONE', 'Does not repeat'], ...FREQS.map((f) => [f, FREQ_LABEL[f]])], rule ? rule.freq : 'NONE', (v) => setRule(withFreq(rule, v))))];
-    if (!rule) return el('div', {}, rows);
-
-    rows.unshift(el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--brand)', marginBottom: '6px' } }, `🔁 ${recurrenceSummary(rule)}`));
-    const every = el('input', { class: 'field', type: 'number', min: '1', value: String(rule.interval), 'aria-label': 'Repeat every', style: { width: '76px' } });
-    every.addEventListener('change', () => setRule(withInterval(rule, every.value)));
-    rows.push(row(el('span', { class: 'muted' }, 'Every'), every, el('span', { class: 'muted' }, UNIT_LABEL[rule.freq])));
-
-    if (rule.freq === 'WEEKLY') {
-      rows.push(row(DAY_NAMES.map((name, day) => {
-        const on = (rule.weekdays || []).includes(day);
-        return el('button', { class: `chip${on ? ' on' : ''}`, type: 'button', 'aria-label': name, 'aria-pressed': String(on), onClick: () => setRule(toggleWeekday(rule, day)) }, name);
-      })));
-    }
-    if (rule.freq === 'MONTHLY' || rule.freq === 'QUARTERLY') {
-      const mode = rule.nthWeekday ? 'WEEKDAY' : 'DATE';
-      const parts = [
-        el('span', { class: 'muted' }, 'On'),
-        select(rule.freq === 'MONTHLY' ? 'Monthly on' : 'Quarterly on', [['DATE', 'a day of the month'], ['WEEKDAY', 'a weekday of the month']], mode, (v) => setRule(withMonthlyMode(rule, v, dueKey))),
-      ];
-      if (mode === 'DATE') {
-        const day = el('input', { class: 'field', type: 'number', min: '1', max: '31', value: rule.dayOfMonth ? String(rule.dayOfMonth) : '', placeholder: 'due day', title: '31 means the last day of every month', 'aria-label': 'Day of month', style: { width: '86px' } });
-        day.addEventListener('change', () => setRule(withDayOfMonth(rule, day.value)));
-        parts.push(day);
-      } else {
-        parts.push(
-          el('span', { class: 'muted' }, 'the'),
-          select('Week of the month', WEEK_OF_MONTH.map((w) => [String(w.week), w.label]), String(rule.nthWeekday.week), (v) => setRule(withNth(rule, { week: Number(v) }))),
-          select('Weekday', WEEKDAY_NAMES.map((n, d) => [String(d), n]), String(rule.nthWeekday.day), (v) => setRule(withNth(rule, { day: Number(v) }))),
-        );
-      }
-      rows.push(row(parts));
-    }
-
-    const ends = endsMode(rule);
-    const endParts = [el('span', { class: 'muted' }, 'Ends'), select('Ends', [['NEVER', 'Never'], ['COUNT', 'After a number of copies'], ['UNTIL', 'On a date']], ends, (v) => setRule(withEnds(rule, v, dueKey)))];
-    if (ends === 'COUNT') {
-      const count = el('input', { class: 'field', type: 'number', min: '1', value: String(rule.count), 'aria-label': 'Number of occurrences', style: { width: '76px' } });
-      count.addEventListener('change', () => { const n = Number(count.value); setRule({ ...rule, count: Number.isInteger(n) && n >= 1 ? n : 1, until: null }); });
-      endParts.push(count);
-    } else if (ends === 'UNTIL') {
-      const until = el('input', { class: 'field', type: 'date', value: String(rule.until).slice(0, 10), 'aria-label': 'End date', style: { maxWidth: '190px' } });
-      until.addEventListener('change', () => { if (until.value) setRule({ ...rule, until: until.value, count: null }); });
-      endParts.push(until);
-    }
-    rows.push(row(endParts));
-    rows.push(row(
-      el('span', { class: 'muted' }, 'Create the next copy'),
-      select('Create the next copy', [['ON_COMPLETE', 'when this one is done'], ['ON_SCHEDULE', 'on each date, even if not done']], rule.createNext || 'ON_COMPLETE', (v) => setRule(withCreateNext(rule, v))),
-    ));
-    rows.push(row(el('button', { class: 'btn sm', type: 'button', onClick: () => setRule(togglePaused(rule)) }, rule.paused ? '▶ Resume series' : '⏸ Pause series')));
-    return el('div', {}, rows);
-  }
-
-  function select(label, options, value, onPick) {
-    const node = el('select', { class: 'field', 'aria-label': label, style: { width: 'auto' } },
-      options.map(([v, text]) => el('option', { value: v }, text)));
-    node.value = value;
-    node.addEventListener('change', () => onPick(node.value));
-    return node;
-  }
-
-  function row(...children) {
-    return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' } }, ...children);
-  }
-
-  // ---- Description -------------------------------------------------------
-  function descriptionSection() {
-    const ta = el('textarea', { class: 'field', rows: '3', placeholder: 'Add a description…', 'aria-label': 'Description' });
-    ta.value = task.description || '';
-    ta.addEventListener('blur', () => {
-      const v = ta.value.trim();
-      if (v !== (task.description || '')) updateTask({ description: v });
-    });
-    return section('Description', ta);
-  }
-
-  // ---- Checklist ---------------------------------------------------------
-  function checklistSection() {
-    const rows = checklist.items.map((item) => {
-      // L13: an item added on this device has no server id yet; it can be ticked once it has synced.
-      const waiting = isTempId(item.id);
-      const cb = el('input', { type: 'checkbox', 'aria-label': item.text, disabled: waiting, title: waiting ? 'Waiting to sync' : null });
-      cb.checked = !!item.done;
-      cb.addEventListener('change', () => toggleChecklist(item, cb.checked));
-      return el('label', { style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 0', cursor: waiting ? 'default' : 'pointer' } },
-        cb,
-        el('span', { style: item.done ? { textDecoration: 'line-through', color: 'var(--ink2)' } : {} }, item.text),
-        waiting ? el('span', { class: 'muted', style: { fontSize: '12px' } }, '· waiting to sync') : null,
-      );
-    });
-
-    const add = el('input', { class: 'field', placeholder: 'Add checklist item…', 'aria-label': 'New checklist item' });
-    const submit = () => { const v = add.value.trim(); if (v) { add.value = ''; addChecklistItem(v); } };
-    add.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-
-    return section(`Checklist (${checklist.done}/${checklist.total})`,
-      rows.length ? el('div', {}, rows) : el('div', { class: 'muted', style: { fontSize: '13px' } }, 'No checklist items yet.'),
-      el('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, add, el('button', { class: 'btn sm', onClick: submit }, 'Add')),
-    );
-  }
-
-  // ---- Assignees ---------------------------------------------------------
-  function assigneesSection() {
-    const mine = assignees.some((a) => a.id === ctx.me.id);
-    const names = assignees.length
-      ? el('div', { class: 'toolbar', style: { margin: '0 0 8px' } }, assignees.map((a) => pill(displayName(a), 'NORMAL')))
-      : el('div', { class: 'muted', style: { fontSize: '13px', marginBottom: '8px' } }, 'No one assigned yet.');
-    return section('Assignees',
-      names,
-      el('button', { class: `btn sm${mine ? '' : ' primary'}`, onClick: () => toggleAssignMe(mine) }, mine ? 'Unassign me' : 'Assign me'),
-    );
-  }
-
-  // ---- Comments ----------------------------------------------------------
-  function commentsSection() {
-    const list = comments.length
-      ? el('div', { class: 'thread' }, comments.map((c) => el('div', { class: 'msg' },
-          el('div', { class: 'mh' }, el('span', { class: 'author' }, displayNameById(c.userId)), el('span', { class: 'time' }, timeAgo(c.createdAt))),
-          el('div', { class: 'txt' }, c.body || ''),
-        )))
-      : el('div', { class: 'muted', style: { fontSize: '13px' } }, 'No comments yet.');
-
-    const ta = el('textarea', { class: 'field', rows: '2', placeholder: 'Write a comment…', 'aria-label': 'New comment' });
-    const post = () => { const v = ta.value.trim(); if (v) { ta.value = ''; addComment(v); } };
-    return section('Comments',
-      list,
-      el('div', { class: 'composer', style: { position: 'static', background: 'transparent', borderTop: 'none', paddingTop: '10px' } },
-        ta,
-        el('button', { class: 'btn primary sm', onClick: post }, 'Post'),
-      ),
-    );
-  }
-
-  // ---- Mutations ---------------------------------------------------------
-  // Each change is sent now, or saved on this device and synced later (ctx.write). A change that
-  // can't even be saved locally shows an error and is rolled back — never silently lost.
 
   /** A change kept on this device: say so until it has synced. */
   function noteSaved(r) {
     if (r && r.queued) {
       hadQueued = true;
       notice = SAVED_ON_DEVICE;
+      renderMessages();
     }
   }
 
-  /** Show an edit at once, then send it after this task's earlier edits have been answered (H1). */
-  function updateTask(patch) {
+  /**
+   * Send a change now, or keep it on this device (ctx.write). Resolves the write's result; rejects
+   * when it can't be saved at all (the section rolls its change back and calls `fail`).
+   */
+  async function send(kind, payload) {
+    const r = await ctx.write(kind, payload);
+    noteSaved(r);
+    changed(r);
+    return r;
+  }
+
+  /**
+   * Something about the task changed (a write, a file attached): the app's counts follow, and — when
+   * it reached the server — the timeline is read again, so the change shows in it.
+   */
+  function changed(r) {
+    ctx.afterMutation();
+    if (!r || !r.queued) rereadActivity();
+  }
+
+  /** Read the timeline again (one read at a time; a change made meanwhile reads it once more). */
+  async function rereadActivity() {
+    if (typeof ctx.api.tasks.activity !== 'function' || !s.task || s.task.pendingDelete) return;
+    if (rereading) {
+      rereading = 'again';
+      return;
+    }
+    const id = loads;
+    rereading = 'reading';
+    try {
+      const r = await ctx.api.tasks.activity(taskId);
+      if (id === loads) {
+        s.activity = list(r && r.data);
+        activity.render();
+      }
+    } catch {
+      /* offline: the timeline shows what it had */
+    }
+    const again = rereading === 'again';
+    rereading = null;
+    if (again) rereadActivity();
+  }
+
+  /**
+   * Show `node` over the drawer (a picture's preview): the drawer's own parts can't be reached
+   * (inert) until `release()`, so Tab and screen readers stay in it — and it stays inside the dialog.
+   */
+  function layer(node) {
+    const under = [...panel.children];
+    for (const n of under) n.setAttribute('inert', '');
+    panel.append(node);
+    layered = node;
+    return function release() {
+      node.remove();
+      for (const n of under) n.removeAttribute('inert');
+      if (layered === node) layered = null;
+    };
+  }
+
+  /** "First Last" for a person: you, someone in the people directory, else what the row itself says. */
+  function displayName(userId, row) {
+    if (userId === ctx.me.id && ctx.me.name) return ctx.me.name;
+    const u = s.directory.find((x) => x.id === userId) || row;
+    if (!u) return 'Someone';
+    return `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.name || u.username || u.email || 'Someone';
+  }
+
+  // ---- The task's own fields (H1) ---------------------------------------------------------
+
+  /**
+   * Show an edit at once, then send it after this task's earlier edits have been answered (H1).
+   * `scope: 'series'` sends it for every open copy of a repeating series (the server copies the
+   * title, description and priority to them).
+   */
+  function updateTask(patch, { scope } = {}) {
+    const task = s.task;
     const before = Object.fromEntries(Object.keys(patch).map((k) => [k, task[k]]));
     Object.assign(task, patch);
-    err = '';
-    renderBody();
+    clearError();
+    showEdit(patch);
     const made = generation;
-    return lane.run(() => saveEdit(patch, before, made));
+    const sent = scope === 'series' ? { ...patch, scope } : patch;
+    return lane.run(() => saveEdit(sent, before, made));
+  }
+
+  function showEdit(patch) {
+    if ('title' in patch) renderHead();
+    fields.renderFor(patch);
   }
 
   async function saveEdit(patch, before, made) {
@@ -333,7 +336,8 @@ export function TaskDetail(ctx, onClose) {
       const r = await ctx.write('task.update', { id: taskId, patch, ...(typeof expectedVersion === 'number' ? { expectedVersion } : {}) });
       noteSaved(r);
       // The next edit is made against the version this one made.
-      if (!r.queued && r.data && typeof r.data.version === 'number') task.version = r.data.version;
+      if (!r.queued && r.data && typeof r.data.version === 'number') s.task.version = r.data.version;
+      changed(r);
     } catch (e) {
       if (isVersionConflict(e)) {
         // Someone else changed the task: say so, show their version, and drop this edit.
@@ -342,11 +346,11 @@ export function TaskDetail(ctx, onClose) {
         ctx.afterMutation();
         return;
       }
-      Object.assign(task, before);
-      err = writeErrorMessage(e, 'Could not save your change.');
+      Object.assign(s.task, before);
+      fail(e, 'Could not save your change.');
+      showEdit(before);
+      ctx.afterMutation();
     }
-    renderBody();
-    ctx.afterMutation();
   }
 
   /**
@@ -354,7 +358,7 @@ export function TaskDetail(ctx, onClose) {
    * this device have synced, the version they made (the sync keeps it in the task's offline copy).
    */
   async function nextVersion() {
-    let v = task.version;
+    let v = s.task.version;
     if (!hadQueued || !ctx.storage || !ctx.cache) return v;
     try {
       const mine = (await getQueue(ctx.storage)).filter((i) => i.userId === ctx.me.id && VERSIONED_KINDS.has(i.kind) && taskIdOf(i) === taskId);
@@ -365,95 +369,7 @@ export function TaskDetail(ctx, onClose) {
     } catch {
       return v;
     }
-    task.version = v;
+    s.task.version = v;
     return v;
-  }
-
-  async function toggleChecklist(item, done) {
-    if (isTempId(item.id)) {
-      err = 'This item is still waiting to sync — tick it after it syncs.';
-      renderBody();
-      return;
-    }
-    item.done = done;
-    checklist.done = checklist.items.filter((i) => i.done).length;
-    err = '';
-    renderBody();
-    try {
-      noteSaved(await ctx.write('checklist.update', { itemId: item.id, patch: { done } }));
-    } catch (e) {
-      item.done = !done;
-      checklist.done = checklist.items.filter((i) => i.done).length;
-      err = writeErrorMessage(e, 'Could not update the checklist.');
-    } finally {
-      renderBody();
-      ctx.afterMutation();
-    }
-  }
-
-  async function addChecklistItem(text) {
-    err = '';
-    try {
-      const r = await ctx.write('checklist.add', { id: taskId, text });
-      noteSaved(r);
-      // Kept on this device: the same temporary id it has when the drawer opens again (pending-overlay.js).
-      checklist.items.push(!r.queued && r.data && r.data.id ? r.data : { id: r.item ? tempId(r.item) : `tmp-${Date.now()}`, text, done: false });
-    } catch (e) {
-      err = writeErrorMessage(e, 'Could not add the item.');
-    } finally {
-      checklist.total = checklist.items.length;
-      checklist.done = checklist.items.filter((i) => i.done).length;
-      renderBody();
-      ctx.afterMutation();
-    }
-  }
-
-  async function toggleAssignMe(mine) {
-    err = '';
-    const before = assignees;
-    assignees = mine
-      ? assignees.filter((a) => a.id !== ctx.me.id)
-      : [...assignees, { id: ctx.me.id, name: ctx.me.name, email: ctx.me.email }];
-    renderBody();
-    try {
-      if (mine) noteSaved(await ctx.write('task.unassign', { id: taskId, userId: ctx.me.id }));
-      else noteSaved(await ctx.write('task.assign', { id: taskId, userIds: [ctx.me.id] }));
-    } catch (e) {
-      assignees = before;
-      err = writeErrorMessage(e, mine ? 'Could not unassign you.' : 'Could not assign you.');
-    } finally {
-      renderBody();
-      ctx.afterMutation();
-    }
-  }
-
-  async function addComment(bodyText) {
-    err = '';
-    const optimistic = { id: `tmp-${Date.now()}`, userId: ctx.me.id, body: bodyText, createdAt: new Date().toISOString() };
-    comments = [...comments, optimistic];
-    renderBody();
-    try {
-      noteSaved(await ctx.write('comment.add', { id: taskId, body: bodyText }));
-    } catch (e) {
-      comments = comments.filter((c) => c !== optimistic);
-      err = writeErrorMessage(e, 'Could not post your comment.');
-    } finally {
-      renderBody();
-      ctx.afterMutation();
-    }
-  }
-
-  // ---- Helpers -----------------------------------------------------------
-  function section(title, ...children) {
-    return el('div', {}, el('div', { class: 'section-title' }, title), ...children);
-  }
-  function displayName(u) {
-    if (!u) return 'Someone';
-    if (u.id === ctx.me.id && ctx.me.name) return ctx.me.name;
-    return `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.name || u.username || u.email || 'Someone';
-  }
-  function displayNameById(uid) {
-    if (uid === ctx.me.id && ctx.me.name) return ctx.me.name;
-    return displayName(directory.find((d) => d.id === uid));
   }
 }
