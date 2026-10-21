@@ -11,9 +11,21 @@ import { shiftDayKey } from '../../src/due-date.js';
 
 /** In a month's day, this many items show; the rest are "+N more" (the day's list has them all). */
 const IN_A_DAY = 3;
+/** The agenda's overdue tasks shown before "Show all" (as on the web). */
+const OVERDUE_PREVIEW = 8;
 const ICON = { overdue: '!', blocked: '⊘', 'in-progress': '◐', todo: '○', done: '✓', projected: '↻' };
 const WEEKDAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const rows = (v) => (Array.isArray(v) ? v : []);
+
+/**
+ * "a · b · c": each value isolated in its own <bdi> and the " · " between them outside, so an
+ * Arabic value can't move the separators or swap the order. Null when there is nothing to say.
+ */
+function valuesLine(values) {
+  const parts = values.filter(Boolean);
+  if (!parts.length) return null;
+  return parts.flatMap((v, i) => (i ? [' · ', el('bdi', {}, v)] : [el('bdi', {}, v)]));
+}
 
 /**
  * Calendar, as on the web (Stage 6): `GET /calendar` for the days shown — the tasks due in the
@@ -31,12 +43,16 @@ export function CalendarScreen(ctx) {
   let filters = filtersFromQuery(q);
   let settings = dateSettings(null, ctx.timeZone);
   let data = null;
+  let dataKey = ''; // the days `data` is for: a later period that can't be read never shows them
   let meetings = [];
   let meetingsFailed = false;
+  let overdue = null; // the agenda's Overdue group (GET /tasks?overdue=true), null when not read
+  let allOverdue = false;
   let projects = [];
   let stale = false;
   let failed = false;
   let asked = '';
+  let said = null; // the period last said to screen readers (null: nothing shown yet)
 
   const root = el('div', { class: 'cal' });
   root.refresh = () => { void load(); return true; };
@@ -66,25 +82,39 @@ export function CalendarScreen(ctx) {
     asked = key;
     root.setAttribute('aria-busy', 'true');
     const span = meetingRange(from, to, settings.timeZone);
+    // The agenda starts with what is overdue from any day, as on the web (it can't be had: left out).
+    const late = view === 'agenda' && ctx.api.tasks && ctx.api.tasks.list
+      ? ctx.api.tasks.list({ overdue: true }).then((r) => rows(r && r.data), () => null) : Promise.resolve(null);
     try {
-      const [cal, mts, prj] = await Promise.all([
+      const [cal, mts, prj, od] = await Promise.all([
         ctx.api.calendar(from, to),
         ctx.api.meetings.list({ from: span.from, to: span.to }).then((r) => ({ r }), () => null),
         projects.length ? null : ctx.api.projects.list().catch(() => null),
+        late,
       ]);
       if (asked !== key) return; // moved on meanwhile
       data = cal && cal.data ? cal.data : { tasks: [], occurrences: [], series: [] };
+      dataKey = key;
       meetings = mts ? rows(mts.r && mts.r.data) : [];
       meetingsFailed = !mts;
+      overdue = od;
       stale = !!((cal && cal.stale) || (mts && mts.r && mts.r.stale));
       if (prj) projects = rows(prj.data);
       failed = false;
     } catch {
       if (asked !== key) return;
       failed = true;
+      // The same days read again: what is shown stays, as a saved copy. Other days have nothing to show.
+      stale = dataKey === key;
     }
     root.removeAttribute('aria-busy');
     render();
+  }
+
+  /** Whether `data` was read for the days shown now (a failed read of other days leaves it behind). */
+  function dataShown() {
+    const { from, to } = visibleRange(view, cursor(), settings.weekStart);
+    return !!data && dataKey === `${from}:${to}`;
   }
 
   // ---- the place (view, day, filters), kept in the address -----------------------------------
@@ -114,7 +144,7 @@ export function CalendarScreen(ctx) {
   function render() {
     const a = document.activeElement;
     const keep = a && root.contains(a) ? a.dataset.focusKey : null;
-    if (failed && !data) {
+    if (failed && !dataShown()) {
       mount(root, toolbar(), ErrorState('Couldn’t load the calendar.', () => load()));
     } else {
       mount(root, toolbar(), body());
@@ -123,6 +153,11 @@ export function CalendarScreen(ctx) {
       const again = root.querySelector(`[data-focus-key="${keep}"]`);
       if (again) again.focus();
     }
+    // A new month, week or view is said once through the app's live region (the heading is drawn
+    // again each time, and a region that is new each time isn't read out).
+    const label = periodLabel(view, cursor(), settings.weekStart);
+    if (said !== null && label !== said && typeof ctx.announce === 'function') ctx.announce(label);
+    said = label;
   }
 
   function projectOf(id) {
@@ -151,7 +186,7 @@ export function CalendarScreen(ctx) {
         btn('‹', 'prev', () => step(-1), { 'aria-label': `Previous ${unit}` }),
         btn('Today', 'today', () => go({ date: null })),
         btn('›', 'next', () => step(1), { 'aria-label': `Next ${unit}` }),
-        el('h2', { class: 'cal-period', 'aria-live': 'polite' }, periodLabel(view, cursor(), settings.weekStart))),
+        el('h2', { class: 'cal-period' }, periodLabel(view, cursor(), settings.weekStart))),
       el('div', { class: 'cal-views', role: 'group', 'aria-label': 'View' },
         VIEWS.map((v) => pressed(v[0].toUpperCase() + v.slice(1), view === v, `view-${v}`, () => go({ view: v })))),
       el('div', { class: 'cal-filters', role: 'group', 'aria-label': 'Show' },
@@ -171,7 +206,8 @@ export function CalendarScreen(ctx) {
   function body() {
     const c = computed();
     const label = periodLabel(view, cursor(), settings.weekStart);
-    const nothing = !c.shown.length && !c.mCount
+    const late = view === 'agenda' ? overdueItems() : [];
+    const nothing = !c.shown.length && !c.mCount && !late.length
       ? el('div', { class: 'cal-nothing' },
         el('p', {}, filtered() ? `No tasks match these filters in ${label}.` : `Nothing is due in ${label}.`),
         filtered() ? el('button', { class: 'btn sm', type: 'button', dataset: { focusKey: 'clear' }, onClick: () => go({ filters: { ...DEFAULT_FILTERS } }) }, 'Clear filters') : null)
@@ -180,9 +216,33 @@ export function CalendarScreen(ctx) {
     if (view === 'agenda') {
       const { from, to } = visibleRange('agenda', cursor(), settings.weekStart);
       const days = [...new Set([...c.byDay.keys(), ...c.mByDay.keys()])].filter((d) => d >= from && d <= to).sort();
-      return [nothing, days.length ? el('div', { class: 'cal-list' }, days.map((d) => daySection(d, c, 'cal-day-section'))) : null];
+      return [overdueGroup(late), nothing, days.length ? el('div', { class: 'cal-list' }, days.map((d) => daySection(d, c, 'cal-day-section'))) : null];
     }
     return [nothing, month(c), daySection(cursor(), c, 'cal-daylist')];
+  }
+
+  /** The agenda's overdue tasks from any day (the web's: open tasks past their day), filtered as shown. */
+  function overdueItems() {
+    if (!overdue || !overdue.length) return [];
+    const projectStatus = (id) => (projectOf(id) || {}).status;
+    const items = buildItems({ tasks: overdue, occurrences: [], series: [] }, { today: today(), timeZone: settings.timeZone, projectStatus })
+      .filter((i) => i.status === 'overdue');
+    return applyFilters(items, filters, { myId: ctx.me.id });
+  }
+
+  /** "Overdue · N" first in the agenda, as on the web: the first eight, then "Show all N overdue tasks". */
+  function overdueGroup(items) {
+    if (!items.length) return null;
+    const shown = allOverdue ? items : items.slice(0, OVERDUE_PREVIEW);
+    return el('section', { class: 'card cal-overdue', 'aria-label': `Overdue (${items.length})` },
+      el('h3', {}, `Overdue · ${items.length}`),
+      el('div', { class: 'cal-chips' }, shown.map((i) => taskChip(i, true))),
+      items.length > OVERDUE_PREVIEW
+        ? el('button', {
+          class: 'linkbtn cal-overdue-more', type: 'button', 'aria-expanded': allOverdue ? 'true' : 'false', dataset: { focusKey: 'overdue-all' },
+          onClick: () => { allOverdue = !allOverdue; render(); },
+        }, allOverdue ? 'Show fewer' : `Show all ${items.length} overdue tasks`)
+        : null);
   }
 
   function month(c) {
@@ -225,7 +285,7 @@ export function CalendarScreen(ctx) {
     const t = item.task;
     const project = projectOf(t.projectId);
     const people = rows(t.assignees).map((a) => a && a.name).filter(Boolean).join(', ');
-    const meta = withMeta ? [item.kind === 'task' ? t.key : 'Not created yet', project && project.name, people].filter(Boolean).join(' · ') : '';
+    const meta = withMeta ? valuesLine([item.kind === 'task' ? t.key : 'Not created yet', project && project.name, people]) : null;
     return el('button', {
       class: `cal-chip s-${item.status}`, type: 'button', dataset: { item: item.key, taskId: t.id }, 'aria-label': itemName(item),
       title: item.kind === 'projected' ? `Not created yet · ${t.title}` : `${t.key} · ${t.title}`,
@@ -236,13 +296,13 @@ export function CalendarScreen(ctx) {
     el('span', { class: 'cal-ic', 'aria-hidden': 'true' }, ICON[item.status]),
     el('span', { class: 'cal-chip-text' },
       el('span', { class: 'cal-chip-title' }, el('bdi', {}, t.title)),
-      meta ? el('span', { class: 'cal-chip-meta', dir: 'auto' }, meta) : null),
+      meta ? el('span', { class: 'cal-chip-meta' }, meta) : null),
     item.kind === 'task' && item.recurring ? el('span', { class: 'cal-rep', 'aria-hidden': 'true', title: 'Repeats' }, '↻') : null);
   }
 
   function meetingChip(m, withMeta) {
     const project = m.projectId ? projectOf(m.projectId) : null;
-    const meta = withMeta ? [m.time, m.location].filter(Boolean).join(' · ') : '';
+    const meta = withMeta ? valuesLine([m.time, m.location]) : null;
     return el('button', {
       class: `cal-chip meeting${m.cancelled ? ' cancelled' : ''}`, type: 'button', dataset: { item: m.key }, 'aria-label': meetingName(m), title: `${m.time} · ${m.title}`,
       style: hasProjectColor(project) ? { borderInlineStartColor: project.color } : null,
@@ -252,7 +312,7 @@ export function CalendarScreen(ctx) {
     el('span', { class: 'cal-chip-text' },
       // The time first, then the title isolated: an Arabic title can't pull the time to its side.
       el('span', { class: 'cal-chip-title' }, el('span', { class: 'cal-time' }, m.time.split(' – ')[0]), ' ', el('bdi', {}, m.title)),
-      meta ? el('span', { class: 'cal-chip-meta', dir: 'auto' }, meta) : null),
+      meta ? el('span', { class: 'cal-chip-meta' }, meta) : null),
     m.recurring ? el('span', { class: 'cal-rep', 'aria-hidden': 'true', title: 'Repeats' }, '↻') : null);
   }
 }

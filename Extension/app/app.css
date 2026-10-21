@@ -604,7 +604,11 @@ a.td-file-name:hover { color: var(--brand); text-decoration: underline; }
 .cal-more { margin-top: 2px; font-size: 11.5px; }
 .cal-list { display: flex; flex-direction: column; gap: 10px; }
 .cal-day-section h3, .cal-daylist h3 { margin: 0 0 8px; font-size: 14px; }
-.cal-daylist .cal-chip, .cal-day-section .cal-chip { font-size: 13px; padding: 6px 8px; }
+.cal-daylist .cal-chip, .cal-day-section .cal-chip, .cal-overdue .cal-chip { font-size: 13px; padding: 6px 8px; }
+/* The agenda's Overdue group comes first, in the overdue colour (as on the web). */
+.cal-overdue { border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); background: color-mix(in srgb, var(--danger-soft) 40%, var(--surface)); margin-bottom: 10px; }
+.cal-overdue h3 { margin: 0 0 8px; font-size: 14px; color: var(--danger); }
+.cal-overdue-more { margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--danger); }
 
 .mt-head { margin-bottom: 12px; }
 .mt-upnext { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-bottom: 16px; border-color: color-mix(in srgb, var(--brand) 30%, var(--line)); }
