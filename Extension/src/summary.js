@@ -31,14 +31,18 @@ export function groupTasksByDue(tasks, { timeZone = DEFAULT_TIME_ZONE, now = Dat
   return groups;
 }
 
+/** Whether a task was finished today (the calendar day in the company time zone). */
+export function isCompletedToday(t, timeZone = DEFAULT_TIME_ZONE, now = Date.now()) {
+  return !!(t && t.completedAt) && zonedDayKey(new Date(t.completedAt), timeZone) === todayKey(timeZone, new Date(now));
+}
+
 /**
  * Summarize a list of tasks for the dashboard: today/overdue/in-progress/completed-today counts and
  * up to 5 upcoming tasks. "Today" is the calendar day in the company time zone.
  */
 export function summarizeTasks(tasks, now = Date.now(), timeZone = DEFAULT_TIME_ZONE) {
   const g = groupTasksByDue(tasks, { timeZone, now });
-  const today = todayKey(timeZone, new Date(now));
-  const completedToday = g.completed.filter((t) => t.completedAt && zonedDayKey(new Date(t.completedAt), timeZone) === today).length;
+  const completedToday = g.completed.filter((t) => isCompletedToday(t, timeZone, now)).length;
   const open = [...g.overdue, ...g.dueToday, ...g.upcoming, ...g.noDue];
   return {
     dueToday: g.dueToday.length,

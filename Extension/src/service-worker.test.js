@@ -26,6 +26,8 @@ const chrome = {
   notifications: { onClicked: event('notificationClicked'), clear: vi.fn(), create: vi.fn() },
   omnibox: { onInputStarted: event('omniStarted'), onInputChanged: event('omniChanged'), onInputEntered: event('omniEntered'), setDefaultSuggestion: vi.fn() },
   contextMenus: { removeAll: vi.fn(async () => {}), create: vi.fn(), onClicked: event('menuClicked') },
+  commands: { onCommand: event('command') },
+  sidePanel: { open: vi.fn(async () => {}), setPanelBehavior: vi.fn(async () => {}) },
   tabs: { create: vi.fn(async () => ({})), update: vi.fn(async () => ({})) },
   windows: { create: vi.fn(async () => ({})), update: vi.fn(async () => {}) },
 };
@@ -96,5 +98,25 @@ describe('background worker: “mico” in the address bar (Stage 6)', () => {
     listeners.omniEntered[0]('task:t1', 'currentTab');
     await settle();
     expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'chrome-extension://ext/app/app.html#/task/t1' });
+  });
+});
+
+describe('background worker: the side panel (Stage 7)', () => {
+  it('its keyboard command opens the side panel in the window it was pressed in — at once, as Chrome needs', () => {
+    expect(listeners.command).toHaveLength(1);
+    chrome.sidePanel.open.mockClear();
+    listeners.command[0]('open-side-panel', { id: 9, windowId: 4 });
+    expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 4 }); // nothing awaited first
+  });
+
+  it('other commands, and a press with no window, open nothing', () => {
+    chrome.sidePanel.open.mockClear();
+    listeners.command[0]('something-else', { id: 9, windowId: 4 });
+    listeners.command[0]('open-side-panel', undefined);
+    expect(chrome.sidePanel.open).not.toHaveBeenCalled();
+  });
+
+  it('leaves the toolbar button to the popup (it never sets the side panel to open on a toolbar click)', () => {
+    expect(chrome.sidePanel.setPanelBehavior).not.toHaveBeenCalled();
   });
 });

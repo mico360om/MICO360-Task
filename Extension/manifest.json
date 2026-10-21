@@ -13,14 +13,18 @@
     "_execute_action": {
       "suggested_key": { "default": "Ctrl+Shift+K", "mac": "Command+Shift+K" },
       "description": "Add a task"
+    },
+    "open-side-panel": {
+      "description": "Open the side panel"
     }
   },
   "omnibox": { "keyword": "mico" },
+  "side_panel": { "default_path": "app/panel.html" },
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
-  "permissions": ["storage", "unlimitedStorage", "alarms", "notifications", "contextMenus", "activeTab"],
+  "permissions": ["storage", "unlimitedStorage", "alarms", "notifications", "contextMenus", "activeTab", "sidePanel"],
   "host_permissions": ["https://task.mico360.com/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }

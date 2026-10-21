@@ -1,5 +1,6 @@
 import { el, mount, Loader, ErrorState, Empty } from '../dom.js';
-import { groupTasksByDue, isDone } from '../../src/summary.js';
+import { groupTasksByDue, isDone, isCompletedToday } from '../../src/summary.js';
+import { formatDayKey, todayKey } from '../../src/due-date.js';
 import { taskRow, PRIORITY_LABEL, writeErrorMessage, SAVED_ON_DEVICE } from '../components.js';
 import { SORT_OPTIONS, sortTasks, projectFilterOptions, doneColumnOf } from '../../src/task-cards.js';
 import { isRecurring } from '../../src/recurrence.js';
@@ -12,9 +13,14 @@ import { isTempId } from '../../src/pending-overlay.js';
  * open task moves it to its project's Done column (src/task-cards.js doneColumnOf — the server
  * completes a task moved there), sent now or kept on this device like a move on the board. Reads
  * work offline via the read-through cache.
+ *
+ * `root.refresh()` reads the list again in place (coming back to the tab, and every minute in the
+ * side panel — Stage 7): the search, filters and focus stay. `view: 'today'` is the side panel's
+ * Today (app/screens/today.js): only Overdue, Due today and Done today, with no search or filters.
  */
-export function MyTasksScreen(ctx) {
+export function MyTasksScreen(ctx, { view = 'all' } = {}) {
   const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+  const today = view === 'today';
 
   // ---- screen state (declared BEFORE load()/return to avoid a TDZ ReferenceError) ----
   let allTasks = [];
@@ -25,6 +31,8 @@ export function MyTasksScreen(ctx) {
   let err = '';
   let note = '';
   let focusWant = null; // what to focus after the next render: { id, part: 'row' | 'mark' }
+  let reads = 0; // each read's number: an older answer is dropped
+  let marks = 0; // each "Mark done" pressed: a read made before one is dropped (it would undo it on screen)
   const activePriorities = new Set();
   const marking = new Set(); // tasks being marked done (their button waits)
 
@@ -51,27 +59,39 @@ export function MyTasksScreen(ctx) {
   const messages = el('div');
   const live = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
   const resultsEl = el('div');
+  // Today: the company's day, and "offline · saved" beside it (there is no toolbar).
+  const dateEl = el('p', { class: 'today-date' });
+  const head = today ? el('div', { class: 'today-head' }, dateEl, staleTag) : toolbar;
 
   load();
+  // Read again in place; not while a task is being marked done (the answer would undo it on screen).
+  root.refresh = () => {
+    if (!marking.size) void load({ quiet: true });
+    return true;
+  };
   return root;
 
-  async function load() {
-    const first = !allTasks.length;
-    if (first) mount(root, Loader());
+  /** Read my tasks. `quiet` (reading again): no spinner, and a read that fails leaves the list shown. */
+  async function load({ quiet = false } = {}) {
+    const n = (reads += 1);
+    const marked = marks;
+    if (!quiet && !allTasks.length) mount(root, Loader());
     try {
       const [mine, list] = await Promise.all([
         ctx.api.tasks.mine(),
         ctx.api.projects && ctx.api.projects.list ? ctx.api.projects.list().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ]);
+      if (n !== reads || (quiet && (marked !== marks || marking.size))) return; // a newer read, or a task marked done meanwhile
       allTasks = mine.data ?? [];
       projects = Array.isArray(list && list.data) ? list.data : [];
       staleTag.classList.toggle('hidden', !mine.stale);
       renderProjectFilter();
-      if (!root.contains(toolbar)) mount(root, toolbar, messages, resultsEl, live);
+      if (!root.contains(resultsEl)) mount(root, head, messages, resultsEl, live);
       syncReset();
       renderResults();
     } catch {
-      mount(root, ErrorState('Could not load your tasks.', load));
+      if (n !== reads || (quiet && root.contains(resultsEl))) return; // keep what is on screen
+      mount(root, ErrorState('Could not load your tasks.', () => load()));
     }
   }
 
@@ -136,16 +156,29 @@ export function MyTasksScreen(ctx) {
     }
 
     // Calendar days in the company time zone; finished tasks are never overdue (XP-03).
-    const g = groupTasksByDue(tasks, { timeZone: ctx.timeZone });
+    const now = Date.now();
+    const g = groupTasksByDue(tasks, { timeZone: ctx.timeZone, now });
 
     const kept = focusedPart();
-    mount(resultsEl,
-      section('Overdue', g.overdue),
-      section('Due today', g.dueToday),
-      section('Upcoming', g.upcoming),
-      section('No due date', g.noDue),
-      section('Completed', g.completed),
-    );
+    if (today) {
+      // Today (the side panel): what is overdue or due today, and what was finished today.
+      dateEl.textContent = formatDayKey(todayKey(ctx.timeZone, new Date(now)));
+      const doneToday = g.completed.filter((t) => isCompletedToday(t, ctx.timeZone, now));
+      mount(resultsEl,
+        g.overdue.length || g.dueToday.length ? null : Empty('Nothing due today', 'Tasks that are overdue or due today show up here.'),
+        section('Overdue', g.overdue),
+        section('Due today', g.dueToday),
+        section('Done today', doneToday),
+      );
+    } else {
+      mount(resultsEl,
+        section('Overdue', g.overdue),
+        section('Due today', g.dueToday),
+        section('Upcoming', g.upcoming),
+        section('No due date', g.noDue),
+        section('Completed', g.completed),
+      );
+    }
     // Drawing the list again replaces every row: focus goes back to the same row or "Mark done"
     // (never taken from the search box or a filter).
     const want = focusWant || kept;
@@ -214,6 +247,7 @@ export function MyTasksScreen(ctx) {
       return;
     }
     marking.add(t.id);
+    marks += 1;
     focusWant = { id: t.id, part: 'mark' }; // the button waits, with focus still on it
     renderResults();
     let columnId = null;

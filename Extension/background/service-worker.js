@@ -11,6 +11,7 @@ import { pollNotifications, openAlert } from '../src/background-poll.js';
 import { readSessionUser } from '../src/auth.js';
 import { searchable } from '../src/search.js';
 import { omniboxSuggestions, omniboxTarget, defaultSuggestion } from '../src/omnibox.js';
+import { openSidePanel, PANEL_COMMAND } from '../src/side-panel.js';
 
 const local = chrome.storage.local;
 const sessionStore = chrome.storage.session;
@@ -167,6 +168,13 @@ async function ensurePollAlarm() {
 
 // The toolbar button opens the quick-capture popup (action.default_popup), as does the keyboard
 // shortcut (commands._execute_action); its "Open MICO360 Tasks" button opens the full app.
+
+// The side panel's own keyboard command (Stage 7; no key is chosen for you): it opens in the window
+// the keys were pressed in. Chrome opens it only straight from the key press, so nothing is awaited.
+chrome.commands?.onCommand.addListener((command, tab) => {
+  if (command !== PANEL_COMMAND || !tab) return;
+  void openSidePanel(chrome, tab.windowId);
+});
 
 chrome.notifications?.onClicked.addListener((id) => {
   if (id !== NOTIFICATION_ID) return;
