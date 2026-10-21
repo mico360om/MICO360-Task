@@ -448,6 +448,27 @@ describe('Task routes', () => {
     expect(deleted).toBeTruthy();
     expect((deleted!.payload as { id: string }).id).toBe(id);
   });
+
+  it('answers 404 for a task that is already gone, for everyone — 403 only refuses a task that is still there', async () => {
+    // An offline delete replayed after someone else deleted the task must read "gone" (done),
+    // not "no permission" (a refusal) — the deleted task has no project left to check against.
+    const id = (await createTask()).json().data.id;
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const employee = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/tasks/${id}`, headers: admin })).statusCode).toBe(204);
+    const again = await app.inject({ method: 'DELETE', url: `/api/v1/tasks/${id}`, headers: employee });
+    expect(again.statusCode).toBe(404);
+    expect(again.json().error.code).toBe('NOT_FOUND');
+    const never = await app.inject({ method: 'DELETE', url: '/api/v1/tasks/no-such-task', headers: employee });
+    expect(never.statusCode).toBe(404);
+    expect((await app.inject({ method: 'DELETE', url: `/api/v1/tasks/${id}`, headers: admin })).statusCode).toBe(404);
+    // Still there: the refusal stands, and nothing is deleted.
+    const kept = (await createTask()).json().data.id;
+    const refused = await app.inject({ method: 'DELETE', url: `/api/v1/tasks/${kept}`, headers: employee });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error).toEqual({ code: 'FORBIDDEN', message: 'You do not have permission to do that.' });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/tasks/${kept}`, headers: employee })).statusCode).toBe(200);
+  });
 });
 
 describe('Task routes — object-level authorization', () => {

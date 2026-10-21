@@ -277,6 +277,23 @@ describe('sendOrQueue (online-first writes)', () => {
     }
   });
 
+  it('hold: a new task with files is never kept for later — an unreachable server hands back the change, with its key', async () => {
+    const unreachable = [
+      async () => { throw new TypeError('Failed to fetch'); },
+      async () => jsonRes({}, 503),
+      async () => ({ ok: true, status: 200, headers: { get: () => 'text/html' }, json: async () => { throw new SyntaxError('<'); } }),
+    ];
+    for (const doFetch of unreachable) {
+      const s = fakeStorage();
+      const r = await sendOrQueue({ kind: 'task.create', payload: { title: 'x' } }, { doFetch, storage: s, userId: A, newKey: keyed, hold: true });
+      expect(r).toEqual({ queued: false, held: true, item: { kind: 'task.create', payload: { title: 'x' }, userId: A, idempotencyKey: 'idem-1' } });
+      expect(await getQueue(s)).toEqual([]);
+    }
+    // Reachable: as without `hold`.
+    const sent = await sendOrQueue({ kind: 'task.create', payload: { title: 'x' } }, { doFetch: async () => jsonRes({ data: { id: 't9' } }, 201), storage: fakeStorage(), userId: A, hold: true });
+    expect(sent).toEqual({ queued: false, data: { id: 't9' } });
+  });
+
   it('throws ApiError for a real HTTP error and queues nothing', async () => {
     const s = fakeStorage();
     const doFetch = async () => jsonRes({ error: { code: 'VALIDATION', message: 'bad' } }, 400);

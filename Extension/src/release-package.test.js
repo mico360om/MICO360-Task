@@ -43,6 +43,8 @@ describe.skipIf(!existsSync(script))('the release package of the extension', () 
       const names = [...entries.keys()];
       expect(JSON.parse(entries.get('manifest.json').toString('utf8')).version).toBe(manifest.version);
       expect(names).toContain(manifest.background.service_worker);
+      expect(names).toContain(manifest.action.default_popup); // the toolbar popup (popup/)
+      expect(names).toContain('popup/popup.js');
       for (const dir of EXTENSION_DIRS) expect(names.some((n) => n.startsWith(`${dir}/`)), dir).toBe(true);
       expect(names.filter((n) => /\.test\.js$|test-helpers\.js$/.test(n))).toEqual([]);
       expect(names.every((n) => !n.includes('\\'))).toBe(true); // forward slashes, as Chrome and unzip need

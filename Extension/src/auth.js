@@ -19,6 +19,10 @@ import { sameOrigin } from './config.js';
 export const REQUEST_TIMEOUT_MS = 6000;
 /** A file (an Excel or PDF export) may take much longer to build and download (M4). */
 export const DOWNLOAD_TIMEOUT_MS = 120000;
+/** Sending a file (up to the server's 10 MB) on a slow connection takes longer than other calls too. */
+export const UPLOAD_TIMEOUT_MS = 120000;
+/** "Describe it": the server waits up to two minutes for the AI provider (and may try once more). */
+export const AI_TIMEOUT_MS = 180000;
 export const REFRESH_LOCK = 'mico360:auth-refresh';
 
 /** An AbortSignal that fires after `ms` (when supported), else undefined. */
@@ -30,13 +34,19 @@ export function timeoutSignal(ms = REQUEST_TIMEOUT_MS) {
   }
 }
 
+/** A body the browser types itself: a file upload (FormData, with its multipart boundary) or a Blob. */
+function typedByBrowser(body) {
+  return (typeof FormData !== 'undefined' && body instanceof FormData) || (typeof Blob !== 'undefined' && body instanceof Blob);
+}
+
 /**
- * Headers for an API call. `Content-Type: application/json` is sent only when there is a body:
- * Fastify rejects a body-less DELETE/PUT that declares JSON with 400 (EXT-02).
+ * Headers for an API call. `Content-Type: application/json` is sent only when there is a JSON body:
+ * Fastify rejects a body-less DELETE/PUT that declares JSON with 400 (EXT-02), and a file upload
+ * (FormData) must carry the browser's own multipart type with its boundary.
  */
 export function requestHeaders(opts = {}, token = null) {
   return {
-    ...(opts.body != null ? { 'Content-Type': 'application/json' } : {}),
+    ...(opts.body != null && !typedByBrowser(opts.body) ? { 'Content-Type': 'application/json' } : {}),
     ...(opts.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };

@@ -13,12 +13,19 @@
  *    `failed` and shown in Settings (retry / discard). A 401 pauses the queue instead of dropping;
  *  - task edits carry the version they were made against (H1). A task's edits and moves go one at a
  *    time: a new one waits behind the task's queued ones, and each replay moves this device's later
- *    edits of that task on to the version it made (src/task-writes.js).
+ *    edits of that task on to the version it made (src/task-writes.js). Its tags, people, watching
+ *    and a comment's edits keep their order the same way, and a delete waits behind the task's changes;
+ *  - a change of tags is sent over the task's tags as they are then, so others' changes stay; a failed
+ *    change that a later change of the same thing replaced can't be tried again (it would undo it);
+ *  - a delete that finds nothing to delete (the server's 404) is done, not failed.
  */
 import { withLock } from './locks.js';
 import { ApiError, QueueError } from './errors.js';
 import { pruneCache, MAX_CACHE_ENTRIES } from './read-cache.js';
-import { VERSIONED_KINDS, taskIdOf, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE } from './task-writes.js';
+import {
+  VERSIONED_KINDS, ORDERED_KINDS, DELETE_KINDS, taskIdOf, mustFollow, rebaseQueuedVersion, isVersionConflict, patchHeld, QUEUED_CONFLICT_MESSAGE, supersede,
+} from './task-writes.js';
+import { mergeTagChange } from './tags.js';
 
 const KEY = 'syncQueue';
 export const QUEUE_LOCK = 'mico360:sync-queue';
@@ -107,24 +114,26 @@ export async function pendingItems(storage, userId) {
   return (await readQueue(storage)).filter((i) => i.userId === userId && i.status !== 'failed');
 }
 
-/** This person's queued (not failed) edits and moves of one task. */
-const waitingTaskWrites = (q, userId, taskId) =>
-  q.filter((i) => i.userId === userId && i.status !== 'failed' && VERSIONED_KINDS.has(i.kind) && taskIdOf(i) === taskId);
+/** This person's queued (not failed) changes that `item` must follow (task-writes.js `mustFollow`). */
+const waitingTaskWrites = (q, item) =>
+  q.filter((i) => i.userId === item.userId && i.status !== 'failed' && mustFollow(item, i));
 
 /**
- * Queue a task edit or move behind this person's queued edits and moves of the same task, so they
- * reach the server one at a time and in order (H1). A queued edit continues their versions: it is
+ * Queue a task change behind this person's queued changes it must follow (task-writes.js), so they
+ * reach the server one at a time and in order: an edit or move behind the task's edits and moves
+ * (H1), a list of tags, people or watching behind the same, a comment's edit behind that comment's,
+ * a task's delete behind everything of that task. A queued edit continues their versions: it is
  * made against the newest version they expect (never an older one), which each replay moves on.
- * Resolves `{ item, syncNow }`, or null when nothing of that task is waiting (send it now). `syncNow`
+ * Resolves `{ item, syncNow }`, or null when nothing it follows is waiting (send it now). `syncNow`
  * is false while one of this person's waiting changes has already failed a try: syncing at once
  * would only spend another of its tries, so the next alarm or reconnect sends them.
  */
 async function enqueueBehindTaskWrites(storage, item) {
   const taskId = taskIdOf(item);
-  if (!item.userId || !taskId || !VERSIONED_KINDS.has(item.kind)) return null;
+  if (!item.userId || !taskId || !ORDERED_KINDS.has(item.kind)) return null;
   const { value } = await withLock(QUEUE_LOCK, async () => {
     const q = await readQueue(storage);
-    const waiting = waitingTaskWrites(q, item.userId, taskId);
+    const waiting = waitingTaskWrites(q, item);
     if (!waiting.length) return null;
     let payload = item.payload;
     if (item.kind === 'task.update') {
@@ -162,9 +171,34 @@ export async function removeQueued(storage, id) {
   await mutateQueue(storage, (q) => q.filter((i) => i.id !== id));
 }
 
-/** Put a failed item back in line for the next sync. */
+/**
+ * Put a failed item back in line for the next sync — not one a later change has replaced
+ * (`superseded`, task-writes.js): sent now, it would undo that change. It can only be discarded.
+ */
 export async function retryQueued(storage, id) {
-  await mutateQueue(storage, (q) => q.map((i) => (i.id === id ? { ...i, status: 'pending', attempts: 0, lastError: null } : i)));
+  await mutateQueue(storage, (q) => q.map((i) => (i.id === id && !i.superseded ? { ...i, status: 'pending', attempts: 0, lastError: null } : i)));
+}
+
+/**
+ * After `done` reached the server, this person's older changes of the same thing that failed are
+ * marked replaced, or trimmed to what `done` didn't change (task-writes.js `supersede`), so trying
+ * them again can't undo it. Only items before `done` in the queue are older; when `done` isn't in
+ * the queue (sent now), all of them are.
+ */
+function supersedeOlder(q, done) {
+  const at = q.findIndex((i) => i.id === done.id);
+  return q.map((i, n) => (at === -1 || n < at ? supersede(done, i) : i));
+}
+
+/** The same for a change sent now: best effort (the queue can't be written: nothing to protect). */
+async function supersedeQueued(storage, done) {
+  try {
+    const q = await readQueue(storage);
+    if (!q.some((i) => supersede(done, i) !== i)) return;
+    await mutateQueue(storage, (cur) => supersedeOlder(cur, done));
+  } catch {
+    /* ignore */
+  }
 }
 
 /** One-time upgrade: items queued before owners existed belong to the session that is still signed in. */
@@ -204,7 +238,25 @@ export function mutationRequest(item) {
     case 'task.unassign':
       return { path: `/tasks/${p.id}/assignees/${p.userId}`, init: { method: 'DELETE' } };
     case 'comment.add':
-      return post(`/tasks/${p.id}/comments`, { body: p.body });
+      // A reply names the comment it answers.
+      return post(`/tasks/${p.id}/comments`, { body: p.body, ...(p.parentId ? { parentId: p.parentId } : {}) });
+    case 'comment.update':
+      return { path: `/comments/${encodeURIComponent(p.commentId)}`, init: { method: 'PUT', body: JSON.stringify({ body: p.body }) } };
+    case 'comment.delete':
+      return { path: `/comments/${encodeURIComponent(p.commentId)}`, init: { method: 'DELETE' } };
+    case 'task.tags':
+      // The task's whole list of tag names (the server finds or makes each one). A change that knows
+      // the list it started from (`base`) is sent over the task's tags as they are now (requestToSend).
+      return { path: `/tasks/${p.id}/tags`, init: { method: 'PUT', body: JSON.stringify({ tags: p.tags || [] }) } };
+    case 'task.watch':
+      return post(`/tasks/${p.id}/watch`, {});
+    case 'task.unwatch':
+      return { path: `/tasks/${p.id}/watch`, init: { method: 'DELETE' } };
+    case 'attachment.delete':
+      return { path: `/attachments/${encodeURIComponent(p.attachmentId)}`, init: { method: 'DELETE' } };
+    case 'task.delete':
+      // One copy, or (`scope: 'series'`) every copy of a repeating series.
+      return { path: `/tasks/${p.id}${p.scope === 'series' ? '?scope=series' : ''}`, init: { method: 'DELETE' } };
     case 'checklist.add':
       return post(`/tasks/${p.id}/checklist`, { text: p.text });
     case 'checklist.update':
@@ -231,7 +283,14 @@ export function describeMutation(item) {
     case 'task.update': return 'Edit a task';
     case 'task.assign': return 'Assign a task';
     case 'task.unassign': return 'Unassign a task';
-    case 'comment.add': return 'Comment on a task';
+    case 'comment.add': return p.parentId ? 'Reply to a comment' : 'Comment on a task';
+    case 'comment.update': return 'Edit a comment';
+    case 'comment.delete': return 'Delete a comment';
+    case 'task.tags': return 'Change a task’s tags';
+    case 'task.watch': return 'Watch a task';
+    case 'task.unwatch': return 'Stop watching a task';
+    case 'attachment.delete': return `Delete the file “${p.filename || 'a file'}”`;
+    case 'task.delete': return p.scope === 'series' ? 'Delete a repeating series' : 'Delete a task';
     case 'checklist.add': return `Checklist item “${p.text || ''}”`;
     case 'checklist.update': return 'Tick a checklist item';
     case 'notification.read': return 'Mark a notification read';
@@ -287,6 +346,26 @@ async function errorInfo(res) {
   }
 }
 
+/**
+ * The request to send for `item` now. A change of a task's tags that knows the list it started from
+ * (`base`) reads the task's tags first and sends its own additions and removals over them, so a tag
+ * someone else added or took off meanwhile stays as they left it (src/tags.js `mergeTagChange`).
+ * Resolves `{ req }`; `{ res }` when that read was refused (the caller treats it as the change's
+ * own answer); or `{ unreadable: true }` when something other than the server answered. Rejects
+ * when the server can't be reached — the change waits, it never fails for that.
+ */
+async function requestToSend(item, doFetch) {
+  const req = mutationRequest(item);
+  const p = item.payload || {};
+  if (!req || item.kind !== 'task.tags' || !Array.isArray(p.base)) return { req };
+  const res = await doFetch(`/tasks/${p.id}/tags`, { method: 'GET' });
+  if (!res.ok) return { res };
+  const reply = await readReply(res);
+  if (!reply.ok || !Array.isArray(reply.data)) return { unreadable: true };
+  const current = reply.data.map((t) => t && t.name).filter((n) => typeof n === 'string');
+  return { req: mutationRequest({ ...item, payload: { ...p, tags: mergeTagChange(current, p.base, Array.isArray(p.tags) ? p.tags : []) } }) };
+}
+
 /** Hand a task the server sent on (best effort: keeping the offline copy never fails a sync). */
 async function keep(onTask, task) {
   if (!onTask) return;
@@ -339,6 +418,16 @@ async function settleConflict(item, doFetch, onTask, code) {
 }
 
 /**
+ * A delete the server answers "not found" (its own 404, not a proxy's page): the thing is already
+ * gone — deleted by someone else, or by this change's first try — so the delete has done its job.
+ * (The server looks a task up before it checks who may delete it, so a task that is gone answers
+ * 404 for everyone, and its 403 is a real refusal: failed, with the server's words.)
+ */
+function alreadyGone(kind, status, code) {
+  return DELETE_KINDS.has(kind) && status === 404 && code === 'NOT_FOUND';
+}
+
+/**
  * Build the `perform(item)` used to replay one queued mutation. `doFetch(path, init)` is the
  * caller's authenticated fetch, so the replay logic lives in ONE place for every surface. It
  * resolves with the server's answer (for an edit or move: the task, at its new version), which
@@ -346,12 +435,14 @@ async function settleConflict(item, doFetch, onTask, code) {
  */
 export function makePerformMutation(doFetch, { onTask } = {}) {
   return async (item) => {
-    const req = mutationRequest(item);
-    if (!req) throw replayError(`unknown mutation: ${item.kind}`, { outcome: 'fail' });
-    const res = await doFetch(req.path, req.init);
+    if (!mutationRequest(item)) throw replayError(`unknown mutation: ${item.kind}`, { outcome: 'fail' });
+    const prep = await requestToSend(item, doFetch);
+    if (prep.unreadable) throw replayError('The server’s reply could not be read.', { outcome: 'pause' });
+    const res = prep.res || (await doFetch(prep.req.path, prep.req.init));
     if (!res.ok) {
       const { code, message } = await errorInfo(res);
       if (item.kind === 'task.update' && isVersionConflict({ status: res.status, code })) return settleConflict(item, doFetch, onTask, code);
+      if (alreadyGone(item.kind, res.status, code)) return undefined;
       throw replayError(message || `${item.kind} failed (${res.status})`, { status: res.status, code, outcome: outcomeForStatus(res.status, code) });
     }
     const reply = await readReply(res);
@@ -407,7 +498,7 @@ export async function flushQueue(storage, perform, { userId, maxAttempts = MAX_A
         result.paused = true; // keep the order: later changes wait for this one
         break;
       }
-      await mutateQueue(storage, (q) => q
+      await mutateQueue(storage, (q) => supersedeOlder(q, item)
         .filter((i) => i.id !== item.id)
         .map((i) => (i.userId === userId ? rebaseQueuedVersion(item, answer, i) : i)));
       result.synced += 1;
@@ -434,13 +525,17 @@ const QUEUE_ON_STATUS = new Set([401, 408, 429, 502, 503, 504]);
  * waiting change keeps failing. One whose own send just failed waits for the next alarm or reconnect,
  * so a run of quick changes during an outage doesn't spend the first one's tries.
  * `onTask(task)` receives the server's task after an edit or move sent now (its new version).
+ * `hold: true` never queues: when the server can't be reached it resolves `{ queued: false, held:
+ * true, item }` instead (a new task with files, which can't wait offline, as on the web). Sending
+ * `item` again with its `idempotencyKey` (`newKey`) can't create it twice.
  */
-export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId, newKey = newIdempotencyKey, onTask }) {
+export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId, newKey = newIdempotencyKey, onTask, hold = false }) {
   const item = { kind, payload, userId, idempotencyKey: newKey() };
   const req = mutationRequest(item);
   if (!req) throw new Error(`unknown mutation: ${kind}`);
 
   async function queueIt() {
+    if (hold) return { queued: false, held: true, item };
     try {
       return { queued: true, item: await enqueue(storage, item) };
     } catch (e) {
@@ -448,19 +543,21 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
     }
   }
 
-  if (userId && VERSIONED_KINDS.has(kind)) {
+  if (userId && ORDERED_KINDS.has(kind) && !hold) {
     let behind = null;
     try {
       behind = await enqueueBehindTaskWrites(storage, item);
     } catch {
-      behind = null; // the queue can't be read: send it now (the server's version check still guards it)
+      behind = null; // the queue can't be read: send it now (the server's version check still guards edits)
     }
     if (behind) return { queued: true, item: behind.item, syncNow: behind.syncNow };
   }
 
   let res;
   try {
-    res = await doFetch(req.path, req.init);
+    const prep = await requestToSend(item, doFetch);
+    if (prep.unreadable) return queueIt();
+    res = prep.res || (await doFetch(prep.req.path, prep.req.init));
   } catch {
     return queueIt(); // offline, timed out, or the session couldn't be renewed right now
   }
@@ -468,9 +565,11 @@ export async function sendOrQueue({ kind, payload }, { doFetch, storage, userId,
     const reply = await readReply(res);
     if (!reply.ok) return queueIt();
     if (VERSIONED_KINDS.has(kind) && reply.data && reply.data.id) await keep(onTask, reply.data);
+    if (userId && ORDERED_KINDS.has(kind) && storage) await supersedeQueued(storage, item);
     return { queued: false, data: reply.data };
   }
   if (QUEUE_ON_STATUS.has(res.status)) return queueIt();
   const { code, message, details } = await errorInfo(res);
+  if (alreadyGone(kind, res.status, code)) return { queued: false, data: undefined };
   throw new ApiError(res.status, message, code, details);
 }

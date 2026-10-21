@@ -1,7 +1,26 @@
 # MICO360 Tasks — Chrome Extension
 
 A full, offline-capable Chrome extension (MV3, plain JS — no build step) that mirrors the web app's
-screens. Clicking the toolbar icon opens the app in a full-page tab.
+screens. Clicking the toolbar icon opens a popup to add a task from any page; its "Open MICO360 Tasks"
+button opens the full app in a tab.
+
+## Quick capture (the popup)
+
+Open it with the toolbar icon, the keyboard shortcut (Ctrl+Shift+K, ⌘⇧K on a Mac; change it at
+`chrome://extensions/shortcuts`) or the right-click menu's **Add to MICO360 Tasks** on a selection, a
+link or the page (what you clicked fills the title and description). The form is the web's New task
+form in short: title, project (the one the page shows, else the last one used), column, priority,
+due date, "Assign me" or people from the project's team, and the description, with:
+
+- **Describe it in plain English** (`POST /ai/parse-task`): suggested details to review — nothing
+  changes until you choose, and what you set yourself starts unticked. Without AI set up it shows
+  the server's own message.
+- **Pictures and files**: pasted (Ctrl+V), dropped or chosen; they go up once the task exists.
+- **Add this page**: the page's title and address go into the description (`activeTab`).
+- **Offline**: the task waits in the sync queue like any other change. Files can't wait offline,
+  so the popup asks first and can save the task without them.
+- The form not sent yet is kept while the browser is open (a popup closes when you click outside
+  it), and **Recently added** lists the last five tasks added here.
 
 ## Screens
 
@@ -50,7 +69,9 @@ one-minute background check), `notifications` (the unread alert), `unlimitedStor
 copies already have it: without it, an app tab left open for days can fill Chrome's 10 MB with
 offline copies, and the next renewal of the sign-in could not be saved). The offline copies are
 still capped at 200 (`src/read-cache.js`), and when storage is full they make room for changes
-waiting to sync, never the other way round.
+waiting to sync, never the other way round. `contextMenus` (the right-click item) and `activeTab`
+(the page the popup is opened on, for "Add this page") show no install warning; there is no
+content script.
 
 ## Structure
 
@@ -60,7 +81,8 @@ app/            full-page app (app.html, app.js router+shell, app.css, dom.js, c
 app/screens/    one module per screen (export function XScreen(ctx))
 src/            shared logic: api.js, read-cache.js, router.js, queue.js, auth.js, config.js, chat.js,
                 version.js, …
-background/     service-worker.js (opens the app, badge count, background queue flush)
+popup/          the toolbar popup: popup.html/js/css and quick-add-form.js (the New task form)
+background/     service-worker.js (right-click menu, badge count, background queue flush)
 ```
 
 ## Keyboard
@@ -71,19 +93,21 @@ dialog: focus moves into it and stays there, Escape closes it, and focus goes ba
 
 ## Versions and updates
 
-Settings → About shows the extension's version and the server's (`GET /version`). A zip install
-(no Web Store) is told when the server is newer, with the steps to update and a link to the web
-app's About page; the notice at the top of the app can be dismissed for that version.
+Settings → About shows the extension's version and the server's (`GET /version`). When the server
+is newer it says that not every website update needs a new extension, and how to update a zip
+install (no Web Store). There is no "newer version" banner.
 
 ## Tests
 
 - `npm test` (Vitest) covers the logic — router, read-cache, offline queue + write mapping, auth /
   session / locks, due dates, summaries, chat helpers, config, versions — plus DOM tests of the
-  screens (jsdom), keyboard use and the drawer dialog. `src/shared-copies.test.js` checks that the
-  copies of the web's due-date rules and the server's repeat summaries still give the same answers.
+  screens (jsdom), keyboard use and the drawer dialog, and the popup. `src/shared-copies.test.js`
+  and `src/clipboard-files.dom.test.js` check that the copies of the web's due-date rules, the
+  server's repeat summaries and the web's pasted-file rules still give the same answers.
 - `npm run lint` (ESLint; also part of the root `npm run lint`).
 - `npm run test:e2e` runs the browser checks in `tools/extension-e2e/` — headless Chrome loads this
   folder unpacked and drives it against a local server (default `http://localhost:4000`, which must
   allow `chrome-extension://*` in `CORS_ORIGINS`): sign-in, board and keyboard, the drawer dialog,
-  versions, edit conflicts, repeating tasks, reports and exports. Settings are at the top of
+  versions, edit conflicts, repeating tasks, reports and exports, and the quick-capture popup.
+  Settings are at the top of
   `tools/extension-e2e/lib.mjs`.

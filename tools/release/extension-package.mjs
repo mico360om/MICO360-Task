@@ -5,13 +5,14 @@ import path from 'node:path';
 import { zipDir } from './zip.mjs';
 
 /** The extension's folders with code, pages and images (tests and test helpers are left out). */
-export const EXTENSION_DIRS = ['app', 'background', 'icons', 'src'];
+export const EXTENSION_DIRS = ['app', 'background', 'icons', 'popup', 'src'];
 
 const isTestFile = (f) => /\.test\.js$|\/test-helpers\.js$/.test(f);
 
 /**
  * Copy what the extension needs into `stage` (emptied first), check that every relative import,
- * every icon and the service worker are in it, and zip it to `zipFile`. Returns its version and
+ * every script and style a page loads, every icon, the service worker and the toolbar popup are in
+ * it, and zip it to `zipFile`. Returns its version and
  * how many scripts it has.
  */
 export function packageExtension(extensionDir, stage, zipFile) {
@@ -31,10 +32,18 @@ export function packageExtension(extensionDir, stage, zipFile) {
       if (!fs.existsSync(target)) throw new Error(`${f} imports ${m[1]}, which is not in the package`);
     }
   }
+  // …and every script and style a page loads (the popup uses the app's stylesheet too).
+  for (const f of fs.readdirSync(stage, { recursive: true }).map(String).filter((x) => x.endsWith('.html'))) {
+    const text = fs.readFileSync(path.join(stage, f), 'utf8');
+    for (const m of text.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="([^"]+)"/g)) {
+      if (!fs.existsSync(path.resolve(path.dirname(path.join(stage, f)), m[1]))) throw new Error(`${f} loads ${m[1]}, which is not in the package`);
+    }
+  }
   for (const icon of Object.values(manifest.icons)) {
     if (!fs.existsSync(path.join(stage, icon))) throw new Error(`Missing icon ${icon}`);
   }
   if (!fs.existsSync(path.join(stage, manifest.background.service_worker))) throw new Error('Missing service worker');
+  if (manifest.action?.default_popup && !fs.existsSync(path.join(stage, manifest.action.default_popup))) throw new Error('Missing toolbar popup');
   fs.mkdirSync(path.dirname(zipFile), { recursive: true });
   zipDir(stage, zipFile);
   return { version: manifest.version, scripts: files.length };

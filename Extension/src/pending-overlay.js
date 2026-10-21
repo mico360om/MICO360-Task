@@ -2,12 +2,14 @@
  * Changes waiting to sync, layered over what a read returns (H3). The offline cache keeps the
  * server's answers as they were; each read then shows this person's queued changes on top, so a card
  * moved offline stays where it was put, and a task, checklist item, comment or chat message added
- * offline is still there after going to another screen and back. Pure (no chrome APIs).
+ * offline is still there after going to another screen and back — as are tags, a reply, an edited or
+ * deleted comment, a removed file, watching, and a deleted task. Pure (no chrome APIs).
  *
  * `applyPending(key, data, items)` takes a read-cache key (see api.js), the data read for it and the
  * signed-in person's queued items (oldest first). It never changes `data` itself: changed rows are
  * copies. Returns `{ data, applied }`, `applied` being how many queued changes touched this read.
  */
+import { tagRecords, mergeTagChange } from './tags.js';
 
 /** The temporary id of something created offline: stable for as long as its change is queued. */
 export function tempId(item) {
@@ -32,6 +34,13 @@ function changedTask(task, item) {
   const p = item.payload || {};
   if (!task || task.id !== p.id) return null;
   if (item.kind === 'task.update') return { ...task, ...patchOf(item) };
+  // Tags it already had keep their colour; a new one has none until the server makes it. A change
+  // that knows the list it started from shows as its additions and removals over the task's tags.
+  if (item.kind === 'task.tags') {
+    const next = Array.isArray(p.tags) ? p.tags : [];
+    const now = Array.isArray(task.tags) ? task.tags.map((t) => t && t.name).filter((n) => typeof n === 'string') : [];
+    return { ...task, tags: tagRecords(Array.isArray(p.base) ? mergeTagChange(now, p.base, next) : next, task.tags) };
+  }
   if (item.kind === 'task.move') {
     const next = { ...task, columnId: p.columnId, columnHidden: false };
     if (p.columnCategory) {
@@ -86,6 +95,17 @@ function overTaskList(key, rows, items) {
       }
       continue;
     }
+    if (item.kind === 'task.delete') {
+      // Deleted on this device: gone from the lists — every copy, when the whole series goes.
+      const p = item.payload || {};
+      const series = p.scope === 'series' && p.seriesId ? p.seriesId : null;
+      const kept = list.filter((t) => t.id !== p.id && !(series && (t.id === series || t.recurrenceParentId === series)));
+      if (kept.length !== list.length) {
+        list = kept;
+        applied += 1;
+      }
+      continue;
+    }
     let touched = false;
     const next = list.map((t) => {
       const c = changedTask(t, item);
@@ -106,7 +126,8 @@ function overTask(taskId, task, items) {
   let applied = 0;
   for (const item of items) {
     if (!item.payload || item.payload.id !== taskId) continue;
-    const c = changedTask(data, item);
+    // Opened again before its delete has synced: it says so (the drawer shows nothing to change).
+    const c = item.kind === 'task.delete' ? { ...data, pendingDelete: true } : changedTask(data, item);
     if (c) {
       data = c;
       applied += 1;
@@ -137,8 +158,50 @@ function overComments(taskId, list, items) {
   let applied = 0;
   for (const item of items) {
     const p = item.payload || {};
-    if (item.kind !== 'comment.add' || p.id !== taskId) continue;
-    rows = [...rows, { id: tempId(item), taskId, userId: item.userId, body: p.body || '', createdAt: atIso(item), pending: true }];
+    if (p.id !== taskId) continue;
+    if (item.kind === 'comment.add') {
+      rows = [...rows, { id: tempId(item), taskId, userId: item.userId, body: p.body || '', parentId: p.parentId || null, createdAt: atIso(item), pending: true }];
+      applied += 1;
+    } else if (item.kind === 'comment.update' && rows.some((c) => c.id === p.commentId)) {
+      rows = rows.map((c) => (c.id === p.commentId ? { ...c, body: p.body || '', editedAt: atIso(item) } : c));
+      applied += 1;
+    } else if (item.kind === 'comment.delete' && rows.some((c) => c.id === p.commentId)) {
+      rows = rows.filter((c) => c.id !== p.commentId);
+      applied += 1;
+    }
+  }
+  return { data: rows, applied };
+}
+
+function overAttachments(taskId, list, items) {
+  let rows = list;
+  let applied = 0;
+  for (const item of items) {
+    const p = item.payload || {};
+    if (item.kind !== 'attachment.delete' || p.id !== taskId || !rows.some((a) => a.id === p.attachmentId)) continue;
+    rows = rows.filter((a) => a.id !== p.attachmentId);
+    applied += 1;
+  }
+  return { data: rows, applied };
+}
+
+const isWatchChange = (item, taskId) => (item.kind === 'task.watch' || item.kind === 'task.unwatch') && item.payload && item.payload.id === taskId;
+
+/** `{ watching }` for the signed-in person: their last watch or unwatch waiting to sync wins. */
+function overWatch(taskId, value, items) {
+  const mine = items.filter((i) => isWatchChange(i, taskId));
+  if (!mine.length) return { data: value, applied: 0 };
+  return { data: { ...value, watching: mine[mine.length - 1].kind === 'task.watch' }, applied: mine.length };
+}
+
+/** Who watches the task: the signed-in person added or taken off by their change waiting to sync. */
+function overWatchers(taskId, list, items) {
+  let rows = list;
+  let applied = 0;
+  for (const item of items) {
+    if (!isWatchChange(item, taskId)) continue;
+    rows = rows.filter((u) => u.id !== item.userId);
+    if (item.kind === 'task.watch') rows = [...rows, { id: item.userId }];
     applied += 1;
   }
   return { data: rows, applied };
@@ -211,6 +274,9 @@ export function applyPending(key, data, items) {
   if (key.startsWith('checklist:')) return typeof data === 'object' ? overChecklist(after('checklist:'), data, waiting) : none;
   if (key.startsWith('comments:')) return Array.isArray(data) ? overComments(after('comments:'), data, waiting) : none;
   if (key.startsWith('assignees:')) return Array.isArray(data) ? overAssignees(after('assignees:'), data, waiting) : none;
+  if (key.startsWith('attachments:')) return Array.isArray(data) ? overAttachments(after('attachments:'), data, waiting) : none;
+  if (key.startsWith('watch:')) return typeof data === 'object' && !Array.isArray(data) ? overWatch(after('watch:'), data, waiting) : none;
+  if (key.startsWith('watchers:')) return Array.isArray(data) ? overWatchers(after('watchers:'), data, waiting) : none;
   if (key.startsWith('messages:')) return Array.isArray(data) ? overMessages(after('messages:'), data, waiting) : none;
   if (key === 'notifications') return Array.isArray(data) ? overNotifications(data, waiting) : none;
   if (key === 'unread') return typeof data === 'object' ? overUnread(data, waiting) : none;

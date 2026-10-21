@@ -236,6 +236,20 @@ describe('SettingsScreen', () => {
     expect(ctx.storage.data.syncQueue.map((i) => i.id)).toEqual(['q2']);
   });
 
+  it('a failed change a later one replaced says so, and can only be discarded (trying it again would undo the later one)', async () => {
+    const ctx = settingsCtx([
+      { id: 'q1', userId: 'u1', kind: 'task.watch', status: 'failed', superseded: true, lastError: 'A later change to the same thing was saved, so this one can’t be sent again.', payload: { id: 't1' } },
+    ]);
+    const root = SettingsScreen(ctx);
+    document.body.append(root);
+    await settle();
+    expect(root.textContent).toContain('A later change to the same thing was saved, so this one can’t be sent again.');
+    expect(byText(root, 'button', 'Retry')).toBeUndefined();
+    byText(root, 'button', 'Discard').click();
+    await settle();
+    expect(ctx.storage.data.syncQueue).toEqual([]);
+  });
+
   it('XP-01: warns before signing out with unsynced changes', async () => {
     const ctx = settingsCtx([{ id: 'q1', userId: 'u1', kind: 'chat.send', status: 'pending', payload: {} }]);
     const root = SettingsScreen(ctx);

@@ -11,6 +11,7 @@ import { decodeJwtRoles } from '../src/jwt.js';
 import { parseHash, matchRoute, refreshOnReturn } from '../src/router.js';
 import { applyStoredTheme } from './theme.js';
 import { showModal, returnFocus } from './dialog.js';
+import { guardFileDrops } from '../src/file-drop-guard.js';
 
 import { LoginScreen } from './screens/login.js';
 import { DashboardScreen } from './screens/dashboard.js';
@@ -435,6 +436,8 @@ class App {
   }
 }
 
+// A file dropped where nothing takes it never opens in this tab (unsent drafts would be lost).
+guardFileDrops(document);
 boot().catch((e) => {
   document.getElementById('app').append(el('div', { class: 'errbar' }, `Failed to start: ${e.message}`));
 });

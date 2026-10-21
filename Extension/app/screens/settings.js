@@ -143,7 +143,8 @@ export function SettingsScreen(ctx) {
               el('div', { class: 'what' },
                 el('div', {}, describeMutation(item)),
                 item.lastError ? el('div', { class: 'why' }, item.lastError) : null),
-              el('button', { class: 'btn sm', type: 'button', onClick: async () => { await retryQueued(ctx.storage, item.id); ctx.requestSync(); renderSync(); } }, 'Retry'),
+              // A change a later one replaced can only be discarded: sent now, it would undo that one.
+              item.superseded ? null : el('button', { class: 'btn sm', type: 'button', onClick: async () => { await retryQueued(ctx.storage, item.id); ctx.requestSync(); renderSync(); } }, 'Retry'),
               el('button', { class: 'btn sm ghost', type: 'button', onClick: async () => { await removeQueued(ctx.storage, item.id); ctx.afterMutation(); renderSync(); } }, 'Discard'),
             )))
         : null,
