@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  keptTry,
+  keptTryProblem,
   assignablePeople,
   assigneeNote,
   checkNewTask,
@@ -348,5 +350,21 @@ describe.skipIf(!existsSync(webForm))('the same words as the website’s New tas
       expect(web, words).toContain(words);
     }
     for (const words of [NEW_TASK_TEXT.offlineWithFiles, NEW_TASK_TEXT.noProjects, NEW_TASK_TEXT.milestoneHint, NEW_TASK_TEXT.noDueForRepeat]) expect(web).toContain(words);
+  });
+});
+
+describe('a New task try whose answer was lost (5b review #4, checked on the 4a form)', () => {
+  const input = { projectId: 'p1', columnId: 'c1', title: 'Fix pump', priority: 'MEDIUM', assigneeIds: [] } as never;
+  it('the kept key goes again only with exactly what it carried', () => {
+    const kept = keptTry(input);
+    expect(keptTryProblem(kept, input)).toBeNull();
+    expect(keptTryProblem(null, { ...(input as object), title: 'Other' } as never)).toBeNull();
+    expect(keptTryProblem(kept, { ...(input as object), columnId: 'c2' } as never)).toBe(NEW_TASK_TEXT.changedSinceTry);
+  });
+
+  it('nothing moves a locked form: the column the board picks for it waits until the try is settled', () => {
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/if \(frozen \|\| !columnsQ\.data \|\| columns\.length === 0\) return;/);
+    expect(screen).toMatch(/keptTryProblem\(keptBody\.current, check\.input\)/);
   });
 });

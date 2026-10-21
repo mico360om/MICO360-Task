@@ -33,7 +33,19 @@ export const NEW_TASK_TEXT = {
   locked:
     'Until the task is created, its details can’t change — if the first try reached the server, a change made now would be lost. You can still take files off, or start over.',
   filesHint: 'Up to 10 MB each · pictures are made smaller to save space · they are attached once the task is created.',
+  /** A changed form would go under a key whose first try may be saved (5b review): not sent. */
+  changedSinceTry: 'Your last try may have created the task, so the changed details weren’t sent. Tap Create task to finish that try, or start over.',
 } as const;
+
+/** What a create's key carried (5b review): a try kept under it is sent again only with exactly this. */
+export function keptTry(input: NewTaskInput): string {
+  return JSON.stringify(input);
+}
+
+/** Why this form can't go under the kept key (it changed since that try), or null to send it. */
+export function keptTryProblem(kept: string | null, input: NewTaskInput): string | null {
+  return kept && kept !== keptTry(input) ? NEW_TASK_TEXT.changedSinceTry : null;
+}
 
 /** "Start over" on a locked form: a new try (a new key), after a warning. */
 export const START_OVER = {

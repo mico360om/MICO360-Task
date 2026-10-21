@@ -7,7 +7,7 @@ import { PROJECT_FIGURES_COPY } from '../lib/offline-copy';
 import { projectCardFigures, type ProjectFigures } from '../lib/project-list';
 import { PROJECT_FIGURES_KEY } from '../lib/refresh';
 import { codeProblem } from '../lib/project-identity';
-import { saveProject, type PictureChoice, type ProjectDraft, type SaveOutcome } from '../lib/project-form';
+import { saveProject, type SaveOutcome } from '../lib/project-form';
 import { statusChangeRequest } from '../lib/project-list';
 import type { ApiMember, ApiProject } from '../lib/types';
 
@@ -70,13 +70,15 @@ export function useSaveProject() {
   const { resources } = useServices();
   const refreshed = useProjectRefresh();
   return useCallback(
-    async (o: { saved: ApiProject | null; initial: ProjectDraft; draft: ProjectDraft; picture: PictureChoice; idempotencyKey: string }): Promise<SaveOutcome> => {
+    async (o: Parameters<typeof saveProject>[1]): Promise<SaveOutcome> => {
       const out = await saveProject(
         {
           create: (input, key) => resources.projects.create(input, key),
           update: (id, patch) => resources.projects.update(id, patch),
           uploadImage: (id, part) => resources.projects.uploadImage(id, part),
           removeImage: (id) => resources.projects.removeImage(id),
+          // After a lost answer: the project that now has the code (5b review).
+          findByCode: async (code) => (await resources.projects.list()).find((p) => p.code === code) ?? null,
         },
         o,
       );

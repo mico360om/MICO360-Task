@@ -32,6 +32,8 @@ import {
   DESCRIPTION_MAX,
   formColumns,
   isDraftDirty,
+  keptTry,
+  keptTryProblem,
   leaveWarning,
   NEW_TASK_TEXT,
   newTaskDraft,
@@ -103,6 +105,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const busy = useRef(false);
   const done = useRef(false);
   const key = useRef(newIdempotencyKey());
+  // What the kept key carried, while a try under it may have created the task (5b review).
+  const keptBody = useRef<string | null>(null);
   const titleRef = useRef<TextInput>(null);
   const scrollRef = useRef<ScrollView>(null);
   const frozen = locked || !!created || saving;
@@ -138,7 +142,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   // After a project change, land in the same kind of column (e.g. "in progress") when it has one.
   const preferKind = useRef<string | null>(null);
   useEffect(() => {
-    if (!columnsQ.data || columns.length === 0) return;
+    // A locked form doesn't move: its kept try goes again with exactly what it carried (5b review).
+    if (frozen || !columnsQ.data || columns.length === 0) return;
     const pick = pickColumn(columns, { current: draft.columnId, preferKind: preferKind.current, defaultColumnId: params.columnId });
     if (pick === draft.columnId) return;
     if (placeChosen) setDraft((d) => ({ ...d, columnId: pick }));
@@ -249,6 +254,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         style: 'destructive',
         onPress: () => {
           key.current = newIdempotencyKey();
+          keptBody.current = null;
           setLocked(false);
           setBanner(null);
           refresh(qc, createdTaskRefreshes(draft.projectId));
@@ -268,6 +274,12 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         titleRef.current?.focus();
       } else if (check.field === 'repeat') setRepeatError(check.message);
       else setBanner(check.message);
+      return;
+    }
+    // Under a kept key, only what that try carried is sent (the server matches the key, not the body).
+    const changed = keptTryProblem(keptBody.current, check.input);
+    if (changed) {
+      setBanner(changed);
       return;
     }
     busy.current = true;
@@ -303,12 +315,14 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           leave();
           return;
         case 'no-answer':
+          if (!keptBody.current) keptBody.current = keptTry(check.input);
           setLocked(true);
           setBanner(out.message);
           return;
         case 'refused':
           // The server keeps a refusal under its key: the next try (once fixed) is a new one.
           key.current = newIdempotencyKey();
+          keptBody.current = null;
           setLocked(false);
           setBanner(out.message);
           return;

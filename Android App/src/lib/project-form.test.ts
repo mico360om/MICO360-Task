@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
 import {
+  PROJECT_FORM_TEXT,
+  afterCreateTry,
+  tryBody,
   PICTURE_MAX_BYTES,
   checkDraft,
   clientSuggestions,
@@ -253,5 +256,67 @@ describe('saving', () => {
     expect(only).toMatchObject({ kind: 'partly', detailsSaved: false, message: 'Couldn’t save the picture. You’re offline — try again when you’re connected.' });
     const details = await saveProject(fakeApi({ update: async () => Promise.reject(new ApiError(403, 'FORBIDDEN', 'You do not have permission.')) }).api, { saved, initial: before, draft: { ...before, name: 'X' }, picture: { kind: 'keep' }, idempotencyKey: 'k1' });
     expect(details).toEqual({ kind: 'failed', message: 'Couldn’t save the changes. You do not have permission.', retryable: false });
+  });
+});
+
+describe('a New project try whose answer was lost (5b review #4)', () => {
+  const rig = { ...draftOf(null), name: 'Rig', code: 'RIG' };
+  function api(over: Partial<ProjectSaveApi> = {}) {
+    const calls: unknown[][] = [];
+    const a: ProjectSaveApi = {
+      create: async (input, key) => {
+        calls.push(['create', input, key]);
+        return project({ id: 'new', code: input.code, name: input.name, imageUrl: null });
+      },
+      update: async (id, patch) => project({ id, ...patch } as Partial<ApiProject>),
+      uploadImage: async (id) => {
+        calls.push(['upload', id]);
+        return project({ id, imageUrl: '/uploads/p/new.png' });
+      },
+      removeImage: async (id) => project({ id, imageUrl: null }),
+      findByCode: async (code) => {
+        calls.push(['find', code]);
+        return project({ id: 'made', code, name: 'Rig' });
+      },
+      ...over,
+    };
+    return { a, calls };
+  }
+
+  it('never sends a changed form under the kept key: it says the last try may have been saved', async () => {
+    const { a, calls } = api();
+    const out = await saveProject(a, { saved: null, initial: draftOf(null), draft: { ...rig, name: 'Rig 2' }, picture: { kind: 'keep' }, idempotencyKey: 'k1', keptBody: tryBody(rig) });
+    expect(calls).toEqual([]);
+    expect(out).toEqual({ kind: 'failed', message: PROJECT_FORM_TEXT.changedSinceTry, retryable: true });
+  });
+
+  it('sends the same form again under its key', async () => {
+    const { a, calls } = api();
+    const out = await saveProject(a, { saved: null, initial: draftOf(null), draft: rig, picture: { kind: 'keep' }, idempotencyKey: 'k1', keptBody: tryBody(rig) });
+    expect(out).toMatchObject({ kind: 'done' });
+    expect(calls[0]).toEqual(['create', createBody(rig), 'k1']);
+  });
+
+  it('after a lost answer, "code taken" finds the project that try made and carries on with it (its picture too)', async () => {
+    const { a, calls } = api({ create: async () => Promise.reject(new ApiError(409, 'DUPLICATE_PROJECT_CODE', 'The code RIG is already used by another project (or a deleted one).')) });
+    const part = { uri: 'file:///c/logo.png', name: 'logo.png', type: 'image/png' };
+    const out = await saveProject(a, { saved: null, initial: draftOf(null), draft: rig, picture: { kind: 'new', part }, idempotencyKey: 'k2', afterLostAnswer: true });
+    expect(calls).toEqual([['find', 'RIG'], ['upload', 'made']]);
+    expect(out).toMatchObject({ kind: 'done', project: { id: 'made' } });
+  });
+
+  it('a project with that code but another name is someone else’s: the code is taken; without a lost answer nothing is looked up', async () => {
+    const taken = () => Promise.reject(new ApiError(409, 'DUPLICATE_PROJECT_CODE', 'The code RIG is already used by another project (or a deleted one).'));
+    const other = api({ create: taken, findByCode: async (code) => project({ id: 'theirs', code, name: 'Rig Painting' }) });
+    expect(await saveProject(other.a, { saved: null, initial: draftOf(null), draft: rig, picture: { kind: 'keep' }, idempotencyKey: 'k2', afterLostAnswer: true })).toMatchObject({ kind: 'code-taken' });
+    const fresh = api({ create: taken });
+    expect(await saveProject(fresh.a, { saved: null, initial: draftOf(null), draft: rig, picture: { kind: 'keep' }, idempotencyKey: 'k2' })).toMatchObject({ kind: 'code-taken' });
+    expect(fresh.calls).toEqual([]);
+  });
+
+  it('the form is locked while a try is unanswered; a refusal or a taken code starts a new try', () => {
+    expect(afterCreateTry({ kind: 'failed', message: 'x', retryable: true })).toEqual({ keepKey: true, lock: true });
+    expect(afterCreateTry({ kind: 'failed', message: 'x', retryable: false })).toEqual({ keepKey: false, lock: false });
+    expect(afterCreateTry({ kind: 'code-taken', message: 'x', retryable: false })).toEqual({ keepKey: false, lock: false });
   });
 });

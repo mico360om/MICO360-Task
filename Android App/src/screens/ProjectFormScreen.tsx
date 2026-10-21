@@ -17,6 +17,10 @@ import { canEditProject } from '../lib/project-team';
 import {
   CODE_MAX,
   DESCRIPTION_MAX,
+  PROJECT_FORM_TEXT,
+  PROJECT_START_OVER,
+  afterCreateTry,
+  tryBody,
   NAME_MAX,
   PICTURE_TYPES,
   PROJECT_NUMBER_MAX,
@@ -88,6 +92,12 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   const [serverCodeError, setServerCodeError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // A create try that may have been saved (no answer) keeps its key and locks the details until it
+  // is settled: the same form is sent again, or the person starts over (5b review).
+  const [locked, setLocked] = useState(false);
+  const keptBody = useRef<string | null>(null);
+  const lostAnswer = useRef(false);
+  const frozen = saving || locked;
   const [lookOpen, setLookOpen] = useState(false);
   const [pictureIssue, setPictureIssue] = useState<string | null>(null);
   const busy = useRef(false);
@@ -109,7 +119,9 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   const codeErr = errors.code ?? codeError(draft.code, { editing, check, serverError: serverCodeError });
   const note = codeNote({ editing, code: draft.code, error: codeErr, check });
   const dirty = isDirty(initial, draft, picture);
-  const set = (patch: Partial<ProjectDraft>) => setDraft((d) => ({ ...d, ...patch }));
+  const set = (patch: Partial<ProjectDraft>) => {
+    if (!frozen) setDraft((d) => ({ ...d, ...patch }));
+  };
   const clients = useMemo(() => clientSuggestions(projectsQ.data ?? [], draft.clientName), [projectsQ.data, draft.clientName]);
   const owners = useMemo(
     () => [{ value: '', label: 'No owner' }, ...(dirQ.data ?? []).filter((u) => u.active !== false || u.id === draft.ownerId).map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }))],
@@ -128,10 +140,17 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   useEffect(
     () =>
       navigation.addListener('beforeRemove', (e) => {
-        if (left.current || !dirty) return;
+        if (left.current || (!dirty && !locked)) return;
         e.preventDefault();
         if (busy.current) {
           Alert.alert('Still saving', 'Wait a moment until the project is saved.');
+          return;
+        }
+        if (locked) {
+          Alert.alert('Leave without finishing?', 'The project may already be created — check the Projects list before adding it again.', [
+            { text: 'Stay', style: 'cancel' },
+            { text: 'Leave', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+          ]);
           return;
         }
         Alert.alert('Discard your changes?', 'What you entered for this project hasn’t been saved.', [
@@ -139,10 +158,28 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
           { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
         ]);
       }),
-    [navigation, dirty],
+    [navigation, dirty, locked],
   );
 
+  /** A locked form's way out: give up the kept try (a new key) and unlock, after a warning. */
+  const startOver = () =>
+    Alert.alert(PROJECT_START_OVER.title, PROJECT_START_OVER.message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: PROJECT_START_OVER.confirm,
+        style: 'destructive',
+        onPress: () => {
+          key.current = newIdempotencyKey();
+          keptBody.current = null;
+          setLocked(false);
+          setBanner(null);
+          void projectsQ.refetch();
+        },
+      },
+    ]);
+
   function onName(name: string) {
+    if (frozen) return;
     const suggesting = !codeTouched && !editing;
     setDraft((d) => nameChanged(d, name, { codeTouched, editing }));
     if (errors.name || (suggesting && (errors.code || serverCodeError))) {
@@ -151,6 +188,7 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
     }
   }
   function onCode(text: string) {
+    if (frozen) return;
     setCodeTouched(true);
     set({ code: typedCode(text) });
     setErrors((e) => ({ ...e, code: undefined }));
@@ -191,7 +229,7 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
     setSaving(true);
     setBanner(null);
     try {
-      const out = await save({ saved, initial, draft, picture, idempotencyKey: key.current });
+      const out = await save({ saved, initial, draft, picture, idempotencyKey: key.current, keptBody: keptBody.current, afterLostAnswer: lostAnswer.current });
       if (out.kind === 'done') {
         left.current = true;
         AccessibilityInfo.announceForAccessibility(editing ? 'Changes saved.' : 'Project created.');
@@ -201,18 +239,31 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
       }
       if (out.kind === 'code-taken') {
         key.current = newIdempotencyKey();
+        keptBody.current = null;
+        setLocked(false);
         setServerCodeError(out.message);
         codeRef.current?.focus();
         return;
       }
       if (out.kind === 'failed') {
-        // A refusal was answered: the next try is a new one. With no answer, the same key is sent again.
-        if (!out.retryable) key.current = newIdempotencyKey();
+        // A refusal was answered: the next try is a new one. With no answer, the same key is sent
+        // again — with exactly what it carried (the details are locked until then — 5b review).
+        const next = afterCreateTry(out);
+        if (!editing && next.keepKey) {
+          if (!keptBody.current) keptBody.current = tryBody(draft);
+          lostAnswer.current = true;
+        } else if (!next.keepKey) {
+          key.current = newIdempotencyKey();
+          keptBody.current = null;
+        }
+        if (!editing) setLocked(next.lock);
         setBanner(out.message);
         return;
       }
       // Partly saved: keep editing the project, with the picture still here to try again.
       key.current = newIdempotencyKey();
+      keptBody.current = null;
+      setLocked(false);
       const now = draftOf(out.project);
       setSaved(out.project);
       setCodeTouched(true);
@@ -229,6 +280,12 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
     <SafeAreaView style={s.safe} edges={['bottom']}>
       <KeyboardAwareScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
         {banner ? <ErrorNote message={banner} /> : null}
+        {locked ? (
+          <View style={s.lock} accessibilityLiveRegion="polite">
+            <Text style={s.lockText}>🔒 {PROJECT_FORM_TEXT.locked}</Text>
+            <Button title={PROJECT_START_OVER.label} variant="ghost" onPress={startOver} disabled={saving} accessibilityLabel="Start over: unlock the form. The project may already be created — check the Projects list first." />
+          </View>
+        ) : null}
 
         <View style={s.identity}>
           <View accessible accessibilityRole="image" accessibilityLabel={hasPicture ? 'Project picture preview: a picture' : 'Project picture preview'}>
@@ -260,7 +317,7 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
           maxLength={NAME_MAX}
           placeholder="e.g. Rig Inspection Portal"
           error={errors.name}
-          editable={!saving}
+          editable={!frozen}
         />
 
         <View>
@@ -274,14 +331,14 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
             autoCapitalize="characters"
             autoCorrect={false}
             placeholder="RIP"
-            editable={!editing && !saving}
+            editable={!editing && !frozen}
             style={editing ? s.readOnly : undefined}
             accessibilityHint={note.text}
           />
           <View style={s.codeNote} accessibilityLiveRegion="polite">
             <Text style={[s.note, note.tone === 'error' ? s.noteError : note.tone === 'success' ? s.noteOk : null]}>{note.text}</Text>
             {note.suggestion ? (
-              <Pressable onPress={() => onCode(note.suggestion!)} accessibilityRole="button" accessibilityLabel={`Use ${note.suggestion}`} hitSlop={8} style={s.use}>
+              <Pressable onPress={() => onCode(note.suggestion!)} disabled={frozen} accessibilityRole="button" accessibilityLabel={`Use ${note.suggestion}`} hitSlop={8} style={s.use}>
                 <Text style={s.useText}>Use {note.suggestion}</Text>
               </Pressable>
             ) : null}
@@ -289,11 +346,11 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
         </View>
 
         <View>
-          <TextField label="Client (optional)" value={draft.clientName} onChangeText={(t) => set({ clientName: t })} maxLength={NAME_MAX} placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'} editable={!saving} />
+          <TextField label="Client (optional)" value={draft.clientName} onChangeText={(t) => set({ clientName: t })} maxLength={NAME_MAX} placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'} editable={!frozen} />
           {clients.length ? (
             <View style={s.clients}>
               {clients.map((name) => (
-                <Pressable key={name} onPress={() => set({ clientName: name })} accessibilityRole="button" accessibilityLabel={`Client: ${name}`} style={({ pressed }) => [s.clientChip, pressed && s.pressed]}>
+                <Pressable key={name} onPress={() => set({ clientName: name })} disabled={frozen} accessibilityRole="button" accessibilityLabel={`Client: ${name}`} style={({ pressed }) => [s.clientChip, pressed && s.pressed]}>
                   <Text style={s.clientText}>{name}</Text>
                 </Pressable>
               ))}
@@ -302,7 +359,7 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
         </View>
 
         <View>
-          <TextField label="Project number (optional)" value={draft.number} onChangeText={(t) => set({ number: t })} maxLength={PROJECT_NUMBER_MAX} autoCorrect={false} placeholder="e.g. PDO-2026-014" editable={!saving} />
+          <TextField label="Project number (optional)" value={draft.number} onChangeText={(t) => set({ number: t })} maxLength={PROJECT_NUMBER_MAX} autoCorrect={false} placeholder="e.g. PDO-2026-014" editable={!frozen} />
           <Text style={s.note}>The client’s job or contract number, if there is one.</Text>
         </View>
 
@@ -315,14 +372,14 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
           placeholder="What the project is for, its scope and goals"
           style={s.description}
           textAlignVertical="top"
-          editable={!saving}
+          editable={!frozen}
         />
 
-        <ChipChoice label="Status" options={statusOptions(initial.status)} value={draft.status} onChange={(v) => set({ status: v })} disabled={saving} />
-        <ChipChoice label="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v })} disabled={saving} />
+        <ChipChoice label="Status" options={statusOptions(initial.status)} value={draft.status} onChange={(v) => set({ status: v })} disabled={frozen} />
+        <ChipChoice label="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v })} disabled={frozen} />
 
         <View>
-          <InlinePicker label="Owner (optional)" options={owners} value={draft.ownerId} onChange={(v) => set({ ownerId: v })} placeholder="No owner" disabled={saving} />
+          <InlinePicker label="Owner (optional)" options={owners} value={draft.ownerId} onChange={(v) => set({ ownerId: v })} placeholder="No owner" disabled={frozen} />
           <Text style={s.note}>New tasks in this project are assigned to the owner unless you pick someone else — and anyone can reassign a task later.</Text>
         </View>
       </KeyboardAwareScrollView>
@@ -358,6 +415,8 @@ const makeStyles = (c: Palette) =>
     clientChip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     clientText: { fontSize: fontSize.sm, color: c.ink },
     description: { minHeight: 110, paddingTop: spacing.sm },
+    lock: { gap: spacing.xs, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, backgroundColor: c.surface },
+    lockText: { fontSize: fontSize.sm, color: c.ink2 },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },
     cancel: { flex: 1 },
     submit: { flex: 2 },

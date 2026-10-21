@@ -215,6 +215,37 @@ export interface ProjectSaveApi {
   update(id: string, patch: ProjectPatch): Promise<ApiProject>;
   uploadImage(id: string, part: PicturePart): Promise<ApiProject>;
   removeImage(id: string): Promise<ApiProject>;
+  /** The project that has this code now (null: none you can see). */
+  findByCode?(code: string): Promise<ApiProject | null>;
+}
+
+/** The New project form's words for a try whose answer was lost (5b review). */
+export const PROJECT_FORM_TEXT = {
+  locked:
+    'Until the project is created, its details can’t change — if the first try reached the server, a change made now would be lost. You can still change its picture, or start over.',
+  changedSinceTry: 'Your last try may have been saved, so the changed details weren’t sent. Tap Create project to finish that try, or start over.',
+} as const;
+
+/** "Start over" on a locked New project form: a new try (a new key), after a warning. */
+export const PROJECT_START_OVER = {
+  label: 'Start over',
+  title: 'Start over?',
+  message: 'If the first try reached the server, the project may already be created — check the Projects list first. Starting over lets you change the form and create it as a new try.',
+  confirm: 'Start over',
+} as const;
+
+/** What a create's key carried: a try kept under it is sent again only with exactly this (5b review). */
+export function tryBody(d: ProjectDraft): string {
+  return JSON.stringify(createBody(d));
+}
+
+/**
+ * After a create try: keep its key (and lock the form, as the meeting and task forms do) while it
+ * may have been saved — no answer, or still being saved; a refusal or a taken code starts a new try.
+ */
+export function afterCreateTry(out: { kind: 'failed'; message: string; retryable: boolean } | { kind: 'code-taken'; message: string; retryable: false }): { keepKey: boolean; lock: boolean } {
+  const kept = out.kind === 'failed' && out.retryable;
+  return { keepKey: kept, lock: kept };
 }
 
 export type SaveOutcome =
@@ -259,15 +290,33 @@ async function sendPicture(api: ProjectSaveApi, id: string, picture: PictureChoi
  */
 export async function saveProject(
   api: ProjectSaveApi,
-  o: { saved: ApiProject | null; initial: ProjectDraft; draft: ProjectDraft; picture: PictureChoice; idempotencyKey: string },
+  o: {
+    saved: ApiProject | null;
+    initial: ProjectDraft;
+    draft: ProjectDraft;
+    picture: PictureChoice;
+    idempotencyKey: string;
+    /** What the kept key carried (tryBody) when a try under it may have been saved: anything else isn't sent. */
+    keptBody?: string | null;
+    /** A try in this form got no answer: a taken code may be that try's project. */
+    afterLostAnswer?: boolean;
+  },
 ): Promise<SaveOutcome> {
   if (!o.saved) {
+    // The server's store matches the key, not the body: a changed form under a kept key would get
+    // the first try's answer back and be lost without a word (5b review).
+    if (o.keptBody && o.keptBody !== tryBody(o.draft)) return { kind: 'failed', message: PROJECT_FORM_TEXT.changedSinceTry, retryable: true };
     let created: ApiProject;
     try {
       created = await api.create(createBody(o.draft), o.idempotencyKey);
     } catch (err) {
-      if (codeTaken(err)) return { kind: 'code-taken', message: (err as ApiError).message || `${o.draft.code} is already used by another project.`, retryable: false };
-      return { kind: 'failed', message: `Couldn’t create the project. ${reason(err, true)}`, retryable: retryable(err) };
+      if (!codeTaken(err)) return { kind: 'failed', message: `Couldn’t create the project. ${reason(err, true)}`, retryable: retryable(err) };
+      // After a lost answer, the project with this code may be the one that try made: carry on with it.
+      const made = o.afterLostAnswer && api.findByCode ? await api.findByCode(o.draft.code).catch(() => null) : null;
+      if (!made || made.code !== o.draft.code || made.name !== o.draft.name.trim()) {
+        return { kind: 'code-taken', message: (err as ApiError).message || `${o.draft.code} is already used by another project.`, retryable: false };
+      }
+      created = made;
     }
     try {
       return { kind: 'done', project: (await sendPicture(api, created.id, o.picture)) ?? created };
