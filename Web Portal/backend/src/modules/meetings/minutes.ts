@@ -1,7 +1,6 @@
 import { BULLET, PdfDocument, hexToRgb, type PdfRichBlock, type RGB } from '../../lib/pdf-document';
 import { linkNeedsAddress, listMarkers, noteText, parseRichHtml } from '../../lib/rich-text';
 import type { StyledRun } from '../../lib/pdf-text';
-import { printableImage } from '../../lib/pdf-image';
 import { PROJECT_ICON_PATHS, projectInitials, type ProjectIcon } from '../projects/project-icons';
 import { isolate, textDirection } from '../../lib/pdf-text';
 import { isValidTimeZone } from './meeting-validation';
@@ -243,10 +242,9 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       .filter((b): b is string => Boolean(b))
       .map(isolate)
       .join('  ·  ');
-    const image = project.image ? printableImage(project.image) : null;
     doc.identityHeader({
-      image,
-      icon: !image && project.icon && project.icon in PROJECT_ICON_PATHS ? PROJECT_ICON_PATHS[project.icon as ProjectIcon] : null,
+      image: project.image ?? null, // shown when the PDF can print it, else the icon or the initials
+      icon: project.icon && project.icon in PROJECT_ICON_PATHS ? PROJECT_ICON_PATHS[project.icon as ProjectIcon] : null,
       initials: projectInitials(project.name),
       color: project.color ? hexToRgb(project.color, hexToRgb(brand.colors?.brand ?? '#8B1E1E')) : undefined,
       eyebrow: 'Minutes of Meeting',

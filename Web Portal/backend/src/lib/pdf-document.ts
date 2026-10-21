@@ -298,24 +298,26 @@ export class PdfDocument {
   }
 
   /**
-   * A header for a document about one project: its picture (an image pdfkit can embed as it is —
-   * see printableImage), else its icon (24×24 outline paths) or its initials on its colour; then the
-   * eyebrow, the project name and a detail line, an optional badge on the right, and a brand rule beneath.
+   * A header for a document about one project: its picture when this document can print it (see
+   * prepareImage — a see-through one is set on white), else its icon (24×24 outline paths) or its
+   * initials on its colour; then the eyebrow, the project name and a detail line, an optional badge
+   * on the right, and a brand rule beneath.
    */
   identityHeader(opts: { image?: Buffer | null; icon?: readonly string[] | null; initials: string; color?: RGB; title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): this {
     const s = 46;
     const top = this.y;
     const x = this.margin;
+    const image = opts.image ? this.prepareImage(opts.image) : null;
     this.doc.save();
     this.doc.roundedRect(x, top, s, s, s * 0.22).clip();
-    if (opts.image) {
+    if (image) {
       this.doc.rect(x, top, s, s).fill(toHex(WHITE));
-      this.doc.image(opts.image, x, top, { fit: [s, s], align: 'center', valign: 'center' });
+      this.doc.image(image, x, top, { fit: [s, s], align: 'center', valign: 'center' });
     } else {
       this.doc.rect(x, top, s, s).fill(toHex(opts.color ?? this.pal.brand));
     }
     this.doc.restore();
-    if (opts.image) {
+    if (image) {
       this.doc.save().lineWidth(0.6).roundedRect(x, top, s, s, s * 0.22).stroke(toHex(this.pal.line)).restore();
     } else if (opts.icon?.length) {
       // The icon at half the tile, as the app draws it: round-capped outlines in white.

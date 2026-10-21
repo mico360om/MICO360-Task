@@ -134,6 +134,19 @@ describe('taskPdf: header', () => {
     expect(pages[0]).not.toContain('MP');
   });
 
+  it('never makes a broken PDF from a project picture it can’t print (interlaced, damaged): it shows the icon or the initials', async () => {
+    const interlaced = await sharp({ create: { width: 48, height: 48, channels: 3, background: '#aa3322' } }).png({ progressive: true }).toBuffer();
+    const noSize = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.alloc(14), Buffer.from([0xff, 0xd9])]); // a JPEG pdfkit can't read
+    for (const [name, projectImage] of [['interlaced PNG', interlaced], ['damaged JPEG', noSize]] as const) {
+      const initials = inspectPdf(taskPdf(task({ projectImage }), ctx)); // throws on a broken file
+      expect(initials.pages[0], name).toContain('MP');
+      expect(initials.contents[0], name).not.toMatch(/\/I\d+ Do/);
+      const icon = inspectPdf(taskPdf(task({ projectImage, projectIcon: 'rocket' }), ctx));
+      expect(icon.pages[0], name).not.toContain('MP');
+      expect(icon.contents[0], name).toMatch(/1 1 1 SCN/);
+    }
+  });
+
   it('sets the title from its start edge (left for English, right for Arabic), smaller as it gets longer', () => {
     const titleLines = (title: string) => linesOf(taskPdf(task({ title }), ctx)).filter((l) => title.includes(l.text) && l.text.length > 2 && l.size >= 13);
     const short = titleLines('Monthly sales review');

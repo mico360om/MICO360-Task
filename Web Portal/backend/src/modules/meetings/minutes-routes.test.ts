@@ -322,6 +322,19 @@ describe('Minutes PDF route: the project header', () => {
     expect(res.statusCode).toBe(200);
     expect(inspectPdf(res.rawPayload).pages[0]).toContain('FC');
   });
+
+  it('prints the initials, not an error, when the PDF can’t read the stored picture (a damaged JPEG)', async () => {
+    const damaged = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.alloc(14), Buffer.from([0xff, 0xd9])]);
+    const app = await makeApp({}, undefined, undefined, {
+      resolveProject: async () => ({ name: 'Falcon CRM', code: 'FAL', clientName: null, status: 'ACTIVE', ownerId: null, startDate: null, targetDate: null, imageUrl: '/uploads/projects/falcon.jpg' }),
+      readProjectImage: async () => damaged,
+    }, true);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt: '2026-10-01T09:00:00Z', projectId: 'p1' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    expect(inspectPdf(res.rawPayload).pages[0]).toContain('FC');
+  });
 });
 
 describe('Final minutes (Final MOM)', () => {

@@ -64,6 +64,13 @@ describe('printableImage', () => {
     expect(firstPixel(printableImage(png(1, 1, 4, [0, 255]))!).rgb).toEqual([0, 0, 0]);
   });
 
+  it('returns nothing for an interlaced PNG of any colour type: pdfkit would unpack it after the PDF is written, and break it', () => {
+    const pixel: Record<number, number[]> = { 0: [0], 2: [0, 0, 0], 3: [0], 4: [0, 255], 6: [0, 0, 0, 255] };
+    for (const colorType of [0, 2, 3, 4, 6]) {
+      expect(printableImage(png(1, 1, colorType, pixel[colorType]!, { interlace: 1 })), `colour type ${colorType}`).toBeNull();
+    }
+  });
+
   it('returns nothing for what it can’t print (WebP, 16-bit or interlaced PNG, not an image)', () => {
     expect(printableImage(Buffer.from('RIFF\u0000\u0000\u0000\u0000WEBPVP8 ', 'latin1'))).toBeNull();
     expect(printableImage(png(1, 1, 6, [0, 0, 0, 0, 0, 0, 0, 0], { bitDepth: 16 }))).toBeNull();

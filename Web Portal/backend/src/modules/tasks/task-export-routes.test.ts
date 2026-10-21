@@ -6,6 +6,7 @@ import type { TaskExportAttachment, TaskExportData } from './task-export';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
 import { blankPng } from '../../lib/test-images';
+import { createImageShrinker } from '../../lib/image-shrink';
 
 const attachment = (filename: string, mimeType: string): TaskExportAttachment => ({
   filename, mimeType, sizeBytes: 2048, storageKey: `key-${filename}`, uploadedBy: 'Omar Ahmed', uploadedAt: new Date('2026-09-01T00:00:00Z'),
@@ -106,6 +107,25 @@ describe('Task export routes', () => {
     expect(res.statusCode).toBe(200);
     expect(printableProjectImage).toHaveBeenCalledTimes(1);
     expect(pictures(res.rawPayload)).toBe(1);
+  });
+
+  it('prints an interlaced project picture once converted, and the initials without a converter: a whole PDF either way', async () => {
+    const interlaced = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#aa3322' } }).png({ progressive: true }).toBuffer();
+    const task = { ...data, projectImageUrl: '/uploads/projects/rig.png' };
+    const converted = await (await makeApp({ task, extra: { readProjectImage: async () => interlaced, printableProjectImage: createImageShrinker().toPrintable } })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(converted.statusCode).toBe(200);
+    expect(pictures(converted.rawPayload)).toBe(1); // inspectPdf throws on a broken file
+    const asStored = await (await makeApp({ task, extra: { readProjectImage: async () => interlaced } })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(asStored.statusCode).toBe(200);
+    expect(pictures(asStored.rawPayload)).toBe(0);
+    expect(inspectPdf(asStored.rawPayload).pages.flat()).toContain('RI');
+  });
+
+  it('prints the initials, not an error, when the PDF can’t read the project picture (a damaged JPEG)', async () => {
+    const damaged = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.alloc(14), Buffer.from([0xff, 0xd9])]);
+    const res = await (await makeApp({ task: { ...data, projectImageUrl: '/uploads/projects/rig.jpg' }, extra: { readProjectImage: async () => damaged } })).inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(res.statusCode).toBe(200);
+    expect(inspectPdf(res.rawPayload).pages.flat()).toContain('RI');
   });
 
   it('falls back to the project’s initials when its picture can’t be read', async () => {
