@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { queueOnOffline, writeOrder, type Keyed } from './queries';
 import { isNetworkError } from '../lib/api-client';
-import { sendInOrder } from '../lib/write-order';
+import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { noteTaskFailure } from '../lib/meeting-parts';
 import { agendaTry, attendeeTry, inviteTry, minutesTry, pendingKeys, sendKept, settleRemovedAgenda, settleRemovedAttendee, tryName, type InviteContent } from '../lib/pending-keys';
 import { refresh } from '../lib/refresh';
@@ -112,9 +112,9 @@ export function useAttendeeMutations(meetingId: string) {
    * replayed later, can't overwrite it.
    */
   const attendance = useMutation({
-    scope: { id: `attendance:${meetingId}` },
+    // In the person's own lane: one person's changes in order, another's at once (item-lanes).
     mutationFn: ({ attendeeId, attendance: value }: { attendeeId: string; attendance: AttendanceStatus }) =>
-      sendInOrder(writeOrder(services), { kind: 'meeting.attendance', payload: { meetingId, attendeeId, attendance: value } }, () =>
+      sendItemWrite(itemLanes, writeOrder(services), { kind: 'meeting.attendance', payload: { meetingId, attendeeId, attendance: value } }, () =>
         resources.meetings.updateAttendee(meetingId, attendeeId, { attendance: value }),
       ),
     onMutate: async ({ attendeeId, attendance: value }) => {
@@ -185,9 +185,9 @@ export function useAgendaMutations(meetingId: string) {
   });
   /** Covered or not: shown at once, kept on this phone when offline, and sent in the order tapped (write-order). */
   const covered = useMutation({
-    scope: { id: `agenda:${meetingId}` },
+    // In the item's own lane: ticking several items quickly sends them all at once (item-lanes).
     mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) =>
-      sendInOrder(writeOrder(services), { kind: 'meeting.agenda.covered', payload: { meetingId, itemId, completed } }, () =>
+      sendItemWrite(itemLanes, writeOrder(services), { kind: 'meeting.agenda.covered', payload: { meetingId, itemId, completed } }, () =>
         resources.meetings.updateAgendaItem(meetingId, itemId, { completed }),
       ),
     onMutate: async ({ itemId, completed }) => {
@@ -310,9 +310,9 @@ export function useActionItemMutations(meetingId: string) {
   });
   /** A change (its status, owner, due day, priority…): shown at once, kept on this phone when offline, sent in order (write-order). */
   const update = useMutation({
-    scope: { id: `action-items:${meetingId}` },
+    // In the item's own lane: one item's changes in order, another's at once (item-lanes).
     mutationFn: ({ itemId, patch }: { itemId: string; patch: ActionItemPatch }) =>
-      sendInOrder(writeOrder(services), { kind: 'meeting.action.update', payload: { meetingId, id: itemId, patch } }, () => resources.meetings.updateActionItem(itemId, patch)),
+      sendItemWrite(itemLanes, writeOrder(services), { kind: 'meeting.action.update', payload: { meetingId, id: itemId, patch } }, () => resources.meetings.updateActionItem(itemId, patch)),
     onMutate: async ({ itemId, patch }) => {
       await qc.cancelQueries({ queryKey: key, exact: true });
       return { before: patchRow<ApiActionItem>(qc, key, itemId, patch as Partial<ApiActionItem>) };

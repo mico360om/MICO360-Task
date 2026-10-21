@@ -162,6 +162,32 @@ describe('a newer change to the same item is never overwritten by an older one k
     expect(queue.pending()).toHaveLength(1);
   });
 
+  // 2c review fix 8: sign-out drops the person's changes; one still on its way must not come back.
+  it('a try that gets no answer after its person signed out is not kept on this phone (it would replay at the next sign-in)', async () => {
+    const { queue } = await setup();
+    let signedIn: string | null = 'u1';
+    const deps = { queue, userId: () => signedIn };
+    const err = await sendInOrder(deps, { kind: 'meeting.attendance', payload: { meetingId: 'm1', attendeeId: 'p1', attendance: 'PRESENT' } }, async () => {
+      // Signed out (the queue cleared) while this was waiting for its answer, which never came.
+      signedIn = null;
+      await queue.clearForUser('u1');
+      throw new NetworkError('The server took too long to respond.', { timedOut: true });
+    }).catch((e: unknown) => e);
+    expect(isNetworkError(err)).toBe(true);
+    expect(queue.pending()).toHaveLength(0);
+    // Nor when someone else signed in meanwhile.
+    const err2 = await sendInOrder(
+      { queue, userId: () => signedIn },
+      { kind: 'meeting.attendance', payload: { meetingId: 'm1', attendeeId: 'p2', attendance: 'PRESENT' } },
+      async () => {
+        signedIn = 'u2';
+        throw new NetworkError('offline');
+      },
+    ).catch((e: unknown) => e);
+    expect(isNetworkError(err2)).toBe(true);
+    expect(queue.pending()).toHaveLength(0);
+  });
+
   it('two moves of a card in its write lane: the first gets no answer, so the second waits behind it (never races its keeping)', async () => {
     const { server, queue, deps } = await setup();
     const lanes = createTaskWrites();

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { useColors } from '../../core/theme';
 import { TextField, Button } from '../ui';
@@ -6,6 +6,7 @@ import { KeyboardGroup } from '../KeyboardAware';
 import { MentionSuggestions, MentionText, useMentionInput } from '../Mentions';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { aiFailureText, moveBy } from '../../lib/task-detail';
+import { ticksAfterReload } from '../../lib/checklist-ticks';
 import type { MentionPerson } from '../../lib/mentions';
 import type { ApiChecklistItem } from '../../lib/types';
 import { IconButton, SaveNote, SectionCard, relativeTime, useSave } from './kit';
@@ -146,9 +147,12 @@ export function ChecklistCard({
   const [suggestions, setSuggestions] = useState<{ text: string; on: boolean }[] | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [moved, setMoved] = useState('');
+  // How many saves of each subtask are on their way: a reload brought by another tick's answer
+  // keeps these ticks shown until their own answer (checklist-ticks).
+  const saving = useRef(new Map<string, number>());
   useEffect(() => {
     setOrder(null);
-    setTicks({});
+    setTicks((t) => ticksAfterReload(t, saving.current));
   }, [items]);
   const withTicks = items.map((i) => (i.id in ticks ? { ...i, done: ticks[i.id]! } : i));
   const byId = new Map(withTicks.map((i) => [i.id, i]));
@@ -181,7 +185,11 @@ export function ChecklistCard({
   function toggle(item: ApiChecklistItem) {
     const next = !item.done;
     setTicks((t) => ({ ...t, [item.id]: next }));
+    saving.current.set(item.id, (saving.current.get(item.id) ?? 0) + 1);
     void save.run(() => onToggle(item.id, next), 'Couldn’t update the step.', true).then((ok) => {
+      const left = (saving.current.get(item.id) ?? 1) - 1;
+      if (left > 0) saving.current.set(item.id, left);
+      else saving.current.delete(item.id);
       if (!ok) setTicks((t) => Object.fromEntries(Object.entries(t).filter(([k]) => k !== item.id)));
     });
   }

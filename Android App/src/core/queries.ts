@@ -15,6 +15,7 @@ import { findMeeting } from '../lib/meeting-screen';
 import { answerFailed, answerScope } from '../lib/meeting-cache';
 import { queueOnOffline, sendInOrder, type WriteOrderDeps } from '../lib/write-order';
 import { pendingKeys, settleShownAgenda, settleShownAttendees } from '../lib/pending-keys';
+import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-thread';
 import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
@@ -194,10 +195,10 @@ export function useChecklistMutations(taskId: string) {
     onError: (err, v) => queueOnOffline(queue, currentUserId(), err, 'checklist.add', { id: taskId, text: v.text }, v.idempotencyKey),
   });
   const update = useMutation({
-    // One task's subtask changes go one after another, so they reach the server in order.
-    scope: { id: `checklist:${taskId}` },
+    // One subtask's changes go one after another, so they reach the server in order; another
+    // subtask's go at once (item-lanes).
     mutationFn: ({ itemId, patch }: { itemId: string; patch: { done?: boolean; text?: string } }) =>
-      sendInOrder(writeOrder(services), { kind: 'checklist.update', payload: { id: taskId, itemId, patch } }, () => resources.tasks.updateChecklistItem(itemId, patch)),
+      sendItemWrite(itemLanes, writeOrder(services), { kind: 'checklist.update', payload: { id: taskId, itemId, patch } }, () => resources.tasks.updateChecklistItem(itemId, patch)),
     onSuccess: invalidate,
     // The task's id goes along so the replay refreshes that task's checklist only.
     onError: (err, { itemId, patch }) => queueOnOffline(queue, currentUserId(), err, 'checklist.update', { id: taskId, itemId, patch }),

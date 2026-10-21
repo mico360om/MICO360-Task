@@ -1,4 +1,5 @@
 import type { QueuedMutation } from './sync-queue';
+import { createItemLanes } from './item-lanes';
 import { dueDayKey } from './due-date';
 import { withAnchorDay, type RecurrenceRule } from './recurrence';
 import type { ApiTask } from './types';
@@ -11,20 +12,13 @@ import type { ApiTask } from './types';
  * Pure (no React, no native imports) so it is unit-testable.
  */
 export function createTaskWrites() {
-  const lanes = new Map<string, Promise<unknown>>();
+  const lanes = createItemLanes();
   const written = new Map<string, number>();
 
   return {
     /** Run one write to a task after its earlier writes have finished (failed or not). */
     run<T>(taskId: string, write: () => Promise<T>): Promise<T> {
-      const before = lanes.get(taskId) ?? Promise.resolve();
-      const next = before.then(write, write);
-      const settled = next.catch(() => undefined);
-      lanes.set(taskId, settled);
-      void settled.then(() => {
-        if (lanes.get(taskId) === settled) lanes.delete(taskId);
-      });
-      return next;
+      return lanes.run(taskId, write);
     },
     /** Remember the version a write of this phone's returned. */
     note(taskId: string, version: number | undefined): void {

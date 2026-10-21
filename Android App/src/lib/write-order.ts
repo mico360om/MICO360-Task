@@ -131,7 +131,10 @@ export async function sendInOrder<T>(deps: WriteOrderDeps, write: Write, send: (
     result = await send();
   } catch (e) {
     if (userId && isNetworkError(e) && e && typeof e === 'object') {
-      await keep();
+      // Kept for the person who made it, and only while they are still signed in: sign-out dropped
+      // their changes, and one that came back now would replay at the next sign-in (2c review).
+      if (deps.userId() === userId) await keep();
+      // Either way nothing more is kept (the screen's offline path would keep it for whoever is in).
       (e as Record<symbol, unknown>)[KEPT] = true;
     }
     throw e;

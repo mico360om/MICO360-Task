@@ -43,6 +43,7 @@ import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
 import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
 import { stillMatching } from '../lib/blocker-search';
+import { withQueuedTicks } from '../lib/checklist-ticks';
 import type { AppScreenProps } from '../navigation/types';
 import { displayName } from '../lib/types';
 import { HeaderCard } from '../components/task-detail/HeaderCard';
@@ -125,6 +126,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
     const u = (directoryQ.data ?? []).find((d) => d.id === userId);
     return u ? displayName(u) : 'Someone';
   };
+  // Memoized: the checklist resets what it shows only when its items really change.
+  const checklistItems = useMemo(() => withQueuedTicks(checklistQ.data?.items ?? [], queued.pending, taskId), [checklistQ.data, queued.pending, taskId]);
 
   if (taskQ.isLoading) return <Loader />;
   if (taskQ.isError || !task) {
@@ -142,7 +145,6 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const isAdmin = myRoles.includes('ADMIN');
   const members = membersQ.data ?? [];
   const series = inSeries(task);
-  const checklist = checklistQ.data;
   const deps = depsQ.data ?? { blockedBy: [], blocks: [] };
 
   /** Save a field edit; `withScope` applies "entire series" when chosen (title, description, priority, estimate). */
@@ -261,7 +263,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   );
   const checklistCard = (
     <ChecklistCard
-      items={checklist?.items ?? []}
+      // Ticks kept on this phone (offline) show over the server's checklist until they are sent.
+      items={checklistItems}
       onToggle={(id, done) => checklistM.update.mutateAsync({ itemId: id, patch: { done } })}
       onAdd={(text) => checklistM.add.mutateAsync(keyed({ text }))}
       onRename={(id, text) => checklistM.update.mutateAsync({ itemId: id, patch: { text } })}
