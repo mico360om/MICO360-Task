@@ -27,6 +27,7 @@ import { taskSuggestions, type AiTaskDraft, type DescribedFields } from '../lib/
 import {
   assignablePeople,
   assigneeNote,
+  assigneesWithoutTeam,
   checkNewTask,
   createdWithoutFilesText,
   DESCRIPTION_MAX,
@@ -41,6 +42,7 @@ import {
   newTaskDraft,
   openProjectsOf,
   pickColumn,
+  projectOwnerName,
   prunedAssignees,
   scheduleText,
   START_OVER,
@@ -171,13 +173,16 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   // Someone who isn't on a newly chosen project can't work on the task there.
   const pruneFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!pruneFor.current || pruneFor.current !== draft.projectId || !membersQ.isSuccess || membersQ.isFetching) return;
+    if (!pruneFor.current || pruneFor.current !== draft.projectId || membersQ.isFetching) return;
+    // Its people couldn't be loaded (offline, no copy): those picked are taken off (4a review).
+    const unknownTeam = membersQ.isError && !membersQ.data;
+    if (!membersQ.isSuccess && !unknownTeam) return;
     pruneFor.current = null;
-    const r = prunedAssignees(draft.assigneeIds, people, known.current, project?.name ?? null);
+    const r = unknownTeam ? assigneesWithoutTeam(draft.assigneeIds, known.current, project?.name ?? null) : prunedAssignees(draft.assigneeIds, people, known.current, project?.name ?? null);
     if (!r.notice) return;
     setDraft((d) => ({ ...d, assigneeIds: r.ids }));
     setPlaceNotice(r.notice);
-  }, [membersQ.isSuccess, membersQ.isFetching, people, draft.projectId]);
+  }, [membersQ.isSuccess, membersQ.isError, membersQ.data, membersQ.isFetching, people, draft.projectId]);
 
   function chooseProject(id: string) {
     if (frozen || !id || id === draft.projectId) return;
@@ -187,7 +192,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     setPlaceChosen(true);
     setDraft((d) => ({ ...d, projectId: id, columnId: '' }));
   }
-  const ownerName = project?.ownerId ? known.current.get(project.ownerId) ?? null : null;
+  // Named only when the owner is an active member of the project, as the website does (4a review).
+  const ownerName = projectOwnerName(project?.ownerId, people);
   const membersStatus = !draft.projectId ? null : membersQ.isLoading ? 'loading' : membersQ.isError && !membersQ.data ? 'failed' : null;
 
   // ── Describe it in plain English ──

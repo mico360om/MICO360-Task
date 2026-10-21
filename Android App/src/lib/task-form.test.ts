@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  assigneesWithoutTeam,
+  projectOwnerName,
   leftWhileSendingText,
   TASK_FILES_MAX_BYTES,
   checkTaskFiles,
@@ -477,5 +479,32 @@ describe('a repeat problem on Create is brought into view (4a review #6)', () =>
     expect(screen).toMatch(/untilRef\.current\?\.focus\(\)/);
     const editor = readFileSync(resolve(__dirname, '../components/RecurrenceEditor.tsx'), 'utf8');
     expect(editor).toMatch(/inputRef=\{untilRef\}/);
+  });
+});
+
+describe('who gets the task after a project change (4a review #8, #9)', () => {
+  const people = [
+    { id: 'u1', name: 'Ann Lee' },
+    { id: 'u2', name: 'Bob Ray' },
+  ] as never;
+  it('when the new project’s people can’t be loaded (offline, no copy), the people picked are taken off, saying so', () => {
+    const known = new Map([
+      ['u1', 'Ann Lee'],
+      ['u3', 'Cy Do'],
+    ]);
+    expect(assigneesWithoutTeam(['u1', 'u3'], known, 'Rig Inspection')).toEqual({
+      ids: [],
+      notice: 'The people on Rig Inspection couldn’t be loaded, so Ann Lee and Cy Do were taken off this task. Pick them again when you’re online.',
+    });
+    expect(assigneesWithoutTeam([], known, 'Rig Inspection')).toEqual({ ids: [], notice: null });
+  });
+
+  it('the owner note names the owner only when they are an active member of the project, as the website does', () => {
+    expect(projectOwnerName('u2', people)).toBe('Bob Ray');
+    expect(projectOwnerName('u9', people)).toBeNull(); // not on the team (or inactive): the server leaves it unassigned
+    expect(projectOwnerName(null, people)).toBeNull();
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/const ownerName = projectOwnerName\(project\?\.ownerId, people\);/);
+    expect(screen).toMatch(/assigneesWithoutTeam\(/);
   });
 });

@@ -158,6 +158,26 @@ export function prunedAssignees(ids: string[], people: readonly PersonOption[], 
   };
 }
 
+/**
+ * After a project change whose people can't be loaded (offline with no copy — 4a review): nobody
+ * picked can be checked against the new team, and a task kept for later with someone off it would
+ * be refused on every try — so they are taken off, saying so.
+ */
+export function assigneesWithoutTeam(ids: string[], known: ReadonlyMap<string, string>, projectName: string | null): { ids: string[]; notice: string | null } {
+  if (ids.length === 0) return { ids, notice: null };
+  const names = ids.map((id) => known.get(id) ?? 'Someone');
+  return {
+    ids: [],
+    notice: `The people on ${projectName ?? 'that project'} couldn’t be loaded, so ${listNames(names)} ${names.length === 1 ? 'was' : 'were'} taken off this task. Pick them again when you’re online.`,
+  };
+}
+
+/** The project's owner by name, only when they are an active member (the server gives them the task only then — as the website says it). */
+export function projectOwnerName(ownerId: string | null | undefined, people: readonly Pick<PersonOption, 'id' | 'name'>[]): string | null {
+  if (!ownerId) return null;
+  return people.find((p) => p.id === ownerId)?.name ?? null;
+}
+
 /** Who gets the task when nobody is picked: the project's owner (the server's default), or nobody. */
 export function assigneeNote(ids: readonly string[], ownerName: string | null): string | null {
   if (ids.length) return null;
