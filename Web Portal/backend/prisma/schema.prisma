@@ -1060,6 +1060,8 @@ model MicoAiMessage {
   /// The question, or the answer's words: what searching the chats reads.
   text      String     @db.MediumText
   content   Json?
+  /// The tool results an answer's tables were copied from (kept for later questions; only they read it).
+  results   Json?
   /// PENDING while MICO AI is writing it, then DONE, ERROR or STOPPED.
   status    String     @default("DONE") @db.VarChar(16)
   /// While PENDING: what MICO AI is doing ("Checking tasks in Rig Inspection…").

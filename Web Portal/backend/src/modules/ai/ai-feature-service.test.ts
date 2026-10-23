@@ -528,12 +528,22 @@ describe('AiFeatureService: MICO AI’s model calls', () => {
     expect(await createAiFeatureService({ repo: createMemoryAiConfigRepository(emptyConfig()), fetchImpl: ok('x') }).chatReady()).toBe(false);
   });
 
-  it('asks the default chat model, as JSON when asked, without counting each call against the person’s limit', async () => {
+  it('asks the default chat model, as JSON when asked', async () => {
     const bodies: Array<Record<string, unknown>> = [];
-    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl: ok('{"action":"answer"}', bodies), limits: { perMinute: 1, perDay: 1 } });
-    for (let i = 0; i < 3; i++) expect(await svc.chat({ system: 'S', prompt: 'P', maxTokens: 900, json: true })).toBe('{"action":"answer"}');
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl: ok('{"action":"answer"}', bodies) });
+    expect(await svc.chat({ system: 'S', prompt: 'P', maxTokens: 900, json: true })).toBe('{"action":"answer"}');
     expect(bodies[0]!.model).toBe('gpt-4o');
     expect(bodies[0]!.messages).toEqual([{ role: 'system', content: 'S' }, { role: 'user', content: 'P' }]);
+  });
+
+  it('counts every MICO AI call against the person’s shared AI limit (the same one as the other AI features)', async () => {
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl: ok('ok'), limits: { perMinute: 100, perDay: 3 } });
+    await svc.chat({ system: 'S', prompt: 'P' }, { userId: 'u1' });
+    await svc.summarizeProject({ name: 'P', stats: { total: 1, completed: 0, inProgress: 0, overdue: 0 } }, { userId: 'u1' });
+    svc.checkLimit('u1');
+    await svc.chat({ system: 'S', prompt: 'P' }, { userId: 'u1' });
+    expect(() => svc.checkLimit('u1')).toThrow(/today’s AI request limit/);
+    await expect(svc.chat({ system: 'S', prompt: 'P' }, { userId: 'u1' })).rejects.toMatchObject({ code: 'AI_RATE_LIMITED' });
   });
 
   it('shares the model’s concurrency slots with the other AI features', async () => {

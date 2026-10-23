@@ -116,11 +116,16 @@ export function createAiFeatureService({
 
   /**
    * One model call for MICO AI's tool loop: the default chat model, its concurrency slot and the
-   * configured wait, with the caller's stop. MICO AI counts the person's questions itself (one per
-   * question, however many steps it takes), so these calls are not counted here.
+   * configured wait, with the caller's stop. With a requester, the call counts against the person's
+   * AI limit, the same one every AI feature uses (each step of a question is a call).
    */
-  async function chat(input: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }): Promise<string> {
-    return run(input.system, input.prompt, input.maxTokens, undefined, { json: input.json, signal: input.signal });
+  async function chat(input: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }, requester?: AiRequester): Promise<string> {
+    return run(input.system, input.prompt, input.maxTokens, requester, { json: input.json, signal: input.signal });
+  }
+
+  /** Throw (429) when the person has no AI requests left right now; nothing is counted. */
+  function checkLimit(userId: string): void {
+    usage.check(userId);
   }
 
   /** Break a task into 3–7 short checklist steps. */
@@ -382,7 +387,7 @@ export function createAiFeatureService({
     return obj;
   }
 
-  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat };
+  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat, checkLimit };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;

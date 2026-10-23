@@ -185,6 +185,7 @@ components:
                   fromResult: { type: string }
                   columns: { type: array, items: { type: object, properties: { key: { type: string }, label: { type: string }, kind: { type: string, enum: [text, key, date, datetime, number, percent, days] } } } }
                   rows: { type: array, items: { type: object, properties: { ref: { $ref: '#/components/schemas/MicoAiSource' }, cells: { type: array, items: {} } } } }
+                  total: { type: integer, description: 'How many matched in all: more than the rows when the list was capped at 200 ("Showing 200 of 250").' }
   responses:
     Unauthorized:
       description: Missing or invalid token
@@ -471,8 +472,11 @@ paths:
   /mico-ai/chats/{chatId}:
     parameters: [ { name: chatId, in: path, required: true, schema: { type: string } } ]
     get:
-      summary: One of the person's chats with all its messages. Anyone else's chat is 404, admins included.
-      responses: { '200': { description: '{ chat: MicoAiChat, messages: MicoAiMessage[] }' }, '404': { description: No such chat, or not yours } }
+      summary: >-
+        One of the person's chats with its latest 50 messages (hasMore: there are older ones; GET
+        …/messages?before= pages back). Anyone else's chat is 404, admins included. Answers still
+        pending past the time limit (cut off by a restart) read as interrupted.
+      responses: { '200': { description: '{ chat: MicoAiChat, messages: MicoAiMessage[], hasMore: boolean }' }, '404': { description: No such chat, or not yours } }
     patch:
       summary: Rename the chat.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [title], properties: { title: { type: string, minLength: 1, maxLength: 200 } } } } } }
@@ -482,13 +486,20 @@ paths:
       responses: { '204': { description: Deleted }, '404': { description: No such chat, or not yours } }
   /mico-ai/chats/{chatId}/messages:
     parameters: [ { name: chatId, in: path, required: true, schema: { type: string } } ]
+    get:
+      summary: Older messages of the chat, a page at a time, before the message `before` (oldest first).
+      parameters:
+        - { name: before, in: query, required: true, schema: { type: string }, description: A message id }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses: { '200': { description: '{ messages: MicoAiMessage[], hasMore: boolean }' }, '404': { description: No such chat, or not yours } }
     post:
       summary: >-
         Ask a question. Returns at once (202) with the question and a pending answer; MICO AI then reads,
         with the person's own access only (read-only tools: tasks, projects, meetings and minutes, report
         figures, team chat they are part of, people), and writes the answer. Poll the answer for its step
-        and result. Counts once against the person's daily AI limit; the audit log records only that MICO
-        AI was used (action mico-ai.ask, no question or answer).
+        and result. Every AI call it makes counts against the person's AI limit (shared with the other
+        AI features), and an answer may take at most 3 minutes. One answer at a time per chat. The audit
+        log records only that MICO AI was used (action mico-ai.ask, no question or answer).
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [text], properties: { text: { type: string, minLength: 1, maxLength: 4000 } } } } } }
       responses:
         '202': { description: '{ question: MicoAiMessage, answer: MicoAiMessage (pending) }' }

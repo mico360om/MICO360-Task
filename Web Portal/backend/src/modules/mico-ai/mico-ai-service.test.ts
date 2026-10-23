@@ -5,19 +5,29 @@ import { createMicoAiTools } from './mico-ai-tools';
 import { createMemoryMicoAiData, company, NOW, OMAR, SARA, ADMIN } from './mico-ai-data.fixture';
 import { ProviderRefusedError } from '../ai/ai-completion';
 import type { ModelRequest } from './mico-ai-loop';
+import { createAiUsageLimiter } from '../ai/ai-limits';
+import { vi } from 'vitest';
 
 type Reply = unknown | ((req: ModelRequest) => unknown | Promise<unknown>);
 
-/** A fake model answering with scripted replies; `gate` holds a reply until released. */
-function fakeModel(replies: Reply[], ready = true) {
+/** A fake model answering with scripted replies, counting each call against a per-person limit like the AI features service. */
+function fakeModel(replies: Reply[], ready = true, perDay = 100) {
   const requests: ModelRequest[] = [];
+  const callers: string[] = [];
+  const limiter = createAiUsageLimiter({ perMinute: 1000, perDay }, 'Asia/Muscat', () => NOW);
   let i = 0;
-  const model: MicoAiModel & { requests: ModelRequest[] } = {
+  const model: MicoAiModel & { requests: ModelRequest[]; callers: string[] } = {
     requests,
+    callers,
     async ready() {
       return ready;
     },
-    async chat(req) {
+    checkLimit(userId) {
+      limiter.check(userId);
+    },
+    async chat(req, userId) {
+      limiter.take(userId);
+      callers.push(userId);
       requests.push(req as ModelRequest);
       const r = replies[Math.min(i++, replies.length - 1)];
       const out = typeof r === 'function' ? await (r as (q: ModelRequest) => unknown)(req as ModelRequest) : r;
@@ -28,22 +38,29 @@ function fakeModel(replies: Reply[], ready = true) {
   return model;
 }
 
-function setup(replies: Reply[], opts: { ready?: boolean; perDay?: number } = {}) {
+function setup(replies: Reply[], opts: { ready?: boolean; perDay?: number; data?: ReturnType<typeof company>; answerTimeoutMs?: number; failAudit?: boolean } = {}) {
   const repo = createMemoryMicoAiRepository(() => NOW);
   const audit: Array<Record<string, unknown>> = [];
-  const model = fakeModel(replies, opts.ready ?? true);
-  const tools = createMicoAiTools({ data: createMemoryMicoAiData(company()), timeZone: 'Asia/Muscat', now: () => NOW });
+  const logged: unknown[] = [];
+  const model = fakeModel(replies, opts.ready ?? true, opts.perDay ?? 100);
+  const tools = createMicoAiTools({ data: createMemoryMicoAiData(opts.data ?? company()), timeZone: 'Asia/Muscat', now: () => NOW });
   const svc = createMicoAiService({
     repo,
     tools,
     model,
-    audit: { record: async (e) => void audit.push(e as Record<string, unknown>) },
-    limits: { perMinute: 50, perDay: opts.perDay ?? 100 },
+    audit: {
+      record: async (e) => {
+        if (opts.failAudit) throw new Error('audit table locked');
+        audit.push(e as Record<string, unknown>);
+      },
+    },
+    logger: { error: (msg: string, meta?: unknown) => void logged.push({ msg, meta }) },
+    answerTimeoutMs: opts.answerTimeoutMs,
     timeZone: 'Asia/Muscat',
     now: () => NOW,
     userName: async (id) => ({ 'u-omar': 'Omar Said', 'u-sara': 'Sara Ahmed', 'u-admin': 'Khurram Shahzad' })[id] ?? 'Someone',
   });
-  return { repo, audit, model, svc };
+  return { repo, audit, model, svc, logged };
 }
 
 const overdueTool = { action: 'tool', name: 'search_tasks', args: { project: 'RIG', status: 'overdue' } };
@@ -112,10 +129,12 @@ describe('MICO AI service: asking', () => {
     expect(repo.messages).toEqual([]);
   });
 
-  it('counts one question against the person’s daily limit, however many steps it takes', async () => {
-    const { svc, repo } = setup([overdueTool, overdueTool, tableAnswer, tableAnswer], { perDay: 2 });
-    await askAndWait(svc);
-    await askAndWait(svc);
+  it('every AI call counts against the person’s shared AI limit; at the limit nothing is stored', async () => {
+    const { svc, repo, model } = setup([overdueTool, tableAnswer, overdueTool, tableAnswer], { perDay: 3 });
+    await askAndWait(svc); // 2 calls
+    const second = await askAndWait(svc); // the 3rd call is allowed, the 4th is over the limit
+    expect(second.answer).toMatchObject({ status: 'error', error: 'You’ve reached today’s AI request limit. It resets tomorrow.' });
+    expect(model.callers).toEqual(['u-omar', 'u-omar', 'u-omar']);
     const chat = await svc.createChat(OMAR, {});
     await expect(svc.ask(OMAR, chat.id, 'third')).rejects.toMatchObject({ status: 429, message: 'You’ve reached today’s AI request limit. It resets tomorrow.' });
     expect(repo.messages.filter((m) => m.chatId === chat.id)).toEqual([]);
@@ -257,5 +276,105 @@ describe('MICO AI service: chats are private', () => {
     expect(t.question).toBe('Which tasks are overdue in Rig Inspection?');
     expect(t.text).toBe('**3 tasks** in Rig Inspection Portal are overdue.');
     await expect(svc.table(OMAR, chat, answer.id, 2)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('MICO AI service: review fixes', () => {
+  it('a failing write while recording a failure never crashes the server: it is logged', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => void unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { svc, repo, logged } = setup([new Error('model down')]);
+      const chat = await svc.createChat(OMAR, {});
+      const real = repo.updateMessage.bind(repo);
+      repo.updateMessage = async (id, patch, onlyIf) => {
+        if (patch.status === 'ERROR') throw new Error('database gone');
+        return real(id, patch, onlyIf);
+      };
+      const { answer } = await svc.ask(OMAR, chat.id, 'overdue?');
+      await expect(svc.whenDone(answer.id)).resolves.toBeUndefined();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+      expect(logged.some((l) => String((l as { meta?: { err?: Error } }).meta?.err?.message).includes('database gone'))).toBe(true);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('one answer at a time, even when two questions arrive at once', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const { svc } = setup([async () => (await held, { action: 'answer', text: 'Done.' })]);
+    const chat = await svc.createChat(OMAR, {});
+    const both = await Promise.allSettled([svc.ask(OMAR, chat.id, 'one'), svc.ask(OMAR, chat.id, 'two')]);
+    expect(both.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((both.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ status: 409 });
+    release();
+  });
+
+  it('if the audit log can’t be written, the answer still comes', async () => {
+    const { svc, logged } = setup([{ action: 'answer', text: 'Hello.' }], { failAudit: true });
+    const { answer } = await askAndWait(svc);
+    expect(answer.status).toBe('done');
+    expect(JSON.stringify(logged)).toContain('audit');
+  });
+
+  it('an answer that takes longer than the time limit ends with a plain message', async () => {
+    const { svc } = setup([(req: ModelRequest) => new Promise((_r, reject) => req.signal.addEventListener('abort', () => reject(new Error('aborted'))))], { answerTimeoutMs: 30 });
+    const { answer } = await askAndWait(svc);
+    expect(answer).toMatchObject({ status: 'error', error: 'MICO AI took too long to answer, so it stopped. Try a narrower question, for example one project or one week.' });
+  });
+
+  it('answers cut off by a restart are marked interrupted on start and when the chat is read, and don’t block it', async () => {
+    const { svc, repo } = setup([{ action: 'answer', text: 'Fresh.' }]);
+    const chat = await svc.createChat(OMAR, {});
+    const old = await repo.addMessage(chat.id, { role: 'assistant', text: '', content: null, status: 'PENDING', step: 'Checking tasks…' });
+    old.updatedAt = new Date(NOW.getTime() - 10 * 60_000);
+    expect(await svc.interruptStale()).toBe(1);
+    expect(repo.messages.find((m) => m.id === old.id)!.status).toBe('ERROR');
+    const again = await repo.addMessage(chat.id, { role: 'assistant', text: '', content: null, status: 'PENDING', step: 'Checking tasks…' });
+    again.updatedAt = new Date(NOW.getTime() - 10 * 60_000);
+    const opened = await svc.getChat(OMAR, chat.id);
+    expect(opened.messages.find((m) => m.id === again.id)).toMatchObject({ status: 'error', error: 'This answer was interrupted. Try again.' });
+    expect(repo.messages.find((m) => m.id === again.id)!.status).toBe('ERROR');
+    await expect(askAndWait(svc, OMAR, 'again', chat.id)).resolves.toBeTruthy();
+  });
+
+  it('results from earlier questions are re-checked: a task the person can no longer see never reaches the AI again', async () => {
+    const data = company();
+    const { svc, model } = setup([{ action: 'tool', name: 'search_tasks', args: {} }, { action: 'answer', text: 'Here.', tables: [{ fromResult: 'r1' }] }, { action: 'answer', text: 'Again.', sources: ['task:t14'] }], { data });
+    const first = await askAndWait(svc, SARA, 'my tasks?');
+    expect(first.answer.answer!.tables[0]!.rows.length).toBeGreaterThan(0);
+    data.members = data.members.filter((m) => !(m.userId === 'u-sara' && m.projectId === 'p-rig'));
+    const second = await askAndWait(svc, SARA, 'and now?', first.chat);
+    expect(model.requests.at(-1)!.prompt).not.toContain('task:t14');
+    expect(second.answer.answer!.sources).toEqual([]);
+  });
+
+  it('a long chat opens on its latest messages, with older ones a page at a time', async () => {
+    const { svc, repo } = setup([]);
+    const chat = await svc.createChat(OMAR, {});
+    for (let i = 0; i < 70; i++) await repo.addMessage(chat.id, { role: 'user', text: `m${i}`, content: null, status: 'DONE' });
+    const first = await svc.getChat(OMAR, chat.id);
+    expect(first.messages.map((m) => m.text)).toEqual(Array.from({ length: 50 }, (_, i) => `m${i + 20}`));
+    expect(first.hasMore).toBe(true);
+    const older = await svc.olderMessages(OMAR, chat.id, first.messages[0]!.id);
+    expect(older.messages.map((m) => m.text)).toEqual(Array.from({ length: 20 }, (_, i) => `m${i}`));
+    expect(older.hasMore).toBe(false);
+    await expect(svc.olderMessages(SARA, chat.id, first.messages[0]!.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('stored results are kept apart from the answer: reading the chat doesn’t load them', async () => {
+    const { svc, repo } = setup([overdueTool, tableAnswer]);
+    const { chat, answer } = await askAndWait(svc);
+    const stored = repo.messages.find((m) => m.id === answer.id)!;
+    expect(stored.results).toHaveLength(1);
+    expect(JSON.stringify(stored.content)).not.toContain('"results"');
+    const spy = vi.spyOn(repo, 'recentMessages');
+    await svc.getChat(OMAR, chat);
+    await svc.getMessage(OMAR, chat, answer.id);
+    await svc.table(OMAR, chat, answer.id, 1);
+    expect(spy).not.toHaveBeenCalled();
   });
 });

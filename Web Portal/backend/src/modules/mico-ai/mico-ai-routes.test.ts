@@ -30,6 +30,7 @@ async function makeApp(opts: { ready?: boolean } = {}) {
   const model: MicoAiModel = {
     ready: async () => opts.ready ?? true,
     chat: async () => JSON.stringify(replies[Math.min(i++, replies.length - 1)]),
+    checkLimit: () => {},
   };
   const audit: unknown[] = [];
   const micoAiService = createMicoAiService({
@@ -141,6 +142,20 @@ describe('MICO AI routes', () => {
       }
       expect((await app.inject({ method: 'GET', url: '/api/v1/mico-ai/chats', headers: who })).json().data).toEqual([]);
     }
+    await app.close();
+  });
+
+  it('a chat opens on its latest messages; older ones come a page at a time', async () => {
+    const { app, omar, sara, micoAiService } = await makeApp();
+    const chatId = (await app.inject({ method: 'POST', url: '/api/v1/mico-ai/chats', headers: omar, payload: {} })).json().data.id;
+    const { answer } = (await app.inject({ method: 'POST', url: `/api/v1/mico-ai/chats/${chatId}/messages`, headers: omar, payload: { text: 'overdue?' } })).json().data;
+    await micoAiService.whenDone(answer.id);
+    const opened = (await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}`, headers: omar })).json().data;
+    expect(opened.hasMore).toBe(false);
+    const older = await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages?before=${opened.messages[1].id}`, headers: omar });
+    expect(older.statusCode).toBe(200);
+    expect(older.json().data).toEqual({ messages: [expect.objectContaining({ role: 'user', text: 'overdue?' })], hasMore: false });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages?before=${opened.messages[1].id}`, headers: sara })).statusCode).toBe(404);
     await app.close();
   });
 

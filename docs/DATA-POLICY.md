@@ -42,6 +42,11 @@ SHA-256 respectively) and are single-use and time-limited. JWT refresh tokens ar
 - Each person's MICO AI chats (`mico_ai_chats`, `mico_ai_messages`) are private to them: no one
   else can open them, administrators included. A chat deleted by its owner is deleted for good,
   with all its messages.
+- A chat keeps copies of the data shown in its answers (the tables, and the records they came
+  from, so later questions can use them) until the chat is deleted. Before an answer uses such a
+  copy again, each record is checked against what the person can see at that moment, and records
+  they have lost access to are left out.
+- When an administrator deletes a user, that user's MICO AI chats are deleted too.
 - MICO AI reads only what the person can already see (their projects' tasks, the meetings they
   may open, the chat conversations they are part of) and changes nothing.
 - The audit log records only that MICO AI was used (`mico-ai.ask`), never the question or the

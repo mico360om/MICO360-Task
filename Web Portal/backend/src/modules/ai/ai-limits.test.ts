@@ -26,6 +26,18 @@ describe('AI usage limiter (per user)', () => {
   });
 });
 
+describe('AI usage limiter: checking without counting', () => {
+  it('says whether one more request would be allowed, without counting it', () => {
+    const limiter = createAiUsageLimiter({ perMinute: 100, perDay: 2 }, 'Asia/Muscat', () => new Date('2026-09-26T08:00:00Z'));
+    limiter.check('u1');
+    limiter.check('u1');
+    limiter.take('u1');
+    limiter.check('u1');
+    limiter.take('u1');
+    expect(() => limiter.check('u1')).toThrow(/today/);
+  });
+});
+
 describe('concurrency gate (per model)', () => {
   it('lets at most `limit` requests run at once and queues the rest', async () => {
     const gate = createConcurrencyGate(1000);

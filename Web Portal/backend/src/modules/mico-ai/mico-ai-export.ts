@@ -75,6 +75,11 @@ export function cellText(kind: CellKind | undefined, v: CellValue): string {
   }
 }
 
+/** "Showing 200 of 250" when the list was capped; null when every row is there. */
+export function showingLine(t: AnswerTable): string | null {
+  return t.total !== undefined && t.total > t.rows.length ? `Showing ${t.rows.length} of ${t.total}` : null;
+}
+
 const generatedLine = (d: TableExport) => `Generated ${formatDateTime(d.generatedAt, d.timeZone)} (${d.timeZone})${d.generatedBy ? ` by ${d.generatedBy}` : ''}`;
 
 /** "mico-ai-overdue-tasks-2026-10-24.xlsx" (the company day). */
@@ -88,7 +93,7 @@ export function tableXlsx(d: TableExport): Buffer {
   const rows = d.table.rows.map((r) => r.cells.map((v, i) => xlsxCell(d.table.columns[i]?.kind ?? 'text', v)));
   const name = d.table.title.replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31) || 'MICO AI';
   return buildXlsx(
-    [{ name, title: d.table.title, notes: [`Question: ${d.question}`, `From MICO AI · ${generatedLine(d)}`], columns, rows }],
+    [{ name, title: d.table.title, notes: [`Question: ${d.question}`, ...(showingLine(d.table) ? [showingLine(d.table)!] : []), `From MICO AI · ${generatedLine(d)}`], columns, rows }],
     { title: d.table.title, brand: BRAND },
     d.generatedAt,
   );
@@ -115,7 +120,8 @@ export function tablePdf(d: TableExport): Buffer {
   }
   const columns: TableColumn[] = d.table.columns.map((c) => ({ header: c.label, align: ['number', 'percent', 'days'].includes(c.kind ?? '') ? 'right' : 'auto' }));
   const rows = d.table.rows.map((r) => r.cells.map((v, i) => cellText(d.table.columns[i]?.kind, v)));
-  doc.heading(`${d.table.title} (${rows.length} ${rows.length === 1 ? 'row' : 'rows'})`, { size: 11, topGap: 4, keepWith: 60 });
+  const showing = showingLine(d.table);
+  doc.heading(`${d.table.title} (${showing ?? `${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`})`, { size: 11, topGap: 4, keepWith: 60 });
   const titleCol = d.table.columns.findIndex((c) => c.key === 'title' || c.key === 'message' || c.key === 'item');
   doc.table(columns, rows, { size: 9, ...(titleCol >= 0 ? { wide: titleCol } : {}) });
   return doc.build();

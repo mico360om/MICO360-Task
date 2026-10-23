@@ -19,6 +19,7 @@ const listQuery = z.object({ q: z.string().max(200).optional() });
 const createBody = z.object({ title: z.string().max(200).optional() }).default({});
 const renameBody = z.object({ title: z.string().max(200) });
 const askBody = z.object({ text: z.string().max(4000) });
+const olderQuery = z.object({ before: id, limit: z.coerce.number().int().min(1).max(50).optional() });
 
 const viewer = (req: FastifyRequest) => ({ userId: req.user!.id, roles: req.user!.roles ?? [] });
 
@@ -58,6 +59,13 @@ export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRou
     const { chatId } = chatParams.parse(req.params);
     await svc.deleteChat(viewer(req), chatId);
     return reply.status(204).send();
+  });
+
+  // Older messages, a page at a time (the chat opens on its latest 50).
+  app.get('/mico-ai/chats/:chatId/messages', auth, async (req) => {
+    const { chatId } = chatParams.parse(req.params);
+    const { before, limit } = olderQuery.parse(req.query ?? {});
+    return { data: await svc.olderMessages(viewer(req), chatId, before, limit) };
   });
 
   app.post('/mico-ai/chats/:chatId/messages', auth, async (req, reply) => {

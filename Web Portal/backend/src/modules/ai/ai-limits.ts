@@ -25,8 +25,8 @@ export function createAiUsageLimiter(limits: AiUsageLimits, timeZone: string, no
   const recent = new Map<string, number[]>();
   const daily = new Map<string, { day: string; count: number }>();
 
-  /** Count one request for the user, or throw when they are over a limit. */
-  function take(userId: string): void {
+  /** Throw when one more request would be over a limit (nothing is counted). */
+  function check(userId: string): { t: number; day: string; lastMinute: number[]; count: number } {
     const at = now();
     const t = at.getTime();
     const lastMinute = (recent.get(userId) ?? []).filter((x) => t - x < 60_000);
@@ -37,12 +37,18 @@ export function createAiUsageLimiter(limits: AiUsageLimits, timeZone: string, no
     const used = daily.get(userId);
     const count = used && used.day === day ? used.count : 0;
     if (count >= limits.perDay) throw new AiRateLimitedError('You’ve reached today’s AI request limit. It resets tomorrow.');
+    return { t, day, lastMinute, count };
+  }
+
+  /** Count one request for the user, or throw when they are over a limit. */
+  function take(userId: string): void {
+    const { t, day, lastMinute, count } = check(userId);
     lastMinute.push(t);
     recent.set(userId, lastMinute);
     daily.set(userId, { day, count: count + 1 });
   }
 
-  return { take };
+  return { take, check: (userId: string): void => void check(userId) };
 }
 
 /**

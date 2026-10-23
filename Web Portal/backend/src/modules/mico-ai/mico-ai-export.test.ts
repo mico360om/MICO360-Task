@@ -59,3 +59,14 @@ describe('MICO AI downloads', () => {
     expect(tableFileName({ ...doc, table: { ...doc.table, title: 'المهام المتأخرة' } }, 'pdf')).toBe('mico-ai-table-2026-10-24.pdf');
   });
 });
+
+describe('MICO AI downloads of a capped list', () => {
+  const capped: TableExport = { ...doc, table: { ...doc.table, total: 250 } };
+  it('Excel and PDF say “Showing 2 of 250”', () => {
+    expect(inspectXlsx(tableXlsx(capped)).text[0]!.some((t) => t.includes('Showing 2 of 250'))).toBe(true);
+    expect(inspectPdf(tablePdf(capped)).pages.flat().join('\n')).toContain('Showing 2 of 250');
+  });
+  it('a complete list says nothing of the kind', () => {
+    expect(inspectXlsx(tableXlsx(doc)).text[0]!.some((t) => t.includes('Showing'))).toBe(false);
+  });
+});
