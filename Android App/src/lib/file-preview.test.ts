@@ -33,7 +33,7 @@ describe('a file shown inside the app (4d), as the website’s preview', () => {
     expect(readOfficePreview(null)).toBeNull();
   });
 
-  it('a text file is read from this server only, cut at the website’s length, and never as markup', async () => {
+  it('a text file is read from this server only, cut at the phone’s length, and never as markup', async () => {
     const long = 'a'.repeat(TEXT_PREVIEW_MAX + 5);
     const fetchImpl = vi.fn(async () => new Response(long, { status: 200 }));
     expect(await loadTextPreview(fetchImpl as unknown as typeof fetch, 'https://x.test/uploads/a.txt')).toEqual({ text: 'a'.repeat(TEXT_PREVIEW_MAX), cut: true });
@@ -93,5 +93,21 @@ describe('carry-forward history (4d), as the website’s “Carried forward” c
     expect(drawer).toContain('↪ Carried forward {carried.length}× · since {carried[0]!.from}');
     const header = readFileSync(resolve(__dirname, '../components/task-detail/HeaderCard.tsx'), 'utf8');
     expect(header).toMatch(/carryForward\(task\.carryForwardLog\)/);
+  });
+});
+
+describe('a big text file or a picture the phone can’t show (final review A6)', () => {
+  it('shows only the beginning of a long text — far less than the website’s 200,000 letters, which freeze a phone in one block', async () => {
+    const long = 'a'.repeat(200_000);
+    const fetchImpl = vi.fn(async () => new Response(long, { status: 200 }));
+    const out = await loadTextPreview(fetchImpl as unknown as typeof fetch, 'https://x.test/uploads/a.txt');
+    expect(out.text.length).toBe(30_000);
+    expect(out.cut).toBe(true);
+    expect(TEXT_PREVIEW_MAX).toBe(30_000);
+  });
+
+  it('a picture that doesn’t load (HEIC, AVIF, a file gone) says so, with the download still offered', () => {
+    const sheet = readFileSync(resolve(__dirname, '../components/task-detail/FilePreviewSheet.tsx'), 'utf8');
+    expect(sheet).toMatch(/<Image source=\{\{ uri: href \}\}[^>]*onError=\{\(\) => setView\(\{ error: PREVIEW_TEXT\.failed \}\)\}/);
   });
 });

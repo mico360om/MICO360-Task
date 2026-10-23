@@ -78,7 +78,12 @@ export function FilePreviewSheet({
           ) : loading ? (
             <ActivityIndicator style={s.loading} color={c.brand} accessibilityLabel="Loading the preview" />
           ) : mode === 'image' ? (
-            href ? <Image source={{ uri: href }} style={s.image} resizeMode="contain" accessibilityLabel={file.filename} /> : <Text style={s.error}>{PREVIEW_TEXT.failed}</Text>
+            // A picture the phone can't show (HEIC, AVIF, a file gone) says so (final review A6).
+            href ? (
+              <Image source={{ uri: href }} style={s.image} resizeMode="contain" accessibilityLabel={file.filename} onError={() => setView({ error: PREVIEW_TEXT.failed })} />
+            ) : (
+              <Text style={s.error}>{PREVIEW_TEXT.failed}</Text>
+            )
           ) : view.text ? (
             <ScrollView contentContainerStyle={s.pad}>
               <Text style={s.mono} selectable>

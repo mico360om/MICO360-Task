@@ -1,7 +1,7 @@
 /**
  * A task's file shown inside the app (4d), as the website's preview (Web Portal/frontend/src/
  * components/task-drawer/attachments.tsx FilePreview): a picture as itself; text and CSV as plain
- * text (never as markup), cut at the website's length; Word, Excel and PowerPoint as their text,
+ * text (never as markup), cut shorter than on the website; Word, Excel and PowerPoint as their text,
  * which the server reads out of them (GET /attachments/:id/preview). A PDF has no viewer in the app
  * (that would need a new package): it opens in the phone's own viewer, as before. Pure.
  */
@@ -19,8 +19,11 @@ export function previewMode(mimeType: string, filename: string): PreviewMode | n
   return null;
 }
 
-/** The longest text shown (the rest is in the download) — the website's. */
-export const TEXT_PREVIEW_MAX = 200_000;
+/**
+ * The longest text shown (the rest is in the download, and the preview says so). Less than the
+ * website's 200,000 letters (final review A6): that much in one block of text freezes a phone.
+ */
+export const TEXT_PREVIEW_MAX = 30_000;
 
 /** The preview's words (the website's, checked by the test). */
 export const PREVIEW_TEXT = {
@@ -72,7 +75,7 @@ export function readOfficePreview(raw: unknown): OfficePreview | null {
 
 /**
  * A text file's words, from this server only (`href` from serverFileHref; null: not ours — nothing
- * is fetched), cut at the website's length, within a time limit.
+ * is fetched), cut at TEXT_PREVIEW_MAX, within a time limit.
  */
 export async function loadTextPreview(fetchImpl: typeof fetch, href: string | null, timeoutMs = 20_000): Promise<{ text: string; cut: boolean }> {
   if (!href) throw new Error('Not a file on this server.');
