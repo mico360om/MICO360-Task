@@ -14,6 +14,30 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Each project has a "Carry unfinished tasks forward" switch (on by default). With it off, the nightly
+  carry-forward (and an administrator's "run now") leaves that project's unfinished tasks on their
+  days. The company-wide switch in System Settings still comes first.
+- A project can make new tasks due today: with "New tasks are due today" on, a task added without a
+  due date gets today's date (the company's calendar day), or the day of the board it is added to when
+  that is later. Dates people choose are always kept, and a date cleared later stays cleared. It
+  applies however the task is made: the website, the Android app, the Chrome extension, quick add and
+  meeting notes. The New task form says which date the task will get.
+
+### Improvements
+- The Projects page is redesigned: status tabs with counts (All, Active, Planning, On hold, Completed
+  and Archived; archived projects are no longer mixed in), one search over name, code, client and
+  project number (press /), Owner and Sort (Needs attention, Name, Recently updated, Target date,
+  Progress) and, for administrators, "Only my projects". Compact cards show progress, open and overdue
+  tasks, the next due day, the team, the owner and the target date with the days left. Change a
+  project's status from its card (archiving asks first); "⋯" has Edit, Open board and Archive. The
+  page keeps its filters in the address, so Back and shared links work.
+- System Settings → Daily task emails: the list comes in pages of 20, 50 or 100 people (remembered in
+  this browser), with Previous / Next and "Showing 21–40 of 63 people". Find a person also finds people
+  by username (with or without "@"), takes several words in any order, ignores capitals and accents,
+  and says how many match. A new Email filter (Both / Pending tasks / Completed yesterday) shows just
+  that email on each card, and Status then applies to it.
+
 ## [1.9.2] - 2026-10-23
 
 ### Improvements
