@@ -55,4 +55,13 @@ describe('Button', () => {
     render(<Button variant="ghost">X</Button>);
     expect(screen.getByRole('button')).toHaveAttribute('data-variant', 'ghost');
   });
+
+  it('keeps a caller’s aria-disabled: unavailable for now, but still focusable', () => {
+    render(<Button aria-disabled>Send</Button>);
+    const button = screen.getByRole('button');
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toBeEnabled();
+    button.focus();
+    expect(button).toHaveFocus();
+  });
 });

@@ -61,6 +61,16 @@ export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEma
       });
     },
 
+    async find(userId, day, kind) {
+      const row = await prisma.dailyTaskEmail.findUnique({ where: { userId_day_kind: { userId, day, kind } } });
+      return row ? toRecord(row) : null;
+    },
+
+    async forDays(days) {
+      if (!days.length) return [];
+      return (await prisma.dailyTaskEmail.findMany({ where: { day: { in: days } } })).map(toRecord);
+    },
+
     async list({ day, status, limit = 200 }) {
       const rows = await prisma.dailyTaskEmail.findMany({
         where: { ...(day ? { day } : {}), ...(status ? { status } : {}) },

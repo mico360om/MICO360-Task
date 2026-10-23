@@ -142,8 +142,11 @@ export interface AppDeps extends AuthRouteDeps {
   isActiveUser?: (userId: string) => Promise<boolean>;
   /** Draft agenda's project tasks and last meeting's leftovers, gathered with the person's access. */
   meetingAgendaSources?: import('./modules/ai/ai-feature-routes').AgendaSourcesFor;
-  /** The two morning task emails: "Send me a test now" and the admins' delivery log. */
-  dailyEmails?: Omit<DailyEmailRouteDeps, 'guard'>;
+  /**
+   * The two morning task emails: "Send me a test now", and for admins the delivery log, the day's
+   * overview, sending today's emails now (everyone's or one person's) and a preview.
+   */
+  dailyEmails?: Omit<DailyEmailRouteDeps, 'guard' | 'audit'>;
   deviceTokenService?: DeviceTokenService;
   reportService?: ReportService;
   /** Reads a task with everything its Excel / PDF export shows. */
@@ -572,7 +575,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard });
       }
       if (deps.dailyEmails) {
-        await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard });
+        await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard, audit: deps.auditService });
       }
       if (deps.deviceTokenService) {
         await registerDeviceTokenRoutes(api, { deviceTokenService: deps.deviceTokenService, guard });

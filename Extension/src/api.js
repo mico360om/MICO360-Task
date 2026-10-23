@@ -222,6 +222,11 @@ export function createApi({ auth, cache, pending }) {
       preferences: () => get('notification-prefs', '/notifications/preferences'),
       /** Saves what is sent (the whole muted list with the reminder time); the server keeps the rest. */
       setPreferences: (prefs) => raw('/notifications/preferences', { method: 'PUT', body: JSON.stringify(prefs ?? {}) }),
+      /**
+       * "Send me a test now": the two morning emails to the signed-in person at once (online only,
+       * never queued): `{ pending, completed }`, each 'sent' or 'empty'. The server allows one a minute.
+       */
+      sendDailyTest: () => post('/notifications/daily-emails/test'),
     },
     directory: () => get('directory', '/users/directory'),
     chat: {

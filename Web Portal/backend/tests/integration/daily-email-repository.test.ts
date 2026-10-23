@@ -61,4 +61,31 @@ describe('PrismaDailyEmailRepository (integration)', () => {
     expect(all[1]).toMatchObject({ status: 'SENT', taskCount: 4, userName: 'Dai Ly', email: 'daily@mico360.test' });
     expect((await repo.list({ day: '2026-10-21', status: 'SENT' })).map((r) => r.kind)).toEqual(['PENDING']);
   });
+
+  it('finds one person’s record for a day and email, or none', async () => {
+    const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
+    await repo.finish(a.id, { status: 'SENT', taskCount: 2, sentAt: new Date('2026-10-21T02:00:05Z') });
+    expect(await repo.find(userId, '2026-10-21', 'PENDING')).toMatchObject({ id: a.id, status: 'SENT', taskCount: 2 });
+    expect(await repo.find(userId, '2026-10-21', 'COMPLETED')).toBeNull();
+    expect(await repo.find(userId, '2026-10-22', 'PENDING')).toBeNull();
+  });
+
+  it('reads every record of the days asked for (the admins’ overview)', async () => {
+    await repo.claim(userId, '2026-10-20', 'PENDING');
+    await repo.claim(userId, '2026-10-21', 'PENDING');
+    await repo.claim(userId, '2026-10-21', 'COMPLETED');
+    await repo.claim(userId, '2026-10-22', 'PENDING');
+    const mine = (await repo.forDays(['2026-10-21', '2026-10-22'])).filter((r) => r.userId === userId);
+    expect(mine.map((r) => `${r.day} ${r.kind}`).sort()).toEqual(['2026-10-21 COMPLETED', '2026-10-21 PENDING', '2026-10-22 PENDING']);
+    expect(await repo.forDays([])).toEqual([]);
+  });
+
+  it('lets only one administrator’s resend take a sent email at the same moment', async () => {
+    const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
+    await repo.finish(a.id, { status: 'SENT', taskCount: 1, sentAt: new Date('2026-10-21T02:00:05Z') });
+    const sent = (await repo.find(userId, '2026-10-21', 'PENDING'))!;
+    const takes = await Promise.all([repo.retake(sent), repo.retake(sent), repo.retake(sent)]);
+    expect(takes.filter(Boolean)).toHaveLength(1);
+    expect(takes.find(Boolean)).toMatchObject({ status: 'SENDING', attempts: 2, sentAt: new Date('2026-10-21T02:00:05Z') });
+  });
 });
