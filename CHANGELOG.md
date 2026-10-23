@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-23
+
 ### New features
 - System Settings → Daily task emails shows the day at a glance: how many people get the morning
   emails, how many were sent, skipped (nothing to send), failed, retrying, late (due but not sent yet)
