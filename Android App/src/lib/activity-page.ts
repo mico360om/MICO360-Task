@@ -25,6 +25,7 @@ export const ACTION_VERB: Record<string, string> = {
   COMPLETED: 'completed',
   REOPENED: 'reopened',
   ASSIGNED: 'assigned',
+  PROJECT_CHANGED: 'moved',
 };
 
 /** Each action's colour, as the website's (text-info, text-success …). */
@@ -34,6 +35,7 @@ export const ACTION_TONE: Record<string, Tone> = {
   COMPLETED: 'success',
   REOPENED: 'warning',
   ASSIGNED: 'brand',
+  PROJECT_CHANGED: 'neutral',
 };
 
 export const ACTIVITY_FILTERS: readonly { value: string; label: string }[] = [
@@ -67,6 +69,14 @@ export function activityDetail(a: Pick<ApiActivityRow, 'action' | 'meta'>): stri
       return to ? `re-opened in ${to}` : 're-opened';
     case 'ASSIGNED':
       return str(m.assignee) ? `→ ${str(m.assignee)}` : '';
+    case 'PROJECT_CHANGED': {
+      // To another project: from where, by the key it had there ("from Rig Inspection (RIG-4) to Operations").
+      const fromProject = str(m.fromProject);
+      const toProject = str(m.toProject);
+      const fromKey = str(m.fromKey);
+      if (!fromProject || !toProject) return toProject ? `to ${toProject}` : 'to another project';
+      return `from ${fromProject}${fromKey ? ` (${fromKey})` : ''} to ${toProject}`;
+    }
     default:
       return '';
   }
