@@ -72,7 +72,9 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
       <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 rounded-t-2xl" style={{ background: p.color }} />
 
       <div className="flex items-start gap-3 px-4 pb-3 pt-5">
-        <ProjectAvatar project={p} size="lg" className="shadow-soft" />
+        {/* Initials as large text (19px bold): white then reads at 3:1 or more on every colour the
+            project form offers — at the usual 14px, #B7791F falls short of 4.5:1. */}
+        <ProjectAvatar project={p} size="lg" className="shadow-soft !text-[1.2rem]" />
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-base font-bold leading-snug">
             <Link
@@ -130,14 +132,15 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
         {p.team.length ? (
           <span data-testid="project-team" className="flex flex-none items-center">
             <span className="sr-only">{teamText}</span>
-            <span aria-hidden="true" className="flex items-center -space-x-1.5 rtl:space-x-reverse">
+            {/* A small overlap, so each face keeps both initials in view. */}
+            <span aria-hidden="true" className="flex items-center -space-x-1 rtl:space-x-reverse">
               {faces.map((m) => (
-                <span key={m.id} data-face className="rounded-full ring-2 ring-surface">
+                <span key={m.id} data-face className="flex rounded-full">
                   <Avatar name={m.name} src={m.avatarUrl} size="sm" />
                 </span>
               ))}
               {more ? (
-                <span className="grid h-6 min-w-6 place-items-center rounded-full bg-ground px-1 text-[10px] font-semibold text-ink-2 ring-2 ring-surface">+{more}</span>
+                <span className="grid h-6 min-w-6 place-items-center rounded-full border border-surface bg-ground px-1 text-[10px] font-semibold text-ink-2">+{more}</span>
               ) : null}
             </span>
           </span>

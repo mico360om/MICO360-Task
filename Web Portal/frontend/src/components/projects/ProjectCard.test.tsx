@@ -112,6 +112,13 @@ describe('ProjectCard', () => {
     expect(document.querySelector('[data-project-avatar]')).toHaveAttribute('data-project-avatar', 'image');
   });
 
+  it('draws initials as large text (over 14pt, bold), so they stay readable on every colour on offer', () => {
+    renderCard({ project: project({ color: '#B7791F' }) });
+    const tile = document.querySelector('[data-project-avatar="initials"]')!;
+    expect(tile.className).toMatch(/(^|\s)!text-\[1\.2rem\](\s|$)/);
+    expect(tile.className).toMatch(/font-bold/);
+  });
+
   it('gives someone who may manage it a status menu, and others a plain status', async () => {
     const onChangeStatus = vi.fn();
     const { unmount } = renderCard({ onChangeStatus });
