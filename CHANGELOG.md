@@ -14,6 +14,123 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- In the Android app, a Meetings tab like the website's: Up next, search, filters and each meeting's
+  details; Accept, Maybe or Decline; Join; and My Action Items. Meeting links and notifications open in
+  the app.
+- In the Android app, organisers can run meetings from the phone: schedule and edit them in company
+  time (with repeats, for this meeting or all upcoming ones), start and end them, send invitations, add
+  or remove people and guests, take attendance, edit, reorder and tick the agenda, write Live notes
+  (with Undo, and turn a note into a task), keep action items, draft, approve and reopen the Final MOM,
+  and share or email the minutes PDF. Notes, ticks, attendance and action items made offline are sent
+  when the phone is back online.
+- In the Android app, the meeting AI from the website: "Describe the meeting" fills the form from a
+  sentence (tick what to use), Free times suggests three times and shows who already has a meeting,
+  "Write description", a new meeting's People and Agenda saved with it, and "Draft agenda" in the form
+  and on a meeting's page (reviewed before anything is added).
+- In the Android app, Chat keeps every message on the phone until the server has it: "Sending…",
+  "Waiting for connection" while offline, or "Not sent" with Retry and Discard. Messages written offline
+  go out in order when you're back online, even after closing the app, and are never shown twice.
+  Older messages load as you scroll up, a "new messages" button and "Jump to latest" bring you back,
+  a chat notification opens its conversation, the Chat tab shows how many messages you haven't read,
+  and recent conversations can be read offline.
+- In the Android app, Chat has the website's features: direct messages with anyone on the team, replies
+  (tap the quote to see the message), editing and deleting your own messages, copying text, emoji
+  reactions, pictures and files, delivered and read ticks, who is online, favourite, mute and archive,
+  message search, a conversation's members, and an unsent message kept for each conversation. Threads
+  show a line for each day and where the unread messages start, and the list is grouped as on the
+  website.
+- In the Android app, the full New task form from the website: Describe it in plain English, project
+  and column, priority, a due date picked from a calendar, repeat, several assignees, milestone, and
+  files or pictures. "+" on every board column starts a task in that column; the calendar's "+ Add",
+  project pages and My Tasks open the same form. A task made offline without files is kept and sent
+  when you're back online.
+- In the Android app, board cards look like the website's (the column's colour, the people on the task,
+  and counts of subtasks, comments and files). Long-press a card to move it up or down, to the top or
+  bottom, or into another column (TalkBack has Move up and Move down too). Pick the board's day, and a
+  task's due date, from a calendar. Administrators and project managers can add, rename, recolour,
+  show or hide, reorder and delete columns and set their status.
+- In the Android app, the Kanban Board can show every project on one board ("Board: all projects" on the
+  Projects tab, or Kanban Board in the side menu): Backlog, To Do, In Progress, Blocked, Review and
+  Done, each card showing its project. Long-press a card to change its status; "Projects:" chooses which
+  projects show; "+" on a status starts a new task there; it works offline and updates live.
+- In the Android app, My Tasks has the website's All, Open, Overdue and Completed chips, filters, sort,
+  saved views and bulk actions (complete, due date, priority, assign, move), with progress and Stop.
+  A task's details have Edit (the full form, with the start date, asking "This task or the entire
+  series" for repeating tasks), previews of pictures, text, CSV, Word, Excel and PowerPoint files, how
+  often the task was carried forward, and they update live while open.
+- In the Android app, the Calendar shows everyone's tasks in your projects, as on the website, with
+  filters, Month, Week and Agenda views (your week start), repeating tasks still to come, "Go to a date",
+  long-press to move a task to another day (this one or the series, with Undo, also offline), and "+"
+  for a task due that day. Offline it shows the last days you looked at, and says so.
+- In the Android app, Projects show each project's picture, icon or initials, status, progress, tasks,
+  overdue count, dates and owner. A project opens a dashboard like the website's (stat tiles, Overview,
+  Tasks with filters and search, Meetings, Team and an AI status summary), also offline from the last
+  copy. Administrators create and edit projects with the website's form and change a project's status;
+  administrators and project managers manage the team. Home shows administrators every project's totals.
+- In the Android app, Profile matches the website (photo, name, username, role, account details,
+  Change password and Download my data), and Settings has the daily task emails ("Send me a test now"
+  too) and Calendar & dates (week start and your own time zone).
+- In the Android app, the Alerts tab shows how many alerts you haven't read, as does the app's icon on
+  phones that show numbers; alerts stay up to date, an alert about a project opens its dashboard, and
+  opening an alert or tapping its phone notification marks it read. A new Activity screen in the side
+  menu shows who did what across your projects, and Reports can show dates you choose and has the
+  website's charts (TalkBack reads each chart, and its numbers can be shown as a list).
+- In the Android app, administrators can manage users (find, filter, add with a temporary password,
+  change details, role and status, set a new password, unlock and delete) with the website's rules;
+  Search (🔍 on every tab and in the menu) finds tasks, projects, people, meetings and pages ("open
+  MICO-7" opens that task); About shows the app's and the website's versions and the version history;
+  and administrators' menu opens AI Management, System Settings and Audit Logs on the website.
+- In the Android app, the website's links open in the app: tasks, projects and their boards, meetings,
+  chats and the other pages the app has.
+
+### Improvements
+- In the Android app, screens refresh when you come back to the app or the connection returns, saving
+  reloads only what changed, live updates arrive in one batch, and large boards and the Projects list
+  load faster.
+- In the Android app, "From meeting" opens the meeting, Back keeps your place, and the app uses one
+  live connection.
+- In the Android app, a conversation is marked read while it's open (not behind the fingerprint lock),
+  @mentions suggest only the people in it, and new messages appear in place without a reload.
+- On the website, "Mark all read" leaves notifications that arrived while the list was open unread
+  (the Chrome extension already asks for this), and phone notifications say which alert they are for.
+
+### Bug fixes
+- In the Android app, a change saved on the phone without a connection can no longer overwrite a newer
+  change to the same thing when the phone syncs, a change the server didn't answer in time keeps waiting
+  (you can discard it) instead of being marked failed, a change that only failed to leave the phone is
+  never stopped as "hasn't answered", and a later change waits behind an earlier one. Trying again after
+  a time-out never does anything twice.
+- In the Android app, offline sync no longer reloads every screen, cards and calendar tasks moved offline
+  stay put until sent, and lists from the saved copy refresh when back online.
+- In the Android app, Chat stays at the newest message as new ones arrive, keeps your place while you
+  read further up, and no longer loses messages you just sent or ones the server refused.
+- In the Android app, bulk changes on My Tasks no longer reload the whole list for every task and use the
+  newest copy of each task; the Edit form can save an older task whose start date is after its due date;
+  and the assignees field no longer says nobody is assigned before it has loaded.
+- In the Android app, the number on the app icon clears when you read an alert and at sign-out, tapping a
+  notification marks exactly that alert read (after the fingerprint lock), and "Mark all read" leaves
+  alerts that came in meanwhile unread.
+- In the Android app, My Tasks shows changes made offline straight away, a long text or CSV preview
+  shows its beginning quickly, a picture that can't be previewed says so, an export cut off half-way
+  leaves no partial file, the All projects board updates within about two seconds without reloading
+  over and over, and searching for someone you already chat with opens that chat, even offline.
+- In the Android app, a password change keeps you signed in on the phone and signs out your other
+  devices, time zones use the website's names and can all be reached, and the daily-email time works with
+  the Android number keyboard.
+
+### Security
+- In the Android app, on a shared phone a change waiting its turn is sent only as the person who made it,
+  an export opens only for the person who asked for it, "kept on this phone" messages show only to the
+  person who saved, a bulk change on My Tasks stops when the person who started it signs out, and a
+  session refresh or password change can never sign someone in with another person's session.
+- In the Android app, chat files and profile photos load only from your MICO360 server, picked files are
+  removed from the phone's cache once sent and at sign-out, and links with a broken id or a very long or
+  crafted address open nothing.
+
+### Removed
+- In the Android app, Quick add's estimated hours and tags (they aren't on the website's New task form).
+
 ## [1.9.1] - 2026-10-23
 
 ### Bug fixes
