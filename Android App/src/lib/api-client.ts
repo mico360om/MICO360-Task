@@ -22,10 +22,18 @@ export class ApiError extends Error {
  */
 export class NetworkError extends Error {
   readonly timedOut: boolean;
-  constructor(message: string, opts: { timedOut?: boolean; cause?: unknown } = {}) {
+  /**
+   * The request may have reached the server before its answer was lost (final review A1): it timed
+   * out, or its connection dropped while it was on its way — over a connection that was working a
+   * moment before (WORKING_CONNECTION_MS). False when it can't have: no connection at all, a Wi-Fi
+   * sign-in page instead of the server, a session that couldn't be renewed (its 401 saved nothing).
+   */
+  readonly mayHaveArrived: boolean;
+  constructor(message: string, opts: { timedOut?: boolean; mayHaveArrived?: boolean; cause?: unknown } = {}) {
     super(message);
     this.name = 'NetworkError';
     this.timedOut = opts.timedOut ?? false;
+    this.mayHaveArrived = opts.mayHaveArrived ?? this.timedOut;
     if (opts.cause !== undefined) (this as { cause?: unknown }).cause = opts.cause;
   }
 }
@@ -54,6 +62,14 @@ export function sessionChangedError(): ApiError {
 
 /** Default per-request timeout: a hung connection must not leave a spinner (or a sign-out) forever. */
 export const DEFAULT_TIMEOUT_MS = 20_000;
+
+/**
+ * A request sent this soon after the server answered — with no request failing to connect since —
+ * went over a connection that was working: when it then fails without an answer, it may have
+ * reached the server first (NetworkError mayHaveArrived). One sent with no answer yet in this run,
+ * after a try that couldn't connect, or long after the last answer most likely never left the phone.
+ */
+export const WORKING_CONNECTION_MS = 60_000;
 
 export interface ApiClientOptions {
   baseUrl: string;
@@ -87,6 +103,8 @@ export interface ApiClientOptions {
   xhrImpl?: typeof XMLHttpRequest;
   /** Sent with every request: which app version is talking (see app-version versionHeaders). */
   appHeaders?: Record<string, string>;
+  /** The clock (tests). */
+  now?: () => number;
 }
 
 export interface RequestOptions {
@@ -143,10 +161,10 @@ export function createApiClient({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   xhrImpl,
   appHeaders,
+  now: clock = Date.now,
 }: ApiClientOptions): ApiClient {
   const doFetch = fetchImpl ?? fetch;
   const Xhr = xhrImpl ?? (typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : undefined);
-
   /** Tell a listener; a listener must never turn a good response into a failure (or change an error). */
   const notify = (listener: (() => void) | undefined) => {
     try {
@@ -156,6 +174,19 @@ export function createApiClient({
     }
   };
 
+  /** When the server last answered — null before its first answer and after a request that couldn't connect. */
+  let answeredAt: number | null = null;
+  const answered = () => {
+    answeredAt = clock();
+    notify(onReachable);
+  };
+  const noConnection = () => {
+    answeredAt = null;
+    notify(onUnreachable);
+  };
+  /** Does a request going now go over a connection that was working (WORKING_CONNECTION_MS)? */
+  const connectionWorking = () => answeredAt !== null && clock() - answeredAt <= WORKING_CONNECTION_MS;
+
   /** A multipart POST over XMLHttpRequest, reporting progress — same timeout and errors as `send`. */
   function sendWithProgress(
     path: string,
@@ -164,6 +195,7 @@ export function createApiClient({
     limitMs: number,
     onProgress: (fraction: number) => void,
   ): Promise<{ status: number; ok: boolean; text: string }> {
+    const working = connectionWorking();
     return new Promise((resolve, reject) => {
       const xhr = new Xhr!();
       xhr.open('POST', `${baseUrl}${path}`);
@@ -174,8 +206,8 @@ export function createApiClient({
       };
       xhr.onload = () => resolve({ status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300, text: xhr.responseText });
       xhr.onerror = () => {
-        notify(onUnreachable);
-        reject(new NetworkError('Network request failed.'));
+        noConnection();
+        reject(new NetworkError('Network request failed.', { mayHaveArrived: working }));
       };
       xhr.ontimeout = () => reject(new NetworkError('The server took too long to respond.', { timedOut: true }));
       xhr.send(form);
@@ -265,9 +297,12 @@ export function createApiClient({
 
     if (form && onProgress && Xhr) {
       const result = await sendWithProgress(path, form, headers, limitMs, onProgress);
-      notify(onReachable);
+      answered();
       return result;
     }
+
+    // Whether it went over a working connection, as it goes (a failure below says so: final review A1).
+    const working = connectionWorking();
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     let timedOut = false;
@@ -287,15 +322,16 @@ export function createApiClient({
       });
       result = { status: res.status, ok: res.ok, text: await res.text() };
     } catch (e) {
-      if (!timedOut) notify(onUnreachable);
+      if (!timedOut) noConnection();
       throw new NetworkError(timedOut ? 'The server took too long to respond.' : 'Network request failed.', {
         timedOut,
+        mayHaveArrived: timedOut || working,
         cause: e,
       });
     } finally {
       if (timer) clearTimeout(timer);
     }
-    notify(onReachable);
+    answered();
     return result;
   }
 

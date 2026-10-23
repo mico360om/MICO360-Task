@@ -643,3 +643,59 @@ describe('a refresh is joined only by its own person’s requests (4b review #16
     expect(await ann).toMatchObject({ code: 'SESSION_CHANGED' });
   });
 });
+
+describe('api-client — a dropped request says whether it may have reached the server (final review A1)', () => {
+  function client() {
+    let t = 1_000_000;
+    let answer = false;
+    const fetchImpl = vi.fn(async () => {
+      if (!answer) throw new TypeError('Network request failed');
+      return jsonResponse({ data: {} });
+    });
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: fetchImpl as unknown as typeof fetch, now: () => t });
+    const drop = async () => (await api.post('/tasks', { title: 'Pump' }).catch((e: unknown) => e)) as NetworkError;
+    const answered = async () => {
+      answer = true;
+      await api.get('/health');
+      answer = false;
+    };
+    return { drop, answered, tick: (ms: number) => (t += ms) };
+  }
+
+  it('it may, when it went over a connection that was working a moment before', async () => {
+    const c = client();
+    await c.answered();
+    c.tick(5_000);
+    const e = await c.drop();
+    expect(e).toBeInstanceOf(NetworkError);
+    expect(e.mayHaveArrived).toBe(true);
+  });
+
+  it('it didn’t, with no answer yet (the app started offline), after a try that couldn’t connect, or long after the last answer', async () => {
+    const c = client();
+    expect((await c.drop()).mayHaveArrived).toBe(false);
+    await c.answered();
+    await c.drop();
+    expect((await c.drop()).mayHaveArrived).toBe(false);
+    await c.answered();
+    c.tick(10 * 60_000);
+    expect((await c.drop()).mayHaveArrived).toBe(false);
+  });
+
+  it('a time-out may have reached it; a Wi-Fi sign-in page or a session that couldn’t be renewed didn’t', async () => {
+    const page = vi.fn(async () => new Response('<html>Sign in to the Wi-Fi</html>', { status: 200 }));
+    const wifi = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: page as unknown as typeof fetch });
+    await wifi.get('/health').catch(() => undefined);
+    expect(((await wifi.post('/tasks', {}).catch((e: unknown) => e)) as NetworkError).mayHaveArrived).toBe(false);
+    const expired = vi.fn(async () => jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'expired' } }, 401));
+    const renew = createApiClient({ baseUrl: 'https://api.test', getToken: () => 't', fetchImpl: expired as unknown as typeof fetch, refreshTokens: async () => 'transient' as const });
+    const e = (await renew.post('/tasks', {}).catch((x: unknown) => x)) as NetworkError;
+    expect(e.message).toBe('Could not renew the session — check your connection.');
+    expect(e.mayHaveArrived).toBe(false);
+    const hang = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))));
+    const slow = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: hang as unknown as typeof fetch, timeoutMs: 20 });
+    const t = (await slow.post('/tasks', {}).catch((x: unknown) => x)) as NetworkError;
+    expect(t.timedOut).toBe(true);
+    expect(t.mayHaveArrived).toBe(true);
+  });
+});

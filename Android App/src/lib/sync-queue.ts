@@ -168,6 +168,7 @@ export function createSyncQueue(options: SyncQueueOptions) {
   const maxAttempts = Math.max(1, options.maxAttempts ?? 5);
   const laneOf = (m: QueuedMutation) => options.lane?.(m) ?? '';
   const isTimeout = (e: unknown) => (e as { timedOut?: unknown } | null)?.timedOut === true;
+  const mayHaveArrived = (e: unknown) => (e as { mayHaveArrived?: unknown } | null)?.mayHaveArrived === true;
   const now = options.now ?? Date.now;
   const genId = options.genId ?? (() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const genKey = options.genKey ?? (() => newIdempotencyKey());
@@ -327,9 +328,12 @@ export function createSyncQueue(options: SyncQueueOptions) {
         const kind = classify(error);
         if (kind === 'offline') {
           if (!isTimeout(error)) {
-            // The connection dropped: everything waits, nothing is counted. A create sent under its
-            // key may have reached the server before it did, so its day starts now (4b review #7).
-            if (options.keyLifetime?.applies(m) && m.firstUnansweredAt === undefined) await update(m.id, { firstUnansweredAt: now() });
+            // No connection: everything waits, nothing is counted. A create whose connection dropped
+            // once it was on its way may have reached the server first, so its day starts now (4b
+            // review #7) — only then (the API client says so: final review A1). One that never left
+            // (no connection at all, a Wi-Fi sign-in page, a session that couldn't be renewed) has
+            // no day running: made offline on Friday, it still goes on Monday.
+            if (mayHaveArrived(error) && options.keyLifetime?.applies(m) && m.firstUnansweredAt === undefined) await update(m.id, { firstUnansweredAt: now() });
             return pause('offline');
           }
           // The request went and no answer came in time. It may be saved, so it is never failed (3b

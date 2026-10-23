@@ -620,7 +620,8 @@ describe('the queue’s waits after no answer, reviewed (4b review #4–#7)', ()
     let t = start;
     return { now: () => t, tick: (ms: number) => (t += ms), set: (ms: number) => (t = ms) };
   }
-  const dropped = () => new NetworkError('Network request failed.');
+  /** Its connection dropped once it was on its way (the API client says it may have arrived — final review A1). */
+  const dropped = () => new NetworkError('Network request failed.', { mayHaveArrived: true });
 
   it('#4 Retry on “hasn’t answered for a day” starts afresh: it is sent, not stopped again at once', async () => {
     const c = clock();
@@ -691,5 +692,50 @@ describe('the queue’s waits after no answer, reviewed (4b review #4–#7)', ()
     await q2.enqueue('task.update', { id: 't1', patch: { title: 'x' } }, A);
     await q2.flush('userA');
     expect(q2.pendingFor('userA')[0]!.firstUnansweredAt).toBeUndefined();
+  });
+});
+
+describe('a create the server never got isn’t stopped after a day (final review A1)', () => {
+  function clock(start = 1_000_000) {
+    let t = start;
+    return { now: () => t, tick: (ms: number) => (t += ms) };
+  }
+  const keyed = { ms: KEY_SAFE_MS, applies: (m: QueuedMutation) => m.kind === 'task.create' };
+
+  it('made offline on Friday and tried every few seconds without a connection, it is still sent on Monday', async () => {
+    const never = [
+      new NetworkError('Network request failed.'),
+      new NetworkError('The network returned a web page instead of data — you may need to sign in to the Wi-Fi.'),
+      new NetworkError('Could not renew the session — check your connection.'),
+    ];
+    for (const why of never) {
+      const c = clock();
+      let offline = true;
+      const perform = vi.fn(async () => {
+        if (offline) throw why;
+      });
+      const q = createSyncQueue(opts({ perform, now: c.now, keyLifetime: keyed }));
+      await q.enqueue('task.create', { title: 'Pump' }, A);
+      for (let i = 0; i < 5; i++) {
+        await q.flush('userA');
+        c.tick(15_000);
+      }
+      expect(q.pendingFor('userA')[0]!.firstUnansweredAt, why.message).toBeUndefined();
+      c.tick(3 * 24 * 60 * 60_000);
+      offline = false;
+      expect((await q.flush('userA')).synced, why.message).toBe(1);
+      expect(q.failedFor('userA')).toEqual([]);
+    }
+  });
+
+  it('one whose connection dropped once it was on its way (the API client says it may have arrived) still counts toward the day', async () => {
+    const c = clock();
+    const perform = vi.fn(async () => {
+      throw new NetworkError('Network request failed.', { mayHaveArrived: true });
+    });
+    const q = createSyncQueue(opts({ perform, now: c.now, keyLifetime: keyed }));
+    await q.enqueue('task.create', { title: 'Pump' }, A);
+    await q.flush('userA');
+    expect(q.pendingFor('userA')[0]!.firstUnansweredAt).toBe(c.now());
   });
 });
