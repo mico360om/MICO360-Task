@@ -89,6 +89,33 @@ export function matchCountText(n: number): string {
   return n === 0 ? 'No one matches' : n === 1 ? '1 person matches' : `${n} people match`;
 }
 
+/** Who a page of the list shows (counting from 1): "Showing 21–40 of 63 people", or "Showing all 63 people". */
+export function showingText(from: number, to: number, total: number): string {
+  if (total === 1) return 'Showing 1 person';
+  if (from <= 1 && to >= total) return `Showing all ${total} people`;
+  if (from === to) return `Showing person ${from} of ${total}`;
+  return `Showing ${from}–${to} of ${total} people`;
+}
+
+/** "Page 2 of 4". */
+export function pageText(page: number, pages: number): string {
+  return `Page ${page} of ${pages}`;
+}
+
+/**
+ * What is read out when the list changes (another page, a search, a filter): how many match a search
+ * or filter, and who the page shows. "25 people match. Showing 1–20 of 25 people. Page 1 of 2."
+ */
+export function listShownText(s: { from: number; to: number; total: number; page: number; pages: number; filtered: boolean; matching: number }): string {
+  if (s.total === 0) return s.filtered ? 'No one matches these filters.' : '';
+  const parts: string[] = [];
+  if (s.filtered) parts.push(matchCountText(s.matching));
+  // With a filter on one page, the count says it all (unless someone kept in view no longer matches).
+  if (!s.filtered || s.pages > 1 || s.matching !== s.total) parts.push(showingText(s.from, s.to, s.total));
+  if (s.pages > 1) parts.push(pageText(s.page, s.pages));
+  return parts.map((p) => `${p}.`).join(' ');
+}
+
 /** How "Send today's emails now" went, in a sentence or a few. */
 export function sendNowText(r: Partial<DailyEmailSendNowCounts>): string {
   const n = (k: keyof DailyEmailSendNowCounts) => r[k] ?? 0;

@@ -90,6 +90,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  localStorage.clear();
 });
 
 function renderIt(props: { pollMs?: number } = {}) {
@@ -480,6 +481,190 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   });
 });
 
+describe('System Settings → Daily task emails: pages', () => {
+  const two = (n: number) => String(n).padStart(2, '0');
+  /** n people, "Person 01"…, in the server's order; `extra` changes one by their number. */
+  const crowd = (n: number, extra: (i: number) => Record<string, unknown> = () => ({})) =>
+    Array.from({ length: n }, (_, k) =>
+      personOf({
+        userId: `u-${two(k + 1)}`, name: `Person ${two(k + 1)}`, username: `p${two(k + 1)}`, email: `p${two(k + 1)}@mico360.test`,
+        timeZone: 'Asia/Muscat', time: '07:00', pending: emailOf(), completed: emailOf(), ...extra(k + 1),
+      }),
+    );
+  const names = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, k) => `Person ${two(from + k)}`);
+  const pager = () => screen.getByRole('navigation', { name: 'Pages of people' });
+  const listNote = () => screen.getByRole('status', { name: 'What the list shows' });
+  const button = (name: string) => within(pager()).getByRole('button', { name });
+  const loaded = () => screen.findByRole('list', { name: 'Everyone and their daily emails' });
+
+  it('20 or fewer people: all of them, with no pages', async () => {
+    withPeople(crowd(20));
+    renderIt();
+    await loaded();
+    expect(shownNames()).toEqual(names(1, 20));
+    expect(screen.queryByRole('navigation', { name: 'Pages of people' })).not.toBeInTheDocument();
+  });
+
+  it('20 people a page, with Previous and Next and where you are; a new page starts at its first person', async () => {
+    withPeople(crowd(63));
+    const user = userEvent.setup();
+    renderIt();
+    await loaded();
+    expect(shownNames()).toEqual(names(1, 20));
+    expect(pager()).toHaveTextContent('Showing 1–20 of 63 people');
+    expect(pager()).toHaveTextContent('Page 1 of 4');
+    expect(button('Previous')).toHaveAttribute('aria-disabled', 'true');
+    expect(button('Next')).not.toHaveAttribute('aria-disabled');
+
+    await user.click(button('Next'));
+    expect(shownNames()).toEqual(names(21, 40));
+    expect(pager()).toHaveTextContent('Showing 21–40 of 63 people');
+    expect(pager()).toHaveTextContent('Page 2 of 4');
+    expect(screen.getByRole('heading', { name: 'Person 21' })).toHaveFocus();
+    await waitFor(() => expect(listNote()).toHaveTextContent('Showing 21–40 of 63 people. Page 2 of 4.'));
+    expect(button('Previous')).not.toHaveAttribute('aria-disabled');
+
+    await user.click(button('Next'));
+    await user.click(button('Next'));
+    expect(shownNames()).toEqual(names(61, 63));
+    expect(pager()).toHaveTextContent('Showing 61–63 of 63 people');
+    expect(button('Next')).toHaveAttribute('aria-disabled', 'true');
+    await user.click(button('Next')); // the last page: nothing further
+    expect(pager()).toHaveTextContent('Page 4 of 4');
+
+    await user.click(button('Previous'));
+    expect(shownNames()).toEqual(names(41, 60));
+    expect(screen.getByRole('heading', { name: 'Person 41' })).toHaveFocus();
+  });
+
+  it('People per page: 20, 50 or 100, remembered in this browser; choosing keeps focus on the choice', async () => {
+    withPeople(crowd(63));
+    const user = userEvent.setup();
+    const { unmount } = renderIt();
+    await loaded();
+    const per = screen.getByLabelText('People per page');
+    expect(per).toHaveDisplayValue('20');
+    expect(within(per).getAllByRole('option').map((o) => o.textContent)).toEqual(['20', '50', '100']);
+    await user.selectOptions(per, '50');
+    expect(shownNames()).toEqual(names(1, 50));
+    expect(pager()).toHaveTextContent('Showing 1–50 of 63 people');
+    expect(pager()).toHaveTextContent('Page 1 of 2');
+    expect(per).toHaveFocus();
+    await waitFor(() => expect(listNote()).toHaveTextContent('Showing 1–50 of 63 people. Page 1 of 2.'));
+    await user.selectOptions(per, '100');
+    expect(pager()).toHaveTextContent('Showing all 63 people');
+    expect(within(pager()).queryByRole('button', { name: 'Next' })).not.toBeInTheDocument(); // one page: nothing to move between
+    unmount();
+
+    renderIt();
+    await loaded();
+    expect(screen.getByLabelText('People per page')).toHaveDisplayValue('100');
+    expect(shownNames()).toHaveLength(63);
+  });
+
+  it('a choice it can’t read, or storage that is blocked (a private window): 20 a page, and choosing still works', async () => {
+    localStorage.setItem('mico360.u.a1.daily-emails.perPage', '7');
+    withPeople(crowd(30));
+    const user = userEvent.setup();
+    const { unmount } = renderIt();
+    await loaded();
+    expect(screen.getByLabelText('People per page')).toHaveDisplayValue('20');
+    unmount();
+
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+    renderIt();
+    await loaded();
+    expect(screen.getByLabelText('People per page')).toHaveDisplayValue('20');
+    await user.selectOptions(screen.getByLabelText('People per page'), '50');
+    expect(shownNames()).toEqual(names(1, 30));
+  });
+
+  it('a search, the status, the email, the page size or another day goes back to page 1', async () => {
+    withPeople(crowd(63));
+    const user = userEvent.setup();
+    renderIt();
+    await loaded();
+    const toPage2 = async () => {
+      await user.click(button('Next'));
+      expect(pager()).toHaveTextContent(/Page 2 of/);
+    };
+    await toPage2();
+    await user.type(screen.getByLabelText('Find a person'), 'person');
+    expect(pager()).toHaveTextContent('Page 1 of 4');
+    expect(shownNames()[0]).toBe('Person 01');
+    await toPage2();
+    await user.selectOptions(screen.getByLabelText('Status'), 'DUE');
+    expect(pager()).toHaveTextContent('Page 1 of 4');
+    await toPage2();
+    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
+    expect(pager()).toHaveTextContent('Page 1 of 4');
+    await toPage2();
+    await user.selectOptions(screen.getByLabelText('People per page'), '50');
+    expect(pager()).toHaveTextContent('Page 1 of 2');
+    await toPage2();
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-10-20' } });
+    await screen.findByRole('region', { name: 'Summary for Tue 20 Oct' });
+    expect(pager()).toHaveTextContent('Page 1 of 2');
+    expect(shownNames()[0]).toBe('Person 01');
+  });
+
+  it('a list that shrinks under the last page shows the new last page, and stays there if it grows again', async () => {
+    withPeople(crowd(41, () => ({ pending: emailOf({ state: 'SENDING', attempts: 1 }) }))); // being sent: it refreshes by itself
+    const user = userEvent.setup();
+    renderIt({ pollMs: 20 });
+    await loaded();
+    await user.selectOptions(screen.getByLabelText('Status'), 'SENDING');
+    await user.click(button('Next'));
+    await user.click(button('Next'));
+    expect(shownNames()).toEqual(['Person 41']);
+    // Person 41's went: two pages now.
+    const sent = emailOf({ state: 'SENT', sentAt: '2026-10-21T05:45:00.000Z', taskCount: 1, attempts: 1 });
+    withPeople(crowd(41, (i) => ({ pending: i === 41 ? sent : emailOf({ state: 'SENDING', attempts: 1 }) })));
+    await waitFor(() => expect(pager()).toHaveTextContent('Page 2 of 2'));
+    expect(shownNames()).toEqual(names(21, 40));
+    // Back to sending (a retry): still page 2, not back to page 3.
+    withPeople(crowd(41, () => ({ pending: emailOf({ state: 'SENDING', attempts: 2 }) })));
+    await waitFor(() => expect(pager()).toHaveTextContent('Page 2 of 3'));
+    expect(shownNames()).toEqual(names(21, 40));
+  });
+
+  it('a send on page 2 keeps the page and the card where they are, though others change meanwhile', async () => {
+    // The 26th is "Person 10a" (between 10 and 11), whose email hasn't failed; everyone else’s has.
+    const people = crowd(26, (i) => (i === 26 ? { name: 'Person 10a' } : { pending: emailOf({ state: 'FAILED', attempts: 4, lastError: 'HTTP 503' }) }));
+    withPeople([...people.slice(0, 10), people[25], ...people.slice(10, 25)]);
+    const user = userEvent.setup();
+    renderIt();
+    await loaded();
+    await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
+    expect(pager()).toHaveTextContent('Showing 1–20 of 25 people');
+    await user.click(button('Next'));
+    expect(shownNames()).toEqual(names(21, 25));
+
+    const sent = emailOf({ state: 'SENT', sentAt: '2026-10-21T05:45:00.000Z', taskCount: 1, attempts: 5 });
+    sendReply = (b) => {
+      // Person 21's went; meanwhile Person 01's and 02's were sent too, and Person 10a's failed.
+      withPeople((overview.people as Array<{ userId: string }>).map((p) =>
+        ['u-01', 'u-02', 'u-21'].includes(p.userId) ? { ...p, pending: sent } : p.userId === 'u-26' ? { ...p, pending: emailOf({ state: 'FAILED', attempts: 4 }) } : p,
+      ));
+      return json({ data: { userId: b.userId, name: 'Person 21', email: 'p21@mico360.test', day: '2026-10-21', time: '07:00', results: [{ kind: b.kind, outcome: 'sent', error: null, sentAt: '2026-10-21T05:45:00.000Z' }] } });
+    };
+    await user.click(screen.getByRole('button', { name: 'Send Person 21’s Pending tasks email' }));
+    const p21 = await personItem('Person 21');
+    await waitFor(() => expect(p21).toHaveTextContent('Sent at 09:45 · 1 task'));
+    expect(p21).toHaveTextContent('No longer matches the filter.');
+    expect(within(p21).getByRole('button', { name: 'Resend Person 21’s Pending tasks email' })).toHaveFocus();
+    expect(shownNames().slice(0, 5)).toEqual(names(21, 25)); // nothing moved
+    expect(shownNames().at(-1)).toBe('Person 10a'); // someone who has just started to match comes at the end
+    expect(pager()).toHaveTextContent('Showing 21–26 of 26 people');
+    expect(pager()).toHaveTextContent('Page 2 of 2');
+
+    // Another filter: only what matches, in order, from page 1.
+    await user.selectOptions(screen.getByLabelText('Status'), 'SENT');
+    expect(shownNames()).toEqual(['Person 01', 'Person 02', 'Person 21']);
+  });
+});
+
 describe('System Settings → Daily task emails: one email at a time', () => {
   const kindsShown = (li: HTMLElement) => within(li).queryAllByRole('button', { name: /^Preview / }).map((b) => b.getAttribute('aria-label'));
 
@@ -582,6 +767,7 @@ describe('System Settings → Daily task emails: finding a person', () => {
     expect(screen.queryByText(/match/)).not.toBeInTheDocument(); // nothing to say without a filter
     await user.type(find(), 'rachel');
     expect(screen.getByText('2 people match')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: 'What the list shows' })).toHaveTextContent('2 people match.')); // read out too
     await user.type(find(), ' moss');
     expect(screen.getByText('1 person matches')).toBeInTheDocument();
     await user.clear(find());

@@ -13,7 +13,9 @@ import { ApiError } from '../../lib/api-client';
 import { todayKey } from '../../lib/due-date';
 import { newIdempotencyKey } from '../../lib/offline-queue';
 import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
+import { readUserValue, writeUserValue } from '../../lib/user-storage';
 import { useDialog } from '../../hooks/useDialog';
+import { useAuthStore } from '../../stores/auth-store';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { LoadError } from '../ui/LoadError';
@@ -23,12 +25,15 @@ import {
   STATE_TONE,
   checkLateText,
   dayLabel,
+  listShownText,
   matchCountText,
   nextSendText,
+  pageText,
   runDoneText,
   runProgressText,
   sendNowText,
   sendResultText,
+  showingText,
   stateText,
   when,
   type Tone,
@@ -66,7 +71,18 @@ const STATUS_OPTIONS: { value: '' | DailyEmailState; label: string }[] = [
 
 const TONE_DOT: Record<Tone, string> = { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger', info: 'bg-info', neutral: 'bg-ink-3' };
 const TONE_TEXT: Record<Tone, string> = { success: 'text-ink', warning: 'text-warning', danger: 'text-danger', info: 'text-ink', neutral: 'text-ink-2' };
-const fieldClass = 'w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink outline-none focus:border-brand sm:w-auto';
+const fieldLook = 'rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink outline-none focus:border-brand';
+const fieldClass = `w-full ${fieldLook} sm:w-auto`;
+
+/** People per page: the first is the default; the choice is kept in this browser (for this person). */
+const PER_PAGE_CHOICES = [20, 50, 100] as const;
+const PER_PAGE_PREF = 'daily-emails.perPage';
+function readPerPage(userId: string | null | undefined): number {
+  const n = Number(readUserValue(userId, PER_PAGE_PREF));
+  return (PER_PAGE_CHOICES as readonly number[]).includes(n) ? n : PER_PAGE_CHOICES[0];
+}
+/** A change to the list is read out once it has settled this long (typing a search says it once). */
+const SAY_AFTER_MS = 400;
 
 type Note = { ok: boolean; text: string };
 
@@ -116,11 +132,18 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   const [kind, setKind] = useState<'' | DailyEmailKind>(''); // '' = both emails
   const [status, setStatus] = useState<'' | DailyEmailState>('');
   const [search, setSearch] = useState('');
-  // People acted on during this visit stay in view (marked) until a filter changes, so a card never
-  // vanishes under the person using it (focus and the result stay with it).
-  const [kept, setKept] = useState<ReadonlySet<string>>(() => new Set());
+  const userId = useAuthStore((s) => s.user?.id);
+  const [perPage, setPerPage] = useState(() => readPerPage(useAuthStore.getState().user?.id));
+  const [page, setPage] = useState(1);
+  // Once someone acts on a card, the list keeps its people in their order (those who no longer match
+  // are marked; anyone who starts to match comes at the end) until a filter changes: a card never
+  // vanishes or moves under the person using it, and the page doesn't jump (focus and the result stay).
+  const [kept, setKept] = useState<readonly string[] | null>(null);
   // Every send's result, read out from here (the section never goes away).
   const [result, setResult] = useState<Note | null>(null);
+  // What the list shows, read out after each change the person makes to it (another page, a filter).
+  const [asked, setAsked] = useState(0);
+  const [listNote, setListNote] = useState('');
   const isToday = !day || day === today;
   const q = useQuery({
     queryKey: [OVERVIEW_KEY, isToday ? 'today' : day],
@@ -145,19 +168,78 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
     headingRef.current?.focus({ preventScroll: true });
   }, [ready]);
 
+  const changed = () => setAsked((n) => n + 1);
+  // A search, a filter or another day: everyone who matches, from the first page.
   const filtering = (apply: () => void) => {
-    setKept(new Set());
+    setKept(null);
+    setPage(1);
+    changed();
     apply();
   };
   const words = searchWords(search);
   const filtered = Boolean(status || words.length);
   const kinds = kind ? [kind] : KINDS;
   const matches = (p: DailyEmailOverviewPerson) => (!status || kinds.some((k) => emailOf(p, k).state === status)) && foundBy(p, words);
-  const people = (data?.people ?? []).filter((p) => matches(p) || kept.has(p.userId));
+  const everyone = data?.people ?? [];
+  let people = everyone.filter(matches);
+  if (kept) {
+    const byId = new Map(everyone.map((p) => [p.userId, p] as const));
+    const keptIds = new Set(kept);
+    people = [...kept.flatMap((id) => byId.get(id) ?? []), ...people.filter((p) => !keptIds.has(p.userId))];
+  }
   const matching = people.filter(matches).length;
   const refresh = () => qc.invalidateQueries({ queryKey: [OVERVIEW_KEY] });
-  const actedOn = (userId: string) => setKept((k) => (k.has(userId) ? k : new Set(k).add(userId)));
+  const actedOn = () => setKept(people.map((p) => p.userId));
   const viewDay = isToday ? today : day;
+
+  // Pages, in the browser (the overview has everyone for the day).
+  const total = people.length;
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  const current = Math.min(page, pages);
+  const start = (current - 1) * perPage;
+  const shown = people.slice(start, start + perPage);
+  const from = total ? start + 1 : 0;
+  const to = start + shown.length;
+  const listRef = useRef<HTMLUListElement>(null);
+  const moved = useRef(false);
+  const goTo = (n: number) => {
+    if (n < 1 || n > pages || n === current) return;
+    moved.current = true;
+    setPage(n);
+    changed();
+  };
+  const choosePerPage = (n: number) => {
+    setPerPage(n);
+    writeUserValue(userId, PER_PAGE_PREF, String(n));
+    setPage(1);
+    changed();
+  };
+  // The list shrank under the page shown: the last page is now the page (it doesn't jump back later).
+  useEffect(() => {
+    if (page > current) setPage(current);
+  }, [page, current]);
+  // Previous / Next: the new page starts at its first person (Tab goes on to their buttons).
+  useEffect(() => {
+    if (!moved.current) return;
+    moved.current = false;
+    listRef.current?.querySelector<HTMLElement>('li h3')?.focus();
+  }, [current]);
+
+  // Read out once the list has settled after a change the person made (typing a search says it once),
+  // never because the list refreshed by itself.
+  const shownText = listShownText({ from, to, total, page: current, pages, filtered, matching });
+  const shownTextNow = useRef(shownText);
+  shownTextNow.current = shownText;
+  const said = useRef(0);
+  const hasData = Boolean(data);
+  useEffect(() => {
+    if (asked === said.current || q.isPlaceholderData || !hasData) return;
+    const t = setTimeout(() => {
+      said.current = asked;
+      setListNote(shownTextNow.current);
+    }, SAY_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [asked, q.isPlaceholderData, hasData]);
 
   return (
     <section ref={sectionRef} id={DAILY_EMAILS_ANCHOR} className="card min-w-0 p-5 lg:col-span-2" aria-labelledby="daily-email-log-heading">
@@ -179,6 +261,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
         <>
           {/* Every send's result is read out from here: the cards can change as the list updates. */}
           <p role="status" aria-label="Send results" className="sr-only">{result?.ok ? result.text : ''}</p>
+          <p role="status" aria-label="What the list shows" className="sr-only">{listNote}</p>
           {result && !result.ok ? <p role="alert" className="sr-only">{result.text}</p> : null}
           {q.isError ? (
             // A refresh that failed: what was shown stays.
@@ -238,8 +321,13 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
           ) : (
             <>
               {filtered ? <p className="mb-2 text-sm text-ink-2">{matchCountText(matching)}</p> : null}
-              <ul aria-label="Everyone and their daily emails" aria-busy={q.isPlaceholderData || undefined} className={`flex flex-col gap-3 ${q.isPlaceholderData ? 'opacity-60' : ''}`}>
-                {people.map((p) => (
+              <ul
+                ref={listRef}
+                aria-label="Everyone and their daily emails"
+                aria-busy={q.isPlaceholderData || undefined}
+                className={`flex flex-col gap-3 ${q.isPlaceholderData ? 'opacity-60' : ''}`}
+              >
+                {shown.map((p) => (
                   <PersonCard
                     key={p.userId}
                     person={p}
@@ -247,13 +335,37 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
                     viewDay={viewDay}
                     kinds={kinds}
                     outsideFilter={!matches(p)}
-                    onActed={() => actedOn(p.userId)}
+                    onActed={actedOn}
                     onResult={setResult}
                     onSent={refresh}
                     onFocusLost={() => headingRef.current?.focus({ preventScroll: true })}
                   />
                 ))}
               </ul>
+              {total > PER_PAGE_CHOICES[0] ? (
+                <nav aria-label="Pages of people" className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-line pt-4 text-sm text-ink-2">
+                  <p className="min-w-0">{showingText(from, to, total)}</p>
+                  {pages > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="secondary" aria-disabled={current <= 1 || undefined} onClick={() => goTo(current - 1)}>
+                        Previous
+                      </Button>
+                      <span className="whitespace-nowrap tabular-nums">{pageText(current, pages)}</span>
+                      <Button size="sm" variant="secondary" aria-disabled={current >= pages || undefined} onClick={() => goTo(current + 1)}>
+                        Next
+                      </Button>
+                    </div>
+                  ) : null}
+                  <label className="flex items-center gap-2 text-xs font-medium text-ink-2 sm:ms-auto">
+                    People per page
+                    <select value={perPage} onChange={(e) => choosePerPage(Number(e.target.value))} className={fieldLook}>
+                      {PER_PAGE_CHOICES.map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </label>
+                </nav>
+              ) : null}
             </>
           )}
         </>
@@ -457,7 +569,8 @@ function PersonCard({
     <li ref={liRef} className="min-w-0 rounded-xl border border-line p-4">
       <div className="mb-3 min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 dir="auto" className="font-medium text-ink">{person.name}</h3>
+          {/* Takes focus when it starts a new page (clear of the sticky page header). */}
+          <h3 tabIndex={-1} dir="auto" className="scroll-mt-24 font-medium text-ink outline-none">{person.name}</h3>
           {gone ? <span className="rounded-md bg-ground px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-2">{gone.badge}</span> : null}
         </div>
         <p className="text-xs text-ink-3 [overflow-wrap:anywhere]">
