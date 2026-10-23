@@ -176,6 +176,17 @@ describe('Stage 5: notification preferences and chat calls', () => {
     expect(await api.notifications.setPreferences({ muted: ['MENTION'], reminderLeadMinutes: 60 })).toEqual({ path: '/notifications/preferences', method: 'PUT', body: { muted: ['MENTION'], reminderLeadMinutes: 60 } });
   });
 
+  it('"Send me a test now": POST /notifications/daily-emails/test, never from the offline cache; the server’s refusal comes back', async () => {
+    const auth = fakeAuth((path, opts) => json({ data: { pending: 'sent', completed: 'empty', path, method: opts?.method } }));
+    const cache = { read: vi.fn() };
+    const api = createApi({ auth, cache });
+    expect(await api.notifications.sendDailyTest()).toEqual({ pending: 'sent', completed: 'empty', path: '/notifications/daily-emails/test', method: 'POST' });
+    expect(cache.read).not.toHaveBeenCalled();
+    const message = 'A test was just sent. Wait a minute before sending another.';
+    const refused = createApi({ auth: fakeAuth(() => json({ error: { code: 'TOO_SOON', message } }, 429)), cache });
+    await expect(refused.notifications.sendDailyTest()).rejects.toMatchObject({ status: 429, serverMessage: message });
+  });
+
   it('pages of history: the newest kept for offline; older ones (?before=) read fresh', async () => {
     const auth = fakeAuth((path) => json({ data: [{ id: 'm1', body: path, deletedAt: null }] }));
     const cache = { read: vi.fn(async (_key, load) => ({ data: await load(), stale: false })) };

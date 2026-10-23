@@ -12,13 +12,41 @@
  * switches keep focus when the card is drawn again. The morning-email time is saved once it has
  * been typed — on leaving the field, or Enter — as on the web: Chrome reports each part of a time
  * as a change while it is typed, and the field is never drawn again under the typing.
+ *
+ * "Send me a test now" sends the two morning emails at once, as on the web (online only; the server
+ * allows one a minute and says so). Administrators also get a link to the daily email log, which
+ * is on the website (System Settings → Daily task emails).
  */
 import { el, mount } from './dom.js';
 import { switchButton, writeErrorMessage } from './components.js';
 import { NOTIFICATION_TYPES, REMINDER_OPTIONS, DEFAULT_DAILY_EMAILS, readAlertSettings, saveAlertSettings } from '../src/notify.js';
+import { checkBaseUrl } from '../src/config.js';
 
 const SAVE_FAILED = 'Couldn’t save that change. Please try again.';
+const TEST_FAILED = 'Couldn’t send the test. Check your connection and try again.';
+const TEST_LABEL = 'Send me a test now';
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** The website's address of System Settings → Daily task emails. */
+const DAILY_LOG_PATH = '/admin/settings#daily-emails';
+
+/** What a test sent, in the website's words: an email with nothing in it isn't sent. */
+export function testSummary(r) {
+  const pending = Boolean(r && r.pending === 'sent');
+  const completed = Boolean(r && r.completed === 'sent');
+  const parts = [];
+  if (pending && completed) parts.push('Sent both emails: pending tasks and completed tasks.');
+  else if (pending || completed) parts.push(`Sent the ${pending ? 'pending tasks' : 'completed tasks'} email.`);
+  if (!pending) parts.push('You have no pending tasks, so there was no pending tasks email to send.');
+  if (!completed) parts.push('Nothing was completed yesterday, so there was no completed tasks email to send.');
+  return parts.join(' ');
+}
+
+/** The daily email log on the website, for an administrator — only ever at the configured web app address. */
+function dailyLogUrl(ctx) {
+  const admin = ((ctx.me && ctx.me.roles) || []).includes('ADMIN');
+  const base = checkBaseUrl(ctx.appBase || '');
+  return admin && base.ok ? `${base.url}${DAILY_LOG_PATH}` : null;
+}
 
 export function NotificationSettings(ctx) {
   const api = ctx.api && ctx.api.notifications;
@@ -47,12 +75,49 @@ export function NotificationSettings(ctx) {
       el('label', { class: 'nset-title', for: 'nset-time' }, 'Send them at'),
       el('div', { class: 'muted nset-desc' }, 'In your own time zone, as set on the website.')),
     time);
+  // "Send me a test now" and what it said: the button and the status line are kept for good (like the
+  // time field), so focus never drops and each answer is read out as it changes. A problem is an
+  // alert put in when there is one (read out as it appears).
+  let testing = false;
+  const testButton = el('button', { class: 'btn sm', type: 'button', dataset: { focusKey: 'daily-test' } }, TEST_LABEL);
+  testButton.addEventListener('click', () => sendTest());
+  const testSaid = el('span', { class: 'muted nset-test-said', role: 'status' });
+  const testProblem = el('span');
+  const showTestProblem = (text) => mount(testProblem, text ? el('span', { class: 'error nset-test-said', role: 'alert' }, text) : null);
+  const testRow = el('div', { class: 'nset-test' }, testButton, testSaid, testProblem);
+  const logUrl = dailyLogUrl(ctx);
+  const extras = el('div', { class: 'nset-extras' },
+    testRow,
+    logUrl ? el('a', { class: 'nset-log', href: logUrl, target: '_blank', rel: 'noopener' }, 'Daily email log (opens the website)') : null);
   const top = el('div');
   const bottom = el('div');
-  const node = el('div', { class: 'nset' }, top, timeRow, bottom);
+  const node = el('div', { class: 'nset' }, top, timeRow, extras, bottom);
 
   load();
   return node;
+
+  /** Both morning emails to me now (the server says when it's too soon, or email isn't set up). */
+  async function sendTest() {
+    if (testing) return;
+    testSaid.textContent = '';
+    showTestProblem('');
+    if (ctx.isOnline && !ctx.isOnline()) {
+      showTestProblem('Sending a test needs a connection — you appear to be offline.');
+      return;
+    }
+    testing = true;
+    testButton.textContent = 'Sending…';
+    testButton.setAttribute('aria-disabled', 'true');
+    try {
+      testSaid.textContent = testSummary(await api.sendDailyTest());
+    } catch (e) {
+      showTestProblem(e && e.code === 'EMAIL_NOT_CONFIGURED' && e.serverMessage ? e.serverMessage : writeErrorMessage(e, TEST_FAILED));
+    } finally {
+      testing = false;
+      testButton.textContent = TEST_LABEL;
+      testButton.removeAttribute('aria-disabled');
+    }
+  }
 
   async function load() {
     status = 'loading';
@@ -94,6 +159,9 @@ export function NotificationSettings(ctx) {
     const key = a && a !== time && node.contains(a) ? a.dataset.focusKey : null;
     mount(top, draw());
     timeRow.classList.toggle('hidden', status !== 'ready');
+    extras.classList.toggle('hidden', status !== 'ready');
+    // As on the web: no test while the server can't send email (the warning above says why).
+    testRow.classList.toggle('hidden', !emailEnabled || !(api && api.sendDailyTest));
     if (prefs && document.activeElement !== time) time.value = prefs.dailyEmails.time;
     mount(bottom, alertsPart());
     if (key) {

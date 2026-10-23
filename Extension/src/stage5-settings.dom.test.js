@@ -25,9 +25,10 @@ function ctxWith(over = {}) {
   let prefs = over.prefs ?? { muted: ['TASK_STATUS'], reminderLeadMinutes: 60, dailyEmails: { pending: true, completed: false, time: '07:30' } };
   const ctx = {
     storage: fakeStorage({ apiBase: DEFAULTS.apiBase, appBase: 'https://tasks.example.com', syncQueue: [], ...over.local }),
-    me: { id: 'u1', name: 'Me', email: 'me@example.com' },
+    appBase: over.appBase ?? 'https://tasks.example.com',
+    me: { id: 'u1', name: 'Me', email: 'me@example.com', roles: over.roles ?? ['EMPLOYEE'] },
     manifest: { version: '1.6.0' },
-    isOnline: () => true,
+    isOnline: over.isOnline ?? (() => true),
     api: {
       version: async () => ({ data: { version: '1.6.0' }, stale: false }),
       config: vi.fn(async () => ({ timeZone: 'Asia/Muscat', emailEnabled: over.emailEnabled ?? true })),
@@ -37,6 +38,7 @@ function ctxWith(over = {}) {
           prefs = { ...prefs, ...body, ...(body.dailyEmails ? { dailyEmails: { ...prefs.dailyEmails, ...body.dailyEmails } } : {}) };
           return prefs;
         }),
+        sendDailyTest: over.test ?? vi.fn(async () => ({ pending: 'sent', completed: 'empty' })),
       },
     },
     signOut: vi.fn(async () => {}),
@@ -136,6 +138,96 @@ describe('Settings → Notifications: the web’s preferences', () => {
   it('when the server can’t send email, it says the morning emails start once it can', async () => {
     const root = await open(ctxWith({ emailEnabled: false }));
     expect(card(root, 'Notifications').textContent).toContain('Email isn’t set up on this server yet');
+  });
+});
+
+describe('Settings → Notifications: "Send me a test now", and the daily email log for administrators', () => {
+  const testButton = (root) => [...card(root, 'Notifications').querySelectorAll('button')].find((b) => /Send me a test now|Sending…/.test(b.textContent));
+  const said = (root) => card(root, 'Notifications').querySelector('.nset-test [role="status"]').textContent;
+  const problem = (root) => card(root, 'Notifications').querySelector('.nset-test [role="alert"]')?.textContent ?? '';
+
+  it('sends the two morning emails now and says, in the website’s words, which went; focus stays on the button', async () => {
+    const ctx = ctxWith();
+    const root = await open(ctx);
+    const button = testButton(root);
+    button.focus();
+    button.click();
+    await settle();
+    expect(ctx.api.notifications.sendDailyTest).toHaveBeenCalledTimes(1);
+    expect(said(root)).toBe('Sent the pending tasks email. Nothing was completed yesterday, so there was no completed tasks email to send.');
+    expect(problem(root)).toBe('');
+    expect(document.activeElement).toBe(testButton(root));
+  });
+
+  it('while it is sending it says so, and a second press sends nothing more', async () => {
+    let finish;
+    const test = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const root = await open(ctxWith({ test }));
+    testButton(root).click();
+    await settle();
+    expect(testButton(root).textContent).toBe('Sending…');
+    expect(testButton(root).getAttribute('aria-disabled')).toBe('true');
+    testButton(root).click();
+    expect(test).toHaveBeenCalledTimes(1);
+    finish({ pending: 'sent', completed: 'sent' });
+    await settle();
+    expect(said(root)).toBe('Sent both emails: pending tasks and completed tasks.');
+    expect(testButton(root).textContent).toBe('Send me a test now');
+    expect(testButton(root).hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  it('the server’s own words when it refuses: too soon, or email isn’t set up', async () => {
+    const tooSoon = 'A test was just sent. Wait a minute before sending another.';
+    let root = await open(ctxWith({ test: vi.fn(async () => { throw new ApiError(429, tooSoon, 'TOO_SOON'); }) }));
+    testButton(root).click();
+    await settle();
+    expect(problem(root)).toBe(tooSoon);
+    document.body.innerHTML = '';
+    const notSetUp = 'Email isn’t set up on this server yet, so no email can be sent. An administrator needs to add the email (Mailjet) keys.';
+    root = await open(ctxWith({ test: vi.fn(async () => { throw new ApiError(503, notSetUp, 'EMAIL_NOT_CONFIGURED'); }) }));
+    testButton(root).click();
+    await settle();
+    expect(problem(root)).toBe(notSetUp);
+  });
+
+  it('no connection: says so plainly', async () => {
+    const root = await open(ctxWith({ test: vi.fn(async () => { throw new TypeError('Failed to fetch'); }) }));
+    testButton(root).click();
+    await settle();
+    expect(problem(root)).toBe('Couldn’t send the test. Check your connection and try again.');
+  });
+
+  it('online only: offline, it says so and sends nothing', async () => {
+    const ctx = ctxWith({ isOnline: () => false });
+    const root = await open(ctx);
+    testButton(root).click();
+    await settle();
+    expect(ctx.api.notifications.sendDailyTest).not.toHaveBeenCalled();
+    expect(problem(root)).toBe('Sending a test needs a connection — you appear to be offline.');
+  });
+
+  it('not offered while email isn’t set up on the server', async () => {
+    const root = await open(ctxWith({ emailEnabled: false }));
+    expect(card(root, 'Notifications').querySelector('.nset-test').classList.contains('hidden')).toBe(true);
+  });
+
+  it('administrators get a link to the daily email log on the website (a new tab); others don’t', async () => {
+    const link = (root) => [...card(root, 'Notifications').querySelectorAll('a')].find((a) => a.textContent === 'Daily email log (opens the website)');
+    const admin = await open(ctxWith({ roles: ['ADMIN'] }));
+    const a = link(admin);
+    expect(a.getAttribute('href')).toBe('https://tasks.example.com/admin/settings#daily-emails');
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(a.getAttribute('rel')).toBe('noopener');
+    document.body.innerHTML = '';
+    expect(link(await open(ctxWith()))).toBeUndefined();
+  });
+
+  it('the link only ever goes to the configured web app address — never an unsafe one', async () => {
+    const link = (root) => [...card(root, 'Notifications').querySelectorAll('a')].find((a) => a.textContent === 'Daily email log (opens the website)');
+    for (const appBase of ['javascript:alert(1)', 'http://evil.example.com', '']) {
+      document.body.innerHTML = '';
+      expect(link(await open(ctxWith({ roles: ['ADMIN'], appBase })))).toBeUndefined();
+    }
   });
 });
 

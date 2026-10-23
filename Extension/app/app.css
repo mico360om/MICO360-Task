@@ -485,6 +485,11 @@ a.td-file-name:hover { color: var(--brand); text-decoration: underline; }
 .nset-select { width: auto; max-width: 180px; }
 .nset-time { width: auto; }
 .nset-offline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* "Send me a test now" with what it said, and (administrators) the daily email log on the website. */
+.nset-extras { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line2); }
+.nset-test { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nset-test-said { font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
+.nset-log { font-size: 13px; }
 .warnbar { background: var(--warning-soft); color: var(--warning); border-radius: 10px; padding: 10px 14px; font-weight: 600; font-size: 13px; margin: 8px 0; }
 .nrow .nbody { display: block; font-size: 13px; margin-top: 2px; }
 .nrow .nb > .ntime { display: block; }
