@@ -17,6 +17,7 @@ import { createPrismaUserRepository } from './modules/auth/prisma-user-repositor
 import { createPrismaRefreshTokenStore } from './modules/auth/prisma-refresh-token-store';
 import { createProjectService } from './modules/projects/project-service';
 import { createPrismaProjectRepository } from './modules/projects/prisma-project-repository';
+import { createPrismaProjectOverviewSource } from './modules/projects/prisma-project-overview-source';
 import { createColumnService } from './modules/projects/column-service';
 import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
@@ -1147,6 +1148,7 @@ async function main(): Promise<void> {
     otpService,
     passwordResetService,
     projectService,
+    projectOverview: createPrismaProjectOverviewSource(prisma),
     projectAccess,
     columnService,
     memberService,

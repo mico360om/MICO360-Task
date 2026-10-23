@@ -13,6 +13,7 @@ import type { EmailWebhookService } from './modules/email/email-webhook-service'
 import { registerAuthRoutes, type AuthRouteDeps } from './modules/auth/auth-routes';
 import { createAuthGuard, type UserStateLookup } from './modules/auth/auth-guard';
 import { registerProjectRoutes } from './modules/projects/project-routes';
+import type { ProjectOverviewSource } from './modules/projects/project-overview';
 import type { ProjectService } from './modules/projects/project-service';
 import { registerTaskRoutes, type TaskMeetingLookup } from './modules/tasks/task-routes';
 import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
@@ -108,6 +109,8 @@ export interface AppDeps extends AuthRouteDeps {
    */
   userState?: UserStateLookup;
   projectService?: ProjectService;
+  /** The Projects page's figures in grouped queries (GET /projects/overview). */
+  projectOverview?: ProjectOverviewSource;
   columnService?: ColumnService;
   memberService?: MemberService;
   projectAuthz?: ProjectAuthz;
@@ -431,6 +434,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           listProjectTasks: deps.taskService ? (projectId) => deps.taskService!.listTasks({ projectId }) : undefined,
           timeZone: deps.appConfig?.timeZone,
+          overview: deps.projectOverview,
           audit: deps.auditService,
           storage: deps.chatAttachmentStorage,
           imageMaxBytes: deps.attachmentMaxSizeBytes,
