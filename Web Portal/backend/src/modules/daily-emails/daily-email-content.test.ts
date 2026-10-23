@@ -64,6 +64,9 @@ describe('pendingEmail (tasks assigned and not done)', () => {
 
   it('shows today’s date in the header, in the person’s time zone', () => {
     expect(email().html).toMatch(/class="email-head-note"[^>]*>Wednesday 21 October</);
+    // 21:30 on Tuesday in UTC is already 01:30 on Wednesday in Muscat.
+    const late = pendingEmail({ name: 'Ada', tasks, timeZone: TZ, now: new Date('2026-10-20T21:30:00Z'), appUrl: APP });
+    expect(late.html).toMatch(/class="email-head-note"[^>]*>Wednesday 21 October</);
   });
 
   it('puts each project in its own section: the most urgent project first, and in each the most urgent task first', () => {
@@ -91,7 +94,7 @@ describe('pendingEmail (tasks assigned and not done)', () => {
   });
 
   it('shows a project’s picture at an address email clients can load', () => {
-    expect(email().html).toContain('<img src="https://api.example/uploads/projects/ops.png" alt="Operations"');
+    expect(email().html).toContain('<img src="https://api.example/uploads/projects/ops.png" alt=""');
   });
 
   it('shows each task’s due day, priority and status as labels, with its link', () => {
@@ -109,20 +112,66 @@ describe('pendingEmail (tasks assigned and not done)', () => {
   });
 });
 
+describe('long lists stay readable (Gmail cuts off emails over about 100 KB)', () => {
+  const project = (i: number): DailyProject => ({ ...RIG, id: `p${i}`, code: `P${i}`, name: `Project ${i}` });
+  const many = (p: DailyProject, n: number, extra: Partial<DailyTask> = {}) =>
+    Array.from({ length: n }, (_, i) => task(`${p.code}-${i + 1}`, { project: p, dueDate: day('2026-10-25'), ...extra }));
+
+  it('shows up to 10 tasks of a project, then how many more with a link to the project', () => {
+    const { text } = pendingEmail({ name: 'Ada', tasks: many(RIG, 12), timeZone: TZ, now: NOW, appUrl: APP });
+    expect(text).toContain('- Task RIG-10 (RIG-10)');
+    expect(text).not.toContain('(RIG-11)');
+    expect(text).toContain('Active · 12 tasks for you');
+    expect(text).toContain('+2 more tasks in this project: https://task.example/projects/p-rig');
+  });
+
+  it('shows up to 30 tasks in all, then how many more in how many more projects', () => {
+    const tasks = [1, 2, 3, 4].flatMap((i) => many(project(i), 10));
+    const { text } = pendingEmail({ name: 'Ada', tasks, timeZone: TZ, now: NOW, appUrl: APP });
+    expect(text).toContain('You have 40 tasks that aren’t done yet, in 4 projects.');
+    expect(text).toContain('- Task P3-10 (P3-10)');
+    expect(text).not.toContain('PROJECT 4');
+    expect(text).toContain('+10 more tasks in 1 more project. Open My Tasks to see them all.');
+  });
+
+  it('shows up to 8 projects, then how many more tasks in how many more projects', () => {
+    const tasks = Array.from({ length: 12 }, (_, i) => many(project(i), 1)).flat();
+    const { text } = pendingEmail({ name: 'Ada', tasks, timeZone: TZ, now: NOW, appUrl: APP });
+    expect(text).toContain('PROJECT 7');
+    expect(text).not.toContain('PROJECT 8');
+    expect(text).toContain('+4 more tasks in 4 more projects. Open My Tasks to see them all.');
+  });
+
+  it('even 60 projects with one long task each stay well under Gmail’s limit, in both emails', () => {
+    const long = (i: number): DailyProject => ({ ...project(i), id: `cmurzexwn0010mf376wf4e${i}`, name: 'Offshore Inspection Data Platform Modernisation (Phase 2)', clientName: 'Gulf Energy Services LLC', managerName: 'Sara Ahmed Al Balushi', imageUrl: '/uploads/959ede6f-1f00-4036-8d81-65ca613418f5.jpg' });
+    const title = 'Investigate the intermittent sensor calibration failure on the north platform and report back';
+    const tasks = Array.from({ length: 60 }, (_, i) => task(`P${i}-1`, { id: `cmurzf22r018ogxky0re9${i}`, project: long(i), title, priority: 'HIGH', dueDate: day('2026-10-01'), statusLabel: 'In Progress', completedAt: new Date('2026-10-20T08:00:00Z') }));
+    expect(Buffer.byteLength(pendingEmail({ name: 'Ada', tasks, timeZone: TZ, now: NOW, appUrl: APP, assetUrl: ASSETS }).html)).toBeLessThan(80 * 1024);
+    expect(Buffer.byteLength(completedEmail({ name: 'Ada', tasks, day: '2026-10-20', timeZone: TZ, appUrl: APP, assetUrl: ASSETS }).html)).toBeLessThan(80 * 1024);
+  });
+
+  it('even 500 tasks in 50 projects stay well under Gmail’s limit, in both emails', () => {
+    const tasks = Array.from({ length: 50 }, (_, i) => many(project(i), 10)).flat();
+    expect(Buffer.byteLength(pendingEmail({ name: 'Ada', tasks, timeZone: TZ, now: NOW, appUrl: APP }).html)).toBeLessThan(90 * 1024);
+    const done = tasks.map((t) => ({ ...t, completedAt: new Date('2026-10-20T08:00:00Z') }));
+    expect(Buffer.byteLength(completedEmail({ name: 'Ada', tasks: done, day: '2026-10-20', timeZone: TZ, appUrl: APP }).html)).toBeLessThan(90 * 1024);
+  });
+});
+
 describe('completedEmail (their tasks finished yesterday)', () => {
   const tasks = [
     task('RIG-7', { completedAt: new Date('2026-10-20T12:42:00Z'), dueDate: day('2026-10-22'), priority: 'HIGH' }),
     task('RIG-6', { completedAt: new Date('2026-10-20T05:10:00Z'), dueDate: day('2026-10-18') }),
     task('OPS-8', { project: OPS, completedAt: new Date('2026-10-20T08:00:00Z') }),
   ];
-  const email = () => completedEmail({ name: 'Ada', tasks, day: '2026-10-20', timeZone: TZ, now: NOW, appUrl: APP, assetUrl: ASSETS });
+  const email = () => completedEmail({ name: 'Ada', tasks, day: '2026-10-20', timeZone: TZ, appUrl: APP, assetUrl: ASSETS });
 
   it('names the day and the count', () => {
     expect(email().subject).toBe('Completed yesterday (Tue 20 Oct): 3 tasks');
-    expect(completedEmail({ name: 'Ada', tasks: [tasks[0]!], day: '2026-10-20', timeZone: TZ, now: NOW, appUrl: APP }).subject).toBe('Completed yesterday (Tue 20 Oct): 1 task');
+    expect(completedEmail({ name: 'Ada', tasks: [tasks[0]!], day: '2026-10-20', timeZone: TZ, appUrl: APP }).subject).toBe('Completed yesterday (Tue 20 Oct): 1 task');
   });
 
-  it('shows today’s date in the header, and how many were on time or late', () => {
+  it('shows the day after the one it reports in the header (even when a retry goes after midnight), and how many were on time or late', () => {
     const { html, text } = email();
     expect(html).toMatch(/class="email-head-note"[^>]*>Wednesday 21 October</);
     expect(text).toContain('1 on time · 1 late');
@@ -136,7 +185,8 @@ describe('completedEmail (their tasks finished yesterday)', () => {
     expect(at('Task RIG-6')).toBeLessThan(at('Task RIG-7'));
     expect(at('Task RIG-7')).toBeLessThan(at('OPERATIONS'));
     expect(at('OPERATIONS')).toBeLessThan(at('Task OPS-8'));
-    expect(text).toContain('Active · 2 completed');
+    expect(text).toContain('Active · 2 tasks done');
+    expect(text).toContain('On hold · 1 task done');
   });
 
   it('shows each task’s finishing time, whether it was on time, its priority and due day, with its link', () => {

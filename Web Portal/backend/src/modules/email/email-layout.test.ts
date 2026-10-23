@@ -146,6 +146,12 @@ describe('renderEmail — layout', () => {
     expect(img).toContain('width:64px;height:30px');
   });
 
+  it('starts the footer cleanly when no company address is set', () => {
+    const { html } = renderEmail({ preheader: 'x', heading: 'h', blocks: [], brand: { companyAddress: '' } });
+    expect(html).not.toMatch(/">\. You/);
+    expect(html).toMatch(/">You’re receiving this email/);
+  });
+
   it('applies brand overrides', () => {
     const { html } = renderEmail({
       preheader: 'x',
@@ -184,6 +190,13 @@ describe('renderEmail — labels and a project with its tasks', () => {
       ],
     });
 
+  it('keeps a space between labels (Outlook, screen readers and copied text would run them together)', () => {
+    const { html } = model();
+    expect(html).toContain('>2 days overdue</span> <span');
+    expect(html).not.toContain('</span><span');
+    expect(html).not.toContain('margin:-8px');
+  });
+
   it('shows a row of labels, each in its colour', () => {
     const { html, text } = model();
     expect(html).toMatch(/background:#FBEDEA;color:#8f2f20[^"]*">1 overdue</);
@@ -193,7 +206,7 @@ describe('renderEmail — labels and a project with its tasks', () => {
 
   it('heads the project with its initials on its colour, its name, details, labels and a link, escaped', () => {
     const { html } = model();
-    expect(html).toMatch(/background:#3A6EA5[^"]*">RC</);
+    expect(html).toMatch(/<td width="42" height="42" align="center" bgcolor="#3A6EA5"[^>]*>RC</); // a cell, so Outlook keeps it 42 px
     expect(html).toContain('border-top:4px solid #3A6EA5');
     expect(html).toContain('Rig &amp; Co');
     expect(html).toContain('RIG · No. 2026-014 · Client: &lt;Acme&gt;');
@@ -202,11 +215,35 @@ describe('renderEmail — labels and a project with its tasks', () => {
   });
 
   it('shows the project’s picture when it has one email clients can load, and never an unsafe colour', () => {
-    expect(model({ imageUrl: 'https://api.example/uploads/rig.png' }).html).toContain('<img src="https://api.example/uploads/rig.png" alt="Rig &amp; Co" width="42" height="42"');
+    expect(model({ imageUrl: 'https://api.example/uploads/rig.png' }).html).toContain('<img src="https://api.example/uploads/rig.png" alt="" width="42" height="42"'); // decorative: the name is beside it
     expect(model({ imageUrl: 'javascript:alert(1)' }).html).not.toContain('javascript:alert(1)"');
     const odd = model({ color: 'red;background:url(x)' }).html;
     expect(odd).not.toContain('url(x)');
     expect(odd).toContain('border-top:4px solid #A83326');
+  });
+
+  it('says what each Open link opens, for screen readers', () => {
+    const { html } = model();
+    expect(html).toContain('aria-label="Open RIG-4"');
+    expect(html).toContain('aria-label="Open project Rig &amp; Co"');
+  });
+
+  it('keeps a right-to-left project name lined up with its details in a left-to-right email', () => {
+    expect(model({ name: 'مشروع الإطلاق' }).html).toMatch(/<div dir="auto" class="email-text" style="text-align:left;[^"]*">مشروع الإطلاق</);
+  });
+
+  it('takes initials from the words, not from brackets or signs', () => {
+    expect(model({ name: '(Alpha) Beta' }).html).toMatch(/>AB</);
+  });
+
+  it('ends a project cut short with how many more and a link to the project', () => {
+    const { html, text } = renderEmail({
+      preheader: 'p',
+      heading: 'h',
+      blocks: [{ kind: 'project', project: { name: 'Rig', href: 'https://task.example/projects/p1', details: [], chips: [] }, items: [], more: { text: '+2 more tasks in this project', href: 'https://task.example/projects/p1' } }],
+    });
+    expect(html).toMatch(/href="https:\/\/task.example\/projects\/p1"[^>]*>\+2 more tasks in this project ›</);
+    expect(text).toContain('+2 more tasks in this project: https://task.example/projects/p1');
   });
 
   it('lists each task with its title as a link, its key, its labels and an Open button, escaped', () => {

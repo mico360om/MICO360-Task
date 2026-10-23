@@ -20,6 +20,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   date, its status, how many of its tasks are yours (and how many are overdue or due today), and an
   "Open project" link. Each task shows its due day, priority and status as coloured labels, with an
   "Open" button, and the email starts with the day at a glance (overdue, due today, upcoming).
+  Long lists show up to 10 tasks per project, 30 in all and 8 projects, then say how many more there
+  are, so Gmail never cuts the email off.
 - Every email from MICO360 Tasks is wider on a computer (up to 720 px instead of 600 px) and uses the
   whole width of a phone, with a slimmer header (today's date on the morning emails) and a shorter
   footer. They also read well in dark mode.

@@ -279,7 +279,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     }
     const yesterday = shiftDayKey(day, -1);
     const tasks = await deps.tasks.completedBetween(person.id, zonedStartOfDay(yesterday, timeZone), zonedStartOfDay(day, timeZone));
-    return { count: tasks.length, content: tasks.length ? completedEmail({ name: person.name, tasks, day: yesterday, timeZone, now: at, appUrl: deps.appUrl, assetUrl: deps.assetUrl }) : null };
+    return { count: tasks.length, content: tasks.length ? completedEmail({ name: person.name, tasks, day: yesterday, timeZone, appUrl: deps.appUrl, assetUrl: deps.assetUrl }) : null };
   }
 
   interface Attempted {

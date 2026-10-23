@@ -365,7 +365,7 @@ describe('daily task emails: how they look', () => {
     await s.service.runSweep();
     expect(s.sent.map((m) => m.template)).toEqual(['daily-pending', 'daily-completed']);
     for (const m of s.sent) {
-      expect(m.html).toContain('<img src="https://api.example/uploads/projects/rig.png" alt="Rig"');
+      expect(m.html).toContain('<img src="https://api.example/uploads/projects/rig.png" alt=""');
       expect(m.html).toMatch(/class="email-head-note"[^>]*>Wednesday 21 October</);
     }
   });

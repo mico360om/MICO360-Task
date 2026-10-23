@@ -61,10 +61,14 @@ function pictureUrl(imageUrl: string | null, assetUrl: string | undefined): stri
 function dayLabel(key: string): string {
   return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`)).replace(',', '');
 }
-/** "Wednesday 21 October": today, in the person's time zone (the header's note). */
-function todayLabel(now: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${zonedDayKey(now, timeZone)}T12:00:00Z`)).replace(',', '');
+/** "Wednesday 21 October" for a 'YYYY-MM-DD' day (the header's note). */
+function dayLongLabel(key: string): string {
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`)).replace(',', '');
 }
+/** Today, in the person's time zone. */
+const todayLabel = (now: Date, timeZone: string) => dayLongLabel(zonedDayKey(now, timeZone));
+/** The day after a 'YYYY-MM-DD' day. */
+const nextDay = (key: string) => new Date(Date.parse(`${key}T12:00:00Z`) + 864e5).toISOString().slice(0, 10);
 /** "Tue 20 Oct, 09:10" for an instant, in the person's time zone. */
 function momentLabel(at: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at);
@@ -80,6 +84,41 @@ const byDueThenPriority = (timeZone: string) => (a: DailyTask, b: DailyTask) =>
   (dueDayKey(a.dueDate, timeZone) ?? '9999').localeCompare(dueDayKey(b.dueDate, timeZone) ?? '9999') ||
   PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
   a.key.localeCompare(b.key, undefined, { numeric: true });
+
+/** At most this many tasks of one project, tasks in all, and projects: Gmail cuts off emails over about 100 KB. */
+const PER_PROJECT = 10;
+const IN_ALL = 30;
+const PROJECTS = 8;
+
+/**
+ * The sections that fit: up to PER_PROJECT tasks of a project, IN_ALL tasks and PROJECTS projects in
+ * all, in order; with how many tasks (and projects) were left out.
+ */
+function fitting<G extends { tasks: DailyTask[] }>(groups: G[]): { shown: Array<G & { showing: DailyTask[] }>; leftTasks: number; leftProjects: number } {
+  let room = IN_ALL;
+  const shown: Array<G & { showing: DailyTask[] }> = [];
+  let leftTasks = 0;
+  let leftProjects = 0;
+  for (const g of groups) {
+    if (room <= 0 || shown.length >= PROJECTS) {
+      leftTasks += g.tasks.length;
+      leftProjects += 1;
+      continue;
+    }
+    const showing = g.tasks.slice(0, Math.min(PER_PROJECT, room));
+    room -= showing.length;
+    shown.push({ ...g, showing });
+  }
+  return { shown, leftTasks, leftProjects };
+}
+
+/** "+2 more tasks in this project", linking to the project, when a section is cut short. */
+const moreInProject = (g: { project: DailyProject; tasks: DailyTask[]; showing: DailyTask[] }, appUrl: string) =>
+  g.tasks.length > g.showing.length ? { more: { text: `+${plural(g.tasks.length - g.showing.length, 'more task')} in this project`, href: projectLink(appUrl, g.project.id) } } : {};
+
+/** "+10 more tasks in 1 more project. Open My Tasks to see them all." */
+const moreProjects = (left: { leftTasks: number; leftProjects: number }): Block[] =>
+  left.leftProjects ? [{ kind: 'text', text: `+${plural(left.leftTasks, 'more task')} in ${plural(left.leftProjects, 'more project')}. Open My Tasks to see them all.` }] : [];
 
 /** The tasks of each project, the projects in the order their first task comes. */
 function byProject(tasks: DailyTask[]): Array<{ project: DailyProject; tasks: DailyTask[] }> {
@@ -155,6 +194,7 @@ export function pendingEmail(
     chips: [dueChip(t), PRIORITY_CHIP[t.priority], { text: t.statusLabel, tone: 'outline' }],
   });
   const groups = byProject(sorted);
+  const fit = fitting(groups);
   const n = p.tasks.length;
   const blocks: Block[] = [
     { kind: 'text', text: `You have ${plural(n, 'task')} that ${n === 1 ? 'isn’t' : 'aren’t'} done yet${groups.length > 1 ? `, in ${groups.length} projects` : ''}.` },
@@ -164,7 +204,7 @@ export function pendingEmail(
       upcoming > 0 && { text: `${upcoming} upcoming`, tone: 'info' },
       noDue > 0 && { text: `${noDue} with no due date`, tone: 'muted' },
     ]),
-    ...groups.map((g): Block => {
+    ...fit.shown.map((g): Block => {
       const late = g.tasks.filter(isOverdue).length;
       const now = g.tasks.filter(isToday).length;
       return {
@@ -178,9 +218,11 @@ export function pendingEmail(
           ]),
           p,
         ),
-        items: g.tasks.map(item),
+        items: g.showing.map(item),
+        ...moreInProject(g, p.appUrl),
       };
     }),
+    ...moreProjects(fit),
     { kind: 'button', label: 'Open My Tasks', href: `${base(p.appUrl)}/my-tasks` },
     settingsNote(p.appUrl, 'this email'),
   ];
@@ -195,7 +237,7 @@ export function pendingEmail(
  * priority and due day.
  */
 export function completedEmail(
-  p: { name: string; tasks: DailyTask[]; day: string; timeZone: string; now: Date; appUrl: string; assetUrl?: string },
+  p: { name: string; tasks: DailyTask[]; day: string; timeZone: string; appUrl: string; assetUrl?: string },
   opts?: TemplateOptions,
 ): EmailContent {
   const sorted = [...p.tasks].sort((a, b) => (a.completedAt?.getTime() ?? 0) - (b.completedAt?.getTime() ?? 0));
@@ -223,18 +265,21 @@ export function completedEmail(
   const late = sorted.filter((t) => timing(t)?.tone === 'warning').length;
   const label = dayLabel(p.day);
   const n = sorted.length;
+  const fit = fitting(byProject(sorted));
   const blocks: Block[] = [
     { kind: 'text', text: `${p.name}, here ${n === 1 ? 'is the task' : 'are the tasks'} assigned to you that ${n === 1 ? 'was' : 'were'} completed yesterday, ${label}.` },
     ...glance([onTime > 0 && { text: `${onTime} on time`, tone: 'success' }, late > 0 && { text: `${late} late`, tone: 'warning' }]),
-    ...byProject(sorted).map(
+    ...fit.shown.map(
       (g): Block => ({
         kind: 'project',
-        project: projectCard(g.project, [{ text: `${g.tasks.length} completed`, tone: 'neutral' }], p),
-        items: g.tasks.map(item),
+        project: projectCard(g.project, [{ text: `${plural(g.tasks.length, 'task')} done`, tone: 'neutral' }], p),
+        items: g.showing.map(item),
+        ...moreInProject(g, p.appUrl),
       }),
     ),
+    ...moreProjects(fit),
     { kind: 'button', label: 'Open My Tasks', href: `${base(p.appUrl)}/my-tasks` },
     settingsNote(p.appUrl, 'this email'),
   ];
-  return render(`Completed yesterday (${label}): ${plural(n, 'task')}`, `${plural(n, 'task')} done on ${label}.`, 'Completed yesterday', todayLabel(p.now, p.timeZone), blocks, opts);
+  return render(`Completed yesterday (${label}): ${plural(n, 'task')}`, `${plural(n, 'task')} done on ${label}.`, 'Completed yesterday', dayLongLabel(nextDay(p.day)), blocks, opts);
 }
