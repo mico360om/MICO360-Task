@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-10-23
+
 ### Improvements
 - The morning emails (pending tasks, and tasks completed yesterday) are grouped by project: each project
   has its own section with its picture or initials, code, project number, client, manager and target
