@@ -40,6 +40,48 @@ export function withPendingMoves<T extends { id: string; columnId: string; colum
   return changed ? next : tasks;
 }
 
+/** What a list's card shows of a task that an edit kept on this phone may change (My Tasks — final review A7). */
+const LISTED_FIELDS = ['title', 'priority', 'dueDate', 'startDate', 'isMilestone'] as const;
+
+/**
+ * My Tasks with this user's changes still waiting to be sent laid over it (final review A7) — as the
+ * boards lay their moves: a move (a task completed offline shows as done, not under Open; one moved
+ * out of Done shows as open again) and an edit of what the list shows (title, priority, dates). The
+ * newest change of a task wins; tasks no change names are left as they are.
+ */
+export function withPendingTaskChanges<T extends { id: string; columnId: string; columnCategory?: string | null; completedAt?: string | null }>(
+  tasks: T[],
+  pending: readonly Pick<QueuedMutation, 'kind' | 'payload'>[],
+): T[] {
+  const moved = withPendingMoves(tasks, pending);
+  if (!Array.isArray(moved)) return moved;
+  const edits = new Map<string, Record<string, unknown>>();
+  const reopened = new Set<string>();
+  for (const m of pending) {
+    const p = (m.payload ?? {}) as { id?: unknown; patch?: unknown; category?: unknown };
+    if (typeof p.id !== 'string') continue;
+    if (m.kind === 'task.move' && typeof p.category === 'string' && p.category) {
+      if (p.category === 'DONE') reopened.delete(p.id);
+      else reopened.add(p.id);
+    } else if (m.kind === 'task.update' && p.patch && typeof p.patch === 'object') {
+      const patch = p.patch as Record<string, unknown>;
+      const fields: Record<string, unknown> = {};
+      for (const f of LISTED_FIELDS) if (f in patch) fields[f] = patch[f];
+      if (Object.keys(fields).length) edits.set(p.id, { ...edits.get(p.id), ...fields });
+    }
+  }
+  if (edits.size === 0 && reopened.size === 0) return moved;
+  let changed = false;
+  const next = moved.map((t) => {
+    const edit = edits.get(t.id);
+    const reopen = reopened.has(t.id) && !!t.completedAt;
+    if (!edit && !reopen) return t;
+    changed = true;
+    return { ...t, ...edit, ...(reopen ? { completedAt: null } : {}) };
+  });
+  return changed ? next : moved;
+}
+
 /**
  * The reads the app's lists make (core/queries): through the offline copy (read-cache), so a list
  * still shows without a connection.
@@ -72,10 +114,16 @@ export function createOfflineReads({ cache, pendingChanges }: OfflineReadsDeps) 
     return withPendingMoves(tasks, pendingChanges());
   }
 
+  /** My Tasks, with this user's moves and edits still waiting laid over it (final review A7). */
+  async function readMyTasks(queryKey: QueryKey, key: string, fetcher: () => Promise<ApiTask[]>, opts?: ReadOptions<ApiTask[]>): Promise<ApiTask[]> {
+    const tasks = await read(queryKey, key, fetcher, opts);
+    return withPendingTaskChanges(tasks, pendingChanges());
+  }
+
   /** Did this query's newest answer come from the offline copy (so it is out of date)? */
   const answeredFromCopy = (query: { queryHash: string }): boolean => fromCopy.has(query.queryHash);
 
-  return { read, readBoard, answeredFromCopy };
+  return { read, readBoard, readMyTasks, answeredFromCopy };
 }
 
 export type OfflineReads = ReturnType<typeof createOfflineReads>;

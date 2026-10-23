@@ -5,6 +5,8 @@ import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { BULK_LABELS, bulkProgressText, bulkResultText, createBulkRefresher, runBulk, type BulkDeps } from './bulk-actions';
 import { refresh } from './refresh';
 import { afterTaskSaved, assignmentRefreshes, moveRefreshes } from './task-cache';
+import { createOfflineReads } from './offline-reads';
+import { enrichMyTasks } from './my-tasks';
 import type { ApiTask } from './types';
 
 const src = (p: string) => (existsSync(resolve(__dirname, '..', p)) ? readFileSync(resolve(__dirname, '..', p), 'utf8') : '');
@@ -110,5 +112,33 @@ describe('a bulk run reads the lists once, at the end (final review A2)', () => 
   it('a reading of My Tasks that is called off stops its download (the list’s fetch gets the signal)', () => {
     expect(src('core/queries.ts')).toMatch(/queryFn: \(\{ queryKey, signal \}\) => reads\.\w+\(queryKey, 'tasks\.mine', \(\) => resources\.tasks\.mine\(\{ signal \}\)/);
     expect(src('lib/resources.ts')).toMatch(/mine: \(opts: \{ signal\?: AbortSignal \} = \{\}\) => data\(client\.get<Envelope<ApiTask\[\]>>\('\/tasks\/mine', opts\.signal \? \{ signal: opts\.signal \} : undefined\)\)/);
+  });
+});
+
+describe('My Tasks shows what a bulk action kept on this phone (final review A7)', () => {
+  const t = (id: string, patch: Partial<ApiTask> = {}): ApiTask =>
+    ({ id, key: `K-${id}`, title: id, projectId: 'a', columnId: 'todo', columnCategory: 'TODO', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, estimatedHours: null, progress: 0, completedAt: null, version: 4, ...patch }) as ApiTask;
+  const kept = (kind: string, payload: unknown) => ({ kind, payload });
+
+  it('a task completed offline shows as done (not under Open), one moved out of Done as open again; a kept due date and priority show', async () => {
+    const pending = [
+      kept('task.move', { id: 't1', columnId: 'done', projectId: 'a', category: 'DONE' }),
+      kept('task.move', { id: 't2', columnId: 'doing', projectId: 'a', category: 'IN_PROGRESS' }),
+      kept('task.update', { id: 't3', patch: { dueDate: '2026-10-30', priority: 'HIGH', expectedVersion: 4 } }),
+      kept('task.update', { id: 't3', patch: { priority: 'URGENT', expectedVersion: 5 } }),
+    ];
+    const reads = createOfflineReads({ cache: { read: async (_key, fetcher) => ({ data: await fetcher(), stale: true }) }, pendingChanges: () => pending as never });
+    const listed = [t('t1'), t('t2', { columnId: 'done', columnCategory: 'DONE', completedAt: '2026-10-20T08:00:00Z' }), t('t3'), t('t4')];
+    const tasks = await reads.readMyTasks(['tasks', 'mine'], 'tasks.mine', async () => listed);
+    const rows = enrichMyTasks(tasks, [], { timeZone: 'Asia/Muscat', now: new Date('2026-10-21T08:00:00Z') });
+    expect(rows.map((r) => r.done)).toEqual([true, false, false, false]);
+    expect(tasks[2]).toMatchObject({ dueDate: '2026-10-30', priority: 'URGENT', version: 4 });
+    expect(tasks[2]).not.toHaveProperty('expectedVersion');
+    expect(tasks[3]).toBe(listed[3]);
+    expect(rows[2]!.dueKey).toBe('2026-10-30');
+  });
+
+  it('My Tasks is read through it', () => {
+    expect(src('core/queries.ts')).toMatch(/queryFn: \(\{ queryKey, signal \}\) => reads\.readMyTasks\(queryKey, 'tasks\.mine', /);
   });
 });

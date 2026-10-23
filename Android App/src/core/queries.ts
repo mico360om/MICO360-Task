@@ -87,8 +87,9 @@ export function useMyTasks() {
   return useQuery({
     queryKey: ['tasks', 'mine'],
     // Every task ever assigned comes back; a copy too long to keep leaves out long-finished ones.
-    // A reading called off (a newer one asked for) stops its download (final review A2).
-    queryFn: ({ queryKey, signal }) => reads.read(queryKey, 'tasks.mine', () => resources.tasks.mine({ signal }), { slim: withoutOldDone(Date.now()) }),
+    // A reading called off (a newer one asked for) stops its download (final review A2). The moves
+    // and edits still waiting on this phone are laid over it, as the boards do (final review A7).
+    queryFn: ({ queryKey, signal }) => reads.readMyTasks(queryKey, 'tasks.mine', () => resources.tasks.mine({ signal }), { slim: withoutOldDone(Date.now()) }),
   });
 }
 
