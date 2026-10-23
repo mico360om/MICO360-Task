@@ -41,6 +41,10 @@ export const exportFiles: ExportFiles = {
       const res = await task.downloadAsync();
       if (!res) throw new Error('The download was stopped.');
       return { status: res.status, headers: res.headers ?? {}, uri: res.uri };
+    } catch (e) {
+      // Whatever had arrived before it failed (the connection dropped part way) goes (final review A10).
+      await FileSystem.deleteAsync(to, { idempotent: true }).catch(() => {});
+      throw e;
     } finally {
       if (timer) clearTimeout(timer);
     }

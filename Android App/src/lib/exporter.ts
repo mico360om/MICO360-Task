@@ -7,6 +7,7 @@ export interface ExportFiles {
   /**
    * Download `url` into the app's export folder as `name`; resolves with the HTTP status and
    * headers. `timeoutMs`: the download is stopped (and its partial file deleted) after that long.
+   * A download that fails part way deletes what had arrived too (final review A10).
    */
   download(url: string, name: string, headers: Record<string, string>, opts?: { timeoutMs?: number }): Promise<{ status: number; headers: Record<string, string>; uri: string }>;
   /** Rename a downloaded file; resolves with its new uri. */
