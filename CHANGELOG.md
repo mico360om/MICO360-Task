@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-23
+
 ### Security
 - The server's web framework (fastify) is updated to 5.12.7, which checks request headers more
   strictly (CVE-2026-107832).
