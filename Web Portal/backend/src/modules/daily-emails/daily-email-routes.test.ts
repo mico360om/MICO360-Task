@@ -22,6 +22,7 @@ const emailState = { on: true, state: 'SENT' as const, dueAt: null, sentAt: new 
 const overviewOf = (day: string | null): DailyEmailOverview => ({
   day,
   lastCheckedAt: new Date('2026-10-21T05:41:00Z'),
+  checkLate: false,
   nextSendAt: new Date('2026-10-22T02:00:00Z'),
   summary: { people: 1, sent: 1, skipped: 1, failed: 0, retrying: 0, sending: 0, upcoming: 0, toSend: 0 },
   people: [{ userId: 'u1', name: 'Ada Lovelace', email: 'ada@mico360.test', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '07:00', day: day ?? '2026-10-21', pending: emailState, completed: { ...emailState, state: 'SKIPPED', sentAt: null, taskCount: 0 } }],

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { createPrismaDailyEmailRepository } from '../../src/modules/daily-emails/prisma-daily-email-repository';
+import { createPrismaDailyEmailRepository, createPrismaDailyEmailCheckStore, DAILY_EMAIL_CHECK_KEY } from '../../src/modules/daily-emails/prisma-daily-email-repository';
+import { isSettingKey } from '../../src/modules/settings/settings-service';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -112,6 +113,21 @@ describe('PrismaDailyEmailRepository (integration)', () => {
     const taken = (await repo.retake(stuck))!;
     expect(taken.updatedAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
     expect((await repo.dueForRetry(new Date(), new Date(Date.now() - 15 * 60_000))).some((r) => r.id === a.id)).toBe(false);
+  });
+
+  it('keeps when the sweep last checked in the database (one row in system_settings, never shown by the settings API)', async () => {
+    const checks = createPrismaDailyEmailCheckStore(prisma);
+    await prisma.systemSetting.deleteMany({ where: { key: DAILY_EMAIL_CHECK_KEY } });
+    try {
+      expect(await checks.last()).toBeNull();
+      await Promise.all([checks.record(new Date('2026-10-21T02:00:00Z')), checks.record(new Date('2026-10-21T02:00:00Z'))]); // two servers at once
+      await checks.record(new Date('2026-10-21T02:01:00Z'));
+      expect(await checks.last()).toEqual(new Date('2026-10-21T02:01:00Z'));
+      expect(await prisma.systemSetting.count({ where: { key: DAILY_EMAIL_CHECK_KEY } })).toBe(1);
+      expect(isSettingKey(DAILY_EMAIL_CHECK_KEY)).toBe(false);
+    } finally {
+      await prisma.systemSetting.deleteMany({ where: { key: DAILY_EMAIL_CHECK_KEY } });
+    }
   });
 
   it('lets only one administrator’s resend take a sent email at the same moment', async () => {

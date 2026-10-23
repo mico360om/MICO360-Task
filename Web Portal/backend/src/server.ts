@@ -67,7 +67,7 @@ import { planReminders } from './modules/notifications/reminder';
 import { dispatchReminders } from './modules/notifications/reminder-dispatch';
 import { buildDigests } from './modules/notifications/notification-digest';
 import { createDailyEmailService } from './modules/daily-emails/daily-email-service';
-import { createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
+import { createPrismaDailyEmailCheckStore, createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
 import { createPrismaDailyEmailSources } from './modules/daily-emails/prisma-daily-email-sources';
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
@@ -1064,6 +1064,8 @@ async function main(): Promise<void> {
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
     logger,
+    // When the sweep last checked: in the database, so a restart or another server still knows it.
+    checks: createPrismaDailyEmailCheckStore(prisma),
   });
   // Job leases are held for their whole length (never released), so this one is under a minute or
   // the sweep would only run every 10 minutes. Overlapping runs are harmless: each email is claimed

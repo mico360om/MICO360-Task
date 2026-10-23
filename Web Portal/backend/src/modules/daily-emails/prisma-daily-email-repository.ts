@@ -16,6 +16,32 @@ const toRecord = (r: DailyTaskEmail): DailyEmailRecord => ({
   updatedAt: r.updatedAt,
 });
 
+/** The system_settings row that keeps when the sweep last checked (not a setting: never in the settings API). */
+export const DAILY_EMAIL_CHECK_KEY = 'dailyEmails.lastCheckedAt';
+
+/** When the daily-email sweep last checked, kept in the database so every server and a restart know it. */
+export function createPrismaDailyEmailCheckStore(prisma: PrismaClient) {
+  return {
+    async record(at: Date): Promise<void> {
+      const value = { at: at.toISOString() };
+      const { count } = await prisma.systemSetting.updateMany({ where: { key: DAILY_EMAIL_CHECK_KEY }, data: { value } });
+      if (count) return;
+      try {
+        await prisma.systemSetting.create({ data: { key: DAILY_EMAIL_CHECK_KEY, value } });
+      } catch (err) {
+        // Another server wrote the first one at the same moment: write ours over it.
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err;
+        await prisma.systemSetting.updateMany({ where: { key: DAILY_EMAIL_CHECK_KEY }, data: { value } });
+      }
+    },
+    async last(): Promise<Date | null> {
+      const row = await prisma.systemSetting.findUnique({ where: { key: DAILY_EMAIL_CHECK_KEY } });
+      const at = (row?.value as { at?: unknown } | null | undefined)?.at;
+      return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? new Date(at) : null;
+    },
+  };
+}
+
 export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEmailRepository {
   return {
     async claim(userId, day, kind) {

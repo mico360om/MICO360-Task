@@ -34,7 +34,15 @@ export interface DailyEmailServiceDeps {
   appUrl: string;
   now?: () => Date;
   logger?: { info(msg: string, ctx?: Record<string, unknown>): void; warn(msg: string, ctx?: Record<string, unknown>): void };
+  /**
+   * When the sweep last ran, kept in the database so every server (and a restart) knows it. Without
+   * it, only this server's own memory.
+   */
+  checks?: { record(at: Date): Promise<void>; last(): Promise<Date | null> };
 }
+
+/** Longer than this without a check while emails are due: the server isn't checking (asleep, stopped). */
+export const CHECK_LATE_MS = 5 * 60_000;
 
 /**
  * One email's state on a day, for the administrators: OFF (turned off, nothing recorded), DUE (still
@@ -76,8 +84,13 @@ export interface DailyEmailOverviewPerson {
 export interface DailyEmailOverview {
   /** The day asked for, or null: each person's own today. */
   day: string | null;
-  /** When the sweep last ran on this server; null when it hasn't since the server started. */
+  /** When the sweep last ran (on any server); null when it never has. */
   lastCheckedAt: Date | null;
+  /**
+   * The server hasn't checked for over 5 minutes (or never has) although emails are due and haven't
+   * gone: the sweep isn't running (asleep, stopped). Never while email isn't set up.
+   */
+  checkLate: boolean;
   /** The next time any person's email is due (it may have passed: due now). */
   nextSendAt: Date | null;
   summary: {
@@ -154,6 +167,27 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   let warnedNotConfigured = false;
   let lastChecked: Date | null = null;
   const zoneOf = (person: DailyRecipient) => validZone(person.timeZone, deps.companyTimeZone);
+
+  /** The sweep checked at `at`: kept here and in the database (a problem writing it never stops the sweep). */
+  async function noteChecked(at: Date): Promise<void> {
+    lastChecked = at;
+    try {
+      await deps.checks?.record(at);
+    } catch (err) {
+      deps.logger?.warn('could not write down when the daily emails were last checked', { error: messageOf(err) });
+    }
+  }
+  /** When the sweep last ran on any server: the later of the database's time and this server's own. */
+  async function lastCheckedAt(): Promise<Date | null> {
+    let stored: Date | null = null;
+    try {
+      stored = (await deps.checks?.last()) ?? null;
+    } catch {
+      /* the database didn't answer: this server's own time */
+    }
+    if (!stored) return lastChecked;
+    return lastChecked && lastChecked > stored ? lastChecked : stored;
+  }
 
   async function build(kind: DailyEmailKind, person: DailyRecipient, day: string, at: Date): Promise<{ count: number; content: EmailContent | null }> {
     const timeZone = zoneOf(person);
@@ -266,10 +300,11 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     };
     const at = now();
     await writeUnrecorded();
+    // Written as it starts: a sweep busy sending for minutes is still checking.
+    await noteChecked(at);
     if (!deps.isConfigured()) {
       if (!warnedNotConfigured) deps.logger?.warn('Daily task emails are waiting: email sending is not set up on this server');
       warnedNotConfigured = true;
-      lastChecked = at;
       return tally;
     }
     warnedNotConfigured = false;
@@ -301,7 +336,6 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       }
       count((await attempt(taken, person)).status);
     }
-    lastChecked = at;
     if (tally.SENT || tally.RETRY || tally.FAILED) deps.logger?.info('daily task emails', tally);
     return tally;
   }
@@ -432,6 +466,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
 
     const summary = { people: 0, sent: 0, skipped: 0, failed: 0, retrying: 0, sending: 0, upcoming: 0, toSend: 0 };
     let nextSendAt: Date | null = null;
+    let dueNotSent = false;
     const out: DailyEmailOverviewPerson[] = [];
 
     for (const { person, timeZone, prefs, today } of local) {
@@ -476,6 +511,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       // "Send now" and the next send are about today, whichever day is shown.
       const todayRows = kindsOn.map((k) => rowOf(person.id, today, k));
       if (todayRows.some((r) => !r || r.status === 'FAILED' || r.status === 'RETRY')) summary.toSend++;
+      if (todayRows.some((r) => !r) && todayDue <= at) dueNotSent = true;
       for (const r of todayRows) {
         const next = r ? tomorrow : todayDue;
         if (!nextSendAt || next < nextSendAt) nextSendAt = next;
@@ -483,10 +519,12 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     }
 
     out.sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
-    return { day: day ?? null, lastCheckedAt: lastChecked, nextSendAt, summary, people: out };
+    const checked = await lastCheckedAt();
+    const checkLate = deps.isConfigured() && dueNotSent && (!checked || at.getTime() - checked.getTime() > CHECK_LATE_MS);
+    return { day: day ?? null, lastCheckedAt: checked, checkLate, nextSendAt, summary, people: out };
   }
 
-  return { runSweep, sendTest, sendNow, sendFor, preview, overview, lastCheckedAt: () => lastChecked };
+  return { runSweep, sendTest, sendNow, sendFor, preview, overview, lastCheckedAt };
 }
 
 export type DailyEmailService = ReturnType<typeof createDailyEmailService>;

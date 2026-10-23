@@ -73,7 +73,13 @@ const task = (key: string, extra: Partial<DailyTask> = {}): DailyTask => ({
   id: key, key, title: key, projectName: 'Rig', priority: 'NORMAL', dueDate: null, statusLabel: 'To Do', completedAt: null, ...extra,
 });
 
-function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; configured?: boolean; failures?: number; blocked?: string[] } = {}) {
+/** When the sweep last ran, kept like the database keeps it: shared by every server (and a restart). */
+function checkStore() {
+  let last: Date | null = null;
+  return { record: async (at: Date) => { last = at; }, last: async () => last };
+}
+
+function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; configured?: boolean; failures?: number; blocked?: string[]; checks?: ReturnType<typeof checkStore> } = {}) {
   let now = at('2026-10-21T02:00:00Z'); // 06:00 in Muscat
   const { repo, rows, failFinishes } = memoryRepo(() => now);
   let failures = opts.failures ?? 0;
@@ -110,6 +116,7 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
     appUrl: 'https://task.example',
     now: () => now,
     logger: { info: vi.fn(), warn },
+    ...(opts.checks ? { checks: opts.checks } : {}),
   });
   return {
     service, rows, sent, pending, completedBetween, warn, people,
@@ -353,18 +360,47 @@ const onlyPending = { muted: [], dailyEmails: { pending: true, completed: false,
 const bothOff = { muted: [], dailyEmails: { pending: false, completed: false, time: '06:00' } };
 
 describe('daily task emails: when the server last checked', () => {
-  it('is not known until the sweep has run since the server started, then it is the sweep’s time', async () => {
+  it('is not known until the sweep has run, then it is the sweep’s time', async () => {
     const s = setup();
-    expect(s.service.lastCheckedAt()).toBeNull();
+    expect(await s.service.lastCheckedAt()).toBeNull();
     s.setNow('2026-10-21T01:30:00Z');
     await s.service.runSweep();
-    expect(s.service.lastCheckedAt()?.toISOString()).toBe('2026-10-21T01:30:00.000Z');
+    expect(await s.service.lastCheckedAt()).toEqual(at('2026-10-21T01:30:00Z'));
   });
 
   it('counts a sweep that found email not set up (it still checked)', async () => {
     const s = setup({ configured: false });
     await s.service.runSweep();
-    expect(s.service.lastCheckedAt()?.toISOString()).toBe('2026-10-21T02:00:00.000Z');
+    expect(await s.service.lastCheckedAt()).toEqual(at('2026-10-21T02:00:00Z'));
+  });
+
+  it('is kept in the database: after a restart, or on another server, the overview still knows', async () => {
+    const checks = checkStore();
+    const before = setup({ checks });
+    before.setNow('2026-10-21T01:30:00Z');
+    await before.service.runSweep();
+    const restarted = setup({ checks });
+    restarted.setNow('2026-10-21T01:31:00Z');
+    expect((await restarted.service.overview()).lastCheckedAt).toEqual(at('2026-10-21T01:30:00Z'));
+  });
+
+  it('says when the server hasn’t checked for a while although emails are due (it was asleep)', async () => {
+    const checks = checkStore();
+    const s = setup({ checks });
+    s.setNow('2026-10-20T19:59:00Z'); // 23:59 the night before
+    await s.service.runSweep();
+    s.setNow('2026-10-21T01:00:00Z'); // 05:00: nothing due yet
+    expect((await s.service.overview()).checkLate).toBe(false);
+    s.setNow('2026-10-21T03:00:00Z'); // 07:00: Ada’s 06:00 emails haven’t gone
+    expect(await s.service.overview()).toMatchObject({ lastCheckedAt: at('2026-10-20T19:59:00Z'), checkLate: true });
+    await s.service.runSweep(); // it wakes and catches up
+    expect((await s.service.overview()).checkLate).toBe(false);
+  });
+
+  it('not while email isn’t set up (that is said instead)', async () => {
+    const s = setup({ configured: false, checks: checkStore() });
+    s.setNow('2026-10-21T03:00:00Z');
+    expect((await s.service.overview()).checkLate).toBe(false);
   });
 });
 
