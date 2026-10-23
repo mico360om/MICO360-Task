@@ -87,17 +87,12 @@ export function tabCounts(projects: Pick<ProjectOverview, 'status'>[]): Record<S
   return out;
 }
 
-/** I own it, manage it, or am on its team. (Having created it is not enough.) */
-export function isMine(p: Pick<ProjectOverview, 'ownerId' | 'managerId' | 'team'>, userId: string | null | undefined): boolean {
-  if (!userId) return false;
-  return p.ownerId === userId || p.managerId === userId || p.team.some((m) => m.id === userId);
-}
-
-/** Search, owner and "only mine" — everything but the tab, so the tab counts can follow them. */
-export function filterProjects(projects: ProjectOverview[], state: ProjectListState, userId: string | null | undefined): ProjectOverview[] {
-  return projects.filter(
-    (p) => matchesSearch(p, state.q) && (!state.owner || p.ownerId === state.owner) && (!state.mine || isMine(p, userId)),
-  );
+/**
+ * Search, owner and "only mine" — everything but the tab, so the tab counts can follow them. "Mine"
+ * (I own it, manage it or am on its team; having created it is not enough) comes from the server.
+ */
+export function filterProjects(projects: ProjectOverview[], state: ProjectListState): ProjectOverview[] {
+  return projects.filter((p) => matchesSearch(p, state.q) && (!state.owner || p.ownerId === state.owner) && (!state.mine || p.mine));
 }
 
 export function ownerOptions(projects: ProjectOverview[]): { id: string; name: string }[] {
@@ -145,6 +140,7 @@ const byName = (a: ProjectOverview, b: ProjectOverview) => compareNames(a.name, 
 /** Ascending, with the missing ones last. */
 const keyOrder = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a < b ? -1 : 1);
 const doneShare = (s: ProjectStats) => (s.total ? s.done / s.total : Infinity);
+const targetGroup = (p: ProjectOverview, tz: string) => (targetKey(p, tz) === null ? 2 : finished(p.status) ? 1 : 0);
 
 const SORTERS: Record<ProjectSort, (today: string, timeZone: string) => (a: ProjectOverview, b: ProjectOverview) => number> = {
   attention: (today, tz) => (a, b) =>
@@ -154,7 +150,8 @@ const SORTERS: Record<ProjectSort, (today: string, timeZone: string) => (a: Proj
     byName(a, b),
   name: () => byName,
   updated: () => (a, b) => Date.parse(b.stats.lastActivityAt) - Date.parse(a.stats.lastActivityAt) || byName(a, b),
-  target: (_today, tz) => (a, b) => keyOrder(targetKey(a, tz), targetKey(b, tz)) || byName(a, b),
+  // Open projects with a target, nearest first; then finished ones (Completed, Archived); then those without one.
+  target: (_today, tz) => (a, b) => targetGroup(a, tz) - targetGroup(b, tz) || keyOrder(targetKey(a, tz), targetKey(b, tz)) || byName(a, b),
   progress: () => (a, b) => {
     const x = doneShare(a.stats);
     const y = doneShare(b.stats);
@@ -167,10 +164,10 @@ export function sortProjects(projects: ProjectOverview[], sort: ProjectSort, tod
   return [...projects].sort(SORTERS[sort](today, timeZone));
 }
 
-/** "62% done · 25 of 40 tasks". The share is rounded down, so 100% means every task is done. */
+/** "63% done · 25 of 40 tasks". Rounded as on the Dashboard and in Reports, but 100% only once every task is done. */
 export function progressOf(s: Pick<ProjectStats, 'total' | 'done'>): { pct: number; text: string } {
   if (!s.total) return { pct: 0, text: 'No tasks yet' };
-  const pct = s.done >= s.total ? 100 : Math.floor((s.done / s.total) * 100);
+  const pct = s.done >= s.total ? 100 : Math.min(99, Math.round((s.done / s.total) * 100));
   return { pct, text: `${pct}% done · ${s.done} of ${plural(s.total, 'task')}` };
 }
 

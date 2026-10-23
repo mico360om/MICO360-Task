@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, type ProjectOverview, type ProjectStatus } from '../api/projects';
+import { PROJECTS_OVERVIEW_KEY, projectsApi, type ApiProject, type ProjectOverview, type ProjectStatus } from '../api/projects';
 import { apiClient } from '../api/client';
 import { ProjectCard } from '../components/projects/ProjectCard';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
@@ -30,8 +30,7 @@ import {
 } from '../lib/project-list';
 import { useProjectListState } from '../lib/useProjectListState';
 
-/** Under ['projects'], so a project saved anywhere in the app refreshes the list too. */
-const OVERVIEW_KEY = ['projects', 'overview'] as const;
+const OVERVIEW_KEY = PROJECTS_OVERVIEW_KEY;
 const PANEL_ID = 'projects-panel';
 const tabId = (t: StatusTab) => `projects-tab-${t}`;
 
@@ -58,13 +57,12 @@ const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 tex
 export function ProjectsPage() {
   const qc = useQueryClient();
   const admin = useAuthStore((s) => s.isAdmin());
-  const myId = useAuthStore((s) => s.user?.id ?? null);
   const timeZone = useCompanyTimeZone();
   const now = useNow();
   const today = todayKey(timeZone, now);
   const [state, update] = useProjectListState();
-  // The project form: null = closed, 'new' = create, a project = edit it.
-  const [form, setForm] = useState<'new' | ProjectOverview | null>(null);
+  // The project form: null = closed, 'new' = create, a project = edit it (loaded in full first).
+  const [form, setForm] = useState<'new' | ApiProject | null>(null);
   const [archiving, setArchiving] = useState<ProjectOverview | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -77,12 +75,20 @@ export function ProjectsPage() {
   const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
   // "Only my projects" is an administrator's filter; everyone else only sees theirs anyway.
   const mine = admin && state.mine;
-  const { q, owner } = state;
-  const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner, mine }, myId), [all, q, owner, mine, myId]);
+  const owners = useMemo(() => ownerOptions(all), [all]);
+  // An owner (from a shared link) who owns none of the projects this person can see is ignored.
+  const unknownOwner = query.isSuccess && state.owner !== '' && !owners.some((o) => o.id === state.owner);
+  const owner = unknownOwner ? '' : state.owner;
+  const { q } = state;
+  const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner, mine }), [all, q, owner, mine]);
   const counts = tabCounts(filtered);
   const visible = sortProjects(filtered.filter((p) => inTab(p, state.status)), state.sort, today, timeZone);
-  const owners = useMemo(() => ownerOptions(all), [all]);
   const filtersOn = Boolean(q.trim() || owner || mine);
+
+  // …and taken out of the address, in place.
+  useEffect(() => {
+    if (unknownOwner) update({ owner: '' }, { replace: true });
+  }, [unknownOwner]);
 
   useEffect(() => {
     if (!refocusList.current) return;
@@ -128,6 +134,16 @@ export function ProjectsPage() {
       invalidate(project.id);
     },
   });
+
+  /** The list carries only what the cards show, so Edit loads the whole project first. */
+  async function openEdit(project: ProjectOverview) {
+    setProblem(null);
+    try {
+      setForm(await qc.fetchQuery({ queryKey: ['project', project.id], queryFn: () => projectsApi(apiClient).get(project.id), staleTime: 0 }));
+    } catch {
+      setProblem(`Couldn’t open ${project.name} for editing. Try again.`);
+    }
+  }
 
   const changeStatus = (project: ProjectOverview, status: ProjectStatus) => {
     if (status === 'ARCHIVED') {
@@ -214,7 +230,7 @@ export function ProjectsPage() {
         </div>
         <div className={SELECT_BOX}>
           <label htmlFor="pl-owner" className="flex-none text-ink-2">Owner</label>
-          <select id="pl-owner" value={state.owner} onChange={(e) => update({ owner: e.target.value })} className={`${SELECT} flex-1 sm:max-w-[12rem]`}>
+          <select id="pl-owner" value={owner} onChange={(e) => update({ owner: e.target.value })} className={`${SELECT} flex-1 sm:max-w-[12rem]`}>
             <option value="">Anyone</option>
             {owners.map((o) => (
               <option key={o.id} value={o.id}>{o.name}</option>
@@ -278,7 +294,7 @@ export function ProjectsPage() {
                 now={now}
                 timeZone={timeZone}
                 onChangeStatus={admin ? changeStatus : undefined}
-                onEdit={admin ? (project) => setForm(project) : undefined}
+                onEdit={admin ? (project) => void openEdit(project) : undefined}
                 onArchive={admin ? (project) => changeStatus(project, 'ARCHIVED') : undefined}
               />
             ))}

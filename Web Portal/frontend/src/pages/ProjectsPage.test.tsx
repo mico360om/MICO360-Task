@@ -7,6 +7,7 @@ import { ProjectsPage } from './ProjectsPage';
 import { ShortcutProvider } from '../components/shortcuts/ShortcutProvider';
 import { useAuthStore } from '../stores/auth-store';
 import type { ProjectOverview, ProjectStats } from '../api/projects';
+import { invalidateTaskQueries } from '../lib/task-cache';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const person = (id: string, name: string) => ({ id, name, avatarUrl: null });
@@ -22,21 +23,17 @@ function project(id: string, name: string, extra: Partial<Omit<ProjectOverview, 
     code: id.toUpperCase(),
     number: null,
     name,
-    description: null,
     clientName: null,
     status: 'ACTIVE',
-    priority: 'NORMAL',
     color: '#3A6EA5',
     icon: null,
     imageUrl: null,
     ownerId: null,
-    managerId: null,
-    startDate: null,
     targetDate: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-10-01T00:00:00.000Z',
     owner: null,
     team: [],
+    teamCount: (rest.team ?? []).length,
+    mine: false,
     ...rest,
     stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null, lastActivityAt: '2026-10-20T00:00:00.000Z', ...stats },
   };
@@ -44,11 +41,11 @@ function project(id: string, name: string, extra: Partial<Omit<ProjectOverview, 
 
 // Today is Friday 23 October 2026 in Muscat.
 const LIST: ProjectOverview[] = [
-  project('p4', 'Mobile App (Phase 2)', { code: 'MOB', status: 'PLANNING', ownerId: 'u4', owner: HASSAN, team: [HASSAN, ME], targetDate: '2026-12-02T00:00:00.000Z', stats: { total: 6, open: 6, nextDue: '2026-10-30' } }),
+  project('p4', 'Mobile App (Phase 2)', { code: 'MOB', status: 'PLANNING', ownerId: 'u4', owner: HASSAN, team: [HASSAN, ME], mine: true, targetDate: '2026-12-02T00:00:00.000Z', stats: { total: 6, open: 6, nextDue: '2026-10-30' } }),
   project('p1', 'Rig Inspection Portal', { code: 'RIG', number: 'C-2041', clientName: 'Gulf Energy', ownerId: 'u1', owner: SARA, team: [SARA, OMAR], targetDate: '2026-11-30T00:00:00.000Z', stats: { total: 40, done: 25, open: 15, overdue: 4, nextDue: '2026-10-26' } }),
-  project('p6', 'Website Refresh', { code: 'WEB', status: 'COMPLETED', ownerId: 'u2', owner: OMAR, managerId: 'u9', stats: { total: 3, done: 3 } }),
+  project('p6', 'Website Refresh', { code: 'WEB', status: 'COMPLETED', ownerId: 'u2', owner: OMAR, mine: true, stats: { total: 3, done: 3 } }),
   project('p3', 'Falcon CRM', { code: 'FCRM', number: '2026-014', clientName: 'Falcon Trading', status: 'ON_HOLD', ownerId: 'u2', owner: OMAR, targetDate: '2026-10-20T00:00:00.000Z', stats: { total: 20, done: 17, open: 3, nextDue: '2026-10-29' } }),
-  project('p2', 'MICO360 Services', { code: 'MSSP', clientName: 'Internal', ownerId: 'u9', owner: ME, stats: { total: 15, done: 3, open: 12, overdue: 2 } }),
+  project('p2', 'MICO360 Services', { code: 'MSSP', clientName: 'Internal', ownerId: 'u9', owner: ME, mine: true, stats: { total: 15, done: 3, open: 12, overdue: 2 } }),
   project('p5', 'Old Portal', { code: 'OLD', status: 'ARCHIVED', ownerId: 'u1', owner: SARA, stats: { total: 9, done: 9 } }),
 ];
 
@@ -56,12 +53,18 @@ let calls: { method: string; url: string; body: unknown }[] = [];
 let overview: ProjectOverview[] = LIST;
 let failOverview = false;
 let failUpdate = false;
+/** Set: the list's refetches never answer (so only the page itself can put things back). */
+let holdRefetch = false;
+/** Set: a status change waits for this before the server answers. */
+let updateGate: Promise<void> | null = null;
 
 beforeEach(() => {
   calls = [];
   overview = LIST;
   failOverview = false;
   failUpdate = false;
+  holdRefetch = false;
+  updateGate = null;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-23T10:00:00Z'));
   vi.stubGlobal(
@@ -73,14 +76,26 @@ beforeEach(() => {
       calls.push({ method, url, body });
       if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
       if (url.endsWith('/projects/overview')) {
+        if (holdRefetch) return new Promise<Response>(() => {});
         return failOverview ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: overview });
       }
+      // The server remembers changes, so the refetch after one shows it.
+      const save = (id: string, patch: Partial<ProjectOverview>) => {
+        overview = overview.map((p) => (p.id === id ? { ...p, ...patch } : p));
+        return json({ data: overview.find((p) => p.id === id) });
+      };
       const archive = url.match(/\/projects\/(\w+)\/archive$/);
-      if (archive && method === 'POST') return json({ data: { ...LIST.find((p) => p.id === archive[1]), status: 'ARCHIVED' } });
+      if (archive && method === 'POST') return save(archive[1]!, { status: 'ARCHIVED' });
       const one = url.match(/\/projects\/(\w+)$/);
+      if (one && method === 'GET') {
+        // The full project, as the edit form needs it (the list carries only what the cards show).
+        const p = overview.find((x) => x.id === one[1])!;
+        return json({ data: { id: p.id, code: p.code, number: p.number, name: p.name, clientName: p.clientName, status: p.status, color: p.color, icon: p.icon, imageUrl: p.imageUrl, ownerId: p.ownerId, targetDate: p.targetDate, description: 'Inspect every rig twice a year.', priority: 'HIGH', startDate: null, createdAt: '', updatedAt: '' } });
+      }
       if (one && method === 'PUT') {
+        if (updateGate) await updateGate;
         if (failUpdate) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
-        return json({ data: { ...LIST.find((p) => p.id === one[1]), ...(body as object) } });
+        return save(one[1]!, body as Partial<ProjectOverview>);
       }
       return json({ data: [] });
     }),
@@ -106,11 +121,11 @@ function Where() {
   );
 }
 
-function renderPage(at = '/projects') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(at: string | string[] = '/projects', qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  const entries = Array.isArray(at) ? at : [at];
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[at]}>
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
         <ShortcutProvider>
           <Routes>
             <Route path="/projects" element={<><ProjectsPage /><Where /></>} />
@@ -135,6 +150,17 @@ describe('ProjectsPage', () => {
     await loaded();
     const api = calls.filter((c) => !c.url.endsWith('/config'));
     expect(api.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/projects/overview']);
+  });
+
+  it('fetches its figures again after a task changes anywhere (they count tasks)', async () => {
+    // As in the app: data stays fresh for 30 seconds unless something marks it stale.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    renderPage('/projects', qc);
+    await loaded();
+    const fetches = () => calls.filter((c) => c.url.endsWith('/projects/overview')).length;
+    expect(fetches()).toBe(1);
+    await act(() => invalidateTaskQueries(qc));
+    await waitFor(() => expect(fetches()).toBe(2));
   });
 
   it('heads the page with how many projects there are and how many need attention', async () => {
@@ -249,6 +275,18 @@ describe('ProjectsPage', () => {
     expect(cardNames()).toEqual(['Falcon CRM']);
   });
 
+  it('ignores an owner from a shared link who owns none of the projects you can see, and drops them from the address', async () => {
+    renderPage(['/elsewhere', '/projects?owner=ghost&sort=name']);
+    await loaded();
+    expect(screen.getByRole('combobox', { name: 'Owner' })).toHaveValue('');
+    expect(cardNames()).toHaveLength(5);
+    expect(screen.queryByText('No projects match')).not.toBeInTheDocument();
+    await waitFor(() => expect(where()).toBe('/projects?sort=name'));
+    // Replaced, not added: Back leaves the page rather than bringing the unknown owner back.
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() => expect(where()).toBe('/elsewhere'));
+  });
+
   it('filters by owner, offering anyone and the people who own projects', async () => {
     renderPage();
     await loaded();
@@ -322,6 +360,9 @@ describe('ProjectsPage for an administrator', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog', { name: 'Edit project' });
     expect(within(dialog).getByLabelText(/^name/i)).toHaveValue('Rig Inspection Portal');
+    // The form gets the full project (the list doesn't carry the description).
+    expect(within(dialog).getByLabelText(/^description/i)).toHaveValue('Inspect every rig twice a year.');
+    expect(calls.some((c) => c.method === 'GET' && /\/projects\/p1$/.test(c.url))).toBe(true);
   });
 
   it('changes a status from the card’s status menu through the API', async () => {
@@ -332,12 +373,41 @@ describe('ProjectsPage for an administrator', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'PUT')).toMatchObject({ url: expect.stringMatching(/\/projects\/p1$/), body: { status: 'ON_HOLD' } }));
   });
 
-  it('puts the status back and says so when the change fails', async () => {
-    failUpdate = true;
+  it('keeps focus on the status button when the change moves the card within the tab', async () => {
+    // Browsers drop focus from an element that is moved in the page (jsdom keeps it): do the same here.
+    for (const method of ['insertBefore', 'appendChild'] as const) {
+      const original = Node.prototype[method] as (this: Node, ...args: Node[]) => Node;
+      vi.spyOn(Node.prototype, method).mockImplementation(function (this: Node, ...args: Node[]) {
+        const active = document.activeElement as HTMLElement | null;
+        const moving = active && args[0]!.isConnected && args[0]!.contains(active);
+        const result = original.apply(this, args);
+        if (moving) active.blur();
+        return result;
+      } as never);
+    }
+    // Falcon CRM is past its target (attention) with nothing due; Completed sends it down the list.
+    overview = LIST.map((p) => (p.id === 'p3' ? { ...p, stats: { ...p.stats, nextDue: null } } : p));
     renderPage();
     await loaded();
+    expect(cardNames()).toEqual(['Rig Inspection Portal', 'MICO360 Services', 'Falcon CRM', 'Mobile App (Phase 2)', 'Website Refresh']);
+    await userEvent.click(screen.getByRole('button', { name: /change the status of falcon crm/i }));
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Completed' }));
+    await waitFor(() => expect(cardNames()).toEqual(['Rig Inspection Portal', 'MICO360 Services', 'Mobile App (Phase 2)', 'Falcon CRM', 'Website Refresh']));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /status: completed\. change the status of falcon crm/i })));
+  });
+
+  it('shows the new status at once, then puts it back itself and says so when the change fails', async () => {
+    renderPage();
+    await loaded();
+    failUpdate = true;
+    holdRefetch = true; // a fresh list from the server would hide whether the page put the status back
+    let answer!: () => void;
+    updateGate = new Promise<void>((resolve) => (answer = resolve));
     await userEvent.click(screen.getByRole('button', { name: /status: active\. change the status of rig inspection portal/i }));
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'On hold' }));
+    // At once, before the server answers:
+    expect(await screen.findByRole('button', { name: /status: on hold\. change the status of rig inspection portal/i })).toBeInTheDocument();
+    answer();
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t change the status of Rig Inspection Portal.');
     expect(screen.getByRole('button', { name: /status: active\. change the status of rig inspection portal/i })).toBeInTheDocument();
   });
@@ -362,6 +432,13 @@ describe('ProjectsPage for an administrator', () => {
     await userEvent.click(within(ask).getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST')).toMatchObject({ url: expect.stringMatching(/\/projects\/p1\/archive$/) }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    // It leaves All (archived projects live under their own tab)…
+    expect(cardNames()).toEqual(['MICO360 Services', 'Falcon CRM', 'Mobile App (Phase 2)', 'Website Refresh']);
+    expect(tab(/^All/)).toHaveAccessibleName('All 4');
+    expect(tab(/^Archived/)).toHaveAccessibleName('Archived 2');
+    // …and focus, whose "⋯" went with the card, lands on the list rather than nowhere.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('tabpanel')));
+    expect(screen.getByTestId('projects-count')).toHaveTextContent('4 projects · most overdue first');
   });
 });
 

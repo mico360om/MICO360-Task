@@ -56,7 +56,7 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
     ...(p.clientName ? [<bdi key="client">{p.clientName}</bdi>] : []),
   ];
   const faces = p.team.slice(0, FACES);
-  const more = p.team.length - faces.length;
+  const more = Math.max(0, p.teamCount - faces.length);
   const teamText = `Team: ${faces.map((m) => m.name).join(', ')}${more ? ` and ${more} more` : ''}`;
 
   const actions: ActionMenuItem[] = [];
@@ -129,7 +129,7 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
       </dl>
 
       <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-xs text-ink-2">
-        {p.team.length ? (
+        {faces.length ? (
           <span data-testid="project-team" className="flex flex-none items-center">
             <span className="sr-only">{teamText}</span>
             {/* A small overlap, so each face keeps both initials in view. */}

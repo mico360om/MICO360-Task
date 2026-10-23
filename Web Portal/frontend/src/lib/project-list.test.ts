@@ -5,7 +5,6 @@ import {
   filterProjects,
   headerSummary,
   inTab,
-  isMine,
   matchesSearch,
   needsAttention,
   nextDueLabel,
@@ -31,21 +30,17 @@ function project(extra: Partial<Omit<ProjectOverview, 'stats'>> & { stats?: Part
     code: `P${seq}`,
     number: null,
     name: `Project ${seq}`,
-    description: null,
     clientName: null,
     status: 'ACTIVE',
-    priority: 'NORMAL',
     color: '#8B1E1E',
     icon: null,
     imageUrl: null,
     ownerId: null,
-    managerId: null,
-    startDate: null,
     targetDate: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-10-01T00:00:00.000Z',
     owner: null,
     team: [],
+    teamCount: (rest.team ?? []).length,
+    mine: false,
     ...rest,
     stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null, lastActivityAt: '2026-10-01T00:00:00.000Z', ...stats },
   };
@@ -142,22 +137,15 @@ describe('needing attention', () => {
 });
 
 describe('owner and “only my projects”', () => {
-  it('counts a project as mine when I own it, manage it or am on its team — not just because I made it', () => {
-    const me = 'u1';
-    expect(isMine(project({ ownerId: me }), me)).toBe(true);
-    expect(isMine(project({ managerId: me }), me)).toBe(true);
-    expect(isMine(project({ team: [{ id: 'u9', name: 'Zed', avatarUrl: null }, { id: me, name: 'Me', avatarUrl: null }] }), me)).toBe(true);
-    expect(isMine(project({ ownerId: 'u2' }), me)).toBe(false);
-  });
-
-  it('filters by search, owner and “only mine” together (the tab is applied apart)', () => {
-    const a = project({ name: 'Rig Portal', ownerId: 'u1', status: 'ARCHIVED' });
+  it('filters by search, owner and “only mine” (the server says which are mine) together; the tab is applied apart', () => {
+    const a = project({ name: 'Rig Portal', ownerId: 'u1', status: 'ARCHIVED', mine: true });
     const b = project({ name: 'Rig Mobile', ownerId: 'u2' });
-    const c = project({ name: 'Falcon', ownerId: 'u1' });
+    const c = project({ name: 'Falcon', ownerId: 'u1', mine: true });
     const list = [a, b, c];
-    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: false }, 'u1')).toEqual([a, b]);
-    expect(filterProjects(list, { status: 'all', q: '', owner: 'u1', sort: 'attention', mine: false }, 'u1')).toEqual([a, c]);
-    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: true }, 'u1')).toEqual([a]);
+    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: false })).toEqual([a, b]);
+    expect(filterProjects(list, { status: 'all', q: '', owner: 'u1', sort: 'attention', mine: false })).toEqual([a, c]);
+    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: true })).toEqual([a]);
+    expect(filterProjects(list, { status: 'all', q: '', owner: '', sort: 'attention', mine: true })).toEqual([a, c]);
   });
 
   it('offers the people who own projects, by name, once each', () => {
@@ -209,6 +197,18 @@ describe('sorting', () => {
     expect(names(sortProjects(list, 'target', TODAY))).toEqual(['Passed', 'November', 'December', 'None']);
   });
 
+  it('by target date: open projects with a target first, then finished ones (Completed, Archived), then those without one', () => {
+    const list = [
+      project({ name: 'None' }),
+      project({ name: 'Done early', status: 'COMPLETED', targetDate: '2026-09-01T00:00:00.000Z' }),
+      project({ name: 'December', targetDate: '2026-12-02T00:00:00.000Z' }),
+      project({ name: 'Shelved', status: 'ARCHIVED', targetDate: '2026-08-01T00:00:00.000Z' }),
+      project({ name: 'November', status: 'ON_HOLD', targetDate: '2026-11-30T00:00:00.000Z' }),
+      project({ name: 'Passed', targetDate: '2026-10-20T00:00:00.000Z' }),
+    ];
+    expect(names(sortProjects(list, 'target', TODAY))).toEqual(['Passed', 'November', 'December', 'Shelved', 'Done early', 'None']);
+  });
+
   it('by progress, least done first, those without tasks last', () => {
     const list = [
       project({ name: 'Empty' }),
@@ -236,9 +236,11 @@ describe('sorting', () => {
 });
 
 describe('card wording', () => {
-  it('progress: share done and how many tasks, never 100% before the last one is done', () => {
-    expect(progressOf({ total: 40, done: 25 })).toEqual({ pct: 62, text: '62% done · 25 of 40 tasks' });
+  it('progress: share done (rounded, as on the Dashboard and in Reports) and how many tasks, never 100% before the last one is done', () => {
+    expect(progressOf({ total: 40, done: 25 })).toEqual({ pct: 63, text: '63% done · 25 of 40 tasks' });
+    expect(progressOf({ total: 3, done: 1 }).pct).toBe(33);
     expect(progressOf({ total: 200, done: 199 }).pct).toBe(99);
+    expect(progressOf({ total: 1000, done: 999 }).pct).toBe(99);
     expect(progressOf({ total: 1, done: 1 })).toEqual({ pct: 100, text: '100% done · 1 of 1 task' });
     expect(progressOf({ total: 0, done: 0 })).toEqual({ pct: 0, text: 'No tasks yet' });
   });

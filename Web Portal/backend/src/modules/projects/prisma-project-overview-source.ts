@@ -27,7 +27,8 @@ export function createPrismaProjectOverviewSource(prisma: PrismaClient): Project
           _count: { _all: true },
         }),
         prisma.projectMember.findMany({
-          where: { projectId: { in: projectIds }, user: { deletedAt: null } },
+          // Faces of people still active (not deleted, deactivated or suspended).
+          where: { projectId: { in: projectIds }, user: { deletedAt: null, status: 'ACTIVE' } },
           select: { projectId: true, user: { select: personFields } },
           orderBy: { addedAt: 'asc' },
         }),

@@ -16,21 +16,17 @@ function project(extra: Partial<Omit<ProjectOverview, 'stats'>> & { stats?: Part
     code: 'RIG',
     number: 'C-2041',
     name: 'Rig Inspection Portal',
-    description: null,
     clientName: 'Gulf Energy',
     status: 'ACTIVE',
-    priority: 'NORMAL',
     color: '#3A6EA5',
     icon: null,
     imageUrl: null,
     ownerId: 'u1',
-    managerId: null,
-    startDate: null,
     targetDate: '2026-11-30T00:00:00.000Z',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-10-01T00:00:00.000Z',
     owner: person('u1', 'Sara Ahmed'),
     team: [person('u1', 'Sara Ahmed'), person('u2', 'Omar Said')],
+    teamCount: (rest.team ?? [person('u1', 'Sara Ahmed'), person('u2', 'Omar Said')]).length,
+    mine: false,
     ...rest,
     stats: { total: 40, done: 25, open: 15, overdue: 4, nextDue: '2026-10-26', lastActivityAt: '2026-10-23T08:00:00.000Z', ...stats },
   };
@@ -67,7 +63,7 @@ describe('ProjectCard', () => {
 
   it('shows progress, the last update and the three figures', () => {
     renderCard();
-    expect(screen.getByTestId('project-progress')).toHaveTextContent('62% done · 25 of 40 tasks');
+    expect(screen.getByTestId('project-progress')).toHaveTextContent('63% done · 25 of 40 tasks');
     expect(screen.getByText('Updated 2 h ago')).toBeInTheDocument();
     expect(figure('Open')).toHaveTextContent('15');
     expect(figure('Overdue')).toHaveTextContent('4');
@@ -87,7 +83,8 @@ describe('ProjectCard', () => {
 
   it('shows up to four team faces and how many more, the owner and the target date', () => {
     const team = ['Sara Ahmed', 'Omar Said', 'Hassan Ali', 'Zara Noor', 'Adam Khan', 'Lina Haddad'].map((n, i) => person(`u${i + 1}`, n));
-    renderCard({ project: project({ team }) });
+    // The server sends the first four faces and the team's size.
+    renderCard({ project: project({ team: team.slice(0, 4), teamCount: 6 }) });
     const faces = screen.getByTestId('project-team');
     expect(faces.querySelectorAll('[data-face]')).toHaveLength(4);
     expect(faces).toHaveTextContent('+2');

@@ -14,7 +14,7 @@ const keyOf = (s: ProjectListState) => writeListState(new URLSearchParams(), s).
  * by itself (Back, Forward, a link). Each change adds a history entry, except typing: that reaches
  * the address after a pause and replaces the entry once a search has started.
  */
-export function useProjectListState(): [ProjectListState, (changes: Partial<ProjectListState>) => void] {
+export function useProjectListState(): [ProjectListState, (changes: Partial<ProjectListState>, options?: { replace?: boolean }) => void] {
   const [params, setParams] = useSearchParams();
   const addressKey = keyOf(readListState(params));
   const [state, setState] = useState(() => readListState(params));
@@ -51,7 +51,8 @@ export function useProjectListState(): [ProjectListState, (changes: Partial<Proj
     setParams((prev) => writeListState(prev, next), { replace });
   };
 
-  const change = (changes: Partial<ProjectListState>) => {
+  /** `replace`: correct the address in place (no new history entry). */
+  const change = (changes: Partial<ProjectListState>, options: { replace?: boolean } = {}) => {
     const next = { ...latest.current, ...changes };
     latest.current = next;
     setState(next);
@@ -59,7 +60,7 @@ export function useProjectListState(): [ProjectListState, (changes: Partial<Proj
     if (Object.keys(changes).every((k) => k === 'q')) {
       typing.current = setTimeout(() => mirror(latest.current, new URLSearchParams(shown.current).has('q')), TYPING_MS);
     } else {
-      mirror(next, false);
+      mirror(next, options.replace ?? false);
     }
   };
 

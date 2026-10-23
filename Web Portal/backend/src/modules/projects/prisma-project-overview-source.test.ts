@@ -10,7 +10,7 @@ function fakeClient() {
       ? [{ projectId: 'p1', dueDate: new Date('2026-10-30T00:00:00Z'), _count: { _all: 2 } }]
       : [{ projectId: 'p1', _count: { _all: 5 }, _max: { updatedAt: new Date('2026-10-22T10:00:00Z') } }],
   );
-  const memberFindMany = vi.fn(async () => [
+  const memberFindMany = vi.fn(async (_args: unknown) => [
     { projectId: 'p1', user: { id: 'u1', firstName: 'Sara', lastName: 'Ahmed', username: 'sara', avatarUrl: null } },
     { projectId: 'p1', user: { id: 'u2', firstName: '', lastName: '', username: 'omar', avatarUrl: '/uploads/a.png' } },
   ]);
@@ -42,6 +42,8 @@ describe('createPrismaProjectOverviewSource', () => {
       where: { deletedAt: null, projectId: { in: ['p1', 'p2'] }, completedAt: null, column: { category: { not: 'DONE' } } },
       _count: { _all: true },
     });
+    // Faces are of people still active: not deleted, deactivated or suspended.
+    expect(f.memberFindMany.mock.calls[0]![0]).toMatchObject({ where: { projectId: { in: ['p1', 'p2'] }, user: { deletedAt: null, status: 'ACTIVE' } } });
     // No owners to look up: no query for them.
     expect(f.userFindMany).not.toHaveBeenCalled();
   });
