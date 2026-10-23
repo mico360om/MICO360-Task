@@ -53,12 +53,18 @@ let calls: { method: string; url: string; body: unknown }[] = [];
 let overview: ProjectOverview[] = LIST;
 let failOverview = false;
 let failUpdate = false;
+/** Set: the list's refetches never answer (so only the page itself can put things back). */
+let holdRefetch = false;
+/** Set: a status change waits for this before the server answers. */
+let updateGate: Promise<void> | null = null;
 
 beforeEach(() => {
   calls = [];
   overview = LIST;
   failOverview = false;
   failUpdate = false;
+  holdRefetch = false;
+  updateGate = null;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-23T10:00:00Z'));
   vi.stubGlobal(
@@ -70,6 +76,7 @@ beforeEach(() => {
       calls.push({ method, url, body });
       if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
       if (url.endsWith('/projects/overview')) {
+        if (holdRefetch) return new Promise<Response>(() => {});
         return failOverview ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: overview });
       }
       // The server remembers changes, so the refetch after one shows it.
@@ -86,6 +93,7 @@ beforeEach(() => {
         return json({ data: { id: p.id, code: p.code, number: p.number, name: p.name, clientName: p.clientName, status: p.status, color: p.color, icon: p.icon, imageUrl: p.imageUrl, ownerId: p.ownerId, targetDate: p.targetDate, description: 'Inspect every rig twice a year.', priority: 'HIGH', startDate: null, createdAt: '', updatedAt: '' } });
       }
       if (one && method === 'PUT') {
+        if (updateGate) await updateGate;
         if (failUpdate) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
         return save(one[1]!, body as Partial<ProjectOverview>);
       }
@@ -388,12 +396,18 @@ describe('ProjectsPage for an administrator', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /status: completed\. change the status of falcon crm/i })));
   });
 
-  it('puts the status back and says so when the change fails', async () => {
-    failUpdate = true;
+  it('shows the new status at once, then puts it back itself and says so when the change fails', async () => {
     renderPage();
     await loaded();
+    failUpdate = true;
+    holdRefetch = true; // a fresh list from the server would hide whether the page put the status back
+    let answer!: () => void;
+    updateGate = new Promise<void>((resolve) => (answer = resolve));
     await userEvent.click(screen.getByRole('button', { name: /status: active\. change the status of rig inspection portal/i }));
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'On hold' }));
+    // At once, before the server answers:
+    expect(await screen.findByRole('button', { name: /status: on hold\. change the status of rig inspection portal/i })).toBeInTheDocument();
+    answer();
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t change the status of Rig Inspection Portal.');
     expect(screen.getByRole('button', { name: /status: active\. change the status of rig inspection portal/i })).toBeInTheDocument();
   });
@@ -418,6 +432,13 @@ describe('ProjectsPage for an administrator', () => {
     await userEvent.click(within(ask).getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST')).toMatchObject({ url: expect.stringMatching(/\/projects\/p1\/archive$/) }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    // It leaves All (archived projects live under their own tab)…
+    expect(cardNames()).toEqual(['MICO360 Services', 'Falcon CRM', 'Mobile App (Phase 2)', 'Website Refresh']);
+    expect(tab(/^All/)).toHaveAccessibleName('All 4');
+    expect(tab(/^Archived/)).toHaveAccessibleName('Archived 2');
+    // …and focus, whose "⋯" went with the card, lands on the list rather than nowhere.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('tabpanel')));
+    expect(screen.getByTestId('projects-count')).toHaveTextContent('4 projects · most overdue first');
   });
 });
 
