@@ -352,6 +352,64 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [dependsOnTaskId], properties: { dependsOnTaskId: { type: string } } } } } }
       responses: { '201': { description: Created }, '409': { description: DEPENDENCY_CYCLE / DEPENDENCY_EXISTS } }
 
+  /timeline:
+    get:
+      summary: >-
+        The Timeline page — every open project (not Completed or Archived) the caller may see, exactly
+        as the projects list decides, with its bar, status against its dates, milestones, meetings and
+        the open tasks due each week. One request, answered by a fixed number of grouped queries.
+      description: >-
+        Days are company-time calendar days. `from` / `to` are widened to whole weeks starting on
+        `weekStart`. Each project: `start` (its start date, else the day it was created —
+        `startIsCreated`), `target` (or null), `tasks` { total, done, open, overdue }, `progress`
+        (share done, rounded as on the Projects page: 99 until every task is done), `timeUsed` (share
+        of the days from start to target gone, 0–100; null without a target), `health` — `late`
+        (target day passed; `daysLate`), `at-risk` (timeUsed − progress ≥ 20), `on-track` or
+        `no-target` — `dueByWeek` (open tasks due in each of `weeks`), `milestones` [{ id, key, title,
+        date, done }] by date (undated last), `nextMilestone` (first not reached), `milestonesSoon`
+        (not reached, due from today to 30 days on), `meetings` in the shown weeks [{ id, title,
+        startAt, day }] (not cancelled) and `meetingsThisWeek`.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: weekStart, in: query, schema: { type: integer, enum: [0, 1, 6], default: 0 }, description: 'First day of the week: 0 Sunday, 1 Monday, 6 Saturday' }
+      responses:
+        '200':
+          description: >-
+            `{ data: { from, to, weekStart, today, currentWeek, weeks: [date], projects: [TimelineProject] } }`
+            — each project also carries id, code, name, color, icon, imageUrl, status and owner { id, name, avatarUrl }.
+        '400': { description: 'VALIDATION: a missing or unreal date, an unknown week start, `to` before `from`, or more than 53 weeks' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /workload:
+    get:
+      summary: >-
+        The Workload page — open tasks due each day of a week, per person, against the company's daily
+        limit (system setting `workload.dailyLimit`, 1–50, default 5; administrators change it with
+        PUT /system-settings/workload.dailyLimit). An administrator sees everyone; a project manager
+        (the project's manager or owner, or a MANAGER member) the people on the projects they manage
+        and only those projects' tasks; anyone else only their own row.
+      description: >-
+        Days off come from the company's working hours (`meetings.workingHours`): on a day off the
+        limit is 0. For each day over the limit, as many tasks as it is over carry one `suggestion`:
+        `{ kind: reassign, to: { id, name }, count }` — the least-busy person on the task's project team
+        (active, shown to the caller, not already on the task) with room that day — or `{ kind: move,
+        date, count }`, the next working day (today or later) with room, within three weeks. Teammates
+        and days are weighed by all the caller may see, and each suggestion counts towards the next.
+        Only administrators and project managers get reassign suggestions. Nothing is changed: the page
+        applies a suggestion through the usual task endpoints (POST/DELETE /tasks/{id}/assignees, PUT /tasks/{id}).
+      parameters:
+        - { name: week, in: query, required: true, schema: { type: string, format: date }, description: The first of the seven days shown }
+        - { name: projectId, in: query, schema: { type: string }, description: 'Only this project''s tasks, and its team and whoever has its tasks (ignored when not in the caller''s scope)' }
+      responses:
+        '200':
+          description: >-
+            `{ data: { week, today, days: [{ date, working }], limit, canChangeLimit, scope: everyone|teams|self,
+            projectId, projects: [{ id, code, name, color, icon, imageUrl }], people: [{ id, name, avatarUrl, me,
+            overdue, total, weekLimit, days: [{ date, count, limit, over, tasks: [{ id, key, title, projectId,
+            priority, version, suggestion }] }] }] } }` — in a day's tasks the suggested ones come first.
+        '400': { description: 'VALIDATION: a missing or unreal week' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /search:
     get:
       summary: Global search across tasks / projects / users
