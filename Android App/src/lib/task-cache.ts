@@ -80,8 +80,10 @@ export function moveRefreshes(taskId: string, projectId: string): Refresh[] {
  * Details never loaded (an edit from the calendar or a list) are not made from the save's answer:
  * it lacks what only the details call returns ("From meeting"), and it would count as fresh. They
  * are left to load in full when opened (a first load on its way is called off and loaded again).
+ *
+ * `run` refreshes the targets (a bulk run gathers the lists for its end — final review A2).
  */
-export function afterTaskSaved(qc: QueryClient, taskId: string, saved: ApiTask | undefined, patch: object): void {
+export function afterTaskSaved(qc: QueryClient, taskId: string, saved: ApiTask | undefined, patch: object, run: (targets: Refresh[]) => void = (t) => refresh(qc, t)): void {
   const targets = editRefreshes(taskId, patch);
   // Calling a load off puts the details back as they were before it, at once (TanStack's revert).
   void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
@@ -91,7 +93,7 @@ export function afterTaskSaved(qc: QueryClient, taskId: string, saved: ApiTask |
   } else {
     targets.push({ queryKey: ['task', taskId], exact: true });
   }
-  refresh(qc, targets);
+  run(targets);
 }
 
 /**

@@ -241,7 +241,8 @@ export function resourcesApi(client: ApiClient) {
             })}`,
           ),
         ),
-      mine: () => data(client.get<Envelope<ApiTask[]>>('/tasks/mine')),
+      // `signal`: a reading called off stops its download (My Tasks — final review A2).
+      mine: (opts: { signal?: AbortSignal } = {}) => data(client.get<Envelope<ApiTask[]>>('/tasks/mine', opts.signal ? { signal: opts.signal } : undefined)),
       get: (id: string) => data(client.get<Envelope<ApiTask>>(`/tasks/${seg(id)}`)),
       create: (
         body: Omit<Partial<ApiTask>, 'tags' | 'assignees'> & {

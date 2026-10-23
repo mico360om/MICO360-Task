@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDirectory, useMyTasks, useProjectColumns, useProjects } from '../core/queries';
@@ -36,7 +36,7 @@ import {
   type Option,
   type TaskFilters,
 } from '../lib/my-tasks';
-import { BULK_LABELS, bulkResultText, clearDatesQuestion, type BulkAction } from '../lib/bulk-actions';
+import { BULK_LABELS, bulkProgressText, bulkResultText, clearDatesQuestion, type BulkAction } from '../lib/bulk-actions';
 import { formColumns } from '../lib/task-form';
 import { companyTodayKey, dateZones, subscribeTimeZone } from '../lib/due-date';
 import { shiftDayKey, weekStartOf, fullDayLabel } from '../lib/calendar';
@@ -119,16 +119,22 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
   }), []);
   const bulk = useBulkTaskActions();
   const [busy, setBusy] = useState(false);
+  // How far a run is ("12 of 150 done…"), and its Stop: the tasks after it stay as they are (final review A2).
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const stopRun = useRef(false);
   const [bulkSheet, setBulkSheet] = useState<BulkSheet | null>(null);
   const [bulkDay, setBulkDay] = useState<string | null>(null);
   const runBulkAction = async (action: BulkAction, label: string) => {
     if (chosen.length === 0 || busy) return;
     setBulkSheet(null);
     setBusy(true);
+    stopRun.current = false;
+    setProgress({ done: 0, total: chosen.length });
     try {
       const result = await bulk(
         chosen.map((r) => ({ id: r.task.id, projectId: r.task.projectId, version: r.task.version })),
         action,
+        { onProgress: (done, total) => setProgress({ done, total }), shouldContinue: () => !stopRun.current },
       );
       setSelected(new Set());
       notice(bulkResultText(label, result));
@@ -136,6 +142,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
       notice('Bulk action failed. Please try again.');
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
   const clearDates = () =>
@@ -268,16 +275,29 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
         refreshControl={<RefreshControl refreshing={tasksQ.isRefetching} onRefresh={() => void tasksQ.refetch()} />}
       />
 
-      {chosen.length > 0 ? (
+      {chosen.length > 0 || busy ? (
         <View style={s.bulkBar} accessibilityLabel="Bulk actions">
           <View style={s.bulkHead}>
             {busy ? <ActivityIndicator size="small" color={c.brand} /> : null}
             <Text style={s.bulkCount} accessibilityLiveRegion="polite">
-              {chosen.length} selected
+              {busy && progress ? bulkProgressText(progress.done, progress.total) : `${chosen.length} selected`}
             </Text>
-            <Pressable onPress={() => setSelected(new Set())} accessibilityRole="button" accessibilityLabel="Clear selection" style={s.clear}>
-              <Text style={s.clearText}>Clear</Text>
-            </Pressable>
+            {busy ? (
+              // While it runs, the bar stays (and says how far it is); Stop, not Clear (final review A2, A9).
+              <Pressable
+                onPress={() => (stopRun.current = true)}
+                accessibilityRole="button"
+                accessibilityLabel="Stop the bulk action"
+                accessibilityHint="The tasks not changed yet stay as they are"
+                style={s.clear}
+              >
+                <Text style={s.clearText}>Stop</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => setSelected(new Set())} accessibilityRole="button" accessibilityLabel="Clear selection" style={s.clear}>
+                <Text style={s.clearText}>Clear</Text>
+              </Pressable>
+            )}
           </View>
           <View style={s.rowWrap}>
             <BulkButton label="Complete" onPress={() => void runBulkAction({ type: 'complete' }, BULK_LABELS.complete)} disabled={busy} s={s} strong />

@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import { owned, sendTaskEdit, sendTaskMove } from './queries';
 import { asyncStore } from '../adapters/async-storage';
-import { doneColumnOf, runBulk, type BulkAction, type BulkDeps, type BulkResult, type BulkTaskRef } from '../lib/bulk-actions';
+import { createBulkRefresher, doneColumnOf, runBulk, type BulkAction, type BulkDeps, type BulkResult, type BulkRunOptions, type BulkTaskRef } from '../lib/bulk-actions';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { readSavedViews, savedViewsKey, withSavedView, withoutView, type SavedView, type TaskFilters } from '../lib/my-tasks';
@@ -47,15 +47,17 @@ export function useSavedViews(): { custom: SavedView[]; save: (name: string, fil
 
 /**
  * Run one bulk action on the selected tasks: each change through that task's own write — an edit
- * (its version: the details', else the list's), a move (into the project's Done column for
- * Complete), an assignment — kept on this phone when it gets no answer. Each refreshes what it
- * changed; My Tasks is read again at the end.
+ * (its version: the newer of the details' and the list's), a move (into the project's Done column
+ * for Complete), an assignment — kept on this phone when it gets no answer. Each task's own data is
+ * refreshed as it goes; My Tasks and every list, board, figure and calendar it touched are read
+ * again once, at the end (final review A2). `opts`: how far it is, and a Stop.
  */
-export function useBulkTaskActions(): (tasks: (BulkTaskRef & { version?: number })[], action: BulkAction) => Promise<BulkResult> {
+export function useBulkTaskActions(): (tasks: (BulkTaskRef & { version?: number })[], action: BulkAction, opts?: BulkRunOptions) => Promise<BulkResult> {
   const services = useServices();
   const qc = useQueryClient();
   return useCallback(
-    async (tasks, action) => {
+    async (tasks, action, opts) => {
+      const refresher = createBulkRefresher((targets) => refresh(qc, targets));
       const versions = new Map(tasks.map((t) => [t.id, t.version]));
       const columns = new Map<string, Promise<ApiColumn[]>>();
       const columnsOf = (projectId: string): Promise<ApiColumn[]> => {
@@ -73,26 +75,28 @@ export function useBulkTaskActions(): (tasks: (BulkTaskRef & { version?: number 
       const deps: BulkDeps = {
         update: async (t, patch) => {
           const saved = await sendTaskEdit(services, qc, t.id, patch, versions.get(t.id));
-          afterTaskSaved(qc, t.id, saved, patch);
+          afterTaskSaved(qc, t.id, saved, patch, refresher.add);
         },
         move: async (t, columnId) => {
           // The column's kind goes with it, so a move kept offline shows under its new status (4c).
           const category = (await columnsOf(t.projectId).catch(() => [] as ApiColumn[])).find((c) => c.id === columnId)?.category;
           await sendTaskMove(services, { id: t.id, columnId, projectId: t.projectId, category });
-          refresh(qc, moveRefreshes(t.id, t.projectId));
+          refresher.add(moveRefreshes(t.id, t.projectId));
         },
         assign: async (t, userId) => {
           const w = owned(services);
           const idempotencyKey = newIdempotencyKey();
           await sendItemWrite(itemLanes, w.order, { kind: 'task.assign', payload: { id: t.id, userIds: [userId] }, idempotencyKey }, () => w.resources.tasks.assign(t.id, [userId], { idempotencyKey }));
-          refresh(qc, assignmentRefreshes(t.id));
+          refresher.add(assignmentRefreshes(t.id));
         },
         // A project whose columns can't be read (offline, none kept) has no Done column to use.
         doneColumnFor: async (t) => doneColumnOf(await columnsOf(t.projectId).catch(() => [])),
       };
-      const result = await runBulk(tasks, action, deps);
-      refresh(qc, [{ queryKey: ['tasks', 'mine'] }]);
-      return result;
+      try {
+        return await runBulk(tasks, action, deps, opts);
+      } finally {
+        refresher.finish([{ queryKey: ['tasks', 'mine'] }]);
+      }
     },
     [services, qc],
   );

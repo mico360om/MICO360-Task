@@ -699,3 +699,22 @@ describe('api-client — a dropped request says whether it may have reached the 
     expect(t.mayHaveArrived).toBe(true);
   });
 });
+
+describe('api-client — a request its caller calls off (final review A2)', () => {
+  it('stops its download at once, and isn’t taken for a lost connection', async () => {
+    const onUnreachable = vi.fn();
+    const hang = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))));
+    const api = createApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetchImpl: hang as unknown as typeof fetch, timeoutMs: 200, onUnreachable });
+    const calledOff = new AbortController();
+    const out = api.get('/tasks/mine', { signal: calledOff.signal }).catch((e: unknown) => e);
+    await vi.waitFor(() => expect(hang).toHaveBeenCalledTimes(1));
+    calledOff.abort();
+    const e = (await out) as Error;
+    expect(e.name).toBe('AbortError');
+    expect(isNetworkError(e)).toBe(false);
+    expect(onUnreachable).not.toHaveBeenCalled();
+    // Called off before it went: nothing is sent.
+    await expect(api.get('/tasks/mine', { signal: calledOff.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(hang).toHaveBeenCalledTimes(1);
+  });
+});

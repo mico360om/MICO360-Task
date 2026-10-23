@@ -119,6 +119,19 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** The person this request is for (forUser): not sent at all while anyone else is signed in. */
   asUser?: string;
+  /**
+   * Its caller calling it off (a list read TanStack cancels — final review A2): the download stops,
+   * and it fails as an AbortError — never as a lost connection (nothing is kept or counted offline).
+   */
+  signal?: AbortSignal;
+}
+
+/** A request its caller called off (RequestOptions signal). */
+function calledOffError(cause?: unknown): Error {
+  const e = new Error('The request was called off.');
+  e.name = 'AbortError';
+  if (cause !== undefined) (e as { cause?: unknown }).cause = cause;
+  return e;
 }
 
 export interface ApiClient {
@@ -304,6 +317,8 @@ export function createApiClient({
     // Whether it went over a working connection, as it goes (a failure below says so: final review A1).
     const working = connectionWorking();
 
+    const calledOff = opts?.signal;
+    if (calledOff?.aborted) throw calledOffError();
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     let timedOut = false;
     const timer = controller
@@ -312,6 +327,8 @@ export function createApiClient({
           controller.abort();
         }, limitMs)
       : null;
+    const stop = () => controller?.abort();
+    calledOff?.addEventListener('abort', stop);
     let result: { status: number; ok: boolean; text: string };
     try {
       const res = await doFetch(`${baseUrl}${path}`, {
@@ -322,6 +339,7 @@ export function createApiClient({
       });
       result = { status: res.status, ok: res.ok, text: await res.text() };
     } catch (e) {
+      if (calledOff?.aborted && !timedOut) throw calledOffError(e);
       if (!timedOut) noConnection();
       throw new NetworkError(timedOut ? 'The server took too long to respond.' : 'Network request failed.', {
         timedOut,
@@ -330,6 +348,7 @@ export function createApiClient({
       });
     } finally {
       if (timer) clearTimeout(timer);
+      calledOff?.removeEventListener('abort', stop);
     }
     answered();
     return result;
