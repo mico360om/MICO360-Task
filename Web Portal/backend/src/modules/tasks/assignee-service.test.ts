@@ -112,3 +112,68 @@ describe('AssigneeService — only active project members can be assigned', () =
     expect(calls).toEqual([['u1']]);
   });
 });
+
+describe('AssigneeService — swapping one person for another (the Workload page)', () => {
+  function swappable(state: { version: number; done: boolean } = { version: 3, done: false }) {
+    const mem = inMemory(['t1']);
+    const writes: string[] = [];
+    const assigned: string[][] = [];
+    const unassigned: string[] = [];
+    const repo = {
+      ...mem.repo,
+      async projectIdOfTask() { return 'p1'; },
+      async eligibleUserIds(_p: string, userIds: string[]) { return userIds.filter((id) => id !== 'u3'); },
+      async swap(taskId: string, fromId: string, toId: string) {
+        writes.push(`swap ${fromId}->${toId}`);
+        await mem.repo.add(taskId, toId);
+        await mem.repo.remove(taskId, fromId);
+      },
+    };
+    const taskLookup = { ...mem.taskLookup, async state() { return state; } };
+    const svc = createAssigneeService({
+      repo,
+      taskLookup,
+      onAssigned: (_t, ids) => { assigned.push(ids); },
+      onUnassigned: (_t, id) => { unassigned.push(id); },
+    });
+    return { svc, writes, assigned, unassigned, mem };
+  }
+
+  it('takes one person off and puts another on in one write, telling both as usual', async () => {
+    const { svc, writes, assigned, unassigned, mem } = swappable();
+    await mem.repo.add('t1', 'u1');
+    const list = await svc.swapAssignee('t1', 'u1', 'u2', 'u9', { expectedVersion: 3 });
+    expect(list.map((u) => u.id)).toEqual(['u2']);
+    expect(writes).toEqual(['swap u1->u2']);
+    expect(assigned).toEqual([['u2']]);
+    expect(unassigned).toEqual(['u1']);
+  });
+
+  it('refuses a task changed since it was read, changing nothing (409 VERSION_CONFLICT)', async () => {
+    const { svc, writes, mem } = swappable({ version: 4, done: false });
+    await mem.repo.add('t1', 'u1');
+    await expect(svc.swapAssignee('t1', 'u1', 'u2', 'u9', { expectedVersion: 3 })).rejects.toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a task that is already done (409 TASK_DONE)', async () => {
+    const { svc, writes, mem } = swappable({ version: 3, done: true });
+    await mem.repo.add('t1', 'u1');
+    await expect(svc.swapAssignee('t1', 'u1', 'u2', 'u9')).rejects.toMatchObject({ status: 409, code: 'TASK_DONE' });
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses when the person is no longer on the task (409 ASSIGNEE_GONE)', async () => {
+    const { svc, writes } = swappable();
+    await expect(svc.swapAssignee('t1', 'u1', 'u2', 'u9')).rejects.toMatchObject({ status: 409, code: 'ASSIGNEE_GONE' });
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses someone who may not be assigned in the project (400), changing nothing', async () => {
+    const { svc, writes, mem } = swappable();
+    await mem.repo.add('t1', 'u1');
+    await expect(svc.swapAssignee('t1', 'u1', 'u3', 'u9')).rejects.toMatchObject({ status: 400 });
+    expect(writes).toEqual([]);
+    expect((await svc.listAssignees('t1')).map((u) => u.id)).toEqual(['u1']);
+  });
+});

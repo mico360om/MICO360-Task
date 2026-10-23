@@ -4,6 +4,7 @@ import { createPrismaTimelineSource } from '../../src/modules/planning/prisma-ti
 import { createPrismaWorkloadStore } from '../../src/modules/planning/prisma-workload-store';
 import { loadWorkload } from '../../src/modules/planning/workload-service';
 import { resolveWorkloadScope } from '../../src/modules/planning/workload';
+import { createPrismaAssigneeRepository, createPrismaTaskLookup } from '../../src/modules/tasks/prisma-assignee-repository';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -159,5 +160,21 @@ describe('Workload store (integration)', () => {
     const cy = await run('cy', [ids.one!, ids.two!, ids.fin!]);
     expect(mine(cy.rows.people)).toEqual([ids.cy]);
     expect(cy.rows.tasks.map((t) => t.id).sort()).toEqual([ids.t1, ids.t2, ids.t4].sort());
+  });
+});
+
+describe('Assignee swap and task state (integration)', () => {
+  it('hands a task from one person to another in one transaction', async () => {
+    const repo = createPrismaAssigneeRepository(prisma);
+    await repo.swap!(ids.t1!, ids.cy!, ids.bo!);
+    expect((await repo.list(ids.t1!)).map((u) => u.id)).toEqual([ids.bo]);
+  });
+
+  it('reads a task’s version and whether it is done', async () => {
+    const lookup = createPrismaTaskLookup(prisma);
+    expect(await lookup.state!(ids.t1!)).toEqual({ version: 0, done: false });
+    expect(await lookup.state!(ids.m1!)).toEqual({ version: 0, done: true }); // in a Done column
+    await prisma.task.update({ where: { id: ids.t1! }, data: { completedAt: new Date(), version: { increment: 1 } } });
+    expect(await lookup.state!(ids.t1!)).toEqual({ version: 1, done: true });
   });
 });

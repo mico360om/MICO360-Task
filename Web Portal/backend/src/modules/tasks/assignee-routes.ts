@@ -4,6 +4,7 @@ import type { AssigneeService } from './assignee-service';
 import type { AuthGuard } from '../auth/auth-guard';
 
 const assignSchema = z.object({ userIds: z.array(z.string().min(1)).min(1) });
+const swapSchema = z.object({ from: z.string().min(1).max(191), to: z.string().min(1).max(191), expectedVersion: z.number().int().optional() });
 
 export interface AssigneeRouteDeps {
   assigneeService: AssigneeService;
@@ -39,6 +40,16 @@ export async function registerAssigneeRoutes(app: FastifyInstance, deps: Assigne
     if (!(await canView(req, id))) return reply.status(403).send(denied);
     const { userIds } = assignSchema.parse(req.body);
     const assignees = await assigneeService.assignUsers(id, userIds, req.user!.id);
+    await announce(id, assignees);
+    return { data: assignees };
+  });
+
+  // Hand a task from one person to another in one write (the Workload page's suggestion).
+  app.post('/tasks/:id/assignees/swap', { preHandler: guard.authenticate }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!(await canView(req, id))) return reply.status(403).send(denied);
+    const { from, to, expectedVersion } = swapSchema.parse(req.body);
+    const assignees = await assigneeService.swapAssignee(id, from, to, req.user!.id, { expectedVersion });
     await announce(id, assignees);
     return { data: assignees };
   });

@@ -17,8 +17,12 @@ export interface AssigneeRepository {
   eligibleUserIds?(projectId: string, userIds: string[]): Promise<string[]>;
   /** The project of a live task (used to check assignees against it). */
   projectIdOfTask?(taskId: string): Promise<string | null>;
+  /** Takes one person off a task and puts another on, in one write. */
+  swap?(taskId: string, fromId: string, toId: string): Promise<void>;
 }
 
 export interface TaskLookup {
   exists(taskId: string): Promise<boolean>;
+  /** Its version (bumped on every change) and whether it is done; null once it is gone. */
+  state?(taskId: string): Promise<{ version: number; done: boolean } | null>;
 }
