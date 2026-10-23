@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWorkload, resolveWorkloadScope, workloadWindow, type Priority, type WorkloadRows, type WorkloadScope, type WorkloadTaskRow } from './workload';
+import { buildWorkload, resolveWorkloadScope, workloadWindows, type Priority, type WorkloadRows, type WorkloadScope, type WorkloadTaskRow } from './workload';
 
 // Wednesday 28 October 2026, 10:00 in Muscat. The week shown starts on Sunday 25 October.
 const now = new Date('2026-10-28T06:00:00Z');
@@ -41,10 +41,16 @@ function task(who: string | string[], day: string, extra: Partial<WorkloadTaskRo
   };
 }
 const many = (n: number, who: string, day: string, extra: Partial<WorkloadTaskRow> = {}) => Array.from({ length: n }, () => task(who, day, extra));
+/** Whole-load rows: open tasks due that day in any project (also ones the table doesn't show). */
+const load = (n: number, userId: string, day: string) => Array.from({ length: n }, () => ({ userId, dueDate: new Date(`${day}T00:00:00.000Z`) }));
+const loadsOf = (tasks: WorkloadTaskRow[]) => tasks.flatMap((t) => t.assigneeIds.map((userId) => ({ userId, dueDate: t.dueDate })));
 
 const EVERYONE: WorkloadScope = { kind: 'everyone', projectIds: null };
-function rows(tasks: WorkloadTaskRow[], extra: Partial<WorkloadRows> = {}): WorkloadRows {
-  return { people: [OMAR, SARA, HASSAN, RACHEL], projects: PROJECTS, tasks, overdue: [], teams: TEAMS, ...extra };
+const MANAGER: WorkloadScope = { kind: 'teams', projectIds: ['rig', 'mob', 'fcrm'], ownProjectIds: ['rig', 'mob', 'fcrm'] };
+/** The rows as the service gives them: the shown tasks, and everyone's whole load (here: the shown tasks, plus `moreLoad`). */
+function rows(tasks: WorkloadTaskRow[], extra: Partial<WorkloadRows> & { moreLoad?: WorkloadRows['loads'] } = {}): WorkloadRows {
+  const { moreLoad = [], ...rest } = extra;
+  return { people: [OMAR, SARA, HASSAN, RACHEL], projects: PROJECTS, tasks, overdue: [], teams: TEAMS, loads: [...loadsOf(tasks), ...moreLoad], ...rest };
 }
 const opts = { week: WEEK, timeZone: 'Asia/Muscat', now, limit: 5, workingDays: SUN_TO_THU, viewerId: 'sara', scope: EVERYONE, canChangeLimit: true };
 const rowOf = (data: ReturnType<typeof buildWorkload>, id: string) => data.people.find((p) => p.id === id)!;
@@ -55,10 +61,11 @@ describe('resolveWorkloadScope', () => {
     expect(resolveWorkloadScope({ id: 'a', roles: ['ADMIN'] }, { managedProjectIds: ['p1'], visibleProjectIds: null })).toEqual({ kind: 'everyone', projectIds: null });
   });
 
-  it('lets a project manager see the teams of the projects they manage, and only those projects', () => {
+  it('lets a project manager see the teams of the projects they manage, and their own tasks in every project they can see', () => {
     expect(resolveWorkloadScope({ id: 'm', roles: ['EMPLOYEE'] }, { managedProjectIds: ['p1', 'p2'], visibleProjectIds: ['p1', 'p2', 'p3'] })).toEqual({
       kind: 'teams',
       projectIds: ['p1', 'p2'],
+      ownProjectIds: ['p1', 'p2', 'p3'],
     });
   });
 
@@ -68,10 +75,21 @@ describe('resolveWorkloadScope', () => {
   });
 });
 
-describe('workloadWindow', () => {
-  it('reads the week and three more weeks after its end (or after today, for a past week)', () => {
-    expect(workloadWindow('2026-10-25', '2026-10-28')).toEqual({ from: '2026-10-25', to: '2026-11-21' });
-    expect(workloadWindow('2026-10-04', '2026-10-28')).toEqual({ from: '2026-10-04', to: '2026-11-18' });
+describe('workloadWindows', () => {
+  it('shows the week, and weighs it and the three weeks after it for "Move to"', () => {
+    expect(workloadWindows('2026-10-25', '2026-10-28')).toEqual({ show: { from: '2026-10-25', to: '2026-10-31' }, load: [{ from: '2026-10-25', to: '2026-11-21' }], searchUntil: '2026-11-21' });
+    expect(workloadWindows('2026-11-08', '2026-10-28')).toEqual({ show: { from: '2026-11-08', to: '2026-11-14' }, load: [{ from: '2026-11-08', to: '2026-12-05' }], searchUntil: '2026-12-05' });
+  });
+
+  it('for a past week, reads that week and the three weeks from today — not everything in between', () => {
+    expect(workloadWindows('2026-10-04', '2026-10-28')).toEqual({
+      show: { from: '2026-10-04', to: '2026-10-10' },
+      load: [
+        { from: '2026-10-04', to: '2026-10-10' },
+        { from: '2026-10-28', to: '2026-11-18' },
+      ],
+      searchUntil: '2026-11-18',
+    });
   });
 });
 
@@ -120,39 +138,30 @@ describe('buildWorkload: the table', () => {
     expect(rowOf(data, 'rachel').total).toBe(0);
   });
 
+  it('shows a task only on the rows it is meant for', () => {
+    // A manager's own task in a project they don't manage: on their row, never on a teammate's.
+    const own = task(['sara', 'omar'], '2026-10-27', { projectId: 'other', rowsFor: ['sara'] });
+    const data = buildWorkload(rows([own]), { ...opts, scope: MANAGER });
+    expect(cell(data, 'sara', '2026-10-27').count).toBe(1);
+    expect(cell(data, 'omar', '2026-10-27').count).toBe(0);
+  });
+
   it('treats a task due on a day off as over the limit (the limit there is 0)', () => {
     const data = buildWorkload(rows(many(2, 'omar', '2026-10-30')), opts);
     expect(cell(data, 'omar', '2026-10-30')).toMatchObject({ count: 2, limit: 0, over: 2 });
   });
 
-  it('counts overdue tasks: open and due before today', () => {
-    const data = buildWorkload(
-      rows([], {
-        overdue: [
-          { userId: 'omar', projectId: 'rig', dueDate: new Date('2026-10-01T00:00:00Z') },
-          { userId: 'omar', projectId: 'mob', dueDate: new Date('2026-10-27T00:00:00Z') },
-          { userId: 'omar', projectId: 'mob', dueDate: new Date('2026-10-28T00:00:00Z') }, // today: not overdue
-          { userId: 'sara', projectId: 'rig', dueDate: new Date('2026-10-20T00:00:00Z') },
-        ],
-      }),
-      opts,
-    );
+  it('gives each person their overdue count', () => {
+    const data = buildWorkload(rows([], { overdue: [{ userId: 'omar', count: 2 }, { userId: 'sara', count: 1 }] }), opts);
     expect([rowOf(data, 'omar').overdue, rowOf(data, 'sara').overdue, rowOf(data, 'hassan').overdue]).toEqual([2, 1, 0]);
   });
 
-  it('narrowed to a project: counts only its tasks, and lists its team and whoever has its tasks', () => {
-    const data = buildWorkload(
-      rows(
-        [...many(4, 'omar', '2026-10-28', { projectId: 'mob' }), ...many(3, 'omar', '2026-10-28', { projectId: 'rig' }), task('sara', '2026-10-28', { projectId: 'mob' })],
-        { overdue: [{ userId: 'omar', projectId: 'rig', dueDate: new Date('2026-10-01T00:00:00Z') }] },
-      ),
-      { ...opts, projectId: 'mob' },
-    );
+  it('narrowed to a project: lists its team and whoever has its tasks', () => {
+    const data = buildWorkload(rows([...many(4, 'omar', '2026-10-28', { projectId: 'mob' }), task('sara', '2026-10-28', { projectId: 'mob' })]), { ...opts, projectId: 'mob' });
     expect(data.projectId).toBe('mob');
     // Mobile App's team is Omar and Rachel; Sara has one of its tasks.
     expect(data.people.map((p) => p.id)).toEqual(['omar', 'rachel', 'sara']);
     expect(cell(data, 'omar', '2026-10-28').count).toBe(4);
-    expect(rowOf(data, 'omar').overdue).toBe(0);
   });
 
   it('ignores a project outside the asker’s scope', () => {
@@ -161,7 +170,7 @@ describe('buildWorkload: the table', () => {
 });
 
 describe('buildWorkload: suggestions', () => {
-  const titled = (who: string, day: string, key: string, projectId: string, priority: Priority = 'NORMAL', extra: Partial<WorkloadTaskRow> = {}) =>
+  const titled = (who: string | string[], day: string, key: string, projectId: string, priority: Priority = 'NORMAL', extra: Partial<WorkloadTaskRow> = {}) =>
     task(who, day, { key, title: key, projectId, priority, ...extra });
 
   it('suggests as many tasks as the day is over: least-busy teammate on the task’s project, or the next lighter working day', () => {
@@ -185,7 +194,7 @@ describe('buildWorkload: suggestions', () => {
     expect(wed).toMatchObject({ count: 8, limit: 5, over: 3 });
     // Lowest priority first, milestones last; Falcon CRM has nobody else, so its task moves.
     expect(wed.tasks.slice(0, 3).map((t) => [t.key, t.suggestion])).toEqual([
-      ['FCRM-3', { kind: 'move', date: '2026-10-29', count: 3 }],
+      ['FCRM-3', { kind: 'move', date: '2026-10-29' }],
       ['MOB-8', { kind: 'reassign', to: { id: 'rachel', name: 'Rachel Rea Dsouza' }, count: 0 }],
       // Hassan (2) has more room than Sara (5, at the limit).
       ['RIG-14', { kind: 'reassign', to: { id: 'hassan', name: 'Hassan Ahmed' }, count: 2 }],
@@ -216,8 +225,49 @@ describe('buildWorkload: suggestions', () => {
     expect(suggestions).toEqual([
       { kind: 'reassign', to: { id: 'hassan', name: 'Hassan Ahmed' }, count: 4 },
       // Hassan is now at the limit, Thursday has room for one, Friday and Saturday are days off.
-      { kind: 'move', date: '2026-10-29', count: 4 },
+      { kind: 'move', date: '2026-10-29' },
     ]);
+  });
+
+  it('moves a shared task only to a day with room for everyone on it — also people the asker can’t see', () => {
+    const shared = titled(['omar', 'sara'], '2026-10-28', 'RIG-70', 'rig', 'LOW');
+    // Thursday: Omar has room, Sara is at the limit (four of them in a project not shown here).
+    const data = buildWorkload(rows([...many(5, 'omar', '2026-10-28'), shared, task('sara', '2026-10-29')], { moreLoad: load(4, 'sara', '2026-10-29') }), {
+      ...opts,
+      scope: { kind: 'self', projectIds: ['rig'] },
+      viewerId: 'omar',
+    });
+    const wed = cell(data, 'omar', '2026-10-28');
+    expect(wed.tasks.find((t) => t.key === 'RIG-70')!.suggestion).toEqual({ kind: 'move', date: '2026-11-01' });
+  });
+
+  it('never gives someone who sees only their own row another person’s numbers', () => {
+    const data = buildWorkload(rows([...many(5, 'omar', '2026-10-28'), titled(['omar', 'sara'], '2026-10-28', 'RIG-71', 'rig', 'LOW')], { people: [OMAR] }), {
+      ...opts,
+      scope: { kind: 'self', projectIds: ['rig'] },
+      viewerId: 'omar',
+    });
+    expect(data.people.map((p) => p.id)).toEqual(['omar']);
+    const s = cell(data, 'omar', '2026-10-28').tasks.find((t) => t.key === 'RIG-71')!.suggestion!;
+    expect(s).toEqual({ kind: 'move', date: '2026-10-29' });
+    expect(JSON.stringify(data)).not.toContain('"count":5');
+  });
+
+  it('chooses a manager’s teammate by their whole load that day, but names no number to a manager', () => {
+    const data = buildWorkload(
+      rows([...many(6, 'omar', '2026-10-28', { projectId: 'rig', priority: 'LOW' }), task('sara', '2026-10-28', { projectId: 'rig' })], {
+        // Hassan has four tasks that day in a project the manager doesn't manage.
+        moreLoad: load(4, 'hassan', '2026-10-28'),
+      }),
+      { ...opts, scope: MANAGER },
+    );
+    expect(cell(data, 'hassan', '2026-10-28').count).toBe(0);
+    expect(cell(data, 'omar', '2026-10-28').tasks[0]!.suggestion).toEqual({ kind: 'reassign', to: { id: 'sara', name: 'Sara Ahmed' }, count: null });
+  });
+
+  it('names the teammate’s number to an administrator, who sees all their tasks', () => {
+    const data = buildWorkload(rows([...many(6, 'omar', '2026-10-28', { priority: 'LOW' }), task('sara', '2026-10-28')], { moreLoad: load(4, 'hassan', '2026-10-28') }), opts);
+    expect(cell(data, 'omar', '2026-10-28').tasks[0]!.suggestion).toEqual({ kind: 'reassign', to: { id: 'sara', name: 'Sara Ahmed' }, count: 1 });
   });
 
   it('never suggests someone already on the task, someone off the project’s team, or a person not shown', () => {
@@ -239,7 +289,7 @@ describe('buildWorkload: suggestions', () => {
     // Hassan is already on RIG-50: Sara (0) takes it.
     expect(byKey['RIG-50']).toEqual({ kind: 'reassign', to: { id: 'sara', name: 'Sara Ahmed' }, count: 0 });
     // Nobody else on Mobile App is shown: the task moves.
-    expect(byKey['MOB-50']).toEqual({ kind: 'move', date: '2026-10-29', count: 0 });
+    expect(byKey['MOB-50']).toEqual({ kind: 'move', date: '2026-10-29' });
   });
 
   it('on a day off or a past day only moves tasks, to today or later', () => {
@@ -252,9 +302,9 @@ describe('buildWorkload: suggestions', () => {
       opts,
     );
     // Friday is a day off: to the next working day, Sunday 1 November (Thursday is closer but before it).
-    expect(cell(data, 'omar', '2026-10-30').tasks[0]!.suggestion).toEqual({ kind: 'move', date: '2026-11-01', count: 0 });
+    expect(cell(data, 'omar', '2026-10-30').tasks[0]!.suggestion).toEqual({ kind: 'move', date: '2026-11-01' });
     // Monday has passed: not given to Hassan for a day that is over, but moved to the first day from today with room.
-    expect(cell(data, 'omar', '2026-10-26').tasks[0]!.suggestion).toEqual({ kind: 'move', date: '2026-10-29', count: 0 });
+    expect(cell(data, 'omar', '2026-10-26').tasks[0]!.suggestion).toEqual({ kind: 'move', date: '2026-10-29' });
   });
 
   it('suggests only moves to someone who sees only their own row', () => {
@@ -262,28 +312,12 @@ describe('buildWorkload: suggestions', () => {
       ...opts,
       scope: { kind: 'self', projectIds: ['rig', 'mob', 'fcrm'] },
     });
-    expect(cell(data, 'sara', '2026-10-28').tasks[0]!.suggestion).toEqual({ kind: 'move', date: '2026-10-29', count: 0 });
-  });
-
-  it('weighs a teammate by everything they have that day, even when the page is narrowed to a project', () => {
-    const data = buildWorkload(
-      rows([
-        ...many(6, 'omar', '2026-10-28', { projectId: 'rig', priority: 'LOW' }),
-        ...many(4, 'hassan', '2026-10-28', { projectId: 'mob' }), // Hassan's other project
-        task('sara', '2026-10-28', { projectId: 'rig' }),
-      ]),
-      { ...opts, projectId: 'rig' },
-    );
-    expect(cell(data, 'hassan', '2026-10-28').count).toBe(0);
-    expect(cell(data, 'omar', '2026-10-28').tasks[0]!.suggestion).toEqual({ kind: 'reassign', to: { id: 'sara', name: 'Sara Ahmed' }, count: 1 });
+    expect(cell(data, 'sara', '2026-10-28').tasks[0]!.suggestion).toEqual({ kind: 'move', date: '2026-10-29' });
   });
 
   it('gives no suggestion when no teammate has room and no lighter day comes within three weeks', () => {
     const busy = ['2026-10-29', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19'];
-    const data = buildWorkload(
-      rows([task('omar', '2026-10-28', { projectId: 'fcrm' }), ...many(5, 'omar', '2026-10-28', { projectId: 'fcrm' }), ...busy.flatMap((d) => many(5, 'omar', d, { projectId: 'fcrm' }))]),
-      opts,
-    );
+    const data = buildWorkload(rows([...many(6, 'omar', '2026-10-28', { projectId: 'fcrm' })], { moreLoad: busy.flatMap((d) => load(5, 'omar', d)) }), opts);
     expect(cell(data, 'omar', '2026-10-28').tasks.every((t) => t.suggestion === null)).toBe(true);
   });
 });

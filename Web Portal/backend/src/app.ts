@@ -82,7 +82,7 @@ import { registerAiFeatureRoutes } from './modules/ai/ai-feature-routes';
 import type { AiFeatureService } from './modules/ai/ai-feature-service';
 import { registerPlanningRoutes } from './modules/planning/planning-routes';
 import type { TimelineSource } from './modules/planning/timeline';
-import type { WorkloadSource } from './modules/planning/workload';
+import type { WorkloadStore } from './modules/planning/workload-service';
 import { defaultCompanyTimeZone } from './modules/tasks/task-status';
 import type { CorsOriginMatcher } from './lib/cors-origins';
 import type { DataExporter } from './modules/users/data-export';
@@ -118,7 +118,7 @@ export interface AppDeps extends AuthRouteDeps {
   /** The Timeline page's figures, milestones and meetings in grouped queries (GET /timeline). */
   timelineSource?: TimelineSource;
   /** The Workload page's people, tasks due and teams in grouped queries (GET /workload). */
-  workloadSource?: WorkloadSource;
+  workloadStore?: WorkloadStore;
   /** The time now for the Timeline and Workload pages (tests pin it). */
   planningNow?: () => Date;
   columnService?: ColumnService;
@@ -450,12 +450,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           imageMaxBytes: deps.attachmentMaxSizeBytes,
         });
       }
-      if (deps.projectService && (deps.timelineSource || deps.workloadSource)) {
+      if (deps.projectService && (deps.timelineSource || deps.workloadStore)) {
         await registerPlanningRoutes(api, {
           guard,
           projectService: deps.projectService,
           timeline: deps.timelineSource,
-          workload: deps.workloadSource,
+          workload: deps.workloadStore,
           settings: deps.settingsService,
           timeZone: deps.appConfig?.timeZone ?? defaultCompanyTimeZone(),
           now: deps.planningNow,

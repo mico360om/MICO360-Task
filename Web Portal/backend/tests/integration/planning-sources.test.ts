@@ -1,13 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaTimelineSource } from '../../src/modules/planning/prisma-timeline-source';
-import { createPrismaWorkloadSource } from '../../src/modules/planning/prisma-workload-source';
+import { createPrismaWorkloadStore } from '../../src/modules/planning/prisma-workload-store';
+import { loadWorkload } from '../../src/modules/planning/workload-service';
+import { resolveWorkloadScope } from '../../src/modules/planning/workload';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
 const timeline = createPrismaTimelineSource(prisma);
-const workload = createPrismaWorkloadSource(prisma);
-const CODES = ['PLONE', 'PLTWO', 'PLOLD'];
+const workload = createPrismaWorkloadStore(prisma);
+const CODES = ['PLONE', 'PLTWO', 'PLOLD', 'PLDONE'];
 const EMAILS = ['pl-ada@mico360.test', 'pl-bo@mico360.test', 'pl-cy@mico360.test', 'pl-di@mico360.test', 'pl-ed@mico360.test', 'pl-fay@mico360.test'];
 const ids: Record<string, string> = {};
 const day = (key: string) => new Date(`${key}T00:00:00.000Z`);
@@ -49,6 +51,7 @@ beforeEach(async () => {
   await proj('one', 'PLONE', { ownerId: ids.ada, status: 'ACTIVE' });
   await proj('two', 'PLTWO', { ownerId: ids.fay, managerId: ids.bo, status: 'PLANNING' });
   await proj('old', 'PLOLD', { managerId: ids.bo, status: 'ARCHIVED' });
+  await proj('fin', 'PLDONE', { managerId: ids.fay, status: 'COMPLETED' });
   await prisma.projectMember.createMany({
     data: [
       { projectId: ids.one!, userId: ids.bo!, role: 'MANAGER' },
@@ -62,6 +65,7 @@ beforeEach(async () => {
   const doing = await col('one', 'Doing', 'IN_PROGRESS', 0);
   const done = await col('one', 'Done', 'DONE', 1);
   const doingTwo = await col('two', 'Doing', 'IN_PROGRESS', 0);
+  const doingFin = await col('fin', 'Doing', 'IN_PROGRESS', 0);
   let n = 0;
   const task = async (columnId: string, projectKey: string, extra: Record<string, unknown> = {}, who: string[] = []) => {
     n += 1;
@@ -79,6 +83,7 @@ beforeEach(async () => {
   ids.m1 = await task(done, 'one', { dueDate: day('2026-10-10'), isMilestone: true, title: 'Kick-off' }); // reached
   ids.m2 = await task(doing, 'one', { dueDate: day('2026-11-06'), isMilestone: true, title: 'Beta build' });
   ids.t4 = await task(doingTwo, 'two', { dueDate: day('2026-10-29') }, ['cy']);
+  ids.t5 = await task(doingFin, 'fin', { dueDate: day('2026-10-28') }, ['cy']); // a completed project's open task
   const meeting = (title: string, startAt: Date, extra: Record<string, unknown> = {}) =>
     prisma.meeting.create({ data: { title, status: 'SCHEDULED', projectId: ids.one!, startAt, organizerId: ids.ada!, createdById: ids.ada!, ...extra } });
   ids.meet = (await meeting('Weekly sync', new Date('2026-10-27T06:00:00Z'))).id;
@@ -108,40 +113,51 @@ describe('Timeline source (integration)', () => {
   });
 });
 
-describe('Workload source (integration)', () => {
-  const window = { from: day('2026-10-24'), to: day('2026-11-23'), overdueBefore: day('2026-10-25') };
-  const mine = (list: { id: string }[]) => list.map((p) => p.id).filter((id) => Object.values(ids).includes(id));
+describe('Workload store (integration)', () => {
+  const week = { from: day('2026-10-24'), to: day('2026-11-02') };
+  const mine = (list: { id: string }[]) => list.map((p) => p.id).filter((id) => Object.values(ids).includes(id)).sort();
 
-  it('finds the projects someone manages: as its manager, its owner or a MANAGER member — not archived ones', async () => {
+  it('finds the projects someone manages: as its manager, its owner or a MANAGER member — not archived or completed ones', async () => {
     expect((await workload.managedProjectIds(ids.bo!)).sort()).toEqual([ids.one, ids.two].sort());
-    expect(await workload.managedProjectIds(ids.fay!)).toEqual([ids.two]);
+    expect(await workload.managedProjectIds(ids.fay!)).toEqual([ids.two]); // owner of Two; the completed one doesn't count
     expect(await workload.managedProjectIds(ids.cy!)).toEqual([]);
   });
 
-  it('for an administrator: every active person, the open tasks due in the window with their assignees, overdue work and the teams', async () => {
-    const rows = await workload.load({ scope: { kind: 'everyone', projectIds: null }, viewerId: ids.ada!, ...window });
-    expect(mine(rows.people).sort()).toEqual([ids.ada, ids.bo, ids.cy, ids.fay].sort()); // not the deactivated or deleted
-    expect(mine(rows.projects).sort()).toEqual([ids.one, ids.two].sort()); // not the archived one
-    const tasks = rows.tasks.filter((t) => [ids.one, ids.two].includes(t.projectId));
+  it('reads live projects, active people and active members', async () => {
+    expect(mine(await workload.liveProjects(null))).toEqual([ids.one, ids.two].sort());
+    expect(mine(await workload.liveProjects([ids.one!, ids.fin!, ids.old!]))).toEqual([ids.one]);
+    expect(mine(await workload.activeUsers(null))).toEqual([ids.ada, ids.bo, ids.cy, ids.fay].sort());
+    expect((await workload.members([ids.one!])).map((m) => m.userId).sort()).toEqual([ids.bo, ids.cy].sort()); // not the deactivated member
+  });
+
+  it('reads open tasks due in a window that the given people are on, with everyone on them', async () => {
+    const tasks = await workload.openTasks({ projectIds: [ids.one!, ids.two!], assigneeIds: [ids.cy!], ...week });
     expect(tasks.map((t) => t.id).sort()).toEqual([ids.t1, ids.t2, ids.t4].sort());
-    expect(tasks.find((t) => t.id === ids.t2)).toMatchObject({ key: expect.stringMatching(/^PL-/), priority: 'LOW', isMilestone: false, version: 0 });
     expect(tasks.find((t) => t.id === ids.t2)!.assigneeIds.sort()).toEqual([ids.bo, ids.cy].sort());
-    expect(rows.overdue.filter((o) => o.userId === ids.cy)).toEqual([{ userId: ids.cy, projectId: ids.one, dueDate: day('2026-10-01') }]);
-    const team = (key: string) => rows.teams.filter((m) => m.projectId === ids[key]).map((m) => m.userId).sort();
-    expect(team('one')).toEqual([ids.ada, ids.bo, ids.cy].sort()); // members, and the owner; not the deactivated member
-    expect(team('two')).toEqual([ids.bo, ids.cy, ids.fay].sort()); // member, manager and owner
+    expect(tasks.find((t) => t.id === ids.t2)).toMatchObject({ key: expect.stringMatching(/^PL-/), priority: 'LOW', isMilestone: false, version: 0 });
+    expect(await workload.openTasks({ projectIds: [ids.two!], assigneeIds: [ids.bo!], ...week })).toEqual([]);
   });
 
-  it('for a project manager: the teams of the projects they manage, and only those projects’ tasks', async () => {
-    const rows = await workload.load({ scope: { kind: 'teams', projectIds: [ids.one!] }, viewerId: ids.bo!, ...window });
-    expect(rows.people.map((p) => p.id).sort()).toEqual([ids.ada, ids.bo, ids.cy].sort());
-    expect(rows.projects.map((p) => p.id)).toEqual([ids.one]);
-    expect(rows.tasks.map((t) => t.id).sort()).toEqual([ids.t1, ids.t2].sort());
+  it('counts overdue work per person in grouped queries', async () => {
+    expect(await workload.overdueCounts({ projectIds: [ids.one!, ids.two!], userIds: [ids.cy!, ids.bo!], before: day('2026-10-24') })).toEqual([{ userId: ids.cy, count: 1 }]);
   });
 
-  it('for anyone else: only themselves', async () => {
-    const rows = await workload.load({ scope: { kind: 'self', projectIds: [ids.one!, ids.two!] }, viewerId: ids.cy!, ...window });
-    expect(rows.people.map((p) => [p.id, p.name])).toEqual([[ids.cy, 'Cy Plan']]);
-    expect(rows.tasks.map((t) => t.id).sort()).toEqual([ids.t1, ids.t2, ids.t4].sort());
+  it('weighs each person’s whole load in every live project — not completed or archived ones', async () => {
+    const loads = await workload.openDue({ projectIds: null, userIds: [ids.cy!, ids.bo!], windows: [week] });
+    const at = (u: string) => loads.filter((l) => l.userId === u).map((l) => l.dueDate!.toISOString().slice(0, 10)).sort();
+    expect(at(ids.cy!)).toEqual(['2026-10-28', '2026-10-28', '2026-10-29']); // t1, t2, t4 — not the completed project's t5
+    expect(at(ids.bo!)).toEqual(['2026-10-28']);
+  });
+
+  it('end to end: a manager sees their projects’ team, an employee only themselves', async () => {
+    const run = async (who: string, visible: string[]) => {
+      const scope = resolveWorkloadScope({ id: ids[who]!, roles: ['EMPLOYEE'] }, { managedProjectIds: await workload.managedProjectIds(ids[who]!), visibleProjectIds: visible });
+      return loadWorkload(workload, { scope, viewerId: ids[who]!, projectId: null, week: '2026-10-25', today: '2026-10-24', timeZone: 'Asia/Muscat' });
+    };
+    const bo = await run('bo', [ids.one!, ids.two!]);
+    expect(mine(bo.rows.people)).toEqual([ids.ada, ids.bo, ids.cy, ids.fay].sort()); // One's and Two's teams (owners, manager, members)
+    const cy = await run('cy', [ids.one!, ids.two!, ids.fin!]);
+    expect(mine(cy.rows.people)).toEqual([ids.cy]);
+    expect(cy.rows.tasks.map((t) => t.id).sort()).toEqual([ids.t1, ids.t2, ids.t4].sort());
   });
 });

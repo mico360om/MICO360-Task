@@ -19,7 +19,7 @@ export interface WorkloadProject {
   imageUrl: string | null;
 }
 
-/** An open task with a due date in the asked window, assigned to at least one person shown. */
+/** An open task the table shows, with a due date in the shown week. */
 export interface WorkloadTaskRow {
   id: string;
   key: string;
@@ -31,41 +31,46 @@ export interface WorkloadTaskRow {
   version: number;
   /** Everyone it is assigned to (also people not shown). */
   assigneeIds: string[];
+  /** The rows it shows on, when not every shown assignee's (a manager's own task in a project they don't manage). */
+  rowsFor?: string[];
 }
 
-/** What the database hands back for one week — a fixed number of queries, never one per person. */
+/** What the service hands the builder for one week — read in a fixed number of queries, never one per person. */
 export interface WorkloadRows {
   /** The people the asker may see. */
   people: WorkloadPerson[];
-  /** The projects in the asker's scope (not archived). */
+  /** The projects the page may be narrowed to. */
   projects: WorkloadProject[];
+  /** The tasks the table shows (already narrowed to a project when the page is). */
   tasks: WorkloadTaskRow[];
-  /** One row per person and open task due before `overdueBefore` (the builder keeps those before today). */
-  overdue: { userId: string; projectId: string; dueDate: Date | null }[];
+  /** Each person's overdue tasks (already narrowed to a project when the page is). */
+  overdue: { userId: string; count: number }[];
   /** Who is on each project's team (active members, its owner and its manager). */
   teams: { projectId: string; userId: string }[];
+  /**
+   * Everyone's whole load: one row per person and open task due in the weighed days, in every
+   * project — what suggestions weigh. Never sent to the page.
+   */
+  loads: { userId: string; dueDate: Date | null }[];
 }
 
 /**
  * Who the asker may see: an administrator everyone (all projects); a project manager the people on
- * the projects they manage (only those projects' tasks); anyone else only themselves (in the
- * projects they can see).
+ * the projects they manage (only those projects' tasks) and their own tasks in every project they
+ * can see; anyone else only themselves (in the projects they can see).
  */
 export type WorkloadScope =
   | { kind: 'everyone'; projectIds: null }
-  | { kind: 'teams'; projectIds: string[] }
+  | { kind: 'teams'; projectIds: string[]; ownProjectIds: string[] }
   | { kind: 'self'; projectIds: string[] };
 
-export interface WorkloadSource {
-  /** Projects the person manages: they are its manager or owner, or a MANAGER member (not archived or deleted). */
-  managedProjectIds(userId: string): Promise<string[]>;
-  load(input: { scope: WorkloadScope; viewerId: string; from: Date; to: Date; overdueBefore: Date }): Promise<WorkloadRows>;
-}
-
-/** One way to lighten a day: give the task to a teammate with room, or move it to a lighter working day. */
+/**
+ * One way to lighten a day: give the task to a teammate with room (their number that day only for
+ * an administrator, who sees all their tasks), or move it to a working day with room for everyone on it.
+ */
 export type WorkloadSuggestion =
-  | { kind: 'reassign'; to: { id: string; name: string }; count: number }
-  | { kind: 'move'; date: string; count: number };
+  | { kind: 'reassign'; to: { id: string; name: string }; count: number | null }
+  | { kind: 'move'; date: string };
 
 export interface WorkloadCellTask {
   id: string;
@@ -127,22 +132,28 @@ export function resolveWorkloadScope(
   facts: { managedProjectIds: string[]; visibleProjectIds: string[] | null },
 ): WorkloadScope {
   if (viewer.roles.includes('ADMIN')) return { kind: 'everyone', projectIds: null };
-  if (facts.managedProjectIds.length > 0) return { kind: 'teams', projectIds: [...facts.managedProjectIds] };
+  if (facts.managedProjectIds.length > 0) return { kind: 'teams', projectIds: [...facts.managedProjectIds], ownProjectIds: facts.visibleProjectIds ?? [] };
   return { kind: 'self', projectIds: facts.visibleProjectIds ?? [] };
 }
 
-/** The days the page reads: the week, and on to three weeks after the later of its end and today (for "Move to"). */
-export function workloadWindow(week: string, today: string): { from: string; to: string } {
-  return { from: week, to: shiftDayKey(later(shiftDayKey(week, 6), today), MOVE_LOOKAHEAD_DAYS) };
+/**
+ * The days the page reads: the week it shows, and the days it weighs — the week and up to three
+ * weeks on, where "Move to" looks (from today for a past week, never everything in between).
+ */
+export function workloadWindows(week: string, today: string): { show: { from: string; to: string }; load: { from: string; to: string }[]; searchUntil: string } {
+  const weekEnd = shiftDayKey(week, 6);
+  const searchUntil = shiftDayKey(later(weekEnd, today), MOVE_LOOKAHEAD_DAYS);
+  const load = today > weekEnd ? [{ from: week, to: weekEnd }, { from: today, to: searchUntil }] : [{ from: week, to: searchUntil }];
+  return { show: { from: week, to: weekEnd }, load, searchUntil };
 }
 
 /**
  * The Workload table: each person's open tasks due each day of the week against the daily limit (0
  * on a day off), their overdue tasks, and for every day over the limit a plan to bring it down —
  * as many tasks as it is over, each given to the least-busy teammate on its project who has room
- * that day, or moved to the next working day with room. Teammates and days are weighed by all their
- * work the asker may see (not only a project the page is narrowed to), and each suggestion counts
- * towards the next, so two suggestions never fill the same day past the limit.
+ * that day, or moved to the next working day with room for everyone on the task. Days and teammates
+ * are weighed by everyone's whole load (every project, also people and projects the asker can't
+ * see), each suggestion counts towards the next, and only an administrator is told numbers.
  */
 export function buildWorkload(
   rows: WorkloadRows,
@@ -164,47 +175,44 @@ export function buildWorkload(
   const weekEnd = days[6]!;
   const working = new Set(opts.workingDays);
   const isWorking = (day: string) => working.has(weekdayOf(day));
-  const window = workloadWindow(week, today);
+  const { searchUntil } = workloadWindows(week, today);
   const projectId = opts.projectId && rows.projects.some((p) => p.id === opts.projectId) ? opts.projectId : null;
   const shown = new Set(rows.people.map((p) => p.id));
   const nameOf = new Map(rows.people.map((p) => [p.id, p.name]));
   const team = new Map<string, Set<string>>();
   for (const m of rows.teams) team.set(m.projectId, (team.get(m.projectId) ?? new Set<string>()).add(m.userId));
 
-  // Everyone's whole load per day (what suggestions weigh), and the week's cells (what the table shows).
+  // Everyone's whole load per day: what suggestions weigh.
   const load = new Map<string, number>();
   const at = (userId: string, day: string) => `${userId} ${day}`;
   const loadOf = (userId: string, day: string) => load.get(at(userId, day)) ?? 0;
   const bump = (userId: string, day: string, by: number) => load.set(at(userId, day), loadOf(userId, day) + by);
+  for (const l of rows.loads) {
+    const day = dueDayKey(l.dueDate, timeZone);
+    if (day) bump(l.userId, day, 1);
+  }
+
+  // The week's cells: what the table shows.
   const cells = new Map<string, WorkloadTaskRow[]>();
   const withWork = new Set<string>();
   for (const t of rows.tasks) {
     const day = dueDayKey(t.dueDate, timeZone);
-    if (!day || day < window.from || day > window.to) continue;
-    const inView = !projectId || t.projectId === projectId;
-    for (const userId of t.assigneeIds) {
+    if (!day || day < week || day > weekEnd) continue;
+    for (const userId of t.rowsFor ?? t.assigneeIds) {
       if (!shown.has(userId)) continue;
-      bump(userId, day, 1);
-      if (inView && day <= weekEnd) {
-        cells.set(at(userId, day), [...(cells.get(at(userId, day)) ?? []), t]);
-        withWork.add(userId);
-      }
+      cells.set(at(userId, day), [...(cells.get(at(userId, day)) ?? []), t]);
+      withWork.add(userId);
     }
   }
-
-  const overdue = new Map<string, number>();
-  for (const o of rows.overdue) {
-    if (projectId && o.projectId !== projectId) continue;
-    const day = dueDayKey(o.dueDate, timeZone);
-    if (day === null || day >= today) continue;
-    overdue.set(o.userId, (overdue.get(o.userId) ?? 0) + 1);
-    withWork.add(o.userId);
-  }
+  const overdue = new Map(rows.overdue.map((o) => [o.userId, o.count]));
+  for (const o of rows.overdue) if (o.count > 0) withWork.add(o.userId);
 
   // Narrowed to a project: its team, and whoever has its tasks.
   const keep = projectId ? new Set([...(team.get(projectId) ?? []), ...withWork]) : null;
   const people = rows.people.filter((p) => !keep || keep.has(p.id)).sort((a, b) => collator.compare(a.name, b.name) || a.id.localeCompare(b.id));
   const canReassign = scope.kind !== 'self';
+  // Only an administrator sees all of a teammate's tasks, so only they are told the teammate's number.
+  const tellCounts = scope.kind === 'everyone';
   const dayLimit = (day: string) => (isWorking(day) ? limit : 0);
 
   function suggest(t: WorkloadTaskRow, userId: string, day: string): WorkloadSuggestion | null {
@@ -217,16 +225,18 @@ export function buildWorkload(
       if (best) {
         bump(best.id, day, 1);
         bump(userId, day, -1);
-        return { kind: 'reassign', to: { id: best.id, name: nameOf.get(best.id) ?? '' }, count: best.count };
+        return { kind: 'reassign', to: { id: best.id, name: nameOf.get(best.id) ?? '' }, count: tellCounts ? best.count : null };
       }
     }
-    for (let next = later(shiftDayKey(day, 1), today); next <= window.to; next = shiftDayKey(next, 1)) {
-      if (!isWorking(next)) continue;
-      const count = loadOf(userId, next);
-      if (count >= limit) continue;
-      bump(userId, next, 1);
-      bump(userId, day, -1);
-      return { kind: 'move', date: next, count };
+    // Moving the due date moves it for everyone on the task: the day must have room for them all.
+    const everyone = [...new Set([userId, ...t.assigneeIds])];
+    for (let next = later(shiftDayKey(day, 1), today); next <= searchUntil; next = shiftDayKey(next, 1)) {
+      if (!isWorking(next) || everyone.some((id) => loadOf(id, next) >= limit)) continue;
+      for (const id of everyone) {
+        bump(id, next, 1);
+        bump(id, day, -1);
+      }
+      return { kind: 'move', date: next };
     }
     return null;
   }

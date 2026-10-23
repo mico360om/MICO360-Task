@@ -7,7 +7,7 @@ import { createSettingsService } from '../settings/settings-service';
 import type { ProjectRecord, ProjectRepository } from '../projects/project-repository';
 import type { SettingsRepository } from '../settings/settings-repository';
 import type { TimelineRows, TimelineSource } from './timeline';
-import type { WorkloadRows, WorkloadScope, WorkloadSource } from './workload';
+import { fakeWorkloadStore, type FakeCompany } from './workload-store.fixture';
 
 // Saturday 24 October 2026, 12:00 in Muscat.
 const NOW = new Date('2026-10-24T08:00:00Z');
@@ -60,16 +60,9 @@ const timelineSource: TimelineSource = {
   },
 };
 
-let managed: Record<string, string[]> = {};
-let workloadCalls: { scope: WorkloadScope; viewerId: string; from: Date; to: Date; overdueBefore: Date }[] = [];
-let workloadRows: WorkloadRows = { people: [], projects: [], tasks: [], overdue: [], teams: [] };
-const workloadSource: WorkloadSource = {
-  async managedProjectIds(userId) { return managed[userId] ?? []; },
-  async load(input) {
-    workloadCalls.push(input);
-    return workloadRows;
-  },
-};
+const EMPTY: FakeCompany = { users: [], projects: [], members: [], tasks: [] };
+let company: FakeCompany = EMPTY;
+let workloadStore = fakeWorkloadStore(company);
 
 let stored: Record<string, unknown> = {};
 const settingsRepo: SettingsRepository = {
@@ -102,7 +95,15 @@ async function makeApp() {
     projectService: createProjectService({ projects: repo }),
     settingsService: createSettingsService({ settings: settingsRepo }),
     timelineSource,
-    workloadSource,
+    workloadStore: {
+      managedProjectIds: (u) => workloadStore.managedProjectIds(u),
+      liveProjects: (ids) => workloadStore.liveProjects(ids),
+      members: (ids) => workloadStore.members(ids),
+      activeUsers: (ids) => workloadStore.activeUsers(ids),
+      openTasks: (q) => workloadStore.openTasks(q),
+      overdueCounts: (q) => workloadStore.overdueCounts(q),
+      openDue: (q) => workloadStore.openDue(q),
+    },
     planningNow: () => NOW,
     appConfig: { timeZone: 'Asia/Muscat', productName: 'MICO360 Tasks', companyName: 'MICO360' },
   });
@@ -113,9 +114,8 @@ beforeEach(async () => {
   projects = [];
   timelineCalls = [];
   timelineRows = { totals: [], openByDue: [], milestones: [], meetings: [], owners: [] };
-  managed = {};
-  workloadCalls = [];
-  workloadRows = { people: [], projects: [], tasks: [], overdue: [], teams: [] };
+  company = EMPTY;
+  workloadStore = fakeWorkloadStore(company);
   stored = {};
   app = await makeApp();
 });
@@ -174,6 +174,15 @@ describe('GET /timeline', () => {
     expect(timelineCalls).toHaveLength(0);
   });
 
+  it('refuses dates more than two years away, and extreme years, with a plain 400 — never a 500', async () => {
+    for (const q of ['from=2024-10-01&to=2024-12-01', 'from=2028-11-01&to=2028-12-01', 'from=0000-01-01&to=0000-03-01', 'from=9999-10-01&to=9999-12-31', 'from=2026-10-01&to=9999-12-31']) {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/timeline?${q}`, headers: await ADMIN() });
+      expect(res.statusCode, q).toBe(400);
+      expect(res.json().error.message, q).toBe('Pick dates within two years of today.');
+    }
+    expect(timelineCalls).toHaveLength(0);
+  });
+
   it('needs a sign-in (401)', async () => {
     expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
   });
@@ -181,45 +190,65 @@ describe('GET /timeline', () => {
 
 describe('GET /workload', () => {
   const url = '/api/v1/workload?week=2026-10-25';
+  const use = (c: FakeCompany) => {
+    company = c;
+    workloadStore = fakeWorkloadStore(c);
+  };
+  const TEAM: FakeCompany = {
+    users: [
+      { id: 'admin', name: 'Aisha Khan' },
+      { id: 'pm', name: 'Sara Ahmed' },
+      { id: 'omar', name: 'Omar Said' },
+      { id: 'emp', name: 'Yusuf Ali' },
+    ],
+    projects: [{ id: 'rig', managerId: 'pm' }, { id: 'mine' }, { id: 'done', status: 'COMPLETED', managerId: 'emp' }],
+    members: [{ projectId: 'rig', userId: 'omar' }, { projectId: 'mine', userId: 'emp' }],
+    tasks: [{ id: 'r1', projectId: 'rig', due: '2026-10-27', assignees: ['omar'] }],
+  };
 
   it('lets an administrator see everyone, with the company limit and working days, and change the limit', async () => {
+    use(TEAM);
     stored = { 'workload.dailyLimit': 6, 'meetings.workingHours': { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' } };
-    workloadRows = { ...workloadRows, people: [{ id: 'omar', name: 'Omar Said', avatarUrl: null }] };
     const res = await app.inject({ method: 'GET', url, headers: await ADMIN() });
     expect(res.statusCode).toBe(200);
     const data = res.json().data;
     expect(data).toMatchObject({ week: '2026-10-25', today: '2026-10-24', limit: 6, canChangeLimit: true, scope: 'everyone' });
     expect(data.days.map((d: { working: boolean }) => d.working)).toEqual([true, true, true, true, true, false, false]);
-    expect(data.people.map((p: { id: string }) => p.id)).toEqual(['omar']);
-    expect(workloadCalls).toHaveLength(1);
-    expect(workloadCalls[0]!.scope).toEqual({ kind: 'everyone', projectIds: null });
-    expect(workloadCalls[0]!.viewerId).toBe('admin');
+    expect(data.people.map((p: { id: string }) => p.id)).toEqual(['admin', 'omar', 'pm', 'emp']); // by name
+    expect(data.projects.map((p: { id: string }) => p.id)).toEqual(['rig', 'mine']); // not the completed one
+    expect(data).not.toHaveProperty('loads');
   });
 
-  it('reads the week and three weeks on (a day either side), and overdue work before tomorrow', async () => {
+  it('reads only the shown week’s tasks (a day either side), and weighs the three weeks after it', async () => {
+    use(TEAM);
     await app.inject({ method: 'GET', url, headers: await ADMIN() });
-    const call = workloadCalls[0]!;
-    expect(call.from.toISOString()).toBe('2026-10-24T00:00:00.000Z');
-    expect(call.to.toISOString()).toBe('2026-11-23T00:00:00.000Z');
-    expect(call.overdueBefore.toISOString()).toBe('2026-10-25T00:00:00.000Z');
+    const shown = workloadStore.calls.find((c) => c.name === 'openTasks')!.args as { from: Date; to: Date };
+    expect([shown.from.toISOString(), shown.to.toISOString()]).toEqual(['2026-10-24T00:00:00.000Z', '2026-11-02T00:00:00.000Z']);
+    const weighed = workloadStore.calls.find((c) => c.name === 'openDue' && (c.args as { projectIds: unknown }).projectIds === null)!.args as { windows: { from: Date; to: Date }[] };
+    expect(weighed.windows.map((w) => [w.from.toISOString(), w.to.toISOString()])).toEqual([['2026-10-24T00:00:00.000Z', '2026-11-23T00:00:00.000Z']]);
   });
 
-  it('shows a project manager the teams of the projects they manage, and no limit control', async () => {
-    managed = { pm: ['rig', 'mob'] };
+  it('shows a project manager the team of the project they manage, and no limit control', async () => {
+    use(TEAM);
     const res = await app.inject({ method: 'GET', url, headers: await as('pm', ['EMPLOYEE']) });
-    expect(res.json().data).toMatchObject({ scope: 'teams', canChangeLimit: false, limit: 5 });
-    expect(workloadCalls[0]!.scope).toEqual({ kind: 'teams', projectIds: ['rig', 'mob'] });
+    const data = res.json().data;
+    expect(data).toMatchObject({ scope: 'teams', canChangeLimit: false, limit: 5 });
+    expect(data.people.map((p: { id: string }) => p.id)).toEqual(['omar', 'pm']);
+    expect(data.projects.map((p: { id: string }) => p.id)).toEqual(['rig']);
   });
 
-  it('shows anyone else only their own row, in the projects they can see', async () => {
-    projects = [record('mine', { ownerId: 'emp' }), record('theirs')];
+  it('shows anyone else only their own row — also when the only project they manage is completed', async () => {
+    use(TEAM);
+    projects = [record('mine', { createdById: 'emp' }), record('theirs'), record('done', { managerId: 'emp', status: 'COMPLETED' })];
     const res = await app.inject({ method: 'GET', url, headers: await EMPLOYEE() });
-    expect(res.json().data).toMatchObject({ scope: 'self', canChangeLimit: false });
-    expect(workloadCalls[0]!.scope).toEqual({ kind: 'self', projectIds: ['mine'] });
+    const data = res.json().data;
+    expect(data).toMatchObject({ scope: 'self', canChangeLimit: false });
+    expect(data.people.map((p: { id: string }) => p.id)).toEqual(['emp']);
+    expect(data.projects.map((p: { id: string }) => p.id)).toEqual(['mine']);
   });
 
   it('narrows to a project in the asker’s scope', async () => {
-    workloadRows = { ...workloadRows, projects: [{ id: 'rig', code: 'RIG', name: 'Rig', color: '#000000', icon: null, imageUrl: null }] };
+    use(TEAM);
     const res = await app.inject({ method: 'GET', url: `${url}&projectId=rig`, headers: await ADMIN() });
     expect(res.json().data.projectId).toBe('rig');
   });
@@ -230,6 +259,15 @@ describe('GET /workload', () => {
       expect(res.statusCode, q).toBe(400);
     }
     expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
+  });
+
+  it('refuses a week more than two years away, and extreme years, with a plain 400 — never a 500', async () => {
+    for (const week of ['2028-11-05', '2024-10-20', '0000-01-02', '9999-12-26', '0001-01-01']) {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/workload?week=${week}`, headers: await ADMIN() });
+      expect(res.statusCode, week).toBe(400);
+      expect(res.json().error.message, week).toBe('Pick a week within two years of today.');
+    }
+    expect(workloadStore.calls).toHaveLength(0);
   });
 
   it('only an administrator may change the daily limit, and the page then shows it', async () => {
