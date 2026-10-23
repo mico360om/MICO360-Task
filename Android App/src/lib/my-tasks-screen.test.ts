@@ -52,3 +52,24 @@ describe('the My Tasks screen (4d), as the website’s page', () => {
     expect(src('core/queries.ts')).toMatch(/mutationFn: \(patch: Partial<ApiTask> & \{ scope\?: 'one' \| 'series' \}\) => sendTaskEdit\(services, qc, taskId, patch\)/);
   });
 });
+
+describe('My Tasks with TalkBack and large text (final review A9)', () => {
+  const screen = src('screens/MyTasksScreen.tsx');
+
+  it('a task’s box is named with its key and title, not the key alone', async () => {
+    const { selectTaskLabel } = await import('./my-tasks');
+    expect(selectTaskLabel({ task: { key: 'ABC-12', title: 'Fix the pump' } })).toBe('Select ABC-12, Fix the pump');
+    expect(src('components/my-tasks/MyTaskItem.tsx')).toMatch(/accessibilityLabel=\{selectTaskLabel\(row\)\}/);
+  });
+
+  it('the list leaves room for the bulk bar as tall as it really is (it wraps to more rows at large text)', () => {
+    expect(screen).toMatch(/<View style=\{s\.bulkBar\} onLayout=\{\(e\) => setBarHeight\(e\.nativeEvent\.layout\.height\)\}/);
+    expect(screen).toMatch(/contentContainerStyle=\{\[s\.list, \{ paddingBottom: listBottom \}\]\}/);
+  });
+
+  it('while a bulk action runs the bar stays, says how far it is and offers Stop, not Clear', () => {
+    expect(screen).toMatch(/\{showBar \? \(/);
+    expect(screen).toMatch(/const showBar = chosen\.length > 0 \|\| busy;/);
+    expect(screen).toMatch(/\{busy \? \(\s*\/\/[^\n]*\n\s*<Pressable\s+onPress=\{\(\) => \(stopRun\.current = true\)\}/);
+  });
+});

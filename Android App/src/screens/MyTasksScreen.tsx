@@ -45,6 +45,9 @@ import { displayName, type Priority } from '../lib/types';
 import type { TabScreenProps } from '../navigation/types';
 
 type FilterSheet = 'project' | 'status' | 'priority' | 'assignee' | 'due' | 'sort';
+
+/** Room under the list for the New task button (and the bulk bar, at least). */
+const LIST_BOTTOM = spacing.xxl * 4;
 type BulkSheet = 'due' | 'priority' | 'assign' | 'move';
 
 /**
@@ -157,6 +160,12 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
 
   const open = useCallback((r: MyTaskRow) => navigation.navigate('TaskDetail', { taskId: r.task.id, title: r.task.title }), [navigation]);
 
+  // The bulk bar: while tasks are ticked, and until a run ends. The list leaves room for it as tall as
+  // it really is — at large text its buttons wrap to two or three rows (final review A9).
+  const showBar = chosen.length > 0 || busy;
+  const [barHeight, setBarHeight] = useState(0);
+  const listBottom = showBar ? Math.max(LIST_BOTTOM, barHeight + spacing.md + spacing.lg) : LIST_BOTTOM;
+
   if (tasksQ.isLoading) return <Loader />;
 
   const header = (
@@ -268,15 +277,15 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
         renderItem={({ item }) => <MyTaskItem row={item} selected={selected.has(item.task.id)} onOpen={open} onToggle={toggle} />}
         ListHeaderComponent={header}
         ListEmptyComponent={empty}
-        contentContainerStyle={s.list}
+        contentContainerStyle={[s.list, { paddingBottom: listBottom }]}
         keyboardShouldPersistTaps="handled"
         initialNumToRender={10}
         windowSize={9}
         refreshControl={<RefreshControl refreshing={tasksQ.isRefetching} onRefresh={() => void tasksQ.refetch()} />}
       />
 
-      {chosen.length > 0 || busy ? (
-        <View style={s.bulkBar} accessibilityLabel="Bulk actions">
+      {showBar ? (
+        <View style={s.bulkBar} onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)} accessibilityLabel="Bulk actions">
           <View style={s.bulkHead}>
             {busy ? <ActivityIndicator size="small" color={c.brand} /> : null}
             <Text style={s.bulkCount} accessibilityLiveRegion="polite">
@@ -409,7 +418,7 @@ const makeStyles = (c: Palette) =>
     safe: { flex: 1, backgroundColor: c.ground },
     flex: { flex: 1 },
     pressed: { opacity: 0.6 },
-    list: { padding: spacing.lg, gap: spacing.sm, paddingBottom: spacing.xxl * 4 },
+    list: { padding: spacing.lg, gap: spacing.sm, paddingBottom: LIST_BOTTOM },
     head: { gap: spacing.sm, marginBottom: spacing.xs },
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
     search: { marginBottom: 0 },

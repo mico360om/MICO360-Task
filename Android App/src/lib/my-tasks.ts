@@ -230,6 +230,11 @@ export function dueLabel(r: MyTaskRow): string {
 }
 
 /** One task, in words, for TalkBack. */
+/** A task's selection box, as TalkBack reads it: its key and title (final review A9). */
+export function selectTaskLabel(r: { task: { key: string; title: string } }): string {
+  return `Select ${r.task.key}, ${r.task.title}`;
+}
+
 export function myTaskLabel(r: MyTaskRow): string {
   const people = ((r.task.assignees ?? []) as unknown as { name: string }[]).map((a) => a.name);
   return [

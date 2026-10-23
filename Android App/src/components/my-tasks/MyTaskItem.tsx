@@ -5,7 +5,7 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import { priorityColor } from '../TaskRow';
 import { personInitials } from '../../lib/board';
 import { STATUS_NAME } from '../../lib/all-board';
-import { dueLabel, myTaskLabel, type MyTaskRow } from '../../lib/my-tasks';
+import { dueLabel, myTaskLabel, selectTaskLabel, type MyTaskRow } from '../../lib/my-tasks';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ColumnCategory } from '../../lib/types';
 
@@ -28,7 +28,7 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
       <Pressable
         onPress={() => onToggle(t.id)}
         accessibilityRole="checkbox"
-        accessibilityLabel={`Select ${t.key}`}
+        accessibilityLabel={selectTaskLabel(row)}
         accessibilityState={{ checked: selected }}
         hitSlop={6}
         style={s.boxHit}
