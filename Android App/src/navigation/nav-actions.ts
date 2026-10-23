@@ -5,12 +5,12 @@ import type { TabsParamList, AppStackParamList, AuthStackParamList } from './typ
 /**
  * A concrete navigation instruction: switch to a bottom tab, or push a stack screen. Kept as a
  * plain data descriptor (no navigation side effects) so both the deep-link handler and the drawer
- * produce it and it can be unit-tested; `applyNavAction` in RootNavigator performs it.
+ * produce it and it can be unit-tested; `applyNavAction` (navigation/apply-action) performs it —
+ * for a tapped push and a tap in the Alerts list alike (final review B5).
  */
 export type NavAction =
   | { type: 'tab'; tab: keyof TabsParamList }
   | { type: 'stack'; screen: 'TaskDetail'; params: AppStackParamList['TaskDetail'] }
-  | { type: 'stack'; screen: 'Board'; params: AppStackParamList['Board'] }
   /** The All projects board (4c): every open project's tasks under the six shared statuses. */
   | { type: 'stack'; screen: 'AllBoard' }
   | { type: 'stack'; screen: 'ProjectDetail'; params: AppStackParamList['ProjectDetail'] }
@@ -44,8 +44,6 @@ export function targetToAction(target: LinkTarget): NavAction {
   switch (target.screen) {
     case 'TaskDetail':
       return { type: 'stack', screen: 'TaskDetail', params: target.params };
-    case 'Board':
-      return { type: 'stack', screen: 'Board', params: target.params };
     case 'ProjectDetail':
       return { type: 'stack', screen: 'ProjectDetail', params: target.params };
     case 'MeetingDetail':
@@ -76,35 +74,6 @@ export const taskScreenId = ({ params }: { params?: { taskId?: string } }): stri
 export const meetingScreenId = ({ params }: { params?: { meetingId?: string } }): string | undefined => params?.meetingId;
 /** One thread screen per conversation (a push for another conversation adds a screen). */
 export const chatScreenId = ({ params }: { params?: { conversationId?: string } }): string | undefined => params?.conversationId;
-
-/** Where a tap in the Alerts list goes (it navigates from inside the tabs). */
-export type AlertRoute =
-  | { name: 'TaskDetail'; params: AppStackParamList['TaskDetail'] }
-  | { name: 'Board'; params: AppStackParamList['Board'] }
-  | { name: 'ProjectDetail'; params: AppStackParamList['ProjectDetail'] }
-  | { name: 'MeetingDetail'; params: AppStackParamList['MeetingDetail'] }
-  | { name: 'ChatThread'; params: AppStackParamList['ChatThread'] }
-  | { name: 'Tabs'; params: { screen: keyof TabsParamList } };
-
-/** The screen an alert opens, or null to stay on the list (an alert about nothing it can open). */
-export function alertRoute(action: NavAction): AlertRoute | null {
-  if (action.type === 'tab') return action.tab === 'Notifications' ? null : { name: 'Tabs', params: { screen: action.tab } };
-  if (action.type !== 'stack') return null;
-  switch (action.screen) {
-    case 'TaskDetail':
-      return { name: 'TaskDetail', params: action.params };
-    case 'Board':
-      return { name: 'Board', params: action.params };
-    case 'ProjectDetail':
-      return { name: 'ProjectDetail', params: action.params };
-    case 'MeetingDetail':
-      return { name: 'MeetingDetail', params: action.params };
-    case 'ChatThread':
-      return { name: 'ChatThread', params: action.params };
-    default:
-      return null;
-  }
-}
 
 /** True when the action needs a signed-in user (everything except the auth screens). */
 export function requiresSession(action: NavAction): boolean {

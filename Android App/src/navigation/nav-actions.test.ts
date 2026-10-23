@@ -5,9 +5,8 @@ import { TAB_ITEMS } from './tabs';
 import { notificationToTarget } from '../lib/deep-link';
 
 describe('targetToAction', () => {
-  it('pushes stack screens for task/board and switches tabs for chat/notifications', () => {
+  it('pushes the task’s screen and switches tabs for chat/notifications', () => {
     expect(targetToAction({ screen: 'TaskDetail', params: { taskId: 't1' } })).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't1' } });
-    expect(targetToAction({ screen: 'Board', params: { projectId: 'p1' } })).toEqual({ type: 'stack', screen: 'Board', params: { projectId: 'p1' } });
     expect(targetToAction({ screen: 'Chat' })).toEqual({ type: 'tab', tab: 'Chat' });
     expect(targetToAction({ screen: 'Notifications' })).toEqual({ type: 'tab', tab: 'Notifications' });
   });
@@ -108,29 +107,6 @@ describe('the menu’s Kanban Board (final review B2)', () => {
     expect(DRAWER_ITEMS.find((i) => i.key === 'AllBoard')).toMatchObject({ label: 'Kanban Board', action: ALL_PROJECTS_BOARD });
     expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).toContain('AllBoard');
     expect(activeDrawerKey('AllBoard')).toBe('AllBoard');
-  });
-});
-
-describe('alertRoute (what a tap in the Alerts list opens)', () => {
-  it('opens a chat alert’s conversation (3a), the task and meeting, and a project’s dashboard (5c)', async () => {
-    const { alertRoute } = await import('./nav-actions');
-    const open = (entityType: string, entityId?: string) => alertRoute(targetToAction(notificationToTarget({ entityType, entityId })));
-    expect(open('conversation', 'c1')).toEqual({ name: 'ChatThread', params: { conversationId: 'c1' } });
-    expect(open('conversation')).toEqual({ name: 'Tabs', params: { screen: 'Chat' } });
-    expect(open('task', 't1')).toEqual({ name: 'TaskDetail', params: { taskId: 't1' } });
-    expect(open('project', 'p1')).toEqual({ name: 'ProjectDetail', params: { projectId: 'p1' } });
-    expect(open('meeting', 'm1')).toEqual({ name: 'MeetingDetail', params: { meetingId: 'm1' } });
-  });
-  it('opens a project alert’s dashboard, not its board (5c)', async () => {
-    const { alertRoute } = await import('./nav-actions');
-    expect(alertRoute(targetToAction(notificationToTarget({ entityType: 'project', entityId: 'p1' })))).toEqual({ name: 'ProjectDetail', params: { projectId: 'p1' } });
-    // A board reached another way (a link) still opens the board.
-    expect(alertRoute({ type: 'stack', screen: 'Board', params: { projectId: 'p1' } })).toEqual({ name: 'Board', params: { projectId: 'p1' } });
-  });
-  it('stays on the list for an alert about nothing it can open', async () => {
-    const { alertRoute } = await import('./nav-actions');
-    expect(alertRoute(targetToAction(notificationToTarget({ entityType: 'digest', entityId: 'x' })))).toBeNull();
-    expect(alertRoute(targetToAction(notificationToTarget({ entityType: 'task', entityId: '../x' })))).toBeNull();
   });
 });
 

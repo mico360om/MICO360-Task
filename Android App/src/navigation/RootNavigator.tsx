@@ -5,7 +5,6 @@ import {
   NavigationContainer,
   DefaultTheme,
   DarkTheme,
-  getActionFromState,
   getStateFromPath,
   type Theme as NavTheme,
   type LinkingOptions,
@@ -29,6 +28,7 @@ import { useDateSettingsLoad } from '../core/calendar-queries';
 import { asyncStore } from '../adapters/async-storage';
 import { configureNotifications, addPushTokenListener } from '../adapters/push';
 import { navigationRef } from './ref';
+import { applyNavAction } from './apply-action';
 import { targetToAction, requiresSession, chatScreenId, meetingScreenId, taskScreenId, type NavAction } from './nav-actions';
 import { createPendingAction } from './pending-action';
 import { LINKING_PREFIXES, holdUntilSignedIn, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
@@ -112,79 +112,6 @@ function createLinking(session: { signedIn: () => boolean; hold: (action: NavAct
     getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) =>
       holdUntilSignedIn(withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), options)), { signedIn: session.signedIn(), hold: session.hold }),
   } as unknown as LinkingOptions<AppStackParamList>;
-}
-
-/** Perform a navigation action against the root container (imperative: push taps, deep links, drawer). */
-function applyAction(action: NavAction): void {
-  if (!navigationRef.isReady()) return;
-  if (action.type === 'link') {
-    // As React Navigation opens a link while the app runs: the action its state gives, else that state.
-    const nav = getActionFromState(action.state as Parameters<typeof getActionFromState>[0], linkingConfig as Parameters<typeof getActionFromState>[1]);
-    if (nav) navigationRef.dispatch(nav);
-    else navigationRef.resetRoot(action.state as Parameters<typeof navigationRef.resetRoot>[0]);
-    return;
-  }
-  if (action.type === 'tab') {
-    navigationRef.navigate('Tabs', { screen: action.tab });
-    return;
-  }
-  if (action.type === 'auth') {
-    // The ref is typed for the app stack; Reset lives in the (signed-out) auth stack.
-    (navigationRef as unknown as { navigate: (name: 'Reset', params: AuthStackParamList['Reset']) => void }).navigate(
-      'Reset',
-      action.params,
-    );
-    return;
-  }
-  // A website page opens in the browser, from where it is offered (the menu, Search: 6b).
-  if (action.type === 'website') return;
-  switch (action.screen) {
-    case 'TaskDetail':
-      navigationRef.navigate('TaskDetail', action.params);
-      break;
-    case 'Board':
-      navigationRef.navigate('Board', action.params);
-      break;
-    case 'AllBoard':
-      navigationRef.navigate('AllBoard');
-      break;
-    case 'ProjectDetail':
-      navigationRef.navigate('ProjectDetail', action.params);
-      break;
-    case 'MeetingDetail':
-      navigationRef.navigate('MeetingDetail', action.params);
-      break;
-    case 'ChatThread':
-      navigationRef.navigate('ChatThread', action.params);
-      break;
-    case 'MyActionItems':
-      navigationRef.navigate('MyActionItems');
-      break;
-    case 'Calendar':
-      navigationRef.navigate('Calendar');
-      break;
-    case 'Profile':
-      navigationRef.navigate('Profile');
-      break;
-    case 'Reports':
-      navigationRef.navigate('Reports');
-      break;
-    case 'Activity':
-      navigationRef.navigate('Activity');
-      break;
-    case 'Settings':
-      navigationRef.navigate('Settings');
-      break;
-    case 'Search':
-      navigationRef.navigate('Search');
-      break;
-    case 'About':
-      navigationRef.navigate('About');
-      break;
-    case 'Users':
-      navigationRef.navigate('Users', action.params);
-      break;
-  }
 }
 
 /** Subscribes to live chat and meeting events app-wide (A2.3, 2a) on one socket, so the Chat inbox,
@@ -317,7 +244,7 @@ export function RootNavigator() {
     if (!action || !navigationRef.isReady()) return;
     if (requiresSession(action) !== signedInRef.current) return; // wrong stack mounted — wait
     pending.take();
-    applyAction(action);
+    applyNavAction(action);
   }, [pending]);
 
   /** Run now if possible, otherwise keep it until the right stack is mounted. */
@@ -459,7 +386,7 @@ export function RootNavigator() {
               options={({ route }) => ({ title: route.params?.userId ? 'Manage account' : 'New user' })}
             />
           </AppStack.Navigator>
-          <AppDrawer onNavigate={applyAction} />
+          <AppDrawer onNavigate={applyNavAction} />
           <RealtimeMount />
           <PushRegistrationMount />
           <TimeZoneMount />

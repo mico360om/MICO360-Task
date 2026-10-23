@@ -6,7 +6,6 @@ import { isSafeId } from './ids';
  */
 export type LinkTarget =
   | { screen: 'TaskDetail'; params: { taskId: string } }
-  | { screen: 'Board'; params: { projectId: string } }
   | { screen: 'ProjectDetail'; params: { projectId: string } }
   | { screen: 'MeetingDetail'; params: { meetingId: string } }
   | { screen: 'Meetings' }

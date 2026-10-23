@@ -5,7 +5,8 @@ import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { owned, useNotifications, useMarkNotificationRead } from '../core/queries';
 import { notificationToTarget } from '../lib/deep-link';
-import { alertRoute, targetToAction } from '../navigation/nav-actions';
+import { targetToAction } from '../navigation/nav-actions';
+import { applyNavAction } from '../navigation/apply-action';
 import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
@@ -73,21 +74,18 @@ export function NotificationsScreen({ navigation }: TabScreenProps<'Notification
       .finally(() => setMarkingAll(false));
   };
 
-  /** Tapping an alert reads it and opens what it is about (WEB-18) — the screen comes from alertRoute. */
+  /**
+   * Tapping an alert reads it and opens what it is about (WEB-18) — exactly as its push would: one
+   * mapping for both (final review B5). An alert about nothing it can open stays on this list.
+   */
   const open = useCallback(
     (n: ApiNotification) => {
       if (!n.readAt) markRead(n);
       // The phone's own notifications about it come off its list (one helper: adapters/push).
       if (n.entityType && n.entityId) void dismissNotificationsAbout(n.entityType.trim().toLowerCase(), n.entityId);
-      const route = alertRoute(targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId })));
-      if (route?.name === 'TaskDetail') navigation.navigate('TaskDetail', route.params);
-      else if (route?.name === 'Board') navigation.navigate('Board', route.params);
-      else if (route?.name === 'ProjectDetail') navigation.navigate('ProjectDetail', route.params);
-      else if (route?.name === 'MeetingDetail') navigation.navigate('MeetingDetail', route.params);
-      else if (route?.name === 'ChatThread') navigation.navigate('ChatThread', route.params);
-      else if (route?.name === 'Tabs') navigation.navigate('Tabs', route.params);
+      applyNavAction(targetToAction(notificationToTarget({ entityType: n.entityType, entityId: n.entityId })));
     },
-    [markRead, navigation],
+    [markRead],
   );
 
   const renderItem: ListRenderItem<ApiNotification> = useCallback(
