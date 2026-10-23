@@ -1063,6 +1063,8 @@ async function main(): Promise<void> {
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
+    // Project pictures are served by this server (/uploads/…), as in the minutes email.
+    assetUrl: env.API_BASE_URL,
     logger,
     // When the sweep last checked: in the database, so a restart or another server still knows it.
     checks: createPrismaDailyEmailCheckStore(prisma),

@@ -72,8 +72,9 @@ const person = (id: string, extra: Partial<DailyRecipient> = {}): DailyRecipient
   createdAt: at('2026-01-01T00:00:00Z'),
   ...extra,
 });
+const RIG: DailyTask['project'] = { id: 'p-rig', code: 'RIG', name: 'Rig', number: null, clientName: null, managerName: null, status: 'ACTIVE', color: null, imageUrl: '/uploads/projects/rig.png', targetDate: null };
 const task = (key: string, extra: Partial<DailyTask> = {}): DailyTask => ({
-  id: key, key, title: key, projectName: 'Rig', priority: 'NORMAL', dueDate: null, statusLabel: 'To Do', completedAt: null, ...extra,
+  id: key, key, title: key, project: RIG, priority: 'NORMAL', dueDate: null, statusLabel: 'To Do', completedAt: null, ...extra,
 });
 
 /** When the sweep last ran, kept like the database keeps it: shared by every server (and a restart). */
@@ -89,7 +90,7 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
   let failures = opts.failures ?? 0;
   // The next send waits until the test lets it go (a slow provider), then goes through or fails.
   let held: { wait: Promise<void>; fail: boolean } | null = null;
-  const sent: Array<{ to: string; subject: string; template: string }> = [];
+  const sent: Array<{ to: string; subject: string; template: string; html: string }> = [];
   const people = opts.people ?? [person('ada')];
   let pendingTasks = opts.pending ?? [task('RIG-1')];
   let completedTasks = opts.completed ?? [task('RIG-2', { completedAt: at('2026-10-20T08:00:00Z') })];
@@ -118,12 +119,13 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
         throw new Error('HTTP 503');
       }
       if (opts.blocked?.includes(to)) return 'suppressed' as const;
-      sent.push({ to, subject: content.subject, template });
+      sent.push({ to, subject: content.subject, template, html: content.html });
       return 'sent' as const;
     },
     isConfigured: () => opts.configured ?? true,
     companyTimeZone: TZ,
     appUrl: 'https://task.example',
+    assetUrl: 'https://api.example',
     now: () => now,
     logger: { info: vi.fn(), warn },
     ...(opts.checks ? { checks: opts.checks } : {}),
@@ -354,6 +356,18 @@ describe('daily task emails: failures and retries', () => {
     await s.service.runSweep();
     expect(s.rows).toEqual([]);
     expect(s.warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('daily task emails: how they look', () => {
+  it('both emails show the project’s picture from the server’s address, and today’s date in the person’s zone', async () => {
+    const s = setup();
+    await s.service.runSweep();
+    expect(s.sent.map((m) => m.template)).toEqual(['daily-pending', 'daily-completed']);
+    for (const m of s.sent) {
+      expect(m.html).toContain('<img src="https://api.example/uploads/projects/rig.png" alt="Rig"');
+      expect(m.html).toMatch(/class="email-head-note"[^>]*>Wednesday 21 October</);
+    }
   });
 });
 
@@ -666,7 +680,8 @@ describe('daily task emails: an administrator’s preview', () => {
     const s = setup({ pending: [task('RIG-1', { title: 'Check the <b>pump</b>' })] });
     const p = await s.service.preview('ada', 'PENDING');
     expect(p).toMatchObject({ name: 'ADA', email: 'ada@mico360.test', kind: 'PENDING', day: '2026-10-21', subject: 'Your pending tasks: 1', taskCount: 1, empty: false, on: true });
-    expect(p!.text).toContain('Check the <b>pump</b> (RIG-1, Rig)');
+    expect(p!.text).toContain('RIG — RIG'); // the task's project heads its section
+    expect(p!.text).toContain('- Check the <b>pump</b> (RIG-1)');
     expect(p).not.toHaveProperty('html');
     expect(s.sent).toEqual([]);
     expect(s.rows).toEqual([]);

@@ -31,13 +31,13 @@ beforeEach(async () => {
   ada = (await user(EMAILS[0]!, { preferredTimeZone: 'Asia/Kolkata', notificationPrefs: { muted: [], dailyEmails: { pending: true, completed: false, time: '07:00' } } })).id;
   bo = (await user(EMAILS[1]!)).id;
   await user(EMAILS[2]!, { status: 'INACTIVE' });
-  const project = async (code: string, status: 'ACTIVE' | 'ARCHIVED') => {
-    const p = await prisma.project.create({ data: { code, name: `Project ${code}`, status, createdById: ada, ownerId: ada } });
+  const project = async (code: string, status: 'ACTIVE' | 'ARCHIVED', extra: Record<string, unknown> = {}) => {
+    const p = await prisma.project.create({ data: { code, name: `Project ${code}`, status, createdById: ada, ownerId: ada, ...extra } });
     const todo = await prisma.kanbanColumn.create({ data: { projectId: p.id, name: 'Doing', category: 'IN_PROGRESS', position: 0 } });
     const done = await prisma.kanbanColumn.create({ data: { projectId: p.id, name: 'Done', category: 'DONE', position: 1 } });
     return { p, todo, done };
   };
-  const open = await project('DMOPEN', 'ACTIVE');
+  const open = await project('DMOPEN', 'ACTIVE', { number: '2026-014', clientName: 'Acme', managerId: bo, color: '#3A6EA5', imageUrl: '/uploads/projects/dm.png', targetDate: new Date('2026-11-30T00:00:00Z') });
   const old = await project('DMOLD', 'ARCHIVED');
   let n = 0;
   const task = (where: { p: { id: string } }, columnId: string, assignees: string[], extra: Record<string, unknown> = {}) =>
@@ -64,7 +64,20 @@ describe('Daily email sources (integration)', () => {
   it('pending: only the person’s own open tasks in projects still going', async () => {
     const tasks = await sources.tasks.pending(ada);
     expect(tasks.map((t) => t.key).sort()).toEqual(['DM-1', 'DM-2']);
-    expect(tasks.find((t) => t.key === 'DM-1')).toMatchObject({ title: 'Task 1', projectName: 'Project DMOPEN', priority: 'HIGH', statusLabel: 'Doing', completedAt: null });
+    expect(tasks.find((t) => t.key === 'DM-1')).toMatchObject({ title: 'Task 1', priority: 'HIGH', statusLabel: 'Doing', completedAt: null });
+    // The project as the email heads its section: details, its manager's name, colour and picture.
+    expect(tasks.find((t) => t.key === 'DM-1')!.project).toEqual({
+      id: expect.any(String),
+      code: 'DMOPEN',
+      name: 'Project DMOPEN',
+      number: '2026-014',
+      clientName: 'Acme',
+      managerName: 'Bo Test',
+      status: 'ACTIVE',
+      color: '#3A6EA5',
+      imageUrl: '/uploads/projects/dm.png',
+      targetDate: new Date('2026-11-30T00:00:00Z'),
+    });
     expect((await sources.tasks.pending(bo)).map((t) => t.key).sort()).toEqual(['DM-2', 'DM-3']);
   });
 

@@ -16,7 +16,9 @@ type Key =
   | 'preferences'
   | 'rightsReserved'
   | 'disclaimer'
-  | 'automatedNotice';
+  | 'automatedNotice'
+  | 'open'
+  | 'openProject';
 
 const en: Record<Key, string> = {
   greeting: 'Hi',
@@ -31,6 +33,8 @@ const en: Record<Key, string> = {
   disclaimer:
     'This email and any attachments are confidential and intended solely for the addressee. If you received it in error, please delete it and notify us.',
   automatedNotice: 'This is an automated message — please do not reply directly to this email.',
+  open: 'Open',
+  openProject: 'Open project',
 };
 
 // Arabic scaffold (extend as needed; missing keys fall back to English).
@@ -39,6 +43,8 @@ const ar: Partial<Record<Key, string>> = {
   greeting: 'مرحبًا',
   contactSupport: 'تواصل مع الدعم',
   automatedNotice: 'هذه رسالة آلية — يُرجى عدم الرد على هذا البريد مباشرة.',
+  open: 'فتح',
+  openProject: 'فتح المشروع',
 };
 
 const DICTS: Record<Locale, Partial<Record<Key, string>>> = { en, ar };
