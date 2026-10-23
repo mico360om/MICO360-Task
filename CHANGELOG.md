@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-23
+
 ### New features
 - Each project has a "Carry unfinished tasks forward" switch (on by default). With it off, the nightly
   carry-forward (and an administrator's "run now") leaves that project's unfinished tasks on their
