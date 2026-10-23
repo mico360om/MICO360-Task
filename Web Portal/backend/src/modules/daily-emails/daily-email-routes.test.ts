@@ -37,7 +37,9 @@ async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}
     if (userId === 'nobody') return null;
     const off: string[] = userId === 'quiet' ? ['PENDING', 'COMPLETED'] : userId === 'half' || userId === 'other-half' ? ['COMPLETED'] : [];
     const kinds = o.kind ? [o.kind] : (['PENDING', 'COMPLETED'] as const);
-    return { userId, name: 'Ada Lovelace', email: 'ada@mico360.test', day: '2026-10-21', results: kinds.map((k) => sentResult(k, off.includes(k) ? 'off' : 'sent')) };
+    // 'unsent': nothing went (already sent, nothing in it, being sent, couldn't be sent).
+    const outcome = (k: string): ManualSendResult['outcome'] => (off.includes(k) ? 'off' : userId === 'unsent' ? (k === 'PENDING' ? 'already-sent' : 'retry') : 'sent');
+    return { userId, name: 'Ada Lovelace', email: 'ada@mico360.test', day: '2026-10-21', results: kinds.map((k) => sentResult(k, outcome(k))) };
   });
   const preview = vi.fn(async (userId: string, kind: 'PENDING' | 'COMPLETED') =>
     userId === 'nobody'
@@ -241,6 +243,26 @@ describe('Daily task emails: send one person’s emails', () => {
     expect(again.json().error.message).toBe('This person’s emails were just sent. Wait half a minute before sending again.');
     expect((await app.inject({ method: 'POST', url, headers: await admin('a1'), payload: { userId: 'u6' } })).statusCode).toBe(200);
     expect(sendFor).toHaveBeenCalledTimes(2);
+  });
+
+  it('the gap is for each email: their other email can be sent straight after', async () => {
+    const { app, sendFor } = await makeApp();
+    const headers = await admin();
+    expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5', kind: 'PENDING' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5', kind: 'COMPLETED' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5', kind: 'PENDING', resend: true } })).statusCode).toBe(429);
+    // Both at once waits for either one.
+    expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5' } })).statusCode).toBe(429);
+    expect(sendFor).toHaveBeenCalledTimes(2);
+  });
+
+  it('a send where nothing went (already sent, couldn’t be sent) doesn’t start the gap', async () => {
+    const { app, sendFor } = await makeApp();
+    const headers = await admin();
+    for (const kind of ['PENDING', 'COMPLETED', 'PENDING']) {
+      expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'unsent', kind } })).statusCode).toBe(200);
+    }
+    expect(sendFor).toHaveBeenCalledTimes(3);
   });
 
   it('a refusal (turned off, not found) doesn’t start the gap', async () => {

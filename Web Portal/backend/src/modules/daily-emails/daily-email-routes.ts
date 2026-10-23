@@ -28,7 +28,7 @@ const previewQuery = z.object({ userId: z.string().min(1).max(64), kind: kindEnu
 const TEST_GAP_MS = 60_000;
 /** "Send today's emails now": one press a minute per administrator. */
 const SEND_NOW_GAP_MS = 60_000;
-/** One person's emails, sent by an administrator: a short gap so a double click never sends twice. */
+/** One person's email, sent by an administrator: a short gap (for that email) so a double click never sends twice. */
 const PERSON_GAP_MS = 30_000;
 
 const KIND_LABEL: Record<DailyEmailKind, string> = { PENDING: 'Pending tasks', COMPLETED: 'Completed yesterday' };
@@ -42,9 +42,13 @@ function gapKeeper(ms: number) {
   return {
     /** False while the gap since the last one hasn't passed; else it starts a new gap. */
     take(key: string): boolean {
-      const at = last.get(key);
-      if (at !== undefined && Date.now() - at < ms) return false;
-      last.set(key, Date.now());
+      return this.takeAll([key]);
+    },
+    /** All of them, or none: false while any one's gap hasn't passed. */
+    takeAll(keys: string[]): boolean {
+      const t = Date.now();
+      if (keys.some((key) => t - (last.get(key) ?? -Infinity) < ms)) return false;
+      for (const key of keys) last.set(key, t);
       return true;
     },
     /** Nothing happened after all: no gap. */
@@ -117,23 +121,28 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
   app.post('/admin/daily-emails/send', adminOnly, async (req, reply) => {
     const body = sendBody.parse(req.body);
     if (!deps.isConfigured()) return reply.status(503).send(NOT_CONFIGURED);
-    if (!personSends.take(body.userId)) {
-      return reply.status(429).send({ error: { code: 'TOO_SOON', message: 'This person’s emails were just sent. Wait half a minute before sending again.' } });
+    // The gap is for each email (person and email), and only once something actually went.
+    const gapKey = (kind: DailyEmailKind) => `${body.userId}|${kind}`;
+    const kinds: DailyEmailKind[] = body.kind ? [body.kind] : ['PENDING', 'COMPLETED'];
+    if (!personSends.takeAll(kinds.map(gapKey))) {
+      const message = body.kind ? 'This email was just sent. Wait half a minute before sending it again.' : 'This person’s emails were just sent. Wait half a minute before sending again.';
+      return reply.status(429).send({ error: { code: 'TOO_SOON', message } });
     }
+    const releaseAll = () => kinds.forEach((k) => personSends.release(gapKey(k)));
     const resend = body.resend === true;
     let sent;
     try {
       sent = await deps.service.sendFor(body.userId, { ...(body.kind ? { kind: body.kind } : {}), resend });
     } catch (err) {
-      personSends.release(body.userId);
+      releaseAll();
       throw err;
     }
     if (!sent) {
-      personSends.release(body.userId);
+      releaseAll();
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'That person isn’t active or has no email address.' } });
     }
+    for (const r of sent.results) if (r.outcome !== 'sent') personSends.release(gapKey(r.kind));
     if (sent.results.every((r) => r.outcome === 'off')) {
-      personSends.release(body.userId);
       const message = body.kind
         ? `${sent.name} turned off the “${KIND_LABEL[body.kind]}” email, so it can’t be sent.`
         : `${sent.name} turned off both daily emails, so there’s nothing to send.`;
