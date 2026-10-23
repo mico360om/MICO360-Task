@@ -31,3 +31,31 @@ describe('dueDateOnEntry — "New tasks are due today"', () => {
     expect(dueDateOnEntry({ startDate: new Date('2026-10-22T21:00:00Z') }, dueToday, TZ, NOW)).toEqual(day('2026-10-23'));
   });
 });
+
+describe('dueDateOnEntry — a task added to a day’s board', () => {
+  // Board days are stored as a noon-UTC anchor of their calendar day.
+  const board = (key: string) => new Date(`${key}T12:00:00.000Z`);
+
+  it('is due on the board day it is added to, when that day is later than today', () => {
+    expect(dueDateOnEntry({ boardDate: board('2026-10-27') }, dueToday, TZ, NOW)).toEqual(day('2026-10-27'));
+    // Starting before that day is fine.
+    expect(dueDateOnEntry({ boardDate: board('2026-10-27'), startDate: day('2026-10-25') }, dueToday, TZ, NOW)).toEqual(day('2026-10-27'));
+  });
+
+  it('is due today when added to today’s board, or to a past day’s — a new task never starts overdue', () => {
+    expect(dueDateOnEntry({ boardDate: board('2026-10-23') }, dueToday, TZ, NOW)).toEqual(day('2026-10-23'));
+    expect(dueDateOnEntry({ boardDate: board('2026-10-20') }, dueToday, TZ, NOW)).toEqual(day('2026-10-23'));
+  });
+
+  it('a picked date still wins over the board day', () => {
+    expect(dueDateOnEntry({ dueDate: day('2026-11-05'), boardDate: board('2026-10-27') }, dueToday, TZ, NOW)).toEqual(day('2026-11-05'));
+  });
+
+  it('a task that starts after its board day keeps no date (it can’t be due before it starts)', () => {
+    expect(dueDateOnEntry({ boardDate: board('2026-10-27'), startDate: day('2026-10-29') }, dueToday, TZ, NOW)).toBeUndefined();
+  });
+
+  it('leaves the date alone in a project without the setting, whatever the board day', () => {
+    expect(dueDateOnEntry({ boardDate: board('2026-10-27') }, { defaultDueToday: false }, TZ, NOW)).toBeUndefined();
+  });
+});

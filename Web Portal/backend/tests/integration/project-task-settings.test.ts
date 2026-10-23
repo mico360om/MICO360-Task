@@ -80,6 +80,12 @@ describe('"New tasks are due today" on MySQL (integration)', () => {
     expect(await storedDue(t.id)).toEqual(TODAY);
   });
 
+  it('a task added to a later day’s board is stored as due on that day, and stays on that board', async () => {
+    const t = await taskService.createTask({ title: 'Site visit', projectId: dueTodayProject, columnId: dueTodayColumn, createdById: userId, boardDate: new Date('2026-10-27T12:00:00Z') });
+    const row = await prisma.task.findUniqueOrThrow({ where: { id: t.id }, select: { dueDate: true, boardDate: true } });
+    expect(row).toEqual({ dueDate: new Date('2026-10-27T00:00:00.000Z'), boardDate: new Date('2026-10-27T12:00:00.000Z') });
+  });
+
   it('keeps a picked date, and leaves tasks of a project without the setting undated', async () => {
     const picked = await taskService.createTask({ title: 'Picked', projectId: dueTodayProject, columnId: dueTodayColumn, createdById: userId, dueDate: new Date('2026-11-05T00:00:00Z') });
     expect(await storedDue(picked.id)).toEqual(new Date('2026-11-05T00:00:00.000Z'));

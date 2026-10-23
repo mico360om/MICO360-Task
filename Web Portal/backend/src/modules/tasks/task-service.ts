@@ -123,11 +123,14 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     }
     const column = await requireColumn(input.columnId, input.projectId);
     const at = now();
+    // Per-date boards: a new task lands on today's board unless a board day was given.
+    const boardDate = input.boardDate ?? todayAnchor();
     // Every way a task is created comes through here (the REST API used by the website, extension and
     // Android app, quick add, meeting notes made into tasks): a project whose new tasks are due today
-    // gives an undated one today's date, and a date someone picked is kept.
+    // gives an undated one the board day it is added to (when later than today), else today; a date
+    // someone picked is kept.
     const dueDate = dueDateOnEntry(
-      { dueDate: toDueDay(input.dueDate), startDate: input.startDate },
+      { dueDate: toDueDay(input.dueDate), startDate: input.startDate, boardDate },
       await projects.getTaskSettings(input.projectId),
       timeZone,
       at,
@@ -135,8 +138,6 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     if (input.startDate) assertDateOrder(input.startDate, dueDate);
     // The start date is automatic: the creation time, or the due day when that is already past.
     const startDate = input.startDate ?? (dueDate && dayOf(at) > dayOf(dueDate) ? dueDate : at);
-    // Per-date boards: a new task lands on today's board unless a board day was given.
-    const boardDate = input.boardDate ?? todayAnchor();
     const recurrenceRule = input.recurrenceRule ? withAnchorDay(input.recurrenceRule, dueDate) : input.recurrenceRule;
     // A task created straight into a DONE column is complete from the start.
     const completion = column.category === 'DONE' ? { completedAt: at, progress: 100 } : {};

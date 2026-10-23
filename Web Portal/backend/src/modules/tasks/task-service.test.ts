@@ -520,4 +520,22 @@ describe('TaskService — a project whose new tasks are due today', () => {
     const t = await due.createTask({ ...base, startDate: new Date('2026-10-25T00:00:00Z') });
     expect(t.dueDate).toBeNull();
   });
+
+  it('a task added to a later day’s board is due on that day, not today — and stays on that board', async () => {
+    const t = await due.createTask({ ...base, boardDate: new Date('2026-10-27T12:00:00Z') });
+    expect(t.dueDate?.toISOString()).toBe('2026-10-27T00:00:00.000Z');
+    expect(t.boardDate?.toISOString()).toBe('2026-10-27T12:00:00.000Z');
+    expect(t.startDate).toEqual(NOW);
+  });
+
+  it('a monthly repeat added to a later day’s board repeats from that day', async () => {
+    const t = await due.createTask({ ...base, boardDate: new Date('2026-10-27T12:00:00Z'), recurrenceRule: { freq: 'MONTHLY', interval: 1 } });
+    expect(t.recurrenceRule).toEqual({ freq: 'MONTHLY', interval: 1, anchorDay: 27 });
+  });
+
+  it('a task added to a past day’s board is due today, so it never starts overdue', async () => {
+    const t = await due.createTask({ ...base, boardDate: new Date('2026-10-20T12:00:00Z') });
+    expect(t.dueDate?.toISOString()).toBe(TODAY);
+    expect(t.startDate).toEqual(NOW);
+  });
 });

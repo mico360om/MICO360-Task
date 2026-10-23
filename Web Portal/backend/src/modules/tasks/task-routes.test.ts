@@ -766,4 +766,11 @@ describe('POST /tasks — a project whose new tasks are due today', () => {
     expect((await put(id, { dueDate: null })).json().data.dueDate).toBeNull();
     expect((await put(id, { title: 'Call the client back' })).json().data.dueDate).toBeNull();
   });
+
+  it('a task added from a later day’s board is due on that board day', async () => {
+    const { post } = await build();
+    const res = await post({ title: 'Site visit', projectId: 'p1', columnId: 'c1', boardDate: '2026-10-27' });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ dueDate: '2026-10-27T00:00:00.000Z', boardDate: '2026-10-27T12:00:00.000Z' });
+  });
 });
