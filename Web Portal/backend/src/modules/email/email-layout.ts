@@ -11,19 +11,38 @@ export type Block =
   | { kind: 'details'; rows: Array<[string, string]> }
   | { kind: 'callout'; text: string; tone?: Tone }
   | { kind: 'list'; items: string[] }
-  | { kind: 'tasks'; heading: string; tone?: Tone; items: EmailTaskItem[] }
+  | { kind: 'chips'; items: EmailChip[] }
+  | { kind: 'project'; project: EmailProjectCard; items: EmailTaskItem[]; more?: { text: string; href: string } }
   | { kind: 'divider' };
 
-/** One task in a `tasks` block: its title links to it; key, project, facts and an optional flag beneath. */
+/** A label's colour: a tone, plain grey ('neutral'), quieter grey ('muted') or an outline. */
+export type ChipTone = Tone | 'neutral' | 'muted' | 'outline';
+
+/** A small rounded label ("2 days overdue", "High priority", "In Progress"). */
+export interface EmailChip {
+  text: string;
+  tone: ChipTone;
+}
+
+/** One task in a `project` block: its title links to it; its key and labels beneath; an Open button. */
 export interface EmailTaskItem {
   title: string;
   href: string;
   key: string;
-  project: string;
-  /** Short facts, joined with " · " (priority, due day, status, completed at…). */
-  facts: string[];
-  /** A pill at the end of the row ("2 days overdue"). */
-  flag?: { text: string; tone: Tone };
+  chips: EmailChip[];
+}
+
+/** The head of a `project` block: picture (or initials on its colour), name, details, labels, link. */
+export interface EmailProjectCard {
+  name: string;
+  href: string;
+  /** "#RRGGBB"; anything else uses the brand's colour. */
+  color?: string | null;
+  /** A picture email clients can load (http/https); else the initials are shown. */
+  imageUrl?: string | null;
+  /** Short facts, joined with " · " (code, number, client, manager, target date). */
+  details: string[];
+  chips: EmailChip[];
 }
 
 /** Who the email is about, shown in its header instead of the product logo (a project's minutes). */
@@ -45,14 +64,35 @@ export interface EmailModel {
   brand?: Partial<Brand>;
   locale?: Locale;
   identity?: EmailIdentity;
+  /** A short note at the right of the header (today's date); hidden on phones. */
+  headerNote?: string;
 }
 
 /** Up to two initials: "Falcon CRM" → "FC", "Falcon" → "FA". */
 function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  // The words' letters and digits ("Rig & Co" → "RC", "(Alpha) Beta" → "AB").
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+/u, ''))
+    .filter(Boolean);
   if (words.length === 0) return '?';
   const letters = words.length > 1 ? [[...words[0]!][0], [...words[1]!][0]] : [...words[0]!].slice(0, 2);
   return letters.join('').toUpperCase();
+}
+
+/**
+ * White or near-black initials, whichever has more contrast on the colour (WCAG), as the website's
+ * project tiles do: white on amber (#B7791F) was only 3.6:1.
+ */
+function initialsInk(hex: string): string {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  const lum = 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
+  return (lum + 0.05) / (0.0109 + 0.05) > 1.05 / (lum + 0.05) ? '#1f1a17' : '#FFFFFF';
 }
 
 /** The header's mark and name for an identity: its picture (or initials on its colour) and name. */
@@ -62,7 +102,7 @@ function identityHeader(id: EmailIdentity, brand: Brand, dir: 'ltr' | 'rtl'): st
   const tile = /^#[0-9a-f]{6}$/i.test(id.color ?? '') ? id.color! : c.brand2;
   const mark = picture
     ? `<img src="${escapeHtml(picture)}" alt="${escapeHtml(id.name)}" width="48" height="48" style="display:block;border:0;width:48px;height:48px;border-radius:12px;background:#FFFFFF;object-fit:cover;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${c.onBrand}"/>`
-    : `<div style="width:48px;height:48px;border-radius:12px;background:${tile};border:1px solid rgba(255,255,255,0.4);color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:800;line-height:48px;text-align:center">${escapeHtml(initialsOf(id.name))}</div>`;
+    : `<div style="width:48px;height:48px;border-radius:12px;background:${tile};border:1px solid rgba(255,255,255,0.4);color:${initialsInk(tile)};font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:800;line-height:48px;text-align:center">${escapeHtml(initialsOf(id.name))}</div>`;
   const gap = dir === 'rtl' ? 'padding-left:14px' : 'padding-right:14px';
   return `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
             <td valign="middle" style="${gap}">${mark}</td>
@@ -97,7 +137,37 @@ const TONE_COLORS: Record<Tone, { bg: string; border: string; ink: string }> = {
   danger: { bg: '#FBEDEA', border: '#CB4632', ink: '#8f2f20' },
 };
 
-function renderBlockHtml(block: Block, brand: Brand): string {
+/** A colour email clients can be given safely ("#RRGGBB"), else the fallback. */
+const safeColor = (value: string | null | undefined, fallback: string) => (/^#[0-9a-f]{6}$/i.test(value ?? '') ? value! : fallback);
+/** An http(s) picture address, else null. */
+const safePicture = (url: string | null | undefined) => (url && /^https?:\/\//i.test(url.trim()) ? url.trim() : null);
+/** An http(s) link for the plain-text version, else null. */
+const textLink = (href: string) => (/^https?:\/\//i.test(href.trim()) ? href.trim() : null);
+
+function chipHtml(chip: EmailChip): string {
+  const look =
+    chip.tone === 'neutral'
+      ? { cls: 'email-chip-neutral', style: 'background:#F1EEEC;color:#4A403D' }
+      : chip.tone === 'muted'
+        ? { cls: 'email-chip-neutral', style: 'background:#F1EEEC;color:#6C625F' }
+        : chip.tone === 'outline'
+          ? { cls: 'email-chip-outline', style: 'background:#FFFFFF;color:#4A403D;border:1px solid #D9D0CC;padding:2px 9px' }
+          : { cls: 'email-chip', style: `background:${TONE_COLORS[chip.tone].bg};color:${TONE_COLORS[chip.tone].ink}` };
+  return `<span class="${look.cls}" style="display:inline-block;margin:8px 2px 0 0;padding:3px 10px;border-radius:999px;font-size:12px;line-height:18px;font-weight:700;white-space:nowrap;${look.style}">${escapeHtml(chip.text)}</span>`;
+}
+// A space between labels: Outlook, screen readers and copied text would otherwise run them together.
+const chipsHtml = (chips: EmailChip[]) => chips.map(chipHtml).join(' ');
+const chipsText = (chips: EmailChip[]) => chips.map((ch) => ch.text).join(' · ');
+
+/** A project's picture, or its initials on its colour, as a 42 px tile. */
+function projectTile(p: EmailProjectCard, color: string): string {
+  const picture = safePicture(p.imageUrl);
+  return picture
+    ? `<img src="${escapeHtml(picture)}" alt="" width="42" height="42" style="display:block;border:0;width:42px;height:42px;border-radius:10px;object-fit:cover;font-family:Arial,Helvetica,sans-serif;font-size:11px"/>`
+    : `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="42" height="42" align="center" bgcolor="${color}" style="width:42px;height:42px;border-radius:10px;background:${color};color:${initialsInk(color)};font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:800;line-height:42px;text-align:center">${escapeHtml(initialsOf(p.name))}</td></tr></table>`;
+}
+
+function renderBlockHtml(block: Block, brand: Brand, locale: Locale): string {
   const c = brand.colors;
   switch (block.kind) {
     case 'text':
@@ -129,26 +199,42 @@ function renderBlockHtml(block: Block, brand: Brand): string {
       return `<ul class="email-text" style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:${c.ink}">${block.items
         .map((item) => `<li style="margin:0 0 4px">${escapeHtml(item)}</li>`)
         .join('')}</ul>`;
-    case 'tasks': {
-      const accent = TONE_COLORS[block.tone ?? 'info'];
+    case 'chips':
+      return `<div style="margin:0 0 22px">${chipsHtml(block.items)}</div>`;
+    case 'project': {
+      const p = block.project;
+      const color = safeColor(p.color, c.brand2);
+      const align = isRtl(locale) ? 'right' : 'left';
+      const button = (href: string, key: string) =>
+        `<a href="${safeHref(href)}" target="_blank" class="email-link" aria-label="${escapeHtml(`${t(locale, 'open')} ${key}`)}" style="display:inline-block;padding:7px 14px;border:1px solid ${c.brand};border-radius:999px;font-size:13px;font-weight:700;color:${c.brand};text-decoration:none;white-space:nowrap">${escapeHtml(t(locale, 'open'))} ›</a>`;
       const rows = block.items
-        .map((item) => {
-          const flag = item.flag
-            ? `<span style="display:inline-block;margin-top:6px;padding:2px 9px;border-radius:999px;background:${TONE_COLORS[item.flag.tone].bg};color:${TONE_COLORS[item.flag.tone].ink};font-size:12px;font-weight:700">${escapeHtml(item.flag.text)}</span>`
-            : '';
-          const facts = item.facts.length
-            ? `<div class="email-muted" style="margin-top:3px;font-size:13px;color:${c.ink2}">${escapeHtml(item.facts.join(' · '))}</div>`
-            : '';
-          return `<tr><td class="email-card" style="padding:12px 14px;border-top:1px solid ${c.line};background:${c.surface}">
-            <a href="${safeHref(item.href)}" target="_blank" dir="auto" style="font-size:15px;font-weight:700;line-height:1.4;color:${c.ink};text-decoration:none">${escapeHtml(item.title)}</a>
-            <div class="email-muted" style="margin-top:2px;font-size:12px;color:${c.ink2}">${escapeHtml(`${item.key} · ${item.project}`)}</div>
-            ${facts}${flag}
-          </td></tr>`;
-        })
+        .map(
+          (item, i) => `<tr><td class="email-card" style="padding:14px 16px;background:${c.surface}${i ? `;border-top:1px solid ${c.line}` : ''}">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td class="email-main" style="vertical-align:top">
+                <a href="${safeHref(item.href)}" target="_blank" dir="auto" class="email-text" style="font-size:16px;font-weight:700;line-height:1.4;color:${c.ink};text-decoration:none">${escapeHtml(item.title)}</a>
+                <div class="email-muted" style="margin-top:2px;font-size:13px;color:${c.ink2}">${escapeHtml(item.key)}</div>
+                ${item.chips.length ? `<div>${chipsHtml(item.chips)}</div>` : ''}
+              </td>
+              <td class="email-stack" width="90" align="right" style="vertical-align:middle;width:90px">${button(item.href, item.key)}</td>
+            </tr></table>
+          </td></tr>`,
+        )
         .join('');
-      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-details" style="margin:0 0 20px;border:1px solid ${c.line};border-radius:12px;overflow:hidden">
-        <tr><td style="padding:10px 14px;background:${accent.bg};border-left:4px solid ${accent.border};font-size:13px;font-weight:800;letter-spacing:0.4px;text-transform:uppercase;color:${accent.ink}">${escapeHtml(block.heading)} (${block.items.length})</td></tr>
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-details" style="margin:0 0 20px;border:1px solid ${c.line};border-radius:14px;overflow:hidden">
+        <tr><td class="email-proj" style="padding:14px 16px;background:#FAF7F6;border-top:4px solid ${color};border-bottom:1px solid ${c.line}">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td width="54" style="vertical-align:top;width:54px">${projectTile(p, color)}</td>
+            <td class="email-main" style="vertical-align:top">
+              <div dir="auto" class="email-text" style="text-align:${align};font-size:17px;font-weight:800;line-height:1.3;color:${c.ink}">${escapeHtml(p.name)}</div>
+              ${p.details.length ? `<div class="email-muted" style="margin-top:3px;font-size:13px;line-height:1.5;color:${c.ink2}">${escapeHtml(p.details.join(' · '))}</div>` : ''}
+              ${p.chips.length ? `<div>${chipsHtml(p.chips)}</div>` : ''}
+            </td>
+            <td class="email-stack" width="120" align="right" style="vertical-align:top;width:120px"><a href="${safeHref(p.href)}" target="_blank" class="email-link" aria-label="${escapeHtml(`${t(locale, 'openProject')} ${p.name}`)}" style="font-size:13px;font-weight:700;color:${c.brand};text-decoration:none;white-space:nowrap">${escapeHtml(t(locale, 'openProject'))} ›</a></td>
+          </tr></table>
+        </td></tr>
         ${rows}
+        ${block.more ? `<tr><td class="email-card" style="padding:12px 16px;background:${c.surface};border-top:1px solid ${c.line}"><a href="${safeHref(block.more.href)}" target="_blank" class="email-link" style="font-size:13px;font-weight:700;color:${c.brand};text-decoration:none">${escapeHtml(block.more.text)} ›</a></td></tr>` : ''}
       </table>`;
     }
     case 'divider':
@@ -170,14 +256,19 @@ function renderBlockText(block: Block): string {
       return `> ${block.text}`;
     case 'list':
       return block.items.map((i) => `  - ${i}`).join('\n');
-    case 'tasks':
-      return [
-        `${block.heading.toUpperCase()} (${block.items.length})`,
-        ...block.items.map((i) => {
-          const line = [`- ${i.title} (${i.key}, ${i.project})`, i.facts.length ? i.facts.join(' · ') : null, i.flag?.text ?? null].filter(Boolean).join(' — ');
-          return /^https?:\/\//i.test(i.href.trim()) ? `${line}\n  ${i.href.trim()}` : line;
-        }),
-      ].join('\n');
+    case 'chips':
+      return chipsText(block.items);
+    case 'project': {
+      const p = block.project;
+      const head = [`${p.name.toUpperCase()}${p.details.length ? ` — ${p.details.join(' · ')}` : ''}`, p.chips.length ? chipsText(p.chips) : null, textLink(p.href)];
+      const items = block.items.map((i) => {
+        const line = `- ${i.title} (${i.key})${i.chips.length ? ` — ${chipsText(i.chips)}` : ''}`;
+        const link = textLink(i.href);
+        return link ? `${line}\n  ${link}` : line;
+      });
+      const more = block.more ? [`${block.more.text}${textLink(block.more.href) ? `: ${textLink(block.more.href)}` : ''}`] : [];
+      return [...head.filter(Boolean), ...items, ...more].join('\n');
+    }
     case 'divider':
       return '----------------------------------------';
   }
@@ -191,10 +282,10 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
   const dir = isRtl(locale) ? 'rtl' : 'ltr';
 
   const logo = brand.logoUrl
-    ? `<img src="${safeHref(brand.logoUrl)}" alt="${escapeHtml(brand.productName)}" width="94" height="44" style="display:block;border:0;width:94px;height:44px;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:800;color:${c.onBrand}"/>`
-    : `<span style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.3px;color:${c.onBrand}">${escapeHtml(brand.wordmark.pre)}<span style="opacity:0.85">${escapeHtml(brand.wordmark.mid)}</span> <span style="font-weight:600;opacity:0.9">${escapeHtml(brand.wordmark.post)}</span></span>`;
+    ? `<img src="${safeHref(brand.logoUrl)}" alt="${escapeHtml(brand.productName)}" width="64" height="30" style="display:block;border:0;width:64px;height:30px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:800;color:${c.onBrand}"/>`
+    : `<span style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;letter-spacing:-0.3px;color:${c.onBrand}">${escapeHtml(brand.wordmark.pre)}<span style="opacity:0.85">${escapeHtml(brand.wordmark.mid)}</span> <span style="font-weight:600;opacity:0.9">${escapeHtml(brand.wordmark.post)}</span></span>`;
 
-  const blocksHtml = model.blocks.map((b) => renderBlockHtml(b, brand)).join('\n');
+  const blocksHtml = model.blocks.map((b) => renderBlockHtml(b, brand, locale)).join('\n');
   const year = new Date().getFullYear();
 
   const html = `<!DOCTYPE html>
@@ -210,11 +301,14 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
   body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
   img{border:0;line-height:100%;outline:none;text-decoration:none}
   a{color:${c.brand}}
-  @media (max-width:600px){
+  @media (max-width:620px){
     .email-container{width:100%!important}
-    .email-pad{padding-left:22px!important;padding-right:22px!important}
+    .email-pad{padding-left:18px!important;padding-right:18px!important}
     .email-button a{display:block!important;text-align:center!important}
     .email-heading{font-size:22px!important}
+    .email-main{display:block!important;width:auto!important}
+    .email-stack{display:block!important;width:auto!important;padding:10px 0 0!important;text-align:${dir === 'rtl' ? 'right' : 'left'}!important}
+    .email-head-note{display:none!important}
   }
   @media (prefers-color-scheme:dark){
     body,.email-body{background:#141110!important}
@@ -228,6 +322,12 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
     .email-divider{border-color:#3A312E!important}
     .email-footer{background:#141110!important}
     .email-footer-ink,.email-footer-ink a{color:#9B908B!important}
+    .email-proj{background:#26211F!important;border-bottom-color:#3A312E!important}
+    .email-proj tr{background:transparent!important}
+    .email-card{border-top-color:#3A312E!important}
+    .email-link{color:#F0A79B!important;border-color:#F0A79B!important}
+    .email-chip-neutral{background:#332C2A!important;color:#E7E1DE!important}
+    .email-chip-outline{background:transparent!important;color:#E7E1DE!important;border-color:#5A4E4A!important}
   }
 </style>
 </head>
@@ -235,36 +335,40 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeHtml(model.preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-body" style="background:${c.ground}">
   <tr><td align="center" style="padding:24px 12px">
-    <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" style="width:600px;max-width:600px;background:${c.surface};border-radius:16px;overflow:hidden;box-shadow:0 8px 24px -12px rgba(33,27,26,0.25)">
-      <!-- Header -->
-      <tr><td style="background:${c.brand};background:linear-gradient(135deg,${c.brand2} 0%,${c.brand} 55%,#5E1414 100%);padding:22px 32px" class="email-pad">
+    <!--[if mso]><table role="presentation" width="720" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-container" style="width:100%;max-width:720px;background:${c.surface};border-radius:16px;overflow:hidden;box-shadow:0 8px 24px -12px rgba(33,27,26,0.25)">
+      <!-- Header: one slim line (logo or the email's own identity; an optional note such as the date) -->
+      <tr><td style="background:${c.brand};background:linear-gradient(135deg,${c.brand2} 0%,${c.brand} 55%,#5E1414 100%);padding:${model.identity ? '16px' : '12px'} 32px" class="email-pad">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td align="${dir === 'rtl' ? 'right' : 'left'}">${model.identity ? identityHeader(model.identity, brand, dir) : logo}</td>
+          <td align="${dir === 'rtl' ? 'right' : 'left'}" style="vertical-align:middle">${model.identity ? identityHeader(model.identity, brand, dir) : logo}</td>
+          ${model.headerNote ? `<td class="email-head-note" align="${dir === 'rtl' ? 'left' : 'right'}" style="vertical-align:middle;font-size:13px;color:${c.onBrand};opacity:0.9;white-space:nowrap">${escapeHtml(model.headerNote)}</td>` : ''}
         </tr></table>
-        ${model.identity ? '' : `<div style="margin-top:4px;font-size:12px;color:${c.onBrand};opacity:0.8">${escapeHtml(brand.tagline)}</div>`}
       </td></tr>
       <!-- Body -->
-      <tr><td class="email-card email-pad" style="background:${c.surface};padding:32px">
+      <tr><td class="email-card email-pad" style="background:${c.surface};padding:28px 32px">
         <h1 class="email-heading" style="margin:0 0 16px;font-size:24px;line-height:1.25;font-weight:800;color:${c.ink}">${escapeHtml(model.heading)}</h1>
         ${blocksHtml}
       </td></tr>
       <!-- Footer -->
-      <tr><td class="email-footer email-pad" style="background:${c.footerBg};padding:24px 32px;border-top:1px solid ${c.line}">
+      <tr><td class="email-footer email-pad" style="background:${c.footerBg};padding:18px 32px;border-top:1px solid ${c.line}">
         <p class="email-footer-ink" style="margin:0 0 6px;font-size:13px;color:${c.footerInk}">
           <a href="${safeHref(brand.appUrl)}" style="color:${c.brand};text-decoration:none;font-weight:600">${escapeHtml(brand.productName)}</a>
           &nbsp;·&nbsp; <a href="mailto:${escapeHtml(brand.supportEmail)}" style="color:${c.footerInk};text-decoration:underline">${t(locale, 'contactSupport')}</a>
           &nbsp;·&nbsp; <a href="${safeHref(brand.websiteUrl)}" style="color:${c.footerInk};text-decoration:underline">${t(locale, 'visitWebsite')}</a>
         </p>
-        <p class="email-footer-ink" style="margin:0 0 6px;font-size:12px;color:${c.footerInk}">${escapeHtml(brand.companyAddress)}</p>
-        <p class="email-footer-ink" style="margin:0 0 6px;font-size:12px;color:${c.footerInk}">${t(locale, 'reasonAccount', { product: brand.productName })} ${t(locale, 'automatedNotice')}</p>
-        <p class="email-footer-ink" style="margin:0 0 6px;font-size:11px;color:${c.footerInk};line-height:1.5">${t(locale, 'disclaimer')}</p>
-        <p class="email-footer-ink" style="margin:0;font-size:11px;color:${c.footerInk}">© ${year} ${escapeHtml(brand.companyName)}. ${t(locale, 'rightsReserved')}</p>
+        <p class="email-footer-ink" style="margin:0 0 6px;font-size:12px;line-height:1.5;color:${c.footerInk}">${brand.companyAddress.trim() ? `${escapeHtml(brand.companyAddress.trim().replace(/\.\s*$/, ''))}. ` : ''}${t(locale, 'reasonAccount', { product: brand.productName })} ${t(locale, 'automatedNotice')}</p>
+        <p class="email-footer-ink" style="margin:0;font-size:11px;line-height:1.5;color:${c.footerInk}">${t(locale, 'disclaimer')} © ${year} ${escapeHtml(brand.companyName)}. ${t(locale, 'rightsReserved')}</p>
       </td></tr>
     </table>
+    <!--[if mso]></td></tr></table><![endif]-->
   </td></tr>
 </table>
 </body>
 </html>`;
+
+  // The template's line breaks and indentation between tags add bytes, not looks (Gmail cuts off
+  // emails over about 100 KB); a single space between tags (between labels) is kept.
+  const compact = html.replace(/>\s*\n\s*</g, '><');
 
   const text = [
     brand.productName.toUpperCase(),
@@ -282,5 +386,5 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
     `© ${year} ${brand.companyName}. ${t(locale, 'rightsReserved')}`,
   ].join('\n');
 
-  return { html, text };
+  return { html: compact, text };
 }

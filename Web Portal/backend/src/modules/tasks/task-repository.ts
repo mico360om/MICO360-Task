@@ -1,5 +1,6 @@
 import type { RecurrenceRule } from './recurrence';
 import type { CarryLogEntry } from './board-date';
+import type { ProjectTaskSettings } from '../projects/project-task-settings';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -174,4 +175,6 @@ export interface TaskRepository {
 /** Minimal project lookup the task service needs (to build task keys and validate the project). */
 export interface ProjectLookup {
   getCodeById(projectId: string): Promise<string | null>;
+  /** The project's "New tasks are due today" setting; null when there is no such live project. */
+  getTaskSettings(projectId: string): Promise<Pick<ProjectTaskSettings, 'defaultDueToday'> | null>;
 }

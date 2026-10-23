@@ -17,6 +17,7 @@ import { createPrismaUserRepository } from './modules/auth/prisma-user-repositor
 import { createPrismaRefreshTokenStore } from './modules/auth/prisma-refresh-token-store';
 import { createProjectService } from './modules/projects/project-service';
 import { createPrismaProjectRepository } from './modules/projects/prisma-project-repository';
+import { createPrismaProjectOverviewSource } from './modules/projects/prisma-project-overview-source';
 import { createColumnService } from './modules/projects/column-service';
 import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
@@ -1063,6 +1064,8 @@ async function main(): Promise<void> {
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
+    // Project pictures are served by this server (/uploads/…), as in the minutes email.
+    assetUrl: env.API_BASE_URL,
     logger,
     // When the sweep last checked: in the database, so a restart or another server still knows it.
     checks: createPrismaDailyEmailCheckStore(prisma),
@@ -1145,6 +1148,7 @@ async function main(): Promise<void> {
     otpService,
     passwordResetService,
     projectService,
+    projectOverview: createPrismaProjectOverviewSource(prisma),
     projectAccess,
     columnService,
     memberService,

@@ -51,4 +51,9 @@ describe('planCarryForward', () => {
   it('carries nothing when disabled', () => {
     expect(planCarryForward([task({})], today, { enabled: false, statuses: config.statuses }, tz, now)).toEqual([]);
   });
+
+  it('leaves a task on its day when its project has carry-forward switched off', () => {
+    const plans = planCarryForward([task({ id: 'off', projectCarryForward: false }), task({ id: 'on', projectCarryForward: true })], today, config, tz, now);
+    expect(plans.map((p) => p.id)).toEqual(['on']);
+  });
 });

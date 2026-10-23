@@ -34,7 +34,22 @@ describe('renderEmail — layout', () => {
   });
 
   it('is responsive for mobile clients', () => {
-    expect(base().html).toContain('@media (max-width:600px)');
+    expect(base().html).toContain('@media (max-width:620px)');
+  });
+
+  it('fills the reading pane up to 720 px and the whole width of a phone (Outlook gets a fixed 720)', () => {
+    const { html } = base();
+    expect(html).toMatch(/class="email-container" style="width:100%;max-width:720px/);
+    expect(html).toContain('<!--[if mso]><table role="presentation" width="720" align="center"');
+    expect(html).not.toContain('width:600px');
+  });
+
+  it('has a slim header: no tagline, and an optional note on the right (the date) that phones hide', () => {
+    expect(base().html).not.toContain('Project &amp; task management for teams');
+    const { html } = renderEmail({ preheader: 'x', heading: 'h', blocks: [], headerNote: 'Friday 23 October' });
+    expect(html).toMatch(/class="email-head-note"[^>]*>Friday 23 October</);
+    expect(html).toContain('.email-head-note{display:none!important}');
+    expect(base().html).not.toMatch(/class="email-head-note"/);
   });
 
   it('includes a hidden preheader for the inbox preview', () => {
@@ -123,12 +138,18 @@ describe('renderEmail — layout', () => {
     expect(html).toContain('alt="MICO360 Tasks"');
   });
 
-  it('shows the logo as a wordmark, at its own proportions (not squeezed into a square)', () => {
+  it('shows the logo as a wordmark, at its own proportions (not squeezed into a square), sized for the slim header', () => {
     const { html } = renderEmail({ preheader: 'x', heading: 'h', blocks: [], brand: { logoUrl: 'https://cdn.test/email-logo.png' } });
     const img = html.match(/<img src="https:\/\/cdn.test\/email-logo.png"[^>]*>/)?.[0] ?? '';
-    expect(img).toContain('width="94"');
-    expect(img).toContain('height="44"');
-    expect(img).toContain('width:94px;height:44px');
+    expect(img).toContain('width="64"');
+    expect(img).toContain('height="30"');
+    expect(img).toContain('width:64px;height:30px');
+  });
+
+  it('starts the footer cleanly when no company address is set', () => {
+    const { html } = renderEmail({ preheader: 'x', heading: 'h', blocks: [], brand: { companyAddress: '' } });
+    expect(html).not.toMatch(/">\. You/);
+    expect(html).toMatch(/">You’re receiving this email/);
   });
 
   it('applies brand overrides', () => {
@@ -143,39 +164,122 @@ describe('renderEmail — layout', () => {
   });
 });
 
-describe('renderEmail — a list of tasks', () => {
-  const model = () =>
+describe('renderEmail — labels and a project with its tasks', () => {
+  const model = (project: Partial<import('./email-layout').EmailProjectCard> = {}) =>
     renderEmail({
       preheader: 'p',
       heading: 'Your tasks',
       blocks: [
+        { kind: 'chips', items: [{ text: '1 overdue', tone: 'danger' }, { text: '3 with no due date', tone: 'muted' }] },
         {
-          kind: 'tasks',
-          heading: 'Overdue',
-          tone: 'danger',
+          kind: 'project',
+          project: {
+            name: 'Rig & Co',
+            href: 'https://task.example/projects/p1',
+            color: '#3A6EA5',
+            imageUrl: null,
+            details: ['RIG', 'No. 2026-014', 'Client: <Acme>'],
+            chips: [{ text: 'Active', tone: 'success' }, { text: '2 tasks for you', tone: 'neutral' }],
+            ...project,
+          },
           items: [
-            { title: 'Fix <the> pump', href: 'https://task.example/my-tasks?task=t1', key: 'RIG-4', project: 'Rig & Co', facts: ['High priority', 'Due Mon 19 Oct', 'In Progress'], flag: { text: '2 days overdue', tone: 'danger' } },
-            { title: 'Sneaky', href: 'javascript:alert(1)', key: 'RIG-5', project: 'Rig', facts: [] },
+            { title: 'Fix <the> pump', href: 'https://task.example/my-tasks?task=t1', key: 'RIG-4', chips: [{ text: '2 days overdue', tone: 'danger' }, { text: 'High priority', tone: 'warning' }, { text: 'In Progress', tone: 'outline' }] },
+            { title: 'Sneaky', href: 'javascript:alert(1)', key: 'RIG-5', chips: [] },
           ],
         },
       ],
     });
 
-  it('shows each task as a link with its key, project, facts and flag, escaped', () => {
+  it('keeps a space between labels (Outlook, screen readers and copied text would run them together)', () => {
     const { html } = model();
-    expect(html).toContain('Overdue');
-    expect(html).toContain('href="https://task.example/my-tasks?task=t1"');
-    expect(html).toContain('Fix &lt;the&gt; pump');
-    expect(html).toContain('RIG-4 · Rig &amp; Co');
-    expect(html).toContain('High priority · Due Mon 19 Oct · In Progress');
-    expect(html).toContain('2 days overdue');
+    expect(html).toContain('>2 days overdue</span> <span');
+    expect(html).not.toContain('</span><span');
+    expect(html).not.toContain('margin:-8px');
+  });
+
+  it('shows a row of labels, each in its colour', () => {
+    const { html, text } = model();
+    expect(html).toMatch(/background:#FBEDEA;color:#8f2f20[^"]*">1 overdue</);
+    expect(html).toContain('>3 with no due date<');
+    expect(text).toContain('1 overdue · 3 with no due date');
+  });
+
+  it('heads the project with its initials on its colour, its name, details, labels and a link, escaped', () => {
+    const { html } = model();
+    expect(html).toMatch(/<td width="42" height="42" align="center" bgcolor="#3A6EA5"[^>]*>RC</); // a cell, so Outlook keeps it 42 px
+    expect(html).toContain('border-top:4px solid #3A6EA5');
+    expect(html).toContain('Rig &amp; Co');
+    expect(html).toContain('RIG · No. 2026-014 · Client: &lt;Acme&gt;');
+    expect(html).toContain('>Active<');
+    expect(html).toMatch(/href="https:\/\/task.example\/projects\/p1"[^>]*>Open project ›</);
+  });
+
+  it('shows the project’s picture when it has one email clients can load, and never an unsafe colour', () => {
+    expect(model({ imageUrl: 'https://api.example/uploads/rig.png' }).html).toContain('<img src="https://api.example/uploads/rig.png" alt="" width="42" height="42"'); // decorative: the name is beside it
+    expect(model({ imageUrl: 'javascript:alert(1)' }).html).not.toContain('javascript:alert(1)"');
+    const odd = model({ color: 'red;background:url(x)' }).html;
+    expect(odd).not.toContain('url(x)');
+    expect(odd).toContain('border-top:4px solid #A83326');
+  });
+
+  it('says what each Open link opens, for screen readers', () => {
+    const { html } = model();
+    expect(html).toContain('aria-label="Open RIG-4"');
+    expect(html).toContain('aria-label="Open project Rig &amp; Co"');
+  });
+
+  it('keeps a right-to-left project name lined up with its details in a left-to-right email', () => {
+    expect(model({ name: 'مشروع الإطلاق' }).html).toMatch(/<div dir="auto" class="email-text" style="text-align:left;[^"]*">مشروع الإطلاق</);
+  });
+
+  it('writes the initials in near-black on a light colour such as amber, as the website does (white was 3.6:1)', () => {
+    expect(model({ color: '#B7791F' }).html).toMatch(/bgcolor="#B7791F" style="[^"]*color:#1f1a17[^"]*">RC</);
+    expect(model().html).toMatch(/bgcolor="#3A6EA5" style="[^"]*color:#FFFFFF[^"]*">RC</);
+    const minutes = renderEmail({ preheader: 'p', heading: 'h', blocks: [], identity: { name: 'Rig & Co', color: '#B7791F' } }).html;
+    expect(minutes).toMatch(/background:#B7791F;[^"]*color:#1f1a17[^"]*">RC</);
+  });
+
+  it('takes initials from the words, not from brackets or signs', () => {
+    expect(model({ name: '(Alpha) Beta' }).html).toMatch(/>AB</);
+  });
+
+  it('ends a project cut short with how many more and a link to the project', () => {
+    const { html, text } = renderEmail({
+      preheader: 'p',
+      heading: 'h',
+      blocks: [{ kind: 'project', project: { name: 'Rig', href: 'https://task.example/projects/p1', details: [], chips: [] }, items: [], more: { text: '+2 more tasks in this project', href: 'https://task.example/projects/p1' } }],
+    });
+    expect(html).toMatch(/href="https:\/\/task.example\/projects\/p1"[^>]*>\+2 more tasks in this project ›</);
+    expect(text).toContain('+2 more tasks in this project: https://task.example/projects/p1');
+  });
+
+  it('lists each task with its title as a link, its key, its labels and an Open button, escaped', () => {
+    const { html } = model();
+    expect(html).toMatch(/href="https:\/\/task.example\/my-tasks\?task=t1"[^>]*>Fix &lt;the&gt; pump</);
+    expect(html).toContain('>RIG-4<');
+    expect(html).toContain('>2 days overdue<');
+    expect(html).toMatch(/border:1px solid #D9D0CC[^"]*">In Progress</);
+    expect(html).toMatch(/href="https:\/\/task.example\/my-tasks\?task=t1"[^>]*>Open ›</);
     expect(html).not.toContain('javascript:');
   });
 
-  it('has a plain-text version with every task and its link', () => {
+  it('in dark mode, the Open links turn light and the lines between tasks dark, so both stay readable', () => {
+    const { html } = model();
+    expect(html).toContain('.email-link{color:#F0A79B!important;border-color:#F0A79B!important}');
+    expect(html).toContain('.email-card{border-top-color:#3A312E!important}');
+    expect(html).toContain('.email-proj{background:#26211F!important;border-bottom-color:#3A312E!important}'); // its coloured top stripe stays
+    expect(html).toContain('.email-proj tr{background:transparent!important}');
+    expect(html).not.toContain('.email-proj{border-color');
+    expect(html.match(/class="email-link"/g)).toHaveLength(3); // Open project, and Open on each task
+  });
+
+  it('has a plain-text version with the project, its link, and every task with its labels and link', () => {
     const { text } = model();
-    expect(text).toContain('OVERDUE (2)');
-    expect(text).toContain('- Fix <the> pump (RIG-4, Rig & Co) — High priority · Due Mon 19 Oct · In Progress — 2 days overdue');
+    expect(text).toContain('RIG & CO — RIG · No. 2026-014 · Client: <Acme>');
+    expect(text).toContain('Active · 2 tasks for you');
+    expect(text).toContain('https://task.example/projects/p1');
+    expect(text).toContain('- Fix <the> pump (RIG-4) — 2 days overdue · High priority · In Progress');
     expect(text).toContain('  https://task.example/my-tasks?task=t1');
+    expect(text).toContain('- Sneaky (RIG-5)');
   });
 });

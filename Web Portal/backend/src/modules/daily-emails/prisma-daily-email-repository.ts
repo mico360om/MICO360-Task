@@ -104,6 +104,7 @@ export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEma
       return rows.map((r) => ({
         ...toRecord(r),
         userName: [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') || r.user.username,
+        username: r.user.username,
         email: r.user.email,
         timeZone: r.user.preferredTimeZone ?? null,
       }));

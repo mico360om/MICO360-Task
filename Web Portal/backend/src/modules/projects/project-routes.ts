@@ -7,6 +7,8 @@ import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ValidationError } from '../../lib/http-errors';
 import { computeProjectProgress, type ProgressTask } from './project-progress';
+import { buildProjectOverview, type ProjectOverviewSource } from './project-overview';
+import { defaultCompanyTimeZone } from '../tasks/task-status';
 import { idString, longText, requiredText, shortText } from '../tasks/validation';
 import { CODE_PATTERN, CODE_RULE, HEX_COLOR, PROJECT_ICONS, normalizeCode } from './project-icons';
 
@@ -40,6 +42,10 @@ const createSchema = z.object({
   color: z.string().trim().regex(HEX_COLOR, 'Use a colour like #8B1E1E.').optional(),
   icon: z.enum(PROJECT_ICONS).nullable().optional(),
   notes: longText.optional(),
+  // Task settings. Missing on create = what every project starts with; missing on update = unchanged
+  // (older apps, including the Android app, send project updates without them).
+  carryForward: z.boolean().optional(),
+  defaultDueToday: z.boolean().optional(),
 });
 const updateSchema = createSchema.partial().omit({ code: true });
 
@@ -50,6 +56,8 @@ export interface ProjectRouteDeps {
   listProjectTasks?: (projectId: string) => Promise<ProgressTask[]>;
   /** Company time zone for "overdue" in progress (defaults to COMPANY_TIMEZONE). */
   timeZone?: string;
+  /** The projects list's figures (counts, next due day, team) in grouped queries; enables GET /projects/overview. */
+  overview?: ProjectOverviewSource;
   /** Records important project changes to the audit log. */
   audit?: AuditService;
   /** File storage for project images; when absent, the image upload endpoint is disabled. */
@@ -66,6 +74,19 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     // Employees see only projects they own/manage/belong to; admins see everything.
     return { data: await projectService.listVisibleProjects({ id: req.user!.id, roles: req.user!.roles ?? [] }) };
   });
+
+  // The Projects page: every project the caller may see, with only what its card shows — figures
+  // (tasks done, open and overdue, the next due day, its last update), owner, up to four team faces
+  // and the team's size, and whether it is the caller's — one request for the whole list, answered
+  // by a fixed number of grouped queries.
+  if (deps.overview) {
+    app.get('/projects/overview', { preHandler: guard.authenticate }, async (req) => {
+      const projects = await projectService.listVisibleProjects({ id: req.user!.id, roles: req.user!.roles ?? [] });
+      const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
+      const rows = await deps.overview!.load(projects.map((p) => p.id), ownerIds);
+      return { data: buildProjectOverview(projects, rows, { timeZone: deps.timeZone ?? defaultCompanyTimeZone(), viewerId: req.user!.id }) };
+    });
+  }
 
   // Is a code well formed and free (deleted projects keep theirs)? Asked while typing a new project.
   app.get('/projects/code-check', { preHandler: guard.requireRoles('ADMIN') }, async (req) => {

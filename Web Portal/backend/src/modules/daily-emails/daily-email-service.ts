@@ -9,6 +9,7 @@ import type { DailyEmailDayRow, DailyEmailFinish, DailyEmailKind, DailyEmailReco
 export interface DailyRecipient {
   id: string;
   name: string;
+  username: string;
   email: string | null;
   /** Their own time zone, else null (the company's is used). */
   timeZone: string | null;
@@ -33,6 +34,8 @@ export interface DailyEmailServiceDeps {
   isConfigured(): boolean;
   companyTimeZone: string;
   appUrl: string;
+  /** Where the server serves stored files ("/uploads/…"), for project pictures email clients can load. */
+  assetUrl?: string;
   now?: () => Date;
   logger?: { info(msg: string, ctx?: Record<string, unknown>): void; warn(msg: string, ctx?: Record<string, unknown>): void };
   /**
@@ -68,6 +71,8 @@ export interface DailyEmailOverviewEmail {
 export interface DailyEmailOverviewPerson {
   userId: string;
   name: string;
+  /** Their sign-in name: the administrators' search finds people by it too. */
+  username: string;
   email: string;
   /** The time zone used: their own, else the company's. */
   timeZone: string;
@@ -273,11 +278,11 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     const timeZone = zoneOf(person);
     if (kind === 'PENDING') {
       const tasks = await deps.tasks.pending(person.id);
-      return { count: tasks.length, content: tasks.length ? pendingEmail({ name: person.name, tasks, timeZone, now: at, appUrl: deps.appUrl }) : null };
+      return { count: tasks.length, content: tasks.length ? pendingEmail({ name: person.name, tasks, timeZone, now: at, appUrl: deps.appUrl, assetUrl: deps.assetUrl }) : null };
     }
     const yesterday = shiftDayKey(day, -1);
     const tasks = await deps.tasks.completedBetween(person.id, zonedStartOfDay(yesterday, timeZone), zonedStartOfDay(day, timeZone));
-    return { count: tasks.length, content: tasks.length ? completedEmail({ name: person.name, tasks, day: yesterday, timeZone, appUrl: deps.appUrl }) : null };
+    return { count: tasks.length, content: tasks.length ? completedEmail({ name: person.name, tasks, day: yesterday, timeZone, appUrl: deps.appUrl, assetUrl: deps.assetUrl }) : null };
   }
 
   interface Attempted {
@@ -634,6 +639,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       const entry: DailyEmailOverviewPerson = {
         userId: person.id,
         name: person.name,
+        username: person.username,
         email: person.email,
         timeZone,
         ownTimeZone: Boolean(person.timeZone) && timeZone === person.timeZone,
@@ -688,6 +694,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       const entry: DailyEmailOverviewPerson = {
         userId,
         name: stillHere?.name ?? first.userName,
+        username: stillHere?.username ?? first.username,
         email: first.email,
         timeZone,
         ownTimeZone: Boolean(ownZone) && timeZone === ownZone,

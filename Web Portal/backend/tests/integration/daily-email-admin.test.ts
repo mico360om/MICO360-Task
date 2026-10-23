@@ -14,7 +14,8 @@ const EMAILS = ['dadm-ada@mico360.test', 'dadm-bo@mico360.test'];
 let ada = '';
 let bo = '';
 
-const task = (key: string): DailyTask => ({ id: key, key, title: key, projectName: 'Rig', priority: 'NORMAL', dueDate: null, statusLabel: 'To Do', completedAt: new Date('2026-10-20T08:00:00Z') });
+const RIG: DailyTask['project'] = { id: 'p-rig', code: 'RIG', name: 'Rig', number: null, clientName: null, managerName: null, status: 'ACTIVE', color: null, imageUrl: null, targetDate: null };
+const task = (key: string): DailyTask => ({ id: key, key, title: key, project: RIG, priority: 'NORMAL', dueDate: null, statusLabel: 'To Do', completedAt: new Date('2026-10-20T08:00:00Z') });
 
 /**
  * One server's daily-email service on the test database, its clock fixed at `now`. Rows a test sets up

@@ -3,14 +3,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { projectsApi, projectStatusLabel, type ApiProject, type NewProjectInput, type ProjectStatus } from '../../api/projects';
 import { usersApi } from '../../api/users';
+import { systemSettingsApi, type ApiSetting } from '../../api/system-settings';
 import type { Priority } from '../../api/tasks';
 import { ApiError } from '../../lib/api-client';
+import { useAuthStore } from '../../stores/auth-store';
 import { codeProblem, suggestCode } from '../../lib/project-icons';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SearchableSelect } from '../ui/SearchableSelect';
+import { Toggle } from '../ui/Toggle';
 import { Avatar } from '../ui/Avatar';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { IdentityEditor, type ImageChoice } from './IdentityEditor';
@@ -35,6 +38,8 @@ interface Draft {
   ownerId: string;
   color: string;
   icon: string | null;
+  carryForward: boolean;
+  defaultDueToday: boolean;
 }
 
 const draftOf = (p?: ApiProject | null): Draft => ({
@@ -48,7 +53,16 @@ const draftOf = (p?: ApiProject | null): Draft => ({
   ownerId: p?.ownerId ?? '',
   color: p?.color ?? DEFAULT_COLOR,
   icon: p?.icon ?? null,
+  // What every project does unless it is told otherwise (also a project saved before these existed).
+  carryForward: p?.carryForward ?? true,
+  defaultDueToday: p?.defaultDueToday ?? false,
 });
+
+/** Off for the whole company? Read as the server reads it (an old stored "false" is off too). */
+const companyCarryForwardOff = (settings: ApiSetting[] | undefined) => {
+  const value = (Array.isArray(settings) ? settings : []).find((s) => s.key === 'carryForward.enabled')?.value;
+  return value === false || value === 'false' || value === 0;
+};
 
 /** The changes worth sending for an existing project (the code never changes). */
 function changes(before: Draft, after: Draft): Partial<NewProjectInput> {
@@ -62,6 +76,8 @@ function changes(before: Draft, after: Draft): Partial<NewProjectInput> {
   if (after.ownerId !== before.ownerId) patch.ownerId = after.ownerId || null;
   if (after.color.toUpperCase() !== before.color.toUpperCase()) patch.color = after.color;
   if (after.icon !== before.icon) patch.icon = after.icon;
+  if (after.carryForward !== before.carryForward) patch.carryForward = after.carryForward;
+  if (after.defaultDueToday !== before.defaultDueToday) patch.defaultDueToday = after.defaultDueToday;
   return patch;
 }
 
@@ -93,7 +109,8 @@ const input = (bad: boolean) =>
 
 /**
  * Create or edit a project: its look (icon and colour, or a cropped picture), name and code,
- * client, description, status, priority and owner. Saving shows progress and can't be sent twice;
+ * client, description, status, priority and owner, and how its tasks behave (carry-forward, due
+ * today). Saving shows progress and can't be sent twice;
  * what was typed stays after an error; closing with changes asks first.
  */
 export function ProjectFormDialog({ project, onClose, onSaved }: { project?: ApiProject | null; onClose: () => void; onSaved?: (p: ApiProject) => void }) {
@@ -114,7 +131,7 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
   const busy = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
-  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId() };
+  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId() };
 
   const dirty = image.kind !== 'keep' || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
@@ -128,6 +145,11 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  // The company-wide carry-forward switch (System Settings, which only admins can read — as only
+  // admins edit projects). Off there, the project's own switch changes nothing for now: say so.
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const settingsQ = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list(), enabled: isAdmin, staleTime: 60_000 });
+  const carryOffForCompany = companyCarryForwardOff(settingsQ.data);
   const clients = useMemo(() => {
     const names = new Set<string>();
     for (const p of Array.isArray(projectsQ.data) ? projectsQ.data : []) if (p.clientName?.trim()) names.add(p.clientName.trim());
@@ -226,6 +248,9 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
             ownerId: draft.ownerId || null,
             icon: draft.icon,
             color: draft.color,
+            // Only what differs from how every project starts (the server fills in the rest).
+            ...(draft.carryForward ? {} : { carryForward: false }),
+            ...(draft.defaultDueToday ? { defaultDueToday: true } : {}),
           });
         } catch (err) {
           if (err instanceof ApiError && err.status === 409) {
@@ -448,6 +473,33 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
                   New tasks in this project are assigned to the owner unless you pick someone else — and anyone can reassign a task later.
                 </p>
               </div>
+
+              {/* How the project's tasks behave: carry-forward and a default due date. */}
+              <fieldset className="rounded-2xl border border-line px-4 pb-1 pt-1">
+                <legend className="px-1 text-sm font-semibold text-ink">Tasks</legend>
+                <div className="flex items-start justify-between gap-4 py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-ink">Carry unfinished tasks forward</div>
+                    <p id={ids.carryHelp} className="text-xs text-ink-2">Each night, unfinished tasks on past days move to today’s board.</p>
+                    {carryOffForCompany ? (
+                      <p id={ids.carryOff} className="mt-1 text-xs font-medium text-warning">Carry-forward is turned off for the whole company in System Settings.</p>
+                    ) : null}
+                  </div>
+                  <Toggle
+                    on={draft.carryForward}
+                    onChange={() => set({ carryForward: !draft.carryForward })}
+                    label="Carry unfinished tasks forward"
+                    describedBy={carryOffForCompany ? `${ids.carryHelp} ${ids.carryOff}` : ids.carryHelp}
+                  />
+                </div>
+                <div className="flex items-start justify-between gap-4 border-t border-line py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-ink">New tasks are due today</div>
+                    <p id={ids.dueHelp} className="text-xs text-ink-2">A task added without a due date gets today’s date. Dates people choose are kept.</p>
+                  </div>
+                  <Toggle on={draft.defaultDueToday} onChange={() => set({ defaultDueToday: !draft.defaultDueToday })} label="New tasks are due today" describedBy={ids.dueHelp} />
+                </div>
+              </fieldset>
             </div>
 
             <div className="flex flex-none flex-col gap-2 border-t border-line bg-surface px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">

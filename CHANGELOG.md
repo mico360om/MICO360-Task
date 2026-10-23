@@ -130,6 +130,53 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   removed from the phone's cache once sent and at sign-out, and links with a broken id or a very long or
   crafted address open nothing.
 
+## [1.10.1] - 2026-10-23
+
+### Bug fixes
+- Project initials on the amber colour are now written in near-black instead of white, so they are
+  easy to read (white was too faint): on the website, in the Chrome extension and in the emails. Every
+  project colour now meets the usual readability standard (4.5:1).
+
+## [1.10.0] - 2026-10-23
+
+### New features
+- Each project has a "Carry unfinished tasks forward" switch (on by default). With it off, the nightly
+  carry-forward (and an administrator's "run now") leaves that project's unfinished tasks on their
+  days. The company-wide switch in System Settings still comes first.
+- A project can make new tasks due today: with "New tasks are due today" on, a task added without a
+  due date gets today's date (the company's calendar day), or the day of the board it is added to when
+  that is later. Dates people choose are always kept, and a date cleared later stays cleared. It
+  applies however the task is made: the website, the Android app, the Chrome extension, quick add and
+  meeting notes. The New task form says which date the task will get.
+
+### Improvements
+- The Projects page is redesigned: status tabs with counts (All, Active, Planning, On hold, Completed
+  and Archived; archived projects are no longer mixed in), one search over name, code, client and
+  project number (press /), Owner and Sort (Needs attention, Name, Recently updated, Target date,
+  Progress) and, for administrators, "Only my projects". Compact cards show progress, open and overdue
+  tasks, the next due day, the team, the owner and the target date with the days left. Change a
+  project's status from its card (archiving asks first); "⋯" has Edit, Open board and Archive. The
+  page keeps its filters in the address, so Back and shared links work.
+- System Settings → Daily task emails: the list comes in pages of 20, 50 or 100 people (remembered in
+  this browser), with Previous / Next and "Showing 21–40 of 63 people". Find a person also finds people
+  by username (with or without "@"), takes several words in any order, ignores capitals and accents,
+  and says how many match. A new Email filter (Both / Pending tasks / Completed yesterday) shows just
+  that email on each card, and Status then applies to it.
+
+## [1.9.2] - 2026-10-23
+
+### Improvements
+- The morning emails (pending tasks, and tasks completed yesterday) are grouped by project: each project
+  has its own section with its picture or initials, code, project number, client, manager and target
+  date, its status, how many of its tasks are yours (and how many are overdue or due today), and an
+  "Open project" link. Each task shows its due day, priority and status as coloured labels, with an
+  "Open" button, and the email starts with the day at a glance (overdue, due today, upcoming).
+  Long lists show up to 10 tasks per project, 30 in all and 8 projects, then say how many more there
+  are, so Gmail never cuts the email off.
+- Every email from MICO360 Tasks is wider on a computer (up to 720 px instead of 600 px) and uses the
+  whole width of a phone, with a slimmer header (today's date on the morning emails) and a shorter
+  footer. They also read well in dark mode.
+
 ## [1.9.1] - 2026-10-23
 
 ### Bug fixes

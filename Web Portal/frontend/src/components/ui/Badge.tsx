@@ -11,6 +11,9 @@ const TONE: Record<BadgeTone, string> = {
   danger: 'bg-danger-soft text-danger',
 };
 
+/** A tone's colours, for a control that should look like a badge (e.g. a status button). */
+export const badgeToneClass = (tone: BadgeTone): string => TONE[tone];
+
 export interface BadgeProps {
   tone?: BadgeTone;
   /** Show a leading status dot in the tone colour. */

@@ -6,11 +6,21 @@ import { createAuthService } from '../auth/auth-service';
 import type { ProjectRecord, ProjectRepository, CreateProjectData } from './project-repository';
 import type { TaskService } from '../tasks/task-service';
 import type { AuditService } from '../audit/audit-service';
+import type { ProjectOverviewRows, ProjectOverviewSource } from './project-overview';
 
 // Tasks the stub task service reports for the progress endpoint.
 let projectTasks: { columnCategory?: string | null; dueDate?: Date | null }[] = [];
+// What the stub overview source was asked for, and what it answers.
+let overviewCalls: { projectIds: string[]; ownerIds: string[] }[] = [];
+let overviewRows: ProjectOverviewRows = { totals: [], openByDue: [], members: [], owners: [] };
+const overviewSource: ProjectOverviewSource = {
+  async load(projectIds, ownerIds) {
+    overviewCalls.push({ projectIds, ownerIds });
+    return overviewRows;
+  },
+};
 // Captured audit records for assertions.
-let auditRecords: { userId?: string | null; action: string; module: string; entityId?: string | null }[] = [];
+let auditRecords: { userId?: string | null; action: string; module: string; entityId?: string | null; newValue?: unknown }[] = [];
 
 function inMemoryRepo(): ProjectRepository {
   const rows = new Map<string, ProjectRecord>();
@@ -35,6 +45,9 @@ function inMemoryRepo(): ProjectRepository {
         startDate: data.startDate ?? null,
         targetDate: data.targetDate ?? null,
         notes: data.notes ?? null,
+        // Stored as given: the service fills in what a new project starts with.
+        carryForward: data.carryForward as boolean,
+        defaultDueToday: data.defaultDueToday as boolean,
         createdById: data.createdById,
         createdAt: now,
         updatedAt: now,
@@ -95,7 +108,7 @@ async function makeApp() {
     },
     async list() { return auditRecords; },
   } as unknown as AuditService;
-  return buildApp({ authService, tokenService, projectService, taskService, auditService });
+  return buildApp({ authService, tokenService, projectService, taskService, auditService, projectOverview: overviewSource, appConfig: { timeZone: 'Asia/Muscat', productName: 'MICO360 Tasks', companyName: 'MICO360' } });
 }
 
 async function createProject(): Promise<string> {
@@ -119,6 +132,8 @@ let app: Awaited<ReturnType<typeof makeApp>>;
 beforeEach(async () => {
   projectTasks = [];
   auditRecords = [];
+  overviewCalls = [];
+  overviewRows = { totals: [], openByDue: [], members: [], owners: [] };
   app = await makeApp();
 });
 
@@ -269,5 +284,105 @@ describe('Project number', () => {
   it('refuses a number longer than 40 characters', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG1', name: 'Rig', number: 'x'.repeat(41) } });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('Project task settings (carry-forward, due today)', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+  const post = async (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload });
+  const put = async (id: string, payload: Record<string, unknown>, roles = ['ADMIN']) =>
+    app.inject({ method: 'PUT', url: `/api/v1/projects/${id}`, headers: { authorization: `Bearer ${await token(roles)}` }, payload });
+
+  it('a new project carries forward and leaves due dates alone unless told otherwise', async () => {
+    const res = await post({ code: 'PLAIN', name: 'Plain' });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ carryForward: true, defaultDueToday: false });
+  });
+
+  it('takes both settings when the project is created, and returns them', async () => {
+    const res = await post({ code: 'SET', name: 'Set', carryForward: false, defaultDueToday: true });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ carryForward: false, defaultDueToday: true });
+    const read = await app.inject({ method: 'GET', url: `/api/v1/projects/${res.json().data.id}`, headers: await admin() });
+    expect(read.json().data).toMatchObject({ carryForward: false, defaultDueToday: true });
+  });
+
+  it('an update without them (older apps) leaves them as they were; one with them changes just those', async () => {
+    const id = (await post({ code: 'KEEP', name: 'Keep', defaultDueToday: true })).json().data.id;
+    const renamed = await put(id, { name: 'Kept' });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().data).toMatchObject({ name: 'Kept', carryForward: true, defaultDueToday: true });
+    const off = await put(id, { carryForward: false });
+    expect(off.json().data).toMatchObject({ name: 'Kept', carryForward: false, defaultDueToday: true });
+  });
+
+  it('accepts only true or false', async () => {
+    const id = (await post({ code: 'BOOL', name: 'Bool' })).json().data.id;
+    expect((await put(id, { carryForward: 'no' })).statusCode).toBe(400);
+    expect((await put(id, { defaultDueToday: 1 })).statusCode).toBe(400);
+    expect((await post({ code: 'BAD', name: 'Bad', defaultDueToday: 'yes' })).statusCode).toBe(400);
+  });
+
+  it('only those who may edit the project (admins) can change them', async () => {
+    const id = (await post({ code: 'GUARD', name: 'Guard' })).json().data.id;
+    expect((await put(id, { carryForward: false }, ['EMPLOYEE'])).statusCode).toBe(403);
+  });
+
+  it('a change is written to the audit log like any other project change', async () => {
+    const id = (await post({ code: 'AUD', name: 'Audited' })).json().data.id;
+    await put(id, { defaultDueToday: true, carryForward: false });
+    const update = auditRecords.find((r) => r.action === 'project.update');
+    expect(update).toMatchObject({ module: 'projects', entityId: id, newValue: { defaultDueToday: true, carryForward: false } });
+  });
+});
+
+describe('Projects overview (GET /projects/overview)', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+
+  it('lists every project with its figures, owner and team, in one request', async () => {
+    const a = (await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG', name: 'Rig Inspection Portal', ownerId: 'u1' } })).json().data.id;
+    await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'MOB', name: 'Mobile App' } });
+    const sara = { id: 'u1', name: 'Sara Ahmed', avatarUrl: null };
+    overviewRows = {
+      totals: [{ projectId: a, total: 40, lastTaskUpdate: new Date('2099-01-01T08:00:00Z') }],
+      openByDue: [
+        { projectId: a, dueDate: new Date('2000-01-01T00:00:00Z'), count: 4 },
+        { projectId: a, dueDate: new Date('2099-01-05T00:00:00Z'), count: 11 },
+      ],
+      members: [{ projectId: a, person: sara }],
+      owners: [sara],
+    };
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/overview', headers: await admin() });
+    expect(res.statusCode).toBe(200);
+    const byCode = Object.fromEntries(res.json().data.map((p: { code: string }) => [p.code, p]));
+    expect(byCode.RIG).toMatchObject({
+      id: a,
+      name: 'Rig Inspection Portal',
+      status: 'PLANNING',
+      stats: { total: 40, done: 25, open: 15, overdue: 4, nextDue: '2099-01-05', lastActivityAt: '2099-01-01T08:00:00.000Z' },
+      owner: sara,
+      team: [sara],
+      teamCount: 1,
+      mine: false, // the admin asking neither owns, manages nor belongs to it
+    });
+    expect(byCode.RIG).not.toHaveProperty('description');
+    expect(byCode.RIG).not.toHaveProperty('notes');
+    expect(byCode.MOB).toMatchObject({ stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null }, owner: null, team: [], teamCount: 0, mine: false });
+    expect(overviewCalls).toEqual([{ projectIds: expect.arrayContaining([a, byCode.MOB.id]), ownerIds: ['u1'] }]);
+  });
+
+  it('shows an employee only the projects they belong to, and fetches figures for those alone', async () => {
+    await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'MINE', name: 'Mine', ownerId: 'emp1' } });
+    await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'THEIRS', name: 'Not mine' } });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/overview', headers: { authorization: `Bearer ${await tokenFor('emp1', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.map((p: { code: string; mine: boolean }) => [p.code, p.mine])).toEqual([['MINE', true]]);
+    expect(overviewCalls).toHaveLength(1);
+    expect(overviewCalls[0]!.projectIds).toHaveLength(1);
+  });
+
+  it('refuses a request without a sign-in (401)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/overview' });
+    expect(res.statusCode).toBe(401);
   });
 });
