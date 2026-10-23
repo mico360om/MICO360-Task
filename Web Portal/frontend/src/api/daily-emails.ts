@@ -25,6 +25,8 @@ export interface DailyEmailOverviewEmail {
 export interface DailyEmailOverviewPerson {
   userId: string;
   name: string;
+  /** Their sign-in name (an older server leaves it out). */
+  username?: string;
   email: string;
   /** The time zone used: their own, else the company's. */
   timeZone: string;

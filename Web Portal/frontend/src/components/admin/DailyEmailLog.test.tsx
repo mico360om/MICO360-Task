@@ -479,3 +479,58 @@ describe('System Settings → Daily task emails: everyone and their settings', (
     expect(screen.getByRole('option', { name: 'Late (due, not sent yet)' })).toBeInTheDocument();
   });
 });
+
+describe('System Settings → Daily task emails: finding a person', () => {
+  const someone = (userId: string, name: string, username: string, email: string) =>
+    personOf({ userId, name, username, email, timeZone: 'Asia/Muscat', time: '07:00', pending: emailOf(), completed: emailOf() });
+  const FOUR = [
+    someone('u-jp', 'João Pereira', 'jpereira', 'jp@mico360.test'),
+    someone('u-rm', 'Rachel Moss', 'rmoss', 'rachel.m@mico360.test'),
+    someone('u-rs', 'Rachel Souza', 'rsouza', 'rs@mico360.test'),
+    someone('u-sk', 'Sam Kerr', 'skerr', 'sam@mico360.test'),
+  ];
+  const find = () => screen.getByLabelText('Find a person');
+
+  it('by name, username or email; every word must match, in any order; capitals and accents don’t matter', async () => {
+    withPeople(FOUR);
+    const user = userEvent.setup();
+    renderIt();
+    await screen.findByRole('list', { name: 'Everyone and their daily emails' });
+    await user.type(find(), 'skerr');
+    expect(shownNames()).toEqual(['Sam Kerr']); // the username
+    await user.clear(find());
+    await user.type(find(), 'souza rachel');
+    expect(shownNames()).toEqual(['Rachel Souza']);
+    await user.clear(find());
+    await user.type(find(), 'RACHEL');
+    expect(shownNames()).toEqual(['Rachel Moss', 'Rachel Souza']);
+    await user.clear(find());
+    await user.type(find(), 'joao');
+    expect(shownNames()).toEqual(['João Pereira']);
+    await user.clear(find());
+    await user.type(find(), 'rachel pereira');
+    expect(screen.getByText('No one matches these filters.')).toBeInTheDocument();
+    expect(find()).toHaveAttribute('placeholder', 'Name, username or email');
+  });
+
+  it('says how many people match the search or the status', async () => {
+    withPeople(FOUR);
+    const user = userEvent.setup();
+    renderIt();
+    await screen.findByRole('list', { name: 'Everyone and their daily emails' });
+    expect(screen.queryByText(/match/)).not.toBeInTheDocument(); // nothing to say without a filter
+    await user.type(find(), 'rachel');
+    expect(screen.getByText('2 people match')).toBeInTheDocument();
+    await user.type(find(), ' moss');
+    expect(screen.getByText('1 person matches')).toBeInTheDocument();
+    await user.clear(find());
+    await user.selectOptions(screen.getByLabelText('Status'), 'DUE');
+    expect(screen.getByText('4 people match')).toBeInTheDocument();
+  });
+
+  it('shows each person’s username by their email address', async () => {
+    withPeople(FOUR);
+    renderIt();
+    expect(await personItem('Sam Kerr')).toHaveTextContent('@skerr · sam@mico360.test');
+  });
+});

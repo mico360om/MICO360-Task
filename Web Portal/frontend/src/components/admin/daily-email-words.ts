@@ -84,6 +84,11 @@ export function stateText(e: DailyEmailOverviewEmail, timeZone: string, now: Dat
   }
 }
 
+/** How many people match the search and filters: "3 people match". */
+export function matchCountText(n: number): string {
+  return n === 0 ? 'No one matches' : n === 1 ? '1 person matches' : `${n} people match`;
+}
+
 /** How "Send today's emails now" went, in a sentence or a few. */
 export function sendNowText(r: Partial<DailyEmailSendNowCounts>): string {
   const n = (k: keyof DailyEmailSendNowCounts) => r[k] ?? 0;

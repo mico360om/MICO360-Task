@@ -23,6 +23,7 @@ import {
   STATE_TONE,
   checkLateText,
   dayLabel,
+  matchCountText,
   nextSendText,
   runDoneText,
   runProgressText,
@@ -62,6 +63,16 @@ const TONE_TEXT: Record<Tone, string> = { success: 'text-ink', warning: 'text-wa
 const fieldClass = 'w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink outline-none focus:border-brand sm:w-auto';
 
 type Note = { ok: boolean; text: string };
+
+/** Lower case, without accents (and Arabic short-vowel marks): "João" finds "joao". */
+const fold = (s: string) => s.toLocaleLowerCase().normalize('NFKD').replace(/[̀-ًͯ-ٟ]/g, '');
+/** The words searched for, each to be found somewhere in the person's name, username or email. */
+const searchWords = (search: string) => fold(search).split(/\s+/).filter(Boolean);
+const foundBy = (p: DailyEmailOverviewPerson, words: string[]) => {
+  if (!words.length) return true;
+  const text = fold(`${p.name} ${p.username ?? ''} ${p.email}`);
+  return words.every((w) => text.includes(w));
+};
 
 function isOverview(v: unknown): v is DailyEmailOverview {
   const o = v as Partial<DailyEmailOverview> | null | undefined;
@@ -131,11 +142,11 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
     setKept(new Set());
     apply();
   };
-  const term = search.trim().toLowerCase();
-  const matches = (p: DailyEmailOverviewPerson) =>
-    (!status || p.pending.state === status || p.completed.state === status) &&
-    (!term || p.name.toLowerCase().includes(term) || p.email.toLowerCase().includes(term));
+  const words = searchWords(search);
+  const filtered = Boolean(status || words.length);
+  const matches = (p: DailyEmailOverviewPerson) => (!status || p.pending.state === status || p.completed.state === status) && foundBy(p, words);
   const people = (data?.people ?? []).filter((p) => matches(p) || kept.has(p.userId));
+  const matching = people.filter(matches).length;
   const refresh = () => qc.invalidateQueries({ queryKey: [OVERVIEW_KEY] });
   const actedOn = (userId: string) => setKept((k) => (k.has(userId) ? k : new Set(k).add(userId)));
   const viewDay = isToday ? today : day;
@@ -196,7 +207,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
                 type="search"
                 value={search}
                 onChange={(e) => filtering(() => setSearch(e.target.value))}
-                placeholder="Name or email"
+                placeholder="Name, username or email"
                 className={`${fieldClass} sm:w-full`}
               />
             </label>
@@ -209,21 +220,24 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
           ) : people.length === 0 ? (
             <p className="text-sm text-ink-2">No one matches these filters.</p>
           ) : (
-            <ul aria-label="Everyone and their daily emails" aria-busy={q.isPlaceholderData || undefined} className={`flex flex-col gap-3 ${q.isPlaceholderData ? 'opacity-60' : ''}`}>
-              {people.map((p) => (
-                <PersonCard
-                  key={p.userId}
-                  person={p}
-                  emailEnabled={data.emailEnabled !== false}
-                  viewDay={viewDay}
-                  outsideFilter={!matches(p)}
-                  onActed={() => actedOn(p.userId)}
-                  onResult={setResult}
-                  onSent={refresh}
-                  onFocusLost={() => headingRef.current?.focus({ preventScroll: true })}
-                />
-              ))}
-            </ul>
+            <>
+              {filtered ? <p className="mb-2 text-sm text-ink-2">{matchCountText(matching)}</p> : null}
+              <ul aria-label="Everyone and their daily emails" aria-busy={q.isPlaceholderData || undefined} className={`flex flex-col gap-3 ${q.isPlaceholderData ? 'opacity-60' : ''}`}>
+                {people.map((p) => (
+                  <PersonCard
+                    key={p.userId}
+                    person={p}
+                    emailEnabled={data.emailEnabled !== false}
+                    viewDay={viewDay}
+                    outsideFilter={!matches(p)}
+                    onActed={() => actedOn(p.userId)}
+                    onResult={setResult}
+                    onSent={refresh}
+                    onFocusLost={() => headingRef.current?.focus({ preventScroll: true })}
+                  />
+                ))}
+              </ul>
+            </>
           )}
         </>
       )}
@@ -426,7 +440,10 @@ function PersonCard({
           <h3 dir="auto" className="font-medium text-ink">{person.name}</h3>
           {gone ? <span className="rounded-md bg-ground px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-2">{gone.badge}</span> : null}
         </div>
-        <p className="text-xs text-ink-3 [overflow-wrap:anywhere]">{person.email}</p>
+        <p className="text-xs text-ink-3 [overflow-wrap:anywhere]">
+          {person.username ? <span dir="ltr">@{person.username} · </span> : null}
+          {person.email}
+        </p>
         {gone ? (
           <p className="mt-1 text-xs text-ink-2">They no longer get these emails; what was sent to them that day is shown.</p>
         ) : (
