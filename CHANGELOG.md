@@ -121,6 +121,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   devices, time zones use the website's names and can all be reached, and the daily-email time works with
   the Android number keyboard.
 
+- In the Android app, project initials on the amber colour are written in near-black, as on the
+  website, so they are easy to read.
+
 ### Security
 - In the Android app, on a shared phone a change waiting its turn is sent only as the person who made it,
   an export opens only for the person who asked for it, "kept on this phone" messages show only to the

@@ -111,6 +111,9 @@ export function customColor(text: string): string | null {
   return HEX_COLOR.test(hex) ? hex.toUpperCase() : null;
 }
 
+/** Relative luminance of the near-black text colour #1f1a17. */
+const DARK_LUMINANCE = 0.0109;
+
 /** White or near-black, whichever reads better on the colour (the website's rule). */
 export function readableOn(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -121,7 +124,10 @@ export function readableOn(hex: string): string {
     return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
   });
   const lum = 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
-  return lum > 0.45 ? '#1f1a17' : '#ffffff';
+  // Whichever of the two has more contrast (WCAG): white on amber was only 3.6:1.
+  const onWhite = 1.05 / (lum + 0.05);
+  const onDark = (lum + 0.05) / (DARK_LUMINANCE + 0.05);
+  return onDark > onWhite ? '#1f1a17' : '#ffffff';
 }
 
 /** Two letters for the tile: the first letters of the first two words (any script). */
