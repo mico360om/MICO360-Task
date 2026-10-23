@@ -1028,3 +1028,46 @@ model DailyTaskEmail {
   @@index([day])
   @@map("daily_task_emails")
 }
+
+// ─────────────────────────────── MICO AI ───────────────────────────────
+// The owner is a scalar id (like chat and meetings), so the User model stays untouched.
+
+/// A person's private chat with MICO AI: only its owner can open it (admins included).
+model MicoAiChat {
+  id              String          @id @default(cuid())
+  userId          String
+  /// '' until the first question names it; the person can rename it.
+  title           String          @default("") @db.VarChar(200)
+  /// A short running summary of the turns older than the recent window (long chats).
+  summary         String?         @db.Text
+  /// How many of the oldest messages the summary covers.
+  summarizedCount Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  /// When its newest message was added (the chat list's order).
+  lastMessageAt   DateTime        @default(now())
+  messages        MicoAiMessage[]
+
+  @@index([userId, lastMessageAt])
+  @@map("mico_ai_chats")
+}
+
+/// A question (role "user") or MICO AI's answer (role "assistant", its tables and sources as JSON).
+model MicoAiMessage {
+  id        String     @id @default(cuid())
+  chatId    String
+  role      String     @db.VarChar(16)
+  /// The question, or the answer's words: what searching the chats reads.
+  text      String     @db.MediumText
+  content   Json?
+  /// PENDING while MICO AI is writing it, then DONE, ERROR or STOPPED.
+  status    String     @default("DONE") @db.VarChar(16)
+  /// While PENDING: what MICO AI is doing ("Checking tasks in Rig Inspection…").
+  step      String?    @db.VarChar(200)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  chat      MicoAiChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+  @@map("mico_ai_messages")
+}

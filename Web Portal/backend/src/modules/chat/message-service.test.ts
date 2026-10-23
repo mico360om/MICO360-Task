@@ -274,6 +274,14 @@ describe('delivery, search and members', () => {
     expect(await svc.searchMessages('u1', 'b')).toEqual([]); // too short to search
   });
 
+  it('lists the conversations a person can open: their direct ones and their projects’ channels (MICO AI reads only these)', async () => {
+    const mine = await svc.getOrCreateDirectConversation('u1', 'u2');
+    const notMine = await svc.getOrCreateDirectConversation('u3', 'u4');
+    const ch = await svc.getOrCreateProjectConversation('p1', 'u1');
+    expect((await svc.accessibleConversationIds('u1')).sort()).toEqual([mine.id, ch.id].sort());
+    expect(await svc.accessibleConversationIds('u4')).toEqual([notMine.id]);
+  });
+
   it('lists a conversation’s members: the project’s people for a channel, the two people for a DM', async () => {
     const ch = await svc.getOrCreateProjectConversation('p1', 'u1');
     expect((await svc.listMembers(ch.id, 'u1')).sort()).toEqual(['u1', 'u2', 'u3']);

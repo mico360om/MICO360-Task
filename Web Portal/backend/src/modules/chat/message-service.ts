@@ -484,6 +484,7 @@ export function createMessageService(deps: MessageServiceDeps) {
     setPreferences,
     markDelivered,
     searchMessages,
+    accessibleConversationIds,
     listMembers,
     listMessages,
     editMessage,
