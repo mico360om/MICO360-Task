@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { createRefreshBatcher, REALTIME_BATCH_MS } from './refresh-batch';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { ALL_BOARD_BATCH_MS, createRefreshBatcher, REALTIME_BATCH_MS } from './refresh-batch';
 import { refresh, type Refresh } from './refresh';
 import { taskEventRefreshes } from './realtime';
 
@@ -96,5 +98,36 @@ describe('createRefreshBatcher (realtime events refresh once per short window)',
     batch.add([]);
     vi.advanceTimersByTime(REALTIME_BATCH_MS);
     expect(apply).not.toHaveBeenCalled();
+  });
+});
+
+describe('the All projects board for an administrator: every project’s events (final review A11)', () => {
+  it('gathers them for 2 seconds, and never calls off a reading of the board still on its way: it waits, then refreshes once', () => {
+    const W = 2_000;
+    const apply = vi.fn();
+    let reading = true;
+    const batch = createRefreshBatcher(apply, { windowMs: W, busy: () => reading });
+    batch.add([{ queryKey: ['tasks', 'all'] }]);
+    vi.advanceTimersByTime(W);
+    expect(apply).not.toHaveBeenCalled();
+    batch.add([{ queryKey: ['tasks', 'all'] }, task('t9')]);
+    vi.advanceTimersByTime(W);
+    expect(apply).not.toHaveBeenCalled();
+    reading = false;
+    vi.advanceTimersByTime(W);
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith([{ queryKey: ['tasks', 'all'] }, task('t9')]);
+    // The screen closing still refreshes what waits, reading or not.
+    reading = true;
+    batch.add([mine]);
+    batch.flush();
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(ALL_BOARD_BATCH_MS).toBe(W);
+  });
+
+  it('the board’s live updates use it; a project’s own board keeps 300 ms', () => {
+    const hook = readFileSync(resolve(__dirname, '../core/useBoardRealtime.ts'), 'utf8');
+    expect(hook).toMatch(/createRefreshBatcher\(\s*\(targets\) => \{[\s\S]*?\},\s*\{ windowMs: ALL_BOARD_BATCH_MS, busy: \(\) => qc\.isFetching\(\{ queryKey: \[\.\.\.ALL_BOARD_KEY\] \}\) > 0 \},?\s*\)/);
+    expect(hook.match(/createRefreshBatcher\(/g)).toHaveLength(2);
   });
 });

@@ -19,7 +19,7 @@ import {
   TASK_PART_EVENTS,
 } from '../lib/realtime';
 import { refresh } from '../lib/refresh';
-import { createRefreshBatcher } from '../lib/refresh-batch';
+import { ALL_BOARD_BATCH_MS, createRefreshBatcher } from '../lib/refresh-batch';
 import type { ApiTask } from '../lib/types';
 
 // Enable the smooth layout transitions on Android (a no-op elsewhere).
@@ -122,10 +122,12 @@ export function useBoardRealtime(projectId: string | undefined, onProjectRemoved
  * project the board shows. A task event refreshes the board (the day on screen) and what the
  * project's own board would (allBoardEventRefreshes); a change to one part of a task refreshes just
  * that part; a project's columns changing refreshes them and the board. Events are gathered for
- * about 300 ms and refreshed in one pass, with one animation. After a reconnect — and when the
- * screen comes back after it stopped listening (`projectIds` undefined while it is out of view) —
- * the board is fetched again, since events may have been missed. Taken off a project: the project
- * list and the board are fetched again (the new list changes the rooms, which reconnects).
+ * 2 s and refreshed in one pass, with one animation — after a reading of the board still on its
+ * way (final review A11). The rooms are the projects the board can show, as on the website (one
+ * `join` each: the server takes one project per join). After a reconnect — and when the screen
+ * comes back after it stopped listening (`projectIds` undefined while it is out of view) — the
+ * board is fetched again, since events may have been missed. Taken off a project: the project list
+ * and the board are fetched again (the new list changes the rooms, which reconnects).
  */
 export function useAllBoardRealtime(projectIds: readonly string[] | undefined): void {
   const services = useServices();
@@ -139,11 +141,17 @@ export function useAllBoardRealtime(projectIds: readonly string[] | undefined): 
     if (!key || !userId) return;
     const ids = key.split(',');
     let animate = false;
-    const batch = createRefreshBatcher((targets) => {
-      if (animate) animateNext();
-      animate = false;
-      refresh(qc, targets);
-    });
+    // Every shown project's events (an administrator's: every open project's), and each pass reads
+    // the whole board: gathered for 2 s, and never while a reading of the board is still on its way
+    // — it isn't called off to start again (final review A11).
+    const batch = createRefreshBatcher(
+      (targets) => {
+        if (animate) animateNext();
+        animate = false;
+        refresh(qc, targets);
+      },
+      { windowMs: ALL_BOARD_BATCH_MS, busy: () => qc.isFetching({ queryKey: [...ALL_BOARD_KEY] }) > 0 },
+    );
     const later = (targets: Parameters<typeof batch.add>[0], moveCards = false) => {
       if (moveCards) animate = true;
       batch.add(targets);
