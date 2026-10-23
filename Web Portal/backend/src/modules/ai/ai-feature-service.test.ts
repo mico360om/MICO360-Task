@@ -3,6 +3,7 @@ import { createAiFeatureService, parseStringArray, parseJsonObject } from './ai-
 import { createMemoryAiConfigRepository } from './ai-config-repository';
 import { emptyConfig, type AiConfig } from './ai-config';
 import { ValidationError } from '../../lib/http-errors';
+import { AiCallStoppedError } from './ai-network';
 
 const config: AiConfig = {
   providers: [{ id: 'pr1', name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'sk-x', enabled: true, createdAt: '', updatedAt: '' }],
@@ -512,5 +513,56 @@ describe('AiFeatureService: drafting a meeting’s agenda and description', () =
     expect(prompts[0]).toMatch(/language/i);
     await expect(answering({ description: '' }).svc.writeMeetingDescription({ title: 'X' }, me)).rejects.toBeInstanceOf(ValidationError);
     expect((await answering({ description: 'y'.repeat(3000) }).svc.writeMeetingDescription({ title: 'X' }, me)).length).toBe(2000);
+  });
+});
+
+describe('AiFeatureService: MICO AI’s model calls', () => {
+  const ok = (content: string, bodies: Array<Record<string, unknown>> = []) =>
+    (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init!.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+  it('says whether a chat model is set up (MICO AI tells people before they type)', async () => {
+    expect(await createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl: ok('x') }).chatReady()).toBe(true);
+    expect(await createAiFeatureService({ repo: createMemoryAiConfigRepository(emptyConfig()), fetchImpl: ok('x') }).chatReady()).toBe(false);
+  });
+
+  it('asks the default chat model, as JSON when asked, without counting each call against the person’s limit', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl: ok('{"action":"answer"}', bodies), limits: { perMinute: 1, perDay: 1 } });
+    for (let i = 0; i < 3; i++) expect(await svc.chat({ system: 'S', prompt: 'P', maxTokens: 900, json: true })).toBe('{"action":"answer"}');
+    expect(bodies[0]!.model).toBe('gpt-4o');
+    expect(bodies[0]!.messages).toEqual([{ role: 'system', content: 'S' }, { role: 'user', content: 'P' }]);
+  });
+
+  it('shares the model’s concurrency slots with the other AI features', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const fetchImpl = (async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlight--;
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl }); // concurrencyLimit: 1
+    await Promise.all([svc.chat({ system: 'S', prompt: 'P' }), svc.summarizeProject({ name: 'P', stats: { total: 1, completed: 0, inProgress: 0, overdue: 0 } }), svc.chat({ system: 'S', prompt: 'Q' })]);
+    expect(peak).toBe(1);
+  });
+
+  it('passes the caller’s stop to the provider call', async () => {
+    const fetchImpl = ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl });
+    const stop = new AbortController();
+    const call = svc.chat({ system: 'S', prompt: 'P', signal: stop.signal });
+    setTimeout(() => stop.abort(), 5);
+    await expect(call).rejects.toBeInstanceOf(AiCallStoppedError);
+  });
+
+  it('a missing chat model reads as “not set up”', async () => {
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(emptyConfig()), fetchImpl: ok('x') });
+    await expect(svc.chat({ system: 'S', prompt: 'P' })).rejects.toThrow(/not configured/i);
   });
 });

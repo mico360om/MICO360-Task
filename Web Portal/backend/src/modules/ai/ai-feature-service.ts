@@ -97,16 +97,30 @@ export function createAiFeatureService({
     prompt: string,
     maxTokens: number | undefined,
     requester?: AiRequester,
-    opts: { json?: boolean; wait?: number } = {},
+    opts: { json?: boolean; wait?: number; signal?: AbortSignal } = {},
   ): Promise<string> {
     const { model, chat } = resolveChatModel(await repo.load());
     if (requester) usage.take(requester.userId);
     const release = await gate.acquire(model.id, model.concurrencyLimit);
     try {
-      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: opts.wait ?? timeoutMs, allowPrivateHosts });
+      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: opts.wait ?? timeoutMs, allowPrivateHosts, signal: opts.signal });
     } finally {
       release();
     }
+  }
+
+  /** Is a chat model set up and usable? (MICO AI says so on its page before anyone types.) */
+  async function chatReady(): Promise<boolean> {
+    return effectiveModel(await repo.load(), 'chat') !== null;
+  }
+
+  /**
+   * One model call for MICO AI's tool loop: the default chat model, its concurrency slot and the
+   * configured wait, with the caller's stop. MICO AI counts the person's questions itself (one per
+   * question, however many steps it takes), so these calls are not counted here.
+   */
+  async function chat(input: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }): Promise<string> {
+    return run(input.system, input.prompt, input.maxTokens, undefined, { json: input.json, signal: input.signal });
   }
 
   /** Break a task into 3–7 short checklist steps. */
@@ -368,7 +382,7 @@ export function createAiFeatureService({
     return obj;
   }
 
-  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes };
+  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;

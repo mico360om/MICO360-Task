@@ -76,6 +76,8 @@ export interface CompletionOptions {
   allowPrivateHosts?: boolean;
   /** Waits before the one retry of a "busy, try again in a second" (tests pass a fake). */
   sleep?: (ms: number) => Promise<void>;
+  /** The caller's stop: the call ends at once with AiCallStoppedError (MICO AI's Stop button). */
+  signal?: AbortSignal;
 }
 
 /** The default wait for a provider's answer: a cold model on MICO360 AI loads for 20–90 seconds. */
@@ -149,6 +151,7 @@ export async function complete(
         fetchImpl: fetchImpl ?? createSafeFetch({ allowPrivateHosts: opts.allowPrivateHosts }),
         timeoutMs: opts.timeoutMs ?? COMPLETION_TIMEOUT_MS,
         allowPrivateHosts: opts.allowPrivateHosts,
+        signal: opts.signal,
       },
     );
   let res = await send();

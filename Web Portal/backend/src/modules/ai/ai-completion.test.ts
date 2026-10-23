@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { complete, extractText, type ChatModel } from './ai-completion';
+import { AiCallStoppedError } from './ai-network';
 
 describe('extractText', () => {
   it('reads Anthropic messages content', () => {
@@ -94,6 +95,29 @@ describe('complete', () => {
       new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))) as unknown as typeof fetch;
     const model: ChatModel = { provider: { kind: 'openai', apiBaseUrl: 'https://api.example.com', apiKey: '' }, modelKey: 'gpt' };
     await expect(complete(model, { prompt: 'hi' }, fetchImpl, { timeoutMs: 20 })).rejects.toThrow(/did not respond in time/);
+  });
+
+  it('stops a provider call when the caller says stop (MICO AI’s Stop), as a stop, not a timeout', async () => {
+    const fetchImpl = ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))) as unknown as typeof fetch;
+    const model: ChatModel = { provider: { kind: 'openai', apiBaseUrl: 'https://api.example.com', apiKey: '' }, modelKey: 'gpt' };
+    const stop = new AbortController();
+    const call = complete(model, { prompt: 'hi' }, fetchImpl, { timeoutMs: 60_000, signal: stop.signal });
+    stop.abort();
+    await expect(call).rejects.toBeInstanceOf(AiCallStoppedError);
+  });
+
+  it('does not call the provider at all once stopped', async () => {
+    let called = false;
+    const fetchImpl = (async () => {
+      called = true;
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+    const model: ChatModel = { provider: { kind: 'openai', apiBaseUrl: 'https://api.example.com', apiKey: '' }, modelKey: 'gpt' };
+    const stop = new AbortController();
+    stop.abort();
+    await expect(complete(model, { prompt: 'hi' }, fetchImpl, { signal: stop.signal })).rejects.toBeInstanceOf(AiCallStoppedError);
+    expect(called).toBe(false);
   });
 
   it('refuses to call a provider stored with an internal address', async () => {

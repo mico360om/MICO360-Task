@@ -177,15 +177,28 @@ export interface ProviderRequestOptions {
   fetchImpl: typeof fetch;
   timeoutMs: number;
   allowPrivateHosts?: boolean;
+  /** The caller's own stop (MICO AI's Stop button): the call ends at once with AiCallStoppedError. */
+  signal?: AbortSignal;
+}
+
+/** The caller stopped the AI call (not a provider problem, not a timeout). */
+export class AiCallStoppedError extends Error {
+  constructor() {
+    super('Stopped.');
+    this.name = 'AiCallStoppedError';
+  }
 }
 
 /** One provider HTTP call: host check, timeout, no redirects; network problems become readable errors. */
 export async function providerFetch(url: string, init: RequestInit, opts: ProviderRequestOptions): Promise<Response> {
   validateProviderUrl(url, opts.allowPrivateHosts);
+  if (opts.signal?.aborted) throw new AiCallStoppedError();
+  const timeout = AbortSignal.timeout(opts.timeoutMs);
   try {
-    return await opts.fetchImpl(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(opts.timeoutMs) });
+    return await opts.fetchImpl(url, { ...init, redirect: 'error', signal: opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout });
   } catch (err) {
     if (err instanceof ValidationError) throw err;
+    if (opts.signal?.aborted) throw new AiCallStoppedError();
     const name = (err as { name?: string } | null)?.name;
     if (name === 'TimeoutError' || name === 'AbortError') throw new ValidationError('The AI provider did not respond in time. Try again later.');
     throw new ValidationError('Could not reach the AI provider. Check the API URL and network.');
