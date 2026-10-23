@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
 import { ZodError } from 'zod';
-import { createSettingsService, DEFAULT_WORKING_HOURS } from './settings-service';
+import { createSettingsService, DEFAULT_DAILY_LIMIT, DEFAULT_WORKING_HOURS } from './settings-service';
 import { registerSettingsRoutes } from './settings-routes';
 import { createAuthGuard } from '../auth/auth-guard';
 import { createTokenService } from '../auth/token-service';
@@ -89,6 +89,41 @@ describe('SettingsService: meeting working hours', () => {
   it('falls back to the default when the stored value is broken', async () => {
     const svc = createSettingsService({ settings: inMemory({ 'meetings.workingHours': { days: 'weekdays' } }) });
     expect(await svc.workingHours()).toEqual(DEFAULT_WORKING_HOURS);
+  });
+});
+
+describe('SettingsService: workload daily limit', () => {
+  it('dailyLimit() is 5 until an admin sets it', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    expect(DEFAULT_DAILY_LIMIT).toBe(5);
+    expect(await svc.dailyLimit()).toBe(5);
+  });
+
+  it('takes a whole number from 1 to 50 and reads it back', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    await svc.set('workload.dailyLimit', 8);
+    expect(await svc.dailyLimit()).toBe(8);
+    await svc.set('workload.dailyLimit', 1);
+    expect(await svc.dailyLimit()).toBe(1);
+    await svc.set('workload.dailyLimit', 50);
+    expect(await svc.dailyLimit()).toBe(50);
+  });
+
+  it('refuses 0, 51, a fraction and text', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    for (const bad of [0, 51, 2.5, '6', null]) {
+      await expect(svc.set('workload.dailyLimit', bad)).rejects.toMatchObject({ code: 'VALIDATION', status: 400 });
+    }
+  });
+
+  it('falls back to 5 when the stored value is broken', async () => {
+    const svc = createSettingsService({ settings: inMemory({ 'workload.dailyLimit': 'lots' }) });
+    expect(await svc.dailyLimit()).toBe(5);
+  });
+
+  it('is listed with the other system settings', async () => {
+    const svc = createSettingsService({ settings: inMemory({ 'workload.dailyLimit': 7 }) });
+    expect(await svc.getAll()).toEqual([{ key: 'workload.dailyLimit', value: 7 }]);
   });
 });
 
