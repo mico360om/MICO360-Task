@@ -6,7 +6,7 @@ import { DEFAULT_DAILY_LIMIT, DEFAULT_WORKING_HOURS, type WorkingHours } from '.
 import { isCalendarDate } from '../tasks/validation';
 import { ValidationError } from '../../lib/http-errors';
 import { shiftDayKey, todayKey, zonedStartOfDay } from '../../lib/due-date';
-import { MAX_TIMELINE_WEEKS, buildTimeline, timelineRange, weekOf, type TimelineSource, type WeekStart } from './timeline';
+import { MAX_TIMELINE_WEEKS, MILESTONE_HORIZON_DAYS, buildTimeline, timelineRange, weekOf, type TimelineSource, type WeekStart } from './timeline';
 import { buildWorkload, resolveWorkloadScope } from './workload';
 import { loadWorkload, type WorkloadStore } from './workload-service';
 
@@ -38,6 +38,8 @@ function dayParam(value: unknown, today: string, outOfReach: string, missing: st
   return value;
 }
 
+/** UTC midnight of a day: how a due date given as a day is stored. */
+const utcDay = (key: string) => new Date(`${key}T00:00:00.000Z`);
 /** Projects still going: the timeline leaves out completed and archived ones. */
 const isOpen = (status: string) => status !== 'COMPLETED' && status !== 'ARCHIVED';
 
@@ -68,15 +70,17 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       if (!range) throw new ValidationError(`Ask for 1 to ${MAX_TIMELINE_WEEKS} weeks, ending on or after the start.`);
       const projects = (await deps.projectService.listVisibleProjects(viewerOf(req))).filter((p) => isOpen(p.status));
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
-      // The shown weeks' meetings, and this week's (for "Meetings this week") when it is not among them.
+      // Each read in its own window: the shown weeks' markers, the next 30 days' milestones (a day
+      // either side, for due dates kept as days) and this week's meetings (moments, company time).
       const thisWeek = weekOf(today, weekStart);
-      const first = thisWeek < range.from ? thisWeek : range.from;
-      const last = shiftDayKey(thisWeek, 6) > range.to ? shiftDayKey(thisWeek, 6) : range.to;
-      const rows = await source.load(
-        projects.map((p) => p.id),
-        ownerIds,
-        { meetingsFrom: zonedStartOfDay(first, timeZone), meetingsTo: zonedStartOfDay(shiftDayKey(last, 1), timeZone) },
-      );
+      const rows = await source.load(projects.map((p) => p.id), ownerIds, {
+        shownFrom: utcDay(shiftDayKey(range.from, -1)),
+        shownTo: utcDay(shiftDayKey(range.to, 2)),
+        soonFrom: utcDay(shiftDayKey(today, -1)),
+        soonTo: utcDay(shiftDayKey(today, MILESTONE_HORIZON_DAYS + 2)),
+        weekFrom: zonedStartOfDay(thisWeek, timeZone),
+        weekTo: zonedStartOfDay(shiftDayKey(thisWeek, 7), timeZone),
+      });
       return { data: buildTimeline(projects, rows, { timeZone, now: at, range, weekStart }) };
     });
   }

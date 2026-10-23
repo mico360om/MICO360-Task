@@ -6,7 +6,7 @@ import { createAuthService } from '../auth/auth-service';
 import { createSettingsService } from '../settings/settings-service';
 import type { ProjectRecord, ProjectRepository } from '../projects/project-repository';
 import type { SettingsRepository } from '../settings/settings-repository';
-import type { TimelineRows, TimelineSource } from './timeline';
+import type { TimelineRows, TimelineSource, TimelineWindow } from './timeline';
 import { fakeWorkloadStore, type FakeCompany } from './workload-store.fixture';
 
 // Saturday 24 October 2026, 12:00 in Muscat.
@@ -51,8 +51,8 @@ const repo: ProjectRepository = {
   async softDelete() {},
 };
 
-let timelineCalls: { projectIds: string[]; ownerIds: string[]; meetingsFrom: Date; meetingsTo: Date }[] = [];
-let timelineRows: TimelineRows = { totals: [], openByDue: [], milestones: [], meetings: [], owners: [] };
+let timelineCalls: ({ projectIds: string[]; ownerIds: string[] } & TimelineWindow)[] = [];
+let timelineRows: TimelineRows = { totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
 const timelineSource: TimelineSource = {
   async load(projectIds, ownerIds, window) {
     timelineCalls.push({ projectIds, ownerIds, ...window });
@@ -113,7 +113,7 @@ let app: Awaited<ReturnType<typeof makeApp>>;
 beforeEach(async () => {
   projects = [];
   timelineCalls = [];
-  timelineRows = { totals: [], openByDue: [], milestones: [], meetings: [], owners: [] };
+  timelineRows = { totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
   company = EMPTY;
   workloadStore = fakeWorkloadStore(company);
   stored = {};
@@ -145,12 +145,17 @@ describe('GET /timeline', () => {
     expect(timelineCalls[0]!.ownerIds).toEqual(['sara']);
   });
 
-  it('reads the meetings of the shown weeks and of this week, whichever starts first and ends last (company time)', async () => {
+  it('reads the shown weeks’ markers, the next 30 days’ milestones and this week’s meetings — each in its own window', async () => {
     projects = [record('rig')];
     await app.inject({ method: 'GET', url: '/api/v1/timeline?from=2026-11-02&to=2026-11-15&weekStart=1', headers: await ADMIN() });
-    // This week (from Monday 19 October) starts before the shown weeks: midnight in Muscat is 20:00 UTC the day before.
-    expect(timelineCalls[0]!.meetingsFrom.toISOString()).toBe('2026-10-18T20:00:00.000Z');
-    expect(timelineCalls[0]!.meetingsTo.toISOString()).toBe('2026-11-15T20:00:00.000Z');
+    const w = timelineCalls[0]!;
+    const iso = (d: Date) => d.toISOString();
+    // The shown weeks (2–15 November), a day either side for due dates kept as days.
+    expect([iso(w.shownFrom), iso(w.shownTo)]).toEqual(['2026-11-01T00:00:00.000Z', '2026-11-17T00:00:00.000Z']);
+    // From today (24 October) to 30 days on, a day either side.
+    expect([iso(w.soonFrom), iso(w.soonTo)]).toEqual(['2026-10-23T00:00:00.000Z', '2026-11-25T00:00:00.000Z']);
+    // This week, from Monday 19 October — midnight in Muscat is 20:00 UTC the day before.
+    expect([iso(w.weekFrom), iso(w.weekTo)]).toEqual(['2026-10-18T20:00:00.000Z', '2026-10-25T20:00:00.000Z']);
   });
 
   it('shows anyone else only the projects they own, manage, created or belong to (as the projects list does)', async () => {

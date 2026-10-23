@@ -27,7 +27,7 @@ const project = (id: string, extra: Partial<ProjectRecord> = {}): ProjectRecord 
   ...extra,
 });
 
-const empty: TimelineRows = { totals: [], openByDue: [], milestones: [], meetings: [], owners: [] };
+const empty: TimelineRows = { totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
 // Saturday 24 October 2026, 12:00 in Muscat.
 const now = new Date('2026-10-24T08:00:00Z');
 const day = (key: string) => new Date(`${key}T00:00:00.000Z`);
@@ -159,46 +159,61 @@ describe('buildTimeline', () => {
     ]);
   });
 
-  it('lists milestones by date (undated last), marks those reached, and names the next one', () => {
-    const ms = (id: string, dueDate: Date | null, done = false) => ({ id, key: `MOB-${id}`, title: `Milestone ${id}`, projectId: 'p1', dueDate, done });
+  const ms = (id: string, dueDate: Date | null, done = false, projectId = 'p1') => ({ id, key: `MOB-${id}`, title: `Milestone ${id}`, projectId, dueDate, done });
+
+  it('marks the shown weeks’ milestones by date, filled once reached; the next one, the 30-day count and the total come from their own reads', () => {
     const rows: TimelineRows = {
       ...empty,
-      milestones: [
-        ms('undated', null),
-        ms('beta', day('2026-11-06')),
-        ms('kickoff', day('2026-10-02'), true),
-        ms('design', day('2026-10-20')), // overdue, still not reached: it is the next one
-        ms('launch', day('2026-12-01')),
+      milestones: [ms('beta', day('2026-11-06')), ms('design', day('2026-10-20')), ms('kickoff', day('2026-10-21'), true), ms('far', day('2026-12-01'))],
+      nextMilestones: [ms('design', day('2026-10-20'))],
+      soonMilestones: [
+        { projectId: 'p1', dueDate: day('2026-11-06') },
+        { projectId: 'p1', dueDate: day('2026-11-24') }, // 31 days on: not counted
+        { projectId: 'p1', dueDate: day('2026-10-23') }, // yesterday: not counted
       ],
+      milestoneCounts: [{ projectId: 'p1', count: 7 }],
     };
     const [p] = buildTimeline([project('p1')], rows, opts).projects;
+    // Only the shown weeks' (19 Oct – 8 Nov) are markers.
     expect(p!.milestones.map((m) => [m.id, m.date, m.done])).toEqual([
-      ['kickoff', '2026-10-02', true],
       ['design', '2026-10-20', false],
+      ['kickoff', '2026-10-21', true],
       ['beta', '2026-11-06', false],
-      ['launch', '2026-12-01', false],
-      ['undated', null, false],
     ]);
     expect(p!.nextMilestone).toMatchObject({ id: 'design', title: 'Milestone design', date: '2026-10-20' });
-    // Not reached and due from today (24 Oct) to 23 November: only Beta.
     expect(p!.milestonesSoon).toBe(1);
+    expect(p!.milestoneCount).toBe(7);
+  });
+
+  it('takes the earliest dated milestone not reached as the next one (by title on the same day), else an undated one', () => {
+    const rows: TimelineRows = {
+      ...empty,
+      nextMilestones: [ms('zeta', day('2026-11-01')), ms('alpha', day('2026-11-01')), ms('loose', null), ms('undated', null, false, 'p2')],
+      milestoneCounts: [{ projectId: 'p1', count: 3 }, { projectId: 'p2', count: 1 }],
+    };
+    const [p1, p2] = buildTimeline([project('p1'), project('p2')], rows, opts).projects;
+    expect(p1!.nextMilestone?.id).toBe('alpha');
+    expect(p2!.nextMilestone).toMatchObject({ id: 'undated', date: null });
   });
 
   it('has no next milestone when every one is reached', () => {
-    const rows: TimelineRows = { ...empty, milestones: [{ id: 'm', key: 'P-1', title: 'Done', projectId: 'p1', dueDate: day('2026-10-02'), done: true }] };
-    expect(buildTimeline([project('p1')], rows, opts).projects[0]!.nextMilestone).toBeNull();
+    const rows: TimelineRows = { ...empty, milestoneCounts: [{ projectId: 'p1', count: 1 }] };
+    const [p] = buildTimeline([project('p1')], rows, opts).projects;
+    expect(p!.nextMilestone).toBeNull();
+    expect(p!.milestoneCount).toBe(1);
   });
 
-  it('puts the shown weeks’ meetings on their company-time day and counts this week’s', () => {
+  it('puts the shown weeks’ meetings on their company-time day, and takes this week’s count from its own read', () => {
     // The chart shows 2–15 November; this week (19–25 October) is not among the shown weeks.
     const later = timelineRange('2026-11-02', '2026-11-15', 1)!;
     const rows: TimelineRows = {
       ...empty,
       meetings: [
-        { id: 'm1', title: 'Weekly sync', projectId: 'p1', startAt: new Date('2026-10-22T06:00:00Z'), endAt: null },
         { id: 'm2', title: 'Pilot review', projectId: 'p1', startAt: new Date('2026-11-03T21:30:00Z'), endAt: null }, // 01:30 on 4 Nov in Muscat
         { id: 'm3', title: 'Other project', projectId: 'p2', startAt: new Date('2026-11-05T06:00:00Z'), endAt: null },
+        { id: 'm4', title: 'Too late', projectId: 'p2', startAt: new Date('2026-11-20T06:00:00Z'), endAt: null },
       ],
+      meetingsThisWeek: [{ projectId: 'p1', count: 1 }],
     };
     const [p1, p2] = buildTimeline([project('p1'), project('p2')], rows, { ...opts, range: later }).projects;
     expect(p1!.meetings).toEqual([{ id: 'm2', title: 'Pilot review', startAt: new Date('2026-11-03T21:30:00Z'), day: '2026-11-04' }]);

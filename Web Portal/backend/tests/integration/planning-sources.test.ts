@@ -94,8 +94,18 @@ beforeEach(async () => {
 });
 
 describe('Timeline source (integration)', () => {
+  // Shown: October to December; soon: 24 October to 25 November; this week: 25 to 31 October.
+  const WIN = {
+    shownFrom: day('2026-10-01'),
+    shownTo: day('2027-01-01'),
+    soonFrom: day('2026-10-23'),
+    soonTo: day('2026-11-25'),
+    weekFrom: day('2026-10-25'),
+    weekTo: day('2026-11-01'),
+  };
+
   it('reads totals, open tasks by due date, milestones, meetings and owners in grouped queries', async () => {
-    const rows = await timeline.load([ids.one!, ids.two!], [ids.ada!, ids.fay!], { meetingsFrom: day('2026-10-01'), meetingsTo: day('2027-01-01') });
+    const rows = await timeline.load([ids.one!, ids.two!], [ids.ada!, ids.fay!], WIN);
     const total = (key: string) => rows.totals.find((t) => t.projectId === ids[key])?.total;
     expect([total('one'), total('two')]).toEqual([8, 1]); // the deleted task is not counted
     const open = rows.openByDue.filter((g) => g.projectId === ids.one).reduce((s, g) => s + g.count, 0);
@@ -105,12 +115,34 @@ describe('Timeline source (integration)', () => {
       ['Kick-off', true],
       ['Beta build', false],
     ]);
+    expect(rows.nextMilestones.map((m) => [m.title, m.projectId])).toEqual([['Beta build', ids.one]]);
+    expect(rows.soonMilestones).toEqual([{ projectId: ids.one, dueDate: day('2026-11-06') }]);
+    expect(rows.milestoneCounts).toEqual([{ projectId: ids.one, count: 2 }]);
+    // Not the cancelled, deleted or far-off ones.
     expect(rows.meetings.map((m) => [m.id, m.title, m.projectId])).toEqual([[ids.meet, 'Weekly sync', ids.one]]);
+    expect(rows.meetingsThisWeek).toEqual([{ projectId: ids.one, count: 1 }]);
     expect(rows.owners.map((o) => o.name).sort()).toEqual(['Ada Plan', 'Fay Plan']);
   });
 
+  it('finds the next milestone and the month’s count however many milestones there are (undated ones never crowd them out)', async () => {
+    const doing = (await prisma.kanbanColumn.findFirst({ where: { projectId: ids.two!, category: 'IN_PROGRESS' } }))!;
+    await prisma.task.createMany({
+      data: Array.from({ length: 2100 }, (_, i) => ({ key: `PLU-${i}`, title: `Undated ${String(i).padStart(4, '0')}`, projectId: ids.two!, columnId: doing.id, createdById: ids.ada!, isMilestone: true })),
+    });
+    await prisma.task.create({ data: { key: 'PLU-NEXT', title: 'Handover', projectId: ids.two!, columnId: doing.id, createdById: ids.ada!, isMilestone: true, dueDate: day('2026-11-20') } });
+    const rows = await timeline.load([ids.one!, ids.two!], [], WIN);
+    expect(rows.nextMilestones.filter((m) => m.projectId === ids.two).map((m) => m.title)).toEqual(['Handover']);
+    expect(rows.soonMilestones.filter((m) => m.projectId === ids.two)).toHaveLength(1);
+    expect(rows.milestoneCounts.find((c) => c.projectId === ids.two)?.count).toBe(2101);
+    // A project with only undated milestones gets one of them as its next.
+    await prisma.task.deleteMany({ where: { key: 'PLU-NEXT' } });
+    const undated = await timeline.load([ids.two!], [], WIN);
+    expect(undated.nextMilestones).toHaveLength(1);
+    expect(undated.nextMilestones[0]).toMatchObject({ title: 'Undated 0000', dueDate: null, done: false });
+  });
+
   it('answers nothing for no projects', async () => {
-    expect(await timeline.load([], [], { meetingsFrom: day('2026-10-01'), meetingsTo: day('2027-01-01') })).toEqual({ totals: [], openByDue: [], milestones: [], meetings: [], owners: [] });
+    expect(await timeline.load([], [], WIN)).toEqual({ totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] });
   });
 });
 
