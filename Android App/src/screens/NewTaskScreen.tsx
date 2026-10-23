@@ -176,15 +176,24 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   // ── Edit task: filled once with the task and its people; the version it opened with is kept ──
   const editTask = taskQ.data;
   const filled = useRef(false);
+  const peopleFilled = useRef(false);
   const openedVersion = useRef<number | undefined>(undefined);
   // Who is on it couldn't be read (offline, not kept): they are left as they are.
   const peopleUnknown = editing && assigneesQ.isError && !assigneesQ.data;
   useEffect(() => {
     if (!editing || filled.current || !taskQ.data || (!assigneesQ.data && !peopleUnknown)) return;
     filled.current = true;
+    peopleFilled.current = !!assigneesQ.data;
     openedVersion.current = taskQ.data.version;
     settle(editTaskDraft(taskQ.data, (assigneesQ.data ?? []).map((a) => a.id), timeZone));
   }, [editing, taskQ.data, assigneesQ.data, peopleUnknown, timeZone]);
+  // Who is on it arrived after the form was filled without them (final review A8): filled in now, so
+  // the form never says "Nobody is assigned." while people are (the field was off until then).
+  useEffect(() => {
+    if (!editing || !filled.current || peopleFilled.current || !assigneesQ.data || saving) return;
+    peopleFilled.current = true;
+    settle({ assigneeIds: assigneesQ.data.map((a) => a.id) });
+  }, [editing, assigneesQ.data, saving]);
   const series = editing && inSeries(editTask);
   const canRepeat = !editing || !isEarlierCopy(editTask);
 

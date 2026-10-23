@@ -167,6 +167,12 @@ describe('the Edit form on screen (4d)', () => {
     expect(src('screens/TaskDetailScreen.tsx')).toMatch(/navigation\.navigate\('NewTask', \{ taskId: task\.id \}\)/);
   });
 
+  it('who is on the task, arriving after the form was filled without them (offline at first), is filled in — never “Nobody is assigned.” while people are (final review A8)', () => {
+    const screen = src('screens/NewTaskScreen.tsx');
+    expect(screen).toMatch(/peopleFilled\.current = !!assigneesQ\.data;/);
+    expect(screen).toMatch(/if \(!editing \|\| !filled\.current \|\| peopleFilled\.current \|\| !assigneesQ\.data \|\| saving\) return;\s+peopleFilled\.current = true;\s+settle\(\{ assigneeIds: assigneesQ\.data\.map\(\(a\) => a\.id\) \}\);/);
+  });
+
   it('saves each change through the task write path, against the version the form opened with', () => {
     const core = src('core/new-task.ts');
     expect(core).toMatch(/sendTaskEdit\(services, qc, taskId, patch, undefined, openedVersion\)/);
