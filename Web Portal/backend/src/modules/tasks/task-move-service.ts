@@ -151,6 +151,16 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     return isAdmin(actor) ? null : new Set(await repo.managedProjectIds(actor.id));
   }
   const manages = (scope: Set<string> | null, projectId: string) => scope === null || scope.has(projectId);
+  /** Reads each project once for one request, however many of its tasks are in it. */
+  type FindProject = (id: string) => Promise<MoveProject | null>;
+  const projectReader = (): FindProject => {
+    const seen = new Map<string, Promise<MoveProject | null>>();
+    return (id) => {
+      let found = seen.get(id);
+      if (!found) seen.set(id, (found = repo.findProject(id)));
+      return found;
+    };
+  };
 
   async function targets(actor: MoveActor): Promise<MoveTargets> {
     const scope = await scopeOf(actor);
@@ -164,17 +174,17 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     const closed = CLOSED[to.status];
     if (closed) throw new HttpError(`${to.name} is ${closed}. Tasks can only be moved to open projects.`, 'PROJECT_CLOSED', 400);
   }
-  async function destination(scope: Set<string> | null, projectId: string): Promise<MoveProject> {
-    const to = await repo.findProject(projectId);
+  async function destination(scope: Set<string> | null, projectId: string, find: FindProject): Promise<MoveProject> {
+    const to = await find(projectId);
     if (!to) throw new NotFoundError('Project not found.');
     assertDestination(scope, to);
     return to;
   }
 
   /** The task's own refusals: it is already there, or the actor may not move tasks out of its project. */
-  async function source(scope: Set<string> | null, task: MovableTask, to: MoveProject): Promise<MoveProject> {
+  async function source(scope: Set<string> | null, task: MovableTask, to: MoveProject, find: FindProject): Promise<MoveProject> {
     if (task.projectId === to.id) throw new TaskRefusal(`This task is already in ${to.name}.`, 'SAME_PROJECT', 400, `Already in ${to.name}.`);
-    const from = await repo.findProject(task.projectId);
+    const from = await find(task.projectId);
     if (!from) throw new NotFoundError('Task not found.');
     if (!manages(scope, from.id)) throw new TaskRefusal(`You need to manage ${from.name} to move its tasks.`, 'FORBIDDEN', 403);
     return from;
@@ -207,7 +217,8 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
 
   async function preview(actor: MoveActor, taskIds: string[], projectId: string): Promise<MovePreview> {
     const scope = await scopeOf(actor);
-    const to = await destination(scope, projectId);
+    const find = projectReader();
+    const to = await destination(scope, projectId, find);
     const ids = unique(taskIds);
     const [found, columns, next] = await Promise.all([repo.findTasks(ids), repo.listColumns(to.id), repo.nextKeyNumber(to.id)]);
     const byId = new Map(found.map((t) => [t.id, t]));
@@ -222,7 +233,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
         continue;
       }
       try {
-        const from = await source(scope, task, to);
+        const from = await source(scope, task, to, find);
         const column = columnFor(columns, to, task);
         const people = await outsidersOf(task, to);
         for (const p of people) outsiders.set(p.id, p);
@@ -249,10 +260,10 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
   }
 
   /** Move one task into `to` (already checked as a destination), given the columns of `to`. */
-  async function moveOne(actor: MoveActor, scope: Set<string> | null, taskId: string, to: MoveProject, columns: MoveColumn[], input: MoveInput): Promise<MoveResult> {
+  async function moveOne(actor: MoveActor, scope: Set<string> | null, taskId: string, to: MoveProject, columns: MoveColumn[], input: MoveInput, find: FindProject): Promise<MoveResult> {
     const [task] = await repo.findTasks([taskId]);
     if (!task) throw new NotFoundError('Task not found.');
-    const from = await source(scope, task, to);
+    const from = await source(scope, task, to, find);
     const column = columnFor(columns, to, task, input.columnId);
     const outsiders = await outsidersOf(task, to);
     if (outsiders.length > 0 && !input.assignees) {
@@ -315,25 +326,27 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
 
   async function moveTask(actor: MoveActor, taskId: string, input: MoveInput): Promise<MoveResult> {
     const scope = await scopeOf(actor);
+    const find = projectReader();
     const [task] = await repo.findTasks([taskId]);
     if (!task) throw new NotFoundError('Task not found.');
-    const to = await repo.findProject(input.projectId);
+    const to = await find(input.projectId);
     if (!to) throw new NotFoundError('Project not found.');
     // The task's own refusals first (already there, not yours to move), then the destination's.
-    await source(scope, task, to);
+    await source(scope, task, to, find);
     assertDestination(scope, to);
-    return moveOne(actor, scope, taskId, to, await repo.listColumns(to.id), input);
+    return moveOne(actor, scope, taskId, to, await repo.listColumns(to.id), input, find);
   }
 
   async function moveTasks(actor: MoveActor, taskIds: string[], input: MoveInput): Promise<BulkMoveResult> {
     const scope = await scopeOf(actor);
-    const to = await destination(scope, input.projectId);
+    const find = projectReader();
+    const to = await destination(scope, input.projectId, find);
     const columns = await repo.listColumns(to.id);
     if (input.columnId && !columns.some((c) => c.id === input.columnId)) throw new ValidationError(`That column isn’t on the ${to.name} board.`);
     const results: BulkMoveItem[] = [];
     for (const taskId of unique(taskIds)) {
       try {
-        results.push({ taskId, ok: true, ...(await moveOne(actor, scope, taskId, to, columns, input)) });
+        results.push({ taskId, ok: true, ...(await moveOne(actor, scope, taskId, to, columns, input, find)) });
       } catch (err) {
         if (!(err instanceof HttpError)) deps.onError?.(err, taskId);
         const error =

@@ -386,6 +386,18 @@ describe('Moving many tasks', () => {
     expect(chosen.results.map((x) => (x.ok ? x.task.columnId : null))).toEqual(['o-doing', 'o-doing']);
   });
 
+  it('reads each project once, however many of its tasks are moved or previewed', async () => {
+    const w = world();
+    const reads: string[] = [];
+    const counting: TaskMoveRepository = { ...w.repo, findProject: async (id) => (reads.push(id), w.repo.findProject(id)) };
+    const service = createTaskMoveService({ repo: counting, timeZone: TZ, now: () => NOW });
+    await service.preview(aisha, ['t1', 't3', 't5', 't6'], 'ops');
+    expect(reads.sort()).toEqual(['ops', 'rig']);
+    reads.length = 0;
+    await service.moveTasks(aisha, ['t1', 't3', 't5'], { projectId: 'ops' });
+    expect(reads.sort()).toEqual(['ops', 'rig']);
+  });
+
   it('a project that can’t take tasks refuses the whole request', async () => {
     const w = world();
     expect(await refusal(w.service.moveTasks(aisha, ['t1', 't3'], { projectId: 'arc' }))).toMatchObject({ code: 'PROJECT_CLOSED' });

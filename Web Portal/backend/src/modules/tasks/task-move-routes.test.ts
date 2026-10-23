@@ -99,6 +99,23 @@ describe('GET /tasks/move-targets', () => {
   });
 });
 
+describe('next to the task routes', () => {
+  it('the move routes are never taken for a task id (/tasks/:id)', async () => {
+    const { createTaskService } = await import('./task-service');
+    const lookups: string[] = [];
+    const taskService = createTaskService({
+      tasks: { async findById(id: string) { lookups.push(id); return null; } } as never,
+      projects: { async getCodeById() { return null; }, async getTaskSettings() { return null; } },
+    });
+    const repo = createMemoryTaskMoveRepository({ projects: [project('ops', 'OPS', 'Operations')], columns: [], tasks: [], aliases: new Map(), teams: new Map(), managers: new Map(), admins: new Set(), activity: [] });
+    const both = await buildApp({ authService, tokenService, taskService, taskMoveService: createTaskMoveService({ repo }) });
+    const res = await both.inject({ method: 'GET', url: '/api/v1/tasks/move-targets', headers: await bearer('aisha', ['ADMIN']) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.managesAll).toBe(true);
+    expect(lookups).toEqual([]);
+  });
+});
+
 describe('POST /tasks/move-preview', () => {
   it('says what moving the tasks would change', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/move-preview', headers: await bearer('aisha'), payload: { taskIds: ['t1', 't2'], projectId: 'ops' } });
