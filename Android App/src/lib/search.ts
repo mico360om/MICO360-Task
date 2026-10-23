@@ -72,9 +72,10 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   profile: { target: { kind: 'screen', action: { type: 'stack', screen: 'Profile' } } },
   about: { target: { kind: 'screen', action: { type: 'stack', screen: 'About' } } },
   'admin-users': { target: { kind: 'screen', action: { type: 'stack', screen: 'Users' } } },
-  // The website's planning pages; the app has no screen for them yet, so they open on the website.
+  // Website pages the app has no screen for yet (planning, MICO AI): they open on the website.
   timeline: { target: { kind: 'website', path: '/timeline' } },
   workload: { target: { kind: 'website', path: '/workload' } },
+  'mico-ai': { target: { kind: 'website', path: '/mico-ai' } },
   'admin-ai': { target: { kind: 'website', path: '/admin/ai' } },
   'admin-settings': { target: { kind: 'website', path: '/admin/settings' } },
   'admin-audit': { target: { kind: 'website', path: '/admin/audit' } },

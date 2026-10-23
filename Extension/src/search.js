@@ -26,6 +26,7 @@ export const PAGES = [
   { id: 'workload', label: 'Workload', web: '/workload', keywords: ['capacity', 'load', 'busy', 'daily limit', 'rebalance'] },
   { id: 'meetings', label: 'Meetings', hash: '#/meetings', keywords: ['meeting', 'invitations', 'minutes'] },
   { id: 'chat', label: 'Chat', hash: '#/chat', keywords: ['messages', 'talk'] },
+  { id: 'mico-ai', label: 'MICO AI', web: '/mico-ai', keywords: ['ai', 'ask', 'assistant', 'question', 'chatbot'] },
   { id: 'activity', label: 'Activity', web: '/activity', keywords: ['feed', 'history'] },
   { id: 'notifications', label: 'Notifications', hash: '#/notifications', keywords: ['alerts', 'bell'] },
   { id: 'reports', label: 'Reports', hash: '#/reports', keywords: ['analytics', 'stats', 'charts', 'trends'], admin: true },
