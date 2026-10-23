@@ -37,9 +37,17 @@ export interface DailyEmailRepository {
   claim(userId: string, day: string, kind: DailyEmailKind): Promise<DailyEmailRecord | null>;
   /** Rows to try again: RETRY whose time has come, and SENDING ones left since `staleBefore` (a crash mid-send). */
   dueForRetry(now: Date, staleBefore: Date): Promise<DailyEmailRecord[]>;
-  /** Takes a due row for another attempt (SENDING, one more attempt) unless another sweep already did: null then. */
+  /**
+   * Takes a row for another attempt (SENDING, one more attempt) unless someone else already did — another
+   * sweep, or an administrator's send: null then. The sweep retakes due retries; an administrator's send
+   * also retakes a failed, skipped or (a resend) sent one.
+   */
   retake(row: DailyEmailRecord): Promise<DailyEmailRecord | null>;
   finish(id: string, patch: DailyEmailFinish): Promise<void>;
+  /** The record for (person, day, email), or null when there is none yet. */
+  find(userId: string, day: string, kind: DailyEmailKind): Promise<DailyEmailRecord | null>;
+  /** Every record for these days ('YYYY-MM-DD'): the admins' overview of a day. */
+  forDays(days: string[]): Promise<DailyEmailRecord[]>;
   /** The delivery log, newest first. */
   list(filter: { day?: string; status?: DailyEmailStatus; limit?: number }): Promise<DailyEmailLogRow[]>;
 }
