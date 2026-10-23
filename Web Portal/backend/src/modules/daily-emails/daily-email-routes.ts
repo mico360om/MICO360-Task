@@ -6,7 +6,7 @@ import type { DailyEmailService } from './daily-email-service';
 import type { DailyEmailKind, DailyEmailRepository } from './daily-email-repository';
 
 export interface DailyEmailRouteDeps {
-  service: Pick<DailyEmailService, 'sendTest' | 'overview' | 'sendNow' | 'sendFor' | 'preview'>;
+  service: Pick<DailyEmailService, 'sendTest' | 'overview' | 'startSendNow' | 'sendFor' | 'preview'>;
   log: Pick<DailyEmailRepository, 'list'>;
   isConfigured: () => boolean;
   guard: AuthGuard;
@@ -100,22 +100,26 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
     return { data: { ...(await deps.service.overview(q.day)), emailEnabled: deps.isConfigured() } };
   });
 
-  // "Send today's emails now": everyone's emails that haven't gone today, at once (counted as today's).
+  // "Send today's emails now": everyone's emails whose time has come and that haven't gone today
+  // (counted as today's). It answers at once (202) and sends in the background — one run at a time on
+  // this server; the overview says how far it has got. The audit entry is written when it ends.
   app.post('/admin/daily-emails/send-now', adminOnly, async (req, reply) => {
     if (!deps.isConfigured()) return reply.status(503).send(NOT_CONFIGURED);
     const adminId = req.user!.id;
     if (!sendNows.take(adminId)) {
       return reply.status(429).send({ error: { code: 'TOO_SOON', message: 'Today’s emails were just sent. Wait a minute before sending them again.' } });
     }
-    let counts;
-    try {
-      counts = await deps.service.sendNow();
-    } catch (err) {
+    const start = deps.service.startSendNow({
+      onFinish: (run) =>
+        audit(req, 'daily_email.send_now', null, { total: run.total, done: run.done, error: run.error, startedAt: run.startedAt, finishedAt: run.finishedAt, counts: run.counts }),
+    });
+    if (!start.started) {
       sendNows.release(adminId);
-      throw err;
+      const { done, total } = start.run;
+      const far = total === null ? '' : ` (${done} of ${total} ${total === 1 ? 'person' : 'people'} done)`;
+      return reply.status(409).send({ error: { code: 'ALREADY_SENDING', message: `Today’s emails are being sent now${far}. Check the list in a minute.` } });
     }
-    await audit(req, 'daily_email.send_now', null, counts);
-    return { data: counts };
+    return reply.status(202).send({ data: start.run });
   });
 
   // One person's emails for today, now (or one of them); `resend` also sends one that already went.

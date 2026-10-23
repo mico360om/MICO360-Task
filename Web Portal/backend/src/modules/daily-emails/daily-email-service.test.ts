@@ -9,8 +9,10 @@ function memoryRepo(clock: () => Date = () => new Date()) {
   const rows: DailyEmailRecord[] = [];
   let seq = 0;
   let failFinishes = 0;
+  const failClaimsFor = new Set<string>();
   const repo: DailyEmailRepository = {
     async claim(userId, day, kind) {
+      if (failClaimsFor.has(userId)) throw new Error('The database is not answering');
       if (rows.some((r) => r.userId === userId && r.day === day && r.kind === kind)) return null;
       const now = clock();
       const r: DailyEmailRecord = { id: `r${seq++}`, userId, day, kind, status: 'SENDING', attempts: 1, taskCount: 0, nextAttemptAt: null, lastError: null, sentAt: null, createdAt: now, updatedAt: now };
@@ -50,7 +52,7 @@ function memoryRepo(clock: () => Date = () => new Date()) {
       return rows.filter((r) => days.includes(r.day)).map((r) => ({ ...r, userName: r.userId.toUpperCase(), email: `${r.userId}@mico360.test`, timeZone: null }));
     },
   };
-  return { repo, rows, failFinishes: (n: number) => { failFinishes = n; } };
+  return { repo, rows, failFinishes: (n: number) => { failFinishes = n; }, failClaimsFor };
 }
 
 /** A delivery record as it would be in the database (for states a test sets up directly). */
@@ -82,7 +84,8 @@ function checkStore() {
 
 function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; configured?: boolean; failures?: number; blocked?: string[]; checks?: ReturnType<typeof checkStore> } = {}) {
   let now = at('2026-10-21T02:00:00Z'); // 06:00 in Muscat
-  const { repo, rows, failFinishes } = memoryRepo(() => now);
+  const { repo, rows, failFinishes, failClaimsFor } = memoryRepo(() => now);
+  let listFails = false;
   let failures = opts.failures ?? 0;
   // The next send waits until the test lets it go (a slow provider), then goes through or fails.
   let held: { wait: Promise<void>; fail: boolean } | null = null;
@@ -95,7 +98,13 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
   const warn = vi.fn();
   const service = createDailyEmailService({
     repo,
-    people: { list: async () => people, find: async (id) => people.find((p) => p.id === id) ?? null },
+    people: {
+      list: async () => {
+        if (listFails) throw new Error('The database is not answering');
+        return people;
+      },
+      find: async (id) => people.find((p) => p.id === id) ?? null,
+    },
     tasks: { pending, completedBetween },
     send: async (to: string, content: EmailContent, template: string) => {
       if (held) {
@@ -124,6 +133,8 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
     setNow: (iso: string) => { now = at(iso); },
     setFailures: (n: number) => { failures = n; },
     failFinishes,
+    failClaimsFor,
+    failList: () => { listFails = true; },
     /** Holds the next send until `release` (then it goes, or fails with `fail`). */
     holdNextSend: () => {
       let release!: () => void;
@@ -140,6 +151,9 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
 
 /** Lets pending promise callbacks run (a held send starts waiting). */
 const settle = () => new Promise((r) => setTimeout(r, 0));
+
+/** "Send today's emails now", run to the end: its counts. */
+const sendNowAll = async (s: ReturnType<typeof setup>) => (await s.service.startSendNow().finished).counts;
 
 describe('daily task emails: the morning sweep', () => {
   it('sends both emails at 06:00 in the person’s time zone, not before', async () => {
@@ -410,7 +424,7 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
     const late = { muted: [], dailyEmails: { pending: true, completed: true, time: '08:00' } };
     const s = setup({ people: [person('ada'), person('bo', { prefs: onlyPending }), person('cy', { prefs: bothOff }), person('dee', { email: null }), person('hal', { prefs: late })] });
     s.setNow('2026-10-21T03:00:00Z'); // 07:00 in Muscat: Ada’s and Bo’s 06:00 emails haven’t gone (the server was asleep)
-    expect(await s.service.sendNow()).toMatchObject({ sent: 3, skipped: 0, failed: 0, retrying: 0, alreadyDone: 0, off: 3, notYet: 2 });
+    expect(await sendNowAll(s)).toMatchObject({ sent: 3, skipped: 0, failed: 0, retrying: 0, alreadyDone: 0, off: 3, notYet: 2 });
     expect(s.sent.map((m) => `${m.to} ${m.template}`)).toEqual([
       'ada@mico360.test daily-pending',
       'ada@mico360.test daily-completed',
@@ -431,7 +445,7 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
   it('never ahead of a person’s time: late in the company’s evening, people further east don’t get the next day’s emails in their night', async () => {
     const s = setup({ people: [person('ada'), person('kai', { timeZone: 'Asia/Tokyo' })] });
     s.setNow('2026-10-20T19:00:00Z'); // 23:00 on 20 Oct in Muscat; 04:00 on 21 Oct in Tokyo
-    expect(await s.service.sendNow()).toMatchObject({ sent: 2, notYet: 2 });
+    expect(await sendNowAll(s)).toMatchObject({ sent: 2, notYet: 2 });
     expect(s.rows.map((r) => [r.userId, r.day])).toEqual([['ada', '2026-10-20'], ['ada', '2026-10-20']]);
     expect(s.sent.every((m) => m.to === 'ada@mico360.test')).toBe(true);
   });
@@ -446,7 +460,8 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
       record({ id: 'c1', userId: 'cy', kind: 'PENDING', status: 'SENDING', updatedAt: at('2026-10-21T02:29:00Z') }),
     );
     s.setNow('2026-10-21T02:30:00Z');
-    expect(await s.service.sendNow()).toEqual({ sent: 2, skipped: 0, failed: 0, retrying: 0, alreadyDone: 3, off: 1, notYet: 0 });
+    // Cy’s is being sent by the sweep right now: not “already done”.
+    expect(await sendNowAll(s)).toEqual({ sent: 2, skipped: 0, blocked: 0, failed: 0, retrying: 0, alreadyDone: 2, sending: 1, off: 1, notYet: 0, errors: 0 });
     expect(s.sent.map((m) => m.to)).toEqual(['bo@mico360.test', 'bo@mico360.test']);
     expect(s.rows).toHaveLength(5); // the same records, never a second one
     expect(s.rows.find((r) => r.id === 'b1')).toMatchObject({ status: 'SENT', attempts: 5, lastError: null });
@@ -456,7 +471,7 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
 
   it('skips an email with nothing in it, and a send that fails goes on to the usual retries', async () => {
     const s = setup({ completed: [], failures: 1 });
-    expect(await s.service.sendNow()).toEqual({ sent: 0, skipped: 1, failed: 1, retrying: 1, alreadyDone: 0, off: 0, notYet: 0 });
+    expect(await sendNowAll(s)).toEqual({ sent: 0, skipped: 1, blocked: 0, failed: 1, retrying: 1, alreadyDone: 0, sending: 0, off: 0, notYet: 0, errors: 0 });
     expect(s.rows.find((r) => r.kind === 'PENDING')).toMatchObject({ status: 'RETRY', lastError: 'HTTP 503' });
     expect(s.rows.find((r) => r.kind === 'PENDING')!.nextAttemptAt!.toISOString()).toBe('2026-10-21T02:05:00.000Z');
     s.setNow('2026-10-21T02:05:00Z');
@@ -467,8 +482,61 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
   it('uses each person’s own calendar day', async () => {
     const s = setup({ people: [person('eve', { timeZone: 'America/New_York' })] });
     s.setNow('2026-10-21T02:30:00Z'); // 22:30 on 20 Oct in New York
-    await s.service.sendNow();
+    await sendNowAll(s);
     expect(s.rows.map((r) => r.day)).toEqual(['2026-10-20', '2026-10-20']);
+  });
+
+  it('starts at once and sends in the background; how far it has got is in the overview', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending }), person('bo', { prefs: onlyPending })] });
+    const slow = s.holdNextSend();
+    const start = s.service.startSendNow();
+    expect(start.started).toBe(true);
+    expect(start.run).toMatchObject({ running: true, startedAt: at('2026-10-21T02:00:00Z'), finishedAt: null, done: 0, error: null });
+    await settle();
+    expect((await s.service.overview()).run).toMatchObject({ running: true, total: 2, done: 0 });
+    slow.release();
+    const run = await start.finished;
+    expect(run).toMatchObject({ running: false, total: 2, done: 2, finishedAt: at('2026-10-21T02:00:00Z'), error: null, counts: { sent: 2 } });
+    expect((await s.service.overview()).run).toMatchObject({ running: false, done: 2, counts: { sent: 2 } });
+  });
+
+  it('one run at a time: pressing again while it runs starts nothing new', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })] });
+    const slow = s.holdNextSend();
+    const first = s.service.startSendNow();
+    await settle();
+    const again = s.service.startSendNow();
+    expect(again.started).toBe(false);
+    expect(again.run.startedAt).toEqual(first.run.startedAt);
+    slow.release();
+    await first.finished;
+    expect(s.sent).toHaveLength(1);
+    expect(s.service.startSendNow().started).toBe(true); // once it has finished, a new one can start
+  });
+
+  it('a problem with one person’s emails doesn’t stop the rest; the end says how it went', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending }), person('bo', { prefs: onlyPending }), person('cy', { prefs: onlyPending })] });
+    s.failClaimsFor.add('bo');
+    const finished = vi.fn();
+    const run = await s.service.startSendNow({ onFinish: finished }).finished;
+    expect(s.sent.map((m) => m.to)).toEqual(['ada@mico360.test', 'cy@mico360.test']);
+    expect(run).toMatchObject({ running: false, total: 3, done: 3, error: null, counts: { sent: 2, errors: 1 } });
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(finished).toHaveBeenCalledWith(expect.objectContaining({ running: false, counts: expect.objectContaining({ sent: 2, errors: 1 }) }));
+  });
+
+  it('when the list of people can’t be read, it ends at once and says why', async () => {
+    const s = setup();
+    s.failList();
+    const finished = vi.fn();
+    const run = await s.service.startSendNow({ onFinish: finished }).finished;
+    expect(run).toMatchObject({ running: false, total: null, done: 0, error: 'The database is not answering', counts: { sent: 0 } });
+    expect(finished).toHaveBeenCalledTimes(1);
+  });
+
+  it('a blocked address is counted as blocked, not as sent', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })], blocked: ['ada@mico360.test'] });
+    expect(await sendNowAll(s)).toMatchObject({ sent: 0, blocked: 1 });
   });
 });
 

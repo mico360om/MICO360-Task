@@ -4,7 +4,7 @@ import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import { createMemoryIdempotencyStore } from '../../lib/idempotency';
 import type { DailyEmailLogRow } from './daily-email-repository';
-import type { DailyEmailOverview, ManualSendResult } from './daily-email-service';
+import type { DailyEmailOverview, ManualSendResult, SendNowCounts, SendNowRun } from './daily-email-service';
 
 const tokenService = createTokenService({ accessSecret: 'd-a', refreshSecret: 'd-r', accessTtl: 900, refreshTtl: 1000, refreshStore: { async save() {}, async findValid() { return null; }, async revoke() {}, async revokeAllForUser() {} } });
 const authService = createAuthService({
@@ -24,6 +24,7 @@ const overviewOf = (day: string | null): DailyEmailOverview => ({
   lastCheckedAt: new Date('2026-10-21T05:41:00Z'),
   checkLate: false,
   nextSendAt: new Date('2026-10-22T02:00:00Z'),
+  run: null,
   summary: { people: 1, sent: 1, skipped: 1, failed: 0, retrying: 0, sending: 0, late: 0, upcoming: 0, toSend: 0 },
   people: [{
     userId: 'u1', name: 'Ada Lovelace', email: 'ada@mico360.test', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '07:00', day: day ?? '2026-10-21', today: '2026-10-21', due: true, account: 'active',
@@ -36,7 +37,26 @@ async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}
   const sendTest = vi.fn(async () => ({ pending: 'sent' as const, completed: 'empty' as const }));
   const list = vi.fn(async () => [logRow]);
   const overview = vi.fn(async (day?: string) => overviewOf(day ?? null));
-  const sendNow = vi.fn(async () => ({ sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3, notYet: 0 }));
+  // "Send today's emails now" in the background: each run goes on until the test ends it (`finish`).
+  const runs: Array<{ finish: (counts?: Partial<SendNowCounts>) => Promise<void> }> = [];
+  let running: SendNowRun | null = null;
+  const startSendNow = vi.fn((o: { onFinish?: (run: SendNowRun) => void | Promise<void> } = {}) => {
+    if (running) return { started: false, run: running, finished: Promise.resolve(running) };
+    const counts: SendNowCounts = { sent: 0, skipped: 0, blocked: 0, failed: 0, retrying: 0, alreadyDone: 0, sending: 0, off: 0, notYet: 0, errors: 0 };
+    const run: SendNowRun = { running: true, startedAt: new Date('2026-10-21T06:00:00Z'), finishedAt: null, total: 120, done: 34, counts, error: null };
+    running = run;
+    let resolve!: (r: SendNowRun) => void;
+    const finished = new Promise<SendNowRun>((r) => { resolve = r; });
+    runs.push({
+      finish: async (more = {}) => {
+        const done: SendNowRun = { ...run, running: false, finishedAt: new Date('2026-10-21T06:02:00Z'), done: 120, counts: { ...counts, ...more } };
+        running = null;
+        await o.onFinish?.(done);
+        resolve(done);
+      },
+    });
+    return { started: true, run, finished };
+  });
   const sendFor = vi.fn(async (userId: string, o: { kind?: 'PENDING' | 'COMPLETED'; resend?: boolean; early?: boolean } = {}) => {
     if (userId === 'nobody') return null;
     const off: string[] = userId === 'quiet' ? ['PENDING', 'COMPLETED'] : userId === 'half' || userId === 'other-half' ? ['COMPLETED'] : [];
@@ -65,9 +85,9 @@ async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}
     tokenService,
     auditService,
     ...(opts.idempotent ? { idempotencyStore: createMemoryIdempotencyStore() } : {}),
-    dailyEmails: { service: { sendTest, overview, sendNow, sendFor, preview }, log: { list }, isConfigured: () => opts.configured ?? true },
+    dailyEmails: { service: { sendTest, overview, startSendNow, sendFor, preview }, log: { list }, isConfigured: () => opts.configured ?? true },
   });
-  return { app, sendTest, list, overview, sendNow, sendFor, preview, audited };
+  return { app, sendTest, list, overview, startSendNow, runs, sendFor, preview, audited };
 }
 
 describe('Daily task emails: "Send me a test now"', () => {
@@ -158,48 +178,70 @@ describe('Daily task emails: "Send today’s emails now"', () => {
   const url = '/api/v1/admin/daily-emails/send-now';
 
   it('is for admins only', async () => {
-    const { app, sendNow } = await makeApp();
+    const { app, startSendNow } = await makeApp();
+    expect((await app.inject({ method: 'POST', url })).statusCode).toBe(401);
     expect((await app.inject({ method: 'POST', url, headers: await auth('u1') })).statusCode).toBe(403);
-    expect(sendNow).not.toHaveBeenCalled();
+    expect(startSendNow).not.toHaveBeenCalled();
   });
 
-  it('sends and says how it went, and is recorded in the audit log', async () => {
-    const { app, audited } = await makeApp();
+  it('answers at once (202) and sends in the background; the audit entry is written when it ends, with how it went', async () => {
+    const { app, runs, audited } = await makeApp();
     const res = await app.inject({ method: 'POST', url, headers: await admin() });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().data).toEqual({ sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3, notYet: 0 });
+    expect(res.statusCode).toBe(202);
+    expect(res.json().data).toMatchObject({ running: true, total: 120, done: 34, startedAt: '2026-10-21T06:00:00.000Z' });
+    expect(audited).toEqual([]); // still sending
+    await runs[0]!.finish({ sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3 });
     expect(audited).toEqual([
-      { action: 'daily_email.send_now', module: 'daily-emails', entityId: null, userId: 'a1', newValue: { sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3, notYet: 0 } },
+      {
+        action: 'daily_email.send_now', module: 'daily-emails', entityId: null, userId: 'a1',
+        newValue: {
+          total: 120, done: 120, error: null, startedAt: new Date('2026-10-21T06:00:00Z'), finishedAt: new Date('2026-10-21T06:02:00Z'),
+          counts: { sent: 9, skipped: 2, blocked: 0, failed: 1, retrying: 1, alreadyDone: 4, sending: 0, off: 3, notYet: 0, errors: 0 },
+        },
+      },
     ]);
   });
 
+  it('pressing again while it runs starts nothing new, and says how far it has got', async () => {
+    const { app, startSendNow, runs } = await makeApp();
+    expect((await app.inject({ method: 'POST', url, headers: await admin('a1') })).statusCode).toBe(202);
+    const again = await app.inject({ method: 'POST', url, headers: await admin('a2') });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toEqual({ code: 'ALREADY_SENDING', message: 'Today’s emails are being sent now (34 of 120 people done). Check the list in a minute.' });
+    await runs[0]!.finish();
+    expect((await app.inject({ method: 'POST', url, headers: await admin('a2') })).statusCode).toBe(202); // that press left no gap
+    expect(startSendNow).toHaveBeenCalledTimes(3);
+    expect(runs).toHaveLength(2);
+  });
+
   it('one press a minute per administrator', async () => {
-    const { app, sendNow } = await makeApp();
-    expect((await app.inject({ method: 'POST', url, headers: await admin('a1') })).statusCode).toBe(200);
+    const { app, runs } = await makeApp();
+    expect((await app.inject({ method: 'POST', url, headers: await admin('a1') })).statusCode).toBe(202);
+    await runs[0]!.finish();
     const again = await app.inject({ method: 'POST', url, headers: await admin('a1') });
     expect(again.statusCode).toBe(429);
     expect(again.json().error.message).toBe('Today’s emails were just sent. Wait a minute before sending them again.');
-    expect((await app.inject({ method: 'POST', url, headers: await admin('a2') })).statusCode).toBe(200);
-    expect(sendNow).toHaveBeenCalledTimes(2);
+    expect((await app.inject({ method: 'POST', url, headers: await admin('a2') })).statusCode).toBe(202);
   });
 
   it('says plainly when email isn’t set up, and sends nothing', async () => {
-    const { app, sendNow } = await makeApp({ configured: false });
+    const { app, startSendNow } = await makeApp({ configured: false });
     const res = await app.inject({ method: 'POST', url, headers: await admin() });
     expect(res.statusCode).toBe(503);
     expect(res.json().error.message).toMatch(/isn’t set up/);
-    expect(sendNow).not.toHaveBeenCalled();
+    expect(startSendNow).not.toHaveBeenCalled();
   });
 
-  it('a retried request (the same Idempotency-Key) gets the first answer and sends nothing more', async () => {
-    const { app, sendNow } = await makeApp({ idempotent: true });
+  it('a retried request (the same Idempotency-Key) gets the first answer and starts nothing more', async () => {
+    const { app, startSendNow, runs } = await makeApp({ idempotent: true });
     const headers = { ...(await admin()), 'idempotency-key': 'send-now-1' };
     const first = await app.inject({ method: 'POST', url, headers });
+    await runs[0]!.finish();
     const replay = await app.inject({ method: 'POST', url, headers });
-    expect(replay.statusCode).toBe(200);
+    expect(replay.statusCode).toBe(202);
     expect(replay.headers['idempotent-replay']).toBe('true');
     expect(replay.json()).toEqual(first.json());
-    expect(sendNow).toHaveBeenCalledTimes(1);
+    expect(startSendNow).toHaveBeenCalledTimes(1);
   });
 });
 

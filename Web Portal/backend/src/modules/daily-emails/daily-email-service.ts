@@ -98,6 +98,8 @@ export interface DailyEmailOverview {
   checkLate: boolean;
   /** The next time any person's email is due (it may have passed: due now). */
   nextSendAt: Date | null;
+  /** The latest "Send today's emails now" on this server: running (how far it has got) or finished; null: none since it started. */
+  run: SendNowRun | null;
   summary: {
     /** People who get at least one email (an address, at least one turned on). */
     people: number;
@@ -131,6 +133,58 @@ export interface ManualSendResult {
   error: string | null;
   /** When it went: now (sent), or the earlier send (already-sent, or a resend that failed). */
   sentAt: Date | null;
+}
+
+/** How "Send today's emails now" went, in emails. */
+export interface SendNowCounts {
+  sent: number;
+  /** Nothing in them. */
+  skipped: number;
+  /** The address is blocked after a bounce or spam complaint. */
+  blocked: number;
+  /** Couldn't be sent (including those that will be tried again). */
+  failed: number;
+  /** Of those not sent, how many will be tried again. */
+  retrying: number;
+  /** Already sent (or skipped) today. */
+  alreadyDone: number;
+  /** Being sent at that moment by the server's own check. */
+  sending: number;
+  /** Turned off. */
+  off: number;
+  /** The person's time today hasn't come: theirs go at their time. */
+  notYet: number;
+  /** Ran into a problem on the server (the database didn't answer); the server tries them again later. */
+  errors: number;
+}
+
+/** One "Send today's emails now", running or finished. */
+export interface SendNowRun {
+  running: boolean;
+  startedAt: Date;
+  finishedAt: Date | null;
+  /** People with emails to send (their time has come, something not gone yet); null until the list is read. */
+  total: number | null;
+  /** Of those, how many are done so far. */
+  done: number;
+  counts: SendNowCounts;
+  /** Why it stopped before the end (the list of people couldn't be read), else null. */
+  error: string | null;
+}
+
+const emptyCounts = (): SendNowCounts => ({ sent: 0, skipped: 0, blocked: 0, failed: 0, retrying: 0, alreadyDone: 0, sending: 0, off: 0, notYet: 0, errors: 0 });
+function countOutcome(c: SendNowCounts, outcome: ManualSendOutcome): void {
+  if (outcome === 'sent') c.sent++;
+  else if (outcome === 'empty') c.skipped++;
+  else if (outcome === 'blocked') c.blocked++;
+  else if (outcome === 'retry') {
+    c.failed++;
+    c.retrying++;
+  } else if (outcome === 'failed') c.failed++;
+  else if (outcome === 'busy') c.sending++;
+  else if (outcome === 'off') c.off++;
+  else if (outcome === 'not-yet') c.notYet++;
+  else c.alreadyDone++;
 }
 
 /** A failed send is tried again after 5, 15 and 45 minutes; the fourth failure is final. */
@@ -409,40 +463,76 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     return result(done.blocked ? 'blocked' : OUTCOME[done.status], done.error, done.sentAt);
   }
 
+  /** The latest "Send today's emails now" on this server (one runs at a time), for the overview. */
+  let latestRun: SendNowRun | null = null;
+  const snapshot = (run: SendNowRun): SendNowRun => ({ ...run, counts: { ...run.counts } });
+
   /**
-   * "Send today's emails now": everyone's emails for their today whose time has come, at once — each
-   * one turned on that hasn't gone yet (none, failed or waiting for a retry). Never ahead of a person's
-   * time (late in the company's evening it would be the next day's in their night): theirs go at their
-   * time. Ones already sent, or skipped because they had nothing in them, are left as they are.
+   * "Send today's emails now": everyone's emails for their today whose time has come — each one turned
+   * on that hasn't gone yet (none, failed or waiting for a retry). Never ahead of a person's time (late
+   * in the company's evening it would be the next day's in their night): theirs go at their time. Ones
+   * already sent, or skipped because they had nothing in them, are left as they are.
+   *
+   * It starts at once and runs in the background (one at a time on this server: pressing again while it
+   * runs starts nothing new); how far it has got is in the overview. A problem with one email is noted
+   * and the rest go on. `onFinish` is called once at the end, with the counts so far.
    */
-  async function sendNow(): Promise<{ sent: number; skipped: number; failed: number; retrying: number; alreadyDone: number; off: number; notYet: number }> {
-    const tally = { sent: 0, skipped: 0, failed: 0, retrying: 0, alreadyDone: 0, off: 0, notYet: 0 };
-    const at = now();
-    for (const person of await deps.people.list()) {
-      if (!person.email) continue;
-      const { prefs, today, due } = timing(person, at);
-      for (const kind of KINDS) {
-        if (!isOn(prefs, kind)) {
-          tally.off++;
-          continue;
-        }
-        // Never ahead of their time: theirs go at their time, by the sweep.
-        if (!due) {
-          tally.notYet++;
-          continue;
-        }
-        const { outcome } = await sendOne(person, today, kind, { resend: false, retrySkipped: false });
-        if (outcome === 'sent') tally.sent++;
-        else if (outcome === 'empty' || outcome === 'blocked') tally.skipped++;
-        else if (outcome === 'retry') {
-          tally.failed++;
-          tally.retrying++;
-        } else if (outcome === 'failed') tally.failed++;
-        else if (outcome === 'off') tally.off++;
-        else tally.alreadyDone++;
+  function startSendNow(opts: { onFinish?: (run: SendNowRun) => void | Promise<void> } = {}): { started: boolean; run: SendNowRun; finished: Promise<SendNowRun> } {
+    if (latestRun?.running) return { started: false, run: snapshot(latestRun), finished: Promise.resolve(snapshot(latestRun)) };
+    const run: SendNowRun = { running: true, startedAt: now(), finishedAt: null, total: null, done: 0, counts: emptyCounts(), error: null };
+    latestRun = run;
+    const finished = (async () => {
+      try {
+        await sendEveryone(run);
+      } catch (err) {
+        run.error = messageOf(err);
+        deps.logger?.warn('"Send today’s emails now" stopped early', { error: run.error });
+      } finally {
+        run.finishedAt = now();
+        run.running = false;
       }
+      try {
+        await opts.onFinish?.(snapshot(run));
+      } catch {
+        /* the emails stand */
+      }
+      return snapshot(run);
+    })();
+    return { started: true, run: snapshot(run), finished };
+  }
+
+  async function sendEveryone(run: SendNowRun): Promise<void> {
+    const at = run.startedAt;
+    const c = run.counts;
+    const plans = (await deps.people.list()).filter((p) => p.email).map((person) => ({ person, ...timing(person, at) }));
+    const rows = new Map((await deps.repo.forDays([...new Set(plans.map((p) => p.today))])).map((r) => [`${r.userId}|${r.day}|${r.kind}`, r] as const));
+    const todo: Array<{ person: DailyRecipient; today: string; kinds: DailyEmailKind[] }> = [];
+    for (const { person, prefs, today, due } of plans) {
+      const kinds: DailyEmailKind[] = [];
+      for (const kind of KINDS) {
+        const row = rows.get(`${person.id}|${today}|${kind}`);
+        if (!isOn(prefs, kind)) c.off++;
+        else if (!due) c.notYet++; // theirs go at their time, by the sweep
+        else if (!row || row.status === 'FAILED' || row.status === 'RETRY') kinds.push(kind);
+        else if (row.status === 'SENDING') c.sending++; // the sweep is sending it right now
+        else c.alreadyDone++;
+      }
+      if (kinds.length) todo.push({ person, today, kinds });
     }
-    return tally;
+    run.total = todo.length;
+    for (const { person, today, kinds } of todo) {
+      for (const kind of kinds) {
+        try {
+          const { outcome } = await sendOne(person, today, kind, { resend: false, retrySkipped: false });
+          countOutcome(c, outcome);
+        } catch (err) {
+          // One email's problem (the database didn't answer): noted; the sweep picks it up later.
+          c.errors++;
+          deps.logger?.warn('"Send today’s emails now": one email ran into a problem', { userId: person.id, kind, error: messageOf(err) });
+        }
+      }
+      run.done++;
+    }
   }
 
   /**
@@ -611,10 +701,10 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     out.sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
     const checked = await lastCheckedAt();
     const checkLate = deps.isConfigured() && dueNotSent && (!checked || at.getTime() - checked.getTime() > CHECK_LATE_MS);
-    return { day: day ?? null, lastCheckedAt: checked, checkLate, nextSendAt, summary, people: out };
+    return { day: day ?? null, lastCheckedAt: checked, checkLate, nextSendAt, run: latestRun ? snapshot(latestRun) : null, summary, people: out };
   }
 
-  return { runSweep, sendTest, sendNow, sendFor, preview, overview, lastCheckedAt };
+  return { runSweep, sendTest, startSendNow, sendFor, preview, overview, lastCheckedAt };
 }
 
 export type DailyEmailService = ReturnType<typeof createDailyEmailService>;
