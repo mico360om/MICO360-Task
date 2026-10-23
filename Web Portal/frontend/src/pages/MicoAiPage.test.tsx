@@ -188,9 +188,13 @@ describe('MICO AI page', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     expect(box()).toHaveValue('');
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/mico-ai?chat=c1'));
+    // The new chat takes its name from the question at once.
+    expect(await screen.findByRole('heading', { level: 2, name: /^Which tasks are overdue/ })).toBeInTheDocument();
 
     next = tableAnswer;
     const table = await screen.findByRole('table', { name: 'Overdue tasks' });
+    // A wide table scrolls sideways in its own box, which the keyboard can reach.
+    expect(screen.getByRole('region', { name: 'Overdue tasks' })).toHaveAttribute('tabindex', '0');
     expect(within(table).getAllByRole('row').map((r) => r.textContent)).toEqual(['TaskTitleDueOverdue', 'RIG-14Pressure test reportMon 19 Oct5 days', 'RIG-9Valve inventory updateTue 20 Oct4 days']);
     expect(screen.getByText('2 tasks', { selector: 'strong' })).toBeInTheDocument();
     const sources = screen.getByRole('list', { name: 'Sources' });
@@ -314,6 +318,14 @@ describe('MICO AI page', () => {
   it('a question from Ctrl+K (“Ask MICO AI”) starts a new chat with it', async () => {
     renderPage({ pathname: '/mico-ai', state: { ask: 'Who has the most overdue tasks?' } });
     await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'Who has the most overdue tasks?' }));
+  });
+
+  it('a question from Ctrl+K asked while a chat is open still starts a new chat', async () => {
+    chats = [{ id: 'c9', title: 'Old chat', lastMessageAt: now, messages: [] }];
+    renderPage({ pathname: '/mico-ai', search: '?chat=c9', state: { ask: 'Who has the most overdue tasks?' } } as never);
+    await waitFor(() => expect(posted('/messages')).toHaveLength(1));
+    expect(posted('/messages')[0]!.url).not.toContain('/c9/');
+    expect(posted('/mico-ai/chats')).toHaveLength(1);
   });
 
   it('on a phone the chats open from ☰', async () => {

@@ -143,6 +143,19 @@ describe('MICO AI tool loop', () => {
     expect(out.sources.map((s) => s.label)).toEqual(['RIG-14', 'RIG-9']);
   });
 
+  it('a table of people adds no source chips by itself (a person has no page to open)', async () => {
+    const people = {
+      ...overdue,
+      tool: 'report_figures',
+      columns: [{ key: 'person', label: 'Person' }, { key: 'assigned', label: 'Assigned', kind: 'number' as const }],
+      rows: [{ ref: { type: 'person' as const, id: 'u1', label: 'Omar Said', url: null }, values: { person: 'Omar Said', assigned: 3 } }],
+    };
+    const { d } = deps([{ action: 'tool', name: 'search_tasks', args: {} }, answer({ tables: [{ fromResult: 'r1' }] })], { search_tasks: () => people });
+    const out = await runTurn(d, input('workload?'));
+    expect(out.tables[0]!.rows).toHaveLength(1);
+    expect(out.sources).toEqual([]);
+  });
+
   it('asks a clarifying question with quick replies', async () => {
     const { d } = deps([{ action: 'clarify', question: 'Which team and period do you mean?', options: ['Rig Inspection · this week', 'All my projects · this week', 42, ''] }]);
     const out = await runTurn(d, input('Make a workload report for my team.'));

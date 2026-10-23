@@ -17,6 +17,7 @@ import { ChatList } from '../components/mico-ai/ChatList';
 import { MessageView } from '../components/mico-ai/MessageView';
 import { MicoAiMark } from '../components/mico-ai/AnswerParts';
 import { CloseIcon, EditIcon, PlusIcon } from '../components/chat/icons';
+import { useMediaQuery } from '../components/calendar/calendar-ui';
 
 const api = micoAiApi(apiClient);
 const SCOPE = ['Tasks', 'Meetings', 'Reports', 'Chat'];
@@ -103,7 +104,19 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const navigate = useNavigate();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
-  const chatId = params.get('chat');
+  // The open chat, kept here as well as in the address (?chat=): React Router changes the address
+  // in a transition, and until it lands the page must not still act on the chat it is leaving (a
+  // quick question after New chat would be ignored, or asked in the old chat).
+  const urlChat = params.get('chat');
+  const [chatId, setChatId] = useState<string | null>(urlChat);
+  useEffect(() => setChatId(urlChat), [urlChat]);
+  const goTo = useCallback(
+    (id: string | null) => {
+      setChatId(id);
+      setParams(id ? { chat: id } : {});
+    },
+    [setParams],
+  );
   const myId = useAuthStore((s) => s.user?.id);
   const { timeZone } = useDateSettings();
 
@@ -121,6 +134,15 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const scroller = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const frameOffset = useFrameOffset(frameRef);
+  const wide = useMediaQuery('(min-width: 40em)');
+
+  // The box grows with what is typed (up to 200px) and shrinks back once it is sent.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    if (draft) el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [draft]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), searchDebounceMs);
@@ -136,7 +158,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const ready = statusQ.data?.ready ?? true;
   const chats = Array.isArray(listQ.data) ? listQ.data : [];
   const messages = chatQ.data?.messages ?? [];
-  const chat = chatQ.data?.chat ?? chats.find((c) => c.id === chatId) ?? null;
+  // The list is reloaded after every question, so its entry has the name the first question gave the chat.
+  const chat = chats.find((c) => c.id === chatId) ?? chatQ.data?.chat ?? null;
   const pending = messages.find((m) => m.role === 'assistant' && m.status === 'pending') ?? null;
   const firstName = (Array.isArray(dirQ.data) ? dirQ.data : []).find((u) => u.id === myId)?.firstName?.trim();
   const projectName = useMemo(() => {
@@ -179,17 +202,17 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const openChat = (id: string | null) => {
     setDrawer(false);
     setError(null);
-    setParams(id ? { chat: id } : {}, { replace: false });
+    goTo(id);
   };
 
   const send = useCallback(
-    async (raw: string) => {
+    async (raw: string, opts: { newChat?: boolean } = {}) => {
       const text = raw.trim().slice(0, MAX_QUESTION);
       if (!text || sending) return;
       setSending(true);
       setError(null);
       setDraft('');
-      let id = chatId;
+      let id = opts.newChat ? null : chatId;
       let created = false;
       try {
         if (!id) {
@@ -197,7 +220,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
           id = c.id;
           created = true;
           qc.setQueryData(micoAiChatKey(id), { chat: c, messages: [] });
-          setParams({ chat: id });
+          goTo(id);
         }
         const r = await api.ask(id, text);
         await qc.cancelQueries({ queryKey: micoAiChatKey(id) });
@@ -206,6 +229,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
           messages: [...(old?.messages ?? []).filter((m) => m.id !== r.question.id && m.id !== r.answer.id), r.question, r.answer],
         }));
         refreshList();
+        void qc.invalidateQueries({ queryKey: micoAiChatKey(id) });
       } catch (err) {
         setError(errorText(err));
         setDraft(text);
@@ -213,7 +237,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
         if (created && id) {
           await api.remove(id).catch(() => {});
           qc.removeQueries({ queryKey: micoAiChatKey(id) });
-          setParams({});
+          goTo(null);
         }
         refreshList();
       } finally {
@@ -221,7 +245,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
         box.current?.focus();
       }
     },
-    [chatId, sending, qc, setParams, refreshList, chats],
+    [chatId, sending, qc, goTo, refreshList, chats],
   );
 
   // "Ask MICO AI" from Ctrl+K arrives as the page's state: a new chat with that question, asked once.
@@ -231,7 +255,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     if (asked.current || typeof ask !== 'string' || !ask.trim()) return;
     asked.current = true;
     navigate({ pathname: location.pathname, search: '' }, { replace: true, state: null });
-    void send(ask);
+    void send(ask, { newChat: true });
   }, [location.state, location.pathname, navigate, send]);
 
   const stop = async () => {
@@ -262,7 +286,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     try {
       await api.remove(deleting.id);
       qc.removeQueries({ queryKey: micoAiChatKey(deleting.id) });
-      if (deleting.id === chatId) setParams({});
+      if (deleting.id === chatId) goTo(null);
       setDeleting(null);
       refreshList();
     } catch (err) {
@@ -392,16 +416,11 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
                   rows={1}
                   dir="auto"
                   aria-label="Ask MICO AI"
-                  placeholder={ready ? 'Ask about tasks, projects, meetings or reports…' : 'MICO AI isn’t set up yet'}
+                  placeholder={!ready ? 'MICO AI isn’t set up yet' : wide ? 'Ask about tasks, projects, meetings or reports…' : 'Ask MICO AI…'}
                   disabled={!ready}
                   maxLength={MAX_QUESTION}
                   value={draft}
-                  onChange={(e) => {
-                    setDraft(e.target.value);
-                    const el = e.currentTarget;
-                    el.style.height = 'auto';
-                    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-                  }}
+                  onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                       e.preventDefault();

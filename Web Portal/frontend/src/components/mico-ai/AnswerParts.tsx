@@ -61,7 +61,8 @@ export function AnswerTable({ table }: { table: MicoAiTable }) {
   const rows = all ? table.rows : table.rows.slice(0, FIRST_ROWS);
   return (
     <div className="min-w-0">
-      <div className="max-w-full overflow-x-auto rounded-xl border border-line">
+      {/* Scrolls sideways when it is wider than the answer: a region the keyboard can reach and scroll. */}
+      <div role="region" aria-label={table.title} tabIndex={0} className="max-w-full overflow-x-auto rounded-xl border border-line outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
         <table className="w-full border-collapse text-sm">
           <caption className="border-b border-line bg-ground/60 px-3 py-1.5 text-start text-xs font-semibold text-ink-2">{table.title}</caption>
           <thead>

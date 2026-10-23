@@ -248,8 +248,9 @@ function buildAnswer(action: Extract<Action, { action: 'answer' }>, pool: Stored
     if (ref && sources.size < MAX_SOURCES) sources.set(key, ref);
   }
   if (sources.size === 0) {
+    // Only records that open somewhere: a person in a workload table has no page to link to.
     for (const row of tables.flatMap((t) => t.rows)) {
-      if (row.ref && sources.size < TABLE_SOURCES) sources.set(refKey(row.ref), row.ref);
+      if (row.ref?.url && sources.size < TABLE_SOURCES) sources.set(refKey(row.ref), row.ref);
     }
   }
   return {
