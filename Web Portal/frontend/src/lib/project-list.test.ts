@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { ProjectOverview } from '../api/projects';
+import type { ProjectOverview, ProjectStats } from '../api/projects';
 import {
   countLine,
   filterProjects,
@@ -23,7 +23,7 @@ const TODAY = '2026-10-23'; // a Friday
 const TZ = 'Asia/Muscat';
 
 let seq = 0;
-function project(extra: Partial<ProjectOverview> & { stats?: Partial<ProjectOverview['stats']> } = {}): ProjectOverview {
+function project(extra: Partial<Omit<ProjectOverview, 'stats'>> & { stats?: Partial<ProjectStats> } = {}): ProjectOverview {
   const { stats, ...rest } = extra;
   seq += 1;
   return {
