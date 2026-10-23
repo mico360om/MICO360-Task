@@ -101,13 +101,13 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
       <span className="absolute inset-y-0 left-0 w-1" style={{ background: task.accentColor ?? 'transparent' }} aria-hidden="true" />
 
       {task.project ? (
-        <span data-testid="card-project" className={`flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-ink-2 ${menuSpace ? 'pr-7' : ''}`}>
+        <span data-testid="card-project" className={`flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-ink-2 ${menuSpace ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
           <ProjectAvatar project={task.project} size="xs" />
           <span dir="auto" className="truncate">{task.project.name}</span>
         </span>
       ) : null}
 
-      <div className={`flex items-center justify-between gap-2 ${menuSpace && !task.project ? 'pr-7' : ''}`}>
+      <div className={`flex items-center justify-between gap-2 ${menuSpace && !task.project ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
         <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (

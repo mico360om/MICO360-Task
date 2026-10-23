@@ -255,17 +255,41 @@ describe('Board cards: moving a task to another project', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'MICO-1: Prepare report' })).not.toBeInTheDocument());
   });
 
-  it('for someone who can’t move it, the item says why', async () => {
+  it('for someone who can’t move the task, the card has no ⋯ menu at all', async () => {
     useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
     withMoves({ managesAll: false, managed: ['p2'] });
     renderPage();
     await screen.findByRole('button', { name: 'MICO-1: Prepare report' });
+    // Once it is known where they may move tasks (to Operations, but not out of this project).
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/tasks/move-targets')) || vi.mocked(fetch).mock.calls.some((c) => String(c[0]).endsWith('/tasks/move-targets'))).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole('button', { name: 'More actions for MICO-1' })).not.toBeInTheDocument();
+  });
+
+  it('after a move, focus goes to the next card in its column (not lost on the page)', async () => {
+    withMoves();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let moved = false;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.endsWith('/tasks/t1/move-to-project')) moved = true;
+      if (u.includes('/tasks?')) {
+        const t = (id: string, key: string, title: string) => ({ id, key, title, description: null, projectId: 'p1', columnId: 'c-p1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' });
+        return json({ data: moved ? [t('t2', 'MICO-2', 'Check figures')] : [t('t1', 'MICO-1', 'Prepare report'), t('t2', 'MICO-2', 'Check figures')] });
+      }
+      return base(url, init);
+    });
+    renderPage();
+    await screen.findByRole('button', { name: 'MICO-1: Prepare report' });
     await userEvent.click(screen.getByRole('button', { name: 'More actions for MICO-1' }));
-    const item = await screen.findByRole('menuitem', { name: /Move to another project…/ });
-    await waitFor(() => expect(item).toHaveTextContent('To move it, you need to manage both MICO360 Platform and the project it goes to.'));
-    expect(item).toHaveAttribute('aria-disabled', 'true');
-    await userEvent.click(item);
-    expect(screen.queryByRole('dialog', { name: 'Move to another project' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to another project…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move to another project' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Project' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: /^Move task/ }));
+    await screen.findByText('Moved to Operations as OPS-17');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'MICO-1: Prepare report' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'MICO-2: Check figures' })).toHaveFocus());
   });
 
   it('the card menu works from the keyboard: it opens on its first item, Escape closes it back to its button', async () => {

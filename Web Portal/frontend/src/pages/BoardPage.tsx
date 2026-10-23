@@ -327,12 +327,25 @@ export function BoardPage() {
     }
     return refs;
   }, [isAll, allQ.data, boardQ.data, projectId]);
+  // Only for someone who may move the task: others (members who don't manage it) see no ⋯ at all.
   const cardMenu = (key: string): CardMenuItem[] | null => {
     const ref = refByKey.get(key);
     if (!ref) return null;
     const name = projects.find((p) => p.id === ref.projectId)?.name;
-    return [{ label: 'Move to another project…', onSelect: () => setMovingTask(ref), unavailable: moveAvailability(ref.projectId, moveTargets, name).reason }];
+    if (!moveAvailability(ref.projectId, moveTargets, name).canMove) return null;
+    return [{ label: 'Move to another project…', onSelect: () => setMovingTask(ref) }];
   };
+
+  /** Where keyboard focus goes once a moved card has left the board: the next card in its column (else the one before), else the board. */
+  function focusAfterMove(movedKey: string) {
+    const column = boardColumns.find((c) => c.tasks.some((t) => t.key === movedKey));
+    const at = column ? column.tasks.findIndex((t) => t.key === movedKey) : -1;
+    const neighbour = column ? (column.tasks[at + 1] ?? column.tasks[at - 1]) : undefined;
+    return () => {
+      const card = neighbour ? document.querySelector<HTMLElement>(`[data-card-key="${CSS.escape(neighbour.key)}"]`) : null;
+      (card ?? document.querySelector<HTMLElement>('[role="region"][aria-label="Board columns"]'))?.focus();
+    };
+  }
 
   const boardColumns = isAll ? allColumns : boardQ.data?.columns ?? [];
   const idByKey = useMemo(
@@ -560,10 +573,12 @@ export function BoardPage() {
           tasks={[movingTask]}
           onClose={() => setMovingTask(null)}
           onMoved={(result) => {
+            const refocus = focusAfterMove(movingTask.key);
             setMovingTask(null);
             setMovedToast(movedText(result));
-            // Off this board, onto the other project's (live boards elsewhere hear it too).
-            void invalidateTaskQueries(qc);
+            // Off this board, onto the other project's (live boards elsewhere hear it too). Its card —
+            // and the ⋯ button focus went back to — leaves: focus moves on to its neighbour.
+            void invalidateTaskQueries(qc).then(() => setTimeout(refocus, 0));
           }}
         />
       ) : null}

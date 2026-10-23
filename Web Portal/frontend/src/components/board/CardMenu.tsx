@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 /** One action in a board card's menu; with `unavailable`, it is shown but can't be chosen, saying why. */
@@ -27,14 +27,19 @@ export function CardMenu({ taskKey, items }: { taskKey: string; items: CardMenuI
     if (refocus) trigger.current?.focus();
   };
 
-  useLayoutEffect(() => {
-    if (!open) return;
+  /** Open it already placed under its button: it is never drawn hidden, so it can take focus at once. */
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
     const r = trigger.current?.getBoundingClientRect();
-    if (r) setPlace({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
-  }, [open]);
+    setPlace({ top: (r?.bottom ?? 0) + 4, right: Math.max(8, window.innerWidth - (r?.right ?? window.innerWidth)) });
+    setOpen(true);
+  };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !place) return;
     menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
@@ -50,7 +55,7 @@ export function CardMenu({ taskKey, items }: { taskKey: string; items: CardMenuI
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
     };
-  }, [open]);
+  }, [open, place]);
 
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const all = Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
@@ -77,8 +82,8 @@ export function CardMenu({ taskKey, items }: { taskKey: string; items: CardMenuI
         title="More actions"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="absolute right-1.5 top-1.5 z-[1] grid h-7 w-7 place-items-center rounded-md bg-surface/90 text-ink-2 opacity-0 transition-opacity hover:bg-ground hover:text-brand focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand group-hover/card:opacity-100 aria-expanded:opacity-100 [@media(pointer:coarse)]:opacity-100"
+        onClick={toggle}
+        className="absolute right-1.5 top-1.5 z-[1] grid h-7 w-7 place-items-center rounded-md bg-surface/90 text-ink-2 opacity-0 transition-opacity hover:bg-ground hover:text-brand focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand group-hover/card:opacity-100 aria-expanded:opacity-100 [@media(pointer:coarse)]:right-0 [@media(pointer:coarse)]:top-0 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:opacity-100"
       >
         <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
           <circle cx="5" cy="12" r="1.8" />
@@ -86,14 +91,14 @@ export function CardMenu({ taskKey, items }: { taskKey: string; items: CardMenuI
           <circle cx="19" cy="12" r="1.8" />
         </svg>
       </button>
-      {open
+      {open && place
         ? createPortal(
             <div
               ref={menu}
               role="menu"
               aria-label={`Actions for ${taskKey}`}
               onKeyDown={onMenuKey}
-              style={place ? { top: place.top, right: place.right } : { visibility: 'hidden' }}
+              style={{ top: place.top, right: place.right }}
               className="fixed z-50 w-64 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift"
             >
               {items.map((item) =>

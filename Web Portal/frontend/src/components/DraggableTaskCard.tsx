@@ -29,6 +29,7 @@ export function DraggableTaskCard({ task, onClick, timeZone, menuSpace }: { task
       {...attributes}
       {...restListeners}
       aria-label={`${task.key}: ${task.title}`}
+      data-card-key={task.key}
       className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
       onKeyDown={(e) => {
         if (e.key === 'Enter' && !isDragging) {
