@@ -131,9 +131,13 @@ components:
         defaultDueToday:
           type: boolean
           description: >
-            A task created in the project without a due date gets today's date, the company's calendar
-            day (default false). A date that is sent is always kept. Optional on create and update
-            (admin); left out of an update, it stays as it is.
+            Default false. When true, a task created in the project without a due date gets one: the
+            board day it is created on (the task's boardDate) when that day is later than today, else
+            today, the company's calendar day (a past board day also gives today). It is stored like
+            any due date (UTC midnight of that day). A due date that is sent is always kept. A task
+            sent with a start date later than that day and no due date stays undated. Clearing the due
+            date later leaves it clear. Optional on create and update (admin); left out of an update,
+            it stays as it is.
   responses:
     Unauthorized:
       description: Missing or invalid token
