@@ -58,6 +58,40 @@ describe('TaskDrawer header', () => {
   });
 });
 
+describe('TaskDrawer: its project, and moving it to another one', () => {
+  it('names its project in the header, and the keys it had before it moved', () => {
+    render(<TaskDrawer task={{ ...task, key: 'OPS-17', formerKeys: ['RIG-4'] }} project={{ id: 'p1', name: 'Operations', color: '#123456' }} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    const header = screen.getByTestId('task-header');
+    expect(within(header).getByText('Operations')).toBeInTheDocument();
+    expect(within(header).getByText('OPS-17')).toBeInTheDocument();
+    expect(within(header).getByText('Formerly RIG-4')).toBeInTheDocument();
+  });
+
+  it('offers “Move to another project…” in More actions, on every screen size, and gives focus back to the menu button', async () => {
+    const onMoveToProject = vi.fn();
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onMoveToProject={onMoveToProject} onClose={vi.fn()} />);
+    const more = screen.getByRole('button', { name: 'More actions' });
+    // Not the phone-only menu any more: it holds an action the header has no button for.
+    expect(more.closest('.sm\\:hidden')).toBeNull();
+    await userEvent.click(more);
+    await userEvent.click(within(screen.getByRole('menu', { name: 'More actions' })).getByRole('menuitem', { name: 'Move to another project…' }));
+    expect(onMoveToProject).toHaveBeenCalledTimes(1);
+    expect(more).toHaveFocus();
+  });
+
+  it('when it can’t be moved, the item says why, in words, and does nothing', async () => {
+    const onMoveToProject = vi.fn();
+    const why = 'To move it, you need to manage both Rig Inspection and the project it goes to.';
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onMoveToProject={onMoveToProject} moveUnavailable={why} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    const item = screen.getByRole('menuitem', { name: /Move to another project…/ });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+    expect(item).toHaveTextContent(why);
+    await userEvent.click(item);
+    expect(onMoveToProject).not.toHaveBeenCalled();
+  });
+});
+
 describe('TaskDrawer inline editing', () => {
   it('renames the task in place: Enter saves and says so', async () => {
     const onSaveEdit = vi.fn(async () => {});

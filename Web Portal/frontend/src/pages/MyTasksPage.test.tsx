@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MyTasksPage } from './MyTasksPage';
 
 function json(body: unknown): Response {
@@ -205,5 +206,51 @@ describe('MyTasksPage', () => {
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('checkbox', { name: 'Select MICO-1' })).toBeInTheDocument();
+  });
+});
+
+describe('MyTasksPage: moving the selected tasks to another project', () => {
+  it('“Move to project…” moves the selection in one go, then says how it went and clears it', async () => {
+    const task = (id: string, key: string, title: string) => ({ id, key, title, description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' });
+    const projects = [
+      { id: 'p1', code: 'RIG', name: 'Rig Inspection', status: 'ACTIVE', color: '#8B1E1E', icon: null, imageUrl: null },
+      { id: 'p2', code: 'OPS', name: 'Operations', status: 'ACTIVE', color: '#1E5B8B', icon: null, imageUrl: null },
+    ];
+    let moved = false;
+    const posts: { url: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (init?.method === 'POST') posts.push({ url: u, body: JSON.parse(String(init.body)) });
+      if (u.endsWith('/projects')) return json({ data: projects });
+      if (u.endsWith('/tasks/move-targets')) return json({ data: { managesAll: false, managedProjectIds: ['p1', 'p2'], projects } });
+      if (u.endsWith('/tasks/move-preview')) {
+        const p = (id: string, key: string, title: string, newKey: string) => ({ id, key, title, from: { id: 'p1', code: 'RIG', name: 'Rig Inspection' }, canMove: true, reason: null, newKey, currentCategory: 'TODO', columnId: 'o1', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] });
+        return json({ data: { project: { ...projects[1], defaultDueToday: false }, columns: [{ id: 'o1', name: 'Next', category: 'TODO', position: 0, enabled: true }], outsiders: [], tasks: [p('t1', 'RIG-1', 'One', 'OPS-17'), p('t2', 'RIG-2', 'Two', 'OPS-18')] } });
+      }
+      if (u.endsWith('/tasks/move-to-project')) {
+        moved = true;
+        return json({ data: { results: [{ taskId: 't1', ok: true, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' } }, { taskId: 't2', ok: true, to: { projectId: 'p2', name: 'Operations', key: 'OPS-18' } }], moved: 2, failed: 0 } });
+      }
+      if (u.includes('/tasks/mine')) return json({ data: moved ? [] : [task('t1', 'RIG-1', 'One'), task('t2', 'RIG-2', 'Two')] });
+      return json({ data: [] });
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText('One');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all tasks' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Move to project…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move 2 tasks to another project' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Project' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: /^Move 2 tasks/ }));
+    expect(await screen.findByText('Moved 2 tasks to Operations.')).toBeInTheDocument();
+    expect(posts.find((p) => p.url.endsWith('/tasks/move-to-project'))?.body).toEqual({ taskIds: ['t1', 't2'], projectId: 'p2' });
+    expect(screen.queryByRole('dialog', { name: 'Move 2 tasks to another project' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { checklistApi } from '../api/checklist';
 import { commentsApi } from '../api/comments';
@@ -22,6 +22,9 @@ import { useDialog } from '../hooks/useDialog';
 import { useAuthStore } from '../stores/auth-store';
 import { TaskDrawer, type DrawerTaskRef } from './TaskDrawer';
 import { TaskFormDialog } from './task-form/TaskFormDialog';
+import { MoveTaskDialog, useMoveTargets } from './MoveTaskDialog';
+import { projectsApi } from '../api/projects';
+import { moveAvailability, movedText } from '../lib/task-move';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -63,6 +66,13 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   const dialogRef = useDialog(onClose, { initialFocus: 'container' });
   const [actionError, setActionError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
   const failed = (fallback: string) => (e: unknown) => setActionError(failureText(e, fallback));
 
   const taskQ = useQuery({ queryKey: ['task', taskId], queryFn: () => tasksApi(apiClient).get(taskId) });
@@ -96,6 +106,11 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   });
   const members = Array.isArray(membersQ.data) ? membersQ.data : [];
   const canDelete = isAdmin || members.some((m) => m.id === myId && m.role === 'MANAGER');
+  // Its project, for the header (the list is cached for every page), and who may move it elsewhere.
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
+  const project = (Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === projectId);
+  const moveTargets = useMoveTargets(Boolean(projectId));
+  const canMove = projectId ? moveAvailability(projectId, moveTargets, project?.name) : null;
 
   const activityQ = useQuery({ queryKey: ['task-activity', taskId], queryFn: () => activityApi(apiClient).forTask(taskId) });
   const watchStatusQ = useQuery({ queryKey: ['task-watch', taskId], queryFn: () => watchersApi(apiClient).status(taskId) });
@@ -246,6 +261,17 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
       return [t.id, { id: t.id, key: t.key, title: t.title, statusName: col?.name, statusCategory: col?.category, done: col ? col.category === 'DONE' : Boolean(t.completedAt) }];
     }),
   );
+  // A linked task in another project (a blocker stays linked when either task moves) is read on its own.
+  const elsewhere = dependenciesQ.data ? [...dependenciesQ.data.blockedBy, ...dependenciesQ.data.blocks].filter((id) => projectTasksQ.isSuccess && !taskRefs.has(id)) : [];
+  const elsewhereQs = useQueries({
+    queries: [...new Set(elsewhere)].map((id) => ({ queryKey: ['task', id], queryFn: () => tasksApi(apiClient).get(id), staleTime: 30_000 })),
+  });
+  for (const q of elsewhereQs) {
+    const t = q.data;
+    if (t && !taskRefs.has(t.id)) {
+      taskRefs.set(t.id, { id: t.id, key: t.key, title: t.title, statusCategory: t.columnCategory ?? undefined, done: t.columnCategory === 'DONE' || Boolean(t.completedAt) });
+    }
+  }
   const toRef = (id: string): DrawerTaskRef => taskRefs.get(id) ?? { id, key: id, title: id };
   const dependencies = dependenciesQ.data
     ? { blockedBy: dependenciesQ.data.blockedBy.map(toRef), blocks: dependenciesQ.data.blocks.map(toRef) }
@@ -358,6 +384,9 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
               downloadBlob(fileNameOf(blob) ?? `${t.key}-${fileSlug(t.title)}.${format}`, blob);
             }}
             onEdit={() => setEditing(true)}
+            project={project ? { id: project.id, name: project.name, color: project.color, icon: project.icon, imageUrl: project.imageUrl } : undefined}
+            onMoveToProject={canMove ? () => setMoving(true) : undefined}
+            moveUnavailable={canMove?.reason}
             onClose={onClose}
           />
         ) : taskQ.isError ? (
@@ -387,6 +416,32 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
         // Its own layer above the panel; clicks inside it must not reach the panel's backdrop.
         <div onClick={(e) => e.stopPropagation()}>
           <TaskFormDialog task={taskQ.data} onClose={() => setEditing(false)} onSaved={() => setActionError(null)} />
+        </div>
+      ) : null}
+      {moving && taskQ.data ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MoveTaskDialog
+            tasks={[{ id: taskQ.data.id, key: taskQ.data.key, title: taskQ.data.title, projectId: taskQ.data.projectId }]}
+            onClose={() => setMoving(false)}
+            onMoved={(result) => {
+              setMoving(false);
+              setToast(movedText(result));
+              // The same task, now in another project: show it as it is, and refresh every view.
+              queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, ...result.task } : result.task));
+              refreshTaskViews();
+            }}
+          />
+        </div>
+      ) : null}
+      {toast ? (
+        // Above the panel, so it is seen while the task stays open.
+        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4" onClick={(e) => e.stopPropagation()}>
+          <p role="status" className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-lift">
+            <span>{toast}</span>
+            <button type="button" onClick={() => setToast(null)} aria-label="Dismiss" className="text-ink-2 hover:text-ink">
+              ✕
+            </button>
+          </p>
         </div>
       ) : null}
     </div>,

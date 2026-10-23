@@ -10,7 +10,7 @@ import { TaskCard, type TaskCardTask } from './TaskCard';
  * This wrapper is the card's single tab stop: Enter opens the task, Space picks it up for a
  * keyboard move (arrow keys, Space to drop, Escape to cancel).
  */
-export function DraggableTaskCard({ task, onClick, timeZone }: { task: TaskCardTask; onClick?: () => void; timeZone?: string }) {
+export function DraggableTaskCard({ task, onClick, timeZone, menuSpace }: { task: TaskCardTask; onClick?: () => void; timeZone?: string; menuSpace?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.key });
   const style: React.CSSProperties = {
     cursor: 'grab',
@@ -39,7 +39,7 @@ export function DraggableTaskCard({ task, onClick, timeZone }: { task: TaskCardT
         dndKeyDown?.(e);
       }}
     >
-      <TaskCard task={task} onClick={onClick} timeZone={timeZone} interactive={false} />
+      <TaskCard task={task} onClick={onClick} timeZone={timeZone} interactive={false} menuSpace={menuSpace} />
     </div>
   );
 }

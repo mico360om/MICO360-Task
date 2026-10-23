@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { Priority } from '../api/tasks';
 
 export interface BulkActionBarProps {
@@ -14,6 +14,10 @@ export interface BulkActionBarProps {
   onSetPriority: (priority: Priority) => void;
   onAssign: (userId: string) => void;
   onMove?: (columnId: string) => void;
+  /** Move the selection to another project (one dialog for all of them). */
+  onMoveToProject?: () => void;
+  /** Why the selection can't be moved now (the button is shown, unavailable, saying so). */
+  moveUnavailable?: string | null;
   onClear: () => void;
 }
 
@@ -31,9 +35,10 @@ const selectClass =
 /** A complete, plausible calendar date — never a half-typed year like 0002. */
 const isCompleteDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number(v.slice(0, 4)) >= 2000 && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 
-export function BulkActionBar({ count, busy = false, assignees, columns, onComplete, onSetDueDate, onSetPriority, onAssign, onMove, onClear }: BulkActionBarProps) {
+export function BulkActionBar({ count, busy = false, assignees, columns, onComplete, onSetDueDate, onSetPriority, onAssign, onMove, onMoveToProject, moveUnavailable, onClear }: BulkActionBarProps) {
   const [due, setDue] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
+  const moveWhyId = useId();
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
@@ -103,6 +108,29 @@ export function BulkActionBar({ count, busy = false, assignees, columns, onCompl
             <option value="">Move to…</option>
             {columns.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
+        ) : null}
+
+        {onMoveToProject ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                if (!moveUnavailable && !busy) onMoveToProject();
+              }}
+              disabled={busy}
+              aria-disabled={moveUnavailable ? 'true' : undefined}
+              aria-describedby={moveUnavailable ? moveWhyId : undefined}
+              title={moveUnavailable ?? 'Move the selected tasks to another project'}
+              className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink transition-colors hover:border-brand hover:text-brand disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-line aria-disabled:hover:text-ink"
+            >
+              Move to project…
+            </button>
+            {moveUnavailable ? (
+              <span id={moveWhyId} className="sr-only">
+                {moveUnavailable}
+              </span>
+            ) : null}
+          </>
         ) : null}
 
         <span className="h-5 w-px bg-line" aria-hidden />

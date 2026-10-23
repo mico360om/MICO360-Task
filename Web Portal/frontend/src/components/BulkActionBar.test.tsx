@@ -80,3 +80,27 @@ describe('BulkActionBar', () => {
     expect(onSetDueDate).toHaveBeenCalledWith(null);
   });
 });
+
+describe('BulkActionBar: moving the selection to another project', () => {
+  it('“Move to project…” opens the move (one dialog for all of them)', async () => {
+    const onMoveToProject = vi.fn();
+    render(<BulkActionBar {...baseProps} onMoveToProject={onMoveToProject} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Move to project…' }));
+    expect(onMoveToProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('when they can’t be moved, it is unavailable and says why', async () => {
+    const onMoveToProject = vi.fn();
+    render(<BulkActionBar {...baseProps} onMoveToProject={onMoveToProject} moveUnavailable="You don’t manage an open project to move tasks to." />);
+    const button = screen.getByRole('button', { name: 'Move to project…' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveAccessibleDescription('You don’t manage an open project to move tasks to.');
+    await userEvent.click(button);
+    expect(onMoveToProject).not.toHaveBeenCalled();
+  });
+
+  it('isn’t offered without a way to move', () => {
+    render(<BulkActionBar {...baseProps} />);
+    expect(screen.queryByRole('button', { name: 'Move to project…' })).not.toBeInTheDocument();
+  });
+});

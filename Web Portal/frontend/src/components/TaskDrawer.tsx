@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
 import { MilestoneIcon } from './TaskCard';
+import { ProjectAvatar, type ProjectLook } from './ProjectAvatar';
 import { recurrenceSummary } from '../lib/recurrence-summary';
 import { statusMeta } from '../lib/taskStatus';
 import { isOverdue } from '../lib/due-date';
@@ -88,6 +89,12 @@ export interface TaskDrawerProps {
   onExport?: (format: 'xlsx' | 'pdf') => Promise<void>;
   /** Open the full edit form (every field at once). */
   onEdit?: () => void;
+  /** The task's project, named in the header. */
+  project?: ProjectLook & { id: string };
+  /** Move the task to another project (in “More actions”). */
+  onMoveToProject?: () => void;
+  /** Why it can't be moved now: the item is shown, unavailable, saying so. */
+  moveUnavailable?: string | null;
   onClose: () => void;
 }
 
@@ -180,6 +187,9 @@ export function TaskDrawer({
   onToggleWatch,
   onExport,
   onEdit,
+  project,
+  onMoveToProject,
+  moveUnavailable,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -213,7 +223,19 @@ export function TaskDrawer({
       <div data-testid="task-header" className="flex-none border-b border-line px-4 pb-3 pt-3 sm:px-6 sm:pt-4">
         <div className="flex items-center gap-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+            {project ? (
+              <span data-testid="task-project" className="inline-flex min-w-0 max-w-[14rem] items-center gap-1.5 text-xs font-medium text-ink-2">
+                <ProjectAvatar project={project} size="xs" />
+                <span dir="auto" className="truncate">{project.name}</span>
+              </span>
+            ) : null}
             <span className="font-mono text-xs font-semibold text-ink-2">{task.key}</span>
+            {task.formerKeys && task.formerKeys.length > 0 ? (
+              // Its old numbers still find it (search, "open RIG-4").
+              <span className="text-xs text-ink-3" title="Its old number still finds it in search">
+                Formerly {task.formerKeys.join(', ')}
+              </span>
+            ) : null}
             <StatusPill category={task.columnCategory} />
             <PriorityBadge priority={task.priority} />
             {task.isMilestone ? (
@@ -249,7 +271,14 @@ export function TaskDrawer({
             ) : null}
             {onToggleWatch ? <WatchButton watching={Boolean(watching)} count={watcherCount} onToggle={onToggleWatch} className="hidden sm:inline-flex" /> : null}
             {onExport ? <ExportMenu onExport={onExport} className="hidden sm:block" /> : null}
-            <MoreActionsMenu watching={watching} onToggleWatch={onToggleWatch} onExport={onExport} className="sm:hidden" />
+            <MoreActionsMenu
+              watching={watching}
+              onToggleWatch={onToggleWatch}
+              onExport={onExport}
+              onMoveToProject={onMoveToProject}
+              moveUnavailable={moveUnavailable}
+              className={onMoveToProject ? '' : 'sm:hidden'}
+            />
             <button
               type="button"
               onClick={onClose}
