@@ -80,6 +80,8 @@ import { registerAiRoutes } from './modules/ai/ai-config-routes';
 import type { AiConfigService } from './modules/ai/ai-config-service';
 import { registerAiFeatureRoutes } from './modules/ai/ai-feature-routes';
 import type { AiFeatureService } from './modules/ai/ai-feature-service';
+import { registerMicoAiRoutes } from './modules/mico-ai/mico-ai-routes';
+import type { MicoAiService } from './modules/mico-ai/mico-ai-service';
 import type { CorsOriginMatcher } from './lib/cors-origins';
 import type { DataExporter } from './modules/users/data-export';
 
@@ -204,6 +206,8 @@ export interface AppDeps extends AuthRouteDeps {
   aiConfigService?: AiConfigService;
   /** Product-facing AI features (task breakdown, NL capture, project summary, priority). */
   aiFeatureService?: AiFeatureService;
+  /** MICO AI: each person's private chats with the read-only assistant. */
+  micoAiService?: MicoAiService;
   onTaskEvent?: (projectId: string, event: string, payload: unknown) => void;
   logger?: Logger;
   /** Error tracking sink (Sentry adapter in prod; no-op by default) — called on 500s (T19.2). */
@@ -651,6 +655,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.aiFeatureService) {
         await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard, agendaSources: deps.meetingAgendaSources, userNames: deps.resolveUserNames });
+      }
+      if (deps.micoAiService) {
+        await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard });
       }
       if (deps.emailWebhookService) {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });
