@@ -385,11 +385,22 @@ export function startProblem(startDate: string | undefined, dueDate: string): st
   return startDate && dueDate && startDate > dueDate ? 'The start date must be on or before the due date.' : null;
 }
 
-export function checkEditTask(d: TaskDraft): { ok: true } | { ok: false; field: 'title' | 'repeat' | 'start'; message: string } {
+/**
+ * The Edit form's problem with the days' order — only when the edit changes one of them, as the
+ * server checks (final review A4): an older task whose start is after its due date can still have
+ * its title or anything else changed.
+ */
+export function editStartProblem(d: TaskDraft, saved: TaskDraft): string | null {
+  const datesChanged = (d.startDate ?? '') !== (saved.startDate ?? '') || d.dueDate !== saved.dueDate;
+  return datesChanged ? startProblem(d.startDate, d.dueDate) : null;
+}
+
+/** The Edit form's checks before Save changes (`saved`: the task as the form has it saved). */
+export function checkEditTask(d: TaskDraft, saved: TaskDraft): { ok: true } | { ok: false; field: 'title' | 'repeat' | 'start'; message: string } {
   if (!d.title.trim()) return { ok: false, field: 'title', message: 'Give the task a title.' };
   const until = untilProblem(d.rule, d.dueDate);
   if (until) return { ok: false, field: 'repeat', message: until };
-  const start = startProblem(d.startDate, d.dueDate);
+  const start = editStartProblem(d, saved);
   if (start) return { ok: false, field: 'start', message: start };
   return { ok: true };
 }

@@ -37,10 +37,10 @@ import {
   createdWithoutFilesText,
   EDIT_TEXT,
   editLeaveWarning,
+  editStartProblem,
   editSubmitLabel,
   editTaskDraft,
   scopeNote,
-  startProblem,
   DESCRIPTION_MAX,
   formColumns,
   checkTaskFiles,
@@ -335,7 +335,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const saveEditTask = useSaveTaskEdit(editId);
   async function saveEdit() {
     if (busy.current || !editTask) return;
-    const check = checkEditTask(draft);
+    const check = checkEditTask(draft, saved);
     if (!check.ok) {
       if (check.field === 'title') {
         setTitleError(check.message);
@@ -597,9 +597,9 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
               weekStart={weekStart}
               disabled={frozen}
             />
-            {startError ?? startProblem(draft.startDate, draft.dueDate) ? (
+            {startError ?? editStartProblem(draft, saved) ? (
               <Text style={s.problem} accessibilityRole="alert">
-                {startError ?? startProblem(draft.startDate, draft.dueDate)}
+                {startError ?? editStartProblem(draft, saved)}
               </Text>
             ) : null}
           </>

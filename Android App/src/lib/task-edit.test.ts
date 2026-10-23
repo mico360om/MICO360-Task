@@ -53,12 +53,26 @@ describe('Edit task (4d): New task’s form with what the task holds, as the web
   });
 
   it('checks the title, the repeat’s end and that the start is on or before the due date (the server’s words)', () => {
-    expect(checkEditTask({ ...opened, title: '  ' })).toEqual({ ok: false, field: 'title', message: 'Give the task a title.' });
-    expect(checkEditTask({ ...opened, startDate: '2026-10-25' })).toEqual({ ok: false, field: 'start', message: 'The start date must be on or before the due date.' });
+    expect(checkEditTask({ ...opened, title: '  ' }, opened)).toEqual({ ok: false, field: 'title', message: 'Give the task a title.' });
+    expect(checkEditTask({ ...opened, startDate: '2026-10-25' }, opened)).toEqual({ ok: false, field: 'start', message: 'The start date must be on or before the due date.' });
     expect(startProblem('2026-10-24', '2026-10-24')).toBeNull();
     expect(startProblem('2026-10-25', '')).toBeNull();
-    expect(checkEditTask({ ...opened, rule: { freq: 'DAILY', interval: 1, until: '2026-10-20' } })).toMatchObject({ ok: false, field: 'repeat' });
-    expect(checkEditTask(opened)).toEqual({ ok: true });
+    expect(checkEditTask({ ...opened, rule: { freq: 'DAILY', interval: 1, until: '2026-10-20' } }, opened)).toMatchObject({ ok: false, field: 'repeat' });
+    expect(checkEditTask(opened, opened)).toEqual({ ok: true });
+  });
+
+  it('an older task whose start is after its due date can still be saved: the order is checked only when a date changes, as the server does (final review A4)', () => {
+    const older = editTaskDraft(task({ startDate: '2026-10-26T09:30:00.000Z' }), ['u1'], TZ);
+    expect([older.startDate, older.dueDate]).toEqual(['2026-10-26', '2026-10-24']);
+    expect(checkEditTask({ ...older, title: 'Fix the pump' }, older)).toEqual({ ok: true });
+    expect(checkEditTask({ ...older, dueDate: '2026-10-25' }, older)).toMatchObject({ ok: false, field: 'start' });
+    expect(checkEditTask({ ...older, startDate: '2026-10-27' }, older)).toMatchObject({ ok: false, field: 'start' });
+    expect(checkEditTask({ ...older, dueDate: '2026-10-28' }, older)).toEqual({ ok: true });
+    const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
+    expect(screen).toMatch(/const check = checkEditTask\(draft, saved\);/);
+    // The note under the start date follows the same rule.
+    expect(screen).toMatch(/\{startError \?\? editStartProblem\(draft, saved\) \? \(/);
+    expect(screen).not.toMatch(/startProblem\(draft\.startDate, draft\.dueDate\)/);
   });
 
   it('sends only what changed, in one edit (with the series when chosen), then the column, then the people added and taken off', async () => {
