@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-24
+
 ### New features
 - MICO AI, a chat assistant (in the menu, and "Ask MICO AI" in Ctrl+K): ask about your tasks, projects,
   meetings and minutes, reports and workload, and the team chats you're part of, and follow up in the
