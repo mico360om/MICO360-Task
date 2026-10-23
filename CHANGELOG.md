@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-23
+
 ### Bug fixes
 - "Send me a test now" (website and Chrome extension) no longer says the emails were sent when your
   address is blocked after a bounce or spam complaint; it says plainly that nothing was sent and to ask
