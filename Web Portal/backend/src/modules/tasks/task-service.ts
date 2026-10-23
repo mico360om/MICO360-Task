@@ -2,7 +2,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-er
 import { dueDayKey } from '../../lib/due-date';
 import { isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
-import { defaultCompanyTimeZone } from './task-status';
+import { columnEntryChange, defaultCompanyTimeZone } from './task-status';
 import { dueDateOnEntry } from '../projects/project-task-settings';
 import {
   TaskKeyConflictError,
@@ -96,23 +96,9 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
   /** The status change that goes with moving `current` into `columnId` (validated to be in its project). */
   async function columnChange(current: TaskRecord, columnId: string): Promise<UpdateTaskData> {
     const column = await requireColumn(columnId, current.projectId);
-    const patch: UpdateTaskData = { columnId };
-    // Entering a DONE column completes the task — once: an already-completed task keeps its
-    // completion time (reordering or replaying a move must not rewrite history). Leaving re-opens it.
-    if (column.category === 'DONE') {
-      patch.progress = 100;
-      if (!current.completedAt) {
-        patch.completedAt = now();
-        // Completed tasks stay on their completion day's board (they never carry forward).
-        patch.boardDate = todayAnchor();
-      }
-    } else if (current.completedAt) {
-      patch.completedAt = null;
-      // Completing forced progress to 100%. Re-opened, the task is not done any more: show what its
-      // checklist says (0% without one) instead of a "100%" card in an open column.
-      patch.progress = checklistPercent ? await checklistPercent(current.id) : 0;
-    }
-    return patch;
+    // Entering a DONE column completes the task (once); leaving one re-opens it (task-status).
+    const change = await columnEntryChange(current, column.category, { at: now(), todayAnchor: todayAnchor(), reopenedProgress: checklistPercent });
+    return { columnId, ...change };
   }
 
   async function createTask(input: NewTask): Promise<TaskRecord> {
