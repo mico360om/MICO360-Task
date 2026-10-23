@@ -20,6 +20,10 @@ export interface ApiProject {
   ownerId: string | null;
   startDate: string | null;
   targetDate: string | null;
+  /** Each night, its unfinished tasks on past days move to today's board. Missing (older server) = on. */
+  carryForward?: boolean;
+  /** A task added without a due date gets today's date. Missing (older server) = off. */
+  defaultDueToday?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,6 +40,10 @@ export interface NewProjectInput {
   color?: string;
   icon?: string | null;
   ownerId?: string | null;
+  /** Left out: the server starts the project with carry-forward on (and keeps it as is on an update). */
+  carryForward?: boolean;
+  /** Left out: off for a new project (unchanged on an update). */
+  defaultDueToday?: boolean;
 }
 
 /** Whether a code can be used for a new project (deleted projects keep theirs). */
