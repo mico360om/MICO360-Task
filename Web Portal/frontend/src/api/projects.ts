@@ -28,6 +28,34 @@ export interface ApiProject {
   updatedAt: string;
 }
 
+/** A person on a project card: a face and a name. */
+export interface ProjectPerson {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+/** A project's card figures, counted by the server for the whole list at once. */
+export interface ProjectStats {
+  total: number;
+  done: number;
+  open: number;
+  /** Open tasks whose due day is before today (company time zone). */
+  overdue: number;
+  /** Nearest due day ('YYYY-MM-DD') of an open task, today or later; null when there is none. */
+  nextDue: string | null;
+  /** The later of the project's own last change and its latest task change (ISO). */
+  lastActivityAt: string;
+}
+
+/** A project as the Projects page lists it: its details, figures, owner and team. */
+export interface ProjectOverview extends ApiProject {
+  managerId?: string | null;
+  stats: ProjectStats;
+  owner: ProjectPerson | null;
+  team: ProjectPerson[];
+}
+
 export interface NewProjectInput {
   code: string;
   name: string;
@@ -58,6 +86,8 @@ export interface CodeCheck {
 export function projectsApi(client: ApiClient) {
   return {
     list: () => client.get<{ data: ApiProject[] }>('/projects').then((r) => r.data),
+    /** Every project you may see, with its card figures, owner and team — one request for the list. */
+    overview: () => client.get<{ data: ProjectOverview[] }>('/projects/overview').then((r) => r.data),
     get: (id: string) => client.get<{ data: ApiProject }>(`/projects/${id}`).then((r) => r.data),
     /** Admin: is this code well formed and free? */
     checkCode: (code: string) => client.get<{ data: CodeCheck }>(`/projects/code-check?code=${encodeURIComponent(code)}`).then((r) => r.data),
