@@ -10,6 +10,8 @@ const project = (id: string, extra: Partial<ProjectRecord> = {}): ProjectRecord 
   description: null,
   clientName: null,
   managerId: null,
+  carryForward: true,
+  defaultDueToday: false,
   ownerId: null,
   status: 'ACTIVE',
   priority: 'NORMAL',
