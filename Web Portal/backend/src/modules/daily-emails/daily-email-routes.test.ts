@@ -123,6 +123,24 @@ describe('Daily task emails: "Send me a test now"', () => {
   });
 });
 
+describe('Daily task emails: the administrators’ routes need a signed-in administrator', () => {
+  it('every one of them answers 401 without a sign-in, and does nothing', async () => {
+    const { app, list, overview, startSendNow, sendFor, preview } = await makeApp();
+    const routes = [
+      { method: 'GET', url: '/api/v1/admin/daily-emails' },
+      { method: 'GET', url: '/api/v1/admin/daily-emails/overview' },
+      { method: 'POST', url: '/api/v1/admin/daily-emails/send-now' },
+      { method: 'POST', url: '/api/v1/admin/daily-emails/send', payload: { userId: 'u9', kind: 'PENDING' } },
+      { method: 'GET', url: '/api/v1/admin/daily-emails/preview?userId=u1&kind=PENDING' },
+    ] as const;
+    for (const r of routes) {
+      const res = await app.inject({ method: r.method, url: r.url, ...('payload' in r ? { payload: r.payload } : {}) });
+      expect({ url: r.url, status: res.statusCode }).toEqual({ url: r.url, status: 401 });
+    }
+    for (const fn of [list, overview, startSendNow, sendFor, preview]) expect(fn).not.toHaveBeenCalled();
+  });
+});
+
 describe('Daily task emails: the delivery log', () => {
   it('is for admins, filtered by day and status', async () => {
     const { app, list } = await makeApp();
