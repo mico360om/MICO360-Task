@@ -33,6 +33,15 @@ export interface OwnedWrite {
   run<T>(fn: (r: ResourcesApi) => Promise<T>): Promise<T>;
 }
 
+/**
+ * Is what a change says when it ends still for the person who made it (final review A5)? On a shared
+ * phone they may have signed out — and someone else in — while it was on its way: then nothing is
+ * said (a toast, an alert), so the next person never sees someone else's work.
+ */
+export function stillSignedIn(maker: string | null, signedIn: string | null): boolean {
+  return !!maker && maker === signedIn;
+}
+
 /** Capture who is making a change, now — call it when the change is made, never inside its lane. */
 export function ownedWrite(s: OwnerDeps): OwnedWrite {
   const owner = s.currentUserId();

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import { owned, sendTaskEdit, sendTaskMove } from './queries';
+import { stillSignedIn } from '../lib/owned-write';
 import { asyncStore } from '../adapters/async-storage';
 import { createBulkRefresher, doneColumnOf, runBulk, type BulkAction, type BulkDeps, type BulkResult, type BulkRunOptions, type BulkTaskRef } from '../lib/bulk-actions';
 import { newIdempotencyKey } from '../lib/idempotency';
@@ -57,6 +58,9 @@ export function useBulkTaskActions(): (tasks: (BulkTaskRef & { version?: number 
   const qc = useQueryClient();
   return useCallback(
     async (tasks, action, opts) => {
+      // Who runs it: once they aren't signed in (someone else may be, on a shared phone), it stops —
+      // the rest never go as the next person (final review A5).
+      const maker = services.currentUserId();
       const refresher = createBulkRefresher((targets) => refresh(qc, targets));
       const versions = new Map(tasks.map((t) => [t.id, t.version]));
       const columns = new Map<string, Promise<ApiColumn[]>>();
@@ -93,7 +97,7 @@ export function useBulkTaskActions(): (tasks: (BulkTaskRef & { version?: number 
         doneColumnFor: async (t) => doneColumnOf(await columnsOf(t.projectId).catch(() => [])),
       };
       try {
-        return await runBulk(tasks, action, deps, opts);
+        return await runBulk(tasks, action, deps, { ...opts, shouldContinue: () => stillSignedIn(maker, services.currentUserId()) && (opts?.shouldContinue?.() ?? true) });
       } finally {
         refresher.finish([{ queryKey: ['tasks', 'mine'] }]);
       }

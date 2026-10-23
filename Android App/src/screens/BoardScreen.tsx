@@ -14,6 +14,7 @@ import { appTimeZone } from '../lib/due-date';
 import { weekStartOf } from '../lib/calendar';
 import { serverFileHref } from '../lib/attachments';
 import { canManageProject } from '../lib/project-team';
+import { stillSignedIn } from '../lib/owned-write';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { MoveCardSheet } from '../components/board/MoveCardSheet';
 import { BoardColumnView } from '../components/board/BoardColumnView';
@@ -37,7 +38,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { baseUrl } = useServices();
+  const { baseUrl, currentUserId } = useServices();
   const user = useSession()?.user ?? null;
   const timeZone = appTimeZone();
   // Per-date boards: view one day at a time. "Today" is the company-time-zone date (XP-03), the
@@ -81,18 +82,23 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const placeInColumn = useCallback(
     async (columnId: string, orderedIds: string[]) => {
       setMoving(null);
+      // Who moved it: how it went is said to them only (final review A5).
+      const maker = currentUserId();
       const out = await reorderCards(writes, { columnId, orderedIds });
+      if (!stillSignedIn(maker, currentUserId())) return;
       if (out.kind === 'put-back') tell(out.message, true);
       else tell('Moved.');
     },
-    [writes],
+    [writes, currentUserId],
   );
   const moveToColumn = useCallback(
     async (task: ApiTask, toColumnId: string, place: Place) => {
       setMoving(null);
       const dest = board.find((b) => b.column.id === toColumnId);
       const plan = movePlan((dest?.tasks ?? []).filter((t) => t.id !== task.id), task.id, place);
+      const maker = currentUserId();
       const out = await moveCard(writes, { id: task.id, toColumnId, plan });
+      if (!stillSignedIn(maker, currentUserId())) return;
       if (out.kind === 'moved') tell(`Moved to ${dest?.column.name ?? 'the column'}.`);
       else {
         tell(out.message, out.kind !== 'kept');
@@ -100,7 +106,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
         if (out.kind === 'kept') notice(out.message);
       }
     },
-    [board, writes],
+    [board, writes, currentUserId],
   );
   const step = useCallback(
     (card: Card, dir: -1 | 1) => {

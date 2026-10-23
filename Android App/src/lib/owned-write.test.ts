@@ -135,3 +135,34 @@ describe('a change goes as the person who made it, never as whoever is signed in
     expect(calendar).toMatch(/const owner = deps\.userId\(\);/);
   });
 });
+
+describe('what a change says when it ends is said to the person who made it only (final review A5)', () => {
+  const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+  it('nothing is said once they have signed out (and someone else in)', async () => {
+    const { stillSignedIn } = await import('./owned-write');
+    expect(stillSignedIn('ann', 'ann')).toBe(true);
+    expect(stillSignedIn('ann', 'bob')).toBe(false);
+    expect(stillSignedIn('ann', null)).toBe(false);
+    expect(stillSignedIn(null, null)).toBe(false);
+  });
+
+  it('the Edit form’s “kept on this phone”, My Tasks’ bulk result and the boards’ refusals check it', () => {
+    const form = src('screens/NewTaskScreen.tsx');
+    expect(form).toMatch(/const maker = currentUserId\(\);\s+try \{\s+const out = await saveEditTask\(/);
+    expect(form).toMatch(/if \(out\.kind === 'kept' && stillSignedIn\(maker, currentUserId\(\)\)\) notice\(out\.message\);/);
+    const myTasks = src('screens/MyTasksScreen.tsx');
+    expect(myTasks).toMatch(/const maker = currentUserId\(\);/);
+    expect(myTasks).toMatch(/if \(!stillSignedIn\(maker, currentUserId\(\)\)\) return;\s+setSelected\(new Set\(\)\);\s+notice\(bulkResultText\(label, result\)\);/);
+    for (const board of ['screens/BoardScreen.tsx', 'screens/AllBoardScreen.tsx']) {
+      const screen = src(board);
+      expect(screen, board).toMatch(/const maker = currentUserId\(\);/);
+      expect(screen, board).toMatch(/if \(!stillSignedIn\(maker, currentUserId\(\)\)\) return;/);
+    }
+    expect((src('screens/BoardScreen.tsx').match(/if \(!stillSignedIn\(maker, currentUserId\(\)\)\) return;/g) ?? []).length).toBe(2);
+  });
+
+  it('a bulk run stops once its maker isn’t signed in: the rest never go as the next person', () => {
+    expect(src('core/my-tasks-queries.ts')).toMatch(/const maker = services\.currentUserId\(\);[\s\S]*shouldContinue: \(\) => stillSignedIn\(maker, services\.currentUserId\(\)\) && \(opts\?\.shouldContinue\?\.\(\) \?\? true\)/);
+  });
+});

@@ -13,6 +13,7 @@ import { dateKey } from '../lib/board-date';
 import { appTimeZone } from '../lib/due-date';
 import { weekStartOf } from '../lib/calendar';
 import { serverFileHref } from '../lib/attachments';
+import { stillSignedIn } from '../lib/owned-write';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
@@ -37,7 +38,7 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { baseUrl } = useServices();
+  const { baseUrl, currentUserId } = useServices();
   const timeZone = appTimeZone();
   // The company's today, the same day the web board and the API use (XP-03).
   const todayKey = dateKey(new Date(), timeZone);
@@ -72,7 +73,10 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
     async (task: ApiTask, status: ColumnCategory) => {
       setMoving(null);
       const name = projectById.get(task.projectId)?.name ?? null;
+      // Who moved it: how it went is said to them only (final review A5).
+      const maker = currentUserId();
       const out = await statusMove(task, status, name);
+      if (!stillSignedIn(maker, currentUserId())) return;
       if (out.kind === 'moved') tell(`Moved to ${STATUS_NAME[status]}.`);
       else if (out.kind !== 'same') {
         tell(out.message, out.kind !== 'kept');
@@ -80,7 +84,7 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
         if (out.kind === 'kept') notice(out.message);
       }
     },
-    [statusMove, projectById],
+    [statusMove, projectById, currentUserId],
   );
   const openTask = useCallback((card: Card) => navigation.navigate('TaskDetail', { taskId: card.id, title: card.title }), [navigation]);
   const openActions = useCallback((card: Card) => setMoving(byId.get(card.id) ?? null), [byId]);

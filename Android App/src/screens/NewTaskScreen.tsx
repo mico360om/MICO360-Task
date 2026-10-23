@@ -25,6 +25,7 @@ import { PRIORITY_LABEL } from '../lib/calendar-model';
 import { progressWorthShowing } from '../lib/chat-ui';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { refresh } from '../lib/refresh';
+import { stillSignedIn } from '../lib/owned-write';
 import { createdTaskRefreshes } from '../lib/task-cache';
 import { taskSuggestions, type AiTaskDraft, type DescribedFields } from '../lib/task-describe';
 import { inSeries, isEarlierCopy } from '../lib/recurrence-edit';
@@ -347,6 +348,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     busy.current = true;
     setSaving(true);
     setBanner(null);
+    // Who saved it: the toast after the form has gone is for them only (final review A5).
+    const maker = currentUserId();
     try {
       const out = await saveEditTask(draft, saved, { series: series && scope === 'series', canRepeat, projectId: editTask.projectId, openedVersion: openedVersion.current });
       // What went is what the server has now: a try after a failure sends only the rest.
@@ -355,7 +358,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         if (mounted.current) setBanner(out.message);
         return;
       }
-      if (out.kind === 'kept') notice(out.message);
+      if (out.kind === 'kept' && stillSignedIn(maker, currentUserId())) notice(out.message);
       else AccessibilityInfo.announceForAccessibility('Saved.');
       if (mounted.current) leave();
     } finally {

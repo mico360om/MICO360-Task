@@ -3,6 +3,7 @@ import { View, Text, Pressable, FlatList, StyleSheet, RefreshControl, Alert, Act
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDirectory, useMyTasks, useProjectColumns, useProjects } from '../core/queries';
 import { useBulkTaskActions, useSavedViews } from '../core/my-tasks-queries';
+import { useServices } from '../core/providers';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useColors } from '../core/theme';
 import { Loader, EmptyState, ErrorNote, TextField, Button } from '../components/ui';
@@ -38,6 +39,7 @@ import {
 } from '../lib/my-tasks';
 import { BULK_LABELS, bulkProgressText, bulkResultText, clearDatesQuestion, type BulkAction } from '../lib/bulk-actions';
 import { formColumns } from '../lib/task-form';
+import { stillSignedIn } from '../lib/owned-write';
 import { companyTodayKey, dateZones, subscribeTimeZone } from '../lib/due-date';
 import { shiftDayKey, weekStartOf, fullDayLabel } from '../lib/calendar';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
@@ -121,6 +123,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
     return next;
   }), []);
   const bulk = useBulkTaskActions();
+  const { currentUserId } = useServices();
   const [busy, setBusy] = useState(false);
   // How far a run is ("12 of 150 done…"), and its Stop: the tasks after it stay as they are (final review A2).
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -133,16 +136,19 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
     setBusy(true);
     stopRun.current = false;
     setProgress({ done: 0, total: chosen.length });
+    // Who ran it: how it went is said to them only (final review A5).
+    const maker = currentUserId();
     try {
       const result = await bulk(
         chosen.map((r) => ({ id: r.task.id, projectId: r.task.projectId, version: r.task.version })),
         action,
         { onProgress: (done, total) => setProgress({ done, total }), shouldContinue: () => !stopRun.current },
       );
+      if (!stillSignedIn(maker, currentUserId())) return;
       setSelected(new Set());
       notice(bulkResultText(label, result));
     } catch {
-      notice('Bulk action failed. Please try again.');
+      if (stillSignedIn(maker, currentUserId())) notice('Bulk action failed. Please try again.');
     } finally {
       setBusy(false);
       setProgress(null);
