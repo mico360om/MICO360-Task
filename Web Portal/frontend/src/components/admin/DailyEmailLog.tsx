@@ -87,9 +87,16 @@ const SAY_AFTER_MS = 400;
 type Note = { ok: boolean; text: string };
 
 /** Lower case, without accents (and Arabic short-vowel marks): "João" finds "joao". */
-const fold = (s: string) => s.toLocaleLowerCase().normalize('NFKD').replace(/[̀-ًͯ-ٟ]/g, '');
-/** The words searched for, each to be found somewhere in the person's name, username or email. */
-const searchWords = (search: string) => fold(search).split(/\s+/).filter(Boolean);
+const fold = (s: string) => s.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f\u064b-\u065f]/g, '');
+/**
+ * The words searched for, each to be found somewhere in the person's name, username or email. A leading
+ * "@" is the username as the card shows it ("@skerr").
+ */
+const searchWords = (search: string) =>
+  fold(search)
+    .split(/\s+/)
+    .map((w) => w.replace(/^@/, ''))
+    .filter(Boolean);
 const foundBy = (p: DailyEmailOverviewPerson, words: string[]) => {
   if (!words.length) return true;
   const text = fold(`${p.name} ${p.username ?? ''} ${p.email}`);
@@ -190,6 +197,13 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   const matching = people.filter(matches).length;
   const refresh = () => qc.invalidateQueries({ queryKey: [OVERVIEW_KEY] });
   const actedOn = () => setKept(people.map((p) => p.userId));
+  // "Send today's emails now" sends to everyone: the list lets go of the cards kept in view and shows
+  // what matches as it goes (also for a run started elsewhere, once this page sees it running).
+  const letGo = () => setKept(null);
+  const running = Boolean(data?.run?.running);
+  useEffect(() => {
+    if (running) setKept(null);
+  }, [running]);
   const viewDay = isToday ? today : day;
 
   // Pages, in the browser (the overview has everyone for the day).
@@ -226,14 +240,17 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   }, [current]);
 
   // Read out once the list has settled after a change the person made (typing a search says it once),
-  // never because the list refreshed by itself.
+  // never because the list refreshed by itself. Emptied at once on the change, so the same words as
+  // before (another email, a day with as many people) are new words and are read out again.
   const shownText = listShownText({ from, to, total, page: current, pages, filtered, matching });
   const shownTextNow = useRef(shownText);
   shownTextNow.current = shownText;
   const said = useRef(0);
   const hasData = Boolean(data);
   useEffect(() => {
-    if (asked === said.current || q.isPlaceholderData || !hasData) return;
+    if (asked === said.current) return;
+    setListNote('');
+    if (q.isPlaceholderData || !hasData) return;
     const t = setTimeout(() => {
       said.current = asked;
       setListNote(shownTextNow.current);
@@ -272,7 +289,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
               </button>
             </p>
           ) : null}
-          <Summary data={data} timeZone={timeZone} isToday={isToday} day={day} onSent={refresh} />
+          <Summary data={data} timeZone={timeZone} isToday={isToday} day={day} onStart={letGo} onSent={refresh} />
 
           <div className="mb-3 mt-5 flex flex-wrap items-end gap-3">
             <label className="flex w-full flex-col gap-1 text-xs font-medium text-ink-2 sm:w-auto">
@@ -320,7 +337,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
             <p className="text-sm text-ink-2">No one matches these filters.</p>
           ) : (
             <>
-              {filtered ? <p className="mb-2 text-sm text-ink-2">{matchCountText(matching)}</p> : null}
+              {filtered ? <p className="mb-2 text-sm text-ink-2">{matchCountText(matching, matching < total)}</p> : null}
               <ul
                 ref={listRef}
                 aria-label="Everyone and their daily emails"
@@ -378,7 +395,22 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
  * Today's numbers (or the day's), the server's last check and next send, and "Send today's emails now":
  * the question closes at once, the server sends in the background, and this shows how far it has got.
  */
-function Summary({ data, timeZone, isToday, day, onSent }: { data: DailyEmailOverview; timeZone: string; isToday: boolean; day: string; onSent: () => void }) {
+function Summary({
+  data,
+  timeZone,
+  isToday,
+  day,
+  onStart,
+  onSent,
+}: {
+  data: DailyEmailOverview;
+  timeZone: string;
+  isToday: boolean;
+  day: string;
+  /** "Send today's emails now" was asked for. */
+  onStart: () => void;
+  onSent: () => void;
+}) {
   const [asking, setAsking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   // Read out (not shown twice): the start, a press while it runs, and how it went once it ends.
@@ -405,6 +437,7 @@ function Summary({ data, timeZone, isToday, day, onSent }: { data: DailyEmailOve
     onMutate: () => {
       setProblem(null);
       setAnnounce('');
+      onStart();
     },
     onSuccess: () => setAnnounce('Sending today’s emails in the background. This page shows how far it has got.'),
     onError: (e) => {

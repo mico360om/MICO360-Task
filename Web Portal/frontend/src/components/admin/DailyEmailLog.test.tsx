@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { DailyEmailLog } from './DailyEmailLog';
 import { useAuthStore } from '../../stores/auth-store';
+import { clearUserStorage } from '../../lib/user-storage';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -521,7 +522,7 @@ describe('System Settings → Daily task emails: pages', () => {
     expect(pager()).toHaveTextContent('Showing 21–40 of 63 people');
     expect(pager()).toHaveTextContent('Page 2 of 4');
     expect(screen.getByRole('heading', { name: 'Person 21' })).toHaveFocus();
-    await waitFor(() => expect(listNote()).toHaveTextContent('Showing 21–40 of 63 people. Page 2 of 4.'));
+    await waitFor(() => expect(listNote()).toHaveTextContent('Showing 21 to 40 of 63 people. Page 2 of 4.'));
     expect(button('Previous')).not.toHaveAttribute('aria-disabled');
 
     await user.click(button('Next'));
@@ -550,11 +551,12 @@ describe('System Settings → Daily task emails: pages', () => {
     expect(pager()).toHaveTextContent('Showing 1–50 of 63 people');
     expect(pager()).toHaveTextContent('Page 1 of 2');
     expect(per).toHaveFocus();
-    await waitFor(() => expect(listNote()).toHaveTextContent('Showing 1–50 of 63 people. Page 1 of 2.'));
+    await waitFor(() => expect(listNote()).toHaveTextContent('Showing 1 to 50 of 63 people. Page 1 of 2.'));
     await user.selectOptions(per, '100');
     expect(pager()).toHaveTextContent('Showing all 63 people');
     expect(within(pager()).queryByRole('button', { name: 'Next' })).not.toBeInTheDocument(); // one page: nothing to move between
     unmount();
+    clearUserStorage(); // signing out keeps it too
 
     renderIt();
     await loaded();
@@ -665,6 +667,69 @@ describe('System Settings → Daily task emails: pages', () => {
   });
 });
 
+describe('System Settings → Daily task emails: what the list says', () => {
+  const note = () => screen.getByRole('status', { name: 'What the list shows' });
+  const loaded = () => screen.findByRole('list', { name: 'Everyone and their daily emails' });
+  const sendFay = () => {
+    sendReply = (b) => {
+      withPeople([PEOPLE[0], PEOPLE[1], { ...PEOPLE[2], pending: emailOf({ state: 'SENT', sentAt: '2026-10-21T05:45:00.000Z', taskCount: 2, attempts: 5 }) }]);
+      return json({ data: { userId: b.userId, name: 'Fay Fisher', email: 'fay@mico360.test', day: '2026-10-21', time: '06:00', results: [{ kind: b.kind, outcome: 'sent', error: null, sentAt: '2026-10-21T05:45:00.000Z' }] } });
+    };
+  };
+
+  it('cards kept in view that no longer match: the count doesn’t say “no one” above them; “Send today’s emails now” lets go of them', async () => {
+    const user = userEvent.setup();
+    renderIt();
+    await loaded();
+    await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
+    sendFay();
+    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
+    const fay = await personItem('Fay Fisher');
+    await waitFor(() => expect(fay).toHaveTextContent('Sent at 09:45 · 2 tasks'));
+    expect(fay).toHaveTextContent('No longer matches the filter.');
+    expect(screen.getByText('No one else matches now')).toBeInTheDocument();
+    expect(screen.queryByText('No one matches')).not.toBeInTheDocument();
+    // Sending everyone's now: the list shows what matches as it goes.
+    await user.click(screen.getByRole('button', { name: 'Send today’s emails now' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Send now' }));
+    expect(await screen.findByText('No one matches these filters.')).toBeInTheDocument();
+  });
+
+  it('the same words are read out again after another change (another email; another day with as many people)', async () => {
+    const user = userEvent.setup();
+    renderIt();
+    await loaded();
+    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
+    await waitFor(() => expect(note()).toHaveTextContent('Showing all 3 people.'));
+    await user.selectOptions(screen.getByLabelText('Email'), 'COMPLETED');
+    expect(note().textContent).toBe(''); // emptied at once, so the same words are new again
+    await waitFor(() => expect(note()).toHaveTextContent('Showing all 3 people.'));
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-10-20' } });
+    expect(note().textContent).toBe('');
+    await screen.findByRole('region', { name: 'Summary for Tue 20 Oct' });
+    await waitFor(() => expect(note()).toHaveTextContent('Showing all 3 people.'));
+  });
+
+  it('a list that refreshes by itself (something being sent) reads nothing out', async () => {
+    const sending = emailOf({ state: 'SENDING', attempts: 1 });
+    withPeople([PEOPLE[0], { ...PEOPLE[2], pending: sending }]);
+    const user = userEvent.setup();
+    renderIt({ pollMs: 20 });
+    await loaded();
+    await waitFor(() => expect(overviewCalls().length).toBeGreaterThanOrEqual(3));
+    expect(note().textContent).toBe('');
+    await user.selectOptions(screen.getByLabelText('Status'), 'SENDING');
+    await waitFor(() => expect(note()).toHaveTextContent('1 person matches.'));
+    // Ada's is being sent too now: the list and its count change by themselves, quietly.
+    withPeople([{ ...PEOPLE[0], pending: sending }, { ...PEOPLE[2], pending: sending }]);
+    expect(await screen.findByText('2 people match')).toBeInTheDocument();
+    const seen = overviewCalls().length;
+    await waitFor(() => expect(overviewCalls().length).toBeGreaterThanOrEqual(seen + 3));
+    await new Promise((r) => setTimeout(r, 450)); // longer than the read-out waits
+    expect(note()).toHaveTextContent('1 person matches.');
+  });
+});
+
 describe('System Settings → Daily task emails: one email at a time', () => {
   const kindsShown = (li: HTMLElement) => within(li).queryAllByRole('button', { name: /^Preview / }).map((b) => b.getAttribute('aria-label'));
 
@@ -745,6 +810,9 @@ describe('System Settings → Daily task emails: finding a person', () => {
     await user.type(find(), 'skerr');
     expect(shownNames()).toEqual(['Sam Kerr']); // the username
     await user.clear(find());
+    await user.type(find(), '@skerr');
+    expect(shownNames()).toEqual(['Sam Kerr']); // as the card shows it
+    await user.clear(find());
     await user.type(find(), 'souza rachel');
     expect(shownNames()).toEqual(['Rachel Souza']);
     await user.clear(find());
@@ -779,5 +847,34 @@ describe('System Settings → Daily task emails: finding a person', () => {
     withPeople(FOUR);
     renderIt();
     expect(await personItem('Sam Kerr')).toHaveTextContent('@skerr · sam@mico360.test');
+  });
+
+  it('someone with no username (an older server): just their email, no “@…”', async () => {
+    withPeople([personOf({ ...FOUR[3], username: undefined })]);
+    renderIt();
+    const sam = await personItem('Sam Kerr');
+    expect(within(sam).getByText(/sam@mico360\.test/).textContent).toBe('sam@mico360.test');
+  });
+
+  it('accents either way round, and Arabic names with or without their vowel marks', async () => {
+    // The same name with its short-vowel marks (fatha, damma, shadda), and without them.
+    const marked = 'م\u064fح\u064eم\u0651\u064eد علي';
+    withPeople([
+      someone('u-jp', 'João Pereira', 'jpereira', 'jp@mico360.test'),
+      someone('u-js', 'Joao Silva', 'jsilva', 'js@mico360.test'),
+      someone('u-ma', marked, 'mali', 'ma@mico360.test'),
+      someone('u-ms', 'محمد سالم', 'msalem', 'ms@mico360.test'),
+    ]);
+    const user = userEvent.setup();
+    renderIt();
+    await screen.findByRole('list', { name: 'Everyone and their daily emails' });
+    await user.type(find(), 'joão');
+    expect(shownNames()).toEqual(['João Pereira', 'Joao Silva']);
+    await user.clear(find());
+    await user.type(find(), 'محمد');
+    expect(shownNames()).toEqual([marked, 'محمد سالم']);
+    await user.clear(find());
+    await user.type(find(), 'م\u064fح\u064eم\u0651\u064eد');
+    expect(shownNames()).toEqual([marked, 'محمد سالم']);
   });
 });
