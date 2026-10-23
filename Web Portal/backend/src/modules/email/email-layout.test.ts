@@ -232,6 +232,13 @@ describe('renderEmail — labels and a project with its tasks', () => {
     expect(model({ name: 'مشروع الإطلاق' }).html).toMatch(/<div dir="auto" class="email-text" style="text-align:left;[^"]*">مشروع الإطلاق</);
   });
 
+  it('writes the initials in near-black on a light colour such as amber, as the website does (white was 3.6:1)', () => {
+    expect(model({ color: '#B7791F' }).html).toMatch(/bgcolor="#B7791F" style="[^"]*color:#1f1a17[^"]*">RC</);
+    expect(model().html).toMatch(/bgcolor="#3A6EA5" style="[^"]*color:#FFFFFF[^"]*">RC</);
+    const minutes = renderEmail({ preheader: 'p', heading: 'h', blocks: [], identity: { name: 'Rig & Co', color: '#B7791F' } }).html;
+    expect(minutes).toMatch(/background:#B7791F;[^"]*color:#1f1a17[^"]*">RC</);
+  });
+
   it('takes initials from the words, not from brackets or signs', () => {
     expect(model({ name: '(Alpha) Beta' }).html).toMatch(/>AB</);
   });

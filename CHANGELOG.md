@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Project initials on the amber colour are now written in near-black instead of white, so they are
+  easy to read (white was too faint): on the website, in the Chrome extension and in the emails. Every
+  project colour now meets the usual readability standard (4.5:1).
+
 ## [1.10.0] - 2026-10-23
 
 ### New features

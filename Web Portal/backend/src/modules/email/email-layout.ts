@@ -81,6 +81,20 @@ function initialsOf(name: string): string {
   return letters.join('').toUpperCase();
 }
 
+/**
+ * White or near-black initials, whichever has more contrast on the colour (WCAG), as the website's
+ * project tiles do: white on amber (#B7791F) was only 3.6:1.
+ */
+function initialsInk(hex: string): string {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  const lum = 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
+  return (lum + 0.05) / (0.0109 + 0.05) > 1.05 / (lum + 0.05) ? '#1f1a17' : '#FFFFFF';
+}
+
 /** The header's mark and name for an identity: its picture (or initials on its colour) and name. */
 function identityHeader(id: EmailIdentity, brand: Brand, dir: 'ltr' | 'rtl'): string {
   const c = brand.colors;
@@ -88,7 +102,7 @@ function identityHeader(id: EmailIdentity, brand: Brand, dir: 'ltr' | 'rtl'): st
   const tile = /^#[0-9a-f]{6}$/i.test(id.color ?? '') ? id.color! : c.brand2;
   const mark = picture
     ? `<img src="${escapeHtml(picture)}" alt="${escapeHtml(id.name)}" width="48" height="48" style="display:block;border:0;width:48px;height:48px;border-radius:12px;background:#FFFFFF;object-fit:cover;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:${c.onBrand}"/>`
-    : `<div style="width:48px;height:48px;border-radius:12px;background:${tile};border:1px solid rgba(255,255,255,0.4);color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:800;line-height:48px;text-align:center">${escapeHtml(initialsOf(id.name))}</div>`;
+    : `<div style="width:48px;height:48px;border-radius:12px;background:${tile};border:1px solid rgba(255,255,255,0.4);color:${initialsInk(tile)};font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:800;line-height:48px;text-align:center">${escapeHtml(initialsOf(id.name))}</div>`;
   const gap = dir === 'rtl' ? 'padding-left:14px' : 'padding-right:14px';
   return `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
             <td valign="middle" style="${gap}">${mark}</td>
@@ -150,7 +164,7 @@ function projectTile(p: EmailProjectCard, color: string): string {
   const picture = safePicture(p.imageUrl);
   return picture
     ? `<img src="${escapeHtml(picture)}" alt="" width="42" height="42" style="display:block;border:0;width:42px;height:42px;border-radius:10px;object-fit:cover;font-family:Arial,Helvetica,sans-serif;font-size:11px"/>`
-    : `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="42" height="42" align="center" bgcolor="${color}" style="width:42px;height:42px;border-radius:10px;background:${color};color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:800;line-height:42px;text-align:center">${escapeHtml(initialsOf(p.name))}</td></tr></table>`;
+    : `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="42" height="42" align="center" bgcolor="${color}" style="width:42px;height:42px;border-radius:10px;background:${color};color:${initialsInk(color)};font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:800;line-height:42px;text-align:center">${escapeHtml(initialsOf(p.name))}</td></tr></table>`;
 }
 
 function renderBlockHtml(block: Block, brand: Brand, locale: Locale): string {

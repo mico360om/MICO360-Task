@@ -39,6 +39,22 @@ describe('initials and colours', () => {
     expect(readableOn('#8B1E1E')).toBe('#ffffff');
     expect(readableOn('#F2C94C')).toBe('#1f1a17');
   });
+  it('every colour on offer reads at 4.5:1 or better with the text colour it picks (WCAG AA)', () => {
+    const lum = (hex: string) => {
+      const n = parseInt(hex.slice(1), 16);
+      const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+        const s = c / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const ratio = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    for (const c of PROJECT_COLORS) expect(ratio(c, readableOn(c)), c).toBeGreaterThanOrEqual(4.5);
+    expect(readableOn('#B7791F')).toBe('#1f1a17'); // amber: white was 3.6:1
+  });
   it('offers a set of icons and colours', () => {
     expect(PROJECT_ICON_KEYS.length).toBeGreaterThanOrEqual(20);
     expect(PROJECT_COLORS.every((c) => /^#[0-9A-F]{6}$/i.test(c))).toBe(true);

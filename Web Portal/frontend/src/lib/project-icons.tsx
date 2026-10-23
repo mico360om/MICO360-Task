@@ -54,6 +54,9 @@ export function ProjectIconGlyph({ icon, size = 18, strokeWidth = 1.9 }: { icon:
 /** Colours on offer (all readable with the text colour readableOn picks). */
 export const PROJECT_COLORS = ['#8B1E1E', '#B5432E', '#C2410C', '#B7791F', '#4D7C0F', '#2E7D53', '#0F766E', '#0E7490', '#1E5A8B', '#4338CA', '#7A5AA8', '#9D174D', '#475569', '#1F2937'];
 
+/** Relative luminance of the near-black text colour #1f1a17. */
+const DARK_LUMINANCE = 0.0109;
+
 /** White or near-black, whichever reads better on the colour. */
 export function readableOn(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -64,7 +67,10 @@ export function readableOn(hex: string): string {
     return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
   });
   const lum = 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
-  return lum > 0.45 ? '#1f1a17' : '#ffffff';
+  // Whichever of the two has more contrast (WCAG): white on amber was only 3.6:1.
+  const onWhite = 1.05 / (lum + 0.05);
+  const onDark = (lum + 0.05) / (DARK_LUMINANCE + 0.05);
+  return onDark > onWhite ? '#1f1a17' : '#ffffff';
 }
 
 /** Two letters for the tile: the first letters of the first two words (any script). */
