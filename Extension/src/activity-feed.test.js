@@ -17,6 +17,8 @@ describe('the task timeline (activity, read-only), worded as on the web', () => 
     expect(buildTimeline([e('a1', 'ATTACHED', 'A', 1, { filename: 'report.pdf' })])[0].text).toBe('attached report.pdf');
     expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'A', 1, { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' })])[0].text)
       .toBe('moved this task from Rig Inspection (RIG-4) to Operations (OPS-17)');
+    expect(buildTimeline([e('a1', 'PROJECT_MOVED_OUT', 'A', 1, { key: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' })])[0].text).toBe('moved RIG-4 to Operations (OPS-17)');
+    expect(buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'milestone', from: true, to: false }] })])[0].text).toBe('cleared its milestone');
   });
 
   it('folds a quick run by one person into one line, newest first', () => {
@@ -64,6 +66,9 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['PROJECT_CHANGED', { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' }],
     ['PROJECT_CHANGED', { fromProject: 'Operations', fromKey: 'OPS-17', toProject: 'العمليات', toKey: 'OPR-2' }], ['PROJECT_CHANGED', { toProject: 'Operations' }],
     ['PROJECT_CHANGED', { fromKey: 'RIG-4', toKey: 'OPS-17' }], ['PROJECT_CHANGED'],
+    ['PROJECT_MOVED_OUT', { key: 'RIG-4', title: 'Inspect', toProject: 'Operations', toKey: 'OPS-17' }], ['PROJECT_MOVED_OUT', { toProject: 'Operations' }], ['PROJECT_MOVED_OUT'],
+    ['UPDATED', { changes: [{ field: 'milestone', from: true, to: false }] }], ['UPDATED', { changes: [{ field: 'milestone', from: false, to: true }] }],
+    ['UPDATED', { changes: [{ field: 'dueDate', from: null, to: '2026-10-24' }, { field: 'milestone', from: true, to: false }] }],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];

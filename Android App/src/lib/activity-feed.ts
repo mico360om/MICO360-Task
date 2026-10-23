@@ -129,6 +129,11 @@ function projectMoveText(e: FeedEntry): string {
   if (from && to) return `moved this task from ${from} to ${to}`;
   return to ? `moved this task to ${to}` : 'moved this task to another project';
 }
+/** The old project's line: "moved RIG-4 to Operations (OPS-17)" — by the key the task had there. */
+function movedOutText(e: FeedEntry): string {
+  const to = projectAndKey(e.meta?.toProject, e.meta?.toKey);
+  return `moved ${str(e.meta?.key) ?? 'a task'} to ${to ?? 'another project'}`;
+}
 
 interface Change {
   field: string;
@@ -157,6 +162,8 @@ function changeText(c: Change): string | null {
       if (from && !to) return 'stopped the repeat';
       return `changed the repeat to ${rule}`;
     }
+    case 'milestone':
+      return c.to ? 'made it a milestone' : 'cleared its milestone';
     default:
       return null;
   }
@@ -249,6 +256,7 @@ function toItem(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
     default:
       // A move to another project is a line of its own (never merged with status moves or edits).
       if (newest.action === 'PROJECT_CHANGED') return { ...base, text: projectMoveText(newest) };
+      if (newest.action === 'PROJECT_MOVED_OUT') return { ...base, text: movedOutText(newest) };
       return { ...base, text: OTHER_TEXT[newest.action] ?? (newest.action || '').toLowerCase().replace(/[._]/g, ' ') };
   }
 }

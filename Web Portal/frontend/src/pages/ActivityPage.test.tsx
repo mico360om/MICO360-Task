@@ -84,6 +84,19 @@ describe('ActivityPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /show all activity/i }));
     expect(screen.queryByText(/no .* activity/i)).not.toBeInTheDocument();
   });
+  it('the old project shows where its task went, by the key it had there (it may not be able to open it now)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{
+      id: 'a8', taskId: null, projectId: 'p1', userId: 'u1', action: 'PROJECT_MOVED_OUT', createdAt: new Date().toISOString(),
+      meta: { key: 'RIG-4', title: 'Inspect the rig', fromProject: 'Rig Inspection', toProject: 'Operations', toKey: 'OPS-17' },
+      actor: { id: 'u1', name: 'Aisha Khan' }, task: null, project: { id: 'p1', name: 'Rig Inspection' },
+    }] })));
+    renderPage();
+    expect(await screen.findByText('moved')).toBeInTheDocument();
+    expect(screen.getByText('a task')).toBeInTheDocument();
+    const second = screen.getByText(/RIG-4 to Operations \(OPS-17\)/);
+    expect(second.closest('p')).toHaveTextContent('Inspect the rig · RIG-4 to Operations (OPS-17) · Rig Inspection');
+  });
+
   it('a task moved to another project: from where (and its old key) to where', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{
       id: 'a9', taskId: 't4', projectId: 'p2', userId: 'u1', action: 'PROJECT_CHANGED', createdAt: new Date().toISOString(),

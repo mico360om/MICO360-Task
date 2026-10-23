@@ -51,6 +51,21 @@ describe('buildTimeline: one readable line per event', () => {
     expect(buildTimeline([e('a1', 'task.created', 'A', 1)])[0]).toMatchObject({ kind: 'created' });
     expect(buildTimeline([e('a1', 'SOMETHING_ELSE', 'A', 1)])[0]).toMatchObject({ kind: 'other', text: 'something else' });
   });
+  it('the old project’s line says where its task went', () => {
+    const left = { key: 'RIG-4', title: 'Inspect the rig', fromProject: 'Rig Inspection', toProject: 'Operations', toKey: 'OPS-17' };
+    expect(buildTimeline([e('a1', 'PROJECT_MOVED_OUT', 'Aisha Khan', 1, left)])[0]).toMatchObject({ kind: 'other', text: 'moved RIG-4 to Operations (OPS-17)' });
+    expect(buildTimeline([e('a1', 'PROJECT_MOVED_OUT', 'A', 1, { toProject: 'Operations', toKey: 'OPS-17' })])[0]!.text).toBe('moved a task to Operations (OPS-17)');
+    expect(buildTimeline([e('a1', 'PROJECT_MOVED_OUT', 'A', 1, { key: 'RIG-4' })])[0]!.text).toBe('moved RIG-4 to another project');
+  });
+  it('a milestone set or cleared', () => {
+    const one = (change: Record<string, unknown>) => buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [change] })])[0]!.text;
+    expect(one({ field: 'milestone', from: true, to: false })).toBe('cleared its milestone');
+    expect(one({ field: 'milestone', from: false, to: true })).toBe('made it a milestone');
+    // With the due date a move gives it: one line.
+    expect(buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'dueDate', from: null, to: '2026-10-24' }, { field: 'milestone', from: true, to: false }] })])[0]!.text).toBe(
+      'set the due date to 24 Oct 2026 and cleared its milestone',
+    );
+  });
   it('says where a task moved to another project, with the keys it had there and has now', () => {
     const moved = { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' };
     expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'Aisha Khan', 1, moved)])[0]).toMatchObject({
