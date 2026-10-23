@@ -288,7 +288,12 @@ describe('System Settings → Daily task emails: everyone and their settings', (
     await user.clear(screen.getByLabelText('Find a person'));
     await user.type(screen.getByLabelText('Find a person'), 'nobody');
     expect(screen.getByText('No one matches these filters.')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-10-20' } });
+    const dayField = screen.getByLabelText('Day');
+    dayField.focus();
+    fireEvent.change(dayField, { target: { value: '2026-10-20' } });
     await waitFor(() => expect(overviewCalls().at(-1)!.url).toContain('/admin/daily-emails/overview?day=2026-10-20'));
+    expect(screen.getByLabelText('Day')).toBe(dayField); // the field stays while the other day loads
+    expect(dayField).toHaveFocus();
+    expect(await screen.findByRole('region', { name: 'Summary for Tue 20 Oct' })).toBeInTheDocument();
   });
 });

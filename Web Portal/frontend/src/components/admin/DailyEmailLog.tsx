@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import {
   dailyEmailsApi,
@@ -70,6 +70,8 @@ export function DailyEmailLog() {
   const q = useQuery({
     queryKey: [OVERVIEW_KEY, isToday ? 'today' : day],
     queryFn: () => dailyEmailsApi(apiClient).overview(isToday ? undefined : day),
+    // Another day keeps this one on screen while it loads, so the filters (and focus in them) stay.
+    placeholderData: keepPreviousData,
   });
   // Only an answer with the overview's shape is used: an older server or a proxy page shows "Couldn't load".
   const data = isOverview(q.data) ? q.data : undefined;
@@ -140,12 +142,13 @@ export function DailyEmailLog() {
             </label>
           </div>
 
+          {q.isPlaceholderData ? <p className="mb-2 text-sm text-ink-2">Loading that day…</p> : null}
           {data.people.length === 0 ? (
             <p className="text-sm text-ink-2">No one has an email address to send to yet.</p>
           ) : people.length === 0 ? (
             <p className="text-sm text-ink-2">No one matches these filters.</p>
           ) : (
-            <ul aria-label="Everyone and their daily emails" className="flex flex-col gap-3">
+            <ul aria-label="Everyone and their daily emails" aria-busy={q.isPlaceholderData || undefined} className={`flex flex-col gap-3 ${q.isPlaceholderData ? 'opacity-60' : ''}`}>
               {people.map((p) => (
                 <PersonCard key={p.userId} person={p} emailEnabled={data.emailEnabled !== false} isToday={isToday} onSent={refresh} />
               ))}
@@ -278,7 +281,8 @@ function PersonCard({ person, emailEnabled, isToday, onSent }: { person: DailyEm
           />
         ))}
       </div>
-      <p role="status" className="mt-2 text-sm text-ink-2 empty:hidden">{note?.ok ? note.text : ''}</p>
+      {/* Always there (never display:none), so what it says is read out as it changes. */}
+      <p role="status" className={`text-sm text-ink-2 ${note?.ok ? 'mt-2' : ''}`}>{note?.ok ? note.text : ''}</p>
       {note && !note.ok ? <p role="alert" className="mt-2 text-sm text-danger">{note.text}</p> : null}
       {askResend && resendOf ? (
         <ConfirmDialog

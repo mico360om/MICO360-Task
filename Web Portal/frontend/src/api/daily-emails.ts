@@ -5,24 +5,6 @@ export type DailyEmailKind = 'PENDING' | 'COMPLETED';
 /** An email's state on a day: OFF (turned off), DUE (still to come), NONE (a past day, nothing recorded), or how it went. */
 export type DailyEmailState = 'OFF' | 'DUE' | 'NONE' | DailyEmailStatus;
 
-/** One morning email in the delivery log (administrators). */
-export interface DailyEmailLogRow {
-  id: string;
-  userId: string;
-  day: string;
-  kind: DailyEmailKind;
-  status: DailyEmailStatus;
-  attempts: number;
-  taskCount: number;
-  nextAttemptAt: string | null;
-  lastError: string | null;
-  sentAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  userName: string;
-  email: string;
-}
-
 /** One person's email on the day shown. */
 export interface DailyEmailOverviewEmail {
   /** Their setting now. */
@@ -99,12 +81,6 @@ export interface DailyEmailPreview {
 
 export function dailyEmailsApi(client: ApiClient) {
   return {
-    log: (filter: { day?: string; status?: DailyEmailStatus }) => {
-      const qs = new URLSearchParams();
-      if (filter.day) qs.set('day', filter.day);
-      if (filter.status) qs.set('status', filter.status);
-      return client.get<{ data: DailyEmailLogRow[]; meta?: { emailEnabled: boolean } }>(`/admin/daily-emails${qs.size ? `?${qs}` : ''}`);
-    },
     /** A day at a glance; without a day, each person's own today. */
     overview: (day?: string) =>
       client.get<{ data: DailyEmailOverview }>(`/admin/daily-emails/overview${day ? `?day=${encodeURIComponent(day)}` : ''}`).then((r) => r.data),
