@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
 import { projectsApi, type ProjectOverview, type ProjectStatus } from '../api/projects';
 import { apiClient } from '../api/client';
 import { ProjectCard } from '../components/projects/ProjectCard';
@@ -24,14 +23,12 @@ import {
   headerSummary,
   inTab,
   ownerOptions,
-  readListState,
   sortProjects,
   tabCounts,
-  writeListState,
-  type ProjectListState,
   type ProjectSort,
   type StatusTab,
 } from '../lib/project-list';
+import { useProjectListState } from '../lib/useProjectListState';
 
 /** Under ['projects'], so a project saved anywhere in the app refreshes the list too. */
 const OVERVIEW_KEY = ['projects', 'overview'] as const;
@@ -48,8 +45,9 @@ const EMPTY_TAB: Record<StatusTab, string> = {
   archived: 'No archived projects',
 };
 
+/** Owner and Sort: side by side at half width on a phone, their own width on a larger screen. */
 const SELECT_BOX =
-  'flex h-10 min-w-0 items-center gap-1.5 rounded-xl border border-line bg-surface ps-3 text-sm transition-colors focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20';
+  'flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-1.5 rounded-xl border border-line bg-surface ps-3 text-sm transition-colors focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20 sm:flex-none';
 const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 text-sm font-medium text-ink outline-none';
 
 /**
@@ -64,8 +62,7 @@ export function ProjectsPage() {
   const timeZone = useCompanyTimeZone();
   const now = useNow();
   const today = todayKey(timeZone, now);
-  const [params, setParams] = useSearchParams();
-  const state = readListState(params);
+  const [state, update] = useProjectListState();
   // The project form: null = closed, 'new' = create, a project = edit it.
   const [form, setForm] = useState<'new' | ProjectOverview | null>(null);
   const [archiving, setArchiving] = useState<ProjectOverview | null>(null);
@@ -95,10 +92,6 @@ export function ProjectsPage() {
       panelRef.current?.focus();
     }
   });
-
-  /** Change the list's state in the address. Typing in the search box replaces the entry instead of adding one per key. */
-  const update = (changes: Partial<ProjectListState>) =>
-    setParams((prev) => writeListState(prev, changes), { replace: 'q' in changes && params.has('q') });
 
   const invalidate = (id: string) => {
     void qc.invalidateQueries({ queryKey: ['projects'] });
@@ -221,7 +214,7 @@ export function ProjectsPage() {
         </div>
         <div className={SELECT_BOX}>
           <label htmlFor="pl-owner" className="flex-none text-ink-2">Owner</label>
-          <select id="pl-owner" value={state.owner} onChange={(e) => update({ owner: e.target.value })} className={`${SELECT} max-w-[12rem]`}>
+          <select id="pl-owner" value={state.owner} onChange={(e) => update({ owner: e.target.value })} className={`${SELECT} flex-1 sm:max-w-[12rem]`}>
             <option value="">Anyone</option>
             {owners.map((o) => (
               <option key={o.id} value={o.id}>{o.name}</option>
@@ -230,7 +223,7 @@ export function ProjectsPage() {
         </div>
         <div className={SELECT_BOX}>
           <label htmlFor="pl-sort" className="flex-none text-ink-2">Sort</label>
-          <select id="pl-sort" value={state.sort} onChange={(e) => update({ sort: e.target.value as ProjectSort })} className={SELECT}>
+          <select id="pl-sort" value={state.sort} onChange={(e) => update({ sort: e.target.value as ProjectSort })} className={`${SELECT} flex-1`}>
             {PROJECT_SORTS.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}

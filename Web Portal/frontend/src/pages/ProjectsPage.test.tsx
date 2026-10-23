@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProjectsPage } from './ProjectsPage';
@@ -97,7 +97,13 @@ const signIn = (roles: string[]) =>
 
 function Where() {
   const loc = useLocation();
-  return <p data-testid="where">{loc.pathname + loc.search}</p>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <p data-testid="where">{loc.pathname + loc.search}</p>
+      <button type="button" onClick={() => navigate(-1)}>Go back</button>
+    </>
+  );
 }
 
 function renderPage(at = '/projects') {
@@ -181,10 +187,38 @@ describe('ProjectsPage', () => {
     await userEvent.type(box, 'GULF portal');
     expect(cardNames()).toEqual(['Rig Inspection Portal']);
     expect(countLine()).toHaveTextContent('1 project · most overdue first');
-    expect(where()).toBe('/projects?q=GULF+portal');
+    await waitFor(() => expect(where()).toBe('/projects?q=GULF+portal'));
     await userEvent.clear(box);
     await userEvent.type(box, '2026-014');
     expect(cardNames()).toEqual(['Falcon CRM']);
+  });
+
+  it('keeps every key typed fast in the search box, while the address catches up', async () => {
+    renderPage();
+    await loaded();
+    const user = userEvent.setup({ delay: null });
+    const box = screen.getByRole('searchbox', { name: 'Search projects' });
+    await user.type(box, 'gulf portal');
+    expect(box).toHaveValue('gulf portal');
+    expect(cardNames()).toEqual(['Rig Inspection Portal']);
+    await waitFor(() => expect(where()).toBe('/projects?q=gulf+portal'));
+  });
+
+  it('follows Back: the previous tab and search come back from the address', async () => {
+    renderPage();
+    await loaded();
+    const box = screen.getByRole('searchbox', { name: 'Search projects' });
+    await userEvent.type(box, 'portal');
+    await waitFor(() => expect(where()).toBe('/projects?q=portal'));
+    await userEvent.click(tab(/^Archived/));
+    expect(cardNames()).toEqual(['Old Portal']);
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() => expect(tab(/^All/)).toHaveAttribute('aria-selected', 'true'));
+    expect(box).toHaveValue('portal');
+    expect(cardNames()).toEqual(['Rig Inspection Portal']);
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() => expect(box).toHaveValue(''));
+    expect(cardNames()).toHaveLength(5);
   });
 
   it('follows the search into the tab counts', async () => {
