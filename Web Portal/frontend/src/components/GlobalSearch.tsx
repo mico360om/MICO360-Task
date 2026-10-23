@@ -141,6 +141,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       return `Moved ${task.key} → ${col.name} ✓`;
     });
 
+  /** A found task's key — with the key it had, for a task that moved project ("OPS-17 (was RIG-4)"). */
+  const keyHint = (t: { key: string; formerKeys?: string[] }) => (t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key);
+
   const reset = () => {
     setTerm('');
     setDebounced('');
@@ -167,11 +170,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
 
     const r = q.data;
     if (searchEnabled && r) {
-      // A task that moved project shows the key it had too, so "RIG-4" finding OPS-17 makes sense.
-      for (const t of r.tasks.slice(0, 6)) {
-        const hint = t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key;
-        out.push({ id: `task-${t.id}`, group: 'Tasks', primary: t.title, hint, run: () => openTask(t.id) });
-      }
+      for (const t of r.tasks.slice(0, 6)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: t.title, hint: keyHint(t), run: () => openTask(t.id) });
       const looks = Array.isArray(projectsQ.data) ? projectsQ.data : [];
       for (const p of r.projects.slice(0, 5)) {
         const look = looks.find((x) => x.id === p.id);
