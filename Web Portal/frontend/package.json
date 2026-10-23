@@ -1,6 +1,6 @@
 {
   "name": "@mico360/frontend",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "type": "module",
   "description": "MICO360 Tasks web app (React + Vite + Tailwind).",
@@ -46,6 +46,6 @@
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.70.0",
     "vite": "^7.3.7",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }

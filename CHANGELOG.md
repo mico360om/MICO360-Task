@@ -14,6 +14,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-23
+
+### Security
+- The server's web framework (fastify) is updated to 5.12.7, which checks request headers more
+  strictly (CVE-2026-107832).
+- The address-checking library behind the sign-in rate limit (ip-address) is updated to 10.7.4, so an
+  address with a zone identifier can't be mistaken for another one (CVE-2026-111997).
+- The test tools (vitest 4.1.12) are updated, closing two weaknesses in the test runner's mocking
+  helper (CVE-2026-112949, CVE-2026-112950). They are used only when running the tests, never by the
+  live site.
+
 ## [1.8.0] - 2026-10-21
 
 ### New features
