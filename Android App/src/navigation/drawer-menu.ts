@@ -1,4 +1,4 @@
-import type { NavAction } from './nav-actions';
+import { ALL_PROJECTS_BOARD, type NavAction } from './nav-actions';
 import { WEBSITE_ONLY_PAGES } from '../lib/website';
 
 export interface DrawerItem {
@@ -12,11 +12,13 @@ export interface DrawerItem {
 
 /**
  * The side-drawer destinations: the bottom tabs first, in the tab bar's order (navigation/tabs),
- * with My Action Items under Meetings, then the screens the tabs don't reach.
+ * with the Kanban Board under My Tasks (as in the website's menu — final review B2) and My Action
+ * Items under Meetings, then the screens the tabs don't reach.
  */
 export const DRAWER_ITEMS: readonly DrawerItem[] = [
   { key: 'Dashboard', label: 'Home', icon: '🏠', action: { type: 'tab', tab: 'Dashboard' } },
   { key: 'MyTasks', label: 'My Tasks', icon: '✓', action: { type: 'tab', tab: 'MyTasks' } },
+  { key: 'AllBoard', label: 'Kanban Board', icon: '▦', action: ALL_PROJECTS_BOARD },
   { key: 'Projects', label: 'Projects', icon: '🗂', action: { type: 'tab', tab: 'Projects' } },
   { key: 'Meetings', label: 'Meetings', icon: '👥', action: { type: 'tab', tab: 'Meetings' } },
   { key: 'MyActionItems', label: 'My Action Items', icon: '☑', action: { type: 'stack', screen: 'MyActionItems' } },

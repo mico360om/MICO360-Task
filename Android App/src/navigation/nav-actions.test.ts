@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chatScreenId, meetingScreenId, targetToAction, taskScreenId } from './nav-actions';
+import { ALL_PROJECTS_BOARD, chatScreenId, meetingScreenId, targetToAction, taskScreenId } from './nav-actions';
 import { DRAWER_ITEMS, activeDrawerKey, actionRouteName, drawerItemsFor } from './drawer-menu';
 import { TAB_ITEMS } from './tabs';
 import { notificationToTarget } from '../lib/deep-link';
@@ -98,6 +98,16 @@ describe('drawer menu', () => {
     expect(activeDrawerKey('Calendar')).toBe('Calendar');
     expect(activeDrawerKey('SomethingElse')).toBeUndefined();
     expect(activeDrawerKey(undefined)).toBeUndefined();
+  });
+});
+
+describe('the menu’s Kanban Board (final review B2)', () => {
+  it('comes after My Tasks, as in the website’s menu, opens the All projects board and is lit while it is open', () => {
+    const keys = DRAWER_ITEMS.map((i) => i.key);
+    expect(keys.slice(keys.indexOf('MyTasks'), keys.indexOf('MyTasks') + 2)).toEqual(['MyTasks', 'AllBoard']);
+    expect(DRAWER_ITEMS.find((i) => i.key === 'AllBoard')).toMatchObject({ label: 'Kanban Board', action: ALL_PROJECTS_BOARD });
+    expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).toContain('AllBoard');
+    expect(activeDrawerKey('AllBoard')).toBe('AllBoard');
   });
 });
 
