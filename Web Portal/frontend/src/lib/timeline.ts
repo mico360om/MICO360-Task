@@ -1,4 +1,4 @@
-import type { ProjectHealth, TimelineProject } from '../api/planning';
+import type { ProjectHealth, TimelineMeeting, TimelineProject } from '../api/planning';
 import { shiftDayKey } from './due-date';
 
 /**
@@ -185,11 +185,13 @@ export interface BarSpan {
   endsAfter: boolean;
   /** No target: it fades out. */
   open: boolean;
+  /** How much of the shown bar is filled (0–100): the share done of the whole bar, start to target. */
+  fill: number;
 }
 
 /** A project's bar (start to the end of its target day, or open-ended) and, when late, the part past the target up to today. */
 export function barShape(
-  p: Pick<TimelineProject, 'start' | 'target' | 'health'>,
+  p: Pick<TimelineProject, 'start' | 'target' | 'health' | 'progress'>,
   range: { from: string; to: string },
   today: string,
 ): { bar: BarSpan | null; over: { left: number; width: number } | null } {
@@ -200,11 +202,14 @@ export function barShape(
     const a = xOf(from, range.from, total);
     const b = xOf(to, range.from, total);
     if (b <= 0 || a >= 100 || b <= a) return null;
-    return { left: clamp(a), width: clamp(b) - clamp(a), startsBefore: a < 0, endsAfter: b > 100 };
+    return { left: clamp(a), width: clamp(b) - clamp(a), startsBefore: a < 0, endsAfter: b > 100, a, b };
   };
   // Without a target the bar runs on past the last shown day.
   const s = span(p.start, p.target ? shiftDayKey(p.target, 1) : shiftDayKey(range.to, 2));
-  const bar = s ? { ...s, open: !p.target } : null;
+  // Without a target there is no whole to take a share of: the shown part is filled to the share done.
+  const fill = (x: NonNullable<typeof s>) =>
+    p.target ? Math.max(0, Math.min(100, ((x.a + ((x.b - x.a) * p.progress) / 100 - x.left) / x.width) * 100)) : p.progress;
+  const bar = s ? { left: s.left, width: s.width, startsBefore: s.startsBefore, endsAfter: s.endsAfter, open: !p.target, fill: fill(s) } : null;
   const late = p.health === 'late' && p.target ? span(shiftDayKey(p.target, 1), shiftDayKey(today, 1)) : null;
   return { bar, over: late ? { left: late.left, width: late.width } : null };
 }
@@ -298,6 +303,43 @@ export function nextLine(p: TimelineProject, today: string): string {
 export function targetLine(p: TimelineProject, today: string): string {
   if (!p.target) return 'No target date';
   return p.health === 'late' ? lateNote(p, today) : `Target ${shortDay(p.target, today)}`;
+}
+
+const WEEKDAY_DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+/** "Thu 22 Oct". */
+export const weekdayDay = (key: string) => WEEKDAY_DAY.format(new Date(`${key}T12:00:00.000Z`)).replace(',', '').replace('Sept', 'Sep');
+
+export interface MeetingMarker {
+  key: string;
+  first: string;
+  last: string;
+  meetings: TimelineMeeting[];
+}
+
+/**
+ * A project's meetings as markers: one per day where days are wide enough (Month), else one per
+ * shown week, so markers never overlap and each stays a full-size target.
+ */
+export function meetingMarkers(meetings: TimelineMeeting[], weeks: string[], by: 'day' | 'week'): MeetingMarker[] {
+  const groups = new Map<string, TimelineMeeting[]>();
+  for (const m of [...meetings].sort((a, b) => a.startAt.localeCompare(b.startAt))) {
+    const week = by === 'week' ? [...weeks].reverse().find((w) => w <= m.day && m.day <= shiftDayKey(w, 6)) : undefined;
+    const key = week ?? m.day;
+    groups.set(key, [...(groups.get(key) ?? []), m]);
+  }
+  return [...groups].map(([key, list]) => ({ key, first: list[0]!.day, last: list[list.length - 1]!.day, meetings: list }));
+}
+
+/** "Thu 22 Oct", "20–22 Oct" or "30 Oct – 1 Nov". */
+export function markerDays(g: Pick<MeetingMarker, 'first' | 'last'>): string {
+  if (g.first === g.last) return weekdayDay(g.first);
+  const [a, b] = [shortDay(g.first, g.first), shortDay(g.last, g.last)];
+  return g.first.slice(0, 7) === g.last.slice(0, 7) ? `${a.split(' ')[0]}–${b}` : `${a} – ${b}`;
+}
+
+/** "Meeting Design review, Tue 27 Oct", "3 meetings, 20–22 Oct". */
+export function markerLabel(g: MeetingMarker): string {
+  return g.meetings.length === 1 ? `Meeting ${g.meetings[0]!.title}, ${markerDays(g)}` : `${g.meetings.length} meetings, ${markerDays(g)}`;
 }
 
 /** "Today · 24 Oct". */

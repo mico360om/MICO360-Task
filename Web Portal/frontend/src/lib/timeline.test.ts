@@ -9,6 +9,9 @@ import {
   heatLevel,
   heatScale,
   lateNote,
+  markerDays,
+  markerLabel,
+  meetingMarkers,
   milestoneLine,
   monthMarks,
   nextLine,
@@ -169,6 +172,13 @@ describe('bar geometry', () => {
     expect(cut).toMatchObject({ left: 0, width: 100, startsBefore: true, endsAfter: true });
   });
 
+  it('fills a bar to the share done of the whole bar, also when its start is cut off', () => {
+    expect(barShape(tp('a', { start: '2026-10-12', target: '2026-10-25', progress: 40 }), range, TODAY).bar!.fill).toBeCloseTo(40, 5);
+    // 5 Sep → 4 Nov is 61 days; half done ends half a day into the shown weeks, which show 31 of its days.
+    expect(barShape(tp('b', { start: '2026-09-05', target: '2026-11-04', progress: 50 }), range, TODAY).bar!.fill).toBeCloseTo((0.5 / 31) * 100, 3);
+    expect(barShape(tp('c', { start: '2026-09-05', target: '2026-11-04', progress: 10 }), range, TODAY).bar!.fill).toBe(0);
+  });
+
   it('hatches a late project from the day after its target to the end of today', () => {
     const shape = barShape(tp('late', { start: '2026-10-05', target: '2026-10-21', health: 'late', daysLate: 3 }), range, TODAY);
     expect(shape.over!.left).toBeCloseTo((17 / 91) * 100, 2);
@@ -195,6 +205,41 @@ describe('bar geometry', () => {
     ]);
     // A first month with only a few days shown gives its label to the next one.
     expect(monthMarks('2026-10-26', '2027-01-24')[0]).toEqual({ key: '2026-11', label: 'November 2026', left: expect.closeTo((6 / 91) * 100, 3) });
+  });
+});
+
+describe('meeting markers', () => {
+  const m = (id: string, day: string, title = `Meeting ${id}`) => ({ id, title, startAt: `${day}T06:00:00.000Z`, day });
+  const weeks = ['2026-10-18', '2026-10-25', '2026-11-01'];
+  const list = [m('a', '2026-10-20'), m('b', '2026-10-22'), m('c', '2026-10-22'), m('d', '2026-10-30'), m('e', '2026-11-01', 'Kick-off')];
+
+  it('groups a project’s meetings by day when days are wide enough (Month)', () => {
+    const groups = meetingMarkers(list, weeks, 'day');
+    expect(groups.map((g) => [g.first, g.last, g.meetings.length])).toEqual([
+      ['2026-10-20', '2026-10-20', 1],
+      ['2026-10-22', '2026-10-22', 2],
+      ['2026-10-30', '2026-10-30', 1],
+      ['2026-11-01', '2026-11-01', 1],
+    ]);
+  });
+
+  it('groups them by week otherwise, so markers never overlap', () => {
+    const groups = meetingMarkers(list, weeks, 'week');
+    expect(groups.map((g) => [g.first, g.last, g.meetings.map((x) => x.id).join('')])).toEqual([
+      ['2026-10-20', '2026-10-22', 'abc'],
+      ['2026-10-30', '2026-10-30', 'd'],
+      ['2026-11-01', '2026-11-01', 'e'],
+    ]);
+  });
+
+  it('names a marker by its meeting, or how many and when', () => {
+    const [week, single] = [meetingMarkers(list, weeks, 'week')[0]!, meetingMarkers(list, weeks, 'week')[2]!];
+    expect(markerLabel(single)).toBe('Meeting Kick-off, Sun 1 Nov');
+    expect(markerLabel(meetingMarkers(list, weeks, 'day')[1]!)).toBe('2 meetings, Thu 22 Oct');
+    expect(markerLabel(week)).toBe('3 meetings, 20–22 Oct');
+    expect(markerDays(week)).toBe('20–22 Oct');
+    expect(markerDays({ first: '2026-10-30', last: '2026-11-01' })).toBe('30 Oct – 1 Nov');
+    expect(markerDays(single)).toBe('Sun 1 Nov');
   });
 });
 

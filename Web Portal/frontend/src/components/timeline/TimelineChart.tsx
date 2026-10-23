@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { CSSProperties, MouseEvent } from 'react';
-import type { TimelineMeeting, TimelineProject } from '../../api/planning';
+import type { TimelineProject } from '../../api/planning';
 import { ProjectAvatar } from '../ProjectAvatar';
 import {
   HEALTH_LABEL,
@@ -8,6 +8,8 @@ import {
   daysBetween,
   heatLevel,
   lateNote,
+  markerLabel,
+  meetingMarkers,
   monthMarks,
   riskLabel,
   shortDay,
@@ -21,17 +23,13 @@ import { BAR_TONE, HEAT, HealthPill } from './parts';
 export type TimelineDetail =
   | { kind: 'project'; projectId: string }
   | { kind: 'milestone'; projectId: string; milestoneId: string }
-  | { kind: 'meetings'; projectId: string; day: string };
+  | { kind: 'meetings'; projectId: string; first: string; last: string };
 
 export const detailKey = (d: TimelineDetail) =>
-  d.kind === 'project' ? `p:${d.projectId}` : d.kind === 'milestone' ? `m:${d.milestoneId}` : `d:${d.projectId}:${d.day}`;
+  d.kind === 'project' ? `p:${d.projectId}` : d.kind === 'milestone' ? `m:${d.milestoneId}` : `d:${d.projectId}:${d.first}`;
 
 /** The left column and the weeks, the same in every row. */
 const ROW = 'grid grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]';
-
-const WEEKDAY_DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
-/** "Thu 22 Oct". */
-export const meetingDay = (key: string) => WEEKDAY_DAY.format(new Date(`${key}T12:00:00.000Z`)).replace(',', '').replace('Sept', 'Sep');
 
 interface ChartProps {
   range: { from: string; to: string; weeks: string[] };
@@ -78,7 +76,12 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
             {backdrop}
             <div aria-hidden="true">
               {monthMarks(range.from, range.to).map((m) => (
-                <span key={m.key} className="absolute top-1.5 whitespace-nowrap ps-2 text-xs font-bold text-ink" style={{ left: `${m.left}%` }}>
+                <span
+                  key={m.key}
+                  className={`absolute top-1.5 whitespace-nowrap text-xs font-bold text-ink ${m.left > 85 ? 'pe-2' : 'ps-2'}`}
+                  // A month that begins near the end keeps its label inside the edge.
+                  style={m.left > 85 ? { right: 0 } : { left: `${m.left}%` }}
+                >
                   {m.label}
                 </span>
               ))}
@@ -137,7 +140,7 @@ function ProjectRow({
   onOpen,
 }: {
   p: TimelineProject;
-  range: { from: string; to: string };
+  range: { from: string; to: string; weeks: string[] };
   today: string;
   pct: (day: string) => number;
   halfDay: number;
@@ -150,9 +153,8 @@ function ProjectRow({
   const inRange = (day: string | null): day is string => day !== null && day >= range.from && day <= range.to;
   const label = p.health === 'at-risk' ? riskLabel(p) : `${p.progress}%`;
   const projectDetail: TimelineDetail = { kind: 'project', projectId: p.id };
-  // A day's meetings share one marker.
-  const days = new Map<string, TimelineMeeting[]>();
-  for (const m of p.meetings) days.set(m.day, [...(days.get(m.day) ?? []), m]);
+  // One marker a day where days are wide enough (Month), else one a week: markers never overlap.
+  const markers = meetingMarkers(p.meetings.filter((m) => inRange(m.day)), range.weeks, range.weeks.length > 6 ? 'week' : 'day');
   const end = over ? over.left + over.width : bar ? bar.left + bar.width : 0;
   const sub = subline(p, today);
 
@@ -182,8 +184,13 @@ function ProjectRow({
             className={`absolute top-3 h-6 rounded-md text-start transition-shadow hover:shadow-lift focus-visible:z-20 ${tone.track} ${bar.startsBefore ? 'rounded-s-none' : ''} ${bar.endsAfter ? 'rounded-e-none' : ''} ${bar.open ? 'fade-end' : ''}`}
             style={{ left: `${bar.left}%`, width: `${bar.width}%` } as CSSProperties}
           >
-            <span aria-hidden="true" className={`absolute inset-y-0 start-0 ${tone.fill} ${bar.startsBefore ? '' : 'rounded-s-md'} ${p.progress >= 100 && !bar.endsAfter ? 'rounded-e-md' : ''}`} style={{ width: `${p.progress}%` }} />
-            <span aria-hidden="true" className="pointer-events-none absolute start-1 top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] font-bold leading-4 text-ink shadow-sm">
+            <span aria-hidden="true" className={`absolute inset-y-0 start-0 ${tone.fill} ${bar.startsBefore ? '' : 'rounded-s-md'} ${bar.fill >= 100 && !bar.endsAfter ? 'rounded-e-md' : ''}`} style={{ width: `${bar.fill}%` }} />
+            {/* Beside the end of the done part — inside it once it is long — so a milestone at the start never covers it. */}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] font-bold leading-4 text-ink shadow-sm"
+              style={bar.fill >= 60 ? { right: `calc(${100 - bar.fill}% + 0.25rem)` } : { left: `calc(${bar.fill}% + 0.25rem)` }}
+            >
               {label}
             </span>
           </button>
@@ -204,27 +211,27 @@ function ProjectRow({
               aria-haspopup="dialog"
               aria-expanded={open === detailKey(detail)}
               aria-label={`Milestone ${m.title}, ${shortDay(m.date!, today)}, ${m.done ? 'reached' : 'not reached yet'}`}
-              className="absolute top-6 z-10 grid h-5 w-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-sm focus-visible:z-20"
+              className="absolute top-6 z-10 grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-sm focus-visible:z-20"
               style={{ left: `${pct(m.date!) + halfDay}%` }}
             >
               <span aria-hidden="true" className={`h-2.5 w-2.5 rotate-45 ring-2 ring-ink ${m.done ? 'bg-ink' : 'bg-surface'}`} />
             </button>
           );
         })}
-        {[...days].filter(([day]) => inRange(day)).map(([day, list]) => {
-          const detail: TimelineDetail = { kind: 'meetings', projectId: p.id, day };
+        {markers.map((g) => {
+          const detail: TimelineDetail = { kind: 'meetings', projectId: p.id, first: g.first, last: g.last };
           return (
             <button
-              key={day}
+              key={g.key}
               type="button"
               onClick={onOpen(detail)}
               aria-haspopup="dialog"
               aria-expanded={open === detailKey(detail)}
-              aria-label={list.length === 1 ? `Meeting ${list[0]!.title}, ${meetingDay(day)}` : `${list.length} meetings, ${meetingDay(day)}`}
-              className="absolute top-[2.6rem] z-10 flex -translate-x-1/2 gap-0.5 rounded-sm p-0.5"
-              style={{ left: `${pct(day) + halfDay}%` }}
+              aria-label={markerLabel(g)}
+              className="absolute top-[2.45rem] z-10 flex h-6 min-w-[1.5rem] -translate-x-1/2 items-center justify-center gap-0.5 rounded-sm px-0.5"
+              style={{ left: `${pct(g.first) + halfDay}%` }}
             >
-              {list.slice(0, 3).map((m) => (
+              {g.meetings.slice(0, 3).map((m) => (
                 <span key={m.id} aria-hidden="true" className="h-2 w-2 rounded-[2px] bg-meeting" />
               ))}
             </button>

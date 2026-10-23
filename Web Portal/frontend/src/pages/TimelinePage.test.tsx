@@ -64,7 +64,11 @@ let fail = false;
 
 function answer(url: string): TimelineData {
   const q = new URL(url, 'http://test.local').searchParams;
-  return { from: q.get('from')!, to: q.get('to')!, weekStart: 0, today: '2026-10-24', currentWeek: '2026-10-18', weeks: WEEKS, projects };
+  const from = q.get('from')!;
+  const to = q.get('to')!;
+  // The weeks asked for (the fixtures' figures are per week from 4 October).
+  const weeks = WEEKS.filter((w) => w >= from && w <= to);
+  return { from, to, weekStart: 0, today: '2026-10-24', currentWeek: '2026-10-18', weeks: weeks.length ? weeks : WEEKS, projects };
 }
 
 beforeEach(() => {
@@ -236,6 +240,29 @@ describe('TimelinePage', () => {
     expect(within(details).getAllByRole('link', { name: /Open meeting/ }).map((a) => a.getAttribute('href'))).toEqual(['/meetings/mt2', '/meetings/mt3']);
     await userEvent.click(screen.getByRole('button', { name: 'Meeting Design review, Tue 27 Oct' }));
     expect(await screen.findByRole('dialog', { name: 'Meetings · Tue 27 Oct' })).toHaveTextContent('Design review');
+  });
+
+  it('gives one meeting marker per week in a quarter, and one per day in a month', async () => {
+    const rig = PROJECTS.find((p) => p.id === 'rig')!;
+    projects = PROJECTS.map((p) =>
+      p.id === 'rig' ? { ...rig, meetings: [{ id: 'mt0', title: 'Kick-off', startAt: '2026-10-20T06:00:00.000Z', day: '2026-10-20' }, ...rig.meetings] } : p,
+    );
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: '3 meetings, 20–22 Oct' }));
+    expect(await screen.findByRole('dialog', { name: 'Meetings · 20–22 Oct' })).toHaveTextContent('Kick-off');
+    await userEvent.click(screen.getByRole('button', { name: 'Month' }));
+    expect(await screen.findByRole('button', { name: 'Meeting Kick-off, Tue 20 Oct' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2 meetings, Thu 22 Oct' })).toBeInTheDocument();
+  });
+
+  it('says how late a late project is in its details', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: /^Falcon CRM: late/ }));
+    const details = await screen.findByRole('dialog', { name: 'Falcon CRM' });
+    expect(details).toHaveTextContent('Target21 Oct · 3 days late');
+    expect(details).toHaveTextContent('Done17 of 20 tasks (85%)Overdue1 task');
   });
 
   it('pages a quarter at a time, and Today comes back; Month asks for six weeks', async () => {
