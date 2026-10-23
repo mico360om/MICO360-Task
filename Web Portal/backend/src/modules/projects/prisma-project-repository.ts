@@ -20,6 +20,8 @@ function toRecord(p: Project): ProjectRecord {
     startDate: p.startDate,
     targetDate: p.targetDate,
     notes: p.notes,
+    carryForward: p.carryForward,
+    defaultDueToday: p.defaultDueToday,
     createdById: p.createdById,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -48,6 +50,8 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
             startDate: data.startDate ?? undefined,
             targetDate: data.targetDate ?? undefined,
             notes: data.notes ?? undefined,
+            carryForward: data.carryForward ?? undefined,
+            defaultDueToday: data.defaultDueToday ?? undefined,
             columns: { create: DEFAULT_COLUMNS.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
           },
         });

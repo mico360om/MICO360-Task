@@ -35,6 +35,8 @@ function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember
         startDate: data.startDate ?? null,
         targetDate: data.targetDate ?? null,
         notes: data.notes ?? null,
+        carryForward: data.carryForward ?? true,
+        defaultDueToday: data.defaultDueToday ?? false,
         createdById: data.createdById,
         createdAt: now,
         updatedAt: now,

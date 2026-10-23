@@ -20,6 +20,10 @@ export interface ProjectRecord {
   startDate: Date | null;
   targetDate: Date | null;
   notes: string | null;
+  /** Each night, its unfinished tasks on past days move to today's board (see ProjectTaskSettings). */
+  carryForward: boolean;
+  /** A task added without a due date gets today's date (see ProjectTaskSettings). */
+  defaultDueToday: boolean;
   createdById: string;
   createdAt: Date;
   updatedAt: Date;
@@ -40,6 +44,8 @@ export interface CreateProjectData {
   startDate?: Date | null;
   targetDate?: Date | null;
   notes?: string | null;
+  carryForward?: boolean;
+  defaultDueToday?: boolean;
   createdById: string;
 }
 
@@ -58,6 +64,9 @@ export interface UpdateProjectData {
   startDate?: Date | null;
   targetDate?: Date | null;
   notes?: string | null;
+  /** Absent = unchanged (older apps send updates without the task settings). */
+  carryForward?: boolean;
+  defaultDueToday?: boolean;
 }
 
 /** The board every new project starts with (positions 0..n, in this order). */

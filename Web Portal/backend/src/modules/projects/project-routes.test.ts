@@ -10,7 +10,7 @@ import type { AuditService } from '../audit/audit-service';
 // Tasks the stub task service reports for the progress endpoint.
 let projectTasks: { columnCategory?: string | null; dueDate?: Date | null }[] = [];
 // Captured audit records for assertions.
-let auditRecords: { userId?: string | null; action: string; module: string; entityId?: string | null }[] = [];
+let auditRecords: { userId?: string | null; action: string; module: string; entityId?: string | null; newValue?: unknown }[] = [];
 
 function inMemoryRepo(): ProjectRepository {
   const rows = new Map<string, ProjectRecord>();
@@ -35,6 +35,9 @@ function inMemoryRepo(): ProjectRepository {
         startDate: data.startDate ?? null,
         targetDate: data.targetDate ?? null,
         notes: data.notes ?? null,
+        // Stored as given: the service fills in what a new project starts with.
+        carryForward: data.carryForward as boolean,
+        defaultDueToday: data.defaultDueToday as boolean,
         createdById: data.createdById,
         createdAt: now,
         updatedAt: now,
@@ -269,5 +272,54 @@ describe('Project number', () => {
   it('refuses a number longer than 40 characters', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'RIG1', name: 'Rig', number: 'x'.repeat(41) } });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('Project task settings (carry-forward, due today)', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+  const post = async (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload });
+  const put = async (id: string, payload: Record<string, unknown>, roles = ['ADMIN']) =>
+    app.inject({ method: 'PUT', url: `/api/v1/projects/${id}`, headers: { authorization: `Bearer ${await token(roles)}` }, payload });
+
+  it('a new project carries forward and leaves due dates alone unless told otherwise', async () => {
+    const res = await post({ code: 'PLAIN', name: 'Plain' });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ carryForward: true, defaultDueToday: false });
+  });
+
+  it('takes both settings when the project is created, and returns them', async () => {
+    const res = await post({ code: 'SET', name: 'Set', carryForward: false, defaultDueToday: true });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ carryForward: false, defaultDueToday: true });
+    const read = await app.inject({ method: 'GET', url: `/api/v1/projects/${res.json().data.id}`, headers: await admin() });
+    expect(read.json().data).toMatchObject({ carryForward: false, defaultDueToday: true });
+  });
+
+  it('an update without them (older apps) leaves them as they were; one with them changes just those', async () => {
+    const id = (await post({ code: 'KEEP', name: 'Keep', defaultDueToday: true })).json().data.id;
+    const renamed = await put(id, { name: 'Kept' });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().data).toMatchObject({ name: 'Kept', carryForward: true, defaultDueToday: true });
+    const off = await put(id, { carryForward: false });
+    expect(off.json().data).toMatchObject({ name: 'Kept', carryForward: false, defaultDueToday: true });
+  });
+
+  it('accepts only true or false', async () => {
+    const id = (await post({ code: 'BOOL', name: 'Bool' })).json().data.id;
+    expect((await put(id, { carryForward: 'no' })).statusCode).toBe(400);
+    expect((await put(id, { defaultDueToday: 1 })).statusCode).toBe(400);
+    expect((await post({ code: 'BAD', name: 'Bad', defaultDueToday: 'yes' })).statusCode).toBe(400);
+  });
+
+  it('only those who may edit the project (admins) can change them', async () => {
+    const id = (await post({ code: 'GUARD', name: 'Guard' })).json().data.id;
+    expect((await put(id, { carryForward: false }, ['EMPLOYEE'])).statusCode).toBe(403);
+  });
+
+  it('a change is written to the audit log like any other project change', async () => {
+    const id = (await post({ code: 'AUD', name: 'Audited' })).json().data.id;
+    await put(id, { defaultDueToday: true, carryForward: false });
+    const update = auditRecords.find((r) => r.action === 'project.update');
+    expect(update).toMatchObject({ module: 'projects', entityId: id, newValue: { defaultDueToday: true, carryForward: false } });
   });
 });

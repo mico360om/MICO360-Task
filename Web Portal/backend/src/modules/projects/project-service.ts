@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError } from '../../lib/http-errors';
 import type { CreateProjectData, ProjectRecord, ProjectRepository, UpdateProjectData } from './project-repository';
 import { CODE_PATTERN, normalizeCode, suggestFreeCode } from './project-icons';
+import { PROJECT_TASK_DEFAULTS } from './project-task-settings';
 
 export interface ProjectServiceDeps {
   projects: ProjectRepository;
@@ -13,7 +14,13 @@ export function createProjectService({ projects }: ProjectServiceDeps) {
   async function createProject(input: CreateProjectData): Promise<ProjectRecord> {
     const code = normalizeCode(input.code);
     if (await codeInUse(code)) throw new ConflictError(`The code ${code} is already used by another project (or a deleted one).`, 'DUPLICATE_PROJECT_CODE');
-    return projects.create({ ...input, code });
+    // Settings left out take what every project starts with (carry forward on, due today off).
+    return projects.create({
+      ...input,
+      code,
+      carryForward: input.carryForward ?? PROJECT_TASK_DEFAULTS.carryForward,
+      defaultDueToday: input.defaultDueToday ?? PROJECT_TASK_DEFAULTS.defaultDueToday,
+    });
   }
 
   /** Before saving: is this code well formed and free? If taken, the first free variant. */
