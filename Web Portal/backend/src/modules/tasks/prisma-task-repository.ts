@@ -12,6 +12,7 @@ import type { RecurrenceRule } from './recurrence';
 import type { CarryForwardRepo } from './carry-forward-service';
 import type { CarryLogEntry } from './board-date';
 import { paletteColorFor } from './tag-repository';
+import { highestKeyNumberIn } from './task-keys';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
@@ -90,14 +91,14 @@ export function isTaskKeyConflict(err: unknown): boolean {
  * in it or moved into it, deleted ones too — and the old keys of tasks that moved out. The next key is
  * this + 1. The highest, not a count: a gap (a number a create or move skipped) never makes the next
  * one collide, and a fresh read after losing a race to another task gives exactly the next number.
+ * The keys are compared as numbers here (task-keys), not in SQL, so MySQL and PostgreSQL agree.
  */
-export async function highestKeyNumber(db: Pick<PrismaClient, '$queryRaw'> | Prisma.TransactionClient, projectId: string): Promise<number> {
-  const rows = await db.$queryRaw<{ highest: bigint | number | null }[]>`
-    SELECT GREATEST(
-      COALESCE((SELECT MAX(CAST(SUBSTRING_INDEX(t.\`key\`, '-', -1) AS UNSIGNED)) FROM tasks t WHERE t.projectId = ${projectId}), 0),
-      COALESCE((SELECT MAX(CAST(SUBSTRING_INDEX(a.\`key\`, '-', -1) AS UNSIGNED)) FROM task_key_aliases a WHERE a.projectId = ${projectId}), 0)
-    ) AS highest`;
-  return Number(rows[0]?.highest ?? 0);
+export async function highestKeyNumber(db: Pick<PrismaClient, 'task' | 'taskKeyAlias'> | Prisma.TransactionClient, projectId: string): Promise<number> {
+  const [tasks, oldKeys] = await Promise.all([
+    db.task.findMany({ where: { projectId }, select: { key: true } }),
+    db.taskKeyAlias.findMany({ where: { projectId }, select: { key: true } }),
+  ]);
+  return highestKeyNumberIn([...tasks, ...oldKeys].map((k) => k.key));
 }
 
 /** True when `key` was a task's key before it moved project: it is never given to another task. */
