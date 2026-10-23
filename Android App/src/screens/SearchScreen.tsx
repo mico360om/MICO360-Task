@@ -4,12 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useSearch } from '../core/search-queries';
+import { useStartDirect } from '../core/chat-features';
 import { useDebouncedValue } from '../core/useDebounced';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { SEARCH_DEBOUNCE_MS, exactTask, routeOf, searchEnabled, searchItems, searchStatus, type SearchItem } from '../lib/search';
 import { openWebsitePage } from '../adapters/website';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
-import type { AppScreenProps, AppStackParamList } from '../navigation/types';
+import type { AppScreenProps } from '../navigation/types';
 
 const RESULT_GROUPS = new Set(['Tasks', 'Projects', 'People', 'Meetings']);
 
@@ -36,8 +37,13 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+  const go = (name: string, params: object | undefined) => (navigation.navigate as unknown as (n: string, p?: object) => void)(name, params);
+  // A person's chat opens as the Chat tab opens it (final review B1): the one you have at once
+  // (offline too), a new one started — and added to the inbox, so the thread knows it is a direct one.
+  const direct = useStartDirect((id, name) => go('ChatThread', { conversationId: id, title: name }));
   const status =
     message ??
+    direct.error ??
     searchStatus({ term, debounced, loading: asked && searchQ.isFetching && !searchQ.data, error: asked && searchQ.isError && !searchQ.data ? searchQ.error : null, resultCount });
 
   const sections = useMemo(() => {
@@ -50,11 +56,10 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
     return out;
   }, [items]);
 
-  const go = (name: string, params: object | undefined) => (navigation.navigate as unknown as (n: string, p?: object) => void)(name, params);
-
   async function open(item: SearchItem) {
-    if (busy) return;
+    if (busy || direct.opening) return;
     setMessage(null);
+    direct.clearError();
     const t = item.target;
     if (t.kind === 'screen') {
       const route = routeOf(t.action);
@@ -65,27 +70,23 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
       openWebsitePage(baseUrl, t.path);
       return;
     }
+    if (t.kind === 'directMessage') {
+      void direct.open(t.userId, t.name);
+      return;
+    }
     setBusy(item.id);
     try {
-      if (t.kind === 'openKey') {
-        // Exactly that key: search finds WEB-50 for WEB-5 too.
-        const task = exactTask(await resources.search(t.key), t.key);
-        if (task) go('TaskDetail', { taskId: task.id, title: task.title });
-        else setMessage(`No task ${t.key}.`);
-      } else {
-        const conversation = await resources.chat.startDirect(t.userId);
-        const params: AppStackParamList['ChatThread'] = { conversationId: conversation.id, title: t.name };
-        go('ChatThread', params);
-      }
+      // Exactly that key: search finds WEB-50 for WEB-5 too.
+      const task = exactTask(await resources.search(t.key), t.key);
+      if (task) go('TaskDetail', { taskId: task.id, title: task.title });
+      else setMessage(`No task ${t.key}.`);
     } catch (e) {
       setMessage(
         isNetworkError(e)
           ? 'You’re offline — this needs a connection.'
           : e instanceof ApiError && e.status < 500 && e.code !== 'ERROR' && e.message
             ? e.message
-            : t.kind === 'openKey'
-              ? 'Couldn’t open the task. Please try again.'
-              : 'Couldn’t open the chat. Please try again.',
+            : 'Couldn’t open the task. Please try again.',
       );
     } finally {
       setBusy(null);
@@ -101,6 +102,7 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
           onChangeText={(v) => {
             setTerm(v);
             setMessage(null);
+            direct.clearError();
           }}
           placeholder="Search or type a command…"
           placeholderTextColor={c.ink3}
@@ -118,6 +120,7 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
             onPress={() => {
               setTerm('');
               setMessage(null);
+              direct.clearError();
               inputRef.current?.focus();
             }}
             accessibilityRole="button"
@@ -145,29 +148,33 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
             {section.title}
           </Text>
         )}
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => void open(item)}
-            disabled={!!busy}
-            accessibilityRole={item.target.kind === 'website' ? 'link' : 'button'}
-            accessibilityLabel={item.label}
-            accessibilityState={{ busy: busy === item.id, disabled: !!busy && busy !== item.id }}
-            style={({ pressed }) => [s.row, pressed && s.pressed]}
-          >
-            {item.hint && item.target.kind !== 'website' ? <Text style={s.hint}>{item.hint}</Text> : null}
-            <View style={s.flex}>
-              <Text style={s.primary} numberOfLines={2}>
-                {item.primary}
-              </Text>
-              {item.secondary || item.target.kind === 'website' ? (
-                <Text style={s.secondary} numberOfLines={2}>
-                  {item.secondary ?? item.hint}
+        renderItem={({ item }) => {
+          const opening = busy === item.id || (item.target.kind === 'directMessage' && direct.opening === item.target.userId);
+          const waiting = !!busy || !!direct.opening;
+          return (
+            <Pressable
+              onPress={() => void open(item)}
+              disabled={waiting}
+              accessibilityRole={item.target.kind === 'website' ? 'link' : 'button'}
+              accessibilityLabel={item.label}
+              accessibilityState={{ busy: opening, disabled: waiting && !opening }}
+              style={({ pressed }) => [s.row, pressed && s.pressed]}
+            >
+              {item.hint && item.target.kind !== 'website' ? <Text style={s.hint}>{item.hint}</Text> : null}
+              <View style={s.flex}>
+                <Text style={s.primary} numberOfLines={2}>
+                  {item.primary}
                 </Text>
-              ) : null}
-            </View>
-            {busy === item.id ? <ActivityIndicator color={c.brand} /> : item.target.kind === 'website' ? <Text style={s.out}>↗</Text> : null}
-          </Pressable>
-        )}
+                {item.secondary || item.target.kind === 'website' ? (
+                  <Text style={s.secondary} numberOfLines={2}>
+                    {item.secondary ?? item.hint}
+                  </Text>
+                ) : null}
+              </View>
+              {opening ? <ActivityIndicator color={c.brand} /> : item.target.kind === 'website' ? <Text style={s.out}>↗</Text> : null}
+            </Pressable>
+          );
+        }}
       />
     </SafeAreaView>
   );

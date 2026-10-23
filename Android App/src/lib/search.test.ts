@@ -155,6 +155,21 @@ describe('search: opening a result on the phone', () => {
   });
 });
 
+describe('search: a person’s chat opens as the Chat tab opens it (final review B1)', () => {
+  const screen = readFileSync(resolve(__dirname, '../screens/SearchScreen.tsx'), 'utf8');
+
+  it('through the app’s one way of opening a direct chat: the one you have opens offline too, a new one is added to the inbox', () => {
+    expect(screen).toMatch(/const direct = useStartDirect\(\(id, name\) => go\('ChatThread', \{ conversationId: id, title: name \}\)\);/);
+    expect(screen).toMatch(/if \(t\.kind === 'directMessage'\) \{\s+void direct\.open\(t\.userId, t\.name\);\s+return;\s+\}/);
+    expect(screen).not.toMatch(/startDirect\(/);
+  });
+
+  it('says why it couldn’t, and shows it opening', () => {
+    expect(screen).toMatch(/message \?\?\s+direct\.error \?\?/);
+    expect(screen).toMatch(/direct\.opening === item\.target\.userId/);
+  });
+});
+
 const webSearch = resolve(__dirname, '../../../Web Portal/frontend/src/components/GlobalSearch.tsx');
 describe.skipIf(!existsSync(webSearch))('the same groups, numbers and wait as the website’s search', () => {
   it('reads them from the website’s search box', () => {
