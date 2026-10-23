@@ -168,7 +168,7 @@ components:
         managedProjectIds:
           type: array
           items: { type: string }
-          description: The projects the caller manages (a MANAGER member), whatever their status. Their tasks may be moved out. Empty for an administrator.
+          description: "The projects the caller manages (its owner, its named manager or a MANAGER member), whatever their status. Their tasks may be moved out. Empty for an administrator."
         projects:
           type: array
           items: { $ref: '#/components/schemas/MoveProject' }
@@ -203,6 +203,7 @@ components:
         reason: { type: string, nullable: true, example: You need to manage Admin to move its tasks. }
         newKey: { type: string, nullable: true, example: OPS-17, description: 'The key it would get: the next number now, in order for several tasks. A task created there at the same moment can take it; the move then takes the next.' }
         currentCategory: { type: string, nullable: true, description: The status category of the column it is in now. }
+        completed: { type: boolean, description: 'It is completed now: moved to an open column it is re-opened; an open task moved to a Done column is completed.' }
         columnId: { type: string, nullable: true, description: 'Where it goes unless another column is chosen.' }
         milestoneCleared: { type: boolean, description: 'It is a milestone: moving clears it (milestones belong to their project).' }
         dueDate: { type: string, nullable: true, example: '2026-10-24', description: "The due day it gets from the new project's \"New tasks are due today\" (it has none now)." }
@@ -232,6 +233,7 @@ components:
         unassigned: { type: array, items: { $ref: '#/components/schemas/MovePerson' } }
         milestoneCleared: { type: boolean }
         dueDateSet: { type: string, nullable: true, example: '2026-10-24' }
+        statusChange: { type: string, nullable: true, enum: [COMPLETED, REOPENED], description: 'The move completed the task (into a Done column) or re-opened it (out of one).' }
     BulkMoveResult:
       type: object
       properties:
@@ -467,7 +469,8 @@ paths:
       summary: Where the caller may move tasks to another project
       description: >
         Administrators may move any task; anyone else needs to manage both the task's project and the one
-        it goes to (a MANAGER member of each). Tasks go only into open projects: not completed or archived.
+        it goes to (its owner, its named manager or a MANAGER member of each). Tasks go only into open
+        projects: not completed or archived.
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/MoveTargets' } } } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -495,8 +498,12 @@ paths:
         Comments, files, checklist, history, watchers, blockers and the meeting link go with it; its board
         day stays; a milestone is cleared; an undated task gets today where new tasks are due today. Its
         completion follows the column (a Done column completes it). The newest copy of a repeating task
-        takes its series along. The old project's board hears task:updated, the new one's task:created;
-        the people following the task are notified (TASK_STATUS, "RIG-4 moved to Operations").
+        takes its series along. Its history is filed under the new project, with UNASSIGNED lines for
+        people taken off, an UPDATED line for a due date given or a milestone cleared, and PROJECT_CHANGED;
+        the old project keeps a PROJECT_MOVED_OUT line (on no task) saying where it went. The move is
+        saved only if the task is unchanged since it was read. The old project's board hears
+        task:updated, the new one's task:created; the people following the task get one notice
+        (TASK_STATUS, "RIG-4 moved to Operations", "… and marked complete" / "… and reopened").
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MoveInput' } } } }
       responses:
@@ -504,7 +511,7 @@ paths:
         '400': { description: 'VALIDATION (e.g. a column of another project), SAME_PROJECT, PROJECT_CLOSED or NO_COLUMNS' }
         '403': { description: 'FORBIDDEN: the caller does not manage both projects (and is not an administrator)' }
         '404': { description: Task or project not found (a task the caller can't see is not found) }
-        '409': { description: 'ASSIGNEES_NOT_ON_TEAM (choose `assignees`; details.people names them), TASK_MOVED (someone else moved it first) or TASK_KEY_CONFLICT' }
+        '409': { description: 'ASSIGNEES_NOT_ON_TEAM (choose `assignees`; details.people names them), TASK_MOVED (someone else moved it first), VERSION_CONFLICT (it changed since it was read) or TASK_KEY_CONFLICT' }
   /tasks/move-to-project:
     post:
       summary: Move several tasks to another project, with a result for each
