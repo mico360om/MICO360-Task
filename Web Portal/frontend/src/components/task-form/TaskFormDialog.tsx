@@ -11,6 +11,7 @@ import { tasksApi, type ApiTask, type NewTaskInput, type Priority, type Recurren
 import { ApiError } from '../../lib/api-client';
 import { todayKey } from '../../lib/due-date';
 import { dueInputValue } from '../../lib/due-display';
+import { DUE_TODAY_NOTE, willBeDueToday } from '../../lib/default-due';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { enqueueOffline } from '../../lib/offline-replay';
@@ -127,7 +128,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), titleErr: useId(), untilErr: useId(), owner: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId() };
 
   const start = (): Draft =>
     task
@@ -270,6 +271,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       : ownerName
         ? `Nobody picked — the task will go to ${ownerName}, the project owner.`
         : 'Nobody picked — the task will be unassigned.';
+
+  // ── When ──
+  // A new task left without a date gets today's from its project (the server does it); an edit never
+  // does — a date cleared on purpose stays cleared.
+  const dueToday = !editing && willBeDueToday(project, draft.dueDate);
 
   // ── Repeat ──
   const inSeries = !!(task?.recurrenceRule || task?.recurrenceParentId);
@@ -557,7 +563,15 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 </div>
                 <div className="min-w-0">
                   <Label htmlFor={ids.due} optional>Due date</Label>
-                  <input id={ids.due} type="date" value={draft.dueDate} onChange={(e) => set({ dueDate: e.target.value })} className={`${fieldClass()} h-11`} />
+                  <input
+                    id={ids.due}
+                    type="date"
+                    value={draft.dueDate}
+                    onChange={(e) => set({ dueDate: e.target.value })}
+                    aria-describedby={dueToday ? ids.dueNote : undefined}
+                    className={`${fieldClass()} h-11`}
+                  />
+                  {dueToday ? <p id={ids.dueNote} className="mt-1 text-xs text-ink-2">{DUE_TODAY_NOTE}</p> : null}
                 </div>
                 <div className="min-w-0">
                   <Label>Repeat</Label>

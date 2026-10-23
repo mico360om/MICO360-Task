@@ -7,6 +7,7 @@ import { membersApi } from '../api/members';
 import { ApiError } from '../lib/api-client';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { noteWords } from '../lib/rich-note';
+import { DUE_TODAY_NOTE, willBeDueToday } from '../lib/default-due';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
@@ -66,6 +67,8 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
     () => (Array.isArray(projectsQ.data) ? projectsQ.data : []).map(projectOption),
     [projectsQ.data],
   );
+  // Left without a date, the task gets today's from a project with "New tasks are due today".
+  const dueToday = willBeDueToday((Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === projectId), dueDate);
   const assigneeOptions = useMemo(
     () => [
       { value: '', label: 'Unassigned' },
@@ -177,7 +180,8 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <FieldLabel htmlFor="ctn-due">Due date</FieldLabel>
-                    <input id="ctn-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={fieldClass(false)} />
+                    <input id="ctn-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} aria-describedby={dueToday ? 'ctn-due-note' : undefined} className={fieldClass(false)} />
+                    {dueToday ? <p id="ctn-due-note" className="text-xs text-ink-2">{DUE_TODAY_NOTE}</p> : null}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5">

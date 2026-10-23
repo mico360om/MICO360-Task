@@ -665,3 +665,55 @@ describe('New task form — files', () => {
     expect(screen.queryByLabelText('Attach files')).not.toBeInTheDocument();
   });
 });
+
+describe('New task form — a project whose new tasks are due today', () => {
+  const NOTE = 'Due today (this project’s setting)';
+  beforeEach(() => {
+    // MICO360 Platform gives new tasks without a date today's date; Ops Board doesn't.
+    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, defaultDueToday: true } : p)) }) : undefined);
+  });
+
+  it('says so next to an empty due date, and sends the task without one (the server gives it today)', async () => {
+    renderDialog();
+    await ready();
+    const due = screen.getByLabelText(/^due date/i);
+    expect(due).toHaveValue('');
+    expect(due).toHaveAccessibleDescription(NOTE);
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Call the client');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).not.toHaveProperty('dueDate');
+  });
+
+  it('a picked date is kept: the note goes, and comes back when the date is cleared', async () => {
+    renderDialog();
+    await ready();
+    const due = screen.getByLabelText(/^due date/i);
+    fireEvent.change(due, { target: { value: '2026-11-05' } });
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
+    fireEvent.change(due, { target: { value: '' } });
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
+    fireEvent.change(due, { target: { value: '2026-11-05' } });
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Call the client');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ dueDate: '2026-11-05' });
+  });
+
+  it('follows the chosen project: nothing for a project without the setting', async () => {
+    renderDialog();
+    await ready();
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
+    await pick('Project', /Ops Board/);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('To Do'));
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^due date/i)).not.toHaveAccessibleDescription(NOTE);
+  });
+
+  it('editing a task never says it: a date cleared on purpose stays cleared', async () => {
+    renderDialog({ task: { ...TASK, dueDate: null } });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    expect(screen.getByLabelText(/^due date/i)).toHaveValue('');
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
+  });
+});
