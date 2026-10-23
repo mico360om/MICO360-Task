@@ -242,6 +242,25 @@ describe('WorkloadPage', () => {
     expect(cell).toHaveFocus();
   });
 
+  it('shows tasks due on a day off as their own case, not over the limit, with a move to a working day', async () => {
+    const weekendTask: WorkloadTask = { id: 'tw', key: 'RIG-60', title: 'Weekend upload', projectId: 'rig', priority: 'NORMAL', version: 1, suggestion: { kind: 'move', date: '2026-11-01', count: 0 } };
+    data = makeData();
+    data.people = data.people.map((p) =>
+      p.id === 'rachel' ? { ...p, total: p.total + 1, days: p.days.map((c) => (c.date === '2026-10-30' ? { ...c, count: 1, over: 1, tasks: [weekendTask] } : c)) } : p,
+    );
+    renderPage();
+    await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
+    // Still only Omar is over the daily limit.
+    expect(screen.getByRole('status')).toHaveTextContent('1 person is over the daily limit on 2 days this week.');
+    const cell = screen.getByRole('button', { name: 'Rachel Rea Dsouza, Friday 30 October: a day off, 1 task due' });
+    expect(cell).toHaveAttribute('data-tone', 'offdue');
+    expect(cell).toHaveTextContent(/^1$/);
+    await userEvent.click(cell);
+    const pop = await screen.findByRole('dialog', { name: 'Rachel Rea Dsouza · Fri 30 Oct' });
+    expect(pop).toHaveTextContent('1 task due on a day off');
+    expect(within(pop).getByRole('button', { name: 'Move RIG-60 to Sunday 1 November' })).toHaveTextContent('Move to Sun 1 Nov');
+  });
+
   it('lets an administrator change the daily limit, which the page then shows', async () => {
     renderPage();
     await screen.findByRole('table', { name: /Open tasks due each day, per person/ });

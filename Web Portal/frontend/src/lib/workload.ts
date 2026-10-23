@@ -6,11 +6,14 @@ import { shiftDayKey } from './due-date';
  * line and the words of the popover and its suggestions. Pure, so the page and its tests agree.
  */
 
-export type CellTone = 'off' | 'none' | 'below' | 'at' | 'over';
+export type CellTone = 'off' | 'offdue' | 'none' | 'below' | 'at' | 'over';
 
-/** Quiet at 0, green below the limit, amber at it, red over it; an empty day off says “Off”. */
+/**
+ * Quiet at 0, green below the limit, amber at it, red over it; an empty day off says “Off”, and
+ * tasks due on a day off are their own case (the working-day limit doesn't apply to them).
+ */
 export function cellTone(cell: Pick<WorkloadCell, 'count' | 'limit'>): CellTone {
-  if (cell.limit === 0 && cell.count === 0) return 'off';
+  if (cell.limit === 0) return cell.count === 0 ? 'off' : 'offdue';
   if (cell.count === 0) return 'none';
   if (cell.count > cell.limit) return 'over';
   return cell.count === cell.limit ? 'at' : 'below';
@@ -38,7 +41,7 @@ export function cellLabel(name: string, cell: WorkloadCell): string {
   const what =
     tone === 'off'
       ? 'a day off'
-      : cell.limit === 0
+      : tone === 'offdue'
         ? `a day off, ${due}`
         : tone === 'none'
           ? 'nothing due'
@@ -59,7 +62,9 @@ export function weekBar(p: Pick<WorkloadPerson, 'total' | 'weekLimit'>): { pct: 
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-const overBy = (p: WorkloadPerson) => p.days.reduce((n, c) => n + c.over, 0);
+/** A working day over the limit (tasks due on a day off are another matter). */
+const isOver = (c: WorkloadCell) => c.limit > 0 && c.over > 0;
+const overBy = (p: WorkloadPerson) => p.days.reduce((n, c) => n + (isOver(c) ? c.over : 0), 0);
 
 /** The most overloaded first (tasks over the limit), then the busiest, then by name. */
 export function sortPeople(people: WorkloadPerson[]): WorkloadPerson[] {
@@ -75,9 +80,9 @@ export function filterPeople(people: WorkloadPerson[], q: string): WorkloadPerso
 /** "1 person is over the daily limit on 2 days this week." */
 export function summaryLine(people: WorkloadPerson[], thisWeek: boolean): string {
   const when = thisWeek ? 'this week' : 'that week';
-  const over = people.filter((p) => p.days.some((c) => c.over > 0));
+  const over = people.filter((p) => p.days.some(isOver));
   if (over.length === 0) return `Nobody is over the daily limit ${when}.`;
-  const days = new Set(over.flatMap((p) => p.days.filter((c) => c.over > 0).map((c) => c.date)));
+  const days = new Set(over.flatMap((p) => p.days.filter(isOver).map((c) => c.date)));
   return `${plural(over.length, 'person', 'people')} ${over.length === 1 ? 'is' : 'are'} over the daily limit on ${plural(days.size, 'day')} ${when}.`;
 }
 

@@ -41,6 +41,8 @@ const TONE: Record<Exclude<CellTone, 'off' | 'none'>, string> = {
   below: 'bg-success-soft text-success',
   at: 'bg-warning-soft text-warning ring-[1.5px] ring-inset ring-warning/70',
   over: 'bg-danger-soft text-danger ring-2 ring-inset ring-danger',
+  // Due on a day off: the day's hatching with an amber outline (no limit applies, but it should move).
+  offdue: 'hatch-off text-ink ring-[1.5px] ring-inset ring-warning',
 };
 const BAR: Record<'ok' | 'busy' | 'over', string> = { ok: 'bg-success', busy: 'bg-warning', over: 'bg-danger' };
 const CELL = 'relative inline-grid h-9 w-11 place-items-center rounded-lg text-sm font-bold tabular-nums';
@@ -64,6 +66,7 @@ function Legend() {
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${mini} ${TONE.at}`}>5</span>at the limit</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${mini} ${TONE.over}`}>7</span>! over the limit</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${mini} hatch-off text-ink-3`}>Off</span>not a working day (Meeting hours)</li>
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${mini} ${TONE.offdue}`}>2</span>due on a day off</li>
       <li className="ms-auto">Click a number to see the tasks and rebalance.</li>
     </ul>
   );
@@ -322,7 +325,7 @@ export function WorkloadPage() {
                                   aria-label={cellLabel(p.name, c)}
                                   aria-haspopup="dialog"
                                   aria-expanded={isOpen}
-                                  className={`${CELL} transition-transform hover:-translate-y-px ${TONE[tone]} ${c.limit === 0 ? 'hatch-off' : ''}`}
+                                  className={`${CELL} transition-transform hover:-translate-y-px ${TONE[tone]}`}
                                 >
                                   {c.count}
                                   {tone === 'over' ? (

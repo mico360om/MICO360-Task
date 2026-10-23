@@ -42,7 +42,8 @@ describe('cells', () => {
     expect(cellTone({ count: 5, limit: 5 })).toBe('at');
     expect(cellTone({ count: 7, limit: 5 })).toBe('over');
     expect(cellTone({ count: 0, limit: 0 })).toBe('off');
-    expect(cellTone({ count: 2, limit: 0 })).toBe('over');
+    // Tasks due on a day off: their own state (a working-day limit doesn't apply).
+    expect(cellTone({ count: 2, limit: 0 })).toBe('offdue');
   });
 
   it('reads out the person, the day and what is due', () => {
@@ -65,6 +66,9 @@ describe('a person’s week', () => {
 
   it('puts the most overloaded first, then the busiest, then by name', () => {
     expect(sortPeople([RACHEL, HASSAN, SARA, OMAR]).map((p) => p.id)).toEqual(['omar', 'sara', 'hassan', 'rachel']);
+    // Tasks due on a day off don't make anyone the most overloaded.
+    expect(sortPeople([person('w', 'Weekend', [0, 0, 0, 0, 0, 9, 0]), SARA]).map((p) => p.id)).toEqual(['sara', 'w']);
+    expect(sortPeople([person('w', 'Weekend', [0, 0, 0, 0, 0, 9, 0]), OMAR]).map((p) => p.id)).toEqual(['omar', 'w']);
     const twin = person('a', 'Aisha', [0, 1, 0, 2, 1, 0, 0]);
     expect(sortPeople([HASSAN, twin]).map((p) => p.id)).toEqual(['a', 'hassan']);
   });
@@ -84,6 +88,8 @@ describe('the summary line', () => {
     expect(summaryLine([person('x', 'X', [0, 6, 0, 0, 0, 0, 0])], false)).toBe('1 person is over the daily limit on 1 day that week.');
     expect(summaryLine([SARA, HASSAN], true)).toBe('Nobody is over the daily limit this week.');
     expect(summaryLine([], false)).toBe('Nobody is over the daily limit that week.');
+    // Tasks due on a day off are not "over the daily limit".
+    expect(summaryLine([person('w', 'Weekend', [0, 0, 0, 0, 0, 3, 2])], true)).toBe('Nobody is over the daily limit this week.');
   });
 });
 
