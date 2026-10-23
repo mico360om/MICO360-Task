@@ -717,3 +717,57 @@ describe('New task form — a project whose new tasks are due today', () => {
     expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
   });
 });
+
+describe('New task form — the date a due-today project will give, from the board day', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-23T06:00:00Z')); // Fri 23 Oct, 10:00 in Muscat
+    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, defaultDueToday: true } : p)) }) : undefined);
+  });
+
+  it('added from a later day’s board, it names that day (and the server is left to set it)', async () => {
+    renderDialog({ projectId: 'p1', defaultColumnId: 'c1', boardDate: '2026-10-27' });
+    await ready();
+    expect(screen.getByLabelText(/^due date/i)).toHaveAccessibleDescription('Due Tue 27 Oct (this project’s setting)');
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Site visit');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ boardDate: '2026-10-27' });
+    expect(posts()[0]!.body).not.toHaveProperty('dueDate');
+  });
+
+  it('added from today’s board or a past day’s, it is due today', async () => {
+    renderDialog({ projectId: 'p1', defaultColumnId: 'c1', boardDate: '2026-10-20' });
+    await ready();
+    expect(screen.getByLabelText(/^due date/i)).toHaveAccessibleDescription('Due today (this project’s setting)');
+  });
+
+  it('the repeat preview starts from the date the task will get: the board day', async () => {
+    renderDialog({ projectId: 'p1', defaultColumnId: 'c1', boardDate: '2026-10-27' });
+    await ready();
+    await pick('Repeat', 'Weekly');
+    const schedule = screen.getByRole('group', { name: 'Repeat schedule' });
+    expect(within(schedule).getByText(/^Repeats every week on Tue$/)).toBeInTheDocument();
+    expect(within(schedule).getByRole('button', { name: 'Tue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(schedule).getByText(/^Next:/)).toBeInTheDocument();
+    expect(within(schedule).queryByText('Set a due date to see the next dates.')).not.toBeInTheDocument();
+  });
+
+  it('…or today, without a board day', async () => {
+    renderDialog();
+    await ready();
+    await pick('Repeat', 'Weekly');
+    const schedule = screen.getByRole('group', { name: 'Repeat schedule' });
+    expect(within(schedule).getByText(/^Repeats every week on Fri$/)).toBeInTheDocument();
+    expect(within(schedule).getByText(/^Next:/)).toBeInTheDocument();
+  });
+
+  it('a project without the setting still asks for a date to show the next dates', async () => {
+    renderDialog();
+    await ready();
+    await pick('Project', /Ops Board/);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('To Do'));
+    await pick('Repeat', 'Weekly');
+    expect(within(screen.getByRole('group', { name: 'Repeat schedule' })).getByText('Set a due date to see the next dates.')).toBeInTheDocument();
+  });
+});

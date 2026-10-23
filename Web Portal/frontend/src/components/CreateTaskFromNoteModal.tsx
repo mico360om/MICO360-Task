@@ -7,7 +7,9 @@ import { membersApi } from '../api/members';
 import { ApiError } from '../lib/api-client';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { noteWords } from '../lib/rich-note';
-import { DUE_TODAY_NOTE, willBeDueToday } from '../lib/default-due';
+import { defaultDueDay, defaultDueNote } from '../lib/default-due';
+import { todayKey } from '../lib/due-date';
+import { useCompanyTimeZone } from '../lib/company-clock';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
@@ -67,8 +69,10 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
     () => (Array.isArray(projectsQ.data) ? projectsQ.data : []).map(projectOption),
     [projectsQ.data],
   );
-  // Left without a date, the task gets today's from a project with "New tasks are due today".
-  const dueToday = willBeDueToday((Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === projectId), dueDate);
+  // Left without a date, the task gets today's from a project with "New tasks are due today" (a task
+  // made from a note goes on today's board, so there is no later board day here).
+  const today = todayKey(useCompanyTimeZone());
+  const autoDue = defaultDueDay((Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === projectId), dueDate, null, today);
   const assigneeOptions = useMemo(
     () => [
       { value: '', label: 'Unassigned' },
@@ -180,8 +184,8 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <FieldLabel htmlFor="ctn-due">Due date</FieldLabel>
-                    <input id="ctn-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} aria-describedby={dueToday ? 'ctn-due-note' : undefined} className={fieldClass(false)} />
-                    {dueToday ? <p id="ctn-due-note" className="text-xs text-ink-2">{DUE_TODAY_NOTE}</p> : null}
+                    <input id="ctn-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} aria-describedby={autoDue ? 'ctn-due-note' : undefined} className={fieldClass(false)} />
+                    {autoDue ? <p id="ctn-due-note" className="text-xs text-ink-2">{defaultDueNote(autoDue, today)}</p> : null}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5">

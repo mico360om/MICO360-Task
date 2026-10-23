@@ -11,7 +11,7 @@ import { tasksApi, type ApiTask, type NewTaskInput, type Priority, type Recurren
 import { ApiError } from '../../lib/api-client';
 import { todayKey } from '../../lib/due-date';
 import { dueInputValue } from '../../lib/due-display';
-import { DUE_TODAY_NOTE, willBeDueToday } from '../../lib/default-due';
+import { defaultDueDay, defaultDueNote } from '../../lib/default-due';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { enqueueOffline } from '../../lib/offline-replay';
@@ -273,14 +273,17 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         : 'Nobody picked — the task will be unassigned.';
 
   // ── When ──
-  // A new task left without a date gets today's from its project (the server does it); an edit never
-  // does — a date cleared on purpose stays cleared.
-  const dueToday = !editing && willBeDueToday(project, draft.dueDate);
+  // A new task left without a date gets one from its project (the server does it): the board day it
+  // is added to when that is later, else today. An edit never does — a date cleared on purpose stays
+  // cleared. `dueWhen` is the date the task will have, which the repeat preview works from.
+  const today = todayKey(timeZone);
+  const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, boardDate, today);
+  const dueWhen = draft.dueDate || autoDue || '';
 
   // ── Repeat ──
   const inSeries = !!(task?.recurrenceRule || task?.recurrenceParentId);
   const canRepeat = !task?.recurrenceNextId;
-  const untilProblem = draft.rule?.until && draft.dueDate && draft.rule.until.slice(0, 10) < draft.dueDate ? 'The repeat can’t end before the due date.' : null;
+  const untilProblem = draft.rule?.until && dueWhen && draft.rule.until.slice(0, 10) < dueWhen ? 'The repeat can’t end before the due date.' : null;
 
   // ── Saving ──
   async function submit(e: FormEvent) {
@@ -568,10 +571,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                     type="date"
                     value={draft.dueDate}
                     onChange={(e) => set({ dueDate: e.target.value })}
-                    aria-describedby={dueToday ? ids.dueNote : undefined}
+                    aria-describedby={autoDue ? ids.dueNote : undefined}
                     className={`${fieldClass()} h-11`}
                   />
-                  {dueToday ? <p id={ids.dueNote} className="mt-1 text-xs text-ink-2">{DUE_TODAY_NOTE}</p> : null}
+                  {autoDue ? <p id={ids.dueNote} className="mt-1 text-xs text-ink-2">{defaultDueNote(autoDue, today)}</p> : null}
                 </div>
                 <div className="min-w-0">
                   <Label>Repeat</Label>
@@ -591,13 +594,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-none text-brand">
                       <path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" />
                     </svg>
-                    <span>{scheduleText(draft.rule, draft.dueDate)}</span>
+                    <span>{scheduleText(draft.rule, dueWhen)}</span>
                   </p>
                   <div ref={untilRef}>
-                    <RecurrenceEditor hideFrequency value={draft.rule} onChange={(rule) => set({ rule })} dueDate={draft.dueDate || null} />
+                    <RecurrenceEditor hideFrequency value={draft.rule} onChange={(rule) => set({ rule })} dueDate={dueWhen || null} />
                   </div>
                   {untilProblem ? <p id={ids.untilErr} role="alert" className="mt-2 text-xs font-medium text-danger">{untilProblem}</p> : null}
-                  {!draft.dueDate ? <p className="mt-2 text-xs text-ink-2">Set a due date to see the next dates.</p> : null}
+                  {!dueWhen ? <p className="mt-2 text-xs text-ink-2">Set a due date to see the next dates.</p> : null}
                 </fieldset>
               ) : null}
 
