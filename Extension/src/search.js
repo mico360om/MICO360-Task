@@ -22,6 +22,8 @@ export const PAGES = [
   { id: 'board', label: 'Kanban Board', web: '/board', keywords: ['kanban', 'board'] },
   { id: 'projects', label: 'Projects', hash: '#/projects', keywords: ['project'] },
   { id: 'calendar', label: 'Calendar', hash: '#/calendar', keywords: ['schedule', 'due dates'] },
+  { id: 'timeline', label: 'Timeline', web: '/timeline', keywords: ['gantt', 'roadmap', 'milestones', 'targets', 'late projects'] },
+  { id: 'workload', label: 'Workload', web: '/workload', keywords: ['capacity', 'load', 'busy', 'daily limit', 'rebalance'] },
   { id: 'meetings', label: 'Meetings', hash: '#/meetings', keywords: ['meeting', 'invitations', 'minutes'] },
   { id: 'chat', label: 'Chat', hash: '#/chat', keywords: ['messages', 'talk'] },
   { id: 'activity', label: 'Activity', web: '/activity', keywords: ['feed', 'history'] },
