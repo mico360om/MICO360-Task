@@ -112,6 +112,7 @@ const WORKSPACE: NavItem[] = [
 ];
 const COMMUNICATION: NavItem[] = [
   { label: 'Chat', to: '/chat', icon: I.chat },
+  { label: 'MICO AI', to: '/mico-ai', icon: I.ai },
   { label: 'Notifications', to: '/notifications', icon: I.notifications },
   { label: 'Activity', to: '/activity', icon: I.activity },
 ];

@@ -64,6 +64,21 @@ describe('GlobalSearch', () => {
     expect(await screen.findByText(/Go to Calendar/i)).toBeInTheDocument();
   });
 
+  it('offers to ask MICO AI what was typed, and opens MICO AI with the question', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [] } }))));
+    let state: unknown = null;
+    function Spy() {
+      const loc = useLocation();
+      state = loc.state;
+      return <div data-testid="at">{loc.pathname}</div>;
+    }
+    setup(<><GlobalSearch debounceMs={0} /><Spy /></>);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'who has the most overdue tasks');
+    await userEvent.click(await screen.findByRole('button', { name: /Ask MICO AI.*who has the most overdue tasks/ }));
+    expect(screen.getByTestId('at')).toHaveTextContent('/mico-ai');
+    expect(state).toEqual({ ask: 'who has the most overdue tasks' });
+  });
+
   it('offers an "open" command for a bare task key', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);

@@ -178,6 +178,10 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       for (const u of r.users.slice(0, 5)) out.push({ id: `user-${u.id}`, group: 'People', primary: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username, run: () => { navigate(personPath(u.id)); reset(); } });
       for (const m of (r.meetings ?? []).slice(0, 6)) out.push({ id: `meeting-${m.id}`, group: 'Meetings', primary: m.title, secondary: m.snippet, run: () => { navigate(`/meetings/${m.id}`); reset(); } });
     }
+    // Last, so Enter still opens the first result: ask MICO AI what was typed (a new chat with it).
+    if (raw.length >= 2 && !parsed) {
+      out.push({ id: 'ask-mico-ai', group: 'MICO AI', primary: <>Ask MICO AI: “<span dir="auto">{raw}</span>”</>, run: () => { navigate('/mico-ai', { state: { ask: raw } }); reset(); } });
+    }
     return out;
   }, [raw, isAdmin, myId, q.data, searchEnabled, projectsQ.data]);
 

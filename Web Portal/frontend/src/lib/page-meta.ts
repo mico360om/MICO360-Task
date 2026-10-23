@@ -28,6 +28,7 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/meetings\/[^/]+$/, 'Meeting'],
   [/^\/my-action-items$/, 'My Action Items'],
   [/^\/chat$/, 'Chat'],
+  [/^\/mico-ai$/, 'MICO AI'],
   [/^\/activity$/, 'Activity'],
   [/^\/notifications$/, 'Notifications'],
   [/^\/settings$/, 'Settings'],

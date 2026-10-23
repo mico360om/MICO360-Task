@@ -19,6 +19,7 @@ describe('pageMetaFor', () => {
       '/meetings/abc123': 'Meeting',
       '/my-action-items': 'My Action Items',
       '/chat': 'Chat',
+      '/mico-ai': 'MICO AI',
       '/activity': 'Activity',
       '/notifications': 'Notifications',
       '/settings': 'Settings',
