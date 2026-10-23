@@ -72,7 +72,8 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
   const open$ = (detail: TimelineDetail) => (e: MouseEvent<HTMLButtonElement>) => onOpen(detail, e.currentTarget);
 
   return (
-    <div className="overflow-x-auto">
+    // Relative: the screen-reader labels inside (absolutely placed) stay within this scroll box, not the page.
+    <div className="relative overflow-x-auto">
       <div className="min-w-[52rem]">
         <div className={`${ROW} border-b border-line bg-surface-2`}>
           <div className="flex items-end px-4 pb-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">Project</div>

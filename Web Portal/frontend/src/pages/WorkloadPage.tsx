@@ -264,7 +264,7 @@ export function WorkloadPage() {
       ) : data ? (
         <div>
           <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
                 <caption className="sr-only">Open tasks due each day, per person — {weekLabel(week, today)}</caption>
                 <thead>
