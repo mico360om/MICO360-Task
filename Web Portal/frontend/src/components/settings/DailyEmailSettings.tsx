@@ -2,15 +2,17 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { configApi } from '../../api/config';
-import { notificationsApi, type DailyEmailPrefs, type NotificationPreferences } from '../../api/notifications';
+import { notificationsApi, type DailyEmailPrefs, type DailyEmailTestResult, type NotificationPreferences } from '../../api/notifications';
 import { ApiError } from '../../lib/api-client';
 import { Toggle } from '../ui/Toggle';
 
 const DEFAULTS: DailyEmailPrefs = { pending: true, completed: true, time: '06:00' };
 const PREFS_KEY = ['notification-prefs'];
 
+const BLOCKED = 'Not sent: your email address is blocked after a bounce or spam complaint. Ask an administrator to check it.';
+
 /** What a test sent, in words: an email with nothing in it isn't sent. */
-function testSummary(r: { pending: 'sent' | 'empty'; completed: 'sent' | 'empty' }): string {
+function testSummary(r: DailyEmailTestResult): string {
   const sent = [r.pending === 'sent' ? 'pending tasks' : null, r.completed === 'sent' ? 'completed tasks' : null].filter(Boolean);
   const parts: string[] = [];
   if (sent.length === 2) parts.push('Sent both emails: pending tasks and completed tasks.');
@@ -55,7 +57,8 @@ export function DailyEmailSettings() {
   const test = useMutation({
     mutationFn: () => notificationsApi(apiClient).sendDailyTest(),
     onMutate: () => setTestNote(null),
-    onSuccess: (r) => setTestNote({ ok: true, text: testSummary(r) }),
+    // A blocked address gets neither email, so it is a problem, not a "sent".
+    onSuccess: (r) => setTestNote(r.pending === 'blocked' || r.completed === 'blocked' ? { ok: false, text: BLOCKED } : { ok: true, text: testSummary(r) }),
     onError: (e) => setTestNote({ ok: false, text: e instanceof ApiError && e.message ? e.message : 'Couldn’t send the test. Check your connection and try again.' }),
   });
 

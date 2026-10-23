@@ -369,6 +369,11 @@ describe('daily task emails: "Send me a test now"', () => {
     const s = setup({ completed: [] });
     expect(await s.service.sendTest('ada')).toEqual({ pending: 'sent', completed: 'empty' });
   });
+
+  it('says the address is blocked — never sent — after a bounce or spam complaint', async () => {
+    const s = setup({ blocked: ['ada@mico360.test'] });
+    expect(await s.service.sendTest('ada')).toEqual({ pending: 'blocked', completed: 'blocked' });
+  });
 });
 
 const onlyPending = { muted: [], dailyEmails: { pending: true, completed: false, time: '06:00' } };

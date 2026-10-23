@@ -190,6 +190,14 @@ describe('Settings → Notifications: "Send me a test now", and the daily email 
     expect(problem(root)).toBe(notSetUp);
   });
 
+  it('a blocked address: says so as a problem, and never that it was sent', async () => {
+    const root = await open(ctxWith({ test: vi.fn(async () => ({ pending: 'blocked', completed: 'empty' })) }));
+    testButton(root).click();
+    await settle();
+    expect(problem(root)).toBe('Not sent: your email address is blocked after a bounce or spam complaint. Ask an administrator to check it.');
+    expect(said(root)).toBe('');
+  });
+
   it('no connection: says so plainly', async () => {
     const root = await open(ctxWith({ test: vi.fn(async () => { throw new TypeError('Failed to fetch'); }) }));
     testButton(root).click();

@@ -196,6 +196,8 @@ const KINDS: DailyEmailKind[] = ['PENDING', 'COMPLETED'];
 const TEMPLATE: Record<DailyEmailKind, string> = { PENDING: 'daily-pending', COMPLETED: 'daily-completed' };
 /** Why an email to an address the provider reported (a hard bounce, a spam complaint) wasn't sent. */
 export const BLOCKED_ADDRESS = 'Address blocked after a bounce or spam complaint.';
+/** How one email of "Send me a test now" went. */
+export type TestOutcome = 'sent' | 'empty' | 'blocked';
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function validZone(tz: string | null, fallback: string): string {
@@ -415,18 +417,22 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     return tally;
   }
 
-  /** Both emails to the person now, whatever their settings — not counted as today's. */
-  async function sendTest(userId: string): Promise<{ pending: 'sent' | 'empty'; completed: 'sent' | 'empty' }> {
+  /**
+   * Both emails to the person now, whatever their settings — not counted as today's. Each is 'sent',
+   * 'empty' (nothing in it, so not sent) or 'blocked' (the address is blocked after a bounce or spam
+   * complaint, so nothing was sent).
+   */
+  async function sendTest(userId: string): Promise<{ pending: TestOutcome; completed: TestOutcome }> {
     const person = await deps.people.find(userId);
     if (!person?.email) throw new Error('Your account has no email address.');
     const at = now();
     const { day } = localClock(at, zoneOf(person));
-    const result = { pending: 'empty' as 'sent' | 'empty', completed: 'empty' as 'sent' | 'empty' };
+    const result: { pending: TestOutcome; completed: TestOutcome } = { pending: 'empty', completed: 'empty' };
     for (const kind of KINDS) {
       const { content } = await build(kind, person, day, at);
       if (!content) continue;
-      await deps.send(person.email, content, `${TEMPLATE[kind]}-test`);
-      result[kind === 'PENDING' ? 'pending' : 'completed'] = 'sent';
+      const delivered = await deps.send(person.email, content, `${TEMPLATE[kind]}-test`);
+      result[kind === 'PENDING' ? 'pending' : 'completed'] = delivered === 'suppressed' ? 'blocked' : 'sent';
     }
     return result;
   }

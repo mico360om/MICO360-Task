@@ -224,7 +224,7 @@ export function createApi({ auth, cache, pending }) {
       setPreferences: (prefs) => raw('/notifications/preferences', { method: 'PUT', body: JSON.stringify(prefs ?? {}) }),
       /**
        * "Send me a test now": the two morning emails to the signed-in person at once (online only,
-       * never queued): `{ pending, completed }`, each 'sent' or 'empty'. The server allows one a minute.
+       * never queued): `{ pending, completed }`, each 'sent', 'empty' or 'blocked' (a blocked address). The server allows one a minute.
        */
       sendDailyTest: () => post('/notifications/daily-emails/test'),
     },

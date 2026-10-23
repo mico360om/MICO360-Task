@@ -24,6 +24,7 @@ import { checkBaseUrl } from '../src/config.js';
 
 const SAVE_FAILED = 'Couldn’t save that change. Please try again.';
 const TEST_FAILED = 'Couldn’t send the test. Check your connection and try again.';
+const TEST_BLOCKED = 'Not sent: your email address is blocked after a bounce or spam complaint. Ask an administrator to check it.';
 const TEST_LABEL = 'Send me a test now';
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** The website's address of System Settings → Daily task emails. */
@@ -109,7 +110,10 @@ export function NotificationSettings(ctx) {
     testButton.textContent = 'Sending…';
     testButton.setAttribute('aria-disabled', 'true');
     try {
-      testSaid.textContent = testSummary(await api.sendDailyTest());
+      const r = await api.sendDailyTest();
+      // A blocked address gets neither email, so it is a problem, not a "sent".
+      if (r && (r.pending === 'blocked' || r.completed === 'blocked')) showTestProblem(TEST_BLOCKED);
+      else testSaid.textContent = testSummary(r);
     } catch (e) {
       showTestProblem(e && e.code === 'EMAIL_NOT_CONFIGURED' && e.serverMessage ? e.serverMessage : writeErrorMessage(e, TEST_FAILED));
     } finally {
