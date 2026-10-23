@@ -42,13 +42,13 @@ export class MicoAiNotReadyError extends HttpError {
   }
 }
 
-/** The model MICO AI talks to: the AI features service's chatReady(), chat() and checkLimit(). */
+/** The model MICO AI talks to: the AI features service's chatReady(), chat() and startMicoAiQuestion(). */
 export interface MicoAiModel {
   ready(): Promise<boolean>;
-  /** One call, counted against the person's shared AI limit. */
+  /** One call, counted against the person's shared daily AI limit. */
   chat(req: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }, userId: string): Promise<string>;
-  /** Throws (429) when the person has no AI requests left right now; counts nothing. */
-  checkLimit(userId: string): void;
+  /** A question starts: counted once against the per-minute limit; throws (429) when the minute or the day is used up. */
+  startQuestion(userId: string): void;
 }
 
 export interface MicoAiServiceDeps {
@@ -317,8 +317,9 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const question = text.trim();
     if (!question) throw new ValidationError('Type a question first.');
     if (!(await model.ready())) throw new MicoAiNotReadyError();
-    // The person's shared AI limit: nothing is stored when none is left (each AI call counts as it is made).
-    model.checkLimit(viewer.userId);
+    // The person's shared AI limit: the question counts once against the minute, up front, so nothing
+    // is stored when it is used up; each AI call then counts against the day as it is made.
+    model.startQuestion(viewer.userId);
     const turn = await repo.startTurn(chat.id, { question, step: 'Thinking…', staleBefore: staleBefore(), interrupted: { error: INTERRUPTED } });
     if (turn === 'busy') throw new ConflictError(BUSY, 'MICO_AI_BUSY');
     if (!chat.title) await repo.renameChat(viewer.userId, chat.id, titleFrom(question)).catch((err) => log('MICO AI could not name a chat', err));

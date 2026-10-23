@@ -497,8 +497,9 @@ paths:
         Ask a question. Returns at once (202) with the question and a pending answer; MICO AI then reads,
         with the person's own access only (read-only tools: tasks, projects, meetings and minutes, report
         figures, team chat they are part of, people), and writes the answer. Poll the answer for its step
-        and result. Every AI call it makes counts against the person's AI limit (shared with the other
-        AI features), and an answer may take at most 3 minutes. One answer at a time per chat. The audit
+        and result. The question counts once against the person's per-minute AI limit and every AI call it
+        makes against their daily limit (both shared with the other AI features); an answer may take at
+        most 3 minutes. One answer at a time per chat. The audit
         log records only that MICO AI was used (action mico-ai.ask, no question or answer).
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [text], properties: { text: { type: string, minLength: 1, maxLength: 4000 } } } } } }
       responses:

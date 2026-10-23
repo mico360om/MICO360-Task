@@ -48,7 +48,27 @@ export function createAiUsageLimiter(limits: AiUsageLimits, timeZone: string, no
     daily.set(userId, { day, count: count + 1 });
   }
 
-  return { take, check: (userId: string): void => void check(userId) };
+  /**
+   * MICO AI: a question counts once against the minute, before its first model call (refused up
+   * front when the minute or the day is used up); its calls then count against the day (takeDaily).
+   */
+  function startQuestion(userId: string): void {
+    const { t, lastMinute } = check(userId);
+    lastMinute.push(t);
+    recent.set(userId, lastMinute);
+  }
+
+  /** Count one call against the day only (a MICO AI question's model calls). */
+  function takeDaily(userId: string): void {
+    const at = now();
+    const day = todayKey(timeZone, at);
+    const used = daily.get(userId);
+    const count = used && used.day === day ? used.count : 0;
+    if (count >= limits.perDay) throw new AiRateLimitedError('You’ve reached today’s AI request limit. It resets tomorrow.');
+    daily.set(userId, { day, count: count + 1 });
+  }
+
+  return { take, startQuestion, takeDaily, check: (userId: string): void => void check(userId) };
 }
 
 /**

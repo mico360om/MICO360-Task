@@ -6,6 +6,9 @@ import { createMemoryMicoAiData, company, NOW, OMAR, SARA, ADMIN } from './mico-
 import { ProviderRefusedError } from '../ai/ai-completion';
 import type { ModelRequest } from './mico-ai-loop';
 import { createAiUsageLimiter } from '../ai/ai-limits';
+import { createAiFeatureService } from '../ai/ai-feature-service';
+import { createMemoryAiConfigRepository } from '../ai/ai-config-repository';
+import type { AiConfig } from '../ai/ai-config';
 import { vi } from 'vitest';
 
 type Reply = unknown | ((req: ModelRequest) => unknown | Promise<unknown>);
@@ -22,11 +25,11 @@ function fakeModel(replies: Reply[], ready = true, perDay = 100) {
     async ready() {
       return ready;
     },
-    checkLimit(userId) {
-      limiter.check(userId);
+    startQuestion(userId) {
+      limiter.startQuestion(userId);
     },
     async chat(req, userId) {
-      limiter.take(userId);
+      limiter.takeDaily(userId);
       callers.push(userId);
       requests.push(req as ModelRequest);
       const r = replies[Math.min(i++, replies.length - 1)];
@@ -376,5 +379,65 @@ describe('MICO AI service: review fixes', () => {
     await svc.getMessage(OMAR, chat, answer.id);
     await svc.table(OMAR, chat, answer.id, 1);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('MICO AI service: the AI limits of the AI features service (defaults)', () => {
+  const config: AiConfig = {
+    providers: [{ id: 'pr1', name: 'OpenAI', kind: 'openai', apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'sk-x', enabled: true, createdAt: '', updatedAt: '' }],
+    models: [{ id: 'm1', providerId: 'pr1', modelKey: 'gpt-4o', displayName: 'GPT-4o', capabilities: ['chat'], parameters: {}, concurrencyLimit: 4, enabled: true, available: true, createdAt: '', updatedAt: '' }],
+    defaults: { chat: 'm1' },
+  };
+  /** A provider that asks for a tool until `steps` results are in the prompt, then answers. */
+  function withFeatures(steps: number, limits?: { perMinute?: number; perDay?: number }) {
+    let calls = 0;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      calls++;
+      const body = JSON.parse(String(init!.body)) as { messages: Array<{ role: string; content: string }> };
+      const prompt = body.messages.find((m) => m.role === 'user')!.content;
+      const read = (prompt.match(/<data id="r\d+"/g) ?? []).length;
+      const reply = /running summary/i.test(body.messages[0]!.content)
+        ? { summary: 'S.' }
+        : read < steps
+          ? { action: 'tool', name: 'search_tasks', args: { status: 'open' } }
+          : { action: 'answer', text: 'Done.' };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(reply) } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const features = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl, now: () => NOW, ...(limits ? { limits } : {}) });
+    const repo = createMemoryMicoAiRepository(() => NOW);
+    const svc = createMicoAiService({
+      repo,
+      tools: createMicoAiTools({ data: createMemoryMicoAiData(company()), timeZone: 'Asia/Muscat', now: () => NOW }),
+      model: { ready: () => features.chatReady(), chat: (req, userId) => features.chat(req, { userId }), startQuestion: (userId) => features.startMicoAiQuestion(userId) },
+      timeZone: 'Asia/Muscat',
+      now: () => NOW,
+    });
+    return { svc, repo, calls: () => calls };
+  }
+
+  it('two questions in the same minute, each with 6 tool steps, both complete under the default 10 a minute', async () => {
+    const { svc, calls } = withFeatures(6);
+    const one = await askAndWait(svc, OMAR, 'first');
+    const two = await askAndWait(svc, OMAR, 'second');
+    expect([one.answer.status, two.answer.status]).toEqual(['done', 'done']);
+    expect(calls()).toBe(14);
+  });
+
+  it('the 11th question in a minute is refused up front, and nothing is stored for it', async () => {
+    const { svc, repo } = withFeatures(0);
+    for (let i = 0; i < 10; i++) expect((await askAndWait(svc, OMAR, `q${i}`)).answer.status).toBe('done');
+    const chat = await svc.createChat(OMAR, {});
+    await expect(svc.ask(OMAR, chat.id, 'eleventh')).rejects.toMatchObject({ status: 429, message: 'You’re sending AI requests too quickly. Wait a minute and try again.' });
+    expect(repo.messages.filter((m) => m.chatId === chat.id)).toEqual([]);
+  });
+
+  it('the daily limit counts every call: running out mid-answer ends with a plain message', async () => {
+    const { svc, calls } = withFeatures(6, { perDay: 10 });
+    expect((await askAndWait(svc, OMAR, 'first')).answer.status).toBe('done'); // 7 calls
+    const second = await askAndWait(svc, OMAR, 'second'); // calls 8–10, then the day is used up
+    expect(second.answer).toMatchObject({ status: 'error', error: 'You’ve reached today’s AI request limit. It resets tomorrow.' });
+    expect(calls()).toBe(10);
+    const chat = await svc.createChat(OMAR, {});
+    await expect(svc.ask(OMAR, chat.id, 'third')).rejects.toMatchObject({ status: 429, message: 'You’ve reached today’s AI request limit. It resets tomorrow.' });
   });
 });

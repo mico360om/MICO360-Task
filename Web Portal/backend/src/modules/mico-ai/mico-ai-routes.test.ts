@@ -30,7 +30,7 @@ async function makeApp(opts: { ready?: boolean } = {}) {
   const model: MicoAiModel = {
     ready: async () => opts.ready ?? true,
     chat: async () => JSON.stringify(replies[Math.min(i++, replies.length - 1)]),
-    checkLimit: () => {},
+    startQuestion: () => {},
   };
   const audit: unknown[] = [];
   const micoAiService = createMicoAiService({

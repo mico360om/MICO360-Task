@@ -862,7 +862,7 @@ async function main(): Promise<void> {
     model: {
       ready: () => aiFeatureService.chatReady(),
       chat: (req, userId) => aiFeatureService.chat(req, { userId }),
-      checkLimit: (userId) => aiFeatureService.checkLimit(userId),
+      startQuestion: (userId) => aiFeatureService.startMicoAiQuestion(userId),
     },
     audit: auditService,
     timeZone: companyTz,
