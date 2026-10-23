@@ -22,6 +22,8 @@ export interface UserDataExport {
   actionItems: unknown[];
   activity: unknown[];
   accountEvents: unknown[];
+  /** The person's own MICO AI chats: titles, questions and the answers' words. */
+  micoAiChats: unknown[];
 }
 
 export type DataExporter = (userId: string) => Promise<UserDataExport | null>;
@@ -65,7 +67,7 @@ export function createPrismaDataExporter(prisma: PrismaClient): DataExporter {
     });
     if (!user) return null;
 
-    const [projects, assigned, created, comments, attachments, chatMessages, meetingNotes, actionItems, activity, accountEvents] = await Promise.all([
+    const [projects, assigned, created, comments, attachments, chatMessages, meetingNotes, actionItems, activity, accountEvents, micoAiChats] = await Promise.all([
       prisma.projectMember.findMany({
         where: { userId, project: { deletedAt: null } },
         select: { role: true, addedAt: true, project: { select: { code: true, name: true, status: true } } },
@@ -120,6 +122,16 @@ export function createPrismaDataExporter(prisma: PrismaClient): DataExporter {
         take: MAX_ROWS,
         orderBy: { createdAt: 'desc' },
       }),
+      prisma.micoAiChat.findMany({
+        where: { userId },
+        select: {
+          title: true,
+          createdAt: true,
+          messages: { select: { role: true, text: true, status: true, createdAt: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: MAX_ROWS },
+        },
+        take: MAX_ROWS,
+        orderBy: { createdAt: 'desc' },
+      }),
     ]);
 
     const { roles, ...profile } = user;
@@ -136,6 +148,7 @@ export function createPrismaDataExporter(prisma: PrismaClient): DataExporter {
       actionItems: actionItems.map(({ assigneeId, ...a }) => ({ ...a, assignedToMe: assigneeId === userId })),
       activity,
       accountEvents,
+      micoAiChats,
     };
   };
 }

@@ -138,6 +138,53 @@ components:
             sent with a start date later than that day and no due date stays undated. Clearing the due
             date later leaves it clear. Optional on create and update (admin); left out of an update,
             it stays as it is.
+    MicoAiChat:
+      type: object
+      description: One of the signed-in person's own MICO AI chats (nobody else can open it, admins included).
+      properties:
+        id: { type: string }
+        title: { type: string, description: "'' until the first question names it (a short, plain line from that question); the person can rename it." }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        lastMessageAt: { type: string, format: date-time }
+        match: { type: string, nullable: true, description: 'With ?q=: words around the match in a message (null when the title matched).' }
+    MicoAiSource:
+      type: object
+      description: A record an answer used. Only records a tool returned for this person (in this question or a recent one) are kept.
+      properties:
+        type: { type: string, enum: [task, project, meeting, chat, person] }
+        id: { type: string }
+        label: { type: string, example: RIG-14 }
+        url: { type: string, nullable: true, description: "The website path that opens it ('?task=<id>' opens the task panel on the current page; a person has none)." }
+    MicoAiMessage:
+      type: object
+      properties:
+        id: { type: string }
+        role: { type: string, enum: [user, assistant] }
+        status: { type: string, enum: [pending, done, error, stopped] }
+        text: { type: string, description: 'The question, or the answer in a small Markdown subset (paragraphs, "- " bullets, **bold**).' }
+        createdAt: { type: string, format: date-time }
+        step: { type: string, nullable: true, description: 'While pending: what MICO AI is doing, e.g. "Checking tasks in Rig Inspection…".' }
+        error: { type: string, description: 'For status error: what went wrong, in plain English.' }
+        answer:
+          type: object
+          description: For a done answer.
+          properties:
+            kind: { type: string, enum: [answer, clarify], description: 'clarify: a clarifying question; its quick replies are in options.' }
+            unavailable: { type: boolean, description: "The data doesn't hold the answer (shown as a note); nothing was guessed." }
+            options: { type: array, items: { type: string } }
+            followUps: { type: array, items: { type: string } }
+            sources: { type: array, items: { $ref: '#/components/schemas/MicoAiSource' } }
+            tables:
+              type: array
+              description: Built by the server from the tool results the answer names, never from the model's text.
+              items:
+                type: object
+                properties:
+                  title: { type: string }
+                  fromResult: { type: string }
+                  columns: { type: array, items: { type: object, properties: { key: { type: string }, label: { type: string }, kind: { type: string, enum: [text, key, date, datetime, number, percent, days] } } } }
+                  rows: { type: array, items: { type: object, properties: { ref: { $ref: '#/components/schemas/MicoAiSource' }, cells: { type: array, items: {} } } } }
   responses:
     Unauthorized:
       description: Missing or invalid token
@@ -406,6 +453,76 @@ paths:
       responses:
         '200': { description: JSON file (Content-Disposition attachment) }
         '401': { description: Not signed in }
+  /mico-ai/status:
+    get:
+      summary: >-
+        Whether MICO AI can answer: ready false (with the message "MICO AI isn’t set up yet. An administrator
+        can add the AI service in AI Management.") when no chat model is set up in AI Management.
+      responses: { '200': { description: '{ ready: boolean, message: string | null }' } }
+  /mico-ai/chats:
+    get:
+      summary: The signed-in person's own chats, newest activity first; ?q= searches their titles and messages.
+      parameters: [ { name: q, in: query, schema: { type: string, maxLength: 200 } } ]
+      responses: { '200': { description: 'MicoAiChat[]', content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/MicoAiChat' } } } } } } } }
+    post:
+      summary: Start a chat (the first question names it unless a title is given).
+      requestBody: { content: { application/json: { schema: { type: object, properties: { title: { type: string, maxLength: 200 } } } } } }
+      responses: { '201': { description: The new MicoAiChat } }
+  /mico-ai/chats/{chatId}:
+    parameters: [ { name: chatId, in: path, required: true, schema: { type: string } } ]
+    get:
+      summary: One of the person's chats with all its messages. Anyone else's chat is 404, admins included.
+      responses: { '200': { description: '{ chat: MicoAiChat, messages: MicoAiMessage[] }' }, '404': { description: No such chat, or not yours } }
+    patch:
+      summary: Rename the chat.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [title], properties: { title: { type: string, minLength: 1, maxLength: 200 } } } } } }
+      responses: { '200': { description: The MicoAiChat }, '404': { description: No such chat, or not yours } }
+    delete:
+      summary: Delete the chat and all its messages, for good.
+      responses: { '204': { description: Deleted }, '404': { description: No such chat, or not yours } }
+  /mico-ai/chats/{chatId}/messages:
+    parameters: [ { name: chatId, in: path, required: true, schema: { type: string } } ]
+    post:
+      summary: >-
+        Ask a question. Returns at once (202) with the question and a pending answer; MICO AI then reads,
+        with the person's own access only (read-only tools: tasks, projects, meetings and minutes, report
+        figures, team chat they are part of, people), and writes the answer. Poll the answer for its step
+        and result. Counts once against the person's daily AI limit; the audit log records only that MICO
+        AI was used (action mico-ai.ask, no question or answer).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [text], properties: { text: { type: string, minLength: 1, maxLength: 4000 } } } } } }
+      responses:
+        '202': { description: '{ question: MicoAiMessage, answer: MicoAiMessage (pending) }' }
+        '400': { description: 'Empty or too long, or AI_NOT_CONFIGURED (no chat model in AI Management)' }
+        '404': { description: No such chat, or not yours }
+        '409': { description: 'MICO_AI_BUSY: an answer is still being written in this chat' }
+        '429': { description: 'AI_RATE_LIMITED: too many questions this minute, or the daily limit is reached' }
+  /mico-ai/chats/{chatId}/messages/{messageId}:
+    parameters:
+      - { name: chatId, in: path, required: true, schema: { type: string } }
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+    get:
+      summary: One message (poll a pending answer until it is done, error or stopped).
+      responses: { '200': { description: MicoAiMessage }, '404': { description: No such message in a chat of yours } }
+  /mico-ai/chats/{chatId}/messages/{messageId}/stop:
+    parameters:
+      - { name: chatId, in: path, required: true, schema: { type: string } }
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Stop an answer being written (the AI call in flight is aborted; nothing it says later is kept).
+      responses: { '200': { description: 'The MicoAiMessage, stopped' }, '404': { description: No such message in a chat of yours } }
+  /mico-ai/chats/{chatId}/messages/{messageId}/tables/{n}.xlsx:
+    parameters:
+      - { name: chatId, in: path, required: true, schema: { type: string } }
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+      - { name: n, in: path, required: true, schema: { type: integer, minimum: 1 }, description: The answer's table (1 = the first) }
+    get:
+      summary: >-
+        An answer's table as an Excel workbook; /tables/{n}.pdf gives a branded PDF (company header, the
+        question, the answer, the table). Built from the rows stored with the answer, so the figures are
+        exactly the ones shown. The chat's owner only.
+      responses:
+        '200': { description: 'File download, e.g. mico-ai-overdue-tasks-2026-10-24.xlsx' }
+        '404': { description: No such table, or not your chat }
   /meetings/{id}/notes/{noteId}/restore:
     post:
       summary: Undo a meeting-note delete (notes are soft-deleted). The note's author or the meeting's organizer only.

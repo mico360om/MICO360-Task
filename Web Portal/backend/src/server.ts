@@ -166,6 +166,10 @@ import { createSettingsService } from './modules/settings/settings-service';
 import { createAiConfigService } from './modules/ai/ai-config-service';
 import { createAiFeatureService } from './modules/ai/ai-feature-service';
 import { createPrismaFinalMinutesRepository } from './modules/meetings/final-minutes-repository';
+import { createMicoAiService } from './modules/mico-ai/mico-ai-service';
+import { createMicoAiTools } from './modules/mico-ai/mico-ai-tools';
+import { createPrismaMicoAiData } from './modules/mico-ai/prisma-mico-ai-data';
+import { createPrismaMicoAiRepository } from './modules/mico-ai/prisma-mico-ai-repository';
 import { createPrismaAiConfigRepository } from './modules/ai/prisma-ai-config-repository';
 import { createPrismaSettingsRepository } from './modules/settings/prisma-settings-repository';
 import { createOtpService } from './modules/auth/otp-service';
@@ -837,6 +841,32 @@ async function main(): Promise<void> {
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
   });
 
+  // MICO AI: each person's private chats with a read-only assistant. Its tools read with the app's
+  // own rules (project access, the meeting rule, the chat module's conversations); it asks the same
+  // default chat model as the other AI features, and each question counts once against the limits.
+  const micoAiService = createMicoAiService({
+    repo: createPrismaMicoAiRepository(prisma),
+    tools: createMicoAiTools({
+      data: createPrismaMicoAiData({
+        prisma,
+        projectAccess,
+        meetingAccess,
+        conversationIdsFor: (userId) => chatService.accessibleConversationIds(userId),
+        finalMinutes: createPrismaFinalMinutesRepository(prisma),
+      }),
+      timeZone: companyTz,
+    }),
+    model: { ready: () => aiFeatureService.chatReady(), chat: (req) => aiFeatureService.chat(req) },
+    audit: auditService,
+    limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
+    timeZone: companyTz,
+    userName: async (id) => {
+      const u = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true, username: true } });
+      return u ? [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username : '';
+    },
+    logger,
+  });
+
   // Per-date boards: each night carry still-open tasks onto today's board. Config lives in
   // system settings (admin-editable) — carryForward.enabled + carryForward.statuses — with defaults.
   const carryForwardService = createCarryForwardService({
@@ -1241,6 +1271,7 @@ async function main(): Promise<void> {
     settingsService,
     aiConfigService,
     aiFeatureService,
+    micoAiService,
     emailWebhookService,
     mailjetWebhookToken: env.MAILJET_WEBHOOK_TOKEN || undefined,
     corsOrigins: corsOrigin(parseCorsOrigins(env.CORS_ORIGINS)),
