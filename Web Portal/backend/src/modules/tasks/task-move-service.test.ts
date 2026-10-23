@@ -173,6 +173,7 @@ describe('What a move will change (preview)', () => {
         canMove: true,
         reason: null,
         newKey: 'OPS-17',
+        currentCategory: 'IN_PROGRESS',
         columnId: 'o-doing',
         milestoneCleared: true,
         dueDate: null,
@@ -187,7 +188,7 @@ describe('What a move will change (preview)', () => {
 
   it('a stage the new project hasn’t got goes to its first column (a switched-off column is never chosen)', async () => {
     const w = world();
-    expect((await w.service.preview(aisha, ['t3'], 'ops')).tasks[0]!.columnId).toBe('o-backlog');
+    expect((await w.service.preview(aisha, ['t3'], 'ops')).tasks[0]).toMatchObject({ currentCategory: 'REVIEW', columnId: 'o-backlog' });
   });
 
   it('an undated task gets today where new tasks are due today; a dated one keeps its date', async () => {

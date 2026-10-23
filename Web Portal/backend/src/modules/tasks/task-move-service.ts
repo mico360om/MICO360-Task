@@ -49,6 +49,8 @@ export interface TaskMovePreview {
    * A task created there at the same moment can take a number; the move then takes the next one.
    */
   newKey: string | null;
+  /** The stage (column category) it is in now: when `columnId` is of another kind, the new project has none of this one. */
+  currentCategory: string | null;
   /** Where it goes unless another column is chosen: the same kind of column as now, else the first. */
   columnId: string | null;
   /** It is a milestone, and milestones belong to their project: moving clears it. */
@@ -214,7 +216,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     let numbered = 0;
     for (const id of ids) {
       const task = byId.get(id);
-      const base = { id, key: task?.key ?? '', title: task?.title ?? '', from: null, newKey: null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] };
+      const base = { id, key: task?.key ?? '', title: task?.title ?? '', from: null, newKey: null, currentCategory: task?.columnCategory ?? null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] };
       if (!task) {
         tasks.push({ ...base, canMove: false, reason: 'Task not found.' });
         continue;

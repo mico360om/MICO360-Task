@@ -27,7 +27,7 @@ export interface TaskMoveRouteDeps {
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Task not found.' } };
 const hiddenPreview = (id: string): TaskMovePreview => ({
-  id, key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [],
+  id, key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, currentCategory: null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [],
 });
 
 /**

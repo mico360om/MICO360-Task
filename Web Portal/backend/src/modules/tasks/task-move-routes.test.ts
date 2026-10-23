@@ -114,7 +114,7 @@ describe('POST /tasks/move-preview', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/move-preview', headers: await bearer('aisha'), payload: { taskIds: ['secret', 't1'], projectId: 'ops' } });
     expect(res.statusCode).toBe(200);
     const [hidden, shown] = res.json().data.tasks;
-    expect(hidden).toEqual({ id: 'secret', key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] });
+    expect(hidden).toEqual({ id: 'secret', key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, currentCategory: null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] });
     expect(shown).toMatchObject({ key: 'RIG-1', newKey: 'OPS-1' });
     expect(res.body).not.toContain('Pay rises');
   });
