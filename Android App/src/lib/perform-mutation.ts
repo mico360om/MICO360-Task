@@ -3,6 +3,7 @@ import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
 import { markReloaded, taskHoldsEdit } from './task-writes';
 import { assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, MY_ACTION_ITEMS } from './task-cache';
+import { ALERTS_REFRESH } from './alerts';
 import type { Refresh } from './refresh';
 import type { ActionItemInput, ActionItemPatch, ApiTask, AttendanceStatus, NoteInput } from './types';
 
@@ -195,7 +196,8 @@ export function refreshesAfterReplay(m: Pick<QueuedMutation, 'kind' | 'payload'>
     case 'comment.add':
       return [part('comments'), part('activity'), { listsHolding: id }];
     case 'notification.read':
-      return [{ queryKey: ['notifications'] }];
+      // The Alerts list and its number — not the notification settings under the same key (final review B4).
+      return [...ALERTS_REFRESH];
     case 'chat.send':
     case 'chat.edit':
     case 'chat.delete':

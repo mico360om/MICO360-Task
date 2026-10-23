@@ -8,6 +8,7 @@ import { appCovered, canReadOnScreen, setViewingConversation, stopViewing, subsc
 import { useConversations } from './queries';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { refresh } from '../lib/refresh';
+import { ALERTS_REFRESH } from '../lib/alerts';
 import { dismissNotificationsAbout } from '../adapters/push';
 import type { ApiConversationSummary, ReplyQuote } from '../lib/types';
 
@@ -82,7 +83,8 @@ export function useMarkRead() {
       resources.chat.markRead(conversationId).then(
         () => {
           qc.setQueryData<ApiConversationSummary[]>(INBOX, (inbox) => withConversationRead(inbox, conversationId));
-          refresh(qc, [{ queryKey: INBOX }, ...(hadUnread ? [{ queryKey: ['notifications'] }] : [])]);
+          // The Alerts list and its number — not the notification settings under the same key (final review B4).
+          refresh(qc, [{ queryKey: INBOX }, ...(hadUnread ? ALERTS_REFRESH : [])]);
           void dismissNotificationsAbout('conversation', conversationId);
         },
         () => {

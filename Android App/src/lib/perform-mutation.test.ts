@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { performMutation, describeMutation, isKeyedCreate, refreshesAfterReplay, waitingReason } from './perform-mutation';
+import { ALERTS_REFRESH } from './alerts';
+import { refresh } from './refresh';
 
 describe('waitingReason — why a waiting change can be discarded (2c review fix 4)', () => {
   it('says the server hasn’t answered, or that it has waited a long while', () => {
@@ -235,7 +240,7 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
   });
 
   it('notifications and chat messages', () => {
-    expect(refreshesAfterReplay(mut('notification.read', { id: 'n1' }))).toEqual([{ queryKey: ['notifications'] }]);
+    expect(refreshesAfterReplay(mut('notification.read', { id: 'n1' }))).toEqual(ALERTS_REFRESH);
     // The thread gets the server's copy put in directly (chat-cache): only the inbox is fetched again.
     expect(refreshesAfterReplay(mut('chat.send', { conversationId: 'c1', body: 'hi', clientId: 'k1' }))).toEqual([{ queryKey: ['chat', 'conversations'] }]);
   });
@@ -307,5 +312,27 @@ describe('the changes a lost key could make twice (4a review #1)', () => {
     const { resolve } = await import('node:path');
     const services = readFileSync(resolve(__dirname, '../core/services.ts'), 'utf8');
     expect(services).toMatch(/keyLifetime: \{ ms: KEY_SAFE_MS, applies: isKeyedCreate \}/);
+  });
+});
+
+describe('reading an alert refreshes the Alerts list and its number, not the notification settings (final review B4)', () => {
+  it('an alert read kept offline and sent later: the settings aren’t read again', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const reads: string[] = [];
+    const stops = [['notifications'], ['notifications', 'unread'], ['notifications', 'preferences']].map((queryKey) =>
+      new QueryObserver(qc, { queryKey, queryFn: async () => (reads.push(queryKey.join('.')), queryKey.length === 1 ? [] : {}) }).subscribe(() => {}),
+    );
+    await vi.waitFor(() => expect(qc.getQueryCache().getAll().map((q) => q.state.status)).toEqual(['success', 'success', 'success']));
+    reads.length = 0;
+    refresh(qc, refreshesAfterReplay(mut('notification.read', { id: 'n1' })));
+    await vi.waitFor(() => expect(reads.length).toBeGreaterThanOrEqual(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(reads.sort()).toEqual(['notifications', 'notifications.unread']);
+    stops.forEach((stop) => stop());
+  });
+
+  it('a chat read that had unread messages refreshes the alerts the same way', () => {
+    const chat = readFileSync(resolve(__dirname, '../core/chat.ts'), 'utf8');
+    expect(chat).toMatch(/refresh\(qc, \[\{ queryKey: INBOX \}, \.\.\.\(hadUnread \? ALERTS_REFRESH : \[\]\)\]\);/);
   });
 });
