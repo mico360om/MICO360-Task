@@ -8,6 +8,7 @@ import {
   limitOptions,
   popoverSub,
   popoverTitle,
+  problemText,
   sortPeople,
   suggestionLabel,
   suggestionText,
@@ -122,10 +123,28 @@ describe('the popover', () => {
     const rachel = { kind: 'reassign' as const, to: { id: 'rachel', name: 'Rachel Rea Dsouza' }, count: 0 };
     expect(suggestionText(hassan, WEEK)).toBe('→ Hassan (2 that day)');
     expect(suggestionText(rachel, WEEK)).toBe('→ Rachel (0 that day)');
-    expect(suggestionText({ kind: 'move', date: '2026-10-29', count: 3 }, WEEK)).toBe('Move to Thu 29');
-    expect(suggestionText({ kind: 'move', date: '2026-11-01', count: 0 }, WEEK)).toBe('Move to Sun 1 Nov');
+    expect(suggestionText({ kind: 'move', date: '2026-10-29' }, WEEK)).toBe('Move to Thu 29');
+    expect(suggestionText({ kind: 'move', date: '2026-11-01' }, WEEK)).toBe('Move to Sun 1 Nov');
     expect(suggestionLabel(hassan, 'RIG-14')).toBe('Give RIG-14 to Hassan Ahmed, who has 2 tasks due that day');
     expect(suggestionLabel(rachel, 'MOB-8')).toBe('Give MOB-8 to Rachel Rea Dsouza, who has nothing due that day');
-    expect(suggestionLabel({ kind: 'move', date: '2026-10-29', count: 3 }, 'FCRM-3')).toBe('Move FCRM-3 to Thursday 29 October');
+    expect(suggestionLabel({ kind: 'move', date: '2026-10-29' }, 'FCRM-3')).toBe('Move FCRM-3 to Thursday 29 October');
+  });
+
+  it('names no number when the server sends none (only administrators see a teammate’s whole day)', () => {
+    const hassan = { kind: 'reassign' as const, to: { id: 'hassan', name: 'Hassan Ahmed' }, count: null };
+    expect(suggestionText(hassan, WEEK)).toBe('→ Hassan');
+    expect(suggestionLabel(hassan, 'RIG-14')).toBe('Give RIG-14 to Hassan Ahmed');
+  });
+
+  it('says plainly why a suggestion couldn’t be applied', () => {
+    const give = { kind: 'reassign' as const, to: { id: 'hassan', name: 'Hassan Ahmed' }, count: null };
+    const move = { kind: 'move' as const, date: '2026-10-29' };
+    expect(problemText({ code: 'VERSION_CONFLICT', key: 'FCRM-3', suggestion: move, from: 'Omar Said' })).toBe(
+      'Someone else changed FCRM-3 just now. The numbers are up to date again — try once more if it still needs moving.',
+    );
+    expect(problemText({ code: 'TASK_DONE', key: 'RIG-14', suggestion: give, from: 'Omar Said' })).toBe('RIG-14 is already done. The numbers are up to date again.');
+    expect(problemText({ code: 'ASSIGNEE_GONE', key: 'RIG-14', suggestion: give, from: 'Omar Said' })).toBe('Omar Said is no longer on RIG-14. The numbers are up to date again.');
+    expect(problemText({ code: 'OTHER', reason: 'the server had a problem', key: 'RIG-14', suggestion: give, from: 'Omar Said' })).toBe('Couldn’t give RIG-14 to Hassan Ahmed: the server had a problem.');
+    expect(problemText({ code: 'OTHER', reason: 'the server couldn’t be reached', key: 'FCRM-3', suggestion: move, from: 'Omar Said' })).toBe('Couldn’t move FCRM-3: the server couldn’t be reached.');
   });
 });

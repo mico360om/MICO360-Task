@@ -138,7 +138,7 @@ export function TimelinePage() {
   const [params, setParams] = useSearchParams();
   const state = readTimelineState(params);
   const update = (changes: Partial<TimelineState>) => setParams((prev) => writeTimelineState(prev, changes));
-  const { weekStart, timeZone: ownZone } = useDateSettings();
+  const { weekStart } = useDateSettings();
   const timeZone = useCompanyTimeZone();
   const now = useNow(60_000);
   const today = todayKey(timeZone, now);
@@ -148,9 +148,11 @@ export function TimelinePage() {
   const phone = useMediaQuery('(max-width: 639px)');
 
   const query = useQuery({
-    queryKey: timelineKey(range.from, range.to, weekStart),
+    queryKey: timelineKey(range.from, range.to, weekStart, today),
     queryFn: () => planningApi(apiClient).timeline({ ...range, weekStart }),
     placeholderData: keepPreviousData,
+    // Read again whenever the page is opened: meetings and project dates change on other pages.
+    staleTime: 0,
   });
   const data = query.data;
   const all = useMemo(() => data?.projects ?? [], [data]);
@@ -162,11 +164,9 @@ export function TimelinePage() {
   const busy = busyTotals(shown, data?.weeks.length ?? 0);
   const scale = heatScale(busy);
 
-  // The open details, the bar or marker that opened them (focus returns there), and where they sit.
+  // The open details and the bar or marker that opened them (they sit right after it; focus returns there).
   const [detail, setDetail] = useState<TimelineDetail | null>(null);
-  const [at, setAt] = useState({ top: 0, left: 0 });
   const trigger = useRef<HTMLElement | null>(null);
-  const wrap = useRef<HTMLDivElement>(null);
   const openKey = detail ? detailKey(detail) : null;
   const detailProject = detail ? shown.find((p) => p.id === detail.projectId) ?? null : null;
 
@@ -176,12 +176,6 @@ export function TimelinePage() {
       return;
     }
     trigger.current = el;
-    const box = wrap.current?.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
-    if (box) {
-      const width = Math.min(320, box.width - 16);
-      setAt({ top: r.bottom - box.top + 8, left: Math.max(8, Math.min(r.left - box.left, box.width - width - 8)) });
-    }
     setDetail(next);
   }
 
@@ -276,24 +270,23 @@ export function TimelinePage() {
       ) : phone ? (
         <PhoneList projects={shown} today={today} />
       ) : (
-        <div ref={wrap} className="relative">
-          <div className="card overflow-hidden">
-            <TimelineChart
-              range={{ from: data.from, to: data.to, weeks: data.weeks }}
-              today={today}
-              currentWeek={data.currentWeek}
-              projects={shown}
-              busy={busy}
-              scale={scale}
-              open={openKey}
-              onOpen={openDetail}
-              onScroll={() => setDetail(null)}
-            />
-            <Legend labels={scale.labels} />
-          </div>
-          {detail && detailProject ? (
-            <TimelineDetails detail={detail} project={detailProject} today={today} timeZone={ownZone} at={at} trigger={trigger} onClose={() => setDetail(null)} />
-          ) : null}
+        <div className="card overflow-hidden">
+          <TimelineChart
+            range={{ from: data.from, to: data.to, weeks: data.weeks }}
+            today={today}
+            currentWeek={data.currentWeek}
+            projects={shown}
+            busy={busy}
+            scale={scale}
+            open={openKey}
+            onOpen={openDetail}
+            details={
+              detail && detailProject ? (
+                <TimelineDetails detail={detail} project={detailProject} today={today} timeZone={timeZone} trigger={trigger} onClose={() => setDetail(null)} />
+              ) : null
+            }
+          />
+          <Legend labels={scale.labels} />
         </div>
       )}
     </div>

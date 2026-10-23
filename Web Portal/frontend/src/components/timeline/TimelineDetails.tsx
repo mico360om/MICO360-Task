@@ -1,8 +1,8 @@
-import { useEffect, useId, useRef, type RefObject } from 'react';
+import { useId, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimelineProject } from '../../api/planning';
 import { datesLine, doneLine, lateNote, markerDays, nextLine, shortDay, weekdayDay } from '../../lib/timeline';
-import { useDismiss } from '../../lib/useDismiss';
+import { AnchoredPopover } from '../ui/AnchoredPopover';
 import { HealthPill } from './parts';
 import type { TimelineDetail } from './TimelineChart';
 
@@ -34,33 +34,28 @@ function ProjectLinks({ projectId }: { projectId: string }) {
 }
 
 /**
- * The details of what was clicked on the chart, next to it: a project's dates, how much is done and
- * overdue and its next milestone; a milestone; or a day's meetings — with links to open them.
- * Focus moves into it; Escape closes it and returns to the bar or marker.
+ * The details of what was clicked on the chart, right after it: a project's dates, how much is done
+ * and overdue and its next milestone; a group of milestones; or a group of meetings (their times in
+ * company time, the zone their days are placed in) — with links to open them.
  */
 export function TimelineDetails({
   detail,
   project,
   today,
   timeZone,
-  at,
   trigger,
   onClose,
 }: {
   detail: TimelineDetail;
   project: TimelineProject;
   today: string;
+  /** The company's time zone. */
   timeZone: string;
-  at: { top: number; left: number };
   trigger: RefObject<HTMLElement | null>;
   onClose: () => void;
 }) {
-  const root = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  useDismiss(true, onClose, root, trigger);
-  useEffect(() => {
-    root.current?.focus();
-  }, [detail]);
+  const title = 'text-sm font-bold text-ink outline-none';
 
   let body: JSX.Element;
   if (detail.kind === 'project') {
@@ -75,29 +70,48 @@ export function TimelineDetails({
     body = (
       <>
         <div className="flex items-start justify-between gap-2">
-          <h3 id={titleId} className="text-sm font-bold text-ink">{p.name}</h3>
+          <h3 id={titleId} tabIndex={-1} data-popover-heading className={title}>{p.name}</h3>
           <HealthPill health={p.health} />
         </div>
         <Facts rows={rows} />
         <ProjectLinks projectId={p.id} />
       </>
     );
-  } else if (detail.kind === 'milestone') {
-    const m = project.milestones.find((x) => x.id === detail.milestoneId);
-    const state = !m ? '' : m.done ? 'reached' : m.date && m.date < today ? 'overdue, not reached' : 'not reached yet';
-    body = (
+  } else if (detail.kind === 'milestones') {
+    const list = project.milestones.filter((m) => m.date !== null && m.date >= detail.first && m.date <= detail.last);
+    const stateOf = (m: (typeof list)[number]) => (m.done ? 'reached' : m.date! < today ? 'overdue, not reached' : 'not reached yet');
+    const single = list.length === 1 ? list[0]! : null;
+    body = single ? (
       <>
-        <h3 id={titleId} className="text-sm font-bold text-ink">
+        <h3 id={titleId} tabIndex={-1} data-popover-heading className={title}>
           <span aria-hidden="true">◆ </span>
-          {m?.title ?? 'Milestone'}
+          {single.title}
         </h3>
-        {m ? <p className="font-mono text-[11px] text-ink-2">{m.key}</p> : null}
+        <p className="font-mono text-[11px] text-ink-2">{single.key}</p>
         <Facts
           rows={[
             ['Project', project.name],
-            ['Due', m?.date ? `${shortDay(m.date, '0000')} · ${state}` : `No date · ${state}`],
+            ['Due', `${shortDay(single.date!, '0000')} · ${stateOf(single)}`],
           ]}
         />
+        <ProjectLinks projectId={project.id} />
+      </>
+    ) : (
+      <>
+        <h3 id={titleId} tabIndex={-1} data-popover-heading className={title}>Milestones · {markerDays({ first: detail.first, last: detail.last }).replace(/^[A-Z][a-z]{2} /, '')}</h3>
+        <p className="text-xs text-ink-2">{project.name}</p>
+        <ul className="mt-2 divide-y divide-line-2">
+          {list.map((m) => (
+            <li key={m.id} className="py-1.5">
+              <span aria-hidden="true">◆ </span>
+              <span className="font-medium text-ink">{m.title}</span>
+              <span className="block text-xs text-ink-2">
+                {m.key}
+                {detail.first === detail.last ? '' : ` · ${shortDay(m.date!, today)}`} · {stateOf(m)}
+              </span>
+            </li>
+          ))}
+        </ul>
         <ProjectLinks projectId={project.id} />
       </>
     );
@@ -106,12 +120,15 @@ export function TimelineDetails({
     const list = project.meetings.filter((m) => m.day >= detail.first && m.day <= detail.last);
     body = (
       <>
-        <h3 id={titleId} className="text-sm font-bold text-ink">Meetings · {markerDays(detail)}</h3>
+        <h3 id={titleId} tabIndex={-1} data-popover-heading className={title}>Meetings · {markerDays(detail)}</h3>
         <p className="text-xs text-ink-2">{project.name}</p>
         <ul className="mt-2 divide-y divide-line-2">
           {list.map((m) => (
             <li key={m.id} className="flex items-center gap-2 py-1.5">
-              <span className="flex-none tabular-nums text-ink-2">{detail.first === detail.last ? '' : `${weekdayDay(m.day).split(' ').slice(0, 2).join(' ')} · `}{time.format(new Date(m.startAt))}</span>
+              <span className="flex-none tabular-nums text-ink-2">
+                {detail.first === detail.last ? '' : `${weekdayDay(m.day).split(' ').slice(0, 2).join(' ')} · `}
+                {time.format(new Date(m.startAt))}
+              </span>
               <span className="min-w-0 flex-1 truncate font-medium text-ink">{m.title}</span>
               <Link to={`/meetings/${m.id}`} aria-label={`Open meeting ${m.title}`} className={OTHER_LINK}>
                 Open meeting
@@ -124,15 +141,8 @@ export function TimelineDetails({
   }
 
   return (
-    <div
-      ref={root}
-      role="dialog"
-      aria-labelledby={titleId}
-      tabIndex={-1}
-      className="absolute z-30 w-[min(20rem,calc(100%-1rem))] rounded-xl border border-line bg-surface p-3.5 text-[13px] shadow-lift outline-none animate-fade-in"
-      style={{ top: at.top, left: at.left }}
-    >
+    <AnchoredPopover anchor={trigger} labelledBy={titleId} onClose={onClose} className="w-[min(20rem,calc(100vw-1rem))] rounded-xl border border-line bg-surface p-3.5 text-[13px] shadow-lift">
       {body}
-    </div>
+    </AnchoredPopover>
   );
 }

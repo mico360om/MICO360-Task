@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { CSSProperties, MouseEvent } from 'react';
+import type { CSSProperties, MouseEvent, ReactNode } from 'react';
 import type { TimelineProject } from '../../api/planning';
 import { ProjectAvatar } from '../ProjectAvatar';
 import {
@@ -9,7 +9,10 @@ import {
   heatLevel,
   lateNote,
   markerLabel,
+  markerSpanDays,
   meetingMarkers,
+  milestoneMarkerLabel,
+  milestoneMarkers,
   monthMarks,
   riskLabel,
   shortDay,
@@ -19,14 +22,14 @@ import {
 } from '../../lib/timeline';
 import { BAR_TONE, HEAT, HealthPill } from './parts';
 
-/** What a click on the chart opens: a project's details, a milestone's, or a day's meetings. */
+/** What a click on the chart opens: a project's details, a group of its milestones, or of its meetings. */
 export type TimelineDetail =
   | { kind: 'project'; projectId: string }
-  | { kind: 'milestone'; projectId: string; milestoneId: string }
+  | { kind: 'milestones'; projectId: string; first: string; last: string }
   | { kind: 'meetings'; projectId: string; first: string; last: string };
 
 export const detailKey = (d: TimelineDetail) =>
-  d.kind === 'project' ? `p:${d.projectId}` : d.kind === 'milestone' ? `m:${d.milestoneId}` : `d:${d.projectId}:${d.first}`;
+  d.kind === 'project' ? `p:${d.projectId}` : `${d.kind === 'milestones' ? 'ms' : 'mt'}:${d.projectId}:${d.first}`;
 
 /** The left column and the weeks, the same in every row. */
 const ROW = 'grid grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]';
@@ -38,19 +41,20 @@ interface ChartProps {
   projects: TimelineProject[];
   busy: number[];
   scale: { size: number; labels: string[] };
-  /** The detail that is open (its trigger shows as expanded). */
+  /** The detail that is open (its trigger shows as expanded, and `details` sits right after it). */
   open: string | null;
+  details: ReactNode;
   onOpen: (detail: TimelineDetail, trigger: HTMLElement) => void;
-  onScroll?: () => void;
 }
 
 /**
  * The chart: months and week starts on top, the busy weeks under them, then a row per project — its
  * bar from start to target filled to the share done, the part of a late project past its target
- * hatched up to today, its milestones (◆, filled once reached) and its meetings. Bars and markers
- * are buttons that open their details. The current week is shaded and today is a labelled line.
+ * hatched up to today, its milestones (◆, filled once reached) and its meetings, grouped so markers
+ * never overlap. Bars and markers are buttons whose details open right after them. The current week
+ * is shaded and today is a labelled line.
  */
-export function TimelineChart({ range, today, currentWeek, projects, busy, scale, open, onOpen, onScroll }: ChartProps) {
+export function TimelineChart({ range, today, currentWeek, projects, busy, scale, open, details, onOpen }: ChartProps) {
   const total = daysBetween(range.from, range.to) + 1;
   const pct = (day: string) => xOf(day, range.from, total);
   const halfDay = 50 / total;
@@ -68,7 +72,7 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
   const open$ = (detail: TimelineDetail) => (e: MouseEvent<HTMLButtonElement>) => onOpen(detail, e.currentTarget);
 
   return (
-    <div className="overflow-x-auto" onScroll={onScroll}>
+    <div className="overflow-x-auto">
       <div className="min-w-[52rem]">
         <div className={`${ROW} border-b border-line bg-surface-2`}>
           <div className="flex items-end px-4 pb-2 text-[11px] font-bold uppercase tracking-wider text-ink-2">Project</div>
@@ -121,7 +125,7 @@ export function TimelineChart({ range, today, currentWeek, projects, busy, scale
 
         <ul aria-label="Projects">
           {projects.map((p) => (
-            <ProjectRow key={p.id} p={p} range={range} today={today} pct={pct} halfDay={halfDay} backdrop={backdrop} open={open} onOpen={open$} />
+            <ProjectRow key={p.id} p={p} range={range} today={today} pct={pct} halfDay={halfDay} backdrop={backdrop} open={open} details={details} onOpen={open$} />
           ))}
         </ul>
       </div>
@@ -137,6 +141,7 @@ function ProjectRow({
   halfDay,
   backdrop,
   open,
+  details,
   onOpen,
 }: {
   p: TimelineProject;
@@ -146,6 +151,7 @@ function ProjectRow({
   halfDay: number;
   backdrop: JSX.Element;
   open: string | null;
+  details: ReactNode;
   onOpen: (detail: TimelineDetail) => (e: MouseEvent<HTMLButtonElement>) => void;
 }) {
   const { bar, over } = barShape(p, range, today);
@@ -153,10 +159,13 @@ function ProjectRow({
   const inRange = (day: string | null): day is string => day !== null && day >= range.from && day <= range.to;
   const label = p.health === 'at-risk' ? riskLabel(p) : `${p.progress}%`;
   const projectDetail: TimelineDetail = { kind: 'project', projectId: p.id };
-  // One marker a day where days are wide enough (Month), else one a week: markers never overlap.
-  const markers = meetingMarkers(p.meetings.filter((m) => inRange(m.day)), range.weeks, range.weeks.length > 6 ? 'week' : 'day');
+  // Markers start far enough apart that none overlaps the next, at the chart's narrowest.
+  const span = markerSpanDays(range.weeks.length);
+  const meetings = meetingMarkers(p.meetings.filter((m) => inRange(m.day)), span);
+  const milestones = milestoneMarkers(p.milestones.filter((m) => inRange(m.date)), span);
   const end = over ? over.left + over.width : bar ? bar.left + bar.width : 0;
   const sub = subline(p, today);
+  const after = (detail: TimelineDetail) => (open === detailKey(detail) ? details : null);
 
   return (
     <li className={`${ROW} border-b border-line-2 last:border-b-0`}>
@@ -175,25 +184,28 @@ function ProjectRow({
       <div className="relative h-[4.25rem] border-s border-line">
         {backdrop}
         {bar ? (
-          <button
-            type="button"
-            onClick={onOpen(projectDetail)}
-            aria-haspopup="dialog"
-            aria-expanded={open === detailKey(projectDetail)}
-            aria-label={`${p.name}: ${HEALTH_LABEL[p.health].toLowerCase()}, ${p.progress}% done${p.timeUsed !== null && p.health !== 'late' ? `, ${p.timeUsed}% of the time used` : ''}${p.health === 'late' ? `, ${p.daysLate} ${p.daysLate === 1 ? 'day' : 'days'} late` : ''}. Details`}
-            className={`absolute top-3 h-6 rounded-md text-start transition-shadow hover:shadow-lift focus-visible:z-20 ${tone.track} ${bar.startsBefore ? 'rounded-s-none' : ''} ${bar.endsAfter ? 'rounded-e-none' : ''} ${bar.open ? 'fade-end' : ''}`}
-            style={{ left: `${bar.left}%`, width: `${bar.width}%` } as CSSProperties}
-          >
-            <span aria-hidden="true" className={`absolute inset-y-0 start-0 ${tone.fill} ${bar.startsBefore ? '' : 'rounded-s-md'} ${bar.fill >= 100 && !bar.endsAfter ? 'rounded-e-md' : ''}`} style={{ width: `${bar.fill}%` }} />
-            {/* Beside the end of the done part — inside it once it is long — so a milestone at the start never covers it. */}
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] font-bold leading-4 text-ink shadow-sm"
-              style={bar.fill >= 60 ? { right: `calc(${100 - bar.fill}% + 0.25rem)` } : { left: `calc(${bar.fill}% + 0.25rem)` }}
+          <>
+            <button
+              type="button"
+              onClick={onOpen(projectDetail)}
+              aria-haspopup="dialog"
+              aria-expanded={open === detailKey(projectDetail)}
+              aria-label={`${p.name}: ${HEALTH_LABEL[p.health].toLowerCase()}, ${p.progress}% done${p.timeUsed !== null && p.health !== 'late' ? `, ${p.timeUsed}% of the time used` : ''}${p.health === 'late' ? `, ${p.daysLate} ${p.daysLate === 1 ? 'day' : 'days'} late` : ''}. Details`}
+              className={`absolute top-3 h-6 rounded-md text-start transition-shadow hover:shadow-lift focus-visible:z-20 ${tone.track} ${bar.startsBefore ? 'rounded-s-none' : ''} ${bar.endsAfter ? 'rounded-e-none' : ''} ${bar.open ? 'fade-end' : ''}`}
+              style={{ left: `${bar.left}%`, width: `${bar.width}%` } as CSSProperties}
             >
-              {label}
-            </span>
-          </button>
+              <span aria-hidden="true" className={`absolute inset-y-0 start-0 ${tone.fill} ${bar.startsBefore ? '' : 'rounded-s-md'} ${bar.fill >= 100 && !bar.endsAfter ? 'rounded-e-md' : ''}`} style={{ width: `${bar.fill}%` }} />
+              {/* Beside the end of the done part — inside it once it is long — so a milestone at the start never covers it. */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] font-bold leading-4 text-ink shadow-sm"
+                style={bar.fill >= 60 ? { right: `calc(${100 - bar.fill}% + 0.25rem)` } : { left: `calc(${bar.fill}% + 0.25rem)` }}
+              >
+                {label}
+              </span>
+            </button>
+            {after(projectDetail)}
+          </>
         ) : null}
         {over ? <span aria-hidden="true" className="hatch-late absolute top-3 h-6 rounded-e-md" style={{ left: `${over.left}%`, width: `${over.width}%` }} /> : null}
         {p.health === 'late' ? (
@@ -201,40 +213,49 @@ function ProjectRow({
             {lateNote(p, today)}
           </span>
         ) : null}
-        {p.milestones.filter((m) => inRange(m.date)).map((m) => {
-          const detail: TimelineDetail = { kind: 'milestone', projectId: p.id, milestoneId: m.id };
+        {milestones.map((g) => {
+          const detail: TimelineDetail = { kind: 'milestones', projectId: p.id, first: g.first, last: g.last };
           return (
-            <button
-              key={m.id}
-              type="button"
-              onClick={onOpen(detail)}
-              aria-haspopup="dialog"
-              aria-expanded={open === detailKey(detail)}
-              aria-label={`Milestone ${m.title}, ${shortDay(m.date!, today)}, ${m.done ? 'reached' : 'not reached yet'}`}
-              className="absolute top-6 z-10 grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-sm focus-visible:z-20"
-              style={{ left: `${pct(m.date!) + halfDay}%` }}
-            >
-              <span aria-hidden="true" className={`h-2.5 w-2.5 rotate-45 ring-2 ring-ink ${m.done ? 'bg-ink' : 'bg-surface'}`} />
-            </button>
+            <span key={g.key} className="contents">
+              <button
+                type="button"
+                onClick={onOpen(detail)}
+                aria-haspopup="dialog"
+                aria-expanded={open === detailKey(detail)}
+                aria-label={milestoneMarkerLabel(g, today)}
+                className="absolute top-6 z-10 grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-sm focus-visible:z-20"
+                style={{ left: `${pct(g.first) + halfDay}%` }}
+              >
+                <span aria-hidden="true" className={`h-2.5 w-2.5 rotate-45 ring-2 ring-ink ${g.done ? 'bg-ink' : 'bg-surface'}`} />
+                {g.items.length > 1 ? (
+                  <span aria-hidden="true" className="absolute -end-1 -top-1 grid h-3.5 min-w-[0.875rem] place-items-center rounded-full bg-ink px-0.5 text-[9px] font-bold leading-none text-surface">
+                    {g.items.length}
+                  </span>
+                ) : null}
+              </button>
+              {after(detail)}
+            </span>
           );
         })}
-        {markers.map((g) => {
+        {meetings.map((g) => {
           const detail: TimelineDetail = { kind: 'meetings', projectId: p.id, first: g.first, last: g.last };
           return (
-            <button
-              key={g.key}
-              type="button"
-              onClick={onOpen(detail)}
-              aria-haspopup="dialog"
-              aria-expanded={open === detailKey(detail)}
-              aria-label={markerLabel(g)}
-              className="absolute top-[2.45rem] z-10 flex h-6 min-w-[1.5rem] -translate-x-1/2 items-center justify-center gap-0.5 rounded-sm px-0.5"
-              style={{ left: `${pct(g.first) + halfDay}%` }}
-            >
-              {g.meetings.slice(0, 3).map((m) => (
-                <span key={m.id} aria-hidden="true" className="h-2 w-2 rounded-[2px] bg-meeting" />
-              ))}
-            </button>
+            <span key={g.key} className="contents">
+              <button
+                type="button"
+                onClick={onOpen(detail)}
+                aria-haspopup="dialog"
+                aria-expanded={open === detailKey(detail)}
+                aria-label={markerLabel(g)}
+                className="absolute top-[2.45rem] z-10 flex h-6 min-w-[1.5rem] -translate-x-1/2 items-center justify-center gap-0.5 rounded-sm px-0.5"
+                style={{ left: `${pct(g.first) + halfDay}%` }}
+              >
+                {g.items.slice(0, 3).map((m) => (
+                  <span key={m.id} aria-hidden="true" className="h-2 w-2 rounded-[2px] bg-meeting" />
+                ))}
+              </button>
+              {after(detail)}
+            </span>
           );
         })}
       </div>

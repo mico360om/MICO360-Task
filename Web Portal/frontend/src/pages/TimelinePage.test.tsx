@@ -34,6 +34,7 @@ function tp(id: string, extra: Partial<TimelineProject>): TimelineProject {
     dueByWeek: weeks(),
     milestones: [],
     nextMilestone: null,
+    milestoneCount: 0,
     milestonesSoon: 0,
     meetings: [],
     meetingsThisWeek: 0,
@@ -47,20 +48,21 @@ const beta = { id: 'm-b', key: 'MOB-2', title: 'Beta build', date: '2026-11-06',
 const pilot = { id: 'm-p', key: 'RIG-7', title: 'Pilot on rig 3', date: '2026-11-12', done: false };
 
 const PROJECTS: TimelineProject[] = [
-  tp('rig', { name: 'Rig Inspection Portal', owner: SARA, start: '2026-10-05', target: '2026-12-20', progress: 62, timeUsed: 26, milestones: [pilot], nextMilestone: pilot, milestonesSoon: 1, dueByWeek: weeks(3, 0, 5, 2, 0, 1), meetings: [
+  tp('rig', { name: 'Rig Inspection Portal', owner: SARA, start: '2026-10-05', target: '2026-12-20', progress: 62, timeUsed: 26, milestones: [pilot], nextMilestone: pilot, milestoneCount: 1, milestonesSoon: 1, dueByWeek: weeks(3, 0, 5, 2, 0, 1), meetings: [
     { id: 'mt2', title: 'Site walk', startAt: '2026-10-22T05:00:00.000Z', day: '2026-10-22' },
     { id: 'mt3', title: 'Vendor call', startAt: '2026-10-22T09:00:00.000Z', day: '2026-10-22' },
   ], meetingsThisWeek: 2 }),
   tp('mssp', { name: 'MICO360 Services', start: '2026-09-15', startIsCreated: true, target: null, timeUsed: null, health: 'no-target', progress: 20, dueByWeek: weeks(0, 0, 2) }),
-  tp('mob', { name: 'Mobile App (Phase 2)', owner: SARA, start: '2026-10-01', target: '2026-12-10', progress: 9, timeUsed: 45, health: 'at-risk', tasks: { total: 11, done: 1, open: 10, overdue: 3 }, milestones: [kickoff, beta], nextMilestone: beta, milestonesSoon: 1, dueByWeek: weeks(1, 2, 4, 6), meetings: [
+  tp('mob', { name: 'Mobile App (Phase 2)', owner: SARA, start: '2026-10-01', target: '2026-12-10', progress: 9, timeUsed: 45, health: 'at-risk', tasks: { total: 11, done: 1, open: 10, overdue: 3 }, milestones: [kickoff, beta], nextMilestone: beta, milestoneCount: 2, milestonesSoon: 1, dueByWeek: weeks(1, 2, 4, 6), meetings: [
     { id: 'mt1', title: 'Design review', startAt: '2026-10-27T06:00:00.000Z', day: '2026-10-27' },
   ] }),
-  tp('fcrm', { name: 'Falcon CRM', owner: OMAR, start: '2026-09-01', target: '2026-10-21', progress: 85, timeUsed: 100, health: 'late', daysLate: 3, tasks: { total: 20, done: 17, open: 3, overdue: 1 }, milestones: [handover], nextMilestone: handover, dueByWeek: weeks(2, 1, 3) }),
+  tp('fcrm', { name: 'Falcon CRM', owner: OMAR, start: '2026-09-01', target: '2026-10-21', progress: 85, timeUsed: 100, health: 'late', daysLate: 3, tasks: { total: 20, done: 17, open: 3, overdue: 1 }, milestones: [handover], nextMilestone: handover, milestoneCount: 1, dueByWeek: weeks(2, 1, 3) }),
 ];
 
 let requests: string[] = [];
 let projects: TimelineProject[] = PROJECTS;
 let fail = false;
+let ownZone: string | null = null;
 
 function answer(url: string): TimelineData {
   const q = new URL(url, 'http://test.local').searchParams;
@@ -77,6 +79,7 @@ beforeEach(() => {
   requests = [];
   projects = PROJECTS;
   fail = false;
+  ownZone = null;
   useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal(
     'fetch',
@@ -84,7 +87,7 @@ beforeEach(() => {
       const url = String(input);
       requests.push(url);
       if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
-      if (url.endsWith('/users/me/preferences')) return json({ data: { timeZone: null, weekStart: null } });
+      if (url.endsWith('/users/me/preferences')) return json({ data: { timeZone: ownZone, weekStart: null } });
       if (url.includes('/timeline?')) return fail ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: answer(url) });
       return json({ data: [] });
     }),
@@ -100,8 +103,7 @@ function Where() {
   return <span data-testid="where">{loc.pathname + loc.search}</span>;
 }
 
-function renderPage(path = '/timeline') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(path = '/timeline', qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
@@ -263,6 +265,54 @@ describe('TimelinePage', () => {
     const details = await screen.findByRole('dialog', { name: 'Falcon CRM' });
     expect(details).toHaveTextContent('Target21 Oct · 3 days late');
     expect(details).toHaveTextContent('Done17 of 20 tasks (85%)Overdue1 task');
+  });
+
+  it('keeps the details right after their bar, and closes them on a second click or when Tab leaves them', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    const bar = screen.getByRole('button', { name: /^Mobile App \(Phase 2\): at risk/ });
+    await userEvent.click(bar);
+    const details = screen.getByRole('dialog', { name: 'Mobile App (Phase 2)' });
+    expect(bar.nextElementSibling).toBe(details);
+    expect(bar).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(bar);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(bar);
+    within(screen.getByRole('dialog')).getByRole('link', { name: 'Open board' }).focus();
+    await userEvent.tab();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('gives milestones due the same day one marker, and lists them all in its details', async () => {
+    const docs = { id: 'm-d', key: 'MOB-3', title: 'Beta docs', date: '2026-11-06', done: true };
+    projects = PROJECTS.map((p) => (p.id === 'mob' ? { ...p, milestones: [...p.milestones, docs], milestoneCount: 3 } : p));
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    expect(screen.queryByRole('button', { name: /^Milestone Beta build/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '2 milestones, 6 Nov, 1 reached' }));
+    const details = await screen.findByRole('dialog', { name: 'Milestones · 6 Nov' });
+    expect(within(details).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['◆ Beta buildMOB-2 · not reached yet', '◆ Beta docsMOB-3 · reached']);
+  });
+
+  it('shows meeting times in the company’s time, the zone the days are placed in — also for someone set to another zone', async () => {
+    ownZone = 'Europe/London';
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: '2 meetings, Thu 22 Oct' }));
+    const details = await screen.findByRole('dialog', { name: 'Meetings · Thu 22 Oct' });
+    // 05:00 UTC is 09:00 in Muscat (06:00 in London).
+    expect(details).toHaveTextContent('09:00Site walk');
+    expect(details).toHaveTextContent('13:00Vendor call');
+  });
+
+  it('reads the projects again whenever the page is opened, so changes made elsewhere show', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    const first = renderPage('/timeline', qc);
+    await screen.findByRole('list', { name: 'Projects' });
+    first.unmount();
+    const before = timelineRequests().length;
+    renderPage('/timeline', qc);
+    await waitFor(() => expect(timelineRequests().length).toBe(before + 1));
   });
 
   it('pages a quarter at a time, and Today comes back; Month asks for six weeks', async () => {

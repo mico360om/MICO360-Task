@@ -25,6 +25,7 @@ import {
   filterPeople,
   limitOptions,
   sortPeople,
+  problemText,
   summaryLine,
   weekBar,
   weekLabel,
@@ -104,21 +105,21 @@ export function WorkloadPage() {
   };
 
   const query = useQuery({
-    queryKey: workloadKey(week, projectId),
+    queryKey: workloadKey(week, projectId, today),
     queryFn: () => planningApi(apiClient).workload({ week, projectId: projectId || undefined }),
     placeholderData: keepPreviousData,
+    // Read again whenever the page is opened: the limit and working hours are changed elsewhere too.
+    staleTime: 0,
   });
   const data = query.data;
   const people = useMemo(() => sortPeople(data?.people ?? []), [data]);
   const shown = filterPeople(people, q);
 
-  // The open day (whose number it is), where it sits, what the last suggestion did, and the task panel.
+  // The open day (whose number it is; its details sit right after it), what the last suggestion did, and the task panel.
   const [open, setOpen] = useState<{ personId: string; date: string } | null>(null);
-  const [at, setAt] = useState({ top: 0, left: 0 });
   const [notice, setNotice] = useState<{ text: string; tone: 'done' | 'problem' } | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
-  const wrap = useRef<HTMLDivElement>(null);
   const openPerson = open ? people.find((p) => p.id === open.personId) ?? null : null;
   const openCell = openPerson ? openPerson.days.find((c) => c.date === open!.date) ?? null : null;
 
@@ -128,12 +129,6 @@ export function WorkloadPage() {
       return;
     }
     trigger.current = e.currentTarget;
-    const box = wrap.current?.getBoundingClientRect();
-    const r = e.currentTarget.getBoundingClientRect();
-    if (box) {
-      const width = Math.min(352, box.width - 16);
-      setAt({ top: r.bottom - box.top + 8, left: Math.max(8, Math.min(r.left - box.left - 24, box.width - width - 8)) });
-    }
     setNotice(null);
     setOpen({ personId: person.id, date: cell.date });
   }
@@ -142,9 +137,8 @@ export function WorkloadPage() {
     mutationFn: async ({ task, person }: { task: WorkloadTask; person: WorkloadPerson }) => {
       const s = task.suggestion!;
       if (s.kind === 'reassign') {
-        // The teammate first, so the task is never left without anyone; then the person it leaves.
-        await assigneesApi(apiClient).assign(task.id, s.to.id);
-        await assigneesApi(apiClient).unassign(task.id, person.id);
+        // One write, refused if the task changed since it was read, is done, or the person is off it already.
+        await assigneesApi(apiClient).swap(task.id, person.id, s.to.id, task.version);
       } else {
         await tasksApi(apiClient).update(task.id, { dueDate: s.date, expectedVersion: task.version });
       }
@@ -154,14 +148,10 @@ export function WorkloadPage() {
       const s = task.suggestion!;
       setNotice({ tone: 'done', text: s.kind === 'reassign' ? `Gave ${task.key} to ${s.to.name}.` : `Moved ${task.key} to ${longDay(s.date)}.` });
     },
-    onError: (err, { task }) => {
-      const s = task.suggestion!;
+    onError: (err, { task, person }) => {
       setNotice({
         tone: 'problem',
-        text:
-          err instanceof ApiError && err.code === 'VERSION_CONFLICT'
-            ? `Someone else changed ${task.key} just now. The numbers are up to date again — try once more if it still needs moving.`
-            : `Couldn’t ${s.kind === 'reassign' ? `give ${task.key} to ${s.to.name}` : `move ${task.key}`}: ${reasonOf(err)}.`,
+        text: problemText({ code: err instanceof ApiError ? err.code ?? null : null, reason: reasonOf(err), key: task.key, suggestion: task.suggestion!, from: person.name }),
       });
     },
     // Either way the numbers are read again, so they show what really happened.
@@ -272,9 +262,9 @@ export function WorkloadPage() {
       ) : query.isError ? (
         <LoadError what="the workload" onRetry={() => void query.refetch()} />
       ) : data ? (
-        <div ref={wrap} className="relative">
+        <div>
           <div className="card overflow-hidden">
-            <div className="overflow-x-auto" onScroll={() => setOpen(null)}>
+            <div className="overflow-x-auto">
               <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
                 <caption className="sr-only">Open tasks due each day, per person — {weekLabel(week, today)}</caption>
                 <thead>
@@ -333,6 +323,22 @@ export function WorkloadPage() {
                                   ) : null}
                                 </button>
                               )}
+                              {isOpen && openPerson && openCell ? (
+                                <WorkloadPopover
+                                  person={openPerson}
+                                  cell={openCell}
+                                  week={week}
+                                  trigger={trigger}
+                                  busyTaskId={apply.isPending ? apply.variables?.task.id ?? null : null}
+                                  notice={notice}
+                                  onApply={(task) => apply.mutate({ task, person: openPerson })}
+                                  onOpenTask={(id) => {
+                                    setOpen(null);
+                                    setTaskId(id);
+                                  }}
+                                  onClose={() => setOpen(null)}
+                                />
+                              ) : null}
                             </td>
                           );
                         })}
@@ -351,23 +357,6 @@ export function WorkloadPage() {
             </div>
             <Legend />
           </div>
-          {openPerson && openCell ? (
-            <WorkloadPopover
-              person={openPerson}
-              cell={openCell}
-              week={week}
-              at={at}
-              trigger={trigger}
-              busyTaskId={apply.isPending ? apply.variables?.task.id ?? null : null}
-              notice={notice}
-              onApply={(task) => apply.mutate({ task, person: openPerson })}
-              onOpenTask={(id) => {
-                setOpen(null);
-                setTaskId(id);
-              }}
-              onClose={() => setOpen(null)}
-            />
-          ) : null}
         </div>
       ) : null}
 

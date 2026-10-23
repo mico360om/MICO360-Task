@@ -48,6 +48,8 @@ export interface TimelineProject {
   dueByWeek: number[];
   milestones: TimelineMilestone[];
   nextMilestone: TimelineMilestone | null;
+  /** How many milestones it has (shown or not). */
+  milestoneCount: number;
   /** Milestones not reached yet, due from today to 30 days on. */
   milestonesSoon: number;
   meetings: TimelineMeeting[];
@@ -64,9 +66,10 @@ export interface TimelineData {
   projects: TimelineProject[];
 }
 
+/** A teammate's number that day comes only to an administrator (who sees all their tasks); else null. */
 export type WorkloadSuggestion =
-  | { kind: 'reassign'; to: { id: string; name: string }; count: number }
-  | { kind: 'move'; date: string; count: number };
+  | { kind: 'reassign'; to: { id: string; name: string }; count: number | null }
+  | { kind: 'move'; date: string };
 
 export interface WorkloadTask {
   id: string;
@@ -121,9 +124,14 @@ export interface WorkloadData {
   people: WorkloadPerson[];
 }
 
-/** Under these roots, so any task change refreshes the pages (lib/task-cache). */
-export const timelineKey = (from: string, to: string, weekStart: WeekStart) => ['timeline', from, to, weekStart] as const;
-export const workloadKey = (week: string, projectId: string) => ['workload', week, projectId] as const;
+/**
+ * The Timeline's data, under ['projects'] so a project saved anywhere refreshes it (task changes do
+ * too, lib/task-cache); with the company day, so it is read again when the day changes.
+ */
+export const TIMELINE_ROOT = ['projects', 'timeline'] as const;
+export const timelineKey = (from: string, to: string, weekStart: WeekStart, today: string) => [...TIMELINE_ROOT, from, to, weekStart, today] as const;
+/** The Workload's data (refreshed by task changes and by the daily limit or working hours changing), with the company day. */
+export const workloadKey = (week: string, projectId: string, today: string) => ['workload', week, projectId, today] as const;
 
 export function planningApi(client: ApiClient) {
   return {

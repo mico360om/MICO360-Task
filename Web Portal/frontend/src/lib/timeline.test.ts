@@ -11,7 +11,10 @@ import {
   lateNote,
   markerDays,
   markerLabel,
+  markerSpanDays,
   meetingMarkers,
+  milestoneMarkerLabel,
+  milestoneMarkers,
   milestoneLine,
   monthMarks,
   nextLine,
@@ -52,6 +55,7 @@ function tp(id: string, extra: Partial<TimelineProject> = {}): TimelineProject {
     dueByWeek: [],
     milestones: [],
     nextMilestone: null,
+    milestoneCount: 0,
     milestonesSoon: 0,
     meetings: [],
     meetingsThisWeek: 0,
@@ -208,38 +212,50 @@ describe('bar geometry', () => {
   });
 });
 
-describe('meeting markers', () => {
+describe('markers', () => {
   const m = (id: string, day: string, title = `Meeting ${id}`) => ({ id, title, startAt: `${day}T06:00:00.000Z`, day });
-  const weeks = ['2026-10-18', '2026-10-25', '2026-11-01'];
   const list = [m('a', '2026-10-20'), m('b', '2026-10-22'), m('c', '2026-10-22'), m('d', '2026-10-30'), m('e', '2026-11-01', 'Kick-off')];
+  const ms = (id: string, date: string, done = false) => ({ id, key: `MOB-${id}`, title: `Milestone ${id}`, date, done });
 
-  it('groups a project’s meetings by day when days are wide enough (Month)', () => {
-    const groups = meetingMarkers(list, weeks, 'day');
-    expect(groups.map((g) => [g.first, g.last, g.meetings.length])).toEqual([
-      ['2026-10-20', '2026-10-20', 1],
-      ['2026-10-22', '2026-10-22', 2],
-      ['2026-10-30', '2026-10-30', 1],
-      ['2026-11-01', '2026-11-01', 1],
-    ]);
+  it('keeps markers at least 24px apart however wide the chart: 2 days apart in Month, a week in Quarter, 2 weeks in Half year', () => {
+    expect([6, 13, 26].map(markerSpanDays)).toEqual([2, 7, 14]);
   });
 
-  it('groups them by week otherwise, so markers never overlap', () => {
-    const groups = meetingMarkers(list, weeks, 'week');
-    expect(groups.map((g) => [g.first, g.last, g.meetings.map((x) => x.id).join('')])).toEqual([
-      ['2026-10-20', '2026-10-22', 'abc'],
+  it('groups a project’s meetings into clusters that start at least that far apart', () => {
+    expect(meetingMarkers(list, 2).map((g) => [g.first, g.last, g.items.map((x) => x.id).join('')])).toEqual([
+      ['2026-10-20', '2026-10-20', 'a'],
+      ['2026-10-22', '2026-10-22', 'bc'],
       ['2026-10-30', '2026-10-30', 'd'],
       ['2026-11-01', '2026-11-01', 'e'],
     ]);
+    expect(meetingMarkers([m('a', '2026-10-20'), m('b', '2026-10-21'), m('c', '2026-10-22')], 2).map((g) => g.items.length)).toEqual([2, 1]);
+    expect(meetingMarkers(list, 7).map((g) => [g.first, g.last, g.items.map((x) => x.id).join('')])).toEqual([
+      ['2026-10-20', '2026-10-22', 'abc'],
+      ['2026-10-30', '2026-11-01', 'de'],
+    ]);
   });
 
-  it('names a marker by its meeting, or how many and when', () => {
-    const [week, single] = [meetingMarkers(list, weeks, 'week')[0]!, meetingMarkers(list, weeks, 'week')[2]!];
-    expect(markerLabel(single)).toBe('Meeting Kick-off, Sun 1 Nov');
-    expect(markerLabel(meetingMarkers(list, weeks, 'day')[1]!)).toBe('2 meetings, Thu 22 Oct');
-    expect(markerLabel(week)).toBe('3 meetings, 20–22 Oct');
-    expect(markerDays(week)).toBe('20–22 Oct');
-    expect(markerDays({ first: '2026-10-30', last: '2026-11-01' })).toBe('30 Oct – 1 Nov');
-    expect(markerDays(single)).toBe('Sun 1 Nov');
+  it('names a meeting marker by its meeting, or how many and when', () => {
+    const [week, next] = meetingMarkers(list, 7);
+    expect(markerLabel(meetingMarkers([list[4]!], 2)[0]!)).toBe('Meeting Kick-off, Sun 1 Nov');
+    expect(markerLabel(meetingMarkers(list, 2)[1]!)).toBe('2 meetings, Thu 22 Oct');
+    expect(markerLabel(week!)).toBe('3 meetings, 20–22 Oct');
+    expect(markerLabel(next!)).toBe('2 meetings, 30 Oct – 1 Nov');
+    expect(markerDays(week!)).toBe('20–22 Oct');
+    expect(markerDays({ first: '2026-11-01', last: '2026-11-01' })).toBe('Sun 1 Nov');
+  });
+
+  it('groups milestones on the same or near days into one marker with a count', () => {
+    const groups = milestoneMarkers([ms('b', '2026-11-06'), ms('a', '2026-11-06', true), ms('c', '2026-11-20')], 7);
+    expect(groups.map((g) => [g.first, g.items.map((x) => x.id).join(''), g.done])).toEqual([
+      ['2026-11-06', 'ab', false],
+      ['2026-11-20', 'c', false],
+    ]);
+    expect(milestoneMarkerLabel(groups[0]!, TODAY)).toBe('2 milestones, 6 Nov, 1 reached');
+    expect(milestoneMarkerLabel(groups[1]!, TODAY)).toBe('Milestone Milestone c, 20 Nov, not reached yet');
+    const reached = milestoneMarkers([ms('a', '2026-11-06', true), ms('b', '2026-11-07', true)], 7)[0]!;
+    expect(reached.done).toBe(true);
+    expect(milestoneMarkerLabel(reached, TODAY)).toBe('2 milestones, 6–7 Nov, all reached');
   });
 });
 
@@ -250,7 +266,7 @@ describe('wording', () => {
     expect(subline(tp('a', { progress: 62, nextMilestone: { ...beta, title: 'Pilot on rig 3', date: '2026-11-12' }, milestones: [beta] }), TODAY)).toBe('62% · next ◆ Pilot on rig 3 · 12 Nov');
     expect(subline(tp('a', { progress: 85, nextMilestone: { ...beta, title: 'Handover', date: '2026-10-20' }, milestones: [beta] }), TODAY)).toBe('85% · next ◆ Handover · overdue');
     expect(subline(tp('a', { progress: 20 }), TODAY)).toBe('20% · no milestones');
-    expect(subline(tp('a', { progress: 100, milestones: [{ ...beta, done: true }] }), TODAY)).toBe('100% · every milestone reached');
+    expect(subline(tp('a', { progress: 100, milestoneCount: 4 }), TODAY)).toBe('100% · every milestone reached');
     expect(subline(tp('a', { progress: 5, nextMilestone: { ...beta, date: null }, milestones: [beta] }), TODAY)).toBe('5% · next ◆ Beta build · no date');
     expect(subline(tp('a', { progress: 5, nextMilestone: { ...beta, date: '2027-02-03' }, milestones: [beta] }), TODAY)).toBe('5% · next ◆ Beta build · 3 Feb 2027');
   });
@@ -275,7 +291,7 @@ describe('wording', () => {
   it('gives a phone row its next milestone', () => {
     expect(milestoneLine(tp('a', { nextMilestone: beta, milestones: [beta] }), TODAY)).toBe('Next ◆ Beta build · 6 Nov');
     expect(milestoneLine(tp('a'), TODAY)).toBe('No milestones');
-    expect(milestoneLine(tp('a', { milestones: [{ ...beta, done: true }] }), TODAY)).toBe('Every milestone reached');
+    expect(milestoneLine(tp('a', { milestoneCount: 2 }), TODAY)).toBe('Every milestone reached');
   });
 
   it('gives a phone row its target', () => {

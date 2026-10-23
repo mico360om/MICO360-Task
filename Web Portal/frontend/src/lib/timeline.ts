@@ -1,4 +1,4 @@
-import type { ProjectHealth, TimelineMeeting, TimelineProject } from '../api/planning';
+import type { ProjectHealth, TimelineMeeting, TimelineMilestone, TimelineProject } from '../api/planning';
 import { shiftDayKey } from './due-date';
 
 /**
@@ -251,7 +251,7 @@ export const HEALTH_LABEL: Record<ProjectHealth, string> = { 'on-track': 'On tra
 
 function milestoneWords(p: TimelineProject, today: string): string {
   const m = p.nextMilestone;
-  if (!m) return p.milestones.length ? 'every milestone reached' : 'no milestones';
+  if (!m) return p.milestoneCount ? 'every milestone reached' : 'no milestones';
   const when = !m.date ? 'no date' : m.date < today ? 'overdue' : shortDay(m.date, today);
   return `next ◆ ${m.title} · ${when}`;
 }
@@ -294,7 +294,7 @@ export function doneLine(p: Pick<TimelineProject, 'tasks' | 'progress' | 'timeUs
 /** "◆ Beta build, 6 Nov" — the next milestone in the details. */
 export function nextLine(p: TimelineProject, today: string): string {
   const m = p.nextMilestone;
-  if (!m) return p.milestones.length ? 'Every milestone reached' : 'No milestones';
+  if (!m) return p.milestoneCount ? 'Every milestone reached' : 'No milestones';
   if (!m.date) return `◆ ${m.title}, no date`;
   return `◆ ${m.title}, ${shortDay(m.date, today)}${m.date < today ? ' (overdue)' : ''}`;
 }
@@ -309,37 +309,73 @@ const WEEKDAY_DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'n
 /** "Thu 22 Oct". */
 export const weekdayDay = (key: string) => WEEKDAY_DAY.format(new Date(`${key}T12:00:00.000Z`)).replace(',', '').replace('Sept', 'Sep');
 
-export interface MeetingMarker {
+/** How far apart (in days) markers start, so each stays a full 24px target that never overlaps the next — at the chart's narrowest. */
+export function markerSpanDays(weeks: number): number {
+  return weeks <= 6 ? 2 : weeks <= 13 ? 7 : 14;
+}
+
+export interface Marker<T> {
   key: string;
   first: string;
   last: string;
-  meetings: TimelineMeeting[];
+  items: T[];
 }
 
-/**
- * A project's meetings as markers: one per day where days are wide enough (Month), else one per
- * shown week, so markers never overlap and each stays a full-size target.
- */
-export function meetingMarkers(meetings: TimelineMeeting[], weeks: string[], by: 'day' | 'week'): MeetingMarker[] {
-  const groups = new Map<string, TimelineMeeting[]>();
-  for (const m of [...meetings].sort((a, b) => a.startAt.localeCompare(b.startAt))) {
-    const week = by === 'week' ? [...weeks].reverse().find((w) => w <= m.day && m.day <= shiftDayKey(w, 6)) : undefined;
-    const key = week ?? m.day;
-    groups.set(key, [...(groups.get(key) ?? []), m]);
+/** Clusters that each start at least `span` days after the one before (sorted by day). */
+function clusters<T>(items: T[], dayOf: (x: T) => string, span: number, order: (a: T, b: T) => number): Marker<T>[] {
+  const out: Marker<T>[] = [];
+  for (const x of [...items].sort((a, b) => dayOf(a).localeCompare(dayOf(b)) || order(a, b))) {
+    const day = dayOf(x);
+    const last = out[out.length - 1];
+    if (last && daysBetween(last.first, day) < span) {
+      last.items.push(x);
+      last.last = day;
+    } else out.push({ key: day, first: day, last: day, items: [x] });
   }
-  return [...groups].map(([key, list]) => ({ key, first: list[0]!.day, last: list[list.length - 1]!.day, meetings: list }));
+  return out;
 }
 
-/** "Thu 22 Oct", "20–22 Oct" or "30 Oct – 1 Nov". */
-export function markerDays(g: Pick<MeetingMarker, 'first' | 'last'>): string {
-  if (g.first === g.last) return weekdayDay(g.first);
+export type MeetingMarker = Marker<TimelineMeeting>;
+export type MilestoneMarker = Marker<TimelineMilestone> & { done: boolean };
+
+/** A project's meetings as markers (see markerSpanDays). */
+export function meetingMarkers(meetings: TimelineMeeting[], span: number): MeetingMarker[] {
+  return clusters(meetings, (m) => m.day, span, (a, b) => a.startAt.localeCompare(b.startAt));
+}
+
+/** A project's dated milestones as markers; one is filled once every milestone in it is reached. */
+export function milestoneMarkers(milestones: TimelineMilestone[], span: number): MilestoneMarker[] {
+  return clusters(milestones.filter((m) => m.date !== null), (m) => m.date!, span, (a, b) => collator.compare(a.title, b.title)).map((g) => ({
+    ...g,
+    done: g.items.every((m) => m.done),
+  }));
+}
+
+const dayRange = (g: Pick<Marker<unknown>, 'first' | 'last'>, single: string) => {
+  if (g.first === g.last) return single;
   const [a, b] = [shortDay(g.first, g.first), shortDay(g.last, g.last)];
   return g.first.slice(0, 7) === g.last.slice(0, 7) ? `${a.split(' ')[0]}–${b}` : `${a} – ${b}`;
+};
+
+/** "Thu 22 Oct", "20–22 Oct" or "30 Oct – 1 Nov". */
+export function markerDays(g: Pick<Marker<unknown>, 'first' | 'last'>): string {
+  return dayRange(g, weekdayDay(g.first));
 }
 
 /** "Meeting Design review, Tue 27 Oct", "3 meetings, 20–22 Oct". */
 export function markerLabel(g: MeetingMarker): string {
-  return g.meetings.length === 1 ? `Meeting ${g.meetings[0]!.title}, ${markerDays(g)}` : `${g.meetings.length} meetings, ${markerDays(g)}`;
+  return g.items.length === 1 ? `Meeting ${g.items[0]!.title}, ${markerDays(g)}` : `${g.items.length} meetings, ${markerDays(g)}`;
+}
+
+/** "Milestone Beta build, 6 Nov, not reached yet", "2 milestones, 6–7 Nov, 1 reached". */
+export function milestoneMarkerLabel(g: MilestoneMarker, today: string): string {
+  if (g.items.length === 1) {
+    const m = g.items[0]!;
+    return `Milestone ${m.title}, ${shortDay(m.date!, today)}, ${m.done ? 'reached' : 'not reached yet'}`;
+  }
+  const reached = g.items.filter((m) => m.done).length;
+  const state = reached === g.items.length ? 'all reached' : reached ? `${reached} reached` : 'not reached yet';
+  return `${g.items.length} milestones, ${dayRange(g, shortDay(g.first, today))}, ${state}`;
 }
 
 /** "Today · 24 Oct". */

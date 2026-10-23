@@ -119,7 +119,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
 /** On the button: "→ Hassan (2 that day)", "Move to Thu 29" (or "Move to Sun 1 Nov" outside the week shown). */
 export function suggestionText(s: WorkloadSuggestion, week: string): string {
-  if (s.kind === 'reassign') return `→ ${firstName(s.to.name)} (${s.count} that day)`;
+  if (s.kind === 'reassign') return s.count === null ? `→ ${firstName(s.to.name)}` : `→ ${firstName(s.to.name)} (${s.count} that day)`;
   const inWeek = s.date >= week && s.date <= shiftDayKey(week, 6);
   return `Move to ${inWeek ? weekdayDay(s.date) : `${WEEKDAY.format(at(s.date))} ${dayMonth(s.date)}`}`;
 }
@@ -127,5 +127,15 @@ export function suggestionText(s: WorkloadSuggestion, week: string): string {
 /** For screen readers: "Give RIG-14 to Hassan Ahmed, who has 2 tasks due that day", "Move FCRM-3 to Thursday 29 October". */
 export function suggestionLabel(s: WorkloadSuggestion, key: string): string {
   if (s.kind === 'move') return `Move ${key} to ${longDay(s.date)}`;
+  if (s.count === null) return `Give ${key} to ${s.to.name}`;
   return `Give ${key} to ${s.to.name}, who has ${s.count ? `${plural(s.count, 'task')} due` : 'nothing due'} that day`;
+}
+
+/** Why a suggestion couldn't be applied, in plain words (the numbers are always read again after). */
+export function problemText(p: { code: string | null; reason?: string; key: string; suggestion: WorkloadSuggestion; from: string }): string {
+  if (p.code === 'VERSION_CONFLICT') return `Someone else changed ${p.key} just now. The numbers are up to date again — try once more if it still needs moving.`;
+  if (p.code === 'TASK_DONE') return `${p.key} is already done. The numbers are up to date again.`;
+  if (p.code === 'ASSIGNEE_GONE') return `${p.from} is no longer on ${p.key}. The numbers are up to date again.`;
+  const what = p.suggestion.kind === 'reassign' ? `give ${p.key} to ${p.suggestion.to.name}` : `move ${p.key}`;
+  return `Couldn’t ${what}: ${p.reason ?? 'the server had a problem'}.`;
 }

@@ -26,7 +26,7 @@ function person(id: string, name: string, counts: number[], extra: Partial<Workl
 const WED: WorkloadTask[] = [
   { id: 't1', key: 'RIG-14', title: 'Pressure test report', projectId: 'rig', priority: 'LOW', version: 2, suggestion: { kind: 'reassign', to: { id: 'hassan', name: 'Hassan Ahmed' }, count: 2 } },
   { id: 't2', key: 'MOB-8', title: 'Login screen fixes', projectId: 'mob', priority: 'LOW', version: 1, suggestion: { kind: 'reassign', to: { id: 'rachel', name: 'Rachel Rea Dsouza' }, count: 0 } },
-  { id: 't3', key: 'FCRM-3', title: 'Client follow-up', projectId: 'fcrm', priority: 'LOW', version: 4, suggestion: { kind: 'move', date: '2026-10-29', count: 3 } },
+  { id: 't3', key: 'FCRM-3', title: 'Client follow-up', projectId: 'fcrm', priority: 'LOW', version: 4, suggestion: { kind: 'move', date: '2026-10-29' } },
   ...Array.from({ length: 5 }, () => plainTask()),
 ];
 
@@ -58,6 +58,7 @@ let calls: { method: string; url: string; body: unknown }[] = [];
 let failLoad = false;
 let conflict = false;
 let admin = true;
+let swapRefusal: string | null = null;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -67,6 +68,7 @@ beforeEach(() => {
   failLoad = false;
   conflict = false;
   admin = true;
+  swapRefusal = null;
   useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal(
     'fetch',
@@ -81,6 +83,18 @@ beforeEach(() => {
         if (failLoad) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
         const q = new URL(url, 'http://test.local').searchParams;
         return json({ data: { ...data, week: q.get('week'), projectId: q.get('projectId'), canChangeLimit: admin } });
+      }
+      const swap = /\/tasks\/([^/]+)\/assignees\/swap$/.exec(url);
+      if (swap && method === 'POST') {
+        if (swapRefusal) return json({ error: { code: swapRefusal, message: 'Refused.' } }, 409);
+        // The server takes the task off the person's day: the next read shows it gone.
+        data = {
+          ...data,
+          people: data.people.map((p) =>
+            p.id === body.from ? { ...p, total: p.total - 1, days: p.days.map((c) => (c.tasks.some((t) => t.id === swap[1]) ? { ...c, count: c.count - 1, over: Math.max(0, c.over - 1), tasks: c.tasks.filter((t) => t.id !== swap[1]) } : c)) } : p,
+          ),
+        };
+        return json({ data: [] });
       }
       if (/\/tasks\/[^/]+\/assignees/.test(url)) return method === 'DELETE' ? new Response(null, { status: 204 }) : json({ data: [] });
       if (/\/tasks\/[^/]+$/.test(url) && method === 'PUT') {
@@ -101,8 +115,7 @@ function Where() {
   const loc = useLocation();
   return <span data-testid="where">{loc.pathname + loc.search}</span>;
 }
-function renderPage(path = '/workload') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(path = '/workload', qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
@@ -189,7 +202,7 @@ describe('WorkloadPage', () => {
     expect(calls.filter((c) => c.method !== 'GET')).toEqual([]);
   });
 
-  it('gives a task to the suggested teammate with the usual assignee calls, then refreshes the numbers', async () => {
+  it('gives a task to the suggested teammate in one call that checks the task is unchanged, then refreshes — focus stays in the day', async () => {
     renderPage();
     await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
     await userEvent.click(screen.getByRole('button', { name: /^Omar Said, Wednesday 28 October/ }));
@@ -197,11 +210,61 @@ describe('WorkloadPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Give RIG-14 to Hassan Ahmed, who has 2 tasks due that day' }));
     await waitFor(() => expect(screen.getByText('Gave RIG-14 to Hassan Ahmed.')).toBeInTheDocument());
     const writes = calls.filter((c) => c.method !== 'GET').map((c) => [c.method, c.url.replace(/^.*\/api\/v1/, ''), c.body]);
-    expect(writes).toEqual([
-      ['POST', '/tasks/t1/assignees', { userIds: ['hassan'] }],
-      ['DELETE', '/tasks/t1/assignees/omar', undefined],
-    ]);
+    expect(writes).toEqual([['POST', '/tasks/t1/assignees/swap', { from: 'omar', to: 'hassan', expectedVersion: 2 }]]);
     await waitFor(() => expect(workloadCalls().length).toBeGreaterThan(before));
+    // RIG-14 has left the day: focus moved on to the next suggestion, still inside the day's details.
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent('7 tasks due · limit 5 · 2 over'));
+    expect(screen.getByRole('button', { name: 'Give MOB-8 to Rachel Rea Dsouza, who has nothing due that day' })).toHaveFocus();
+  });
+
+  it('says plainly when a suggestion is refused because the task is already done, or the person is no longer on it', async () => {
+    swapRefusal = 'TASK_DONE';
+    renderPage();
+    await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
+    await userEvent.click(screen.getByRole('button', { name: /^Omar Said, Wednesday 28 October/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Give RIG-14 to Hassan Ahmed/ }));
+    expect(await screen.findByText('RIG-14 is already done. The numbers are up to date again.')).toBeInTheDocument();
+    swapRefusal = 'ASSIGNEE_GONE';
+    await userEvent.click(screen.getByRole('button', { name: /^Give RIG-14 to Hassan Ahmed/ }));
+    expect(await screen.findByText('Omar Said is no longer on RIG-14. The numbers are up to date again.')).toBeInTheDocument();
+  });
+
+  it('names no number for a teammate when the server sends none (a project manager’s view)', async () => {
+    data = makeData({ scope: 'teams' });
+    data.people = data.people.map((p) =>
+      p.id === 'omar' ? { ...p, days: p.days.map((c) => ({ ...c, tasks: c.tasks.map((t) => (t.suggestion?.kind === 'reassign' ? { ...t, suggestion: { ...t.suggestion, count: null } } : t)) })) } : p,
+    );
+    admin = false;
+    renderPage();
+    await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
+    await userEvent.click(screen.getByRole('button', { name: /^Omar Said, Wednesday 28 October/ }));
+    const give = await screen.findByRole('button', { name: 'Give RIG-14 to Hassan Ahmed' });
+    expect(give).toHaveTextContent(/^→ Hassan$/);
+  });
+
+  it('keeps the day’s details in its cell, and closes them on a second click or when Tab leaves them', async () => {
+    renderPage();
+    await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
+    const cell = screen.getByRole('button', { name: /^Omar Said, Wednesday 28 October/ });
+    await userEvent.click(cell);
+    const pop = screen.getByRole('dialog', { name: 'Omar Said · Wed 28 Oct' });
+    expect(cell.closest('td')!.contains(pop)).toBe(true);
+    await userEvent.click(cell);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(cell);
+    within(screen.getByRole('dialog')).getByRole('link', { name: 'Open in Calendar' }).focus();
+    await userEvent.tab();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('reads the numbers again whenever the page is opened (a changed limit or working hours show)', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    const first = renderPage('/workload', qc);
+    await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
+    first.unmount();
+    const before = workloadCalls().length;
+    renderPage('/workload', qc);
+    await waitFor(() => expect(workloadCalls().length).toBe(before + 1));
   });
 
   it('moves a task to the suggested day with the usual task update, sending the version it was read at', async () => {
@@ -243,7 +306,7 @@ describe('WorkloadPage', () => {
   });
 
   it('shows tasks due on a day off as their own case, not over the limit, with a move to a working day', async () => {
-    const weekendTask: WorkloadTask = { id: 'tw', key: 'RIG-60', title: 'Weekend upload', projectId: 'rig', priority: 'NORMAL', version: 1, suggestion: { kind: 'move', date: '2026-11-01', count: 0 } };
+    const weekendTask: WorkloadTask = { id: 'tw', key: 'RIG-60', title: 'Weekend upload', projectId: 'rig', priority: 'NORMAL', version: 1, suggestion: { kind: 'move', date: '2026-11-01' } };
     data = makeData();
     data.people = data.people.map((p) =>
       p.id === 'rachel' ? { ...p, total: p.total + 1, days: p.days.map((c) => (c.date === '2026-10-30' ? { ...c, count: 1, over: 1, tasks: [weekendTask] } : c)) } : p,
