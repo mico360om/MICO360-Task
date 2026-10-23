@@ -14,11 +14,12 @@ const COLUMNS = [
   { id: 'o-backlog', name: 'Backlog', category: 'BACKLOG', position: 0, enabled: true },
   { id: 'o-todo', name: 'Next', category: 'TODO', position: 1, enabled: true },
   { id: 'o-doing', name: 'Doing', category: 'IN_PROGRESS', position: 2, enabled: true },
+  { id: 'o-done', name: 'Finished', category: 'DONE', position: 3, enabled: true },
 ];
 const SARA = { id: 'sara', name: 'Sara Al Balushi' };
 const previewTask = (over: Partial<TaskMovePreview> = {}): TaskMovePreview => ({
   id: 't4', key: 'RIG-4', title: 'Inspect the rig', from: { id: 'rig', code: 'RIG', name: 'Rig Inspection' }, canMove: true, reason: null, newKey: 'OPS-17',
-  currentCategory: 'IN_PROGRESS', columnId: 'o-doing', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [], ...over,
+  currentCategory: 'IN_PROGRESS', completed: false, columnId: 'o-doing', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [], ...over,
 });
 
 let calls: { method: string; url: string; body: unknown }[] = [];
@@ -141,8 +142,36 @@ describe('Move to another project (one task)', () => {
     previewTasks = [previewTask({ canMove: false, newKey: null, columnId: null, reason: 'You need to manage Rig Inspection to move its tasks.' })];
     open();
     await chooseProject('Operations');
-    expect(await screen.findByText('You need to manage Rig Inspection to move its tasks.')).toBeInTheDocument();
+    // Announced, not only shown.
+    expect(await screen.findByRole('alert')).toHaveTextContent('You need to manage Rig Inspection to move its tasks.');
     expect(screen.getByRole('button', { name: /^Move task/ })).toBeDisabled();
+  });
+
+  it('says it will be marked complete when a Done column is chosen (and reopened when a completed task goes to an open one)', async () => {
+    open();
+    await chooseProject('Operations');
+    const changes = await screen.findByRole('list', { name: 'What will change' });
+    expect(within(changes).queryByText('It will be marked complete.')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Column' }));
+    await userEvent.click(await screen.findByRole('option', { name: /^Finished/ }));
+    expect(within(screen.getByRole('list', { name: 'What will change' })).getByText('It will be marked complete.')).toBeInTheDocument();
+  });
+
+  it('when someone left the team after the preview, it asks again instead of failing', async () => {
+    let refused = false;
+    moveReply = () => {
+      refused = true;
+      // Meanwhile Sara left the Operations team: the preview now names her.
+      previewTasks = [previewTask({ outsiders: [SARA] })];
+      return json({ error: { code: 'ASSIGNEES_NOT_ON_TEAM', message: 'Sara Al Balushi isn’t on the Operations team. Choose whether to add them to the team or unassign them.', details: { people: [SARA] } } }, 409);
+    };
+    open();
+    await chooseProject('Operations');
+    await userEvent.click(await screen.findByRole('button', { name: /^Move task/ }));
+    expect(refused).toBe(true);
+    expect(await screen.findByRole('radiogroup', { name: 'Sara Al Balushi isn’t on the Operations team.' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Sara Al Balushi isn’t on the Operations team.');
+    expect(calls.filter((c) => c.url.endsWith('/tasks/move-preview'))).toHaveLength(2);
   });
 
   it('Escape and Cancel close it without moving anything', async () => {
@@ -199,6 +228,14 @@ describe('Move to another project (several tasks, from My Tasks)', () => {
     await waitFor(() => expect(onBulkMoved).toHaveBeenCalledWith(result, 'Operations'));
     expect(moves()[0]).toMatchObject({ url: expect.stringMatching(/\/tasks\/move-to-project$/), body: { taskIds: ['a', 'b'], projectId: 'ops', assignees: 'ADD_TO_TEAM' } });
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a task the person can’t open is named as such, not by an empty key', async () => {
+    previewTasks = [...previewTasks.slice(0, 2), previewTask({ id: 'c', key: '', title: '', from: null, canMove: false, newKey: null, columnId: null, reason: 'Task not found.' })];
+    open({ tasks: THREE });
+    await chooseProject('Operations');
+    const refused = await screen.findByRole('list', { name: 'Can’t be moved' });
+    expect(within(refused).getByText('A task you can’t open: Task not found.')).toBeInTheDocument();
   });
 
   it('when some couldn’t be moved after all, lists them and why', async () => {

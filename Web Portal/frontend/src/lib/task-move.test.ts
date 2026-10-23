@@ -38,12 +38,15 @@ describe('Who may move a task, as the menus say it', () => {
 function task(over: Partial<TaskMovePreview> = {}): TaskMovePreview {
   return {
     id: 't4', key: 'RIG-4', title: 'Inspect the rig', from: { id: 'rig', code: 'RIG', name: 'Rig Inspection' }, canMove: true, reason: null,
-    newKey: 'OPS-17', currentCategory: 'IN_PROGRESS', columnId: 'o-doing', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [], ...over,
+    newKey: 'OPS-17', currentCategory: 'IN_PROGRESS', completed: false, columnId: 'o-doing', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [], ...over,
   };
 }
 const preview = (tasks: TaskMovePreview[]): MovePreview => ({
   project: { ...P('ops', 'Operations'), code: 'OPS', defaultDueToday: false },
-  columns: [],
+  columns: [
+    { id: 'o-doing', name: 'Doing', category: 'IN_PROGRESS', position: 0, enabled: true },
+    { id: 'o-done', name: 'Finished', category: 'DONE', position: 1, enabled: true },
+  ],
   tasks,
   outsiders: [],
 });
@@ -88,6 +91,26 @@ describe('What a move will change, in plain words', () => {
       'One is an earlier copy of a repeating task: only that copy moves.',
       'Their comments, files, checklists, history, watchers and blockers go with them.',
     ]);
+  });
+
+  it('into a Done column it will be marked complete; a completed task moved to an open one will be reopened', () => {
+    expect(moveChanges(preview([task({ columnId: 'o-done' })]), TODAY)).toContain('It will be marked complete.');
+    expect(moveChanges(preview([task({ completed: true, columnId: 'o-doing' })]), TODAY)).toContain('It will be reopened.');
+    expect(moveChanges(preview([task({ completed: true, columnId: 'o-done' })]), TODAY).join(' ')).not.toMatch(/marked complete|reopened/);
+    // The column chosen in the dialog counts, not the one suggested.
+    expect(moveChanges(preview([task({ columnId: 'o-doing' })]), TODAY, 'o-done')).toEqual([
+      'Becomes OPS-17. Searching for RIG-4 still finds it.',
+      'It will be marked complete.',
+      'Its comments, files, checklist, history, watchers and blockers go with it.',
+    ]);
+    const several = preview([
+      task({ id: 'a', newKey: 'OPS-17', columnId: 'o-done' }),
+      task({ id: 'b', newKey: 'OPS-18', columnId: 'o-done' }),
+      task({ id: 'c', newKey: 'OPS-19', completed: true, columnId: 'o-doing' }),
+    ]);
+    expect(moveChanges(several, TODAY)).toEqual(expect.arrayContaining(['2 of them will be marked complete.', 'One of them will be reopened.']));
+    expect(moveChanges(several, TODAY, 'o-done')).toEqual(expect.arrayContaining(['2 of them will be marked complete.']));
+    expect(moveChanges(several, TODAY, 'o-done').join(' ')).not.toContain('reopened');
   });
 
   it('nothing to say when no task can move', () => {

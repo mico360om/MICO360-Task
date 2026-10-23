@@ -124,6 +124,8 @@ export interface TaskMovePreview {
   newKey: string | null;
   /** The stage it is in now (its column's category). */
   currentCategory: string | null;
+  /** It is completed now (a Done column, or a completion time). */
+  completed: boolean;
   /** The column it goes to unless another is chosen (the same kind as now, else the first). */
   columnId: string | null;
   milestoneCleared: boolean;
@@ -159,6 +161,8 @@ export interface MoveResult {
   unassigned: MovePerson[];
   milestoneCleared: boolean;
   dueDateSet: string | null;
+  /** The move completed it (into a Done column) or re-opened it (out of one). */
+  statusChange?: 'COMPLETED' | 'REOPENED' | null;
 }
 
 export type BulkMoveItem = ({ taskId: string; ok: true } & MoveResult) | { taskId: string; ok: false; error: { code: string; message: string; details?: unknown } };

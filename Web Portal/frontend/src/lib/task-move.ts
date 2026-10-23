@@ -1,4 +1,4 @@
-import type { BulkMoveResult, MovePerson, MovePreview, MoveResult, MoveTargets } from '../api/tasks';
+import type { BulkMoveResult, MovePerson, MovePreview, MoveResult, MoveTargets, TaskMovePreview } from '../api/tasks';
 
 /**
  * Moving tasks to another project, in words: who may (the menus disable the action and say why),
@@ -60,16 +60,23 @@ const count = (n: number) => (n === 1 ? 'One' : String(n));
 
 /**
  * The dialog's "What will change", for the tasks that can move: their new numbers (the old ones still
- * find them), milestones cleared, due dates given by the new project's setting, repeats, and what goes
- * along. `today` is the company's day ('YYYY-MM-DD').
+ * find them), whether they will be completed or reopened (a Done column completes a task, an open one
+ * reopens a completed task), milestones cleared, due dates given by the new project's setting,
+ * repeats, and what goes along. `today` is the company's day ('YYYY-MM-DD'); `columnId` is the column
+ * chosen in the dialog (else each task's suggested one).
  */
-export function moveChanges(preview: MovePreview, today: string): string[] {
+export function moveChanges(preview: MovePreview, today: string, columnId?: string): string[] {
   const movable = preview.tasks.filter((t) => t.canMove);
   const project = preview.project.name;
   if (movable.length === 0) return [];
+  const intoDone = (t: TaskMovePreview) => preview.columns.find((c) => c.id === (columnId || t.columnId))?.category === 'DONE';
+  const completes = movable.filter((t) => !t.completed && intoDone(t)).length;
+  const reopens = movable.filter((t) => t.completed && !intoDone(t)).length;
   if (movable.length === 1) {
     const t = movable[0]!;
     const lines = [`Becomes ${t.newKey}. Searching for ${t.key} still finds it.`];
+    if (completes) lines.push('It will be marked complete.');
+    if (reopens) lines.push('It will be reopened.');
     if (t.milestoneCleared) lines.push('It stops being a milestone: milestones belong to their project.');
     if (t.dueDate) {
       lines.push(
@@ -86,6 +93,8 @@ export function moveChanges(preview: MovePreview, today: string): string[] {
   const first = movable[0]!.newKey;
   const last = movable[movable.length - 1]!.newKey;
   const lines = [`They get the next ${preview.project.code} numbers, ${first} to ${last}. Searching for their old numbers still finds them.`];
+  if (completes) lines.push(`${completes === 1 ? 'One of them' : `${completes} of them`} will be marked complete.`);
+  if (reopens) lines.push(`${reopens === 1 ? 'One of them' : `${reopens} of them`} will be reopened.`);
   const milestones = movable.filter((t) => t.milestoneCleared).length;
   if (milestones === 1) lines.push('One of them stops being a milestone: milestones belong to their project.');
   else if (milestones > 1) lines.push(`${milestones} of them stop being milestones: milestones belong to their project.`);

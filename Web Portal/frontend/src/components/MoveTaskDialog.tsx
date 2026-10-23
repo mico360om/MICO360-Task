@@ -105,12 +105,20 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
   const columns = preview?.columns ?? [];
   const suggested = single ? (movable[0]?.columnId ?? '') : '';
   const chosenColumn = columnId || suggested;
-  const changes = preview ? moveChanges(preview, today) : [];
+  // What will change, for the column chosen (one task: the suggestion until another is picked).
+  const changes = preview ? moveChanges(preview, today, single ? chosenColumn : columnId) : [];
 
   const moveOne = useMutation({
     mutationFn: (input: MoveInput) => tasksApi(apiClient).moveToProject(ids[0]!, input),
     onSuccess: (result) => onMoved?.(result),
-    onError: (e) => setError(failureText(e, 'Couldn’t move the task.')),
+    onError: (e) => {
+      setError(failureText(e, 'Couldn’t move the task.'));
+      // Someone assigned left the new team since the preview: read it again, so the question shows.
+      if (e instanceof ApiError && e.code === 'ASSIGNEES_NOT_ON_TEAM') {
+        setChoice('');
+        void previewQ.refetch();
+      }
+    },
   });
   const moveMany = useMutation({
     mutationFn: (input: MoveInput) => tasksApi(apiClient).moveManyToProject(movable.map((t) => t.id), input),
@@ -164,9 +172,10 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
   ) : (
     `${tasks.length} tasks selected`
   );
+  /** "RIG-4 · Inspect the rig" — or, for a task the person can't see (no key or title), says so. */
   const keyOf = (id: string) => {
     const t = preview?.tasks.find((x) => x.id === id) ?? tasks.find((x) => x.id === id);
-    return t ? `${t.key || 'A task'} · ${t.title}` : 'A task';
+    return t && t.key ? `${t.key} · ${t.title}` : 'A task you can’t open';
   };
 
   // The suggested column is of another kind than the task's: the new project has none of its kind.
@@ -264,7 +273,9 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
                 ) : null}
 
                 {preview && single && refused[0] ? (
-                  <p className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">{refused[0].reason}</p>
+                  <p role="alert" className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
+                    {refused[0].reason}
+                  </p>
                 ) : null}
 
                 {preview && movable.length > 0 ? (
