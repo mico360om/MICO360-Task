@@ -9,6 +9,9 @@ import { TaskKeyConflictError } from './task-repository';
 
 const keyConflict = () => new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: '5.22.0', meta: { target: ['key'] } });
 
+/** A project none of whose tasks has moved away: no old keys. */
+const noAliases = { findUnique: vi.fn(async () => null), count: vi.fn(async () => 0) };
+
 const row = (over: Record<string, unknown> = {}) => ({
   id: 't1', key: 'MICO-1', title: 'T', description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL',
   startDate: null, dueDate: null, estimatedHours: null, actualHours: null, progress: 0, createdById: 'u1', completedAt: null,
@@ -37,7 +40,7 @@ describe('isTaskKeyConflict', () => {
 describe('createPrismaTaskRepository', () => {
   it('creates the task, its tags and its assignees in one nested write', async () => {
     const create = vi.fn(async () => row());
-    const repo = createPrismaTaskRepository({ task: { create } } as unknown as PrismaClient);
+    const repo = createPrismaTaskRepository({ task: { create }, taskKeyAlias: noAliases } as unknown as PrismaClient);
     await repo.create({ key: 'MICO-1', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1', tagNames: ['Urgent'], assigneeIds: ['u2', 'u2', 'u3'] });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, any> }])[0].data;
     expect(data.tags.create).toEqual([{ tag: { connectOrCreate: { where: { name: 'Urgent' }, create: { name: 'Urgent', color: expect.any(String) } } } }]);
@@ -46,18 +49,18 @@ describe('createPrismaTaskRepository', () => {
 
   it('records the meeting a task was created from, and reads it back', async () => {
     const create = vi.fn(async () => row({ meetingId: 'm1' }));
-    const repo = createPrismaTaskRepository({ task: { create } } as unknown as PrismaClient);
+    const repo = createPrismaTaskRepository({ task: { create }, taskKeyAlias: noAliases } as unknown as PrismaClient);
     const t = await repo.create({ key: 'MICO-1', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1', meetingId: 'm1' });
     expect((create.mock.calls[0] as unknown as [{ data: Record<string, any> }])[0].data.meetingId).toBe('m1');
     expect(t.meetingId).toBe('m1');
     // A task made anywhere else has none.
-    const plain = await createPrismaTaskRepository({ task: { create: vi.fn(async () => row()) } } as unknown as PrismaClient)
+    const plain = await createPrismaTaskRepository({ task: { create: vi.fn(async () => row()) }, taskKeyAlias: noAliases } as unknown as PrismaClient)
       .create({ key: 'MICO-2', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1' });
     expect(plain.meetingId).toBeNull();
   });
 
   it('turns a duplicate key into TaskKeyConflictError (so the service can retry)', async () => {
-    const repo = createPrismaTaskRepository({ task: { create: vi.fn(async () => { throw keyConflict(); }) } } as unknown as PrismaClient);
+    const repo = createPrismaTaskRepository({ task: { create: vi.fn(async () => { throw keyConflict(); }) }, taskKeyAlias: noAliases } as unknown as PrismaClient);
     await expect(repo.create({ key: 'MICO-1', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1' })).rejects.toBeInstanceOf(TaskKeyConflictError);
   });
 
@@ -73,6 +76,37 @@ describe('createPrismaTaskRepository', () => {
     expect(t).not.toHaveProperty('carryForwardLog');
     // List rows say which meeting a task came from too.
     expect(args.select.meetingId).toBe(true);
+  });
+
+  it('never creates a task with a key another task had before it moved project (an old key)', async () => {
+    const create = vi.fn(async () => row());
+    const findUnique = vi.fn(async () => ({ id: 'alias1' }));
+    const repo = createPrismaTaskRepository({ task: { create }, taskKeyAlias: { findUnique } } as unknown as PrismaClient);
+    await expect(repo.create({ key: 'MICO-4', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1' })).rejects.toBeInstanceOf(TaskKeyConflictError);
+    expect(findUnique).toHaveBeenCalledWith({ where: { key: 'MICO-4' }, select: { id: true } });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('numbers keys from the highest one the project used: its tasks (deleted ones too) and the old keys of tasks that left it', async () => {
+    const $queryRaw = vi.fn(async () => [{ highest: 9n }]);
+    const repo = createPrismaTaskRepository({ $queryRaw } as unknown as PrismaClient);
+    expect(await repo.countByProject('p1')).toBe(9);
+    const [strings, ...values] = $queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]];
+    expect(strings.join('?')).toMatch(/FROM tasks .*projectId = \?.*FROM task_key_aliases .*projectId = \?/s);
+    expect(values).toEqual(['p1', 'p1']);
+    // A project without tasks starts at 1.
+    expect(await createPrismaTaskRepository({ $queryRaw: vi.fn(async () => [{ highest: null }]) } as unknown as PrismaClient).countByProject('p2')).toBe(0);
+  });
+
+  it('findById names the task’s old keys, oldest first', async () => {
+    const findFirst = vi.fn(async () => row({ keyAliases: [{ key: 'RIG-4' }, { key: 'OPS-17' }] }));
+    const repo = createPrismaTaskRepository({ task: { findFirst } } as unknown as PrismaClient);
+    expect((await repo.findById('t1'))?.formerKeys).toEqual(['RIG-4', 'OPS-17']);
+    const args = (findFirst.mock.calls[0] as unknown as [{ include: Record<string, unknown> }])[0];
+    expect(args.include.keyAliases).toEqual({ select: { key: true }, orderBy: { createdAt: 'asc' } });
+    // A task that never moved has none.
+    const plain = createPrismaTaskRepository({ task: { findFirst: vi.fn(async () => row()) } } as unknown as PrismaClient);
+    expect((await plain.findById('t1'))?.formerKeys).toEqual([]);
   });
 
   it('hides a task of a deleted project from findById', async () => {
@@ -136,7 +170,7 @@ describe('createPrismaCarryForwardRepo', () => {
 });
 
 describe('createPrismaRecurrencePort', () => {
-  function fakePrisma(opts: { failFirstCreate?: boolean; alreadyCopied?: boolean } = {}) {
+  function fakePrisma(opts: { failFirstCreate?: boolean; alreadyCopied?: boolean; highest?: number; aliasKeys?: string[] } = {}) {
     const source = {
       id: 's1', projectId: 'p1', title: 'Daily standup', description: 'notes', columnId: 'done', priority: 'HIGH', estimatedHours: 1,
       createdById: 'creator', recurrenceParentId: null, meetingId: 'm1', project: { code: 'MICO' },
@@ -168,6 +202,10 @@ describe('createPrismaRecurrencePort', () => {
       // 'gone' has left (inactive / no access): the audience query doesn't return them.
       user: { findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.filter((id) => id !== 'gone').map((id) => ({ id }))) },
       activity: { create: vi.fn(async () => ({})) },
+      taskKeyAlias: { findUnique: vi.fn(async ({ where }: { where: { key: string } }) => (opts.aliasKeys ?? []).includes(where.key) ? { id: 'alias' } : null) },
+      // The highest key number used in the project; a create that loses a race has been beaten by
+      // one that took the next number, so a fresh read sees it.
+      $queryRaw: vi.fn(async () => [{ highest: BigInt((opts.highest ?? 4) + attempts) }]),
     };
     fake.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(fake));
     return { fake, created };
@@ -205,6 +243,15 @@ describe('createPrismaRecurrencePort', () => {
     const port = createPrismaRecurrencePort(fake as unknown as PrismaClient, { timeZone: 'UTC' });
     await port.spawnNext('s1', new Date('2026-09-28T00:00:00Z'), { freq: 'DAILY', interval: 1 });
     expect(created[0]!.key).toBe('MICO-6');
+  });
+
+  it('takes the number after the highest used (old keys of moved tasks count), and never an old key', async () => {
+    const counted = fakePrisma({ highest: 6 });
+    await createPrismaRecurrencePort(counted.fake as unknown as PrismaClient, { timeZone: 'UTC' }).spawnNext('s1', new Date('2026-09-28T00:00:00Z'), { freq: 'DAILY', interval: 1 });
+    expect(counted.created[0]!.key).toBe('MICO-7');
+    const skipped = fakePrisma({ aliasKeys: ['MICO-5'] });
+    await createPrismaRecurrencePort(skipped.fake as unknown as PrismaClient, { timeZone: 'UTC' }).spawnNext('s1', new Date('2026-09-28T00:00:00Z'), { freq: 'DAILY', interval: 1 });
+    expect(skipped.created[0]!.key).toBe('MICO-6');
   });
 
   it('returns null, without retrying or clearing the rule, when the task already has its next copy', async () => {

@@ -35,6 +35,11 @@ export interface TaskRecord {
   recurrenceNextId?: string | null;
   /** The meeting this task was created from (a Live note made into a task), when there is one. */
   meetingId?: string | null;
+  /**
+   * Keys the task had before it moved to another project, oldest first (set by findById): "RIG-4"
+   * for a task that is OPS-17 now. Looking up an old key still finds the task.
+   */
+  formerKeys?: string[];
   /** The calendar day this task appears on (per-date boards). Stored as a noon-UTC anchor. */
   boardDate: Date | null;
   /** Append-only history of carry-forward moves (from→to date). Left out of list responses. */
@@ -155,6 +160,10 @@ export interface TaskRepository {
    */
   update(id: string, patch: UpdateTaskData, opts?: { expectedVersion?: number }): Promise<TaskRecord>;
   softDelete(id: string): Promise<void>;
+  /**
+   * The highest key number the project has used — its tasks (deleted ones too) and the old keys of
+   * tasks that moved to another project — so the next key is this + 1 and a number is never reused.
+   */
   countByProject(projectId: string): Promise<number>;
   /**
    * Apply a patch to the members of a recurring series — the origin task (`id === seriesId`)

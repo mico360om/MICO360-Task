@@ -18,6 +18,8 @@ type AssigneeRelation = { user: { id: string; username: string; firstName: strin
 type EnrichedTask = Omit<Task, 'carryForwardLog'> & {
   /** Absent on list rows — the carry-forward history is only returned for a single task. */
   carryForwardLog?: Prisma.JsonValue;
+  /** Its old keys (a single task only). */
+  keyAliases?: { key: string }[];
   column?: { category: string; enabled?: boolean } | null;
   tags?: TagRelation[];
   assignees?: AssigneeRelation[];
@@ -83,6 +85,34 @@ export function isTaskKeyConflict(err: unknown): boolean {
   return /key/i.test(text);
 }
 
+/**
+ * The highest key number a project has used (0 for none): its tasks' keys — every task ever created
+ * in it or moved into it, deleted ones too — and the old keys of tasks that moved out. The next key is
+ * this + 1. The highest, not a count: a gap (a number a create or move skipped) never makes the next
+ * one collide, and a fresh read after losing a race to another task gives exactly the next number.
+ */
+export async function highestKeyNumber(db: Pick<PrismaClient, '$queryRaw'> | Prisma.TransactionClient, projectId: string): Promise<number> {
+  const rows = await db.$queryRaw<{ highest: bigint | number | null }[]>`
+    SELECT GREATEST(
+      COALESCE((SELECT MAX(CAST(SUBSTRING_INDEX(t.\`key\`, '-', -1) AS UNSIGNED)) FROM tasks t WHERE t.projectId = ${projectId}), 0),
+      COALESCE((SELECT MAX(CAST(SUBSTRING_INDEX(a.\`key\`, '-', -1) AS UNSIGNED)) FROM task_key_aliases a WHERE a.projectId = ${projectId}), 0)
+    ) AS highest`;
+  return Number(rows[0]?.highest ?? 0);
+}
+
+/** True when `key` was a task's key before it moved project: it is never given to another task. */
+export async function isOldKey(db: Pick<PrismaClient, 'taskKeyAlias'> | Prisma.TransactionClient, key: string): Promise<boolean> {
+  return (await db.taskKeyAlias.findUnique({ where: { key }, select: { id: true } })) !== null;
+}
+
+/** `code-n` for the first n from `from` up that isn't an old key (a guard: old keys are counted already). */
+export async function firstFreeKey(db: Pick<PrismaClient, 'taskKeyAlias'> | Prisma.TransactionClient, code: string, from: number): Promise<string> {
+  for (let n = from; ; n++) {
+    const key = `${code}-${n}`;
+    if (!(await isOldKey(db, key))) return key;
+  }
+}
+
 /** True for a unique-constraint violation on a recurring copy's source: that task already has its next copy. */
 export function isRecurrenceCopyConflict(err: unknown): boolean {
   if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
@@ -106,6 +136,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
     async create(data: CreateTaskData) {
       const tagNames = data.tagNames ?? [];
       const assigneeIds = [...new Set(data.assigneeIds ?? [])];
+      // A key a task had before it moved project still finds that task: never give it to another one.
+      if (await isOldKey(prisma, data.key)) throw new TaskKeyConflictError(data.key);
       try {
         // Task, tags and assignees are one nested write — all of it lands or none of it does.
         const t = await prisma.task.create({
@@ -147,14 +179,17 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       }
     },
     async findById(id) {
-      const t = await prisma.task.findFirst({ where: { id, ...liveTaskWhere }, include: withColumn });
+      const t = await prisma.task.findFirst({
+        where: { id, ...liveTaskWhere },
+        include: { ...withColumn, keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } } },
+      });
       if (!t) return null;
       // Only a series member can have a next copy. Deleted copies count: a skipped one still means
       // this task's next copy was made (and the unique source guard would refuse another).
       const next = t.recurrenceParentId
         ? await prisma.task.findFirst({ where: { recurrenceSourceId: id }, select: { id: true } })
         : null;
-      return { ...toRecord(t), recurrenceNextId: next?.id ?? null };
+      return { ...toRecord(t), recurrenceNextId: next?.id ?? null, formerKeys: (t.keyAliases ?? []).map((a) => a.key) };
     },
     async list(filter) {
       const and: Prisma.TaskWhereInput[] = [];
@@ -233,8 +268,8 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       });
     },
     async countByProject(projectId) {
-      // Count every task ever created (incl. soft-deleted) so keys never repeat.
-      return prisma.task.count({ where: { projectId } });
+      // The highest number used — deleted tasks and old keys of tasks moved away too — so keys never repeat.
+      return highestKeyNumber(prisma, projectId);
     },
     async findColumn(columnId) {
       const c = await prisma.kanbanColumn.findUnique({ where: { id: columnId }, select: { id: true, projectId: true, category: true } });
