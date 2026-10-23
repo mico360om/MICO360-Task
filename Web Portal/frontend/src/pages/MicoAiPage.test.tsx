@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { MicoAiPage } from './MicoAiPage';
 import { useAuthStore } from '../stores/auth-store';
 import type { MicoAiMessage } from '../api/mico-ai';
@@ -14,6 +14,8 @@ interface FakeChat {
   title: string;
   lastMessageAt: string;
   messages: MicoAiMessage[];
+  /** Messages before the first page (GET …/messages?before=). */
+  older?: MicoAiMessage[];
 }
 let ready: boolean;
 let chats: FakeChat[];
@@ -99,7 +101,8 @@ beforeEach(() => {
           c.messages.push(question, answer);
           return json({ data: { question, answer } }, 202);
         }
-        if (!messageId && method === 'GET') return json({ data: { chat: summary(c), messages: c.messages } });
+        if (!messageId && method === 'GET' && path.endsWith('/messages')) return json({ data: { messages: c.older ?? [], hasMore: false } });
+        if (!messageId && method === 'GET') return json({ data: { chat: summary(c), messages: c.messages, hasMore: !!c.older?.length } });
         if (!messageId && method === 'PATCH') {
           c.title = body.title;
           return json({ data: summary(c) });
@@ -131,7 +134,16 @@ afterEach(() => {
 
 function Where() {
   const loc = useLocation();
-  return <div data-testid="where">{`${loc.pathname}${loc.search}`}</div>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <div data-testid="where">{`${loc.pathname}${loc.search}`}</div>
+      {/* Stands in for Ctrl+K "Ask MICO AI" while this page is open. */}
+      <button type="button" onClick={() => navigate('/mico-ai', { state: { ask: 'A second question' } })}>
+        palette
+      </button>
+    </>
+  );
 }
 
 function renderPage(entry: string | { pathname: string; state?: unknown } = '/mico-ai') {
@@ -162,7 +174,7 @@ describe('MICO AI page', () => {
   it('a new chat greets the person and suggests four questions', async () => {
     renderPage();
     expect(await screen.findByRole('heading', { name: 'How can I help, Khurram?' })).toBeInTheDocument();
-    expect(screen.getByText('I answer from your tasks, projects, meetings and reports.')).toBeInTheDocument();
+    expect(screen.getByText('I answer from your tasks, projects, meetings, reports and team chat.')).toBeInTheDocument();
     for (const q of ['Which of my tasks are overdue?', 'Summarize this week’s meetings', 'Workload report for my team this week', 'What changed in Falcon CRM yesterday?']) {
       expect(screen.getByRole('button', { name: q })).toBeInTheDocument();
     }
@@ -337,5 +349,60 @@ describe('MICO AI page', () => {
       await userEvent.keyboard('{Escape}');
     });
     expect(screen.queryByRole('dialog', { name: 'Chats' })).not.toBeInTheDocument();
+  });
+});
+
+describe('MICO AI page: review fixes', () => {
+  it('a second “Ask MICO AI” from Ctrl+K while on the page asks that question too', async () => {
+    renderPage({ pathname: '/mico-ai', state: { ask: 'The first question' } });
+    await waitFor(() => expect(posted('/messages')).toHaveLength(1));
+    next = { status: 'done', step: null, text: 'One.', answer: { kind: 'answer', unavailable: false, options: [], followUps: [], sources: [], tables: [] } };
+    await screen.findByText('One.');
+    await userEvent.click(screen.getByRole('button', { name: 'palette' }));
+    await waitFor(() => expect(posted('/messages')).toHaveLength(2));
+    expect(posted('/messages')[1]!.body).toEqual({ text: 'A second question' });
+  });
+
+  it('when the chat is deleted elsewhere, it stops following the answer and says so', async () => {
+    chats = [{ id: 'c9', title: 'Gone soon', lastMessageAt: now, messages: [
+      { id: 'q1', role: 'user', status: 'done', text: 'question', createdAt: now, step: null },
+      { id: 'a1', role: 'assistant', status: 'pending', text: '', createdAt: now, step: 'Checking tasks…' },
+    ] }];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('Checking tasks…');
+    chats = [];
+    expect(await screen.findByText('This chat was deleted.')).toBeInTheDocument();
+    const polls = () => calls.filter((c) => c.url.endsWith('/messages/a1')).length;
+    const seen = polls();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(polls()).toBe(seen);
+  });
+
+  it('after Stop, focus moves to the answer (not the page)', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    await userEvent.type(box(), 'Dig deep{Enter}');
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    await screen.findByText('Stopped.');
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('aria-label', 'MICO AI’s answer'));
+  });
+
+  it('a long chat shows its latest messages and loads earlier ones on request', async () => {
+    chats = [{ id: 'c9', title: 'Long', lastMessageAt: now, messages: [{ id: 'q9', role: 'user', status: 'done', text: 'latest question', createdAt: now, step: null }], older: [{ id: 'q1', role: 'user', status: 'done', text: 'an early question', createdAt: now, step: null }] }];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('latest question');
+    expect(screen.queryByText('an early question')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+    expect(await screen.findByText('an early question')).toBeInTheDocument();
+    expect(calls.some((c) => c.url.includes('/mico-ai/chats/c9/messages?before=q9'))).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Load earlier messages' })).not.toBeInTheDocument();
+  });
+
+  it('a capped table says how many there were in all', async () => {
+    const capped = structuredClone(tableAnswer) as MicoAiMessage;
+    capped.answer!.tables[0]!.total = 250;
+    chats = [{ id: 'c9', title: 'Big', lastMessageAt: now, messages: [{ ...capped, id: 'a1', role: 'assistant', createdAt: now }] }];
+    renderPage('/mico-ai?chat=c9');
+    expect(await screen.findByText('Showing 2 of 250')).toBeInTheDocument();
   });
 });

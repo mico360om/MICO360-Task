@@ -20,6 +20,8 @@ export interface MicoAiTable {
   fromResult: string;
   columns: Array<{ key: string; label: string; kind?: CellKind }>;
   rows: Array<{ ref: MicoAiSource | null; cells: CellValue[] }>;
+  /** How many matched in all (more than the rows when the list was capped). */
+  total?: number;
 }
 
 export interface MicoAiAnswer {
@@ -66,7 +68,10 @@ export function micoAiApi(client: ApiClient) {
     status: () => client.get<{ data: { ready: boolean; message: string | null } }>('/mico-ai/status').then((r) => r.data),
     list: (q?: string) => client.get<{ data: MicoAiChat[] }>(q?.trim() ? `${base}?q=${encodeURIComponent(q.trim())}` : base).then((r) => r.data),
     create: (title?: string) => client.post<{ data: MicoAiChat }>(base, title ? { title } : {}).then((r) => r.data),
-    get: (id: string) => client.get<{ data: { chat: MicoAiChat; messages: MicoAiMessage[] } }>(chat(id)).then((r) => r.data),
+    /** The chat with its latest messages; `hasMore`: older ones can be loaded with older(). */
+    get: (id: string) => client.get<{ data: { chat: MicoAiChat; messages: MicoAiMessage[]; hasMore?: boolean } }>(chat(id)).then((r) => r.data),
+    older: (id: string, before: string) =>
+      client.get<{ data: { messages: MicoAiMessage[]; hasMore: boolean } }>(`${chat(id)}/messages?before=${encodeURIComponent(before)}`).then((r) => r.data),
     rename: (id: string, title: string) => client.patch<{ data: MicoAiChat }>(chat(id), { title }).then((r) => r.data),
     remove: (id: string) => client.del(chat(id)),
     ask: (id: string, text: string) => client.post<{ data: { question: MicoAiMessage; answer: MicoAiMessage } }>(`${chat(id)}/messages`, { text }).then((r) => r.data),

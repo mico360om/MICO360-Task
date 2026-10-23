@@ -71,7 +71,8 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
   else body = <AnswerText text={message.text} />;
 
   return (
-    <div className="flex gap-3">
+    // Focus lands here when an answer finishes or is stopped (so it isn't lost when Stop disappears).
+    <article id={`mico-ai-message-${message.id}`} tabIndex={-1} aria-label="MICO AI’s answer" className="flex gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
       <MicoAiMark />
       <div className="min-w-0 flex-1 space-y-3 pt-1">
         <span className="sr-only">MICO AI: </span>
@@ -131,6 +132,6 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
           </div>
         ) : null}
       </div>
-    </div>
+    </article>
   );
 }

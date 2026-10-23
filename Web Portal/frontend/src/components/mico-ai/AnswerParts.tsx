@@ -97,6 +97,9 @@ export function AnswerTable({ table }: { table: MicoAiTable }) {
           </tbody>
         </table>
       </div>
+      {table.total !== undefined && table.total > table.rows.length ? (
+        <p className="mt-1.5 text-xs text-ink-3">{`Showing ${table.rows.length} of ${table.total}`}</p>
+      ) : null}
       {table.rows.length > FIRST_ROWS ? (
         <button type="button" onClick={() => setAll((v) => !v)} className="mt-1.5 text-xs font-medium text-brand hover:underline">
           {all ? 'Show fewer rows' : `Show all ${table.rows.length} rows`}

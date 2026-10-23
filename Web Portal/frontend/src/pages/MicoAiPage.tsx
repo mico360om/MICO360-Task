@@ -130,6 +130,11 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [live, setLive] = useState('');
+  /** A chat deleted while it was open (its answer can't be followed any more). */
+  const [gone, setGone] = useState<string | null>(null);
+  /** Older messages loaded with "Load earlier messages", for the open chat. */
+  const [earlier, setEarlier] = useState<{ chatId: string; messages: MicoAiMessage[]; hasMore: boolean } | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -157,7 +162,11 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
 
   const ready = statusQ.data?.ready ?? true;
   const chats = Array.isArray(listQ.data) ? listQ.data : [];
-  const messages = chatQ.data?.messages ?? [];
+  const latest = chatQ.data?.messages ?? [];
+  const older = earlier && earlier.chatId === chatId ? earlier : null;
+  const messages = older ? [...older.messages.filter((o) => !latest.some((x) => x.id === o.id)), ...latest] : latest;
+  const hasMore = older ? older.hasMore : !!chatQ.data?.hasMore;
+  const isGone = !!chatId && gone === chatId;
   // The list is reloaded after every question, so its entry has the name the first question gave the chat.
   const chat = chats.find((c) => c.id === chatId) ?? chatQ.data?.chat ?? null;
   const pending = messages.find((m) => m.role === 'assistant' && m.status === 'pending') ?? null;
@@ -179,10 +188,19 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const pollQ = useQuery({
     queryKey: ['mico-ai', 'message', chatId, pending?.id],
     queryFn: () => api.message(chatId!, pending!.id),
-    enabled: !!chatId && !!pending,
+    enabled: !!chatId && !!pending && !isGone,
     refetchInterval: pollMs,
     gcTime: 0,
+    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
   });
+  // The chat was deleted somewhere else (another tab): stop following its answer and say so.
+  useEffect(() => {
+    const err = pollQ.error;
+    if (chatId && err instanceof ApiError && err.status === 404) {
+      setGone(chatId);
+      refreshList();
+    }
+  }, [pollQ.error, chatId, refreshList]);
   useEffect(() => {
     const m = pollQ.data;
     if (!m || !chatId || m.id !== pending?.id) return;
@@ -192,6 +210,15 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       refreshList();
     }
   }, [pollQ.data, chatId, pending, patchMessage, refreshList]);
+
+  const followed = useRef<string | null>(null);
+  useEffect(() => {
+    const was = followed.current;
+    followed.current = pending?.id ?? null;
+    if (!was || pending) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) document.getElementById(`mico-ai-message-${was}`)?.focus();
+  }, [pending]);
 
   // Keep the newest message in view (the list is scrolled directly: scrollIntoView moves the Tab start in Chrome).
   useLayoutEffect(() => {
@@ -212,7 +239,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       setSending(true);
       setError(null);
       setDraft('');
-      let id = opts.newChat ? null : chatId;
+      // A chat deleted elsewhere can't take a question: a new one starts.
+      let id = opts.newChat || (chatId && gone === chatId) ? null : chatId;
       let created = false;
       try {
         if (!id) {
@@ -245,18 +273,18 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
         box.current?.focus();
       }
     },
-    [chatId, sending, qc, goTo, refreshList, chats],
+    [chatId, sending, qc, goTo, refreshList, chats, gone],
   );
 
   // "Ask MICO AI" from Ctrl+K arrives as the page's state: a new chat with that question, asked once.
-  const asked = useRef(false);
+  const asked = useRef<string | null>(null);
   useEffect(() => {
     const ask = (location.state as { ask?: unknown } | null)?.ask;
-    if (asked.current || typeof ask !== 'string' || !ask.trim()) return;
-    asked.current = true;
+    if (asked.current === location.key || typeof ask !== 'string' || !ask.trim()) return;
+    asked.current = location.key;
     navigate({ pathname: location.pathname, search: '' }, { replace: true, state: null });
     void send(ask, { newChat: true });
-  }, [location.state, location.pathname, navigate, send]);
+  }, [location.state, location.key, location.pathname, navigate, send]);
 
   const stop = async () => {
     if (!chatId || !pending) return;
@@ -293,6 +321,20 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       setDeleteError(errorText(err));
     } finally {
       setDeleteBusy(false);
+    }
+  };
+
+  const loadEarlier = async () => {
+    const first = messages[0];
+    if (!chatId || !first) return;
+    setLoadingEarlier(true);
+    try {
+      const page = await api.older(chatId, first.id);
+      setEarlier({ chatId, messages: [...page.messages, ...(older?.messages ?? [])], hasMore: page.hasMore });
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setLoadingEarlier(false);
     }
   };
 
@@ -365,6 +407,14 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
               {!ready ? (
                 <p className="rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-ink">{statusQ.data?.message ?? 'MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.'}</p>
               ) : null}
+              {isGone ? (
+                <p role="alert" className="rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-ink">This chat was deleted.</p>
+              ) : null}
+              {hasMore ? (
+                <button type="button" onClick={() => void loadEarlier()} disabled={loadingEarlier} className="mx-auto rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-2 hover:bg-ground disabled:opacity-60">
+                  {loadingEarlier ? 'Loading…' : 'Load earlier messages'}
+                </button>
+              ) : null}
               {chatId && chatQ.isError ? (
                 <p className="rounded-xl border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger">{errorText(chatQ.error)}</p>
               ) : null}
@@ -372,7 +422,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
                 <div className="mx-auto flex max-w-md flex-col items-center gap-2 pt-6 text-center sm:pt-12">
                   <MicoAiMark size="lg" />
                   <h3 className="mt-2 font-display text-xl font-semibold text-ink">{firstName ? `How can I help, ${firstName}?` : 'How can I help?'}</h3>
-                  <p className="text-sm text-ink-2">I answer from your tasks, projects, meetings and reports.</p>
+                  <p className="text-sm text-ink-2">I answer from your tasks, projects, meetings, reports and team chat.</p>
                   <div className="mt-3 flex w-full flex-col gap-2">
                     {suggestedQuestions(projectName).map((q) => (
                       <button key={q} type="button" disabled={!canAsk} onClick={() => void send(q)} className="rounded-xl border border-line bg-surface px-4 py-2.5 text-start text-sm text-ink transition-colors hover:border-brand/30 hover:bg-ground disabled:cursor-not-allowed disabled:opacity-60">
