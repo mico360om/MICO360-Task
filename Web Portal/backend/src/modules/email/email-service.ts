@@ -55,6 +55,9 @@ export interface EmailServiceDeps {
   logger?: EmailLogger;
 }
 
+/** How a send went: it went, or the address is blocked (suppressed) and it was skipped. */
+export type DeliveryResult = 'sent' | 'suppressed';
+
 interface DeliverOptions {
   attachments?: EmailAttachment[];
   /** Sign-in and recovery mail: never silently dropped because of an old bounce. */
@@ -78,7 +81,8 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     }
   }
 
-  async function deliver(template: string, email: string, content: EmailContent, opts: DeliverOptions = {}): Promise<void> {
+  /** Sends one email: 'sent', or 'suppressed' when the address is blocked (and the email was skipped). */
+  async function deliverResult(template: string, email: string, content: EmailContent, opts: DeliverOptions = {}): Promise<DeliveryResult> {
     const base = { toAddress: email, template, subject: content.subject };
     if (!isConfigured()) {
       await record({ ...base, status: 'FAILED', error: 'Email sending is not configured.' });
@@ -87,7 +91,7 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     if (isSuppressed && (await isSuppressed(email))) {
       if (!opts.essential) {
         logger?.info('email skipped: address is suppressed', { template, to: email });
-        return;
+        return 'suppressed';
       }
       logger?.warn('sending a sign-in email to a suppressed address', { template, to: email });
     }
@@ -116,6 +120,11 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
       throw new EmailDeliveryError(email, result.status, `Email could not be delivered (HTTP ${result.status}).`);
     }
     await record({ ...base, status: 'SENT', ...(result.messageId ? { providerMessageId: result.messageId } : {}) });
+    return 'sent';
+  }
+
+  async function deliver(template: string, email: string, content: EmailContent, opts: DeliverOptions = {}): Promise<void> {
+    await deliverResult(template, email, content, opts);
   }
 
   return {
@@ -157,8 +166,11 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
       deliver('alert', email, alertEmail(params, opts)),
     sendNotification: (email: string, params: Parameters<typeof genericNotificationEmail>[0], opts?: TemplateOptions) =>
       deliver('notification', email, genericNotificationEmail(params, opts)),
-    /** An email already built elsewhere (the daily task emails), logged under its own template name. */
-    sendPrepared: (template: string, email: string, content: EmailContent) => deliver(template, email, content),
+    /**
+     * An email already built elsewhere (the daily task emails), logged under its own template name.
+     * 'suppressed': the address is blocked after a bounce or spam complaint, so nothing was sent.
+     */
+    sendPrepared: (template: string, email: string, content: EmailContent): Promise<DeliveryResult> => deliverResult(template, email, content),
 
     // Meetings — invitations, reminders, cancellations, minutes (with .ics / PDF attachments)
     sendMeetingInvite: (email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions) =>

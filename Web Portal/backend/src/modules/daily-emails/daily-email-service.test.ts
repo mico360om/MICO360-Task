@@ -5,28 +5,40 @@ import type { DailyTask } from './daily-email-content';
 import type { EmailContent } from '../email/email-templates';
 
 /** The delivery records in memory, with the same once-only rules as the database. */
-function memoryRepo() {
+function memoryRepo(clock: () => Date = () => new Date()) {
   const rows: DailyEmailRecord[] = [];
   let seq = 0;
+  let failFinishes = 0;
+  const failClaimsFor = new Set<string>();
   const repo: DailyEmailRepository = {
     async claim(userId, day, kind) {
+      if (failClaimsFor.has(userId)) throw new Error('The database is not answering');
       if (rows.some((r) => r.userId === userId && r.day === day && r.kind === kind)) return null;
-      const now = new Date();
+      const now = clock();
       const r: DailyEmailRecord = { id: `r${seq++}`, userId, day, kind, status: 'SENDING', attempts: 1, taskCount: 0, nextAttemptAt: null, lastError: null, sentAt: null, createdAt: now, updatedAt: now };
       rows.push(r);
       return { ...r };
     },
-    async dueForRetry(now) {
-      return rows.filter((r) => r.status === 'RETRY' && r.nextAttemptAt && r.nextAttemptAt <= now).map((r) => ({ ...r }));
+    async dueForRetry(now, staleBefore) {
+      return rows
+        .filter((r) => (r.status === 'RETRY' && r.nextAttemptAt && r.nextAttemptAt <= now) || (r.status === 'SENDING' && r.updatedAt < staleBefore))
+        .map((r) => ({ ...r }));
     },
     async retake(row) {
       const r = rows.find((x) => x.id === row.id);
       if (!r || r.status !== row.status || r.attempts !== row.attempts) return null;
-      Object.assign(r, { status: 'SENDING', attempts: r.attempts + 1, nextAttemptAt: null });
+      Object.assign(r, { status: 'SENDING', attempts: r.attempts + 1, nextAttemptAt: null, updatedAt: clock() });
       return { ...r };
     },
-    async finish(id, patch) {
-      Object.assign(rows.find((x) => x.id === id)!, patch);
+    async finish(taken, patch) {
+      if (failFinishes > 0) {
+        failFinishes--;
+        throw new Error('The database is not answering');
+      }
+      const r = rows.find((x) => x.id === taken.id && x.status === 'SENDING' && x.attempts === taken.attempts);
+      if (!r) return false;
+      Object.assign(r, patch, { updatedAt: clock() });
+      return true;
     },
     async list() {
       return [];
@@ -36,10 +48,11 @@ function memoryRepo() {
       return r ? { ...r } : null;
     },
     async forDays(days) {
-      return rows.filter((r) => days.includes(r.day)).map((r) => ({ ...r }));
+      // With who it was for, as the database joins it (the test people's names and addresses).
+      return rows.filter((r) => days.includes(r.day)).map((r) => ({ ...r, userName: r.userId.toUpperCase(), email: `${r.userId}@mico360.test`, timeZone: null }));
     },
   };
-  return { repo, rows };
+  return { repo, rows, failFinishes: (n: number) => { failFinishes = n; }, failClaimsFor };
 }
 
 /** A delivery record as it would be in the database (for states a test sets up directly). */
@@ -63,10 +76,19 @@ const task = (key: string, extra: Partial<DailyTask> = {}): DailyTask => ({
   id: key, key, title: key, projectName: 'Rig', priority: 'NORMAL', dueDate: null, statusLabel: 'To Do', completedAt: null, ...extra,
 });
 
-function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; configured?: boolean; failures?: number } = {}) {
-  const { repo, rows } = memoryRepo();
+/** When the sweep last ran, kept like the database keeps it: shared by every server (and a restart). */
+function checkStore() {
+  let last: Date | null = null;
+  return { record: async (at: Date) => { last = at; }, last: async () => last };
+}
+
+function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; configured?: boolean; failures?: number; blocked?: string[]; checks?: ReturnType<typeof checkStore> } = {}) {
   let now = at('2026-10-21T02:00:00Z'); // 06:00 in Muscat
+  const { repo, rows, failFinishes, failClaimsFor } = memoryRepo(() => now);
+  let listFails = false;
   let failures = opts.failures ?? 0;
+  // The next send waits until the test lets it go (a slow provider), then goes through or fails.
+  let held: { wait: Promise<void>; fail: boolean } | null = null;
   const sent: Array<{ to: string; subject: string; template: string }> = [];
   const people = opts.people ?? [person('ada')];
   let pendingTasks = opts.pending ?? [task('RIG-1')];
@@ -76,31 +98,62 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
   const warn = vi.fn();
   const service = createDailyEmailService({
     repo,
-    people: { list: async () => people, find: async (id) => people.find((p) => p.id === id) ?? null },
+    people: {
+      list: async () => {
+        if (listFails) throw new Error('The database is not answering');
+        return people;
+      },
+      find: async (id) => people.find((p) => p.id === id) ?? null,
+    },
     tasks: { pending, completedBetween },
     send: async (to: string, content: EmailContent, template: string) => {
+      if (held) {
+        const h = held;
+        held = null;
+        await h.wait;
+        if (h.fail) throw new Error('Timed out');
+      }
       if (failures > 0) {
         failures--;
         throw new Error('HTTP 503');
       }
+      if (opts.blocked?.includes(to)) return 'suppressed' as const;
       sent.push({ to, subject: content.subject, template });
+      return 'sent' as const;
     },
     isConfigured: () => opts.configured ?? true,
     companyTimeZone: TZ,
     appUrl: 'https://task.example',
     now: () => now,
     logger: { info: vi.fn(), warn },
+    ...(opts.checks ? { checks: opts.checks } : {}),
   });
   return {
     service, rows, sent, pending, completedBetween, warn, people,
     setNow: (iso: string) => { now = at(iso); },
     setFailures: (n: number) => { failures = n; },
+    failFinishes,
+    failClaimsFor,
+    failList: () => { listFails = true; },
+    /** Holds the next send until `release` (then it goes, or fails with `fail`). */
+    holdNextSend: () => {
+      let release!: () => void;
+      const h = { wait: new Promise<void>((r) => { release = r; }), fail: false };
+      held = h;
+      return { release: (o: { fail?: boolean } = {}) => { h.fail = o.fail === true; release(); } };
+    },
     setTasks: (t: { pending?: DailyTask[]; completed?: DailyTask[] }) => {
       if (t.pending) pendingTasks = t.pending;
       if (t.completed) completedTasks = t.completed;
     },
   };
 }
+
+/** Lets pending promise callbacks run (a held send starts waiting). */
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+/** "Send today's emails now", run to the end: its counts. */
+const sendNowAll = async (s: ReturnType<typeof setup>) => (await s.service.startSendNow().finished).counts;
 
 describe('daily task emails: the morning sweep', () => {
   it('sends both emails at 06:00 in the person’s time zone, not before', async () => {
@@ -182,6 +235,18 @@ describe('daily task emails: the morning sweep', () => {
     expect(s.sent).toHaveLength(2);
   });
 
+  it('an address blocked after a bounce or spam complaint is recorded as skipped, with why — never as sent', async () => {
+    const s = setup({ blocked: ['ada@mico360.test'] });
+    await s.service.runSweep();
+    expect(s.sent).toEqual([]);
+    expect(s.rows.map((r) => [r.kind, r.status, r.sentAt, r.lastError])).toEqual([
+      ['PENDING', 'SKIPPED', null, 'Address blocked after a bounce or spam complaint.'],
+      ['COMPLETED', 'SKIPPED', null, 'Address blocked after a bounce or spam complaint.'],
+    ]);
+    const r = await s.service.sendFor('ada', { kind: 'PENDING' });
+    expect(r!.results).toEqual([{ kind: 'PENDING', outcome: 'blocked', error: 'Address blocked after a bounce or spam complaint.', sentAt: null }]);
+  });
+
   it('leaves out people without an email address', async () => {
     const s = setup({ people: [person('ada', { email: null })] });
     await s.service.runSweep();
@@ -234,6 +299,55 @@ describe('daily task emails: failures and retries', () => {
     expect(s.rows.find((r) => r.kind === 'PENDING')).toMatchObject({ status: 'SKIPPED' });
   });
 
+  it('a send cut off part-way (still “being sent” 15 minutes later: a restart) is tried again', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })] });
+    s.rows.push(record({ id: 'a1', userId: 'ada', kind: 'PENDING', status: 'SENDING', updatedAt: at('2026-10-21T02:00:00Z') }));
+    s.setNow('2026-10-21T02:10:00Z'); // only 10 minutes: it may still be going
+    await s.service.runSweep();
+    expect(s.sent).toEqual([]);
+    s.setNow('2026-10-21T02:16:00Z');
+    await s.service.runSweep();
+    expect(s.sent.map((m) => m.template)).toEqual(['daily-pending']);
+    expect(s.rows[0]).toMatchObject({ status: 'SENT', attempts: 2, sentAt: at('2026-10-21T02:16:00Z') });
+  });
+
+  it('a resend cut off part-way stays counted as sent: it is never retried as a first send', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })], failures: 1 });
+    s.rows.push(record({ id: 'a1', userId: 'ada', kind: 'PENDING', status: 'SENDING', attempts: 2, taskCount: 1, sentAt: at('2026-10-21T02:00:00Z'), updatedAt: at('2026-10-21T03:00:00Z') }));
+    s.setNow('2026-10-21T03:20:00Z');
+    await s.service.runSweep(); // the resend is tried again, and fails
+    expect(s.rows[0]).toMatchObject({ status: 'SENT', attempts: 3, sentAt: at('2026-10-21T02:00:00Z'), lastError: 'HTTP 503', nextAttemptAt: null });
+    s.setNow('2026-10-21T05:00:00Z');
+    await s.service.runSweep();
+    expect(s.sent).toEqual([]); // nothing left to retry
+  });
+
+  it('a database problem just after the email went never sends it again', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })] });
+    s.failFinishes(1);
+    await s.service.runSweep(); // sent, but writing that down failed
+    expect(s.sent).toHaveLength(1);
+    for (const t of ['02:05', '02:20', '02:40']) {
+      s.setNow(`2026-10-21T${t}:00Z`);
+      await s.service.runSweep();
+    }
+    expect(s.sent).toHaveLength(1);
+    expect(s.rows[0]).toMatchObject({ status: 'SENT', taskCount: 1, sentAt: at('2026-10-21T02:00:00Z'), lastError: null });
+  });
+
+  it('an attempt that lost its record (taken again meanwhile) doesn’t overwrite what the other one wrote down', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })] });
+    const slow = s.holdNextSend();
+    const first = s.service.runSweep(); // 02:00: the send hangs
+    await settle();
+    s.setNow('2026-10-21T02:20:00Z'); // still “being sent” 20 minutes on: taken again and sent
+    await s.service.runSweep();
+    expect(s.rows[0]).toMatchObject({ status: 'SENT', attempts: 2, sentAt: at('2026-10-21T02:20:00Z') });
+    slow.release({ fail: true }); // the first attempt finally fails
+    await first;
+    expect(s.rows[0]).toMatchObject({ status: 'SENT', attempts: 2, sentAt: at('2026-10-21T02:20:00Z'), nextAttemptAt: null });
+  });
+
   it('does nothing while email isn’t set up on the server, and says so once', async () => {
     const s = setup({ configured: false });
     await s.service.runSweep();
@@ -261,26 +375,56 @@ const onlyPending = { muted: [], dailyEmails: { pending: true, completed: false,
 const bothOff = { muted: [], dailyEmails: { pending: false, completed: false, time: '06:00' } };
 
 describe('daily task emails: when the server last checked', () => {
-  it('is not known until the sweep has run since the server started, then it is the sweep’s time', async () => {
+  it('is not known until the sweep has run, then it is the sweep’s time', async () => {
     const s = setup();
-    expect(s.service.lastCheckedAt()).toBeNull();
+    expect(await s.service.lastCheckedAt()).toBeNull();
     s.setNow('2026-10-21T01:30:00Z');
     await s.service.runSweep();
-    expect(s.service.lastCheckedAt()?.toISOString()).toBe('2026-10-21T01:30:00.000Z');
+    expect(await s.service.lastCheckedAt()).toEqual(at('2026-10-21T01:30:00Z'));
   });
 
   it('counts a sweep that found email not set up (it still checked)', async () => {
     const s = setup({ configured: false });
     await s.service.runSweep();
-    expect(s.service.lastCheckedAt()?.toISOString()).toBe('2026-10-21T02:00:00.000Z');
+    expect(await s.service.lastCheckedAt()).toEqual(at('2026-10-21T02:00:00Z'));
+  });
+
+  it('is kept in the database: after a restart, or on another server, the overview still knows', async () => {
+    const checks = checkStore();
+    const before = setup({ checks });
+    before.setNow('2026-10-21T01:30:00Z');
+    await before.service.runSweep();
+    const restarted = setup({ checks });
+    restarted.setNow('2026-10-21T01:31:00Z');
+    expect((await restarted.service.overview()).lastCheckedAt).toEqual(at('2026-10-21T01:30:00Z'));
+  });
+
+  it('says when the server hasn’t checked for a while although emails are due (it was asleep)', async () => {
+    const checks = checkStore();
+    const s = setup({ checks });
+    s.setNow('2026-10-20T19:59:00Z'); // 23:59 the night before
+    await s.service.runSweep();
+    s.setNow('2026-10-21T01:00:00Z'); // 05:00: nothing due yet
+    expect((await s.service.overview()).checkLate).toBe(false);
+    s.setNow('2026-10-21T03:00:00Z'); // 07:00: Ada’s 06:00 emails haven’t gone
+    expect(await s.service.overview()).toMatchObject({ lastCheckedAt: at('2026-10-20T19:59:00Z'), checkLate: true });
+    await s.service.runSweep(); // it wakes and catches up
+    expect((await s.service.overview()).checkLate).toBe(false);
+  });
+
+  it('not while email isn’t set up (that is said instead)', async () => {
+    const s = setup({ configured: false, checks: checkStore() });
+    s.setNow('2026-10-21T03:00:00Z');
+    expect((await s.service.overview()).checkLate).toBe(false);
   });
 });
 
 describe('daily task emails: an administrator’s "Send today’s emails now"', () => {
-  it('sends today’s emails to everyone now, before their time, as today’s — the sweep never sends them again', async () => {
-    const s = setup({ people: [person('ada'), person('bo', { prefs: onlyPending }), person('cy', { prefs: bothOff }), person('dee', { email: null })] });
-    s.setNow('2026-10-21T01:00:00Z'); // 05:00 in Muscat, before everyone’s 06:00
-    expect(await s.service.sendNow()).toEqual({ sent: 3, skipped: 0, failed: 0, retrying: 0, alreadyDone: 0, off: 3 });
+  it('sends now, as today’s, the emails whose time has come and that haven’t gone — the sweep never sends them again', async () => {
+    const late = { muted: [], dailyEmails: { pending: true, completed: true, time: '08:00' } };
+    const s = setup({ people: [person('ada'), person('bo', { prefs: onlyPending }), person('cy', { prefs: bothOff }), person('dee', { email: null }), person('hal', { prefs: late })] });
+    s.setNow('2026-10-21T03:00:00Z'); // 07:00 in Muscat: Ada’s and Bo’s 06:00 emails haven’t gone (the server was asleep)
+    expect(await sendNowAll(s)).toMatchObject({ sent: 3, skipped: 0, failed: 0, retrying: 0, alreadyDone: 0, off: 3, notYet: 2 });
     expect(s.sent.map((m) => `${m.to} ${m.template}`)).toEqual([
       'ada@mico360.test daily-pending',
       'ada@mico360.test daily-completed',
@@ -291,9 +435,19 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
       ['ada', 'COMPLETED', 'SENT', '2026-10-21'],
       ['bo', 'PENDING', 'SENT', '2026-10-21'],
     ]);
-    s.setNow('2026-10-21T02:00:00Z');
     await s.service.runSweep();
     expect(s.sent).toHaveLength(3);
+    s.setNow('2026-10-21T04:00:00Z'); // Hal’s 08:00: the sweep sends his, at his time
+    await s.service.runSweep();
+    expect(s.sent.map((m) => m.to).slice(3)).toEqual(['hal@mico360.test', 'hal@mico360.test']);
+  });
+
+  it('never ahead of a person’s time: late in the company’s evening, people further east don’t get the next day’s emails in their night', async () => {
+    const s = setup({ people: [person('ada'), person('kai', { timeZone: 'Asia/Tokyo' })] });
+    s.setNow('2026-10-20T19:00:00Z'); // 23:00 on 20 Oct in Muscat; 04:00 on 21 Oct in Tokyo
+    expect(await sendNowAll(s)).toMatchObject({ sent: 2, notYet: 2 });
+    expect(s.rows.map((r) => [r.userId, r.day])).toEqual([['ada', '2026-10-20'], ['ada', '2026-10-20']]);
+    expect(s.sent.every((m) => m.to === 'ada@mico360.test')).toBe(true);
   });
 
   it('leaves what already went or had nothing in it; sends again what failed or waits for a retry', async () => {
@@ -306,7 +460,8 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
       record({ id: 'c1', userId: 'cy', kind: 'PENDING', status: 'SENDING', updatedAt: at('2026-10-21T02:29:00Z') }),
     );
     s.setNow('2026-10-21T02:30:00Z');
-    expect(await s.service.sendNow()).toEqual({ sent: 2, skipped: 0, failed: 0, retrying: 0, alreadyDone: 3, off: 1 });
+    // Cy’s is being sent by the sweep right now: not “already done”.
+    expect(await sendNowAll(s)).toEqual({ sent: 2, skipped: 0, blocked: 0, failed: 0, retrying: 0, alreadyDone: 2, sending: 1, off: 1, notYet: 0, errors: 0 });
     expect(s.sent.map((m) => m.to)).toEqual(['bo@mico360.test', 'bo@mico360.test']);
     expect(s.rows).toHaveLength(5); // the same records, never a second one
     expect(s.rows.find((r) => r.id === 'b1')).toMatchObject({ status: 'SENT', attempts: 5, lastError: null });
@@ -316,7 +471,7 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
 
   it('skips an email with nothing in it, and a send that fails goes on to the usual retries', async () => {
     const s = setup({ completed: [], failures: 1 });
-    expect(await s.service.sendNow()).toEqual({ sent: 0, skipped: 1, failed: 1, retrying: 1, alreadyDone: 0, off: 0 });
+    expect(await sendNowAll(s)).toEqual({ sent: 0, skipped: 1, blocked: 0, failed: 1, retrying: 1, alreadyDone: 0, sending: 0, off: 0, notYet: 0, errors: 0 });
     expect(s.rows.find((r) => r.kind === 'PENDING')).toMatchObject({ status: 'RETRY', lastError: 'HTTP 503' });
     expect(s.rows.find((r) => r.kind === 'PENDING')!.nextAttemptAt!.toISOString()).toBe('2026-10-21T02:05:00.000Z');
     s.setNow('2026-10-21T02:05:00Z');
@@ -327,16 +482,73 @@ describe('daily task emails: an administrator’s "Send today’s emails now"', 
   it('uses each person’s own calendar day', async () => {
     const s = setup({ people: [person('eve', { timeZone: 'America/New_York' })] });
     s.setNow('2026-10-21T02:30:00Z'); // 22:30 on 20 Oct in New York
-    await s.service.sendNow();
+    await sendNowAll(s);
     expect(s.rows.map((r) => r.day)).toEqual(['2026-10-20', '2026-10-20']);
+  });
+
+  it('starts at once and sends in the background; how far it has got is in the overview', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending }), person('bo', { prefs: onlyPending })] });
+    const slow = s.holdNextSend();
+    const start = s.service.startSendNow();
+    expect(start.started).toBe(true);
+    expect(start.run).toMatchObject({ running: true, startedAt: at('2026-10-21T02:00:00Z'), finishedAt: null, done: 0, error: null });
+    await settle();
+    expect((await s.service.overview()).run).toMatchObject({ running: true, total: 2, done: 0 });
+    slow.release();
+    const run = await start.finished;
+    expect(run).toMatchObject({ running: false, total: 2, done: 2, finishedAt: at('2026-10-21T02:00:00Z'), error: null, counts: { sent: 2 } });
+    expect((await s.service.overview()).run).toMatchObject({ running: false, done: 2, counts: { sent: 2 } });
+  });
+
+  it('one run at a time: pressing again while it runs starts nothing new', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })] });
+    const slow = s.holdNextSend();
+    const first = s.service.startSendNow();
+    await settle();
+    const again = s.service.startSendNow();
+    expect(again.started).toBe(false);
+    expect(again.run.startedAt).toEqual(first.run.startedAt);
+    slow.release();
+    await first.finished;
+    expect(s.sent).toHaveLength(1);
+    expect(s.service.startSendNow().started).toBe(true); // once it has finished, a new one can start
+  });
+
+  it('a problem with one person’s emails doesn’t stop the rest; the end says how it went', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending }), person('bo', { prefs: onlyPending }), person('cy', { prefs: onlyPending })] });
+    s.failClaimsFor.add('bo');
+    const finished = vi.fn();
+    const run = await s.service.startSendNow({ onFinish: finished }).finished;
+    expect(s.sent.map((m) => m.to)).toEqual(['ada@mico360.test', 'cy@mico360.test']);
+    expect(run).toMatchObject({ running: false, total: 3, done: 3, error: null, counts: { sent: 2, errors: 1 } });
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(finished).toHaveBeenCalledWith(expect.objectContaining({ running: false, counts: expect.objectContaining({ sent: 2, errors: 1 }) }));
+  });
+
+  it('when the list of people can’t be read, it ends at once and says why', async () => {
+    const s = setup();
+    s.failList();
+    const finished = vi.fn();
+    const run = await s.service.startSendNow({ onFinish: finished }).finished;
+    expect(run).toMatchObject({ running: false, total: null, done: 0, error: 'The database is not answering', counts: { sent: 0 } });
+    expect(finished).toHaveBeenCalledTimes(1);
+  });
+
+  it('a blocked address is counted as blocked, not as sent', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })], blocked: ['ada@mico360.test'] });
+    expect(await sendNowAll(s)).toMatchObject({ sent: 0, blocked: 1 });
   });
 });
 
 describe('daily task emails: an administrator sends one person’s emails', () => {
-  it('sends that person’s emails for today now, and no one else’s', async () => {
+  it('before their time only when asked to send early: then it counts as today’s, and no one else gets anything', async () => {
     const s = setup({ people: [person('ada'), person('bo')] });
-    s.setNow('2026-10-21T01:00:00Z');
-    const r = await s.service.sendFor('ada');
+    s.setNow('2026-10-21T01:00:00Z'); // 05:00: Ada’s 06:00 hasn’t come
+    const ahead = await s.service.sendFor('ada', { kind: 'PENDING' });
+    expect(ahead).toMatchObject({ time: '06:00', results: [{ kind: 'PENDING', outcome: 'not-yet', error: null, sentAt: null }] });
+    expect(s.sent).toEqual([]);
+    expect(s.rows).toEqual([]);
+    const r = await s.service.sendFor('ada', { early: true });
     expect(r).toMatchObject({ name: 'ADA', email: 'ada@mico360.test', day: '2026-10-21' });
     expect(r!.results).toEqual([
       { kind: 'PENDING', outcome: 'sent', error: null, sentAt: at('2026-10-21T01:00:00Z') },
@@ -406,6 +618,27 @@ describe('daily task emails: an administrator sends one person’s emails', () =
     expect(s.rows.find((x) => x.kind === 'COMPLETED')).toMatchObject({ status: 'SENT', taskCount: 1, attempts: 2 });
   });
 
+  it('pressing Send again and again while email is down doesn’t use up the automatic retries', async () => {
+    const s = setup({ people: [person('ada', { prefs: onlyPending })], failures: 99 });
+    await s.service.runSweep(); // 02:00: fails, tried again at 02:05
+    s.setNow('2026-10-21T02:01:00Z');
+    for (let i = 0; i < 3; i++) {
+      const r = await s.service.sendFor('ada', { kind: 'PENDING' });
+      expect(r!.results[0]).toMatchObject({ outcome: 'retry', error: 'HTTP 503' });
+    }
+    expect(s.rows[0]).toMatchObject({ status: 'RETRY', attempts: 1, lastError: 'HTTP 503' });
+    expect(s.rows[0]!.nextAttemptAt!.toISOString()).toBe('2026-10-21T02:05:00.000Z');
+    // The sweep still makes its three retries before it gives up.
+    for (const t of ['02:05', '02:20']) {
+      s.setNow(`2026-10-21T${t}:00Z`);
+      await s.service.runSweep();
+      expect(s.rows[0]!.status).toBe('RETRY');
+    }
+    s.setNow('2026-10-21T03:05:00Z');
+    await s.service.runSweep();
+    expect(s.rows[0]).toMatchObject({ status: 'FAILED', attempts: 4 });
+  });
+
   it('a send that fails goes on to the usual retries', async () => {
     const s = setup({ people: [person('ada', { prefs: onlyPending })], failures: 1 });
     const r = await s.service.sendFor('ada');
@@ -473,10 +706,11 @@ describe('daily task emails: the administrators’ overview of a day', () => {
     const o = await s.service.overview();
     expect(o.day).toBeNull();
     expect(o.lastCheckedAt?.toISOString()).toBe('2026-10-21T02:00:00.000Z');
-    expect(o.nextSendAt?.toISOString()).toBe('2026-10-21T03:30:00.000Z'); // Bo’s 07:30
+    expect(o.nextSendAt?.toISOString()).toBe('2026-10-21T02:50:00.000Z'); // Gus’s retry, before Bo’s 07:30
     expect(o.people.map((p) => p.name)).toEqual(['ADA', 'BO', 'CY', 'FAY', 'GUS']);
     const [ada, bo, cy, fay, gus] = o.people;
-    expect(ada).toMatchObject({ userId: 'ada', email: 'ada@mico360.test', timeZone: TZ, ownTimeZone: false, time: '06:00', day: '2026-10-21' });
+    expect(ada).toMatchObject({ userId: 'ada', email: 'ada@mico360.test', timeZone: TZ, ownTimeZone: false, time: '06:00', day: '2026-10-21', today: '2026-10-21', due: true, account: 'active' });
+    expect(bo).toMatchObject({ today: '2026-10-21', due: false });
     expect(ada!.pending).toMatchObject({ on: true, state: 'SENT', sentAt: at('2026-10-21T02:00:00Z'), taskCount: 1, attempts: 1 });
     expect(ada!.completed).toMatchObject({ on: true, state: 'SKIPPED' });
     expect(bo!.pending).toMatchObject({ on: true, state: 'DUE', dueAt: at('2026-10-21T03:30:00Z') });
@@ -484,7 +718,8 @@ describe('daily task emails: the administrators’ overview of a day', () => {
     expect(fay!.pending).toMatchObject({ state: 'FAILED', attempts: 4, lastError: 'HTTP 503' });
     expect(fay!.completed).toMatchObject({ on: false, state: 'OFF' });
     expect(gus!.pending).toMatchObject({ state: 'RETRY', nextAttemptAt: at('2026-10-21T02:50:00Z'), lastError: 'Timed out' });
-    expect(o.summary).toEqual({ people: 4, sent: 1, skipped: 1, failed: 1, retrying: 1, sending: 0, upcoming: 2, toSend: 3 });
+    // Send now: Fay’s and Gus’s (their time has come); Bo’s 07:30 hasn’t.
+    expect(o.summary).toEqual({ people: 4, sent: 1, skipped: 1, failed: 1, retrying: 1, sending: 0, late: 0, upcoming: 2, toSend: 2 });
   });
 
   it('each person’s own calendar day and time zone', async () => {
@@ -492,7 +727,53 @@ describe('daily task emails: the administrators’ overview of a day', () => {
     s.setNow('2026-10-21T02:30:00Z'); // 22:30 on 20 Oct in New York: her 06:00 has passed, nothing sent yet
     const [eve] = (await s.service.overview()).people;
     expect(eve).toMatchObject({ timeZone: 'America/New_York', ownTimeZone: true, day: '2026-10-20' });
-    expect(eve!.pending).toMatchObject({ state: 'DUE', dueAt: at('2026-10-20T10:00:00Z') });
+    expect(eve!.pending).toMatchObject({ state: 'LATE', dueAt: at('2026-10-20T10:00:00Z') });
+  });
+
+  it('late (due, not sent yet) apart from still to come; someone whose first emails are tomorrow isn’t still to come today', async () => {
+    const s = setup({
+      people: [person('ada'), person('bo', { prefs: { muted: [], dailyEmails: { pending: true, completed: true, time: '07:30' } } }), person('new', { createdAt: at('2026-10-21T02:30:00Z') })],
+    });
+    s.setNow('2026-10-21T03:00:00Z'); // 07:00
+    const o = await s.service.overview();
+    const [ada, bo, nu] = o.people;
+    expect(ada!.pending).toMatchObject({ state: 'LATE', dueAt: at('2026-10-21T02:00:00Z') });
+    expect(bo!.pending).toMatchObject({ state: 'DUE', dueAt: at('2026-10-21T03:30:00Z') });
+    expect(nu!.pending).toMatchObject({ state: 'DUE', dueAt: at('2026-10-22T02:00:00Z') });
+    expect(nu).toMatchObject({ due: false });
+    expect(o.summary).toMatchObject({ late: 2, upcoming: 2, toSend: 1 });
+    expect(o.nextSendAt).toEqual(at('2026-10-21T02:00:00Z')); // Ada’s: due now
+  });
+
+  it('a clock-change day: 06:00 is 06:00 by the clocks that morning', async () => {
+    const s = setup({ people: [person('lin', { timeZone: 'Europe/London' })] });
+    s.setNow('2026-10-25T04:00:00Z'); // the clocks went back at 02:00 BST: 06:00 GMT is 06:00Z
+    expect((await s.service.overview()).people[0]!.pending).toMatchObject({ state: 'DUE', dueAt: at('2026-10-25T06:00:00Z') });
+    s.setNow('2026-10-25T05:30:00Z'); // 05:30 there
+    await s.service.runSweep();
+    expect(s.sent).toEqual([]);
+    s.setNow('2026-10-25T06:00:00Z');
+    await s.service.runSweep();
+    expect(s.sent).toHaveLength(2);
+  });
+
+  it('records of people no longer active (or with no address now) stay visible, marked so', async () => {
+    const s = setup({ people: [person('ada'), person('ned', { email: null })] });
+    s.rows.push(
+      record({ id: 'z1', userId: 'zed', kind: 'PENDING', status: 'SENT', sentAt: at('2026-10-21T02:00:00Z'), taskCount: 2 }),
+      record({ id: 'n1', userId: 'ned', kind: 'COMPLETED', status: 'SKIPPED' }),
+      record({ id: 'z0', userId: 'zed', day: '2026-10-20', kind: 'PENDING', status: 'FAILED', attempts: 4 }),
+    );
+    s.setNow('2026-10-21T02:30:00Z');
+    const o = await s.service.overview();
+    expect(o.people.map((p) => [p.name, p.account])).toEqual([['ADA', 'active'], ['NED', 'no-email'], ['ZED', 'inactive']]);
+    const zed = o.people[2]!;
+    expect(zed).toMatchObject({ userId: 'zed', email: 'zed@mico360.test', day: '2026-10-21', due: false });
+    expect(zed.pending).toMatchObject({ state: 'SENT', taskCount: 2 });
+    expect(zed.completed).toMatchObject({ state: 'NONE' });
+    expect(o.summary).toMatchObject({ people: 1, sent: 1, skipped: 1, toSend: 1 }); // what happened counts; “people” and Send now don’t
+    const past = await s.service.overview('2026-10-20');
+    expect(past.people.find((p) => p.userId === 'zed')!.pending).toMatchObject({ state: 'FAILED' });
   });
 
   it('someone who joined after today’s time: their first emails come tomorrow', async () => {
