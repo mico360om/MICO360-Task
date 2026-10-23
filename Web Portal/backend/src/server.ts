@@ -27,6 +27,9 @@ import { createProjectAccess } from './modules/projects/project-access';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
+import { createTaskMoveService, type MoveResult } from './modules/tasks/task-move-service';
+import { createPrismaTaskMoveRepository } from './modules/tasks/prisma-task-move-repository';
+import { createMoveNotifier } from './modules/tasks/task-move-notices';
 import { directMessageTitle } from './modules/chat/chat-notices';
 import { taskNoticeBody } from './modules/notifications/task-notice';
 import { DEFAULT_CARRY_STATUSES } from './modules/tasks/board-date';
@@ -256,6 +259,19 @@ async function main(): Promise<void> {
     onError: (err, taskId) => logger.error('recurring task: next copy failed', { err, taskId }),
   });
   // onTaskMoved is wired below, once the notification + activity services exist.
+
+  // Moving tasks to another project. Late-bound: the notifications are wired below.
+  let onTaskProjectMoved: (move: MoveResult & { actorId: string }) => Promise<void> = async () => {};
+  const taskMoveService = createTaskMoveService({
+    repo: createPrismaTaskMoveRepository(prisma),
+    timeZone: companyTz,
+    checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
+    // A move into or out of a Done column is a status change too: the next repeat copy, meeting
+    // action items, the "moved to …" notification and the timeline line, as for a card moved on the board.
+    onStatusChanged: (task, prevColumnId, actorId) => onTaskMoved(task, prevColumnId, actorId),
+    onMoved: (move) => onTaskProjectMoved(move),
+    onError: (err, taskId) => logger.error('moving a task to another project: a follow-up step failed', { err, taskId }),
+  });
 
   // Late-bound so assignment can create notifications + activity once those services exist (below).
   let onTaskAssigned: (taskId: string, userIds: string[], actorId?: string) => Promise<void> = async () => {};
@@ -761,6 +777,10 @@ async function main(): Promise<void> {
     }
   };
 
+  // A task moved to another project: the people following it (assignees and watchers who can still
+  // open it) hear where it went — never the person who moved it.
+  onTaskProjectMoved = createMoveNotifier({ recipients: (taskId, actorId) => taskRecipientIds(taskId, actorId), notify: (n) => notificationService.notify(n) });
+
   // A chat @mention notifies each mentioned (real, active) user who can read the conversation —
   // never someone outside the DM or project, and never the author.
   onChatMention = async (usernames, authorId, conversationId) => {
@@ -1154,6 +1174,7 @@ async function main(): Promise<void> {
     memberService,
     projectAuthz,
     taskService,
+    taskMoveService,
     carryForwardService,
     assigneeService,
     watcherService,
