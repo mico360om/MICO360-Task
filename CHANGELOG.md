@@ -14,6 +14,34 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- MICO AI, a chat assistant (in the menu, and "Ask MICO AI" in Ctrl+K): ask about your tasks, projects,
+  meetings and minutes, reports and workload, and the team chats you're part of, and follow up in the
+  same chat. It answers only from the data you can see, shows its sources, says plainly when something
+  isn't available instead of guessing, asks when a question is unclear, and gives tables you can
+  download as Excel or PDF. Chats can be renamed, searched and deleted, and are private to you; MICO AI
+  can't change anything. It needs the AI service set up in AI Management.
+- Move tasks to another project: from the task's ⋯ menu, a board card's ⋯ menu, or My Tasks' "Move to
+  project…" for several at once. A task gets the new project's next number (RIG-4 becomes OPS-17) and
+  its old number still finds it; comments, files, checklist, history, watchers and blockers go with it,
+  and a repeating task's next copies are made in the new project. People assigned who aren't on the new
+  team are added to it or unassigned — you choose. Administrators and people who manage both projects
+  (owner, named manager or a team manager) can move tasks; the old project's activity says where it went.
+- Timeline: every open project on one chart — a bar from start to target filled to the share done,
+  marked On track, At risk (much less done than time used) or Late (the part past the target hatched),
+  with milestones, meetings, five summary cards, the busy weeks, and a simple list on a phone.
+- Workload: each person's open tasks due each day of the week against a daily limit (5 unless an
+  administrator changes it), with days off from the company's meeting hours, and one suggestion per task
+  to give it to the least-busy teammate on the project or move it to a lighter day — nothing changes
+  until you click. Administrators see everyone, project managers their projects' people, everyone else
+  their own row.
+
+### Improvements
+- New task numbers follow the highest number used in the project, so a number is never given twice,
+  even after tasks moved out.
+- The Chrome extension's search finds Timeline, Workload and MICO AI (they open on the website), and
+  opens a task by the number it had before it moved.
+
 ## [1.11.0] - 2026-10-23
 
 ### New features
