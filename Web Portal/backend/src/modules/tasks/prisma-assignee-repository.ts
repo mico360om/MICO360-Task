@@ -53,6 +53,12 @@ export function createPrismaAssigneeRepository(prisma: PrismaClient): AssigneeRe
     async eligibleUserIds(projectId, userIds) {
       return userIds.length ? projectAudienceIds(prisma, projectId, userIds) : [];
     },
+    async swap(taskId, fromId, toId) {
+      await prisma.$transaction([
+        prisma.taskAssignee.upsert({ where: { taskId_userId: { taskId, userId: toId } }, update: {}, create: { taskId, userId: toId } }),
+        prisma.taskAssignee.deleteMany({ where: { taskId, userId: fromId } }),
+      ]);
+    },
     async projectIdOfTask(taskId) {
       const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null, project: { is: { deletedAt: null } } }, select: { projectId: true } });
       return t?.projectId ?? null;
@@ -66,6 +72,13 @@ export function createPrismaTaskLookup(prisma: PrismaClient): TaskLookup {
       // A task of a deleted project is gone too.
       const t = await prisma.task.findFirst({ where: { id, deletedAt: null, project: { is: { deletedAt: null } } }, select: { id: true } });
       return t !== null;
+    },
+    async state(id) {
+      const t = await prisma.task.findFirst({
+        where: { id, deletedAt: null, project: { is: { deletedAt: null } } },
+        select: { version: true, completedAt: true, column: { select: { category: true } } },
+      });
+      return t ? { version: t.version, done: t.completedAt !== null || t.column.category === 'DONE' } : null;
     },
   };
 }

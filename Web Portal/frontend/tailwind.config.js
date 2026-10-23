@@ -31,6 +31,8 @@ export default {
         success: { DEFAULT: 'rgb(var(--c-success) / <alpha-value>)', soft: 'rgb(var(--c-success-soft) / <alpha-value>)' },
         warning: { DEFAULT: 'rgb(var(--c-warning) / <alpha-value>)', soft: 'rgb(var(--c-warning-soft) / <alpha-value>)' },
         info: { DEFAULT: 'rgb(var(--c-info) / <alpha-value>)', soft: 'rgb(var(--c-info-soft) / <alpha-value>)' },
+        // Meetings on the Timeline page.
+        meeting: 'rgb(var(--c-meeting) / <alpha-value>)',
         // Kanban / status categories
         cat: {
           backlog: 'rgb(var(--c-cat-backlog) / <alpha-value>)',

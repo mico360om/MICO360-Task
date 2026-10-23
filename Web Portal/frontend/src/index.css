@@ -180,6 +180,7 @@
   --c-cat-blocked: 203 70 50;
   --c-cat-review: 58 110 165;
   --c-cat-done: 46 125 83;
+  --c-meeting: 122 90 168; /* meetings on the timeline (#7A5AA8) */
 }
 
 /* Dark palette — warm near-black grounds, lifted text, brightened accents. Applied both when the
@@ -219,6 +220,7 @@
     --c-cat-blocked: 226 100 82;
     --c-cat-review: 104 156 210;
     --c-cat-done: 70 172 118;
+    --c-meeting: 178 150 222;
   }
 }
 :root[data-theme='dark'] {
@@ -255,6 +257,7 @@
   --c-cat-blocked: 226 100 82;
   --c-cat-review: 104 156 210;
   --c-cat-done: 70 172 118;
+  --c-meeting: 178 150 222;
 }
 
 @layer base {
@@ -456,6 +459,23 @@
   .kanban-scroll::-webkit-scrollbar-thumb:hover {
     background: rgb(var(--c-brand) / 0.7);
     background-clip: content-box;
+  }
+  /* The Timeline and Workload pages. Status never rests on colour alone: these patterns mark the
+     part of a late project past its target, and a day off. */
+  .hatch-late {
+    background-image: repeating-linear-gradient(135deg, rgb(var(--c-danger) / 0.85) 0 4px, rgb(var(--c-danger) / 0.22) 4px 8px);
+  }
+  .hatch-off {
+    background-image: repeating-linear-gradient(135deg, rgb(var(--c-ground-2)) 0 6px, rgb(var(--c-surface-2)) 6px 12px);
+  }
+  /* A bar with no target fades out instead of ending. */
+  .fade-end {
+    -webkit-mask-image: linear-gradient(90deg, #000 70%, transparent);
+    mask-image: linear-gradient(90deg, #000 70%, transparent);
+  }
+  /* One thin line where each week begins (background-size sets the week's width). */
+  .week-lines {
+    background-image: linear-gradient(to right, rgb(var(--c-line-2)) 1px, transparent 1px);
   }
   /* Elevated surface used across cards, panels and tiles. */
   .card {

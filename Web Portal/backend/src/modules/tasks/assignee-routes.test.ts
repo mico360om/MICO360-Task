@@ -10,6 +10,7 @@ function inMemory() {
   const links = new Set<string>();
   const users: Record<string, AssigneeUser> = {
     u1: { id: 'u1', username: 'ada', email: 'ada@x', firstName: 'Ada', lastName: 'L' },
+    u2: { id: 'u2', username: 'omar', email: 'omar@x', firstName: 'Omar', lastName: 'A' },
   };
   const repo: AssigneeRepository = {
     async add(taskId, userId) { links.add(`${taskId}:${userId}`); },
@@ -135,5 +136,30 @@ describe('Assignee routes — object-level authorization', () => {
     expect((await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees', headers: outsider, payload: { userIds: ['u1'] } })).statusCode).toBe(403);
     expect((await a.inject({ method: 'DELETE', url: '/api/v1/tasks/t1/assignees/u1', headers: outsider })).statusCode).toBe(403);
     expect((await a.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees', headers: member, payload: { userIds: ['u1'] } })).statusCode).toBe(200);
+  });
+});
+
+describe('POST /tasks/:id/assignees/swap', () => {
+  it('swaps one assignee for another and tells the board (200)', async () => {
+    const headers = { authorization: `Bearer ${await token()}` };
+    await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees', headers, payload: { userIds: ['u1'] } });
+    events.length = 0;
+    const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees/swap', headers, payload: { from: 'u1', to: 'u2' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.map((u: { id: string }) => u.id)).toEqual(['u2']);
+    expect(events.map((e) => e.event)).toEqual(['task:assignees']);
+  });
+
+  it('says plainly when the person is no longer on the task (409)', async () => {
+    const headers = { authorization: `Bearer ${await token()}` };
+    const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees/swap', headers, payload: { from: 'u1', to: 'u2' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('ASSIGNEE_GONE');
+  });
+
+  it('needs both people (400) and a sign-in (401)', async () => {
+    const headers = { authorization: `Bearer ${await token()}` };
+    expect((await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees/swap', headers, payload: { from: 'u1' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/tasks/t1/assignees/swap', payload: { from: 'u1', to: 'u2' } })).statusCode).toBe(401);
   });
 });

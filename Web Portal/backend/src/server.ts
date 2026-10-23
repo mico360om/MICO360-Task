@@ -18,6 +18,8 @@ import { createPrismaRefreshTokenStore } from './modules/auth/prisma-refresh-tok
 import { createProjectService } from './modules/projects/project-service';
 import { createPrismaProjectRepository } from './modules/projects/prisma-project-repository';
 import { createPrismaProjectOverviewSource } from './modules/projects/prisma-project-overview-source';
+import { createPrismaTimelineSource } from './modules/planning/prisma-timeline-source';
+import { createPrismaWorkloadStore } from './modules/planning/prisma-workload-store';
 import { createColumnService } from './modules/projects/column-service';
 import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
@@ -1140,6 +1142,8 @@ async function main(): Promise<void> {
     passwordResetService,
     projectService,
     projectOverview: createPrismaProjectOverviewSource(prisma),
+    timelineSource: createPrismaTimelineSource(prisma),
+    workloadStore: createPrismaWorkloadStore(prisma),
     projectAccess,
     columnService,
     memberService,

@@ -38,6 +38,15 @@ describe('matchNavCommands', () => {
     expect(matchNavCommands('cal', false).some((c) => c.to === '/calendar')).toBe(true);
   });
 
+  it('finds Timeline and Workload for everyone, by name or by what they show', () => {
+    expect(matchNavCommands('timeline', false)[0]).toMatchObject({ label: 'Timeline', to: '/timeline' });
+    expect(matchNavCommands('gantt', false)[0]?.to).toBe('/timeline');
+    expect(matchNavCommands('milestones', false)[0]?.to).toBe('/timeline');
+    expect(matchNavCommands('workload', false)[0]).toMatchObject({ label: 'Workload', to: '/workload' });
+    expect(matchNavCommands('capacity', false)[0]?.to).toBe('/workload');
+    expect(parseCommand('go to workload', false)).toEqual({ type: 'navigate', to: '/workload', label: 'Workload' });
+  });
+
   it('hides Reports (admin-only) from non-admins', () => {
     expect(matchNavCommands('reports', false).some((c) => c.to === '/reports')).toBe(false);
     expect(parseCommand('go to reports', false)).toBeNull();

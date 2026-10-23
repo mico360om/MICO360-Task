@@ -15,6 +15,8 @@ describe('pageMetaFor', () => {
       '/projects/abc123': 'Project',
       '/my-tasks': 'My Tasks',
       '/calendar': 'Calendar',
+      '/timeline': 'Timeline',
+      '/workload': 'Workload',
       '/meetings': 'Meetings',
       '/meetings/abc123': 'Meeting',
       '/my-action-items': 'My Action Items',

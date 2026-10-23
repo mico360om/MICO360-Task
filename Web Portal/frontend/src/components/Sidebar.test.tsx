@@ -19,6 +19,15 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /my tasks/i })).toBeInTheDocument();
   });
 
+  it('puts Timeline and Workload right after Calendar, for everyone', () => {
+    renderSidebar(false);
+    const names = screen.getAllByRole('link').map((l) => l.textContent);
+    const at = names.indexOf('Calendar');
+    expect(names.slice(at, at + 3)).toEqual(['Calendar', 'Timeline', 'Workload']);
+    expect(screen.getByRole('link', { name: 'Timeline' })).toHaveAttribute('href', '/timeline');
+    expect(screen.getByRole('link', { name: 'Workload' })).toHaveAttribute('href', '/workload');
+  });
+
   it('hides admin-only items from employees', () => {
     renderSidebar(false);
     expect(screen.queryByRole('link', { name: /user management/i })).not.toBeInTheDocument();

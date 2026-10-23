@@ -24,6 +24,8 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/projects\/[^/]+$/, 'Project'],
   [/^\/my-tasks$/, 'My Tasks'],
   [/^\/calendar$/, 'Calendar'],
+  [/^\/timeline$/, 'Timeline'],
+  [/^\/workload$/, 'Workload'],
   [/^\/meetings$/, 'Meetings'],
   [/^\/meetings\/[^/]+$/, 'Meeting'],
   [/^\/my-action-items$/, 'My Action Items'],

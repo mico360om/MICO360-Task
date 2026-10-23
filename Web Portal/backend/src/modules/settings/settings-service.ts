@@ -17,6 +17,9 @@ export interface WorkingHours {
 /** Until an admin sets them: Sunday to Thursday, 08:00 to 17:00. */
 export const DEFAULT_WORKING_HOURS: WorkingHours = { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' };
 
+/** Until an admin sets it: five open tasks due a day per person (the Workload page). */
+export const DEFAULT_DAILY_LIMIT = 5;
+
 /**
  * The system settings that can be read and written through the generic settings API, each with
  * its own schema. Anything else in system_settings (e.g. `ai.config`, which holds provider API
@@ -33,6 +36,8 @@ export const SETTING_SCHEMAS = {
     .object({ days: z.array(z.number().int().min(0).max(6)).min(1).max(7), start: HHMM, end: HHMM })
     .refine((h) => h.end > h.start, { message: 'The day has to end after it starts.', path: ['end'] })
     .transform((h) => ({ days: [...new Set(h.days)].sort((a, c) => a - c), start: h.start, end: h.end })),
+  // The Workload page: how many open tasks a person may have due on one working day.
+  'workload.dailyLimit': z.number().int().min(1).max(50),
 } as const;
 
 export type SettingKey = keyof typeof SETTING_SCHEMAS;
@@ -89,7 +94,13 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return parsed.success ? parsed.data : { ...DEFAULT_WORKING_HOURS, days: [...DEFAULT_WORKING_HOURS.days] };
   }
 
-  return { getAll, get, set, getCarryForward, workingHours };
+  /** The workload daily limit, else the default (also when the stored value is broken). */
+  async function dailyLimit(): Promise<number> {
+    const parsed = SETTING_SCHEMAS['workload.dailyLimit'].safeParse(await get('workload.dailyLimit'));
+    return parsed.success ? parsed.data : DEFAULT_DAILY_LIMIT;
+  }
+
+  return { getAll, get, set, getCarryForward, workingHours, dailyLimit };
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;

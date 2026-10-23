@@ -17,5 +17,10 @@ export function assigneesApi(client: ApiClient) {
     assignMany: (taskId: string, userIds: string[]) =>
       client.post<{ data: ApiAssignee[] }>(`/tasks/${taskId}/assignees`, { userIds }).then((r) => r.data),
     unassign: (taskId: string, userId: string) => client.del<void>(`/tasks/${taskId}/assignees/${userId}`),
+    /** Hand the task from one person to another in one write; refused (409) if the task changed since `expectedVersion`, is done, or `from` is no longer on it. */
+    swap: (taskId: string, from: string, to: string, expectedVersion?: number) =>
+      client
+        .post<{ data: ApiAssignee[] }>(`/tasks/${taskId}/assignees/swap`, { from, to, ...(expectedVersion !== undefined ? { expectedVersion } : {}) })
+        .then((r) => r.data),
   };
 }

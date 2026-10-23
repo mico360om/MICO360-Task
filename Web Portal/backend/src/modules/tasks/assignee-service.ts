@@ -1,4 +1,4 @@
-import { NotFoundError, ValidationError } from '../../lib/http-errors';
+import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { AssigneeRepository, AssigneeUser, TaskLookup } from './assignee-repository';
 
 export interface AssigneeServiceDeps {
@@ -59,12 +59,39 @@ export function createAssigneeService({ repo, taskLookup, onAssigned, onUnassign
     await onUnassigned?.(taskId, userId, actorId);
   }
 
+  /**
+   * Hands a task from one person to another (the Workload page's suggestion) in one write, with the
+   * usual checks and side effects: only if the task hasn't changed since it was read and isn't done,
+   * the person is still on it, and the other may be assigned in the project.
+   */
+  async function swapAssignee(taskId: string, fromId: string, toId: string, actorId?: string, opts: { expectedVersion?: number } = {}): Promise<AssigneeUser[]> {
+    await ensureTask(taskId);
+    const state = taskLookup.state ? await taskLookup.state(taskId) : null;
+    if (state && opts.expectedVersion !== undefined && state.version !== opts.expectedVersion) {
+      throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
+    }
+    if (state?.done) throw new ConflictError('This task is already done.', 'TASK_DONE');
+    const current = await repo.list(taskId);
+    if (!current.some((u) => u.id === fromId)) throw new ConflictError('That person is no longer on this task.', 'ASSIGNEE_GONE');
+    const alreadyOn = current.some((u) => u.id === toId);
+    const projectId = repo.projectIdOfTask ? await repo.projectIdOfTask(taskId) : null;
+    if (projectId) await assertAssignable(projectId, [toId]);
+    if (repo.swap) await repo.swap(taskId, fromId, toId);
+    else {
+      await repo.add(taskId, toId);
+      await repo.remove(taskId, fromId);
+    }
+    if (!alreadyOn) await onAssigned?.(taskId, [toId], actorId);
+    await onUnassigned?.(taskId, fromId, actorId);
+    return repo.list(taskId);
+  }
+
   async function listAssignees(taskId: string): Promise<AssigneeUser[]> {
     await ensureTask(taskId);
     return repo.list(taskId);
   }
 
-  return { assignUsers, unassignUser, listAssignees, eligibleAssignees, assertAssignable, notifyAssigned };
+  return { assignUsers, unassignUser, swapAssignee, listAssignees, eligibleAssignees, assertAssignable, notifyAssigned };
 }
 
 export type AssigneeService = ReturnType<typeof createAssigneeService>;

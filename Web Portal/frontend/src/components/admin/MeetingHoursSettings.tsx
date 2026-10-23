@@ -46,6 +46,8 @@ export function MeetingHoursSettings() {
     onSuccess: () => {
       setDone(true);
       void qc.invalidateQueries({ queryKey: ['system-settings'] });
+      // The Workload page's days off come from these hours.
+      void qc.invalidateQueries({ queryKey: ['workload'] });
     },
     onError: (e) => setProblem(e instanceof ApiError && e.status === 400 ? 'Those hours can’t be saved. Check the days and times.' : 'Couldn’t save the meeting hours. Please try again.'),
   });
