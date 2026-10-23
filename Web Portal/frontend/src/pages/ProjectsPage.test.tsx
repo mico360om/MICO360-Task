@@ -107,10 +107,11 @@ function Where() {
   );
 }
 
-function renderPage(at = '/projects', qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderPage(at: string | string[] = '/projects', qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  const entries = Array.isArray(at) ? at : [at];
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[at]}>
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
         <ShortcutProvider>
           <Routes>
             <Route path="/projects" element={<><ProjectsPage /><Where /></>} />
@@ -258,6 +259,18 @@ describe('ProjectsPage', () => {
     expect(screen.getByRole('combobox', { name: 'Owner' })).toHaveValue('u2');
     expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveValue('name');
     expect(cardNames()).toEqual(['Falcon CRM']);
+  });
+
+  it('ignores an owner from a shared link who owns none of the projects you can see, and drops them from the address', async () => {
+    renderPage(['/elsewhere', '/projects?owner=ghost&sort=name']);
+    await loaded();
+    expect(screen.getByRole('combobox', { name: 'Owner' })).toHaveValue('');
+    expect(cardNames()).toHaveLength(5);
+    expect(screen.queryByText('No projects match')).not.toBeInTheDocument();
+    await waitFor(() => expect(where()).toBe('/projects?sort=name'));
+    // Replaced, not added: Back leaves the page rather than bringing the unknown owner back.
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    await waitFor(() => expect(where()).toBe('/elsewhere'));
   });
 
   it('filters by owner, offering anyone and the people who own projects', async () => {

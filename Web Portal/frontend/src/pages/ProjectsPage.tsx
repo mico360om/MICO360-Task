@@ -76,12 +76,20 @@ export function ProjectsPage() {
   const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
   // "Only my projects" is an administrator's filter; everyone else only sees theirs anyway.
   const mine = admin && state.mine;
-  const { q, owner } = state;
+  const owners = useMemo(() => ownerOptions(all), [all]);
+  // An owner (from a shared link) who owns none of the projects this person can see is ignored.
+  const unknownOwner = query.isSuccess && state.owner !== '' && !owners.some((o) => o.id === state.owner);
+  const owner = unknownOwner ? '' : state.owner;
+  const { q } = state;
   const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner, mine }, myId), [all, q, owner, mine, myId]);
   const counts = tabCounts(filtered);
   const visible = sortProjects(filtered.filter((p) => inTab(p, state.status)), state.sort, today, timeZone);
-  const owners = useMemo(() => ownerOptions(all), [all]);
   const filtersOn = Boolean(q.trim() || owner || mine);
+
+  // …and taken out of the address, in place.
+  useEffect(() => {
+    if (unknownOwner) update({ owner: '' }, { replace: true });
+  }, [unknownOwner]);
 
   useEffect(() => {
     if (!refocusList.current) return;
@@ -213,7 +221,7 @@ export function ProjectsPage() {
         </div>
         <div className={SELECT_BOX}>
           <label htmlFor="pl-owner" className="flex-none text-ink-2">Owner</label>
-          <select id="pl-owner" value={state.owner} onChange={(e) => update({ owner: e.target.value })} className={`${SELECT} flex-1 sm:max-w-[12rem]`}>
+          <select id="pl-owner" value={owner} onChange={(e) => update({ owner: e.target.value })} className={`${SELECT} flex-1 sm:max-w-[12rem]`}>
             <option value="">Anyone</option>
             {owners.map((o) => (
               <option key={o.id} value={o.id}>{o.name}</option>
