@@ -76,12 +76,17 @@ beforeEach(() => {
       if (url.endsWith('/projects/overview')) {
         return failOverview ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: overview });
       }
+      // The server remembers changes, so the refetch after one shows it.
+      const save = (id: string, patch: Partial<ProjectOverview>) => {
+        overview = overview.map((p) => (p.id === id ? { ...p, ...patch } : p));
+        return json({ data: overview.find((p) => p.id === id) });
+      };
       const archive = url.match(/\/projects\/(\w+)\/archive$/);
-      if (archive && method === 'POST') return json({ data: { ...LIST.find((p) => p.id === archive[1]), status: 'ARCHIVED' } });
+      if (archive && method === 'POST') return save(archive[1]!, { status: 'ARCHIVED' });
       const one = url.match(/\/projects\/(\w+)$/);
       if (one && method === 'PUT') {
         if (failUpdate) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
-        return json({ data: { ...LIST.find((p) => p.id === one[1]), ...(body as object) } });
+        return save(one[1]!, body as Partial<ProjectOverview>);
       }
       return json({ data: [] });
     }),
@@ -354,6 +359,29 @@ describe('ProjectsPage for an administrator', () => {
     await userEvent.click(screen.getByRole('button', { name: /status: active\. change the status of rig inspection portal/i }));
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'On hold' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'PUT')).toMatchObject({ url: expect.stringMatching(/\/projects\/p1$/), body: { status: 'ON_HOLD' } }));
+  });
+
+  it('keeps focus on the status button when the change moves the card within the tab', async () => {
+    // Browsers drop focus from an element that is moved in the page (jsdom keeps it): do the same here.
+    for (const method of ['insertBefore', 'appendChild'] as const) {
+      const original = Node.prototype[method] as (this: Node, ...args: Node[]) => Node;
+      vi.spyOn(Node.prototype, method).mockImplementation(function (this: Node, ...args: Node[]) {
+        const active = document.activeElement as HTMLElement | null;
+        const moving = active && args[0]!.isConnected && args[0]!.contains(active);
+        const result = original.apply(this, args);
+        if (moving) active.blur();
+        return result;
+      } as never);
+    }
+    // Falcon CRM is past its target (attention) with nothing due; Completed sends it down the list.
+    overview = LIST.map((p) => (p.id === 'p3' ? { ...p, stats: { ...p.stats, nextDue: null } } : p));
+    renderPage();
+    await loaded();
+    expect(cardNames()).toEqual(['Rig Inspection Portal', 'MICO360 Services', 'Falcon CRM', 'Mobile App (Phase 2)', 'Website Refresh']);
+    await userEvent.click(screen.getByRole('button', { name: /change the status of falcon crm/i }));
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Completed' }));
+    await waitFor(() => expect(cardNames()).toEqual(['Rig Inspection Portal', 'MICO360 Services', 'Mobile App (Phase 2)', 'Falcon CRM', 'Website Refresh']));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /status: completed\. change the status of falcon crm/i })));
   });
 
   it('puts the status back and says so when the change fails', async () => {
