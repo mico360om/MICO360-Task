@@ -167,10 +167,10 @@ export function sortProjects(projects: ProjectOverview[], sort: ProjectSort, tod
   return [...projects].sort(SORTERS[sort](today, timeZone));
 }
 
-/** "62% done · 25 of 40 tasks". The share is rounded down, so 100% means every task is done. */
+/** "63% done · 25 of 40 tasks". Rounded as on the Dashboard and in Reports, but 100% only once every task is done. */
 export function progressOf(s: Pick<ProjectStats, 'total' | 'done'>): { pct: number; text: string } {
   if (!s.total) return { pct: 0, text: 'No tasks yet' };
-  const pct = s.done >= s.total ? 100 : Math.floor((s.done / s.total) * 100);
+  const pct = s.done >= s.total ? 100 : Math.min(99, Math.round((s.done / s.total) * 100));
   return { pct, text: `${pct}% done · ${s.done} of ${plural(s.total, 'task')}` };
 }
 

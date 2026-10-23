@@ -67,7 +67,7 @@ describe('ProjectCard', () => {
 
   it('shows progress, the last update and the three figures', () => {
     renderCard();
-    expect(screen.getByTestId('project-progress')).toHaveTextContent('62% done · 25 of 40 tasks');
+    expect(screen.getByTestId('project-progress')).toHaveTextContent('63% done · 25 of 40 tasks');
     expect(screen.getByText('Updated 2 h ago')).toBeInTheDocument();
     expect(figure('Open')).toHaveTextContent('15');
     expect(figure('Overdue')).toHaveTextContent('4');

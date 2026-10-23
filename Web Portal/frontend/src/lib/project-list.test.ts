@@ -236,9 +236,11 @@ describe('sorting', () => {
 });
 
 describe('card wording', () => {
-  it('progress: share done and how many tasks, never 100% before the last one is done', () => {
-    expect(progressOf({ total: 40, done: 25 })).toEqual({ pct: 62, text: '62% done · 25 of 40 tasks' });
+  it('progress: share done (rounded, as on the Dashboard and in Reports) and how many tasks, never 100% before the last one is done', () => {
+    expect(progressOf({ total: 40, done: 25 })).toEqual({ pct: 63, text: '63% done · 25 of 40 tasks' });
+    expect(progressOf({ total: 3, done: 1 }).pct).toBe(33);
     expect(progressOf({ total: 200, done: 199 }).pct).toBe(99);
+    expect(progressOf({ total: 1000, done: 999 }).pct).toBe(99);
     expect(progressOf({ total: 1, done: 1 })).toEqual({ pct: 100, text: '100% done · 1 of 1 task' });
     expect(progressOf({ total: 0, done: 0 })).toEqual({ pct: 0, text: 'No tasks yet' });
   });
