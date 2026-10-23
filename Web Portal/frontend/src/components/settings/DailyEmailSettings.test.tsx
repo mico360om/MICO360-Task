@@ -86,6 +86,14 @@ describe('Settings: daily task emails', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Sent the pending tasks email. Nothing was completed yesterday, so there was no completed tasks email to send.');
   });
 
+  it('says plainly when the address is blocked, and never that it was sent', async () => {
+    testReply = () => json({ data: { pending: 'blocked', completed: 'blocked' } });
+    renderIt();
+    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test now' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not sent: your email address is blocked after a bounce or spam complaint. Ask an administrator to check it.');
+    expect(screen.queryByText(/^Sent /)).not.toBeInTheDocument();
+  });
+
   it('shows the server’s reason when the test can’t be sent', async () => {
     testReply = () => json({ error: { code: 'TOO_SOON', message: 'A test was just sent. Wait a minute before sending another.' } }, 429);
     renderIt();

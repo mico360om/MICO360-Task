@@ -6,10 +6,12 @@ import { queueStats, describeMutation, retryQueued, removeQueued } from '../../s
 import { versionStatus, aboutUrl } from '../../src/version.js';
 import { isTransientFailure } from '../../src/errors.js';
 import { requestHostAccess } from './login.js';
+import { NotificationSettings } from '../notification-settings.js';
 
 /**
- * Settings — theme, backend URLs, sync state (incl. changes that failed to sync), sign out, and
- * About: this extension's version and the server's, and how to update when the server is newer.
+ * Settings — theme, notifications (the web's preferences and this device's desktop alerts), backend
+ * URLs, sync state (incl. changes that failed to sync), sign out, and About: this extension's
+ * version and the server's, and how to update when the server is newer.
  */
 export function SettingsScreen(ctx) {
   const root = el('div', { style: { maxWidth: '560px' } });
@@ -39,8 +41,10 @@ export function SettingsScreen(ctx) {
     const saveMsg = el('span', { class: 'muted', role: 'status', style: { fontSize: '12px' } });
     const save = el('button', { class: 'btn primary sm', onClick: () => saveBackend(apiInput.value, appInput.value, bases, saveMsg) }, 'Save');
 
+    const notifications = ctx.api && ctx.api.notifications && ctx.api.notifications.preferences ? card('Notifications', NotificationSettings(ctx)) : null;
     mount(root,
       card('Appearance', themeSeg),
+      notifications,
       card('Backend', el('div', {},
         el('label', { class: 'lbl', for: 'set-api' }, 'API base URL'), apiInput,
         el('div', { style: { height: '10px' } }),
@@ -143,7 +147,8 @@ export function SettingsScreen(ctx) {
               el('div', { class: 'what' },
                 el('div', {}, describeMutation(item)),
                 item.lastError ? el('div', { class: 'why' }, item.lastError) : null),
-              el('button', { class: 'btn sm', type: 'button', onClick: async () => { await retryQueued(ctx.storage, item.id); ctx.requestSync(); renderSync(); } }, 'Retry'),
+              // A change a later one replaced can only be discarded: sent now, it would undo that one.
+              item.superseded ? null : el('button', { class: 'btn sm', type: 'button', onClick: async () => { await retryQueued(ctx.storage, item.id); ctx.requestSync(); renderSync(); } }, 'Retry'),
               el('button', { class: 'btn sm ghost', type: 'button', onClick: async () => { await removeQueued(ctx.storage, item.id); ctx.afterMutation(); renderSync(); } }, 'Discard'),
             )))
         : null,

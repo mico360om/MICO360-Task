@@ -14,6 +14,168 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-23
+
+### Bug fixes
+- "Send me a test now" (website and Chrome extension) no longer says the emails were sent when your
+  address is blocked after a bounce or spam complaint; it says plainly that nothing was sent and to ask
+  an administrator to check the address.
+
+## [1.9.0] - 2026-10-23
+
+### New features
+- System Settings → Daily task emails shows the day at a glance: how many people get the morning
+  emails, how many were sent, skipped (nothing to send), failed, retrying, late (due but not sent yet)
+  and still to come, when the server last checked, and when the next email goes. If the server hasn't
+  checked for a while although emails are due, it says so plainly.
+- "Send today's emails now" sends, in the background, every morning email whose time has come and
+  that hasn't gone yet (failed ones too); the page shows how far it has got and then how it went.
+  Nobody gets an email twice, and anyone whose time is still to come gets theirs at their usual time.
+- Every person is listed with each email on or off, their send time and time zone (and their own day
+  when it differs), and how today's email went. Send or Resend one person's email (Resend, or a send
+  before their time, asks first), and Preview an email exactly as it would be sent now. Find a person
+  by name or email; the Day and Status filters stay. Manual sends are recorded in the Audit Logs.
+- The Chrome extension's Settings → Notifications has "Send me a test now" for the two morning emails,
+  as on the website, and administrators get a "Daily email log" link that opens the page above.
+
+### Bug fixes
+- A daily email that went out is never sent again because of a database problem, pressing Send while
+  email is down no longer uses up the automatic retries, an address blocked after a bounce or spam
+  complaint is shown as skipped (with the reason) instead of sent, and send times are right on days the
+  clocks change.
+
+## [1.8.1] - 2026-10-23
+
+### Security
+- The server's web framework (fastify) is updated to 5.12.7, which checks request headers more
+  strictly (CVE-2026-107832).
+- The address-checking library behind the sign-in rate limit (ip-address) is updated to 10.7.4, so an
+  address with a zone identifier can't be mistaken for another one (CVE-2026-111997).
+- The test tools (vitest 4.1.12) are updated, closing two weaknesses in the test runner's mocking
+  helper (CVE-2026-112949, CVE-2026-112950). They are used only when running the tests, never by the
+  live site.
+
+## [1.8.0] - 2026-10-21
+
+### New features
+- The Chrome extension's board shows what the website's cards show: the due date (marked "Overdue"
+  when late, never for finished work), steps done, comments, files, up to three people, milestones,
+  blocked and repeating tasks. Add a task in any column with the full New task form, on the day the
+  board shows.
+- The Chrome extension's My Tasks can be filtered by project and sorted (due date, priority, progress,
+  title), and "Mark done" finishes a task straight from the list.
+- The Chrome extension's projects show their picture or icon, their number and their status in plain
+  words, with "Open dashboard on the web".
+- The Chrome extension's Settings → Notifications lets you choose which notifications you get, when
+  "due soon" reminders come, and your morning emails, as on the website. Desktop alerts can say what
+  the newest notification is about (off until you turn it on), and clicking one opens it.
+- The Chrome extension's chat stays current: an open conversation shows new messages every few
+  seconds, and you can send files and pasted pictures, load older messages, start a direct message,
+  and favorite, mute or archive conversations. Pictures, files, the message a reply answers and
+  reactions are shown, and the sender sees "Delivered" once your direct messages arrive. What you type
+  and messages that weren't sent stay with their conversation.
+- The Chrome extension has search as on the website: Ctrl+K or the Search button finds tasks,
+  projects, people, meetings and pages and opens them in the extension; typing "mico" and a space in
+  Chrome's address bar searches too.
+- The Chrome extension's Calendar shows the month, week or agenda as on the website — your projects'
+  tasks, overdue tasks first in the agenda, the copies repeating tasks will make, and meetings — in
+  your own time zone and week start.
+- The Chrome extension has Meetings: Up next with Join (also on the Dashboard), the coming meetings with
+  your answer, each meeting's page, and Accept, Maybe or Decline (kept on this device while offline).
+  Meeting notifications and "From meeting" open the meeting in the extension.
+- The Chrome extension has a side panel beside any page: Today (overdue, due today and done today,
+  with Mark done), My Tasks and Add a task; a task opens inside the panel. Open it from the popup's or
+  the app's side-panel button, or set a keyboard shortcut at chrome://extensions/shortcuts. It keeps
+  itself up to date while open and adds no new permission warning.
+
+### Improvements
+- The meetings list tells each person their own answer to every meeting, so the apps don't need a
+  request per meeting to show it.
+- The Chrome extension: keyboard focus is never hidden under the app page's or the side panel's top
+  bar; Today and My Tasks don't redraw when nothing changed, and their groups are headings for screen
+  readers; each window's side panel keeps its own unsent task; and "Mark all as read" marks only the
+  notifications you saw (also when it is sent later from offline).
+
+### Security
+- The Chrome extension shows project pictures only from your MICO360 server, and uses only proper
+  colour values; files and pictures in chat are linked only from the server's stored uploads.
+- The Chrome extension: the next person to sign in after a session ends starts clean (the last
+  person's desktop-alert setting, drafts and recent tasks don't carry over), and signing out takes the
+  last desktop alert off the screen.
+
+### Bug fixes
+- The Chrome extension: a task added from the board's New task form while you switched tabs now
+  appears on the board at once; after adding a task from an empty column, focus goes back to that
+  column's "Add a task"; "Mark done" keeps keyboard focus while it works and when it can't be done; and
+  screen readers hear a project card's status, number and description.
+- The Chrome extension's chat: messages go in the order written, even when an earlier one waits on
+  this device; Retry really sends again after a refusal; a message just saved on this device no longer
+  disappears for a few seconds; a conversation that is gone says so; and it reads well with a screen
+  reader.
+- The Chrome extension: typing the morning-email time saves it once, when you leave the field or press
+  Enter (it used to save 00:00 while you typed), and quick changes to notification preferences save in
+  order.
+- The Meetings list keeps today's and recent meetings when many repeating meetings lie ahead: it now
+  holds every meeting still to come and the 500 most recent ones (before, only the 500 latest-starting
+  meetings were listed, so weeks of repeats could push today's out).
+- Links from the website and its emails — including the password-reset link — open in the Android app
+  again: the website now names the app's current signing key (since app 1.1.0 only the old, retired
+  key was listed, so Android wouldn't hand the links to the app).
+- Editing a repeating task for the entire series now says what goes to every copy — the title,
+  description and priority — and that dates change on this copy only (it wrongly named the due date).
+
+## [1.7.0] - 2026-10-21
+
+### New features
+- Every page's footer has "Get the apps": download the Android app or the Chrome extension straight
+  from the site. The extension comes with each website release, so it always matches the site (hover
+  over the link for how to install it); a download the site doesn't have isn't shown.
+- The Chrome extension adds a task from any page: the toolbar button opens a quick form (also
+  Ctrl+Shift+K, and "Add to MICO360 Tasks" when you right-click selected text or a page). "Add this
+  page" fills in the page's title and link, "Describe it" fills the form from a sentence, and pictures
+  and files are attached once the task is made. Without a connection the task is kept and sent later
+  (files need a connection); a form you didn't send comes back, with your recent tasks below it.
+- The Chrome extension's task panel matches the website's: files with a preview (attach, drop or
+  paste, and delete), tags, assignees, watching, threaded comments with replies, editing, deleting and
+  @mentions, the task's history, milestone and start date, the meeting it came from, changes to a
+  whole repeating series, and deleting one copy or the whole series. Changes made offline are sent in
+  the order you made them.
+- The task PDF shows the whole task under its project's picture (or icon, or initials), as the
+  minutes PDF does: a clear title that never gets cut, status cards without repeats, the milestone
+  and the meeting the task came from, comment threads with bold @mentions, up to 12 pictures as
+  thumbnails (other files listed with their size, who added them and when), Blocked by / Blocks
+  tables, and the latest 50 changes, newest first.
+
+### Improvements
+- A meeting's page shows the Final MOM as soon as someone else saves, approves or reopens it.
+- The task PDF and Excel file say what changed in the website's words, for example "Changed priority
+  from Normal to High" or "Ticked off “Order the parts”", instead of just "Updated".
+- In every PDF, a long link breaks at a slash or similar instead of in the middle of a word, and a
+  long project name gets smaller or wraps instead of being cut.
+
+### Security
+- The task PDF and Excel file name the meeting a task came from only to people who are part of that
+  meeting, and list only the blocking and waiting tasks the reader can open, as the website does.
+- A task's activity (on the website, in the apps and in the task PDF and Excel file) names a blocker
+  only to people who can open that task; anyone else sees "added a blocker".
+- A damaged or specially made picture attached to a task can no longer slow down or stop the server
+  when someone downloads the task's PDF; it is listed as "(picture could not be shown)" instead.
+
+### Bug fixes
+- Long checklist items, links and Arabic text in the task PDF are never cut, and Arabic reads right to
+  left; section headings stay with what comes under them instead of sitting alone at a page's bottom.
+- A project picture the PDF can't use (a see-through, interlaced or damaged picture) no longer breaks
+  the task PDF or the meeting minutes PDF; the project's icon or initials are shown instead.
+- A task's activity says "added a blocker" instead of "added the blocker a task".
+- Deleting a task that someone else already deleted now says it wasn't found, for everyone, instead
+  of "You do not have permission"; "no permission" now only means you really can't delete it.
+- The Chrome extension: changing a task's tags while offline no longer removes tags someone else added
+  or removed in the meantime, and Retry in Settings can no longer let an older failed change undo a
+  newer one (Settings says why and offers Discard instead).
+- The Chrome extension: a file dropped anywhere on an open task is attached to it, and a file dropped
+  anywhere else no longer opens in the tab and loses what you were typing.
+- The Chrome extension: a click right after editing a task's title lands where you clicked.
+
 ## [1.6.0] - 2026-10-21
 
 ### New features

@@ -1,27 +1,42 @@
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
 
+/** The biggest see-through picture flattened here (in pixels): bigger ones need the picture library. */
+const MAX_FLATTEN_PIXELS = 2048 * 2048;
+
+/**
+ * Whether pdfkit can embed this picture exactly as stored, without unpacking it: a JPEG, or an
+ * opaque, non-interlaced PNG. (pdfkit unpacks an interlaced or see-through PNG later, asynchronously,
+ * so a document built in one go — PdfDocument.build — would come out broken.) Reads the header only.
+ */
+export function printableAsStored(buf: Buffer): boolean {
+  if (isJpeg(buf)) return true;
+  const png = readPng(buf, false);
+  return png !== null && (png.colorType === 0 || png.colorType === 2 || png.colorType === 3) && !png.transparent && png.interlace === 0;
+}
+
 /**
  * A picture ready for pdfkit, or null when it can't be printed.
  *
- * pdfkit embeds a JPEG or an opaque PNG as it is, while the PDF is being written. A PNG with
- * transparency it decodes later, asynchronously, so a document built in one go (PdfDocument.build)
- * would come out broken. So a transparent PNG is flattened here onto white. WebP and anything
- * else return null, and the caller draws something else instead (a project's initials tile).
- * Only what the app's own picture cropper makes is handled: 8-bit, non-interlaced PNG.
+ * A picture printable as stored (printableAsStored) is returned as it is. A see-through PNG is
+ * flattened here onto white — only what the app's own picture cropper makes: 8-bit, non-interlaced,
+ * at most 2048 × 2048 pixels, and never unpacked past the size it says it is, so a crafted file
+ * can't fill the server's memory. Anything else (WebP, an interlaced PNG…) returns null, and the
+ * caller draws something else instead (a project's initials tile) or has the picture library
+ * convert it first.
  */
 export function printableImage(buf: Buffer): Buffer | null {
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return buf; // JPEG
-  const png = readPng(buf);
+  if (printableAsStored(buf)) return buf;
+  const png = readPng(buf, true);
   if (!png) return null;
-  const { width, height, bitDepth, colorType, interlace, transparent, idat } = png;
-  if (colorType === 2 || colorType === 0 || colorType === 3) return transparent ? null : buf; // opaque already
+  const { width, height, bitDepth, colorType, interlace, idat } = png;
   if ((colorType !== 6 && colorType !== 4) || bitDepth !== 8 || interlace !== 0) return null;
-  if (width < 1 || height < 1 || width * height > 4096 * 4096) return null;
+  if (width < 1 || height < 1 || width * height > MAX_FLATTEN_PIXELS) return null;
 
   const channels = colorType === 6 ? 4 : 2;
   let raw: Buffer;
   try {
-    raw = inflateSync(idat);
+    // Exactly what the rows need (a filter byte each): more stops the unpacking with an error.
+    raw = inflateSync(idat, { maxOutputLength: height * (1 + width * channels) });
   } catch {
     return null;
   }
@@ -47,6 +62,25 @@ export function printableImage(buf: Buffer): Buffer | null {
   return writePng(width, height, out);
 }
 
+/**
+ * A project's uploaded picture for a PDF badge (the minutes and task PDFs): read from storage and,
+ * when the PDF can't take it as stored (WebP, GIF, see-through or interlaced PNGs), converted by the
+ * picture library — or, without one, flattened here when it can be. Null when there is none, it
+ * can't be read or nothing can print it, so the caller draws the project's icon or initials instead.
+ */
+export async function readProjectPicture(
+  imageUrl: string | null | undefined,
+  read: ((imageUrl: string) => Promise<Buffer | null>) | undefined,
+  convert?: (raw: Buffer) => Promise<Buffer | null>,
+): Promise<Buffer | null> {
+  if (!imageUrl || !read) return null;
+  const stored = await read(imageUrl).catch(() => null);
+  if (!stored) return null;
+  if (printableAsStored(stored)) return stored;
+  if (convert) return convert(stored).catch(() => null);
+  return printableImage(stored);
+}
+
 interface PngInfo {
   width: number;
   height: number;
@@ -60,11 +94,15 @@ interface PngInfo {
 
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function readPng(buf: Buffer): PngInfo | null {
+const isJpeg = (buf: Buffer) => buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+
+/** A PNG's header and whether it has transparency; with `withData`, its picture data joined up too. */
+function readPng(buf: Buffer, withData: boolean): PngInfo | null {
   if (buf.length < 33 || !buf.subarray(0, 8).equals(SIGNATURE)) return null;
   let p = 8;
   let info: Omit<PngInfo, 'idat' | 'transparent'> | null = null;
   let transparent = false;
+  let hasData = false;
   const idat: Buffer[] = [];
   while (p + 8 <= buf.length) {
     const len = buf.readUInt32BE(p);
@@ -74,11 +112,14 @@ function readPng(buf: Buffer): PngInfo | null {
     if (type === 'IHDR' && len >= 13) {
       info = { width: data.readUInt32BE(0), height: data.readUInt32BE(4), bitDepth: data[8]!, colorType: data[9]!, interlace: data[12]! };
     } else if (type === 'tRNS') transparent = true;
-    else if (type === 'IDAT') idat.push(data);
-    else if (type === 'IEND') break;
+    else if (type === 'IDAT') {
+      hasData = true;
+      if (!withData) break; // the header and any tRNS come before the picture data
+      idat.push(data);
+    } else if (type === 'IEND') break;
     p += 12 + len;
   }
-  return info && idat.length ? { ...info, transparent, idat: Buffer.concat(idat) } : null;
+  return info && hasData ? { ...info, transparent, idat: Buffer.concat(idat) } : null;
 }
 
 /** Undo the PNG row filters (none, sub, up, average, Paeth) of 8-bit samples. */

@@ -70,7 +70,7 @@ export function LoginScreen({ apiBase, appBase, storage, session, notice, onAuth
     }
     if (!sameOrigin(next.apiBase, currentApi)) {
       // A different host: nothing from the previous server (cache, queue, tokens) may follow (EXT-04).
-      await clearUserData({ local: storage, session });
+      await clearUserData({ local: storage, session, notifications: globalThis.chrome && globalThis.chrome.notifications });
     }
     await storage.set({ apiBase: next.apiBase, appBase: next.appBase });
     currentApi = next.apiBase;

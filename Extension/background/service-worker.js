@@ -1,14 +1,20 @@
 import { resolveBases } from '../src/config.js';
-import { shouldNotify, notificationText, unreadBaseline, findAppContext, setToolbarBadge, NOTIFICATION_ID } from '../src/notify.js';
-import { flushQueue, makePerformMutation, FLUSH_MESSAGE } from '../src/queue.js';
+import { setToolbarBadge, clearDesktopAlert, NOTIFICATION_ID } from '../src/notify.js';
+import { flushQueue, makePerformMutation, sendOrQueue, FLUSH_MESSAGE } from '../src/queue.js';
 import { createAuth } from '../src/auth.js';
 import { ensureSession } from '../src/session.js';
 import { createReadCache } from '../src/read-cache.js';
 import { rememberTask } from '../src/task-writes.js';
+import { openAppTab, APP_PATH } from '../src/open-app.js';
+import { createMenu, onMenuClick } from '../src/context-menu.js';
+import { pollNotifications, openAlert } from '../src/background-poll.js';
+import { readSessionUser } from '../src/auth.js';
+import { searchable } from '../src/search.js';
+import { omniboxSuggestions, omniboxTarget, defaultSuggestion } from '../src/omnibox.js';
+import { openSidePanel, PANEL_COMMAND } from '../src/side-panel.js';
 
 const local = chrome.storage.local;
 const sessionStore = chrome.storage.session;
-const APP_PATH = 'app/app.html';
 /** The offline copies the app reads; a replayed task edit keeps its task's copy at the new version (H1). */
 const cache = createReadCache(local);
 
@@ -25,8 +31,9 @@ async function signedIn() {
   const s = await ensureSession({ local, session: sessionStore, apiBase });
   if (!s) return null;
   // One shared, locked refresh with the app tab (XP-04). When the server ends the session the
-  // tokens are cleared; open app tabs notice the change and show the sign-in screen.
-  const auth = createAuth({ local, session: sessionStore, apiBase, onExpired: () => setBadge(0) });
+  // tokens are cleared; open app tabs notice the change and show the sign-in screen. The badge and
+  // the last desktop alert go with it.
+  const auth = createAuth({ local, session: sessionStore, apiBase, onExpired: () => sessionEnded() });
   return { ...s, apiBase, auth };
 }
 
@@ -38,58 +45,132 @@ async function flushNow(ctx) {
   return flushQueue(local, perform, { userId: c.userId });
 }
 
+/** Nobody is signed in (any more): no count on the icon, and no alert of theirs left on screen. */
+function sessionEnded() {
+  setBadge(0);
+  clearDesktopAlert(chrome.notifications);
+}
+
 async function poll() {
   const ctx = await signedIn();
   if (!ctx) {
-    setBadge(0);
+    sessionEnded();
     return;
   }
   try {
-    const res = await ctx.auth.authedFetch('/notifications/unread-count');
-    if (!res.ok) return;
-    const json = await res.json();
-    const count = json?.data?.count ?? 0;
-    setBadge(count);
-
-    // Desktop notification only when the count rises above this user's own baseline (EXT-06).
-    const stored = await local.get(['lastUnread', 'lastUnreadUser']);
-    if (shouldNotify(unreadBaseline(stored, ctx.userId), count)) {
-      chrome.notifications?.create(NOTIFICATION_ID, {
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
-        title: 'MICO360 Tasks',
-        message: notificationText(count),
-      });
-    }
-    await local.set({ lastUnread: count, lastUnreadUser: ctx.userId });
+    // The badge, and a desktop alert only when the count rises above this user's own baseline
+    // (EXT-06) — saying what the newest is about only when this device allows it (Stage 5).
+    const r = await pollNotifications({
+      authedFetch: (path, init) => ctx.auth.authedFetch(path, init),
+      local,
+      session: sessionStore,
+      notifications: chrome.notifications,
+      setBadge,
+      userId: ctx.userId,
+    });
+    if (!r) return; // offline — leave the badge as-is; the queue drains on the next successful poll
 
     // Connection is up — replay any offline changes and record the sync time.
     await flushNow(ctx);
     await local.set({ lastSync: Date.now() });
   } catch {
-    /* offline — leave the badge as-is; the queue drains on the next successful poll */
+    /* offline — the queue drains on the next successful poll */
   }
 }
 
 /**
- * The extension UI is a full-page tab (no popup). Focus an open one (found via
- * runtime.getContexts, so no "tabs" permission is needed — EXT-07) or open a new tab.
+ * The desktop alert was clicked: open what it was about (marked read: sent now, or kept for later
+ * like any change), else Notifications. The badge then follows.
  */
-async function openApp(hash = '') {
-  const base = chrome.runtime.getURL(APP_PATH);
-  try {
-    const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'] });
-    const found = findAppContext(contexts, base);
-    if (found) {
-      await chrome.tabs.update(found.tabId, { active: true, ...(hash ? { url: base + hash } : {}) });
-      if (typeof found.windowId === 'number' && found.windowId >= 0) await chrome.windows?.update(found.windowId, { focused: true });
-      return;
-    }
-  } catch {
-    /* the tab closed meanwhile — just open a new one */
-  }
-  await chrome.tabs.create({ url: base + hash });
+async function alertClicked() {
+  const ctx = await signedIn();
+  const { appBase } = resolveBases(await local.get(['apiBase', 'appBase']));
+  await openAlert({
+    session: sessionStore,
+    open: (hash) => openApp(hash),
+    openUrl: (url) => chrome.tabs.create({ url }),
+    markRead: (id) => (ctx
+      ? sendOrQueue({ kind: 'notification.read', payload: { id } }, { doFetch: (path, init) => ctx.auth.authedFetch(path, init), storage: local, userId: ctx.userId })
+      : null),
+    appBase,
+    userId: ctx ? ctx.userId : null,
+  });
+  if (ctx) await poll();
 }
+
+/** The full app in a tab: an open one is focused (src/open-app.js), else a new one opens. */
+function openApp(hash = '') {
+  return openAppTab(chrome, hash);
+}
+
+// ---- "mico" in the address bar (Stage 6) ----------------------------------------------------
+
+let omniAsked = 0; // the newest words typed: an older answer arriving late is dropped
+
+/** Whether the signed-in person is an admin (admin pages are suggested only to them). */
+async function isAdmin() {
+  try {
+    const u = await readSessionUser(local);
+    return !!(u && Array.isArray(u.roles) && u.roles.includes('ADMIN'));
+  } catch {
+    return false;
+  }
+}
+
+/** How long the address bar waits after the last key before it asks (one search per pause, not per key). */
+const OMNI_WAIT_MS = 150;
+
+/** Suggestions for the words typed after "mico": pages, and what GET /search finds. */
+async function omniboxSuggest(text, suggest) {
+  const mine = (omniAsked += 1);
+  await new Promise((r) => setTimeout(r, OMNI_WAIT_MS));
+  if (mine !== omniAsked) return; // more was typed meanwhile: that answer is the one shown
+  let ctx = null;
+  try { ctx = await signedIn(); } catch { ctx = null; }
+  try { chrome.omnibox.setDefaultSuggestion({ description: defaultSuggestion(!!ctx) }); } catch { /* older Chrome */ }
+  if (!ctx) {
+    suggest([]);
+    return;
+  }
+  let results = null;
+  if (searchable(text)) {
+    try {
+      const res = await ctx.auth.authedFetch(`/search?q=${encodeURIComponent(text.trim())}`);
+      const json = res && res.ok ? await res.json() : null;
+      results = json && typeof json === 'object' ? json.data : null;
+    } catch {
+      results = null; // offline: the pages still show
+    }
+  }
+  if (mine !== omniAsked) return;
+  suggest(omniboxSuggestions(results, text, { isAdmin: await isAdmin() }));
+}
+
+/**
+ * Enter: a chosen suggestion opens here (or a page on the website); words open the Search screen.
+ * Where, as Chrome says (`disposition`): this tab (Enter), a new tab (Alt+Enter) or one behind.
+ */
+async function omniboxOpen(text, disposition) {
+  const { appBase } = resolveBases(await local.get(['apiBase', 'appBase']));
+  const target = omniboxTarget(text, { appBase, isAdmin: await isAdmin() });
+  const url = target.url || chrome.runtime.getURL(APP_PATH) + target.hash;
+  if (disposition === 'newForegroundTab' || disposition === 'newBackgroundTab') {
+    await chrome.tabs.create({ url, active: disposition === 'newForegroundTab' });
+    return;
+  }
+  try {
+    await chrome.tabs.update({ url }); // the tab the words were typed in
+  } catch {
+    await chrome.tabs.create({ url });
+  }
+}
+
+chrome.omnibox?.onInputChanged.addListener((text, suggest) => {
+  void omniboxSuggest(text, suggest).catch(() => suggest([]));
+});
+chrome.omnibox?.onInputEntered.addListener((text, disposition) => {
+  void omniboxOpen(text, disposition).catch(() => openApp('#/'));
+});
 
 /** The polling alarm can be lost when the browser restarts; make sure it exists (EXT-06). */
 async function ensurePollAlarm() {
@@ -101,15 +182,30 @@ async function ensurePollAlarm() {
   }
 }
 
-chrome.action.onClicked.addListener(() => void openApp());
+// The toolbar button opens the quick-capture popup (action.default_popup), as does the keyboard
+// shortcut (commands._execute_action); its "Open MICO360 Tasks" button opens the full app.
+
+// The side panel's own keyboard command (Stage 7; no key is chosen for you): it opens in the window
+// the keys were pressed in. Chrome opens it only straight from the key press, so nothing is awaited.
+chrome.commands?.onCommand.addListener((command, tab) => {
+  if (command !== PANEL_COMMAND || !tab) return;
+  void openSidePanel(chrome, tab.windowId);
+});
 
 chrome.notifications?.onClicked.addListener((id) => {
   if (id !== NOTIFICATION_ID) return;
   chrome.notifications.clear(id);
-  void openApp('#/notifications');
+  void alertClicked().catch(() => openApp('#/notifications'));
+});
+
+// The right-click menu's "Add to MICO360 Tasks" (a selection, a link or the page) opens the popup
+// with what was clicked. Chrome keeps the menu item; it is made again on install and update.
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  void onMenuClick(chrome, info, tab).catch(() => { /* the popup couldn't open: nothing to undo */ });
 });
 
 chrome.runtime.onInstalled.addListener(() => {
+  void createMenu(chrome).catch(() => { /* no menus API */ });
   void ensurePollAlarm();
   void poll();
 });

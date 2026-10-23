@@ -21,6 +21,99 @@ export function notificationText(count) {
   return count === 1 ? 'You have 1 new notification' : `You have ${count} new notifications`;
 }
 
+// ---- Stage 5: notification preferences and what the desktop alert says ----------------------
+
+/** The kinds of notification someone can switch off, worded as on the web's Settings page. */
+export const NOTIFICATION_TYPES = Object.freeze([
+  { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
+  { type: 'TASK_STATUS', label: 'Status changes', desc: 'When one of your tasks moves column' },
+  { type: 'TASK_COMMENT', label: 'Comments', desc: 'New comments on tasks you’re on' },
+  { type: 'MENTION', label: 'Mentions', desc: 'When someone @mentions you' },
+  { type: 'TASK_DUE_SOON', label: 'Due soon', desc: 'A reminder shortly before a task is due' },
+  { type: 'TASK_OVERDUE', label: 'Overdue', desc: 'When one of your tasks becomes overdue' },
+]);
+
+/** "Remind me before due" (minutes before a task's due time); null = the workspace default. */
+export const REMINDER_OPTIONS = Object.freeze([
+  { label: 'Default (1 day)', value: null },
+  { label: 'At due time', value: 0 },
+  { label: '1 hour before', value: 60 },
+  { label: '4 hours before', value: 240 },
+  { label: '1 day before', value: 1440 },
+  { label: '2 days before', value: 2880 },
+  { label: '1 week before', value: 10080 },
+]);
+
+/** The morning emails until someone chooses otherwise (the server's defaults). */
+export const DEFAULT_DAILY_EMAILS = Object.freeze({ pending: true, completed: true, time: '06:00' });
+
+/**
+ * This device's desktop alerts (chrome.storage.local): whether there are any, and whether one may
+ * say what the newest notification is about — off until chosen, since anyone near the screen can
+ * read it. Cleared on sign-out (session.js USER_DATA_KEYS), so the next person starts private.
+ */
+export const DESKTOP_ALERTS_KEY = 'desktopAlerts';
+const ALERT_DEFAULTS = Object.freeze({ on: true, details: false });
+
+export async function readAlertSettings(local) {
+  try {
+    const saved = ((await local.get(DESKTOP_ALERTS_KEY)) || {})[DESKTOP_ALERTS_KEY];
+    return {
+      on: saved && typeof saved.on === 'boolean' ? saved.on : ALERT_DEFAULTS.on,
+      details: saved && typeof saved.details === 'boolean' ? saved.details : ALERT_DEFAULTS.details,
+    };
+  } catch {
+    return { ...ALERT_DEFAULTS };
+  }
+}
+
+export async function saveAlertSettings(local, patch) {
+  const next = { ...(await readAlertSettings(local)), ...patch };
+  await local.set({ [DESKTOP_ALERTS_KEY]: next });
+  return next;
+}
+
+/**
+ * Take the desktop alert off the screen (sign-out, a session that ended): it may say what the newest
+ * notification was about, and it isn't the next person's. Never fails.
+ */
+export function clearDesktopAlert(notifications) {
+  try {
+    const p = notifications && typeof notifications.clear === 'function' ? notifications.clear(NOTIFICATION_ID) : null;
+    if (p && typeof p.catch === 'function') p.catch(() => { /* gone already */ });
+  } catch {
+    /* no desktop notifications here */
+  }
+}
+
+/** What the last desktop alert was about (chrome.storage.session), so a click can open it. */
+export const ALERT_TARGET_KEY = 'mico360.alertTarget';
+
+/** The newest notification not read yet, or null. */
+export function newestUnread(list) {
+  if (!Array.isArray(list)) return null;
+  let best = null;
+  for (const n of list) {
+    if (!n || n.readAt) continue;
+    if (!best || String(n.createdAt) > String(best.createdAt)) best = n;
+  }
+  return best;
+}
+
+/**
+ * The desktop alert for `fresh` new notifications: how many (never the total unread), or — when it
+ * may say (`details`) and the newest is known — that one's title and words, with how many more.
+ */
+export function alertContent({ fresh, newest, details }) {
+  if (!details || !newest) return { title: 'MICO360 Tasks', message: notificationText(fresh) };
+  const more = Math.max(0, fresh - 1);
+  return {
+    title: newest.title || 'MICO360 Tasks',
+    message: newest.body || 'Click to open it.', // Chrome needs words in every alert
+    contextMessage: more ? `And ${more} more new notification${more === 1 ? '' : 's'}` : 'MICO360 Tasks',
+  };
+}
+
 /**
  * Find an open tab showing the extension app among `chrome.runtime.getContexts()` results, so the
  * toolbar button can focus it without the "tabs" permission (EXT-07). Returns the context or null.
@@ -44,15 +137,40 @@ export function setToolbarBadge(action, count) {
 }
 
 /**
- * Where clicking a notification takes the person (M7), as the web's notification links do: a task
- * opens in the task drawer, a conversation in Chat, a meeting on the website (the extension has no
- * meetings screen). Returns `{ hash }` for a screen here, `{ url }` for the website, or null.
+ * "Mark all read" stops at the newest notification shown (POST /notifications/read-all `{ upTo }`),
+ * so one that comes in after the person looked — or before an offline one is replayed — stays
+ * unread. Its time as the server takes it (ISO, UTC), or null when none has one (then all are read).
  */
-export function notificationTarget(n, appBase) {
+export function newestShown(list) {
+  let best = NaN;
+  for (const n of Array.isArray(list) ? list : []) {
+    const t = Date.parse(n && n.createdAt);
+    if (!Number.isNaN(t) && (Number.isNaN(best) || t > best)) best = t;
+  }
+  return Number.isNaN(best) ? null : new Date(best).toISOString();
+}
+
+/**
+ * A "Mark all read" change's `upTo`, as the server takes it — or null (then everything is read; a
+ * time the server would refuse is never sent). A server from before `upTo` ignores it and reads all.
+ */
+export function readAllUpTo(payload) {
+  const v = payload && payload.upTo;
+  const t = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
+/**
+ * Where clicking a notification takes the person (M7), as the web's notification links do: a task
+ * opens in the task drawer, a conversation in Chat, a meeting on its page (Stage 6; its notes and
+ * minutes are a click away on the website). Returns `{ hash }` for a screen here, or null.
+ * (`appBase` is kept for callers: nothing opens on the website any more.)
+ */
+export function notificationTarget(n, _appBase) {
   const type = String((n && n.entityType) || '').toLowerCase();
   const id = n && typeof n.entityId === 'string' && n.entityId ? n.entityId : null;
   if (type === 'task' && id) return { hash: `#/task/${encodeURIComponent(id)}` };
   if (type === 'conversation') return { hash: id ? `#/chat/${encodeURIComponent(id)}` : '#/chat' };
-  if (type === 'meeting' && id && appBase) return { url: `${String(appBase).replace(/\/+$/, '')}/meetings/${encodeURIComponent(id)}` };
+  if (type === 'meeting' && id) return { hash: `#/meeting/${encodeURIComponent(id)}` };
   return null;
 }

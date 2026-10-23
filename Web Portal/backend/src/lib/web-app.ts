@@ -29,6 +29,17 @@ export const HOSTED_APK_PATH = '/downloads/MICO360-Tasks.apk';
 const APK_FILE = HOSTED_APK_PATH.slice(HOSTED_APK_PATH.lastIndexOf('/') + 1);
 
 /**
+ * The Chrome extension, zipped by the web build into the web root's downloads/ (so every deploy
+ * carries the extension of the same release); a copy in the downloads folder kept across deploys
+ * wins. The footer's "Chrome extension" link points here.
+ */
+export const HOSTED_EXTENSION_PATH = '/downloads/MICO360-Tasks-Chrome-Extension.zip';
+const EXTENSION_FILE = HOSTED_EXTENSION_PATH.slice(HOSTED_EXTENSION_PATH.lastIndexOf('/') + 1);
+
+/** The only files served under /downloads/. */
+const DOWNLOAD_FILES = new Set([APK_FILE, EXTENSION_FILE]);
+
+/**
  * The "Download for Android" link: the configured one, else the APK this server hosts (in the
  * downloads folder kept across deploys, or in the web root), else null (the web app then offers the
  * hosted address anyway, and asks the site whether the file is there).
@@ -102,10 +113,18 @@ function applyPageHeaders(req: FastifyRequest, reply: FastifyReply): void {
   reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
 }
 
-/** Headers for the hosted APK: a download under its own name, always checked for a newer build. */
-function apkHeaders(reply: FastifyReply): void {
+/** Headers for a hosted download (the APK, the extension): under its own name, always checked for a newer build. */
+function downloadHeaders(reply: FastifyReply, file: string): void {
   reply.header('Cache-Control', 'no-cache');
-  reply.header('Content-Disposition', `attachment; filename="${APK_FILE}"`);
+  reply.header('Content-Disposition', `attachment; filename="${file}"`);
+}
+
+/** The hosted download a request is for (its file name), or null. */
+function downloadFileOf(url: string): string | null {
+  const path = url.split('?')[0]!;
+  if (!path.startsWith('/downloads/')) return null;
+  const file = path.slice('/downloads/'.length);
+  return DOWNLOAD_FILES.has(file) ? file : null;
 }
 
 /**
@@ -124,8 +143,11 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string;
         decorateReply: false,
         index: false,
         cacheControl: false,
-        allowedPath: (pathName) => pathName === `/${APK_FILE}`,
-        setHeaders: (reply) => apkHeaders(reply),
+        allowedPath: (pathName) => DOWNLOAD_FILES.has(pathName.slice(1)),
+        setHeaders: (reply) => {
+          const file = downloadFileOf(reply.request.url);
+          if (file) downloadHeaders(reply, file);
+        },
       });
     });
   }
@@ -159,9 +181,10 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string;
     allowedPath: (pathName) => !COMPRESSED_COPY.test(pathName),
     setHeaders: (reply) => {
       reply.header('Cache-Control', cacheControlFor(reply.request.url));
-      // The Android app downloads under its own name from any link (a shared one too), as nginx and
-      // the Hostinger rules send it.
-      if (reply.request.url.split('?')[0] === HOSTED_APK_PATH) apkHeaders(reply);
+      // The Android app and the extension download under their own names from any link (a shared
+      // one too), as nginx and the Hostinger rules send them.
+      const file = downloadFileOf(reply.request.url);
+      if (file) downloadHeaders(reply, file);
     },
   });
 

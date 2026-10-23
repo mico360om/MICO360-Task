@@ -38,11 +38,15 @@ function boardCtx(query = {}) {
     params: { projectId: 'p1' },
     query,
     timeZone: TZ,
+    me: { id: 'u1', name: 'Mariam' },
+    storage: fakeStorage(),
+    isOnline: () => true,
     api: {
       projects: {
-        get: async () => ({ data: { name: 'Ops' } }),
+        get: async () => ({ data: { id: 'p1', name: 'Ops' } }),
         columns: async () => ({ data: [{ id: 'c1', name: 'To do', category: 'TODO', enabled: true, position: 0 }] }),
         progress: async () => ({ data: null }),
+        members: async () => ({ data: [] }),
       },
       tasks: { list: vi.fn(async () => ({ data: [{ id: 't1', title: 'Existing', columnId: 'c1', priority: 'NORMAL' }] })) },
     },
@@ -67,29 +71,39 @@ describe('BoardScreen (EXT-03)', () => {
     expect(ctx.navigate).toHaveBeenLastCalledWith(`#/board/p1?date=${shiftDayKey(today, -1)}`);
   });
 
+  /** "New task", a title typed, "Create task" (the new-task form, app/new-task-dialog.js). */
+  async function newTask(root, title) {
+    byText(root, 'button', 'New task').click();
+    await settle();
+    const box = document.querySelector('#qa-title');
+    box.value = title;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    byText(document, 'button', 'Create task').click();
+    await settle();
+  }
+
   it('shows the requested day and creates new tasks on that day', async () => {
     const ctx = boardCtx({ date: '2026-01-15' });
-    vi.stubGlobal('prompt', () => 'New thing');
     const root = BoardScreen(ctx);
+    document.body.append(root);
     await settle();
     expect(ctx.api.tasks.list).toHaveBeenCalledWith({ projectId: 'p1', boardDate: '2026-01-15' });
     byText(root, 'button', 'Today').click();
     expect(ctx.navigate).toHaveBeenCalledWith('#/board/p1');
-    byText(root, 'button', '+ Add task').click();
-    await settle();
-    expect(ctx.write).toHaveBeenCalledWith('task.create', { projectId: 'p1', columnId: 'c1', title: 'New thing', priority: 'NORMAL', boardDate: '2026-01-15' });
+    await newTask(root, 'New thing');
+    expect(ctx.write).toHaveBeenCalledWith('task.create', { projectId: 'p1', columnId: 'c1', title: 'New thing', priority: 'NORMAL', boardDate: '2026-01-15' }, expect.objectContaining({ hold: false }));
     expect(root.textContent).toContain('New thing');
   });
 
   it('EXT-05: a change that could not be saved at all is reported, not shown as saved', async () => {
     const ctx = boardCtx();
     ctx.write = vi.fn(async () => { const e = new Error('full'); e.userMessage = 'Your change could not be saved on this device.'; throw e; });
-    vi.stubGlobal('prompt', () => 'Lost?');
     const root = BoardScreen(ctx);
+    document.body.append(root);
     await settle();
-    byText(root, 'button', '+ Add task').click();
-    await settle();
-    expect(root.textContent).toContain('could not be saved on this device');
+    await newTask(root, 'Lost?');
+    // The form stays open and says so; the board shows nothing that wasn't saved.
+    expect(document.querySelector('[role="dialog"]').textContent).toContain('could not be saved on this device');
     expect(root.textContent).not.toContain('Lost?');
   });
 });
@@ -234,6 +248,20 @@ describe('SettingsScreen', () => {
     byText(root, 'button', 'Discard').click();
     await settle();
     expect(ctx.storage.data.syncQueue.map((i) => i.id)).toEqual(['q2']);
+  });
+
+  it('a failed change a later one replaced says so, and can only be discarded (trying it again would undo the later one)', async () => {
+    const ctx = settingsCtx([
+      { id: 'q1', userId: 'u1', kind: 'task.watch', status: 'failed', superseded: true, lastError: 'A later change to the same thing was saved, so this one can’t be sent again.', payload: { id: 't1' } },
+    ]);
+    const root = SettingsScreen(ctx);
+    document.body.append(root);
+    await settle();
+    expect(root.textContent).toContain('A later change to the same thing was saved, so this one can’t be sent again.');
+    expect(byText(root, 'button', 'Retry')).toBeUndefined();
+    byText(root, 'button', 'Discard').click();
+    await settle();
+    expect(ctx.storage.data.syncQueue).toEqual([]);
   });
 
   it('XP-01: warns before signing out with unsynced changes', async () => {

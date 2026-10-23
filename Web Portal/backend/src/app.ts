@@ -142,12 +142,19 @@ export interface AppDeps extends AuthRouteDeps {
   isActiveUser?: (userId: string) => Promise<boolean>;
   /** Draft agenda's project tasks and last meeting's leftovers, gathered with the person's access. */
   meetingAgendaSources?: import('./modules/ai/ai-feature-routes').AgendaSourcesFor;
-  /** The two morning task emails: "Send me a test now" and the admins' delivery log. */
-  dailyEmails?: Omit<DailyEmailRouteDeps, 'guard'>;
+  /**
+   * The two morning task emails: "Send me a test now", and for admins the delivery log, the day's
+   * overview, sending today's emails now (everyone's or one person's) and a preview.
+   */
+  dailyEmails?: Omit<DailyEmailRouteDeps, 'guard' | 'audit'>;
   deviceTokenService?: DeviceTokenService;
   reportService?: ReportService;
   /** Reads a task with everything its Excel / PDF export shows. */
   taskExportSource?: TaskExportSource;
+  /** Reads an attached file's stored bytes by its storage key, so a task's PDF shows its pictures. */
+  readAttachment?: (storageKey: string) => Promise<Buffer | null>;
+  /** Makes a small picture a PDF can print (a JPEG thumbnail) from a stored one: a task PDF's pictures. */
+  pictureThumbnail?: (raw: Buffer) => Promise<Buffer | null>;
   /** Names for report exports (project, team member, author). */
   reportNames?: import('./modules/reports/report-routes').ReportNames;
   searchService?: SearchService;
@@ -437,8 +444,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           guard,
           source: deps.taskExportSource,
           canViewTask,
+          // The same meeting check as the task's details (GET /tasks/:id).
+          canViewMeeting: deps.taskMeeting?.canView ?? canViewMeeting,
           userName: deps.reportNames ? (id) => deps.reportNames!.user(id) : undefined,
           timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
+          readAttachment: deps.readAttachment,
+          pictureThumbnail: deps.pictureThumbnail,
+          readProjectImage: deps.readProjectImage,
+          printableProjectImage: deps.printableProjectImage,
         });
       }
       if (deps.memberService) {
@@ -562,7 +575,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard });
       }
       if (deps.dailyEmails) {
-        await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard });
+        await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard, audit: deps.auditService });
       }
       if (deps.deviceTokenService) {
         await registerDeviceTokenRoutes(api, { deviceTokenService: deps.deviceTokenService, guard });

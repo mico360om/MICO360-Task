@@ -1,0 +1,6 @@
+/* The toolbar popup page. Colours, fields and buttons come from ../app/app.css (light and dark themes);
+   the form itself is styled by quick-add-form.css (the app's New task dialog uses it too). Chrome sizes a
+   popup to its page, up to 800 × 600. */
+html, body { height: auto; }
+body { width: 400px; max-width: 100%; background: var(--surface); }
+body.in-window { width: auto; }

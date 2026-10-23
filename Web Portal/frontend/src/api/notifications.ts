@@ -33,8 +33,8 @@ export interface DailyEmailPrefs {
 
 /** What "Send me a test now" sent: an email with nothing in it isn't sent. */
 export interface DailyEmailTestResult {
-  pending: 'sent' | 'empty';
-  completed: 'sent' | 'empty';
+  pending: 'sent' | 'empty' | 'blocked';
+  completed: 'sent' | 'empty' | 'blocked';
 }
 
 export function notificationsApi(client: ApiClient) {

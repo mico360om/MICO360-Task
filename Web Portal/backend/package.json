@@ -1,6 +1,6 @@
 {
   "name": "@mico360/backend",
-  "version": "1.6.0",
+  "version": "1.9.1",
   "private": true,
   "description": "MICO360 Tasks backend API (Fastify + Prisma + MySQL).",
   "main": "dist/src/server.js",
@@ -39,7 +39,7 @@
     "bcryptjs": "^2.4.3",
     "bidi-js": "1.0.3",
     "dotenv": "^16.4.5",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.7",
     "fontkit": "2.0.4",
     "jsonwebtoken": "^9.0.2",
     "parse5": "^7.3.0",
@@ -60,6 +60,6 @@
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.14.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }

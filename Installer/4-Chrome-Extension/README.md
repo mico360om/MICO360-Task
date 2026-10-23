@@ -10,13 +10,14 @@
 2. Open `chrome://extensions` (in Edge: `edge://extensions`).
 3. Turn on **Developer mode**.
 4. Click **Load unpacked** and choose the unzipped folder.
-5. Click the MICO360 icon and sign in.
+5. Click the MICO360 icon, choose **Open MICO360 Tasks** and sign in. (Pin the icon from the puzzle-piece
+   menu: it opens a small form to add a task from any page. Ctrl+Shift+K opens it too, and so does
+   **Add to MICO360 Tasks** when you right-click a selection, a link or a page.)
 
 ## Update it
 
-Chrome doesn't update an extension loaded this way. When the server has a newer version, the
-extension says so at the top of the app ("A newer version of MICO360 Tasks… is available") and in
-**Settings → About**, which also shows both versions.
+Chrome doesn't update an extension loaded this way. **Settings → About** shows both versions; when
+the server is newer it says how to update (not every website update needs a new extension).
 
 1. Unzip the new file **over the same folder**, replacing the old files.
 2. Open `chrome://extensions` and press **Reload** on MICO360 Tasks.

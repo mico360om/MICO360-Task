@@ -118,10 +118,18 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
         if (scope.projectIds.length > 0) or.push({ projectId: { in: scope.projectIds } });
         where.OR = or;
       }
-      // A calendar range lists every meeting in it; the plain list is the latest 500.
-      const ranged = !!(filter.from || filter.to);
-      const rows = await prisma.meeting.findMany({ where, orderBy: { startAt: ranged ? 'asc' : 'desc' }, take: ranged ? 2000 : 500 });
-      return rows.map(toRecord);
+      // A calendar range lists every meeting in it, soonest first.
+      if (filter.from || filter.to) {
+        return (await prisma.meeting.findMany({ where, orderBy: { startAt: 'asc' }, take: 2000 })).map(toRecord);
+      }
+      // The plain list, newest first: every meeting still to come (repeating meetings make many
+      // copies weeks ahead, which must not push today's out) and the 500 most recent before now.
+      const now = new Date();
+      const [upcoming, past] = await Promise.all([
+        prisma.meeting.findMany({ where: { ...where, startAt: { gte: now } }, orderBy: { startAt: 'asc' }, take: 2000 }),
+        prisma.meeting.findMany({ where: { ...where, startAt: { lt: now } }, orderBy: { startAt: 'desc' }, take: 500 }),
+      ]);
+      return [...upcoming.reverse(), ...past].map(toRecord);
     },
 
     async update(id, patch: UpdateMeetingData) {

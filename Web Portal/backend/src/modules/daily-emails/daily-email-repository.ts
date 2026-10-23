@@ -24,8 +24,15 @@ export interface DailyEmailLogRow extends DailyEmailRecord {
   email: string;
 }
 
+/** A record of a day with who it was for, and their own time zone (null: the company's). */
+export interface DailyEmailDayRow extends DailyEmailLogRow {
+  timeZone: string | null;
+}
+
 export interface DailyEmailFinish {
   status: 'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED';
+  /** Set back (an administrator's try that failed doesn't use up the automatic retries). */
+  attempts?: number;
   taskCount?: number;
   nextAttemptAt?: Date | null;
   lastError?: string | null;
@@ -37,9 +44,22 @@ export interface DailyEmailRepository {
   claim(userId: string, day: string, kind: DailyEmailKind): Promise<DailyEmailRecord | null>;
   /** Rows to try again: RETRY whose time has come, and SENDING ones left since `staleBefore` (a crash mid-send). */
   dueForRetry(now: Date, staleBefore: Date): Promise<DailyEmailRecord[]>;
-  /** Takes a due row for another attempt (SENDING, one more attempt) unless another sweep already did: null then. */
+  /**
+   * Takes a row for another attempt (SENDING, one more attempt) unless someone else already did — another
+   * sweep, or an administrator's send: null then. The sweep retakes due retries; an administrator's send
+   * also retakes a failed, skipped or (a resend) sent one.
+   */
   retake(row: DailyEmailRecord): Promise<DailyEmailRecord | null>;
-  finish(id: string, patch: DailyEmailFinish): Promise<void>;
+  /**
+   * Writes down how an attempt went — only while that attempt still holds the row (SENDING, with the
+   * attempt count it took it at). False when someone else took it meanwhile (a send that hung so long
+   * it was taken again): what they wrote down stands.
+   */
+  finish(taken: Pick<DailyEmailRecord, 'id' | 'attempts'>, patch: DailyEmailFinish): Promise<boolean>;
+  /** The record for (person, day, email), or null when there is none yet. */
+  find(userId: string, day: string, kind: DailyEmailKind): Promise<DailyEmailRecord | null>;
+  /** Every record for these days ('YYYY-MM-DD'), with who it was for: the admins' overview of a day. */
+  forDays(days: string[]): Promise<DailyEmailDayRow[]>;
   /** The delivery log, newest first. */
   list(filter: { day?: string; status?: DailyEmailStatus; limit?: number }): Promise<DailyEmailLogRow[]>;
 }

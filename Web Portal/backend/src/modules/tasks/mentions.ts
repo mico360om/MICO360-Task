@@ -41,15 +41,35 @@ export function parseMentions(body: string): string[] {
  * At each mention the longest matching name wins, so "@ahmed.ali" picks "ahmed.ali" over "ahmed".
  */
 export function matchMentions(body: string, usernames: string[]): string[] {
+  return [...new Set(findMentions(body, usernames).map((m) => m.username))];
+}
+
+/** Each real @mention in `body`: where its '@' is and which username it names (longest match wins). */
+function findMentions(body: string, usernames: string[]): Array<{ at: number; username: string }> {
   const names = [...new Set(usernames.filter(Boolean))].sort((a, b) => b.length - a.length);
-  const found = new Set<string>();
+  const found: Array<{ at: number; username: string }> = [];
   for (let at = body.indexOf('@'); at !== -1; at = body.indexOf('@', at + 1)) {
     if (!startsMention(body, at)) continue;
     const start = at + 1;
     const hit = names.find(
       (name) => body.slice(start, start + name.length).toLowerCase() === name.toLowerCase() && endsWord(body, start + name.length),
     );
-    if (hit) found.add(hit);
+    if (hit) found.push({ at, username: hit });
   }
-  return [...found];
+  return found;
+}
+
+/** `body` cut into plain text and real @mentions (as written, '@' included), every character kept — for printing. */
+export function mentionTokens(body: string, usernames: string[]): Array<{ text: string; mention: boolean }> {
+  const tokens: Array<{ text: string; mention: boolean }> = [];
+  let last = 0;
+  for (const { at, username } of findMentions(body, usernames)) {
+    if (at < last) continue;
+    if (at > last) tokens.push({ text: body.slice(last, at), mention: false });
+    const end = at + 1 + username.length;
+    tokens.push({ text: body.slice(at, end), mention: true });
+    last = end;
+  }
+  if (last < body.length || tokens.length === 0) tokens.push({ text: body.slice(last), mention: false });
+  return tokens;
 }

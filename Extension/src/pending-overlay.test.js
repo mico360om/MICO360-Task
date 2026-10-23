@@ -75,6 +75,13 @@ describe('applyPending (H3: changes waiting to sync are layered over what is rea
     expect(applyPending('messages:cv2', [], [send]).applied).toBe(0);
   });
 
+  it('Stage 5: a waiting message carries its clientId, and isn’t shown twice once the server has it', () => {
+    const send = q('chat.send', { conversationId: 'cv1', body: 'See you at 3' }, { idempotencyKey: 'k-7' });
+    expect(applyPending('messages:cv1', [], [send]).data[0]).toMatchObject({ clientId: 'k-7', pending: true });
+    const arrived = [{ id: 'm1', body: 'hi' }, { id: 'm2', body: 'See you at 3', clientId: 'k-7' }];
+    expect(applyPending('messages:cv1', arrived, [send])).toEqual({ data: arrived, applied: 0 });
+  });
+
   it('ignores changes that failed to sync and data it does not know', () => {
     const failed = q('task.update', { id: 't1', patch: { title: 'Refused' } }, { status: 'failed' });
     expect(applyPending('task:t1', { id: 't1', title: 'Server' }, [failed])).toEqual({ data: { id: 't1', title: 'Server' }, applied: 0 });

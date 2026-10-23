@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -114,6 +114,10 @@ describe('ReportsPage date range typed by hand', () => {
   });
 
   it('says so when the start is after the end, and keeps showing the last good period', async () => {
+    // The page opens on the last 30 days; this test's dates assume "today" is 21 Oct 2026.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-21T08:00:00Z'));
+    onTestFinished(() => { vi.useRealTimers(); });
     renderPage();
     await screen.findByLabelText('From date');
     await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));

@@ -624,7 +624,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                       </label>
                     ))}
                   </div>
-                  <p className="mt-1 text-xs text-ink-2">The title, description, priority and due date go to every copy when you choose the series.</p>
+                  <p className="mt-1 text-xs text-ink-2">The title, description and priority go to every copy when you choose the series; dates change on this copy only.</p>
                 </fieldset>
               ) : null}
             </div>

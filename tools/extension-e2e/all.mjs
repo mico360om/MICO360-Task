@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SCRIPTS = ['board', 'conflict', 'recur', 'reports'];
+const SCRIPTS = ['board', 'conflict', 'recur', 'reports', 'popup', 'drawer', 'lists', 'chat', 'stage6', 'sidepanel', 'appfocus'];
 const failed = [];
 for (const name of SCRIPTS) {
   console.log(`\n▶ ${name}`);

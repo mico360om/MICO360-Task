@@ -162,7 +162,7 @@ describe('TaskDetail — messages and changes saved on this device', () => {
     expect(ctx.write).not.toHaveBeenCalled();
     byLabel(root, 'Synced step').click();
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('checklist.update', { itemId: 'k1', patch: { done: true } });
+    expect(ctx.write).toHaveBeenCalledWith('checklist.update', { id: 't1', itemId: 'k1', patch: { done: true } });
   });
 });
 
@@ -272,7 +272,8 @@ describe('NotificationsScreen (M7)', () => {
     expect(ctx.navigate).toHaveBeenCalledWith('#/chat/cv1');
     [...root.querySelectorAll('.nrow')][2].click();
     await settle();
-    expect(ctx.openExternal).toHaveBeenCalledWith('https://task.mico360.com/meetings/m1');
+    expect(ctx.navigate).toHaveBeenCalledWith('#/meeting/m1'); // its page here (Stage 6)
+    expect(ctx.openExternal).not.toHaveBeenCalled();
     expect(ctx.write).toHaveBeenCalledTimes(2); // n3 was already read
   });
 
@@ -282,7 +283,8 @@ describe('NotificationsScreen (M7)', () => {
     await settle();
     byText(root, 'button', 'Mark all as read').click();
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('notification.readAll', {});
+    // Up to the newest one shown (one that comes in meanwhile stays unread).
+    expect(ctx.write).toHaveBeenCalledWith('notification.readAll', { upTo: '2026-10-21T08:00:00.000Z' });
     expect(root.querySelectorAll('.nrow.unread')).toHaveLength(0);
     expect(root.querySelector('[role="status"]').textContent).toContain('Saved on this device');
     expect(ctx.afterMutation).toHaveBeenCalled();
@@ -323,7 +325,8 @@ describe('ChatScreen — messages waiting to send (H3)', () => {
     box.dispatchEvent(new Event('input', { bubbles: true }));
     byText(root, 'button', 'Send').click();
     await settle();
-    expect(ctx.write).toHaveBeenCalledWith('chat.send', { conversationId: 'cv1', body: 'And another' });
+    // Stage 5: the message keeps one clientId through every try (each try has its Idempotency-Key).
+    expect(ctx.write).toHaveBeenCalledWith('chat.send', { conversationId: 'cv1', body: 'And another', clientId: expect.any(String) }, { idempotencyKey: expect.any(String) });
     expect([...root.querySelectorAll('.msg')].filter((m) => m.textContent.includes('not sent yet'))).toHaveLength(2);
   });
 });

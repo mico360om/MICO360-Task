@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchMentions, parseMentions } from './mentions';
+import { matchMentions, mentionTokens, parseMentions } from './mentions';
 
 describe('parseMentions (loose)', () => {
   it('keeps dots, hyphens and non-Latin letters inside a name, and drops trailing punctuation', () => {
@@ -36,5 +36,20 @@ describe('matchMentions (against real usernames)', () => {
 
   it('ignores names that are not in the list (e.g. people without access)', () => {
     expect(matchMentions('hey @stranger', users)).toEqual([]);
+  });
+});
+
+describe('mentionTokens (a comment cut into plain text and mentions, for printing)', () => {
+  const users = ['ahmed', 'ahmed.ali', 'أحمد', 'Omar'];
+
+  it('marks each real mention, the longest name first, and keeps every character', () => {
+    const body = 'Thanks @ahmed.ali and @omar, please check with @stranger or mail omar@mico.om — شكراً @أحمد.';
+    const tokens = mentionTokens(body, users);
+    expect(tokens.map((t) => t.text).join('')).toBe(body);
+    expect(tokens.filter((t) => t.mention).map((t) => t.text)).toEqual(['@ahmed.ali', '@omar', '@أحمد']);
+  });
+
+  it('is one plain token when nothing is mentioned', () => {
+    expect(mentionTokens('No mentions here', users)).toEqual([{ text: 'No mentions here', mention: false }]);
   });
 });

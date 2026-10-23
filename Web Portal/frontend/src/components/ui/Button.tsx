@@ -62,8 +62,9 @@ export function Button({
       aria-busy={loading}
       // A busy button is announced as unavailable and ignores presses, but is not natively disabled:
       // that would drop keyboard focus to the page, and someone saving from the keyboard would lose
-      // their place in the dialog when the save comes back refused.
-      aria-disabled={loading || undefined}
+      // their place in the dialog when the save comes back refused. A caller's own aria-disabled
+      // (unavailable for now, but kept focusable) is kept too.
+      aria-disabled={loading || rest['aria-disabled'] || undefined}
       disabled={disabled}
       onClick={(event) => {
         if (loading) {

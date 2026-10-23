@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { drawTextLine, layoutStyledText, layoutText, lineBox, measureText, registerPdfFonts, type StyledRun, type TextLine } from './pdf-text';
+import { printableImage } from './pdf-image';
 
 export type RGB = [number, number, number];
 
@@ -86,6 +87,20 @@ export interface TextOptions {
   direction?: TextDirection;
   /** 'display' sets Latin text in the heading face (Archivo). */
   family?: 'text' | 'display';
+  /**
+   * Inset from the left edge whatever the paragraph's direction, in points: a block nested in a
+   * left-to-right layout, such as a reply under a comment. An Arabic line still ends at the right edge.
+   */
+  inset?: number;
+  /** A thin rule in this colour beside each line, inside the inset (a reply's thread line). */
+  bar?: RGB;
+}
+
+/** A picture with the words under it, for imageGrid. */
+export interface GridPicture {
+  /** A picture prepared with prepareImage. */
+  image: Buffer;
+  caption: string;
 }
 
 export interface PdfDocumentOptions {
@@ -276,32 +291,33 @@ export class PdfDocument {
     const s = 42;
     const top = this.y;
     this.logoMark(this.margin, this.pageHeight - top - s, s, opts.from, opts.to);
-    this.headerText(top, s, opts);
-    this.y = top + s + 10;
+    this.y = this.headerText(top, s, opts) + 10;
     this.fillRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
     this.y += 2 + 12;
     return this;
   }
 
   /**
-   * A header for a document about one project: its picture (an image pdfkit can embed as it is —
-   * see printableImage), else its icon (24×24 outline paths) or its initials on its colour; then the
-   * eyebrow, the project name and a detail line, an optional badge on the right, and a brand rule beneath.
+   * A header for a document about one project: its picture when this document can print it (see
+   * prepareImage — a see-through one is set on white), else its icon (24×24 outline paths) or its
+   * initials on its colour; then the eyebrow, the project name and a detail line, an optional badge
+   * on the right, and a brand rule beneath.
    */
   identityHeader(opts: { image?: Buffer | null; icon?: readonly string[] | null; initials: string; color?: RGB; title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): this {
     const s = 46;
     const top = this.y;
     const x = this.margin;
+    const image = opts.image ? this.prepareImage(opts.image) : null;
     this.doc.save();
     this.doc.roundedRect(x, top, s, s, s * 0.22).clip();
-    if (opts.image) {
+    if (image) {
       this.doc.rect(x, top, s, s).fill(toHex(WHITE));
-      this.doc.image(opts.image, x, top, { fit: [s, s], align: 'center', valign: 'center' });
+      this.doc.image(image, x, top, { fit: [s, s], align: 'center', valign: 'center' });
     } else {
       this.doc.rect(x, top, s, s).fill(toHex(opts.color ?? this.pal.brand));
     }
     this.doc.restore();
-    if (opts.image) {
+    if (image) {
       this.doc.save().lineWidth(0.6).roundedRect(x, top, s, s, s * 0.22).stroke(toHex(this.pal.line)).restore();
     } else if (opts.icon?.length) {
       // The icon at half the tile, as the app draws it: round-capped outlines in white.
@@ -313,25 +329,50 @@ export class PdfDocument {
       const initials = layoutText(opts.initials.slice(0, 3).toUpperCase(), { size: 17, bold: true })[0]!;
       drawTextLine(this.doc, initials, x + (s - initials.width) / 2, top + s / 2 + 6, 17, toHex(WHITE));
     }
-    this.headerText(top, s, opts);
-    this.y = top + s + 10;
+    this.y = this.headerText(top, s, opts) + 10;
     this.fillRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
     this.y += 2 + 12;
     return this;
   }
 
-  /** The eyebrow, title and subtitle beside a header's mark (size `s`), and its badge on the right. */
-  private headerText(top: number, s: number, opts: { title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): void {
+  /**
+   * The eyebrow, title and subtitle beside a header's mark (size `s`), and its badge on the right.
+   * A line too long for the space first shrinks a little; if it still doesn't fit it wraps (it is
+   * never cut), the lines then run down from the top of the mark and the header grows to hold them.
+   * Returns where the header's text ends (at least the bottom of the mark).
+   */
+  private headerText(top: number, s: number, opts: { title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): number {
     const badgeSize = 7.5;
     const badgeLine = opts.badge ? layoutText(opts.badge.text.toUpperCase(), { size: badgeSize, bold: true })[0]! : null;
     const badgeW = badgeLine ? badgeLine.width + 16 : 0;
     const tx = this.margin + s + 14;
     const tw = this.contentWidth - s - 14 - (badgeW ? badgeW + 12 : 0);
-    const one = (text: string, size: number, bold: boolean): TextLine => layoutText(text, { size, bold, maxWidth: tw })[0]!;
+    const fit = (text: string, size: number, min: number, bold: boolean, color: RGB) => {
+      let sz = size;
+      while (sz > min && measureText(text, sz, bold) > tw) sz -= 0.5;
+      return { size: sz, color, lines: layoutText(text, { size: sz, bold, maxWidth: tw }) };
+    };
+    const eyebrow = opts.eyebrow ? fit(opts.eyebrow.toUpperCase(), 8, 7, true, this.pal.brand) : null;
+    const title = fit(opts.title, 17, 12, true, this.pal.ink);
+    const subtitle = opts.subtitle ? fit(opts.subtitle, 9, 7.5, false, this.pal.muted) : null;
     const mid = top + s / 2;
-    if (opts.eyebrow) drawTextLine(this.doc, one(opts.eyebrow.toUpperCase(), 8, true), tx, mid - 12, 8, toHex(this.pal.brand));
-    drawTextLine(this.doc, one(opts.title, 17, true), tx, mid + 6, 17, toHex(this.pal.ink));
-    if (opts.subtitle) drawTextLine(this.doc, one(opts.subtitle, 9, false), tx, mid + 18, 9, toHex(this.pal.muted));
+    let bottom = top + s;
+    if ([eyebrow, title, subtitle].every((b) => !b || b.lines.length === 1)) {
+      if (eyebrow) drawTextLine(this.doc, eyebrow.lines[0]!, tx, mid - 12, eyebrow.size, toHex(eyebrow.color));
+      drawTextLine(this.doc, title.lines[0]!, tx, mid + 6, title.size, toHex(title.color));
+      if (subtitle) drawTextLine(this.doc, subtitle.lines[0]!, tx, mid + 18, subtitle.size, toHex(subtitle.color));
+    } else {
+      let y = top;
+      for (const block of [eyebrow, title, subtitle]) {
+        if (!block) continue;
+        for (const ln of block.lines) {
+          const box = lineBox(ln, block.size);
+          drawTextLine(this.doc, ln, tx, y + box.ascent, block.size, toHex(block.color));
+          y += box.height;
+        }
+      }
+      bottom = Math.max(bottom, y);
+    }
     if (badgeLine && opts.badge) {
       const tone = opts.badge.tone === 'success' ? SUCCESS : opts.badge.tone === 'warning' ? WARNING : this.pal.muted;
       const bx = this.margin + this.contentWidth - badgeW;
@@ -341,6 +382,7 @@ export class PdfDocument {
       this.doc.save().lineWidth(0.8).roundedRect(bx, by, badgeW, bh, bh / 2).stroke(toHex(tone)).restore();
       drawTextLine(this.doc, badgeLine, bx + 8, by + bh / 2 + badgeSize * 0.36, badgeSize, toHex(tone));
     }
+    return bottom;
   }
 
   /**
@@ -392,6 +434,19 @@ export class PdfDocument {
     return this;
   }
 
+  /** The room subheading() with these options keeps together (its gap, its line and what it keeps with it): a heading above it keeps this much. */
+  subheadingRoom(options: { topGap?: number; keepWith?: number } = {}): number {
+    return (options.topGap ?? 10) + 11 * 1.6 + Math.max(28, options.keepWith ?? 0);
+  }
+
+  /** The height text() would take for this paragraph (its gap included), in points. */
+  textHeight(content: string, options: TextOptions = {}): number {
+    const size = options.size ?? 10.5;
+    const width = this.contentWidth - (options.inset ?? 0) - (options.indent ?? 0);
+    const lines = layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family });
+    return lines.reduce((h, ln) => h + lineBox(ln, size).height, 0) + (options.gap ?? 0);
+  }
+
   /**
    * "Label: value" pairs in two columns, each with its own label width; values wrap within their
    * column. Kept together on one page.
@@ -440,17 +495,130 @@ export class PdfDocument {
   /** A flowing paragraph; honors embedded "\n", wraps to the content width, aligns RTL paragraphs right. */
   text(content: string, options: TextOptions = {}): this {
     const size = options.size ?? 10.5;
+    const width = this.contentWidth - (options.inset ?? 0) - (options.indent ?? 0);
+    return this.flowLines(layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family }), size, options);
+  }
+
+  /** A flowing paragraph of formatted runs (bold, italic, underlined, highlighted, links), laid out as text() lays out plain text. */
+  styledText(runs: StyledRun[], options: TextOptions = {}): this {
+    const size = options.size ?? 10.5;
+    const width = this.contentWidth - (options.inset ?? 0) - (options.indent ?? 0);
+    return this.flowLines(layoutStyledText(runs, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family }), size, options);
+  }
+
+  /** Draw laid-out lines down the page (see TextOptions for indent, inset and bar). */
+  private flowLines(lines: TextLine[], size: number, options: TextOptions): this {
     const color = options.color ?? this.pal.ink;
     const indent = options.indent ?? 0;
-    const width = this.contentWidth - indent;
-    for (const line of layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family })) {
+    const left = this.margin + (options.inset ?? 0);
+    const width = this.contentWidth - (options.inset ?? 0) - indent;
+    for (const line of lines) {
       const box = lineBox(line, size);
       this.ensure(box.height);
-      this.placeLine(line, line.rtl ? this.margin : this.margin + indent, width, this.y + box.ascent, size, color, options.align ?? 'start');
+      if (options.bar) this.fillRect(Math.max(this.margin, left - 10), this.y, 1.5, box.height, options.bar);
+      this.placeLine(line, line.rtl ? left : left + indent, width, this.y + box.ascent, size, color, options.align ?? 'start');
       this.y += box.height;
     }
     if (options.gap) this.y += options.gap;
     return this;
+  }
+
+  /**
+   * A checklist item: a drawn box (filled with a white tick when done) and the item's words with a
+   * hanging indent, wrapped in full. A right-to-left item has its box on the right. Done items are muted.
+   */
+  checkItem(content: string, done: boolean, options: { size?: number; direction?: TextDirection } = {}): this {
+    const size = options.size ?? 10;
+    const box = Math.round(size * 0.95 * 10) / 10;
+    const gutter = box + 7;
+    const width = this.contentWidth - gutter;
+    const lines = layoutText(content, { size, maxWidth: width, direction: options.direction });
+    const rtl = lines[0]?.rtl ?? false;
+    lines.forEach((ln, i) => {
+      const lb = lineBox(ln, size);
+      this.ensure(lb.height);
+      const baseline = this.y + lb.ascent;
+      if (i === 0) {
+        const bx = rtl ? this.pageWidth - this.margin - box : this.margin;
+        const by = baseline - size * 0.78;
+        if (done) {
+          this.doc.save().roundedRect(bx, by, box, box, 2).fill(toHex(SUCCESS)).restore();
+          this.doc
+            .save()
+            .lineWidth(box * 0.14)
+            .lineCap('round')
+            .lineJoin('round')
+            .moveTo(bx + box * 0.24, by + box * 0.52)
+            .lineTo(bx + box * 0.43, by + box * 0.7)
+            .lineTo(bx + box * 0.77, by + box * 0.3)
+            .stroke(toHex(WHITE))
+            .restore();
+        } else {
+          this.doc.save().lineWidth(0.9).roundedRect(bx + 0.45, by + 0.45, box - 0.9, box - 0.9, 2).stroke(toHex(this.pal.muted)).restore();
+        }
+      }
+      this.placeLine(ln, rtl ? this.margin : this.margin + gutter, width, baseline, size, done ? this.pal.muted : this.pal.ink, 'start');
+      this.y += lb.height;
+    });
+    this.y += 2;
+    return this;
+  }
+
+  /**
+   * A picture as this document can print it: a JPEG or PNG (a see-through PNG flattened onto white,
+   * see printableImage) that pdfkit can read; null for anything else (WebP, GIF, a damaged file).
+   */
+  prepareImage(image: Buffer): Buffer | null {
+    const printable = printableImage(image);
+    if (!printable) return null;
+    try {
+      // pdfkit reads the picture's header here (its typings leave openImage out).
+      (this.doc as unknown as { openImage(src: Buffer): unknown }).openImage(printable);
+      return printable;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Pictures in a grid (three to a row by default), each fitted into a framed box with its caption
+   * under it, wrapped in full. A row is kept whole on one page. Pictures must come from prepareImage.
+   */
+  imageGrid(items: GridPicture[], options: { columns?: number; height?: number } = {}): this {
+    const { cols, gap, w, h, size, capBox } = this.gridLayout(options);
+    for (let r = 0; r < items.length; r += cols) {
+      const row = items.slice(r, r + cols);
+      const captions = row.map((it) => layoutText(it.caption, { size, maxWidth: w }));
+      const rowH = h + 4 + Math.max(...captions.map((c) => c.length)) * capBox.height;
+      this.ensure(rowH);
+      const top = this.y;
+      row.forEach((it, i) => {
+        const x = this.margin + i * (w + gap);
+        this.doc.save().roundedRect(x, top, w, h, 4).fill(toHex(mix(this.pal.line, WHITE, 0.7))).restore();
+        this.doc.image(it.image, x + 3, top + 3, { fit: [w - 6, h - 6], align: 'center', valign: 'center' });
+        this.doc.save().lineWidth(0.6).roundedRect(x, top, w, h, 4).stroke(toHex(this.pal.line)).restore();
+        captions[i]!.forEach((ln, li) => this.placeLine(ln, x, w, top + h + 4 + li * capBox.height + capBox.ascent, size, this.pal.muted, 'start'));
+      });
+      this.y = top + rowH + gap;
+    }
+    return this;
+  }
+
+  /** The height of imageGrid()'s first row of these pictures (0 for none): a heading above the grid keeps this much. */
+  imageGridFirstRowHeight(items: Pick<GridPicture, 'caption'>[], options: { columns?: number; height?: number } = {}): number {
+    if (items.length === 0) return 0;
+    const { cols, w, h, size, capBox } = this.gridLayout(options);
+    const lines = items.slice(0, cols).map((it) => layoutText(it.caption, { size, maxWidth: w }).length);
+    return h + 4 + Math.max(...lines) * capBox.height;
+  }
+
+  private gridLayout(options: { columns?: number; height?: number }) {
+    const cols = options.columns ?? 3;
+    const gap = 12;
+    const w = (this.contentWidth - gap * (cols - 1)) / cols;
+    const h = options.height ?? Math.round(w * 0.72);
+    const size = 8;
+    return { cols, gap, w, h, size, capBox: lineBox(null, size, true) };
   }
 
   /** A section heading: bold, slightly larger, with a hairline rule beneath. Kept with what follows it. */
@@ -774,11 +942,16 @@ export class PdfDocument {
   table(
     columns: TableColumn[],
     rows: ReadonlyArray<ReadonlyArray<string>>,
-    options: { size?: number; cellColor?: (row: number, col: number) => RGB | null } = {},
+    options: {
+      size?: number;
+      cellColor?: (row: number, col: number) => RGB | null;
+      /** The column that takes the width left over (the others keep their natural width); by default every column gets a share. */
+      wide?: number;
+    } = {},
   ): this {
     const n = columns.length;
     if (n === 0) return this;
-    const layout = this.tableLayout(columns, rows, options.size ?? 8.5);
+    const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide);
     const { size, padX, padY, total, box, widths, numeric, header, body } = layout;
 
     const drawRow = (row: { laid: TextLine[][]; height: number }, fill: RGB | null, ri: number | null) => {
@@ -810,14 +983,17 @@ export class PdfDocument {
     return this;
   }
 
-  /** The height a table would take if drawn now on one page (header + every row), in points. */
-  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number } = {}): number {
+  /**
+   * The height a table would take if drawn now on one page (header + every row, or just its first
+   * `firstRows` rows — columns sized from all of them, as table() sizes them), in points.
+   */
+  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number; wide?: number; firstRows?: number } = {}): number {
     if (columns.length === 0) return 0;
-    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5);
-    return header.height + body.reduce((s, r) => s + r.height, 0);
+    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide);
+    return header.height + body.slice(0, options.firstRows ?? body.length).reduce((s, r) => s + r.height, 0);
   }
 
-  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number) {
+  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number, wide?: number) {
     const n = columns.length;
     const padX = 5;
     const padY = 3;
@@ -834,7 +1010,12 @@ export class PdfDocument {
     });
     const naturalSum = natural.reduce((a, b) => a + b, 0);
     const widths = new Array<number>(n).fill(0);
-    if (naturalSum <= total) {
+    if (naturalSum <= total && wide !== undefined && wide >= 0 && wide < n) {
+      // The other columns get a little air (up to 14 pt each); the wide one takes the rest.
+      const air = n > 1 ? Math.min(14, (total - naturalSum) / n) : 0;
+      natural.forEach((w, i) => (widths[i] = w + air));
+      widths[wide] = natural[wide]! + (total - naturalSum) - air * (n - 1);
+    } else if (naturalSum <= total) {
       natural.forEach((w, i) => (widths[i] = w + (total - naturalSum) * (w / naturalSum)));
     } else {
       // Columns narrower than a fair share keep their natural width; the rest split what is left.

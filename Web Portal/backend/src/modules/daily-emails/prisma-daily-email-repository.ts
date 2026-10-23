@@ -16,6 +16,32 @@ const toRecord = (r: DailyTaskEmail): DailyEmailRecord => ({
   updatedAt: r.updatedAt,
 });
 
+/** The system_settings row that keeps when the sweep last checked (not a setting: never in the settings API). */
+export const DAILY_EMAIL_CHECK_KEY = 'dailyEmails.lastCheckedAt';
+
+/** When the daily-email sweep last checked, kept in the database so every server and a restart know it. */
+export function createPrismaDailyEmailCheckStore(prisma: PrismaClient) {
+  return {
+    async record(at: Date): Promise<void> {
+      const value = { at: at.toISOString() };
+      const { count } = await prisma.systemSetting.updateMany({ where: { key: DAILY_EMAIL_CHECK_KEY }, data: { value } });
+      if (count) return;
+      try {
+        await prisma.systemSetting.create({ data: { key: DAILY_EMAIL_CHECK_KEY, value } });
+      } catch (err) {
+        // Another server wrote the first one at the same moment: write ours over it.
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err;
+        await prisma.systemSetting.updateMany({ where: { key: DAILY_EMAIL_CHECK_KEY }, data: { value } });
+      }
+    },
+    async last(): Promise<Date | null> {
+      const row = await prisma.systemSetting.findUnique({ where: { key: DAILY_EMAIL_CHECK_KEY } });
+      const at = (row?.value as { at?: unknown } | null | undefined)?.at;
+      return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? new Date(at) : null;
+    },
+  };
+}
+
 export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEmailRepository {
   return {
     async claim(userId, day, kind) {
@@ -48,17 +74,39 @@ export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEma
       return taken ? toRecord(taken) : null;
     },
 
-    async finish(id, patch) {
-      await prisma.dailyTaskEmail.update({
-        where: { id },
+    async finish(taken, patch) {
+      // Only the attempt that holds the row: still SENDING, at the attempt count it took it at.
+      const { count } = await prisma.dailyTaskEmail.updateMany({
+        where: { id: taken.id, status: 'SENDING', attempts: taken.attempts },
         data: {
           status: patch.status,
+          ...(patch.attempts !== undefined ? { attempts: patch.attempts } : {}),
           ...(patch.taskCount !== undefined ? { taskCount: patch.taskCount } : {}),
           ...(patch.nextAttemptAt !== undefined ? { nextAttemptAt: patch.nextAttemptAt } : {}),
           ...(patch.lastError !== undefined ? { lastError: patch.lastError?.slice(0, 2000) ?? null } : {}),
           ...(patch.sentAt !== undefined ? { sentAt: patch.sentAt } : {}),
         },
       });
+      return count === 1;
+    },
+
+    async find(userId, day, kind) {
+      const row = await prisma.dailyTaskEmail.findUnique({ where: { userId_day_kind: { userId, day, kind } } });
+      return row ? toRecord(row) : null;
+    },
+
+    async forDays(days) {
+      if (!days.length) return [];
+      const rows = await prisma.dailyTaskEmail.findMany({
+        where: { day: { in: days } },
+        include: { user: { select: { firstName: true, lastName: true, username: true, email: true, preferredTimeZone: true } } },
+      });
+      return rows.map((r) => ({
+        ...toRecord(r),
+        userName: [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') || r.user.username,
+        email: r.user.email,
+        timeZone: r.user.preferredTimeZone ?? null,
+      }));
     },
 
     async list({ day, status, limit = 200 }) {

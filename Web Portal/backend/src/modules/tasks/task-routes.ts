@@ -347,11 +347,14 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
 
   app.delete('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Look the task up first: one that is already gone answers 404 for everyone (an offline delete
+    // replayed late counts that as done), and 403 means a real refusal of a task that is still there.
+    // It also gives us the project to scope the broadcast.
+    const task = await taskService.getTask(id);
     const allowed = deps.canDeleteTask
       ? await deps.canDeleteTask(req.user!.id, req.user!.roles ?? [], id)
       : (req.user!.roles ?? []).includes('ADMIN');
     if (!allowed) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } });
-    const task = await taskService.getTask(id); // 404 if already gone; also gives us the project to scope the broadcast
     const scope = (req.query as { scope?: string }).scope === 'series' ? 'series' : 'one';
     await taskService.deleteTask(id, scope);
     deps.broadcast?.(task.projectId, 'task:deleted', { id });
