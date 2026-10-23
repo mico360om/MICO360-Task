@@ -97,7 +97,16 @@ export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEma
 
     async forDays(days) {
       if (!days.length) return [];
-      return (await prisma.dailyTaskEmail.findMany({ where: { day: { in: days } } })).map(toRecord);
+      const rows = await prisma.dailyTaskEmail.findMany({
+        where: { day: { in: days } },
+        include: { user: { select: { firstName: true, lastName: true, username: true, email: true, preferredTimeZone: true } } },
+      });
+      return rows.map((r) => ({
+        ...toRecord(r),
+        userName: [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') || r.user.username,
+        email: r.user.email,
+        timeZone: r.user.preferredTimeZone ?? null,
+      }));
     },
 
     async list({ day, status, limit = 200 }) {

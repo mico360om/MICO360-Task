@@ -24,8 +24,11 @@ const overviewOf = (day: string | null): DailyEmailOverview => ({
   lastCheckedAt: new Date('2026-10-21T05:41:00Z'),
   checkLate: false,
   nextSendAt: new Date('2026-10-22T02:00:00Z'),
-  summary: { people: 1, sent: 1, skipped: 1, failed: 0, retrying: 0, sending: 0, upcoming: 0, toSend: 0 },
-  people: [{ userId: 'u1', name: 'Ada Lovelace', email: 'ada@mico360.test', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '07:00', day: day ?? '2026-10-21', pending: emailState, completed: { ...emailState, state: 'SKIPPED', sentAt: null, taskCount: 0 } }],
+  summary: { people: 1, sent: 1, skipped: 1, failed: 0, retrying: 0, sending: 0, late: 0, upcoming: 0, toSend: 0 },
+  people: [{
+    userId: 'u1', name: 'Ada Lovelace', email: 'ada@mico360.test', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '07:00', day: day ?? '2026-10-21', today: '2026-10-21', due: true, account: 'active',
+    pending: emailState, completed: { ...emailState, state: 'SKIPPED', sentAt: null, taskCount: 0 },
+  }],
 });
 const sentResult = (kind: 'PENDING' | 'COMPLETED', outcome: ManualSendResult['outcome'] = 'sent'): ManualSendResult => ({ kind, outcome, error: null, sentAt: outcome === 'off' ? null : new Date('2026-10-21T06:00:00Z') });
 
@@ -33,14 +36,16 @@ async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}
   const sendTest = vi.fn(async () => ({ pending: 'sent' as const, completed: 'empty' as const }));
   const list = vi.fn(async () => [logRow]);
   const overview = vi.fn(async (day?: string) => overviewOf(day ?? null));
-  const sendNow = vi.fn(async () => ({ sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3 }));
-  const sendFor = vi.fn(async (userId: string, o: { kind?: 'PENDING' | 'COMPLETED'; resend?: boolean } = {}) => {
+  const sendNow = vi.fn(async () => ({ sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3, notYet: 0 }));
+  const sendFor = vi.fn(async (userId: string, o: { kind?: 'PENDING' | 'COMPLETED'; resend?: boolean; early?: boolean } = {}) => {
     if (userId === 'nobody') return null;
     const off: string[] = userId === 'quiet' ? ['PENDING', 'COMPLETED'] : userId === 'half' || userId === 'other-half' ? ['COMPLETED'] : [];
     const kinds = o.kind ? [o.kind] : (['PENDING', 'COMPLETED'] as const);
     // 'unsent': nothing went (already sent, nothing in it, being sent, couldn't be sent).
-    const outcome = (k: string): ManualSendResult['outcome'] => (off.includes(k) ? 'off' : userId === 'unsent' ? (k === 'PENDING' ? 'already-sent' : 'retry') : 'sent');
-    return { userId, name: 'Ada Lovelace', email: 'ada@mico360.test', day: '2026-10-21', results: kinds.map((k) => sentResult(k, outcome(k))) };
+    // 'early-bird': their time today hasn't come — nothing goes unless asked to send early.
+    const outcome = (k: string): ManualSendResult['outcome'] =>
+      off.includes(k) ? 'off' : userId === 'unsent' ? (k === 'PENDING' ? 'already-sent' : 'retry') : userId === 'early-bird' && !o.early ? 'not-yet' : 'sent';
+    return { userId, name: 'Ada Lovelace', email: 'ada@mico360.test', day: '2026-10-21', time: '06:00', results: kinds.map((k) => sentResult(k, outcome(k))) };
   });
   const preview = vi.fn(async (userId: string, kind: 'PENDING' | 'COMPLETED') =>
     userId === 'nobody'
@@ -162,9 +167,9 @@ describe('Daily task emails: "Send today’s emails now"', () => {
     const { app, audited } = await makeApp();
     const res = await app.inject({ method: 'POST', url, headers: await admin() });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toEqual({ sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3 });
+    expect(res.json().data).toEqual({ sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3, notYet: 0 });
     expect(audited).toEqual([
-      { action: 'daily_email.send_now', module: 'daily-emails', entityId: null, userId: 'a1', newValue: { sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3 } },
+      { action: 'daily_email.send_now', module: 'daily-emails', entityId: null, userId: 'a1', newValue: { sent: 9, skipped: 2, failed: 1, retrying: 1, alreadyDone: 4, off: 3, notYet: 0 } },
     ]);
   });
 
@@ -264,6 +269,19 @@ describe('Daily task emails: send one person’s emails', () => {
       expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'unsent', kind } })).statusCode).toBe(200);
     }
     expect(sendFor).toHaveBeenCalledTimes(3);
+  });
+
+  it('before the person’s time today: says so and sends nothing — unless asked to send early', async () => {
+    const { app, sendFor, audited } = await makeApp();
+    const headers = await admin();
+    const ahead = await app.inject({ method: 'POST', url, headers, payload: { userId: 'early-bird', kind: 'PENDING' } });
+    expect(ahead.statusCode).toBe(409);
+    expect(ahead.json().error).toEqual({ code: 'NOT_YET', message: 'It isn’t Ada Lovelace’s time yet (their emails go at 06:00, their time), so nothing was sent.' });
+    expect(audited).toEqual([]);
+    const early = await app.inject({ method: 'POST', url, headers, payload: { userId: 'early-bird', kind: 'PENDING', early: true } });
+    expect(early.statusCode).toBe(200);
+    expect(sendFor).toHaveBeenLastCalledWith('early-bird', { kind: 'PENDING', resend: false, early: true });
+    expect(audited.at(-1)).toMatchObject({ action: 'daily_email.send', newValue: { early: true, results: [{ kind: 'PENDING', outcome: 'sent' }] } });
   });
 
   it('a refusal (turned off, not found) doesn’t start the gap', async () => {

@@ -1,8 +1,9 @@
-import { shiftDayKey, zonedStartOfDay } from '../../lib/due-date';
+import { shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
+import { instantOf } from '../meetings/meeting-series';
 import type { EmailContent } from '../email/email-templates';
 import { dailyEmailPrefs, type NotificationPreferences } from '../notifications/notification-preferences';
 import { completedEmail, pendingEmail, type DailyTask } from './daily-email-content';
-import type { DailyEmailFinish, DailyEmailKind, DailyEmailRecord, DailyEmailRepository, DailyEmailStatus } from './daily-email-repository';
+import type { DailyEmailDayRow, DailyEmailFinish, DailyEmailKind, DailyEmailRecord, DailyEmailRepository, DailyEmailStatus } from './daily-email-repository';
 
 /** Someone who may get the morning emails (active accounts only). */
 export interface DailyRecipient {
@@ -46,18 +47,16 @@ export const CHECK_LATE_MS = 5 * 60_000;
 
 /**
  * One email's state on a day, for the administrators: OFF (turned off, nothing recorded), DUE (still
- * to come: `dueAt`), NONE (a past day with nothing recorded), else the delivery record's status.
+ * to come: `dueAt`), LATE (its time today has passed and it hasn't gone yet: email not set up, or the
+ * server asleep), NONE (a past day with nothing recorded), else the delivery record's status.
  */
-export type DailyEmailState = 'OFF' | 'DUE' | 'NONE' | DailyEmailStatus;
+export type DailyEmailState = 'OFF' | 'DUE' | 'LATE' | 'NONE' | DailyEmailStatus;
 
 export interface DailyEmailOverviewEmail {
   /** The person's setting now. */
   on: boolean;
   state: DailyEmailState;
-  /**
-   * DUE: when it goes — that day's time, or tomorrow's for someone who joined after today's. It may
-   * have passed while the server hasn't sent it yet (email not set up, or the server was asleep).
-   */
+  /** DUE: when it goes — that day's time, or tomorrow's for someone who joined after today's. LATE: when it was due. */
   dueAt: Date | null;
   sentAt: Date | null;
   taskCount: number;
@@ -77,6 +76,12 @@ export interface DailyEmailOverviewPerson {
   time: string;
   /** The person's calendar day shown ('YYYY-MM-DD'). */
   day: string;
+  /** Their own today ('YYYY-MM-DD'): their emails can be sent for that day only. */
+  today: string;
+  /** Their time today has come (and they joined before it): sending now isn't ahead of their time. */
+  due: boolean;
+  /** 'inactive' / 'no-email': records of someone who no longer gets these emails, shown so they stay visible. */
+  account: 'active' | 'inactive' | 'no-email';
   pending: DailyEmailOverviewEmail;
   completed: DailyEmailOverviewEmail;
 }
@@ -101,16 +106,24 @@ export interface DailyEmailOverview {
     failed: number;
     retrying: number;
     sending: number;
-    /** Still to come. */
+    /** Due, not sent yet: their time has passed and no attempt is recorded. */
+    late: number;
+    /** Still to come that day. */
     upcoming: number;
-    /** People "Send today's emails now" would send to (it is always about today). */
+    /**
+     * People "Send today's emails now" would send to: their time today has come and an email turned on
+     * hasn't gone (none yet, failed, waiting for a retry). It is always about today.
+     */
     toSend: number;
   };
   people: DailyEmailOverviewPerson[];
 }
 
-/** How an administrator's send of one email went ('blocked': the address is blocked after a bounce or spam complaint). */
-export type ManualSendOutcome = 'sent' | 'empty' | 'blocked' | 'retry' | 'failed' | 'already-sent' | 'already-done' | 'busy' | 'off';
+/**
+ * How an administrator's send of one email went ('blocked': the address is blocked after a bounce or
+ * spam complaint; 'not-yet': their time today hasn't come, and sending early wasn't asked for).
+ */
+export type ManualSendOutcome = 'sent' | 'empty' | 'blocked' | 'retry' | 'failed' | 'already-sent' | 'already-done' | 'busy' | 'off' | 'not-yet';
 export interface ManualSendResult {
   kind: DailyEmailKind;
   outcome: ManualSendOutcome;
@@ -141,15 +154,12 @@ function validZone(tz: string | null, fallback: string): string {
   }
 }
 
-/** The calendar day and minute of the day at `now` in a time zone. */
-function localClock(now: Date, timeZone: string): { day: string; minutes: number } {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
-  return { day: `${get('year')}-${get('month')}-${get('day')}`, minutes: Number(get('hour')) * 60 + Number(get('minute')) };
+/** The calendar day at `now` in a time zone. */
+function localClock(now: Date, timeZone: string): { day: string } {
+  return { day: zonedDayKey(now, timeZone) };
 }
-const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
-/** The instant someone's emails are due on a day (their time, in their time zone). */
-const dueOn = (day: string, timeZone: string, time: string) => new Date(zonedStartOfDay(day, timeZone).getTime() + toMinutes(time) * 60_000);
+/** The instant someone's emails are due on a day: their time by the clocks there that day (clock changes included). */
+const dueOn = (day: string, timeZone: string, time: string) => instantOf(new Date(`${day}T${time}:00.000Z`), timeZone);
 const isOn = (prefs: ReturnType<typeof dailyEmailPrefs>, kind: DailyEmailKind) => (kind === 'PENDING' ? prefs.pending : prefs.completed);
 
 /**
@@ -167,6 +177,20 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   let warnedNotConfigured = false;
   let lastChecked: Date | null = null;
   const zoneOf = (person: DailyRecipient) => validZone(person.timeZone, deps.companyTimeZone);
+
+  /**
+   * A person's today and their time that day: `due` once it has come — unless they joined after it
+   * (their first emails are the next morning's). Nothing is ever sent for them before then, except
+   * when an administrator asks to send early.
+   */
+  function timing(person: DailyRecipient, at: Date) {
+    const timeZone = zoneOf(person);
+    const prefs = dailyEmailPrefs(person.prefs);
+    const today = localClock(at, timeZone).day;
+    const dueAt = dueOn(today, timeZone, prefs.time);
+    const joinedLate = person.createdAt.getTime() > dueAt.getTime();
+    return { timeZone, prefs, today, dueAt, joinedLate, due: !joinedLate && at.getTime() >= dueAt.getTime() };
+  }
 
   /** The sweep checked at `at`: kept here and in the database (a problem writing it never stops the sweep). */
   async function noteChecked(at: Date): Promise<void> {
@@ -311,15 +335,12 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
 
     for (const person of await deps.people.list()) {
       if (!person.email) continue;
-      const timeZone = zoneOf(person);
-      const prefs = dailyEmailPrefs(person.prefs);
-      const { day, minutes } = localClock(at, timeZone);
-      if (minutes < toMinutes(prefs.time)) continue;
-      // Someone who joined after today's time starts the morning after.
-      if (person.createdAt.getTime() > dueOn(day, timeZone, prefs.time).getTime()) continue;
+      // Their time today hasn't come (or they joined after it: they start the morning after).
+      const { prefs, today, due } = timing(person, at);
+      if (!due) continue;
       for (const kind of KINDS) {
         if (!isOn(prefs, kind)) continue;
-        const row = await deps.repo.claim(person.id, day, kind);
+        const row = await deps.repo.claim(person.id, today, kind);
         if (row) count((await attempt(row, person)).status);
       }
     }
@@ -362,11 +383,18 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
    * An administrator's send of one person's email for `day` (their today), through the same record as
    * the sweep: a new one is claimed; a failed or retrying one is taken again; a skipped one too when
    * `retrySkipped`; a sent one only for a `resend`. One being sent right now is left alone. Never an
-   * email the person turned off.
+   * email the person turned off, and nothing before their time (`notYet`) but a resend.
    */
-  async function sendOne(person: DailyRecipient, day: string, kind: DailyEmailKind, opts: { resend: boolean; retrySkipped: boolean }): Promise<ManualSendResult> {
+  async function sendOne(
+    person: DailyRecipient,
+    day: string,
+    kind: DailyEmailKind,
+    opts: { resend: boolean; retrySkipped: boolean; notYet?: boolean },
+  ): Promise<ManualSendResult> {
     const result = (outcome: ManualSendOutcome, error: string | null = null, sentAt: Date | null = null): ManualSendResult => ({ kind, outcome, error, sentAt });
     if (!isOn(dailyEmailPrefs(person.prefs), kind)) return result('off');
+    // Before their time today: only one that already went can be resent (or it says it went).
+    if (opts.notYet && (await deps.repo.find(person.id, day, kind))?.status !== 'SENT') return result('not-yet');
     let row = await deps.repo.claim(person.id, day, kind);
     let before: DailyEmailRecord | null = null;
     if (!row) {
@@ -382,18 +410,28 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   }
 
   /**
-   * "Send today's emails now": everyone's emails for their today, at once, whatever the time — each one
-   * turned on that hasn't gone yet (none, failed or waiting for a retry). Ones already sent, or skipped
-   * because they had nothing in them, are left as they are.
+   * "Send today's emails now": everyone's emails for their today whose time has come, at once — each
+   * one turned on that hasn't gone yet (none, failed or waiting for a retry). Never ahead of a person's
+   * time (late in the company's evening it would be the next day's in their night): theirs go at their
+   * time. Ones already sent, or skipped because they had nothing in them, are left as they are.
    */
-  async function sendNow(): Promise<{ sent: number; skipped: number; failed: number; retrying: number; alreadyDone: number; off: number }> {
-    const tally = { sent: 0, skipped: 0, failed: 0, retrying: 0, alreadyDone: 0, off: 0 };
+  async function sendNow(): Promise<{ sent: number; skipped: number; failed: number; retrying: number; alreadyDone: number; off: number; notYet: number }> {
+    const tally = { sent: 0, skipped: 0, failed: 0, retrying: 0, alreadyDone: 0, off: 0, notYet: 0 };
     const at = now();
     for (const person of await deps.people.list()) {
       if (!person.email) continue;
-      const { day } = localClock(at, zoneOf(person));
+      const { prefs, today, due } = timing(person, at);
       for (const kind of KINDS) {
-        const { outcome } = await sendOne(person, day, kind, { resend: false, retrySkipped: false });
+        if (!isOn(prefs, kind)) {
+          tally.off++;
+          continue;
+        }
+        // Never ahead of their time: theirs go at their time, by the sweep.
+        if (!due) {
+          tally.notYet++;
+          continue;
+        }
+        const { outcome } = await sendOne(person, today, kind, { resend: false, retrySkipped: false });
         if (outcome === 'sent') tally.sent++;
         else if (outcome === 'empty' || outcome === 'blocked') tally.skipped++;
         else if (outcome === 'retry') {
@@ -410,17 +448,18 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   /**
    * One person's emails for their today, now (or just `kind`). One that already went is sent again only
    * with `resend` (the same record: one more attempt, a new sent time). One skipped earlier is tried
-   * again (there may be something in it now). Null: not an active person with an email address.
+   * again (there may be something in it now). Before their time today only with `early` ('not-yet'
+   * otherwise). Null: not an active person with an email address.
    */
-  async function sendFor(userId: string, opts: { kind?: DailyEmailKind; resend?: boolean } = {}) {
+  async function sendFor(userId: string, opts: { kind?: DailyEmailKind; resend?: boolean; early?: boolean } = {}) {
     const person = await deps.people.find(userId);
     if (!person?.email) return null;
-    const { day } = localClock(now(), zoneOf(person));
+    const { prefs, today, due } = timing(person, now());
     const results: ManualSendResult[] = [];
     for (const kind of opts.kind ? [opts.kind] : KINDS) {
-      results.push(await sendOne(person, day, kind, { resend: opts.resend === true, retrySkipped: true }));
+      results.push(await sendOne(person, today, kind, { resend: opts.resend === true, retrySkipped: true, notYet: !due && opts.early !== true }));
     }
-    return { userId: person.id, name: person.name, email: person.email, day, results };
+    return { userId: person.id, name: person.name, email: person.email, day: today, time: prefs.time, results };
   }
 
   /**
@@ -450,40 +489,51 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   /**
    * A day for the administrators: everyone with an email address, their time and time zone, and each
    * email's state; the day's numbers; when the server last checked and when the next email is due.
-   * `day` is each person's own calendar day ('YYYY-MM-DD'); left out, each person's today.
+   * `day` is each person's own calendar day ('YYYY-MM-DD'); left out, each person's today. Records of
+   * someone who no longer gets these emails (no longer active, no address now) are shown too.
    */
   async function overview(day?: string): Promise<DailyEmailOverview> {
     const at = now();
-    const people = (await deps.people.list()).filter((p): p is DailyRecipient & { email: string } => Boolean(p.email));
-    const local = people.map((person) => {
-      const timeZone = zoneOf(person);
-      return { person, timeZone, prefs: dailyEmailPrefs(person.prefs), today: localClock(at, timeZone).day };
-    });
+    const everyone = await deps.people.list();
+    const people = everyone.filter((p): p is DailyRecipient & { email: string } => Boolean(p.email));
+    const local = people.map((person) => ({ person, ...timing(person, at) }));
     const days = new Set(local.map((l) => l.today));
     if (day) days.add(day);
-    const rows = new Map((await deps.repo.forDays([...days])).map((r) => [`${r.userId}|${r.day}|${r.kind}`, r] as const));
+    const records = await deps.repo.forDays([...days]);
+    const rows = new Map(records.map((r) => [`${r.userId}|${r.day}|${r.kind}`, r] as const));
     const rowOf = (userId: string, d: string, kind: DailyEmailKind) => rows.get(`${userId}|${d}|${kind}`) ?? null;
 
-    const summary = { people: 0, sent: 0, skipped: 0, failed: 0, retrying: 0, sending: 0, upcoming: 0, toSend: 0 };
+    const summary = { people: 0, sent: 0, skipped: 0, failed: 0, retrying: 0, sending: 0, late: 0, upcoming: 0, toSend: 0 };
     let nextSendAt: Date | null = null;
     let dueNotSent = false;
     const out: DailyEmailOverviewPerson[] = [];
+    const blank = (on: boolean, state: DailyEmailState, dueAt: Date | null = null): DailyEmailOverviewEmail => ({
+      on, state, dueAt, sentAt: null, taskCount: 0, attempts: 0, nextAttemptAt: null, lastError: null,
+    });
+    const fromRow = (on: boolean, row: DailyEmailRecord): DailyEmailOverviewEmail => ({
+      ...blank(on, row.status), sentAt: row.sentAt, taskCount: row.taskCount, attempts: row.attempts, nextAttemptAt: row.nextAttemptAt, lastError: row.lastError,
+    });
+    const STATE_COUNT: Partial<Record<DailyEmailState, keyof typeof summary>> = {
+      SENT: 'sent', SKIPPED: 'skipped', FAILED: 'failed', RETRY: 'retrying', SENDING: 'sending', LATE: 'late',
+    };
+    const tally = (e: DailyEmailOverviewEmail) => {
+      const key = STATE_COUNT[e.state];
+      if (key) summary[key]++;
+    };
 
-    for (const { person, timeZone, prefs, today } of local) {
+    for (const { person, timeZone, prefs, today, dueAt, joinedLate, due } of local) {
       const shown = day ?? today;
       const tomorrow = dueOn(shiftDayKey(today, 1), timeZone, prefs.time);
       // Someone who joined after today's time gets their first emails tomorrow (as the sweep does).
-      const todayDue = person.createdAt.getTime() > dueOn(today, timeZone, prefs.time).getTime() ? tomorrow : dueOn(today, timeZone, prefs.time);
+      const todayDue = joinedLate ? tomorrow : dueAt;
       const email = (kind: DailyEmailKind): DailyEmailOverviewEmail => {
         const on = isOn(prefs, kind);
         const row = rowOf(person.id, shown, kind);
-        const base = { on, dueAt: null, sentAt: null, taskCount: 0, attempts: 0, nextAttemptAt: null, lastError: null };
-        if (row) {
-          return { ...base, state: row.status, sentAt: row.sentAt, taskCount: row.taskCount, attempts: row.attempts, nextAttemptAt: row.nextAttemptAt, lastError: row.lastError };
-        }
-        if (!on) return { ...base, state: 'OFF' };
-        if (shown < today) return { ...base, state: 'NONE' };
-        return { ...base, state: 'DUE', dueAt: shown === today ? todayDue : dueOn(shown, timeZone, prefs.time) };
+        if (row) return fromRow(on, row);
+        if (!on) return blank(false, 'OFF');
+        if (shown < today) return blank(true, 'NONE');
+        if (shown > today) return blank(true, 'DUE', dueOn(shown, timeZone, prefs.time));
+        return blank(true, due ? 'LATE' : 'DUE', todayDue);
       };
       const entry: DailyEmailOverviewPerson = {
         userId: person.id,
@@ -493,6 +543,9 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
         ownTimeZone: Boolean(person.timeZone) && timeZone === person.timeZone,
         time: prefs.time,
         day: shown,
+        today,
+        due,
+        account: 'active',
         pending: email('PENDING'),
         completed: email('COMPLETED'),
       };
@@ -501,21 +554,58 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       const kindsOn = KINDS.filter((k) => isOn(prefs, k));
       if (kindsOn.length) summary.people++;
       for (const e of [entry.pending, entry.completed]) {
-        if (e.state === 'SENT') summary.sent++;
-        else if (e.state === 'SKIPPED') summary.skipped++;
-        else if (e.state === 'FAILED') summary.failed++;
-        else if (e.state === 'RETRY') summary.retrying++;
-        else if (e.state === 'SENDING') summary.sending++;
-        else if (e.state === 'DUE') summary.upcoming++;
+        tally(e);
+        // Still to come that day (not someone's first emails tomorrow).
+        if (e.state === 'DUE' && !(shown === today && joinedLate)) summary.upcoming++;
       }
       // "Send now" and the next send are about today, whichever day is shown.
       const todayRows = kindsOn.map((k) => rowOf(person.id, today, k));
-      if (todayRows.some((r) => !r || r.status === 'FAILED' || r.status === 'RETRY')) summary.toSend++;
-      if (todayRows.some((r) => !r) && todayDue <= at) dueNotSent = true;
+      if (due && todayRows.some((r) => !r || r.status === 'FAILED' || r.status === 'RETRY')) summary.toSend++;
+      if (due && todayRows.some((r) => !r)) dueNotSent = true;
       for (const r of todayRows) {
-        const next = r ? tomorrow : todayDue;
+        // Not sent yet: today's time (passed: due now); waiting for a retry: that try; else tomorrow's.
+        const next = !r ? todayDue : r.status === 'RETRY' && r.nextAttemptAt ? r.nextAttemptAt : tomorrow;
         if (!nextSendAt || next < nextSendAt) nextSendAt = next;
       }
+    }
+
+    // Records of people who no longer get these emails stay visible: no Send, no Preview.
+    const shownIds = new Set(out.map((p) => p.userId));
+    const known = new Map(everyone.map((p) => [p.id, p] as const));
+    const others = new Map<string, DailyEmailDayRow[]>();
+    for (const r of records) if (!shownIds.has(r.userId)) others.set(r.userId, [...(others.get(r.userId) ?? []), r]);
+    for (const [userId, theirs] of others) {
+      const first = theirs[0]!;
+      const stillHere = known.get(userId);
+      const ownZone = stillHere?.timeZone ?? first.timeZone ?? null;
+      const timeZone = validZone(ownZone, deps.companyTimeZone);
+      const today = localClock(at, timeZone).day;
+      const shown = day ?? today;
+      const of = (kind: DailyEmailKind) => theirs.find((r) => r.day === shown && r.kind === kind) ?? null;
+      if (!of('PENDING') && !of('COMPLETED')) continue;
+      const prefs = stillHere ? dailyEmailPrefs(stillHere.prefs) : null;
+      const email = (kind: DailyEmailKind) => {
+        const row = of(kind);
+        const on = prefs ? isOn(prefs, kind) : false;
+        return row ? fromRow(on, row) : blank(on, 'NONE');
+      };
+      const entry: DailyEmailOverviewPerson = {
+        userId,
+        name: stillHere?.name ?? first.userName,
+        email: first.email,
+        timeZone,
+        ownTimeZone: Boolean(ownZone) && timeZone === ownZone,
+        time: prefs?.time ?? '',
+        day: shown,
+        today,
+        due: false,
+        account: stillHere ? 'no-email' : 'inactive',
+        pending: email('PENDING'),
+        completed: email('COMPLETED'),
+      };
+      out.push(entry);
+      tally(entry.pending);
+      tally(entry.completed);
     }
 
     out.sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));

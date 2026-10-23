@@ -24,6 +24,11 @@ export interface DailyEmailLogRow extends DailyEmailRecord {
   email: string;
 }
 
+/** A record of a day with who it was for, and their own time zone (null: the company's). */
+export interface DailyEmailDayRow extends DailyEmailLogRow {
+  timeZone: string | null;
+}
+
 export interface DailyEmailFinish {
   status: 'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED';
   /** Set back (an administrator's try that failed doesn't use up the automatic retries). */
@@ -53,8 +58,8 @@ export interface DailyEmailRepository {
   finish(taken: Pick<DailyEmailRecord, 'id' | 'attempts'>, patch: DailyEmailFinish): Promise<boolean>;
   /** The record for (person, day, email), or null when there is none yet. */
   find(userId: string, day: string, kind: DailyEmailKind): Promise<DailyEmailRecord | null>;
-  /** Every record for these days ('YYYY-MM-DD'): the admins' overview of a day. */
-  forDays(days: string[]): Promise<DailyEmailRecord[]>;
+  /** Every record for these days ('YYYY-MM-DD'), with who it was for: the admins' overview of a day. */
+  forDays(days: string[]): Promise<DailyEmailDayRow[]>;
   /** The delivery log, newest first. */
   list(filter: { day?: string; status?: DailyEmailStatus; limit?: number }): Promise<DailyEmailLogRow[]>;
 }

@@ -21,7 +21,8 @@ const logQuery = z.object({
   status: z.enum(['SENDING', 'SENT', 'SKIPPED', 'RETRY', 'FAILED']).optional(),
 });
 const overviewQuery = z.object({ day: dayKey.optional() });
-const sendBody = z.object({ userId: z.string().min(1).max(64), kind: kindEnum.optional(), resend: z.boolean().optional() });
+/** `early`: send it although the person's time today hasn't come (an administrator was asked first). */
+const sendBody = z.object({ userId: z.string().min(1).max(64), kind: kindEnum.optional(), resend: z.boolean().optional(), early: z.boolean().optional() });
 const previewQuery = z.object({ userId: z.string().min(1).max(64), kind: kindEnum });
 
 /** One test a minute per person: enough to check the emails, not enough to flood an inbox. */
@@ -130,9 +131,10 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
     }
     const releaseAll = () => kinds.forEach((k) => personSends.release(gapKey(k)));
     const resend = body.resend === true;
+    const early = body.early === true;
     let sent;
     try {
-      sent = await deps.service.sendFor(body.userId, { ...(body.kind ? { kind: body.kind } : {}), resend });
+      sent = await deps.service.sendFor(body.userId, { ...(body.kind ? { kind: body.kind } : {}), resend, ...(early ? { early } : {}) });
     } catch (err) {
       releaseAll();
       throw err;
@@ -148,9 +150,14 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
         : `${sent.name} turned off both daily emails, so there’s nothing to send.`;
       return reply.status(409).send({ error: { code: 'EMAIL_TURNED_OFF', message } });
     }
+    if (sent.results.every((r) => r.outcome === 'not-yet' || r.outcome === 'off')) {
+      const message = `It isn’t ${sent.name}’s time yet (their emails go at ${sent.time}, their time), so nothing was sent.`;
+      return reply.status(409).send({ error: { code: 'NOT_YET', message } });
+    }
     await audit(req, resend ? 'daily_email.resend' : 'daily_email.send', body.userId, {
       kind: body.kind ?? null,
       resend,
+      ...(early ? { early } : {}),
       day: sent.day,
       results: sent.results.map((r) => ({ kind: r.kind, outcome: r.outcome })),
     });

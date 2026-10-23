@@ -85,12 +85,14 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     expect(later.sent).toEqual([]);
   });
 
-  it('sent before the person’s time, it counts as today’s: the sweep at their time sends nothing', async () => {
-    const early = makeService(new Date('2026-10-21T00:30:00Z')); // 04:30 Muscat, 06:00 Kolkata: before both
-    expect(await early.service.sendNow()).toMatchObject({ sent: 3 });
+  it('"Send now" never goes ahead of a person’s time; one person sent early (when asked) counts as today’s', async () => {
+    const early = makeService(new Date('2026-10-21T00:30:00Z')); // 04:30 Muscat, 06:00 Kolkata: before both (06:00, 07:00)
+    expect(await early.service.sendNow()).toMatchObject({ sent: 0, notYet: 3, off: 1 });
+    expect(early.sent).toEqual([]);
+    expect((await early.service.sendFor(ada, { early: true }))!.results.map((r) => r.outcome)).toEqual(['sent', 'sent']);
     const atTheirTime = makeService(new Date('2026-10-21T02:00:00Z'));
     await atTheirTime.service.runSweep();
-    expect(atTheirTime.sent).toEqual([]);
+    expect(atTheirTime.sent).toEqual(['dadm-bo@mico360.test daily-pending']); // Bo’s at his time; Ada’s went early
   });
 
   it('a failed email taken again by two sends at once goes once; a resend keeps the one record', async () => {
@@ -116,16 +118,23 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     const o = await service.overview();
     expect(o.people.map((p) => p.name)).toEqual(['Ada Admin', 'Bo Admin']);
     const [a, b] = o.people;
-    expect(a).toMatchObject({ day: '2026-10-21', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '06:00' });
+    expect(a).toMatchObject({ day: '2026-10-21', today: '2026-10-21', due: true, account: 'active', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '06:00' });
     expect(a!.pending).toMatchObject({ state: 'SENT', taskCount: 1, sentAt: new Date('2026-10-21T02:00:00Z') });
-    expect(a!.completed).toMatchObject({ state: 'DUE', dueAt: new Date('2026-10-21T02:00:00Z') });
+    expect(a!.completed).toMatchObject({ state: 'LATE', dueAt: new Date('2026-10-21T02:00:00Z') }); // 06:00 has come, not sent yet
     expect(b).toMatchObject({ day: '2026-10-21', timeZone: 'Asia/Kolkata', ownTimeZone: true, time: '07:00' });
     expect(b!.pending).toMatchObject({ state: 'RETRY', lastError: 'HTTP 503', nextAttemptAt: new Date('2026-10-21T02:20:00Z') });
     expect(b!.completed).toMatchObject({ on: false, state: 'OFF' });
-    expect(o.summary).toEqual({ people: 2, sent: 1, skipped: 0, failed: 0, retrying: 1, sending: 0, upcoming: 1, toSend: 2 });
+    expect(o.summary).toEqual({ people: 2, sent: 1, skipped: 0, failed: 0, retrying: 1, sending: 0, late: 1, upcoming: 0, toSend: 2 });
 
     const yesterday = await service.overview('2026-10-20');
     expect(yesterday.people[0]!.pending).toMatchObject({ state: 'SENDING' });
     expect(yesterday.people[1]!.pending).toMatchObject({ state: 'NONE' });
+
+    // Someone no longer active: their records stay visible, with their name.
+    await prisma.user.update({ where: { id: bo }, data: { status: 'INACTIVE' } });
+    const after = await service.overview();
+    expect(after.people.map((p) => [p.name, p.account])).toEqual([['Ada Admin', 'active'], ['Bo Admin', 'inactive']]);
+    expect(after.people[1]!).toMatchObject({ email: 'dadm-bo@mico360.test', timeZone: 'Asia/Kolkata', due: false });
+    expect(after.people[1]!.pending).toMatchObject({ state: 'RETRY' });
   });
 });
