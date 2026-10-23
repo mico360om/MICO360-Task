@@ -184,6 +184,10 @@ model Project {
   startDate   DateTime?
   targetDate  DateTime?
   notes       String?       @db.Text
+  /// Each night, unfinished tasks on past board days move to today's board (when the company-wide switch is on too).
+  carryForward    Boolean   @default(true)
+  /// A task created in the project without a due date gets today's date (the company's calendar day).
+  defaultDueToday Boolean   @default(false)
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
