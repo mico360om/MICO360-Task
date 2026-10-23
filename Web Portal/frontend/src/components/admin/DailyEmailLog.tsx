@@ -45,6 +45,12 @@ const OTHER_DAY_ID = 'daily-emails-other-day';
 const KINDS: DailyEmailKind[] = ['PENDING', 'COMPLETED'];
 const emailOf = (p: DailyEmailOverviewPerson, kind: DailyEmailKind) => (kind === 'PENDING' ? p.pending : p.completed);
 
+/** Which email the list is about: both, or one (each card then shows only that email, and Status is about it). */
+const EMAIL_OPTIONS: { value: '' | DailyEmailKind; label: string }[] = [
+  { value: '', label: 'Both' },
+  ...KINDS.map((kind) => ({ value: kind, label: KIND_LABEL[kind] })),
+];
+
 const STATUS_OPTIONS: { value: '' | DailyEmailState; label: string }[] = [
   { value: '', label: 'All' },
   { value: 'DUE', label: 'Still to come' },
@@ -107,6 +113,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   const timeZone = useCompanyTimeZone();
   const today = todayKey(timeZone);
   const [day, setDay] = useState(''); // '' = today (each person's own)
+  const [kind, setKind] = useState<'' | DailyEmailKind>(''); // '' = both emails
   const [status, setStatus] = useState<'' | DailyEmailState>('');
   const [search, setSearch] = useState('');
   // People acted on during this visit stay in view (marked) until a filter changes, so a card never
@@ -144,7 +151,8 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   };
   const words = searchWords(search);
   const filtered = Boolean(status || words.length);
-  const matches = (p: DailyEmailOverviewPerson) => (!status || p.pending.state === status || p.completed.state === status) && foundBy(p, words);
+  const kinds = kind ? [kind] : KINDS;
+  const matches = (p: DailyEmailOverviewPerson) => (!status || kinds.some((k) => emailOf(p, k).state === status)) && foundBy(p, words);
   const people = (data?.people ?? []).filter((p) => matches(p) || kept.has(p.userId));
   const matching = people.filter(matches).length;
   const refresh = () => qc.invalidateQueries({ queryKey: [OVERVIEW_KEY] });
@@ -194,6 +202,14 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
               />
             </label>
             <label className="flex w-full flex-col gap-1 text-xs font-medium text-ink-2 sm:w-auto">
+              Email
+              <select value={kind} onChange={(e) => filtering(() => setKind(e.target.value as '' | DailyEmailKind))} className={fieldClass}>
+                {EMAIL_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex w-full flex-col gap-1 text-xs font-medium text-ink-2 sm:w-auto">
               Status
               <select value={status} onChange={(e) => filtering(() => setStatus(e.target.value as '' | DailyEmailState))} className={fieldClass}>
                 {STATUS_OPTIONS.map((o) => (
@@ -229,6 +245,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
                     person={p}
                     emailEnabled={data.emailEnabled !== false}
                     viewDay={viewDay}
+                    kinds={kinds}
                     outsideFilter={!matches(p)}
                     onActed={() => actedOn(p.userId)}
                     onResult={setResult}
@@ -378,6 +395,7 @@ function PersonCard({
   person,
   emailEnabled,
   viewDay,
+  kinds,
   outsideFilter,
   onActed,
   onResult,
@@ -388,6 +406,8 @@ function PersonCard({
   emailEnabled: boolean;
   /** The day the page shows (the company's today, or the day chosen). */
   viewDay: string;
+  /** The emails shown: both, or the one chosen. */
+  kinds: DailyEmailKind[];
   /** Kept in view after a send, though it no longer matches the filters. */
   outsideFilter: boolean;
   onActed: () => void;
@@ -452,8 +472,8 @@ function PersonCard({
         {person.day !== viewDay ? <p className="mt-1 text-xs text-ink-2">Their day: {dayLabel(person.day)}</p> : null}
         {outsideFilter ? <p className="mt-1 text-xs font-medium text-ink-2">No longer matches the filter.</p> : null}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {KINDS.map((kind) => (
+      <div className={`grid gap-3 ${kinds.length > 1 ? 'sm:grid-cols-2' : ''}`}>
+        {kinds.map((kind) => (
           <EmailBlock
             key={kind}
             person={person}

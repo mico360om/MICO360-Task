@@ -480,6 +480,67 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   });
 });
 
+describe('System Settings → Daily task emails: one email at a time', () => {
+  const kindsShown = (li: HTMLElement) => within(li).queryAllByRole('button', { name: /^Preview / }).map((b) => b.getAttribute('aria-label'));
+
+  it('Email: Pending tasks or Completed yesterday shows only that email on each card; Both shows the two', async () => {
+    const user = userEvent.setup();
+    renderIt();
+    await screen.findByRole('list', { name: 'Everyone and their daily emails' });
+    const email = screen.getByLabelText('Email');
+    expect(email).toHaveDisplayValue('Both');
+    expect(within(email).getAllByRole('option').map((o) => o.textContent)).toEqual(['Both', 'Pending tasks', 'Completed yesterday']);
+    expect(kindsShown(await personItem('Ada Lovelace'))).toEqual(['Preview Ada Lovelace’s Pending tasks email', 'Preview Ada Lovelace’s Completed yesterday email']);
+    await user.selectOptions(email, 'PENDING');
+    const ada = await personItem('Ada Lovelace');
+    expect(kindsShown(ada)).toEqual(['Preview Ada Lovelace’s Pending tasks email']);
+    expect(ada).not.toHaveTextContent('Skipped — nothing to send'); // her completed email’s row
+    expect(shownNames()).toEqual(['Ada Lovelace', 'Bo Brown', 'Fay Fisher']); // still everyone
+    await user.selectOptions(email, 'COMPLETED');
+    expect(kindsShown(await personItem('Bo Brown'))).toEqual(['Preview Bo Brown’s Completed yesterday email']);
+    expect(await personItem('Bo Brown')).toHaveTextContent('Turned off');
+    await user.selectOptions(email, '');
+    expect(kindsShown(await personItem('Fay Fisher'))).toHaveLength(2);
+  });
+
+  it('the status then applies to the chosen email only', async () => {
+    const user = userEvent.setup();
+    renderIt();
+    await screen.findByRole('list', { name: 'Everyone and their daily emails' });
+    await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
+    expect(shownNames()).toEqual(['Fay Fisher']); // her pending email failed
+    await user.selectOptions(screen.getByLabelText('Email'), 'COMPLETED');
+    expect(screen.getByText('No one matches these filters.')).toBeInTheDocument(); // her completed one is retrying
+    await user.selectOptions(screen.getByLabelText('Status'), 'RETRY');
+    expect(shownNames()).toEqual(['Fay Fisher']);
+    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
+    expect(screen.getByText('No one matches these filters.')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Status'), 'SENT');
+    expect(shownNames()).toEqual(['Ada Lovelace']);
+    expect(screen.getByText('1 person matches')).toBeInTheDocument();
+  });
+
+  it('a card acted on under the chosen email stays, marked, until a filter changes', async () => {
+    const user = userEvent.setup();
+    renderIt();
+    await screen.findByRole('list', { name: 'Everyone and their daily emails' });
+    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
+    await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
+    sendReply = (b) => {
+      withPeople([PEOPLE[0], PEOPLE[1], { ...PEOPLE[2], pending: emailOf({ state: 'SENT', sentAt: '2026-10-21T05:45:00.000Z', taskCount: 2, attempts: 5 }) }]);
+      return json({ data: { userId: b.userId, name: 'Fay Fisher', email: 'fay@mico360.test', day: '2026-10-21', time: '06:00', results: [{ kind: b.kind, outcome: 'sent', error: null, sentAt: '2026-10-21T05:45:00.000Z' }] } });
+    };
+    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
+    const fay = await personItem('Fay Fisher');
+    await waitFor(() => expect(fay).toHaveTextContent('Sent at 09:45 · 2 tasks'));
+    expect(fay).toHaveTextContent('No longer matches the filter.');
+    expect(within(fay).getByRole('button', { name: 'Resend Fay Fisher’s Pending tasks email' })).toHaveFocus();
+    // Another email chosen: only what matches (neither of hers has failed now).
+    await user.selectOptions(screen.getByLabelText('Email'), '');
+    expect(screen.getByText('No one matches these filters.')).toBeInTheDocument();
+  });
+});
+
 describe('System Settings → Daily task emails: finding a person', () => {
   const someone = (userId: string, name: string, username: string, email: string) =>
     personOf({ userId, name, username, email, timeZone: 'Asia/Muscat', time: '07:00', pending: emailOf(), completed: emailOf() });
