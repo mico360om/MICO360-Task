@@ -49,7 +49,7 @@ function memoryRepo(clock: () => Date = () => new Date()) {
     },
     async forDays(days) {
       // With who it was for, as the database joins it (the test people's names and addresses).
-      return rows.filter((r) => days.includes(r.day)).map((r) => ({ ...r, userName: r.userId.toUpperCase(), email: `${r.userId}@mico360.test`, timeZone: null }));
+      return rows.filter((r) => days.includes(r.day)).map((r) => ({ ...r, userName: r.userId.toUpperCase(), username: r.userId, email: `${r.userId}@mico360.test`, timeZone: null }));
     },
   };
   return { repo, rows, failFinishes: (n: number) => { failFinishes = n; }, failClaimsFor };
@@ -66,6 +66,7 @@ const at = (iso: string) => new Date(iso);
 const person = (id: string, extra: Partial<DailyRecipient> = {}): DailyRecipient => ({
   id,
   name: id.toUpperCase(),
+  username: id,
   email: `${id}@mico360.test`,
   timeZone: null,
   prefs: { muted: [] },
@@ -794,6 +795,18 @@ describe('daily task emails: the administrators’ overview of a day', () => {
     expect(o.summary).toMatchObject({ people: 1, sent: 1, skipped: 1, toSend: 1 }); // what happened counts; “people” and Send now don’t
     const past = await s.service.overview('2026-10-20');
     expect(past.people.find((p) => p.userId === 'zed')!.pending).toMatchObject({ state: 'FAILED' });
+  });
+
+  it('each person’s username too, so the administrators can find people by it', async () => {
+    const s = setup({ people: [person('ada', { username: 'ada.l' }), person('ned', { username: 'ned.n', email: null })] });
+    s.rows.push(
+      record({ id: 'z1', userId: 'zed', kind: 'PENDING', status: 'SENT', sentAt: at('2026-10-21T02:00:00Z'), taskCount: 2 }),
+      record({ id: 'n1', userId: 'ned', kind: 'COMPLETED', status: 'SKIPPED' }),
+    );
+    s.setNow('2026-10-21T02:30:00Z');
+    const o = await s.service.overview();
+    // Someone no longer active: the username their records were sent under.
+    expect(o.people.map((p) => [p.name, p.username])).toEqual([['ADA', 'ada.l'], ['NED', 'ned.n'], ['ZED', 'zed']]);
   });
 
   it('someone who joined after today’s time: their first emails come tomorrow', async () => {

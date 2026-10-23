@@ -27,7 +27,7 @@ const overviewOf = (day: string | null): DailyEmailOverview => ({
   run: null,
   summary: { people: 1, sent: 1, skipped: 1, failed: 0, retrying: 0, sending: 0, late: 0, upcoming: 0, toSend: 0 },
   people: [{
-    userId: 'u1', name: 'Ada Lovelace', email: 'ada@mico360.test', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '07:00', day: day ?? '2026-10-21', today: '2026-10-21', due: true, account: 'active',
+    userId: 'u1', name: 'Ada Lovelace', username: 'ada', email: 'ada@mico360.test', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '07:00', day: day ?? '2026-10-21', today: '2026-10-21', due: true, account: 'active',
     pending: emailState, completed: { ...emailState, state: 'SKIPPED', sentAt: null, taskCount: 0 },
   }],
 });

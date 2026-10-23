@@ -18,6 +18,7 @@ type PersonRow = Prisma.UserGetPayload<{ select: typeof personSelect }>;
 const toRecipient = (u: PersonRow): DailyRecipient => ({
   id: u.id,
   name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username,
+  username: u.username,
   email: u.email || null,
   timeZone: u.preferredTimeZone ?? null,
   prefs: normalizePreferences(u.notificationPrefs),

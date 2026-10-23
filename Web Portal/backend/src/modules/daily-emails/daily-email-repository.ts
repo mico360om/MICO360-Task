@@ -24,8 +24,9 @@ export interface DailyEmailLogRow extends DailyEmailRecord {
   email: string;
 }
 
-/** A record of a day with who it was for, and their own time zone (null: the company's). */
+/** A record of a day with who it was for (and their username), and their own time zone (null: the company's). */
 export interface DailyEmailDayRow extends DailyEmailLogRow {
+  username: string;
   timeZone: string | null;
 }
 

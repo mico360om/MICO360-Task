@@ -78,6 +78,7 @@ describe('PrismaDailyEmailRepository (integration)', () => {
     await repo.claim(userId, '2026-10-22', 'PENDING');
     const mine = (await repo.forDays(['2026-10-21', '2026-10-22'])).filter((r) => r.userId === userId);
     expect(mine.map((r) => `${r.day} ${r.kind}`).sort()).toEqual(['2026-10-21 COMPLETED', '2026-10-21 PENDING', '2026-10-22 PENDING']);
+    expect(mine[0]).toMatchObject({ userName: 'Dai Ly', username: 'daily', email: 'daily@mico360.test', timeZone: null });
     expect(await repo.forDays([])).toEqual([]);
   });
 

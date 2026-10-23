@@ -9,6 +9,7 @@ import type { DailyEmailDayRow, DailyEmailFinish, DailyEmailKind, DailyEmailReco
 export interface DailyRecipient {
   id: string;
   name: string;
+  username: string;
   email: string | null;
   /** Their own time zone, else null (the company's is used). */
   timeZone: string | null;
@@ -70,6 +71,8 @@ export interface DailyEmailOverviewEmail {
 export interface DailyEmailOverviewPerson {
   userId: string;
   name: string;
+  /** Their sign-in name: the administrators' search finds people by it too. */
+  username: string;
   email: string;
   /** The time zone used: their own, else the company's. */
   timeZone: string;
@@ -636,6 +639,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       const entry: DailyEmailOverviewPerson = {
         userId: person.id,
         name: person.name,
+        username: person.username,
         email: person.email,
         timeZone,
         ownTimeZone: Boolean(person.timeZone) && timeZone === person.timeZone,
@@ -690,6 +694,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       const entry: DailyEmailOverviewPerson = {
         userId,
         name: stillHere?.name ?? first.userName,
+        username: stillHere?.username ?? first.username,
         email: first.email,
         timeZone,
         ownTimeZone: Boolean(ownZone) && timeZone === ownZone,

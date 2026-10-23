@@ -57,7 +57,7 @@ describe('Daily email sources (integration)', () => {
     const people = (await sources.people.list()).filter((p) => EMAILS.includes(p.email ?? ''));
     expect(people.map((p) => p.email).sort()).toEqual([EMAILS[0], EMAILS[1]]);
     const a = people.find((p) => p.id === ada)!;
-    expect(a).toMatchObject({ name: 'Ada Test', timeZone: 'Asia/Kolkata', prefs: { dailyEmails: { pending: true, completed: false, time: '07:00' } } });
+    expect(a).toMatchObject({ name: 'Ada Test', username: 'dm-ada', timeZone: 'Asia/Kolkata', prefs: { dailyEmails: { pending: true, completed: false, time: '07:00' } } });
     expect((await sources.people.find(bo))?.timeZone).toBeNull();
   });
 
