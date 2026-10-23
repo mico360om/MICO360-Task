@@ -209,6 +209,18 @@ describe('sorting', () => {
     expect(names(sortProjects(list, 'target', TODAY))).toEqual(['Passed', 'November', 'December', 'None']);
   });
 
+  it('by target date: open projects with a target first, then finished ones (Completed, Archived), then those without one', () => {
+    const list = [
+      project({ name: 'None' }),
+      project({ name: 'Done early', status: 'COMPLETED', targetDate: '2026-09-01T00:00:00.000Z' }),
+      project({ name: 'December', targetDate: '2026-12-02T00:00:00.000Z' }),
+      project({ name: 'Shelved', status: 'ARCHIVED', targetDate: '2026-08-01T00:00:00.000Z' }),
+      project({ name: 'November', status: 'ON_HOLD', targetDate: '2026-11-30T00:00:00.000Z' }),
+      project({ name: 'Passed', targetDate: '2026-10-20T00:00:00.000Z' }),
+    ];
+    expect(names(sortProjects(list, 'target', TODAY))).toEqual(['Passed', 'November', 'December', 'Shelved', 'Done early', 'None']);
+  });
+
   it('by progress, least done first, those without tasks last', () => {
     const list = [
       project({ name: 'Empty' }),
