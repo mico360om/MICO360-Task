@@ -78,10 +78,13 @@ export interface TurnInput {
 }
 
 export const MAX_TOOL_STEPS = 6;
-/** Rows of a result the model reads (tables still get every row kept). */
-const ROWS_FOR_MODEL = 25;
-/** An earlier message is shown to the model up to this many characters. */
-const HISTORY_CHARS = 1500;
+/**
+ * The most characters one prompt (everything but the fixed rules) may have. The chat, earlier
+ * results, a result already read and long details are squeezed, step by step, until it fits.
+ */
+export const PROMPT_BUDGET = 24_000;
+/** Room for the model's reply. */
+const REPLY_TOKENS = 3000;
 const MAX_TEXT = 8000;
 const MAX_TABLES = 3;
 const MAX_FOLLOW_UPS = 3;
@@ -113,7 +116,7 @@ const actionSchema = z.discriminatedUnion('action', [
           title: z.string().max(200).optional().catch(undefined),
           fromResult: z.string().max(20),
           columns: stringList(20, 40).optional(),
-          rows: stringList(500, 120).optional(),
+          rows: stringList(50, 120).optional(),
         }),
       )
       .catch([])
@@ -161,11 +164,12 @@ export function systemPrompt(tools: ToolInfo[], ctx: LoopDeps['context'], maxSte
     'Reply with ONLY one JSON object, one of:',
     '{"action":"tool","name":"<tool>","args":{…}}',
     '{"action":"clarify","question":"…","options":["…","…"]}',
-    '{"action":"answer","text":"…","tables":[{"title":"…","fromResult":"r1","columns":["key","title"],"rows":["task:…"]}],"sources":["task:…"],"unavailable":false,"followUps":["…"]}',
+    '{"action":"answer","text":"…","tables":[{"title":"…","fromResult":"r1","columns":["key","title"]}],"sources":["task:…"],"unavailable":false,"followUps":["…"]}',
     '',
     'The answer:',
     '- "text": short and plain. Paragraphs, lines starting "- " for bullets, and **bold** only. No headings, no tables in the text.',
-    '- "tables": show lists as tables built from a tool result by its id. The server fills the rows from the data; give "columns" (column keys of that result) and "rows" (the refs of the rows to keep) only to narrow it down.',
+    '- "tables": show lists as tables, each one a whole tool result named by its id; the server fills the rows from the data. Give "columns" (column keys of that result) to choose the columns. To show fewer rows, run the tool again with filters.',
+    '- When a result says only the first rows of a longer list are kept, say so (“the first 200 of 250”) and never count past them.',
     '- "sources": the "ref" of each record your answer uses, exactly as the results give it.',
     '- "followUps": up to 3 short questions the user might ask next.',
     '',
@@ -177,47 +181,137 @@ export function systemPrompt(tools: ToolInfo[], ctx: LoopDeps['context'], maxSte
 /** JSON for the model with every "<" escaped, so text in the data can never open or close a tag. */
 const safeJson = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c');
 
-function resultForModel(r: ToolResult): string {
-  const body = r.error
-    ? { error: r.error }
-    : {
-        title: r.title,
-        total: r.total,
-        shown: Math.min(r.rows.length, ROWS_FOR_MODEL),
-        columns: r.columns.map((c) => c.key),
-        rows: r.rows.slice(0, ROWS_FOR_MODEL).map((row) => ({ ...(row.ref ? { ref: refKey(row.ref) } : {}), ...row.values })),
-        ...(r.details !== undefined ? { details: r.details } : {}),
-        ...(r.detailRefs?.length ? { otherRefs: r.detailRefs.map((x) => ({ ref: refKey(x), label: x.label })) } : {}),
-      };
-  return `<data id="${r.id}" tool="${r.tool}">\n${safeJson(body)}\n</data>`;
+/** How hard a prompt is squeezed to fit PROMPT_BUDGET: each level keeps less. */
+interface Squeeze {
+  historyTurns: number;
+  historyChars: number;
+  summaryChars: number;
+  /** Rows of the newest result the model reads (tables still get every row kept). */
+  latestRows: number;
+  /** Rows of a result the model has already read (its refs and first columns only). */
+  readRows: number;
+  /** Refs listed for a result from an earlier question. */
+  earlierRefs: number;
+  /** Longest text value, and most items of a list, in rows and details. */
+  valueChars: number;
+  listItems: number;
+}
+const LEVELS: Squeeze[] = [
+  { historyTurns: 20, historyChars: 1500, summaryChars: 1500, latestRows: 25, readRows: 25, earlierRefs: 10, valueChars: 300, listItems: 30 },
+  { historyTurns: 12, historyChars: 800, summaryChars: 1000, latestRows: 15, readRows: 10, earlierRefs: 5, valueChars: 160, listItems: 15 },
+  { historyTurns: 6, historyChars: 400, summaryChars: 600, latestRows: 10, readRows: 5, earlierRefs: 0, valueChars: 100, listItems: 8 },
+  { historyTurns: 2, historyChars: 200, summaryChars: 300, latestRows: 5, readRows: 0, earlierRefs: 0, valueChars: 60, listItems: 4 },
+  { historyTurns: 0, historyChars: 0, summaryChars: 0, latestRows: 3, readRows: 0, earlierRefs: 0, valueChars: 40, listItems: 2 },
+];
+
+/** Names that go into the prompt as they are: anything else (a model's made-up tool name) is replaced. */
+const safeName = (name: string) => (/^[a-z_]{1,40}$/.test(name) ? name : 'unknown');
+const safeId = (id: string) => (/^r\d{1,5}$/.test(id) ? id : 'r0');
+const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, Math.max(0, n - 1))}…` : s);
+
+/** Every string cut to `chars` and every list to `items`, however deep (details, rows). */
+function squeezeValue(value: unknown, chars: number, items: number, depth = 0): unknown {
+  if (typeof value === 'string') return cut(value, chars);
+  if (depth > 6 || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.slice(0, items).map((v) => squeezeValue(v, chars, items, depth + 1));
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, squeezeValue(v, chars, items, depth + 1)]));
 }
 
-function turnPrompt(input: TurnInput, results: ToolResult[], note: string | null, finalOnly: boolean): string {
+function keptNote(r: ToolResult | StoredResult): string | undefined {
+  return r.total > r.rows.length ? `Only the first ${r.rows.length} of ${r.total} are kept: say so in the answer, and never count past them.` : undefined;
+}
+
+/** A result for the model: in full when it is new, or (`read`) a short summary with its refs. */
+function resultForModel(r: ToolResult, q: Squeeze, read: boolean): string {
+  let body: unknown;
+  if (r.error) body = { error: cut(r.error, 400) };
+  else if (read) {
+    const lead = r.columns.slice(0, 2).map((c) => c.key);
+    body = {
+      read: 'You have read this result: here are its title, size and refs.',
+      title: cut(r.title, 160),
+      total: r.total,
+      kept: r.rows.length,
+      note: keptNote(r),
+      columns: r.columns.map((c) => c.key),
+      rows: r.rows.slice(0, q.readRows).map((row) => ({ ...(row.ref ? { ref: refKey(row.ref) } : {}), ...Object.fromEntries(lead.map((k) => [k, squeezeValue(row.values[k], 80, 1)])) })),
+    };
+  } else {
+    body = {
+      title: cut(r.title, 200),
+      total: r.total,
+      kept: r.rows.length,
+      shown: Math.min(r.rows.length, q.latestRows),
+      note: keptNote(r),
+      columns: r.columns.map((c) => c.key),
+      rows: r.rows.slice(0, q.latestRows).map((row) => ({ ...(row.ref ? { ref: refKey(row.ref) } : {}), ...(squeezeValue(row.values, q.valueChars, q.listItems) as object) })),
+      ...(r.details !== undefined ? { details: squeezeValue(r.details, q.valueChars, q.listItems) } : {}),
+      ...(r.detailRefs?.length ? { otherRefs: r.detailRefs.slice(0, q.listItems).map((x) => ({ ref: refKey(x), label: cut(x.label, 80) })) } : {}),
+    };
+  }
+  return `<data id="${safeId(r.id)}" tool="${safeName(r.tool)}">\n${safeJson(body)}\n</data>`;
+}
+
+function buildPrompt(input: TurnInput, results: ToolResult[], note: string | null, finalOnly: boolean, q: Squeeze): string {
   const parts: string[] = [];
-  if (input.summary) parts.push(`Summary of the earlier part of this chat:\n<data id="summary" tool="summary">\n${safeJson(input.summary)}\n</data>`);
-  if (input.history.length) {
-    const lines = input.history.map((h) => {
-      const tables = (h.tables ?? []).map((t) => ` [table "${t.title}" from ${t.fromResult}, ${t.rows} rows]`).join('');
-      const words = h.text.length > HISTORY_CHARS ? `${h.text.slice(0, HISTORY_CHARS)}…` : h.text;
-      return `${h.role === 'user' ? 'User' : 'MICO AI'}: ${safeJson(words)}${tables}`;
+  if (input.summary && q.summaryChars) parts.push(`Summary of the earlier part of this chat:\n<data id="summary" tool="summary">\n${safeJson(cut(input.summary, q.summaryChars))}\n</data>`);
+  const history = q.historyTurns ? input.history.slice(-q.historyTurns) : [];
+  if (history.length) {
+    const lines = history.map((h) => {
+      const tables = (h.tables ?? []).map((t) => ` [table ${safeJson(cut(t.title, 120))} from ${safeId(t.fromResult)}, ${Number(t.rows) || 0} rows]`).join('');
+      return `${h.role === 'user' ? 'User' : 'MICO AI'}: ${safeJson(cut(h.text, q.historyChars))}${tables}`;
     });
     parts.push(`The chat so far (oldest first):\n${lines.join('\n')}`);
   }
   if (input.earlier.length) {
-    parts.push(
-      `Results from earlier in this chat (you may cite their refs and build tables from them by id; run a tool again for fresh data):\n${input.earlier
-        .map((r) => `${r.id} = ${r.tool} ${safeJson(r.args)}: ${r.error ? 'error' : `${r.total} found; columns ${r.columns.map((c) => c.key).join(', ')}`}`)
-        .join('\n')}`,
-    );
+    const line = (r: StoredResult) => {
+      const refs = r.rows.slice(0, q.earlierRefs).flatMap((x) => (x.ref ? [`${refKey(x.ref)} (${cut(x.ref.label, 40)})`] : []));
+      const size = r.error ? 'error' : `${r.total} found${r.total > r.rows.length ? `, the first ${r.rows.length} kept` : ''}; columns ${r.columns.map((c) => safeName(c.key)).join(', ')}`;
+      return `${safeId(r.id)} = ${safeName(r.tool)} ${safeJson(squeezeValue(r.args, 80, 10))}: ${size}${refs.length ? `; refs ${safeJson(refs)}` : ''}`;
+    };
+    parts.push(`Results from earlier in this chat (you may cite their refs and build tables from them by id; run a tool again for fresh data):\n${input.earlier.map(line).join('\n')}`);
   }
   parts.push(`The user’s question:\n${input.question}`);
-  if (results.length) parts.push(`Tool results for this question:\n${results.map(resultForModel).join('\n')}`);
+  // The newest result in full; the ones the model has already read as summaries with their refs.
+  if (results.length) parts.push(`Tool results for this question:\n${results.map((r, i) => resultForModel(r, q, i < results.length - 1)).join('\n')}`);
   if (finalOnly) parts.push('You have used all your tool steps: no more tools. Reply now with an answer from what you have (or a clarifying question).');
   if (note) parts.push(note);
   parts.push('Reply with ONLY the JSON object.');
   return parts.join('\n\n');
 }
 
+/** The prompt for this step, squeezed level by level until it fits the budget. */
+function turnPrompt(input: TurnInput, results: ToolResult[], note: string | null, finalOnly: boolean): string {
+  let prompt = '';
+  for (const q of LEVELS) {
+    prompt = buildPrompt(input, results, note, finalOnly, q);
+    if (prompt.length <= PROMPT_BUDGET) return prompt;
+  }
+  // Still too long (huge details): keep the question and only the results' summaries.
+  const last = LEVELS[LEVELS.length - 1]!;
+  return buildPrompt(input, results.map((r) => ({ ...r, details: undefined })), note, finalOnly, { ...last, latestRows: 0 });
+}
+
+/** A reply that stops part-way through its JSON (the model ran out of room), as opposed to one that isn't JSON. */
+export function looksCutOff(raw: string): boolean {
+  const t = raw.trim().replace(/^```(?:json)?\s*/i, '');
+  if (!t.startsWith('{')) return false;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (const ch of t) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') depth--;
+  }
+  return inString || depth > 0;
+}
+
+const NOTE_CUT_OFF = 'Your last reply was cut off before it ended. Reply again, shorter: keep the text brief, and show lists as tables instead of writing them out.';
 const NOTE_MALFORMED = 'Your last reply was not valid JSON in the required format. Reply again with ONLY one JSON object: a tool, a clarify or an answer.';
 const NOTE_UNGROUNDED =
   'Your answer has figures, but no tool has given you any data yet. Run a tool to get the data first, or say clearly that it isn’t available. Never estimate.';
@@ -243,6 +337,8 @@ function buildAnswer(action: Extract<Action, { action: 'answer' }>, pool: Stored
       fromResult: r.id,
       columns,
       rows: rows.map((row) => ({ ref: row.ref, cells: columns.map((c): CellValue => row.values[c.key] ?? null) })),
+      // The whole result: how many matched in all (a capped list says "Showing 200 of 250").
+      total: t.rows?.length ? rows.length : Math.max(r.total, rows.length),
     });
   }
   const sources = new Map<string, SourceRef>();
@@ -291,13 +387,13 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
   for (;;) {
     stopped();
     const finalOnly = results.length >= maxSteps;
-    const raw = await deps.complete({ system, prompt: turnPrompt(input, results, note, finalOnly), json: true, maxTokens: 1500, signal: input.signal });
+    const raw = await deps.complete({ system, prompt: turnPrompt(input, results, note, finalOnly), json: true, maxTokens: REPLY_TOKENS, signal: input.signal });
     stopped();
     const action = parseAction(raw);
     if (!action || (action.action === 'tool' && finalOnly)) {
       if (corrected) throw new MicoAiError(action ? UNFINISHED : MALFORMED);
       corrected = true;
-      note = action ? 'No more tools: reply now with an answer from what you have.' : NOTE_MALFORMED;
+      note = action ? 'No more tools: reply now with an answer from what you have.' : looksCutOff(raw) ? NOTE_CUT_OFF : NOTE_MALFORMED;
       continue;
     }
     corrected = false;

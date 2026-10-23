@@ -7,7 +7,7 @@ import { buildTimeline } from '../activity/activity-feed';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
 import { completionStats, projectPerformance, statusBreakdown, userWorkload, type ReportTask } from '../reports/report-service';
 import type { ToolInfo } from './mico-ai-loop';
-import { MAX_RESULT_ROWS, refKey, type ResultColumn, type ResultRow, type SourceRef, type StoredResult, type ToolResult } from './mico-ai-types';
+import { MAX_RESULT_ROWS, type ResultColumn, type ResultRow, type SourceRef, type StoredResult, type ToolResult } from './mico-ai-types';
 import type { AiMeetingRec, AiPersonRec, AiProjectRec, AiTaskLink, AiTaskRec, MicoAiDataPort, Viewer } from './mico-ai-data';
 
 /**
