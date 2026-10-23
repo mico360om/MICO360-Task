@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PAGES, rankPages, matchPages, parseCommand, buildResults, flatItems, searchable, MIN_QUERY } from './search.js';
+import { PAGES, rankPages, matchPages, parseCommand, buildResults, flatItems, searchable, MIN_QUERY, taskByKey } from './search.js';
 
 const APP = 'https://task.mico360.com';
 const RESULTS = {
@@ -95,6 +95,15 @@ describe('search: results', () => {
     expect(task).toMatchObject({ label: 'Inspect the north rig', hint: 'RIG-7', target: { hash: '#/task/t1' } });
     expect(items.find((i) => i.id === 'proj-p1')).toMatchObject({ label: 'Rig Inspection', hint: 'RIG', target: { hash: '#/board/p1' }, projectId: 'p1' });
     expect(items.find((i) => i.id === 'meeting-m1')).toMatchObject({ label: 'Rig review', secondary: '…the rig valves were…', target: { hash: '#/meeting/m1' } });
+  });
+
+  it('“open KEY” opens only that task — or the one that had that key before it moved project — and a moved task shows its old key', () => {
+    const moved = { id: 't4', key: 'OPS-17', title: 'Inspect the rig', projectId: 'p2', formerKeys: ['RIG-4'] };
+    expect(taskByKey({ tasks: [{ id: 't40', key: 'RIG-40', title: 'Forty', projectId: 'p1' }] }, 'RIG-4')).toBeNull();
+    expect(taskByKey({ tasks: [moved] }, 'rig-4')?.id).toBe('t4');
+    expect(taskByKey({ tasks: [moved, { id: 'now', key: 'RIG-4', title: 'New', projectId: 'p1' }] }, 'RIG-4')?.id).toBe('now');
+    const items = flatItems(buildResults({ term: 'rig-4', results: { tasks: [moved], projects: [], users: [], meetings: [] }, isAdmin: false, myId: 'me', appBase: APP }));
+    expect(items.find((i) => i.id === 'task-t4')).toMatchObject({ hint: 'OPS-17 (was RIG-4)' });
   });
 
   it('a person opens a direct message here; yourself your profile on the website; an admin the user list there (as the web)', () => {

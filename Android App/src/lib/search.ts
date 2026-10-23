@@ -15,7 +15,8 @@ import { ALL_PROJECTS_BOARD, type NavAction } from '../navigation/nav-actions';
 
 /** GET /search: what the server found that you may see. */
 export interface SearchResults {
-  tasks: { id: string; key: string; title: string; projectId: string }[];
+  /** `formerKeys`: keys a task had before it moved to another project (searching one finds it). */
+  tasks: { id: string; key: string; title: string; projectId: string; formerKeys?: string[] }[];
   projects: { id: string; code: string; name: string }[];
   users: { id: string; username: string; firstName: string; lastName: string }[];
   /** Meetings by title, agenda, notes and decisions (servers since meeting search). */
@@ -112,12 +113,14 @@ export function searchItems({ raw, results, isAdmin, myId }: { raw: string; resu
 
   if (!results) return out;
   for (const t of (results.tasks ?? []).filter((x) => isSafeId(x.id)).slice(0, SEARCH_LIMITS.tasks)) {
+    // A task that moved project shows the key it had too, as the website does: "OPS-17 (was RIG-4)".
+    const hint = t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key;
     out.push({
       id: `task-${t.id}`,
       group: 'Tasks',
       primary: t.title,
-      hint: t.key,
-      label: `Task ${t.key}, ${t.title}`,
+      hint,
+      label: `Task ${hint}, ${t.title}`,
       target: { kind: 'screen', action: { type: 'stack', screen: 'TaskDetail', params: { taskId: t.id, title: t.title } } },
     });
   }
@@ -155,9 +158,15 @@ export function searchItems({ raw, results, isAdmin, myId }: { raw: string; resu
   return out;
 }
 
-/** "Open WEB-5" opens WEB-5 only — search finds WEB-50 too, so the key must match exactly. */
+/**
+ * "Open WEB-5" opens WEB-5 only — search finds WEB-50 too, so the key must match exactly. A key a task
+ * had before it moved project counts too ("open RIG-4" opens what is OPS-17 now), after the keys tasks
+ * have now — as on the website.
+ */
 export function exactTask(results: SearchResults | undefined, key: string): SearchResults['tasks'][number] | null {
-  return (results?.tasks ?? []).find((t) => t.key.toLowerCase() === key.toLowerCase() && isSafeId(t.id)) ?? null;
+  const k = key.toLowerCase();
+  const tasks = (results?.tasks ?? []).filter((t) => isSafeId(t.id));
+  return tasks.find((t) => t.key.toLowerCase() === k) ?? tasks.find((t) => (t.formerKeys ?? []).some((f) => f.toLowerCase() === k)) ?? null;
 }
 
 /** The line under the box (null: nothing to say). */

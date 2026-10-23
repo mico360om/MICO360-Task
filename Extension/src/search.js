@@ -148,7 +148,10 @@ export function buildResults({ term, results, isAdmin = false, myId = null, appB
 
   if (searchable(raw) && results) {
     for (const t of list(results.tasks).slice(0, LIMITS.tasks)) {
-      add('Tasks', { id: `task-${t.id}`, label: t.title || t.key || '', hint: t.key || '', target: { hash: `#/task/${enc(t.id)}` } });
+      // A task that moved project shows the key it had too, as the website does: "OPS-17 (was RIG-4)".
+      const former = (Array.isArray(t.formerKeys) ? t.formerKeys : []).filter((k) => typeof k === 'string');
+      const hint = former.length > 0 ? `${t.key || ''} (was ${former.join(', ')})` : t.key || '';
+      add('Tasks', { id: `task-${t.id}`, label: t.title || t.key || '', hint, target: { hash: `#/task/${enc(t.id)}` } });
     }
     for (const p of list(results.projects).slice(0, LIMITS.projects)) {
       add('Projects', { id: `proj-${p.id}`, label: p.name || p.code || '', hint: p.code || '', projectId: p.id, target: { hash: `#/board/${enc(p.id)}` } });
@@ -171,9 +174,15 @@ export function flatItems(groups) {
 
 /**
  * The task a key names, from GET /search's answer: only an exact match (search finds parts of
- * words, so "RIG-5" must never open RIG-50), as on the web. Null when there is none.
+ * words, so "RIG-5" must never open RIG-50), as on the web. A key a task had before it moved project
+ * counts too ("RIG-4" opens what is OPS-17 now), after the keys tasks have now. Null when there is none.
  */
 export function taskByKey(results, key) {
   const k = String(key || '').toLowerCase();
-  return list(results && results.tasks).find((t) => String(t.key || '').toLowerCase() === k) || null;
+  const tasks = list(results && results.tasks);
+  return (
+    tasks.find((t) => String(t.key || '').toLowerCase() === k) ||
+    tasks.find((t) => (Array.isArray(t.formerKeys) ? t.formerKeys : []).some((f) => String(f).toLowerCase() === k)) ||
+    null
+  );
 }
