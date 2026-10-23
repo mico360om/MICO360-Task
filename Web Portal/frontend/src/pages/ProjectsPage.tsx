@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { PROJECTS_OVERVIEW_KEY, projectsApi, type ProjectOverview, type ProjectStatus } from '../api/projects';
+import { PROJECTS_OVERVIEW_KEY, projectsApi, type ApiProject, type ProjectOverview, type ProjectStatus } from '../api/projects';
 import { apiClient } from '../api/client';
 import { ProjectCard } from '../components/projects/ProjectCard';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
@@ -57,13 +57,12 @@ const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 tex
 export function ProjectsPage() {
   const qc = useQueryClient();
   const admin = useAuthStore((s) => s.isAdmin());
-  const myId = useAuthStore((s) => s.user?.id ?? null);
   const timeZone = useCompanyTimeZone();
   const now = useNow();
   const today = todayKey(timeZone, now);
   const [state, update] = useProjectListState();
-  // The project form: null = closed, 'new' = create, a project = edit it.
-  const [form, setForm] = useState<'new' | ProjectOverview | null>(null);
+  // The project form: null = closed, 'new' = create, a project = edit it (loaded in full first).
+  const [form, setForm] = useState<'new' | ApiProject | null>(null);
   const [archiving, setArchiving] = useState<ProjectOverview | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -81,7 +80,7 @@ export function ProjectsPage() {
   const unknownOwner = query.isSuccess && state.owner !== '' && !owners.some((o) => o.id === state.owner);
   const owner = unknownOwner ? '' : state.owner;
   const { q } = state;
-  const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner, mine }, myId), [all, q, owner, mine, myId]);
+  const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner, mine }), [all, q, owner, mine]);
   const counts = tabCounts(filtered);
   const visible = sortProjects(filtered.filter((p) => inTab(p, state.status)), state.sort, today, timeZone);
   const filtersOn = Boolean(q.trim() || owner || mine);
@@ -135,6 +134,16 @@ export function ProjectsPage() {
       invalidate(project.id);
     },
   });
+
+  /** The list carries only what the cards show, so Edit loads the whole project first. */
+  async function openEdit(project: ProjectOverview) {
+    setProblem(null);
+    try {
+      setForm(await qc.fetchQuery({ queryKey: ['project', project.id], queryFn: () => projectsApi(apiClient).get(project.id), staleTime: 0 }));
+    } catch {
+      setProblem(`Couldn’t open ${project.name} for editing. Try again.`);
+    }
+  }
 
   const changeStatus = (project: ProjectOverview, status: ProjectStatus) => {
     if (status === 'ARCHIVED') {
@@ -285,7 +294,7 @@ export function ProjectsPage() {
                 now={now}
                 timeZone={timeZone}
                 onChangeStatus={admin ? changeStatus : undefined}
-                onEdit={admin ? (project) => setForm(project) : undefined}
+                onEdit={admin ? (project) => void openEdit(project) : undefined}
                 onArchive={admin ? (project) => changeStatus(project, 'ARCHIVED') : undefined}
               />
             ))}

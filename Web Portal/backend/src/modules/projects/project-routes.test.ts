@@ -310,8 +310,12 @@ describe('Projects overview (GET /projects/overview)', () => {
       stats: { total: 40, done: 25, open: 15, overdue: 4, nextDue: '2099-01-05', lastActivityAt: '2099-01-01T08:00:00.000Z' },
       owner: sara,
       team: [sara],
+      teamCount: 1,
+      mine: false, // the admin asking neither owns, manages nor belongs to it
     });
-    expect(byCode.MOB).toMatchObject({ stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null }, owner: null, team: [] });
+    expect(byCode.RIG).not.toHaveProperty('description');
+    expect(byCode.RIG).not.toHaveProperty('notes');
+    expect(byCode.MOB).toMatchObject({ stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null }, owner: null, team: [], teamCount: 0, mine: false });
     expect(overviewCalls).toEqual([{ projectIds: expect.arrayContaining([a, byCode.MOB.id]), ownerIds: ['u1'] }]);
   });
 
@@ -320,7 +324,7 @@ describe('Projects overview (GET /projects/overview)', () => {
     await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await admin(), payload: { code: 'THEIRS', name: 'Not mine' } });
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/overview', headers: { authorization: `Bearer ${await tokenFor('emp1', ['EMPLOYEE'])}` } });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data.map((p: { code: string }) => p.code)).toEqual(['MINE']);
+    expect(res.json().data.map((p: { code: string; mine: boolean }) => [p.code, p.mine])).toEqual([['MINE', true]]);
     expect(overviewCalls).toHaveLength(1);
     expect(overviewCalls[0]!.projectIds).toHaveLength(1);
   });

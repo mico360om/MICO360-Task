@@ -23,21 +23,17 @@ function project(id: string, name: string, extra: Partial<Omit<ProjectOverview, 
     code: id.toUpperCase(),
     number: null,
     name,
-    description: null,
     clientName: null,
     status: 'ACTIVE',
-    priority: 'NORMAL',
     color: '#3A6EA5',
     icon: null,
     imageUrl: null,
     ownerId: null,
-    managerId: null,
-    startDate: null,
     targetDate: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-10-01T00:00:00.000Z',
     owner: null,
     team: [],
+    teamCount: (rest.team ?? []).length,
+    mine: false,
     ...rest,
     stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null, lastActivityAt: '2026-10-20T00:00:00.000Z', ...stats },
   };
@@ -45,11 +41,11 @@ function project(id: string, name: string, extra: Partial<Omit<ProjectOverview, 
 
 // Today is Friday 23 October 2026 in Muscat.
 const LIST: ProjectOverview[] = [
-  project('p4', 'Mobile App (Phase 2)', { code: 'MOB', status: 'PLANNING', ownerId: 'u4', owner: HASSAN, team: [HASSAN, ME], targetDate: '2026-12-02T00:00:00.000Z', stats: { total: 6, open: 6, nextDue: '2026-10-30' } }),
+  project('p4', 'Mobile App (Phase 2)', { code: 'MOB', status: 'PLANNING', ownerId: 'u4', owner: HASSAN, team: [HASSAN, ME], mine: true, targetDate: '2026-12-02T00:00:00.000Z', stats: { total: 6, open: 6, nextDue: '2026-10-30' } }),
   project('p1', 'Rig Inspection Portal', { code: 'RIG', number: 'C-2041', clientName: 'Gulf Energy', ownerId: 'u1', owner: SARA, team: [SARA, OMAR], targetDate: '2026-11-30T00:00:00.000Z', stats: { total: 40, done: 25, open: 15, overdue: 4, nextDue: '2026-10-26' } }),
-  project('p6', 'Website Refresh', { code: 'WEB', status: 'COMPLETED', ownerId: 'u2', owner: OMAR, managerId: 'u9', stats: { total: 3, done: 3 } }),
+  project('p6', 'Website Refresh', { code: 'WEB', status: 'COMPLETED', ownerId: 'u2', owner: OMAR, mine: true, stats: { total: 3, done: 3 } }),
   project('p3', 'Falcon CRM', { code: 'FCRM', number: '2026-014', clientName: 'Falcon Trading', status: 'ON_HOLD', ownerId: 'u2', owner: OMAR, targetDate: '2026-10-20T00:00:00.000Z', stats: { total: 20, done: 17, open: 3, nextDue: '2026-10-29' } }),
-  project('p2', 'MICO360 Services', { code: 'MSSP', clientName: 'Internal', ownerId: 'u9', owner: ME, stats: { total: 15, done: 3, open: 12, overdue: 2 } }),
+  project('p2', 'MICO360 Services', { code: 'MSSP', clientName: 'Internal', ownerId: 'u9', owner: ME, mine: true, stats: { total: 15, done: 3, open: 12, overdue: 2 } }),
   project('p5', 'Old Portal', { code: 'OLD', status: 'ARCHIVED', ownerId: 'u1', owner: SARA, stats: { total: 9, done: 9 } }),
 ];
 
@@ -84,6 +80,11 @@ beforeEach(() => {
       const archive = url.match(/\/projects\/(\w+)\/archive$/);
       if (archive && method === 'POST') return save(archive[1]!, { status: 'ARCHIVED' });
       const one = url.match(/\/projects\/(\w+)$/);
+      if (one && method === 'GET') {
+        // The full project, as the edit form needs it (the list carries only what the cards show).
+        const p = overview.find((x) => x.id === one[1])!;
+        return json({ data: { id: p.id, code: p.code, number: p.number, name: p.name, clientName: p.clientName, status: p.status, color: p.color, icon: p.icon, imageUrl: p.imageUrl, ownerId: p.ownerId, targetDate: p.targetDate, description: 'Inspect every rig twice a year.', priority: 'HIGH', startDate: null, createdAt: '', updatedAt: '' } });
+      }
       if (one && method === 'PUT') {
         if (failUpdate) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
         return save(one[1]!, body as Partial<ProjectOverview>);
@@ -351,6 +352,9 @@ describe('ProjectsPage for an administrator', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog', { name: 'Edit project' });
     expect(within(dialog).getByLabelText(/^name/i)).toHaveValue('Rig Inspection Portal');
+    // The form gets the full project (the list doesn't carry the description).
+    expect(within(dialog).getByLabelText(/^description/i)).toHaveValue('Inspect every rig twice a year.');
+    expect(calls.some((c) => c.method === 'GET' && /\/projects\/p1$/.test(c.url))).toBe(true);
   });
 
   it('changes a status from the card’s status menu through the API', async () => {

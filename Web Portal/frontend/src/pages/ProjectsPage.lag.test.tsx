@@ -23,9 +23,8 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 const project = (id: string, name: string, status: ProjectOverview['status'], extra: Partial<ProjectOverview> = {}): ProjectOverview => ({
-  id, code: id.toUpperCase(), number: null, name, description: null, clientName: null, status, priority: 'NORMAL', color: '#3A6EA5', icon: null,
-  imageUrl: null, ownerId: null, managerId: null, startDate: null, targetDate: null, createdAt: '', updatedAt: '2026-10-01T00:00:00.000Z',
-  owner: null, team: [], stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null, lastActivityAt: '2026-10-20T00:00:00.000Z' }, ...extra,
+  id, code: id.toUpperCase(), number: null, name, clientName: null, status, color: '#3A6EA5', icon: null,
+  imageUrl: null, ownerId: null, targetDate: null, owner: null, team: [], teamCount: 0, mine: false, stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null, lastActivityAt: '2026-10-20T00:00:00.000Z' }, ...extra,
 });
 const LIST = [
   project('p1', 'Rig Inspection Portal', 'ACTIVE', { clientName: 'Gulf Energy' }),

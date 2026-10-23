@@ -87,17 +87,12 @@ export function tabCounts(projects: Pick<ProjectOverview, 'status'>[]): Record<S
   return out;
 }
 
-/** I own it, manage it, or am on its team. (Having created it is not enough.) */
-export function isMine(p: Pick<ProjectOverview, 'ownerId' | 'managerId' | 'team'>, userId: string | null | undefined): boolean {
-  if (!userId) return false;
-  return p.ownerId === userId || p.managerId === userId || p.team.some((m) => m.id === userId);
-}
-
-/** Search, owner and "only mine" — everything but the tab, so the tab counts can follow them. */
-export function filterProjects(projects: ProjectOverview[], state: ProjectListState, userId: string | null | undefined): ProjectOverview[] {
-  return projects.filter(
-    (p) => matchesSearch(p, state.q) && (!state.owner || p.ownerId === state.owner) && (!state.mine || isMine(p, userId)),
-  );
+/**
+ * Search, owner and "only mine" — everything but the tab, so the tab counts can follow them. "Mine"
+ * (I own it, manage it or am on its team; having created it is not enough) comes from the server.
+ */
+export function filterProjects(projects: ProjectOverview[], state: ProjectListState): ProjectOverview[] {
+  return projects.filter((p) => matchesSearch(p, state.q) && (!state.owner || p.ownerId === state.owner) && (!state.mine || p.mine));
 }
 
 export function ownerOptions(projects: ProjectOverview[]): { id: string; name: string }[] {

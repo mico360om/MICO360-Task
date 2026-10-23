@@ -71,15 +71,16 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     return { data: await projectService.listVisibleProjects({ id: req.user!.id, roles: req.user!.roles ?? [] }) };
   });
 
-  // The Projects page: every project the caller may see, each with its card figures (tasks done,
-  // open and overdue, the next due day, its last update), owner and team — one request for the
-  // whole list, answered by a fixed number of grouped queries.
+  // The Projects page: every project the caller may see, with only what its card shows — figures
+  // (tasks done, open and overdue, the next due day, its last update), owner, up to four team faces
+  // and the team's size, and whether it is the caller's — one request for the whole list, answered
+  // by a fixed number of grouped queries.
   if (deps.overview) {
     app.get('/projects/overview', { preHandler: guard.authenticate }, async (req) => {
       const projects = await projectService.listVisibleProjects({ id: req.user!.id, roles: req.user!.roles ?? [] });
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
       const rows = await deps.overview!.load(projects.map((p) => p.id), ownerIds);
-      return { data: buildProjectOverview(projects, rows, { timeZone: deps.timeZone ?? defaultCompanyTimeZone() }) };
+      return { data: buildProjectOverview(projects, rows, { timeZone: deps.timeZone ?? defaultCompanyTimeZone(), viewerId: req.user!.id }) };
     });
   }
 

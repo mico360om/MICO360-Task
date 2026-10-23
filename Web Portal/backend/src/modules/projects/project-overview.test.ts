@@ -28,7 +28,7 @@ const project = (id: string, extra: Partial<ProjectRecord> = {}): ProjectRecord 
 const empty: ProjectOverviewRows = { totals: [], openByDue: [], members: [], owners: [] };
 // 01:00 on 23 October in Muscat — still the 22nd in UTC, so "today" must come from the company zone.
 const now = new Date('2026-10-22T21:00:00Z');
-const opts = { timeZone: 'Asia/Muscat', now };
+const opts = { timeZone: 'Asia/Muscat', now, viewerId: 'viewer' };
 
 describe('buildProjectOverview', () => {
   it('counts done, open and overdue tasks, judging overdue by the company’s today', () => {
@@ -111,5 +111,28 @@ describe('buildProjectOverview', () => {
     const list = buildProjectOverview([project('b', { name: 'Beta', number: '2026-014' }), project('a')], empty, opts);
     expect(list.map((p) => p.id)).toEqual(['b', 'a']);
     expect(list[0]).toMatchObject({ code: 'B', name: 'Beta', number: '2026-014', status: 'ACTIVE' });
+  });
+
+  it('sends only what a card shows: no description or notes, at most four faces with the team’s size', () => {
+    const people = Array.from({ length: 6 }, (_, i) => ({ id: `u${i}`, name: `Person ${i}`, avatarUrl: null }));
+    const rows: ProjectOverviewRows = { ...empty, members: people.map((person) => ({ projectId: 'p1', person })) };
+    const [item] = buildProjectOverview([project('p1', { description: 'Long scope…', notes: 'Private notes', targetDate: new Date('2026-11-30T00:00:00Z') })], rows, opts);
+    // The response shape, field by field.
+    expect(Object.keys(item!).sort()).toEqual(
+      ['clientName', 'code', 'color', 'icon', 'id', 'imageUrl', 'mine', 'name', 'number', 'owner', 'ownerId', 'stats', 'status', 'targetDate', 'team', 'teamCount'].sort(),
+    );
+    expect(item!.team.map((m) => m.id)).toEqual(['u0', 'u1', 'u2', 'u3']);
+    expect(item!.teamCount).toBe(6);
+  });
+
+  it('says whether the person asking owns, manages or is on the team of each project', () => {
+    const me = { id: 'viewer', name: 'Me', avatarUrl: null };
+    const rows: ProjectOverviewRows = { ...empty, members: [{ projectId: 'member', person: me }] };
+    const list = buildProjectOverview(
+      [project('owner', { ownerId: 'viewer' }), project('manager', { managerId: 'viewer' }), project('member'), project('creator', { createdById: 'viewer' }), project('other')],
+      rows,
+      opts,
+    );
+    expect(Object.fromEntries(list.map((p) => [p.id, p.mine]))).toEqual({ owner: true, manager: true, member: true, creator: false, other: false });
   });
 });

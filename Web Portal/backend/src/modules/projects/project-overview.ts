@@ -49,7 +49,23 @@ export interface ProjectFigures {
   lastActivityAt: Date;
 }
 
-export type ProjectOverviewItem = ProjectRecord & { stats: ProjectFigures; owner: OverviewPerson | null; team: OverviewPerson[] };
+/** How many team faces a card shows; the rest is a count. */
+export const TEAM_FACES = 4;
+
+/** A project on the Projects page: only what its card shows (the edit form loads the full project). */
+export type ProjectOverviewItem = Pick<
+  ProjectRecord,
+  'id' | 'code' | 'number' | 'name' | 'clientName' | 'status' | 'color' | 'icon' | 'imageUrl' | 'ownerId' | 'targetDate'
+> & {
+  stats: ProjectFigures;
+  owner: OverviewPerson | null;
+  /** The first TEAM_FACES active members, in the order they joined. */
+  team: OverviewPerson[];
+  /** How many active members the project has. */
+  teamCount: number;
+  /** The person asking owns it, manages it or is on its team. */
+  mine: boolean;
+};
 
 /**
  * The projects list with each project's figures, owner and team. "Done" is the shared rule (a DONE
@@ -59,7 +75,7 @@ export type ProjectOverviewItem = ProjectRecord & { stats: ProjectFigures; owner
 export function buildProjectOverview(
   projects: ProjectRecord[],
   rows: ProjectOverviewRows,
-  { timeZone, now = new Date() }: { timeZone: string; now?: Date },
+  { timeZone, now = new Date(), viewerId }: { timeZone: string; now?: Date; viewerId: string },
 ): ProjectOverviewItem[] {
   const today = todayKey(timeZone, now);
   const totals = new Map(rows.totals.map((t) => [t.projectId, t]));
@@ -81,8 +97,19 @@ export function buildProjectOverview(
     const o = open.get(p.id) ?? { open: 0, overdue: 0, nextDue: null };
     const total = t?.total ?? 0;
     const lastTask = t?.lastTaskUpdate ?? null;
+    const team = teams.get(p.id) ?? [];
     return {
-      ...p,
+      id: p.id,
+      code: p.code,
+      number: p.number,
+      name: p.name,
+      clientName: p.clientName,
+      status: p.status,
+      color: p.color,
+      icon: p.icon,
+      imageUrl: p.imageUrl,
+      ownerId: p.ownerId,
+      targetDate: p.targetDate,
       stats: {
         total,
         done: Math.max(0, total - o.open),
@@ -92,7 +119,9 @@ export function buildProjectOverview(
         lastActivityAt: lastTask && lastTask > p.updatedAt ? lastTask : p.updatedAt,
       },
       owner: p.ownerId ? owners.get(p.ownerId) ?? null : null,
-      team: teams.get(p.id) ?? [],
+      team: team.slice(0, TEAM_FACES),
+      teamCount: team.length,
+      mine: p.ownerId === viewerId || p.managerId === viewerId || team.some((m) => m.id === viewerId),
     };
   });
 }

@@ -47,12 +47,17 @@ export interface ProjectStats {
 /** The Projects page's list. Under ['projects'], so a project saved anywhere refreshes it; task changes refresh it too (lib/task-cache). */
 export const PROJECTS_OVERVIEW_KEY = ['projects', 'overview'] as const;
 
-/** A project as the Projects page lists it: its details, figures, owner and team. */
-export interface ProjectOverview extends ApiProject {
-  managerId?: string | null;
+/** A project as the Projects page lists it: only what its card shows (Edit loads the full project). */
+export interface ProjectOverview
+  extends Pick<ApiProject, 'id' | 'code' | 'number' | 'name' | 'clientName' | 'status' | 'color' | 'icon' | 'imageUrl' | 'ownerId' | 'targetDate'> {
   stats: ProjectStats;
   owner: ProjectPerson | null;
+  /** Up to four active members, in the order they joined. */
   team: ProjectPerson[];
+  /** How many active members the project has. */
+  teamCount: number;
+  /** You own it, manage it or are on its team (worked out by the server). */
+  mine: boolean;
 }
 
 export interface NewProjectInput {

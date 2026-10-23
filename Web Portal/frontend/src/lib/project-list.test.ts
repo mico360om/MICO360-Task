@@ -5,7 +5,6 @@ import {
   filterProjects,
   headerSummary,
   inTab,
-  isMine,
   matchesSearch,
   needsAttention,
   nextDueLabel,
@@ -31,21 +30,17 @@ function project(extra: Partial<Omit<ProjectOverview, 'stats'>> & { stats?: Part
     code: `P${seq}`,
     number: null,
     name: `Project ${seq}`,
-    description: null,
     clientName: null,
     status: 'ACTIVE',
-    priority: 'NORMAL',
     color: '#8B1E1E',
     icon: null,
     imageUrl: null,
     ownerId: null,
-    managerId: null,
-    startDate: null,
     targetDate: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-10-01T00:00:00.000Z',
     owner: null,
     team: [],
+    teamCount: (rest.team ?? []).length,
+    mine: false,
     ...rest,
     stats: { total: 0, done: 0, open: 0, overdue: 0, nextDue: null, lastActivityAt: '2026-10-01T00:00:00.000Z', ...stats },
   };
@@ -142,22 +137,15 @@ describe('needing attention', () => {
 });
 
 describe('owner and “only my projects”', () => {
-  it('counts a project as mine when I own it, manage it or am on its team — not just because I made it', () => {
-    const me = 'u1';
-    expect(isMine(project({ ownerId: me }), me)).toBe(true);
-    expect(isMine(project({ managerId: me }), me)).toBe(true);
-    expect(isMine(project({ team: [{ id: 'u9', name: 'Zed', avatarUrl: null }, { id: me, name: 'Me', avatarUrl: null }] }), me)).toBe(true);
-    expect(isMine(project({ ownerId: 'u2' }), me)).toBe(false);
-  });
-
-  it('filters by search, owner and “only mine” together (the tab is applied apart)', () => {
-    const a = project({ name: 'Rig Portal', ownerId: 'u1', status: 'ARCHIVED' });
+  it('filters by search, owner and “only mine” (the server says which are mine) together; the tab is applied apart', () => {
+    const a = project({ name: 'Rig Portal', ownerId: 'u1', status: 'ARCHIVED', mine: true });
     const b = project({ name: 'Rig Mobile', ownerId: 'u2' });
-    const c = project({ name: 'Falcon', ownerId: 'u1' });
+    const c = project({ name: 'Falcon', ownerId: 'u1', mine: true });
     const list = [a, b, c];
-    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: false }, 'u1')).toEqual([a, b]);
-    expect(filterProjects(list, { status: 'all', q: '', owner: 'u1', sort: 'attention', mine: false }, 'u1')).toEqual([a, c]);
-    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: true }, 'u1')).toEqual([a]);
+    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: false })).toEqual([a, b]);
+    expect(filterProjects(list, { status: 'all', q: '', owner: 'u1', sort: 'attention', mine: false })).toEqual([a, c]);
+    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: true })).toEqual([a]);
+    expect(filterProjects(list, { status: 'all', q: '', owner: '', sort: 'attention', mine: true })).toEqual([a, c]);
   });
 
   it('offers the people who own projects, by name, once each', () => {
