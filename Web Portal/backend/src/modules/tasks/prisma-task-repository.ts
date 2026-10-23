@@ -258,14 +258,23 @@ export function createPrismaCarryForwardRepo(prisma: PrismaClient): CarryForward
     async listCarryCandidates(beforeAnchor) {
       const ts = await prisma.task.findMany({
         where: {
-          ...liveTaskWhere,
+          deletedAt: null,
+          // Live projects that carry forward: one switched off keeps its tasks on their days. The
+          // setting is read at each sweep, so a project switched back on carries on the next night.
+          project: { is: { deletedAt: null, carryForward: true } },
           completedAt: null,
           boardDate: { lt: beforeAnchor },
           column: { category: { not: 'DONE' } },
         },
-        select: { id: true, completedAt: true, boardDate: true, column: { select: { category: true } } },
+        select: { id: true, completedAt: true, boardDate: true, column: { select: { category: true } }, project: { select: { carryForward: true } } },
       });
-      return ts.map((t) => ({ id: t.id, columnCategory: t.column.category, completedAt: t.completedAt, boardDate: t.boardDate! }));
+      return ts.map((t) => ({
+        id: t.id,
+        columnCategory: t.column.category,
+        completedAt: t.completedAt,
+        boardDate: t.boardDate!,
+        projectCarryForward: t.project.carryForward,
+      }));
     },
     async applyCarry(id, toAnchor, entry) {
       // Read-modify-write the append-only JSON history, then move the board day. The nightly

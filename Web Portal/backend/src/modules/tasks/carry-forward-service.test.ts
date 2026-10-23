@@ -43,4 +43,14 @@ describe('carry-forward service', () => {
     expect((await svc.run()).carried).toBe(0);
     expect(applied).toHaveLength(0);
   });
+
+  it('skips the tasks of a project that has carry-forward switched off, and still carries the others', async () => {
+    const { repo, applied } = makeRepo([
+      { id: 'kept', columnCategory: 'TODO', completedAt: null, boardDate: boardDateFromKey('2026-09-08'), projectCarryForward: false },
+      { id: 'moved', columnCategory: 'TODO', completedAt: null, boardDate: boardDateFromKey('2026-09-08'), projectCarryForward: true },
+    ]);
+    const svc = createCarryForwardService({ repo, config: enabled, timeZone: 'UTC', now: () => now });
+    expect(await svc.run()).toEqual({ carried: 1 });
+    expect(applied.map((a) => a.id)).toEqual(['moved']);
+  });
 });
