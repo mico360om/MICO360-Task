@@ -14,6 +14,27 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- System Settings → Daily task emails shows the day at a glance: how many people get the morning
+  emails, how many were sent, skipped (nothing to send), failed, retrying, late (due but not sent yet)
+  and still to come, when the server last checked, and when the next email goes. If the server hasn't
+  checked for a while although emails are due, it says so plainly.
+- "Send today's emails now" sends, in the background, every morning email whose time has come and
+  that hasn't gone yet (failed ones too); the page shows how far it has got and then how it went.
+  Nobody gets an email twice, and anyone whose time is still to come gets theirs at their usual time.
+- Every person is listed with each email on or off, their send time and time zone (and their own day
+  when it differs), and how today's email went. Send or Resend one person's email (Resend, or a send
+  before their time, asks first), and Preview an email exactly as it would be sent now. Find a person
+  by name or email; the Day and Status filters stay. Manual sends are recorded in the Audit Logs.
+- The Chrome extension's Settings → Notifications has "Send me a test now" for the two morning emails,
+  as on the website, and administrators get a "Daily email log" link that opens the page above.
+
+### Bug fixes
+- A daily email that went out is never sent again because of a database problem, pressing Send while
+  email is down no longer uses up the automatic retries, an address blocked after a bounce or spam
+  complaint is shown as skipped (with the reason) instead of sent, and send times are right on days the
+  clocks change.
+
 ## [1.8.1] - 2026-10-23
 
 ### Security
