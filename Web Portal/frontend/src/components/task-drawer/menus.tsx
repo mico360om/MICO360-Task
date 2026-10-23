@@ -111,30 +111,46 @@ export function WatchButton({ watching, count, onToggle, className = '' }: { wat
   );
 }
 
-/** "⋯ More actions": the header's secondary actions in one menu (the only way to them on small screens). */
+export const MoveIcon = () => (
+  <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true">
+    <path d="M3 7h13M12 3l4 4-4 4M21 17H8M12 13l-4 4 4 4" />
+  </svg>
+);
+
+/**
+ * "⋯ More actions": the header's secondary actions in one menu. Watching and exporting have header
+ * buttons on wider screens, so the menu is the way to them on small ones; moving the task to another
+ * project lives only here, so with it the menu shows on every screen. Unavailable, the move says why.
+ * Choosing an item gives focus back to the menu button (a dialog it opens returns focus there).
+ */
 export function MoreActionsMenu({
   watching,
   onToggleWatch,
   onExport,
+  onMoveToProject,
+  moveUnavailable,
   className = '',
 }: {
   watching?: boolean;
   onToggleWatch?: () => void;
   onExport?: (format: 'xlsx' | 'pdf') => Promise<void>;
+  /** Move the task to another project ("Move to another project…"). */
+  onMoveToProject?: () => void;
+  /** Why it can't be moved now (the item is shown, unavailable, with this reason). */
+  moveUnavailable?: string | null;
   className?: string;
 }) {
   const { open, setOpen, wrap, trigger } = useMenu();
-  if (!onToggleWatch && !onExport) return null;
-  const item = (label: string, act: () => void, icon: ReactNode) => (
-    <button
-      role="menuitem"
-      type="button"
-      onClick={() => {
-        setOpen(false);
-        act();
-      }}
-      className={menuItemClass}
-    >
+  if (!onToggleWatch && !onExport && !onMoveToProject) return null;
+  // With the move in it, the menu shows everywhere and these repeat header buttons on wider screens.
+  const headerToo = onMoveToProject ? 'sm:hidden' : '';
+  const choose = (act: () => void) => {
+    setOpen(false);
+    trigger.current?.focus();
+    act();
+  };
+  const item = (label: string, act: () => void, icon: ReactNode, extra = '') => (
+    <button role="menuitem" type="button" onClick={() => choose(act)} className={`${menuItemClass} ${extra}`}>
       {icon}
       {label}
     </button>
@@ -158,10 +174,25 @@ export function MoreActionsMenu({
         </svg>
       </button>
       {open ? (
-        <div role="menu" aria-label="More actions" className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift">
-          {onToggleWatch ? item(watching ? 'Stop watching' : 'Watch this task', onToggleWatch, <EyeIcon filled={watching} />) : null}
-          {onExport ? item('Export as Excel', () => void onExport('xlsx').catch(() => {}), <DownloadIcon />) : null}
-          {onExport ? item('Export as PDF', () => void onExport('pdf').catch(() => {}), <DownloadIcon />) : null}
+        <div role="menu" aria-label="More actions" className="absolute right-0 top-full z-30 mt-1 w-64 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift">
+          {onToggleWatch ? item(watching ? 'Stop watching' : 'Watch this task', onToggleWatch, <EyeIcon filled={watching} />, headerToo) : null}
+          {onExport ? item('Export as Excel', () => void onExport('xlsx').catch(() => {}), <DownloadIcon />, headerToo) : null}
+          {onExport ? item('Export as PDF', () => void onExport('pdf').catch(() => {}), <DownloadIcon />, headerToo) : null}
+          {onMoveToProject ? (
+            moveUnavailable ? (
+              <button role="menuitem" type="button" aria-disabled="true" className={`${menuItemClass} cursor-default items-start text-ink-3 hover:bg-transparent`}>
+                <span className="mt-0.5 flex-none">
+                  <MoveIcon />
+                </span>
+                <span className="min-w-0">
+                  <span className="block">Move to another project…</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-ink-3">{moveUnavailable}</span>
+                </span>
+              </button>
+            ) : (
+              item('Move to another project…', onMoveToProject, <MoveIcon />)
+            )
+          ) : null}
         </div>
       ) : null}
     </div>

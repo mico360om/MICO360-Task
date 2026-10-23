@@ -74,6 +74,13 @@ components:
           type: string
           nullable: true
           description: The meeting this task was created from (a Live note made into a task); its next repeat copies keep it.
+        formerKeys:
+          type: array
+          items: { type: string }
+          example: [RIG-4]
+          description: >
+            GET /tasks/{id} only. Keys the task had before it moved to another project, oldest first.
+            Each still finds it (search, "open RIG-4"), and no other task is ever given one of them.
         meeting:
           type: object
           nullable: true
@@ -131,13 +138,118 @@ components:
         defaultDueToday:
           type: boolean
           description: >
-            Default false. When true, a task created in the project without a due date gets one: the
+            Default false. When true, a task created in the project (or moved into it) without a due date gets one: the
             board day it is created on (the task's boardDate) when that day is later than today, else
             today, the company's calendar day (a past board day also gives today). It is stored like
             any due date (UTC midnight of that day). A due date that is sent is always kept. A task
             sent with a start date later than that day and no due date stays undated. Clearing the due
             date later leaves it clear. Optional on create and update (admin); left out of an update,
             it stays as it is.
+    MovePerson:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, example: Sara Al Balushi }
+    MoveProject:
+      type: object
+      properties:
+        id: { type: string }
+        code: { type: string, example: OPS }
+        name: { type: string, example: Operations }
+        status: { type: string, enum: [PLANNING, ACTIVE, ON_HOLD] }
+        color: { type: string, nullable: true }
+        icon: { type: string, nullable: true }
+        imageUrl: { type: string, nullable: true }
+    MoveTargets:
+      type: object
+      description: Where the caller may move tasks to, and whose tasks they may move.
+      properties:
+        managesAll: { type: boolean, description: 'An administrator: any task, to any open project.' }
+        managedProjectIds:
+          type: array
+          items: { type: string }
+          description: "The projects the caller manages (its owner, its named manager or a MANAGER member), whatever their status. Their tasks may be moved out. Empty for an administrator."
+        projects:
+          type: array
+          items: { $ref: '#/components/schemas/MoveProject' }
+          description: Open projects (not completed or archived) the caller may move tasks into, by name.
+    MoveInput:
+      type: object
+      required: [projectId]
+      properties:
+        projectId: { type: string, description: The project to move the task to. }
+        columnId:
+          type: string
+          description: >
+            A column of that project. Left out, each task goes to the project's first column of the same
+            kind (status category) as the one it is in now, or its first column when it has none of that kind
+            (columns switched off in Manage columns are used only when there is no other).
+        assignees:
+          type: string
+          enum: [ADD_TO_TEAM, UNASSIGN]
+          description: >
+            What happens to people assigned to the task who aren't on the new project's team (its owner,
+            manager, creator, members, and administrators): added to the team as members, or taken off the
+            task. Required when there are such people: without it the move is refused with 409
+            ASSIGNEES_NOT_ON_TEAM, naming them in error.details.people.
+    TaskMovePreview:
+      type: object
+      properties:
+        id: { type: string }
+        key: { type: string, description: 'Its key now (empty for a task that is not found).' }
+        title: { type: string }
+        from: { type: object, nullable: true, properties: { id: { type: string }, code: { type: string }, name: { type: string } } }
+        canMove: { type: boolean }
+        reason: { type: string, nullable: true, example: You need to manage Admin to move its tasks. }
+        newKey: { type: string, nullable: true, example: OPS-17, description: 'The key it would get: the next number now, in order for several tasks. A task created there at the same moment can take it; the move then takes the next.' }
+        currentCategory: { type: string, nullable: true, description: The status category of the column it is in now. }
+        completed: { type: boolean, description: 'It is completed now: moved to an open column it is re-opened; an open task moved to a Done column is completed.' }
+        columnId: { type: string, nullable: true, description: 'Where it goes unless another column is chosen.' }
+        milestoneCleared: { type: boolean, description: 'It is a milestone: moving clears it (milestones belong to their project).' }
+        dueDate: { type: string, nullable: true, example: '2026-10-24', description: "The due day it gets from the new project's \"New tasks are due today\" (it has none now)." }
+        repeat:
+          type: string
+          nullable: true
+          enum: [SERIES, COPY]
+          description: 'SERIES: the newest copy of a repeating task; its next copies are made in the new project. COPY: an earlier copy, which moves alone.'
+        outsiders: { type: array, items: { $ref: '#/components/schemas/MovePerson' }, description: People assigned to it who aren't on the new team. }
+    MovePreview:
+      type: object
+      properties:
+        project: { allOf: [{ $ref: '#/components/schemas/MoveProject' }, { type: object, properties: { defaultDueToday: { type: boolean } } }] }
+        columns:
+          type: array
+          description: The new project's switched-on columns, in board order.
+          items: { type: object, properties: { id: { type: string }, name: { type: string }, category: { type: string }, position: { type: integer }, enabled: { type: boolean } } }
+        tasks: { type: array, items: { $ref: '#/components/schemas/TaskMovePreview' }, description: 'One per task asked about, in that order.' }
+        outsiders: { type: array, items: { $ref: '#/components/schemas/MovePerson' }, description: 'Everyone not on the new team across the tasks that can move, once each.' }
+    MoveResult:
+      type: object
+      properties:
+        task: { $ref: '#/components/schemas/Task' }
+        from: { type: object, properties: { projectId: { type: string }, name: { type: string }, key: { type: string, example: RIG-4 } } }
+        to: { type: object, properties: { projectId: { type: string }, name: { type: string }, key: { type: string, example: OPS-17 } } }
+        addedToTeam: { type: array, items: { $ref: '#/components/schemas/MovePerson' } }
+        unassigned: { type: array, items: { $ref: '#/components/schemas/MovePerson' } }
+        milestoneCleared: { type: boolean }
+        dueDateSet: { type: string, nullable: true, example: '2026-10-24' }
+        statusChange: { type: string, nullable: true, enum: [COMPLETED, REOPENED], description: 'The move completed the task (into a Done column) or re-opened it (out of one).' }
+    BulkMoveResult:
+      type: object
+      properties:
+        results:
+          type: array
+          description: One per task asked for, in that order. A refused task never hides the others' success.
+          items:
+            oneOf:
+              - allOf: [{ type: object, properties: { taskId: { type: string }, ok: { type: boolean, enum: [true] } } }, { $ref: '#/components/schemas/MoveResult' }]
+              - type: object
+                properties:
+                  taskId: { type: string }
+                  ok: { type: boolean, enum: [false] }
+                  error: { type: object, properties: { code: { type: string, example: ASSIGNEES_NOT_ON_TEAM }, message: { type: string }, details: {} } }
+        moved: { type: integer }
+        failed: { type: integer }
   responses:
     Unauthorized:
       description: Missing or invalid token
@@ -352,9 +464,81 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [dependsOnTaskId], properties: { dependsOnTaskId: { type: string } } } } } }
       responses: { '201': { description: Created }, '409': { description: DEPENDENCY_CYCLE / DEPENDENCY_EXISTS } }
 
+  /tasks/move-targets:
+    get:
+      summary: Where the caller may move tasks to another project
+      description: >
+        Administrators may move any task; anyone else needs to manage both the task's project and the one
+        it goes to (its owner, its named manager or a MANAGER member of each). Tasks go only into open
+        projects: not completed or archived.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/MoveTargets' } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /tasks/move-preview:
+    post:
+      summary: What moving tasks to a project would change (nothing is moved)
+      description: >
+        For the move dialog: the new keys, the column each would go to, milestones cleared, due dates the
+        project gives, repeats, and the people assigned who aren't on its team. A task the caller can't
+        see is "not found", without its key or title. A project that can't take them (unknown, not
+        managed by the caller, completed or archived) refuses the whole request.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [taskIds, projectId], properties: { taskIds: { type: array, items: { type: string }, minItems: 1, maxItems: 500 }, projectId: { type: string } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/MovePreview' } } } } } }
+        '400': { description: VALIDATION, or PROJECT_CLOSED (the project is completed or archived) }
+        '403': { description: 'FORBIDDEN: the caller may not move tasks into that project.' }
+        '404': { description: Project not found. }
+  /tasks/{id}/move-to-project:
+    post:
+      summary: Move a task to another project
+      description: >
+        The task gets the new project's next number (RIG-4 becomes OPS-17); its old key keeps finding it.
+        Comments, files, checklist, history, watchers, blockers and the meeting link go with it; its board
+        day stays; a milestone is cleared; an undated task gets today where new tasks are due today. Its
+        completion follows the column (a Done column completes it). The newest copy of a repeating task
+        takes its series along. Its history is filed under the new project, with UNASSIGNED lines for
+        people taken off, an UPDATED line for a due date given or a milestone cleared, and PROJECT_CHANGED;
+        the old project keeps a PROJECT_MOVED_OUT line (on no task) saying where it went. The move is
+        saved only if the task is unchanged since it was read. The old project's board hears
+        task:updated, the new one's task:created; the people following the task get one notice
+        (TASK_STATUS, "RIG-4 moved to Operations", "… and marked complete" / "… and reopened").
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MoveInput' } } } }
+      responses:
+        '200': { description: Moved, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/MoveResult' } } } } } }
+        '400': { description: 'VALIDATION (e.g. a column of another project), SAME_PROJECT, PROJECT_CLOSED or NO_COLUMNS' }
+        '403': { description: 'FORBIDDEN: the caller does not manage both projects (and is not an administrator)' }
+        '404': { description: Task or project not found (a task the caller can't see is not found) }
+        '409': { description: 'ASSIGNEES_NOT_ON_TEAM (choose `assignees`; details.people names them), TASK_MOVED (someone else moved it first), VERSION_CONFLICT (it changed since it was read) or TASK_KEY_CONFLICT' }
+  /tasks/move-to-project:
+    post:
+      summary: Move several tasks to another project, with a result for each
+      description: >
+        The same move as for one task, task by task in the order given, with one column (or each task's
+        own kind of column) and one answer for people not on the new team. A project that can't take
+        tasks refuses the whole request; anything else refuses only that task, in its result.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/MoveInput'
+                - { type: object, required: [taskIds], properties: { taskIds: { type: array, items: { type: string }, minItems: 1, maxItems: 500 } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/BulkMoveResult' } } } } } }
+        '400': { description: VALIDATION or PROJECT_CLOSED }
+        '403': { description: 'FORBIDDEN: the caller may not move tasks into that project.' }
+        '404': { description: Project not found. }
+
   /search:
     get:
       summary: Global search across tasks / projects / users
+      description: >
+        Tasks match by title, key, or a key they had before they moved to another project; each task
+        result lists those old keys (formerKeys). A task whose key or old key is exactly the query comes first.
       parameters: [ { name: q, in: query, schema: { type: string } } ]
       responses: { '200': { description: OK } }
   /notifications:

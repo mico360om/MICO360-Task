@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { searchAll, createSearchService, createCachedSearchDataSource, TASK_RESULT_LIMIT, type SearchData } from './search-service';
+import { searchAll, createSearchService, createCachedSearchDataSource, taskMatches, TASK_RESULT_LIMIT, type SearchData } from './search-service';
 
 const data: SearchData = {
   tasks: [{ id: 't1', key: 'MICO-1', title: 'Prepare monthly report', projectId: 'p1' }],
@@ -11,6 +11,13 @@ describe('searchAll', () => {
   it('matches task titles and keys', () => {
     expect(searchAll('report', data).tasks).toHaveLength(1);
     expect(searchAll('mico-1', data).tasks).toHaveLength(1);
+  });
+
+  it('matches a task by a key it had before it moved project', () => {
+    const moved = { ...data, tasks: [{ id: 't5', key: 'OPS-17', title: 'Inspect', projectId: 'p1', formerKeys: ['RIG-4'] }] };
+    expect(searchAll('rig-4', moved).tasks.map((t) => t.id)).toEqual(['t5']);
+    expect(taskMatches({ title: 'Inspect', key: 'OPS-17', formerKeys: ['RIG-4'] }, 'rig-4')).toBe(true);
+    expect(taskMatches({ title: 'Inspect', key: 'OPS-17' }, 'rig-4')).toBe(false);
   });
 
   it('matches projects by code or name across all types', () => {

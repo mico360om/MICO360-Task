@@ -4,7 +4,7 @@ import type { RecurrenceTaskPort } from './recurrence-service';
 import type { RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { defaultCompanyTimeZone } from './task-status';
-import { isRecurrenceCopyConflict, isTaskKeyConflict } from './prisma-task-repository';
+import { firstFreeKey, highestKeyNumber, isRecurrenceCopyConflict, isTaskKeyConflict } from './prisma-task-repository';
 import { projectAudienceIds } from './prisma-assignee-repository';
 
 const KEY_ATTEMPTS = 5;
@@ -59,10 +59,12 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
       for (let attempt = 0; ; attempt++) {
         try {
           const created = await prisma.$transaction(async (tx) => {
-            const count = await tx.task.count({ where: { projectId: source.projectId } });
+            // The project's next number, read afresh on each try (a create that beat this one is
+            // counted then): the highest used — old keys of tasks moved away too — plus one.
+            const key = await firstFreeKey(tx, source.project.code, (await highestKeyNumber(tx, source.projectId)) + 1);
             const task = await tx.task.create({
               data: {
-                key: `${source.project.code}-${count + 1 + attempt}`,
+                key,
                 title: source.title,
                 description: source.description ?? undefined,
                 projectId: source.projectId,
@@ -98,7 +100,7 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
         } catch (err) {
           // This task already has its next copy (a repeat or concurrent call): nothing to add.
           if (isRecurrenceCopyConflict(err)) return null;
-          // A concurrent create took this key — retry with the next number.
+          // A concurrent create took this key — retry, reading the next number again.
           if (!isTaskKeyConflict(err) || attempt >= KEY_ATTEMPTS - 1) throw err;
         }
       }

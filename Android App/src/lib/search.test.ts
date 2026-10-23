@@ -132,6 +132,19 @@ describe('search: the server’s results, in the website’s groups and numbers'
     expect(exactTask(results({ tasks: [{ id: 't50', key: 'WEB-50', title: 'Fifty', projectId: 'p' }] }), 'WEB-5')).toBeNull();
     expect(exactTask(results({ tasks: [{ id: 'bad id', key: 'WEB-5', title: 'x', projectId: 'p' }] }), 'WEB-5')).toBeNull();
   });
+
+  it('a key a task had before it moved project still opens it (“open RIG-4” → OPS-17), the key it has now first', () => {
+    const moved = { id: 't4', key: 'OPS-17', title: 'Inspect the rig', projectId: 'p2', formerKeys: ['RIG-4'] };
+    expect(exactTask(results({ tasks: [moved] }), 'rig-4')?.id).toBe('t4');
+    // Another task that is RIG-4 now wins over one that used to be.
+    expect(exactTask(results({ tasks: [moved, { id: 'now', key: 'RIG-4', title: 'New', projectId: 'p1' }] }), 'RIG-4')?.id).toBe('now');
+    expect(exactTask(results({ tasks: [{ ...moved, formerKeys: ['RIG-40'] }] }), 'RIG-4')).toBeNull();
+  });
+
+  it('a found task that moved shows the key it had too, as the website does', () => {
+    const items = searchItems({ raw: 'rig-4', results: results({ tasks: [{ id: 't4', key: 'OPS-17', title: 'Inspect the rig', projectId: 'p2', formerKeys: ['RIG-4'] }] }), ...ctx });
+    expect(items.find((i) => i.group === 'Tasks')).toMatchObject({ hint: 'OPS-17 (was RIG-4)', label: 'Task OPS-17 (was RIG-4), Inspect the rig' });
+  });
 });
 
 describe('search: what the list says', () => {

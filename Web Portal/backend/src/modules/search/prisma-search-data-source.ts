@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { taskMatches, type SearchDataSource, type SearchableMeeting } from './search-service';
+import { isExactKeyMatch, taskMatches, type SearchDataSource, type SearchableMeeting } from './search-service';
 import { normalizeForSearch, prefilterTerms } from './text-normalize';
 import { noteText } from '../../lib/rich-text';
 
@@ -9,7 +9,7 @@ const TASK_CANDIDATES = 500;
 /**
  * The database side of a task search: live tasks in live projects the caller may see, whose title
  * contains every pre-filter term (a superset of the normalised match — see prefilterTerms) or
- * whose key contains the query. Exported for tests.
+ * whose key — or a key it had before it moved project — contains the query. Exported for tests.
  */
 export function taskSearchWhere(query: string, allowedProjectIds: string[] | null): Prisma.TaskWhereInput {
   const terms = prefilterTerms(query);
@@ -18,7 +18,7 @@ export function taskSearchWhere(query: string, allowedProjectIds: string[] | nul
     deletedAt: null,
     project: { is: { deletedAt: null } },
     ...(allowedProjectIds ? { projectId: { in: allowedProjectIds } } : {}),
-    OR: [{ AND: terms.map((t) => ({ title: { contains: t } })) }, { key: { contains: keyTerm } }],
+    OR: [{ AND: terms.map((t) => ({ title: { contains: t } })) }, { key: { contains: keyTerm } }, { keyAliases: { some: { key: { contains: keyTerm } } } }],
   };
 }
 
@@ -73,13 +73,18 @@ export function createPrismaSearchDataSource(prisma: PrismaClient): SearchDataSo
     async searchTasks(query, allowedProjectIds, limit) {
       const q = normalizeForSearch(query);
       if (!q || (allowedProjectIds && allowedProjectIds.length === 0)) return [];
-      const candidates = await prisma.task.findMany({
+      const rows = await prisma.task.findMany({
         where: taskSearchWhere(query, allowedProjectIds),
-        select: { id: true, key: true, title: true, projectId: true },
+        select: { id: true, key: true, title: true, projectId: true, keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } } },
         orderBy: { updatedAt: 'desc' },
         take: TASK_CANDIDATES,
       });
-      return candidates.filter((t) => taskMatches(t, q)).slice(0, limit);
+      const candidates = rows.map(({ keyAliases, ...t }) => ({ ...t, formerKeys: (keyAliases ?? []).map((a) => a.key) }));
+      const hits = candidates.filter((t) => taskMatches(t, q));
+      // The task a key names exactly comes first ("RIG-4" before RIG-40…RIG-49), so "open RIG-4" always
+      // finds it — under the key it has now or one it had before it moved project.
+      const exact = hits.filter((t) => isExactKeyMatch(t, q));
+      return [...exact, ...hits.filter((t) => !exact.includes(t))].slice(0, limit);
     },
   };
 }

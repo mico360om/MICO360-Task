@@ -13,6 +13,8 @@ const ACTION_VERB: Record<string, string> = {
   COMPLETED: 'completed',
   REOPENED: 'reopened',
   ASSIGNED: 'assigned',
+  PROJECT_CHANGED: 'moved',
+  PROJECT_MOVED_OUT: 'moved',
 };
 const ACTION_TONE: Record<string, string> = {
   CREATED: 'text-info',
@@ -20,6 +22,8 @@ const ACTION_TONE: Record<string, string> = {
   COMPLETED: 'text-success',
   REOPENED: 'text-warning',
   ASSIGNED: 'text-brand',
+  PROJECT_CHANGED: 'text-ink-2',
+  PROJECT_MOVED_OUT: 'text-ink-2',
 };
 const ACTION_DOT: Record<string, string> = {
   CREATED: 'bg-info',
@@ -46,6 +50,9 @@ function dayHeader(iso: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+/** The task's title — for a line on no task (the old project's "moved out" line), the one it recorded. */
+const titleOf = (a: ApiActivity): string => a.task?.title ?? str(a.meta?.title) ?? '';
+
 /** The human "what happened" line, using the recorded old→new meta where available. */
 function detailOf(a: ApiActivity): string {
   const m = a.meta ?? {};
@@ -60,6 +67,22 @@ function detailOf(a: ApiActivity): string {
       return to ? `re-opened in ${to}` : 're-opened';
     case 'ASSIGNED':
       return str(m.assignee) ? `→ ${str(m.assignee)}` : '';
+    case 'PROJECT_CHANGED': {
+      // To another project: from where, by the key it had there ("from Rig Inspection (RIG-4) to Operations").
+      const fromProject = str(m.fromProject);
+      const toProject = str(m.toProject);
+      const fromKey = str(m.fromKey);
+      if (!fromProject || !toProject) return toProject ? `to ${toProject}` : 'to another project';
+      return `from ${fromProject}${fromKey ? ` (${fromKey})` : ''} to ${toProject}`;
+    }
+    case 'PROJECT_MOVED_OUT': {
+      // The old project's line, on no task: the key it had here, and where it went ("RIG-4 to Operations (OPS-17)").
+      const key = str(m.key);
+      const toProject = str(m.toProject);
+      const toKey = str(m.toKey);
+      const where = toProject ? `to ${toProject}${toKey ? ` (${toKey})` : ''}` : 'to another project';
+      return key ? `${key} ${where}` : where;
+    }
     default:
       return '';
   }
@@ -139,10 +162,10 @@ export function ActivityPage() {
                             <span className="text-ink-2">a task</span>
                           )}
                         </p>
-                        <p dir="auto" title={[a.task?.title, detailOf(a), a.project?.name].filter(Boolean).join(' · ')} className="line-clamp-2 text-start text-xs text-ink-2 sm:line-clamp-1">
-                          {a.task?.title ?? ''}
-                          {detailOf(a) ? <span className="text-ink-3"> · {detailOf(a)}</span> : null}
-                          {a.project ? <span className="text-ink-3"> · {a.project.name}</span> : null}
+                        <p dir="auto" title={[titleOf(a), detailOf(a), a.project?.name].filter(Boolean).join(' · ')} className="line-clamp-2 text-start text-xs text-ink-2 sm:line-clamp-1">
+                          {titleOf(a)}
+                          {detailOf(a) ? <span className="text-ink-3">{titleOf(a) ? ' · ' : ''}{detailOf(a)}</span> : null}
+                          {a.project ? <span className="text-ink-3">{titleOf(a) || detailOf(a) ? ' · ' : ''}{a.project.name}</span> : null}
                         </p>
                       </div>
                       <time className="flex-none text-xs text-ink-3" title={new Date(a.createdAt).toLocaleString()} dateTime={a.createdAt}>

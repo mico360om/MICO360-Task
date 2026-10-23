@@ -190,6 +190,7 @@ model Project {
   columns   KanbanColumn[]
   tasks     Task[]
   activities Activity[]
+  taskKeyAliases TaskKeyAlias[]
 
   @@index([status])
   @@index([managerId])
@@ -272,6 +273,7 @@ model Task {
   dependencies TaskDependency[] @relation("DependentTask")
   dependedOnBy TaskDependency[] @relation("BlockingTask")
   activities   Activity[]
+  keyAliases   TaskKeyAlias[]
 
   @@index([projectId])
   @@index([columnId])
@@ -279,6 +281,23 @@ model Task {
   @@index([priority])
   @@index([boardDate])
   @@map("tasks")
+}
+
+/// A task's old key, kept when it moved to another project (RIG-4 became OPS-17): looking up RIG-4
+/// still finds the task, and no other task is ever given that key.
+model TaskKeyAlias {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  taskId    String
+  /// The project the key belonged to: its numbers stay used there (task keys are numbered per project).
+  projectId String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([projectId])
+  @@map("task_key_aliases")
 }
 
 model TaskAssignee {

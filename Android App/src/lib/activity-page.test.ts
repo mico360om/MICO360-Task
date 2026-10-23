@@ -56,6 +56,23 @@ describe('the Activity page’s words (5c), as the website’s', () => {
     expect(activityDetail(row('a', 'BLOCKER_ADDED', '', { meta: { key: 'OPS-9', title: 'Secret' } }))).toBe('');
   });
 
+  it('the old project’s line, on no task: where its task went, by the key it had there', () => {
+    expect(activityVerb('PROJECT_MOVED_OUT')).toBe('moved');
+    const left = row('a', 'PROJECT_MOVED_OUT', '', { taskId: null, task: null, meta: { key: 'RIG-4', title: 'Inspect the rig', toProject: 'Operations', toKey: 'OPS-17' } });
+    expect(activityDetail(left)).toBe('RIG-4 to Operations (OPS-17)');
+    expect(activityLine(left)).toBe('Inspect the rig · RIG-4 to Operations (OPS-17) · Rig Ops');
+    expect(activityRowLabel(left, Date.parse('2026-10-24T06:00:00Z'), 'UTC').startsWith('Omar Ahmed moved a task, Inspect the rig, RIG-4 to Operations (OPS-17), in Rig Ops')).toBe(true);
+    expect(activityDetail(row('a', 'PROJECT_MOVED_OUT', '', { meta: { toProject: 'Operations' } }))).toBe('to Operations');
+    expect(activityDetail(row('a', 'PROJECT_MOVED_OUT', ''))).toBe('to another project');
+  });
+
+  it('a task moved to another project: from where (by the key it had there) to where', () => {
+    expect(activityVerb('PROJECT_CHANGED')).toBe('moved');
+    expect(activityDetail(row('a', 'PROJECT_CHANGED', '', { meta: { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' } }))).toBe('from Rig Inspection (RIG-4) to Operations');
+    expect(activityDetail(row('a', 'PROJECT_CHANGED', '', { meta: { toProject: 'Operations' } }))).toBe('to Operations');
+    expect(activityDetail(row('a', 'PROJECT_CHANGED', ''))).toBe('to another project');
+  });
+
   it('puts the task, what happened and the project on the second line', () => {
     expect(activityLine(row('a', 'MOVED', '', { meta: { from: 'To Do', to: 'Done' } }))).toBe('Fix the pump · To Do → Done · Rig Ops');
     expect(activityLine(row('a', 'CREATED', '', { project: null }))).toBe('Fix the pump');

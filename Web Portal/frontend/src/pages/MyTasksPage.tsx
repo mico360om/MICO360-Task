@@ -23,6 +23,8 @@ import { dueDayKey, shiftDayKey, todayKey as companyTodayKey } from '../lib/due-
 import { formatDueDay, isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { invalidateTaskQueries } from '../lib/task-cache';
+import { MoveTaskDialog, useMoveTargets } from '../components/MoveTaskDialog';
+import { bulkMoveAvailability, bulkMovedText, movedText } from '../lib/task-move';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
@@ -238,6 +240,11 @@ export function MyTasksPage() {
   }
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
 
+  // "Move to project…": one dialog for the whole selection (each task is checked there).
+  const [moving, setMoving] = useState<{ id: string; key: string; title: string; projectId: string }[] | null>(null);
+  const moveTargets = useMoveTargets(selected.size > 0);
+  const moveUnavailable = bulkMoveAvailability(moveTargets).reason;
+
   // Assignable people (directory) + move targets (only when a single project is pinned).
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
   const assigneeChoices = directory.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username }));
@@ -358,9 +365,32 @@ export function MyTasksPage() {
           onComplete={() => runBulkAction({ type: 'complete' }, 'Completed')}
           onSetDueDate={(date) => runBulkAction({ type: 'setDueDate', dueDate: date }, 'Updated due date on')}
           onSetPriority={(p) => runBulkAction({ type: 'setPriority', priority: p }, 'Set priority on')}
+          onMoveToProject={() => setMoving(selectedList.map((e) => ({ id: e.task.id, key: e.task.key, title: e.task.title, projectId: e.task.projectId })))}
+          moveUnavailable={moveUnavailable}
           onAssign={(userId) => runBulkAction({ type: 'assign', userId }, 'Assigned')}
           onMove={moveColumns ? (columnId) => runBulkAction({ type: 'move', columnId }, 'Moved') : undefined}
           onClear={clearSelection}
+        />
+      ) : null}
+
+      {moving ? (
+        <MoveTaskDialog
+          tasks={moving}
+          onClose={() => setMoving(null)}
+          // One task selected: the one-task move.
+          onMoved={(result) => {
+            void invalidateTaskQueries(qc);
+            setSelected(new Set());
+            setToast(movedText(result));
+            setMoving(null);
+          }}
+          onBulkMoved={(result, projectName) => {
+            void invalidateTaskQueries(qc);
+            setSelected(new Set());
+            setToast(bulkMovedText(result, projectName));
+            // All moved: done. Otherwise the dialog lists the ones that couldn't be, until Done.
+            if (result.failed === 0) setMoving(null);
+          }}
         />
       ) : null}
 

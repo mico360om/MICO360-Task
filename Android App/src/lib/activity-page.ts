@@ -25,6 +25,8 @@ export const ACTION_VERB: Record<string, string> = {
   COMPLETED: 'completed',
   REOPENED: 'reopened',
   ASSIGNED: 'assigned',
+  PROJECT_CHANGED: 'moved',
+  PROJECT_MOVED_OUT: 'moved',
 };
 
 /** Each action's colour, as the website's (text-info, text-success …). */
@@ -34,6 +36,8 @@ export const ACTION_TONE: Record<string, Tone> = {
   COMPLETED: 'success',
   REOPENED: 'warning',
   ASSIGNED: 'brand',
+  PROJECT_CHANGED: 'neutral',
+  PROJECT_MOVED_OUT: 'neutral',
 };
 
 export const ACTIVITY_FILTERS: readonly { value: string; label: string }[] = [
@@ -67,14 +71,33 @@ export function activityDetail(a: Pick<ApiActivityRow, 'action' | 'meta'>): stri
       return to ? `re-opened in ${to}` : 're-opened';
     case 'ASSIGNED':
       return str(m.assignee) ? `→ ${str(m.assignee)}` : '';
+    case 'PROJECT_CHANGED': {
+      // To another project: from where, by the key it had there ("from Rig Inspection (RIG-4) to Operations").
+      const fromProject = str(m.fromProject);
+      const toProject = str(m.toProject);
+      const fromKey = str(m.fromKey);
+      if (!fromProject || !toProject) return toProject ? `to ${toProject}` : 'to another project';
+      return `from ${fromProject}${fromKey ? ` (${fromKey})` : ''} to ${toProject}`;
+    }
+    case 'PROJECT_MOVED_OUT': {
+      // The old project's line, on no task: the key it had here, and where it went ("RIG-4 to Operations (OPS-17)").
+      const key = str(m.key);
+      const toProject = str(m.toProject);
+      const toKey = str(m.toKey);
+      const where = toProject ? `to ${toProject}${toKey ? ` (${toKey})` : ''}` : 'to another project';
+      return key ? `${key} ${where}` : where;
+    }
     default:
       return '';
   }
 }
 
+/** The task's title — for a line on no task (the old project's "moved out" line), the one it recorded. */
+const titleOf = (a: ApiActivityRow): string | null => a.task?.title ?? str(a.meta?.title);
+
 /** The row's second line: the task's title, what happened, the project (left out where it is its own button). */
 export function activityLine(a: ApiActivityRow, { project = true }: { project?: boolean } = {}): string {
-  return [a.task?.title, activityDetail(a), project ? a.project?.name : null].filter(Boolean).join(' · ');
+  return [titleOf(a), activityDetail(a), project ? a.project?.name : null].filter(Boolean).join(' · ');
 }
 
 /** Who did it, as the website's avatar shows a person without a picture: the first letters of two words. */
@@ -92,7 +115,7 @@ export function actorInitials(name: string): string {
 /** The row read out whole: "Omar Ahmed moved OPS-12, Fix the pump, To Do → Done, in Rig Ops, 5m ago". */
 export function activityRowLabel(a: ApiActivityRow, now: number = Date.now(), timeZone: string = appTimeZone()): string {
   const who = `${a.actor?.name ?? 'Someone'} ${activityVerb(a.action)} ${a.task?.key ?? 'a task'}`;
-  return [who, a.task?.title, activityDetail(a) || null, a.project ? `in ${a.project.name}` : null, relativeTime(a.createdAt, now, timeZone) || null]
+  return [who, titleOf(a), activityDetail(a) || null, a.project ? `in ${a.project.name}` : null, relativeTime(a.createdAt, now, timeZone) || null]
     .filter(Boolean)
     .join(', ');
 }

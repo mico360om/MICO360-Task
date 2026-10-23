@@ -90,6 +90,25 @@ function someOf(names, shown = 3) {
 const quote = (s) => `“${s}”`;
 const blockerName = (e) => [str(metaOf(e)?.key), str(metaOf(e)?.title) ? quote(str(metaOf(e)?.title)) : null].filter(Boolean).join(' ') || 'a task';
 
+/** A project and the task's key in it: "Rig Inspection (RIG-4)" (either alone when the other is missing). */
+function projectAndKey(project, key) {
+  const name = str(project);
+  const k = str(key);
+  return name && k ? `${name} (${k})` : name ?? k;
+}
+/** "moved this task from Rig Inspection (RIG-4) to Operations (OPS-17)" — a move to another project. */
+function projectMoveText(e) {
+  const from = projectAndKey(metaOf(e)?.fromProject, metaOf(e)?.fromKey);
+  const to = projectAndKey(metaOf(e)?.toProject, metaOf(e)?.toKey);
+  if (from && to) return `moved this task from ${from} to ${to}`;
+  return to ? `moved this task to ${to}` : 'moved this task to another project';
+}
+/** The old project's line: "moved RIG-4 to Operations (OPS-17)" — by the key the task had there. */
+function movedOutText(e) {
+  const to = projectAndKey(metaOf(e)?.toProject, metaOf(e)?.toKey);
+  return `moved ${str(metaOf(e)?.key) ?? 'a task'} to ${to ?? 'another project'}`;
+}
+
 function changeText(c) {
   const from = str(c.from);
   const to = str(c.to);
@@ -111,6 +130,8 @@ function changeText(c) {
       if (from && !to) return 'stopped the repeat';
       return `changed the repeat to ${rule}`;
     }
+    case 'milestone':
+      return c.to ? 'made it a milestone' : 'cleared its milestone';
     default:
       return null;
   }
@@ -201,6 +222,9 @@ function toItem(kind, entries) {
       return { ...base, text: names.length === 1 ? `${verb} the blocker ${names[0]}` : `${verb} the blockers ${someOf(names)}` };
     }
     default:
+      // A move to another project is a line of its own (never merged with status moves or edits).
+      if (newest.action === 'PROJECT_CHANGED') return { ...base, text: projectMoveText(newest) };
+      if (newest.action === 'PROJECT_MOVED_OUT') return { ...base, text: movedOutText(newest) };
       return { ...base, text: OTHER_TEXT[newest.action] ?? (newest.action || '').toLowerCase().replace(/[._]/g, ' ') };
   }
 }

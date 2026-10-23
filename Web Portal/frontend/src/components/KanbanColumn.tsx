@@ -3,6 +3,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { DraggableTaskCard } from './DraggableTaskCard';
 import type { TaskCardTask } from './TaskCard';
+import { CardMenu, type CardMenuItem } from './board/CardMenu';
 
 export interface KanbanColumnData {
   id: string;
@@ -17,6 +18,10 @@ export interface KanbanColumnProps {
   /** Start a new task in this column (New task opens with the column chosen); none: read-only. */
   onAddTask?: () => void;
   timeZone?: string;
+  /** Each card's "⋯" menu (none: no menu). */
+  cardMenu?: (taskKey: string) => CardMenuItem[] | null;
+  /** A card is being dragged: the menus step aside (they don't travel with the cards). */
+  dragging?: boolean;
 }
 
 const PLUS = <path d="M12 5v14M5 12h14" />;
@@ -36,7 +41,7 @@ function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => voi
   );
 }
 
-export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone }: KanbanColumnProps) {
+export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [collapsed, setCollapsed] = useState(false);
 
@@ -93,9 +98,16 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone }: Kanba
       </header>
       <div className="flex min-h-[80px] flex-col gap-2.5">
         <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>
-          {column.tasks.map((task) => (
-            <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} />
-          ))}
+          {column.tasks.map((task) => {
+            const items = cardMenu?.(task.key) ?? null;
+            if (!items || items.length === 0) return <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} />;
+            return (
+              <div key={task.key} className="group/card relative">
+                <DraggableTaskCard task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} menuSpace />
+                {dragging ? null : <CardMenu taskKey={task.key} items={items} />}
+              </div>
+            );
+          })}
         </SortableContext>
         {column.tasks.length === 0 ? (
           onAddTask ? (

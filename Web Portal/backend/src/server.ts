@@ -27,6 +27,11 @@ import { createProjectAccess } from './modules/projects/project-access';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
+import { createTaskMoveService, type MoveResult } from './modules/tasks/task-move-service';
+import { createPrismaTaskMoveRepository } from './modules/tasks/prisma-task-move-repository';
+import { createMoveNotifier } from './modules/tasks/task-move-notices';
+import { managedProjectsWhere } from './modules/projects/project-managers';
+import { createStatusChangeEffects, type StatusChangeEffects } from './modules/tasks/task-status-effects';
 import { directMessageTitle } from './modules/chat/chat-notices';
 import { taskNoticeBody } from './modules/notifications/task-notice';
 import { DEFAULT_CARRY_STATUSES } from './modules/tasks/board-date';
@@ -257,6 +262,22 @@ async function main(): Promise<void> {
   });
   // onTaskMoved is wired below, once the notification + activity services exist.
 
+  // Moving tasks to another project. Late-bound: the notifications are wired below.
+  let onTaskProjectMoved: (move: MoveResult & { actorId: string }) => Promise<void> = async () => {};
+  // What a column change does (late-bound: wired once notifications and activity exist, below).
+  let statusChanged: StatusChangeEffects = async () => {};
+  const taskMoveService = createTaskMoveService({
+    repo: createPrismaTaskMoveRepository(prisma),
+    timeZone: companyTz,
+    checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
+    // A move into or out of a Done column is a status change too: the next repeat copy, meeting
+    // action items and the timeline line, as for a card moved on the board. Quietly: the move's own
+    // notice says it was completed or re-opened (one notice, not a second "moved to Done").
+    onStatusChanged: (task, prevColumnId, actorId) => statusChanged(task, prevColumnId, actorId, { notify: false }),
+    onMoved: (move) => onTaskProjectMoved(move),
+    onError: (err, taskId) => logger.error('moving a task to another project: a follow-up step failed', { err, taskId }),
+  });
+
   // Late-bound so assignment can create notifications + activity once those services exist (below).
   let onTaskAssigned: (taskId: string, userIds: string[], actorId?: string) => Promise<void> = async () => {};
   let onTaskUnassigned: (taskId: string, userId: string, actorId?: string) => Promise<void> = async () => {};
@@ -450,7 +471,7 @@ async function main(): Promise<void> {
   const isActiveUser = async (userId: string): Promise<boolean> =>
     (await prisma.user.count({ where: { id: userId, deletedAt: null, status: 'ACTIVE' } })) > 0;
   // Who may change a meeting: organizer, creator, admin — or whoever manages its project
-  // (the project's manager or owner, or a MANAGER member).
+  // (the project's manager or owner, or a MANAGER member: project-managers, as for moving tasks).
   const meetingAccess = createMeetingAccess({
     meetings: meetingRepository,
     projectAccess: {
@@ -458,10 +479,7 @@ async function main(): Promise<void> {
       accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles),
       async canManageProject(userId, roles, projectId) {
         if (roles.includes('ADMIN')) return true;
-        const managed = await prisma.project.findFirst({
-          where: { id: projectId, deletedAt: null, OR: [{ managerId: userId }, { ownerId: userId }, { members: { some: { userId, role: 'MANAGER' } } }] },
-          select: { id: true },
-        });
+        const managed = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null, ...managedProjectsWhere(userId) }, select: { id: true } });
         return managed !== null;
       },
     },
@@ -608,52 +626,21 @@ async function main(): Promise<void> {
     await activityService.record({ taskId: task.id, projectId: task.projectId, userId: task.createdById, action: 'CREATED', meta: { title: task.title } });
   };
 
-  // On a real stage change: spawn the next recurring instance when completed, and
-  // notify the task's assignees of the status change.
-  onTaskMoved = async (task, prevColumnId, actorId) => {
-    if (prevColumnId === task.columnId) return; // reorder within a column — not a status change
-    const [toCol, fromCol] = await Promise.all([
-      prisma.kanbanColumn.findUnique({ where: { id: task.columnId }, select: { name: true, category: true } }),
-      prisma.kanbanColumn.findUnique({ where: { id: prevColumnId }, select: { name: true, category: true } }),
-    ]);
-
-    if (task.recurrenceRule && toCol?.category === 'DONE') {
-      const next = await recurrenceService.onTaskCompleted({
-        id: task.id,
-        dueDate: task.dueDate,
-        recurrenceRule: task.recurrenceRule,
-        recurrenceParentId: task.recurrenceParentId,
-      });
-      // Open boards show the new occurrence at once (its CREATED activity is written by the port).
-      if (next) broadcast(task.projectId, 'task:created', await taskService.getTask(next.id));
-    }
-
-    // Meeting action items tracked as this task follow it into (and out of) Done. Best effort: the
-    // move itself has happened, so a failure here is logged rather than undoing it.
-    if ((toCol?.category === 'DONE') !== (fromCol?.category === 'DONE')) {
-      await actionItemService
-        .followTask(task.id, toCol?.category === 'DONE')
-        .catch((err) => logger.error('action items could not follow their task', { err, taskId: task.id }));
-    }
-
-    // Everyone following the task except whoever moved it.
-    for (const userId of await taskRecipientIds(task.id, actorId)) {
-      await notificationService.notify({
-        userId,
-        type: 'TASK_STATUS',
-        title: `Task moved to ${toCol?.name ?? 'a new stage'}`,
-        body: taskNoticeBody(task),
-        entityType: 'task',
-        entityId: task.id,
-      });
-    }
-
-    // One activity row for the move, attributed to the actor: COMPLETED / REOPENED / MOVED + from→to.
-    if (actorId) {
-      const action = toCol?.category === 'DONE' ? 'COMPLETED' : fromCol?.category === 'DONE' ? 'REOPENED' : 'MOVED';
-      await activityService.record({ taskId: task.id, projectId: task.projectId, userId: actorId, action, meta: { from: fromCol?.name ?? null, to: toCol?.name ?? null } });
-    }
-  };
+  // On a real stage change: the next copy of a repeating task when it is completed, meeting action
+  // items following it, a notice to the people following it and the timeline line (task-status-effects).
+  statusChanged = createStatusChangeEffects({
+    column: (id) => prisma.kanbanColumn.findUnique({ where: { id }, select: { name: true, category: true } }),
+    nextCopy: (task) =>
+      recurrenceService.onTaskCompleted({ id: task.id, dueDate: task.dueDate, recurrenceRule: task.recurrenceRule, recurrenceParentId: task.recurrenceParentId }),
+    // Open boards show the new occurrence at once (its CREATED activity is written by the port).
+    announceCopy: async (copyId, projectId) => broadcast(projectId, 'task:created', await taskService.getTask(copyId)),
+    followActionItems: (taskId, done) => actionItemService.followTask(taskId, done).then(() => undefined),
+    recipients: (taskId, actorId) => taskRecipientIds(taskId, actorId),
+    notify: (n) => notificationService.notify(n),
+    record: (entry) => activityService.record(entry),
+    onError: (err, taskId) => logger.error('action items could not follow their task', { err, taskId }),
+  });
+  onTaskMoved = (task, prevColumnId, actorId) => statusChanged(task, prevColumnId, actorId);
 
   // Deleting just the newest copy of a recurring series skips it: the next copy is made first, so
   // the series carries on instead of ending with it.
@@ -760,6 +747,10 @@ async function main(): Promise<void> {
       });
     }
   };
+
+  // A task moved to another project: the people following it (assignees and watchers who can still
+  // open it) hear where it went — never the person who moved it.
+  onTaskProjectMoved = createMoveNotifier({ recipients: (taskId, actorId) => taskRecipientIds(taskId, actorId), notify: (n) => notificationService.notify(n) });
 
   // A chat @mention notifies each mentioned (real, active) user who can read the conversation —
   // never someone outside the DM or project, and never the author.
@@ -1154,6 +1145,7 @@ async function main(): Promise<void> {
     memberService,
     projectAuthz,
     taskService,
+    taskMoveService,
     carryForwardService,
     assigneeService,
     watcherService,

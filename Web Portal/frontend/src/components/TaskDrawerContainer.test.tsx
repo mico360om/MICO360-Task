@@ -297,3 +297,85 @@ describe('TaskDrawerContainer', () => {
     });
   });
 });
+
+describe('TaskDrawerContainer: moving the task to another project', () => {
+  const PROJECTS = [
+    { id: 'p1', code: 'RIG', name: 'Rig Inspection', status: 'ACTIVE', color: '#8B1E1E', icon: null, imageUrl: null },
+    { id: 'p2', code: 'OPS', name: 'Operations', status: 'ACTIVE', color: '#1E5B8B', icon: null, imageUrl: null },
+  ];
+  const TASK = { id: 't1', key: 'RIG-4', title: 'Inspect the rig', description: '', projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' };
+  const MOVED = { ...TASK, key: 'OPS-17', projectId: 'p2', columnId: 'o1', formerKeys: ['RIG-4'] };
+
+  /** The drawer's usual answers, plus where tasks may go and the move itself; `moved` once it has moved. */
+  function server(opts: { managesAll?: boolean; managed?: string[] } = {}) {
+    let moved = false;
+    const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (u.endsWith('/projects')) return json({ data: PROJECTS });
+      if (u.endsWith('/tasks/move-targets')) return json({ data: { managesAll: opts.managesAll ?? false, managedProjectIds: opts.managed ?? ['p1', 'p2'], projects: PROJECTS } });
+      if (u.endsWith('/tasks/move-preview')) {
+        return json({ data: { project: { ...PROJECTS[1], defaultDueToday: false }, columns: [{ id: 'o1', name: 'Next', category: 'TODO', position: 0, enabled: true }], outsiders: [], tasks: [
+          { id: 't1', key: 'RIG-4', title: 'Inspect the rig', from: { id: 'p1', code: 'RIG', name: 'Rig Inspection' }, canMove: true, reason: null, newKey: 'OPS-17', currentCategory: 'TODO', columnId: 'o1', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] },
+        ] } });
+      }
+      if (u.endsWith('/tasks/t1/move-to-project') && method === 'POST') {
+        moved = true;
+        return json({ data: { task: MOVED, from: { projectId: 'p1', name: 'Rig Inspection', key: 'RIG-4' }, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' }, addedToTeam: [], unassigned: [], milestoneCleared: false, dueDateSet: null } });
+      }
+      if (u.endsWith('/tasks/t1') && method === 'GET') return json({ data: moved ? MOVED : TASK });
+      if (u.endsWith('/tasks/x9')) return json({ data: { ...TASK, id: 'x9', key: 'OPS-3', title: 'Order the parts elsewhere', projectId: 'p2', columnCategory: 'DONE' } });
+      return base(url, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+  const renderDrawer = () =>
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+  it('moves it from More actions: a toast says where, and the panel stays open showing its new key and project', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    server({ managesAll: true, managed: [] });
+    renderDrawer();
+    const header = await screen.findByTestId('task-header');
+    await waitFor(() => expect(within(header).getByText('Rig Inspection')).toBeInTheDocument());
+    await userEvent.click(within(header).getByRole('button', { name: 'More actions' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to another project…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move to another project' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Project' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: /^Move task/ }));
+    const toast = await screen.findByText('Moved to Operations as OPS-17');
+    expect(toast.closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Move to another project' })).not.toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByTestId('task-header')).getByText('OPS-17')).toBeInTheDocument());
+    expect(within(screen.getByTestId('task-header')).getByText('Operations')).toBeInTheDocument();
+    expect(within(screen.getByTestId('task-header')).getByText('Formerly RIG-4')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Task OPS-17' })).toBeInTheDocument();
+  });
+
+  it('for someone who doesn’t manage its project, the item is there but unavailable, saying why', async () => {
+    server({ managed: ['p2'] });
+    renderDrawer();
+    const header = await screen.findByTestId('task-header');
+    await waitFor(() => expect(within(header).getByText('Rig Inspection')).toBeInTheDocument());
+    await userEvent.click(within(header).getByRole('button', { name: 'More actions' }));
+    const item = await screen.findByRole('menuitem', { name: /Move to another project…/ });
+    await waitFor(() => expect(item).toHaveTextContent('To move it, you need to manage both Rig Inspection and the project it goes to.'));
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('names a blocker that is in another project (it stays linked after a move)', async () => {
+    const base = server();
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('/dependencies') ? json({ data: { blockedBy: ['t2', 'x9'], blocks: [] } }) : base(url, init))));
+    renderDrawer();
+    expect(await screen.findByText('Order the parts elsewhere')).toBeInTheDocument();
+    expect(screen.getByText('OPS-3')).toBeInTheDocument();
+    expect(screen.getByText('Do first')).toBeInTheDocument();
+  });
+});

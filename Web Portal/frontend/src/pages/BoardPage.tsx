@@ -29,6 +29,9 @@ import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
 import { projectOption } from '../components/project-option';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
+import { MoveTaskDialog, useMoveTargets, type MoveTaskRef } from '../components/MoveTaskDialog';
+import type { CardMenuItem } from '../components/board/CardMenu';
+import { moveAvailability, movedText } from '../lib/task-move';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
@@ -73,6 +76,14 @@ export function BoardPage() {
   const [moveError, setMoveError] = useState(false);
   const [columnError, setColumnError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // A card's "Move to another project…": the task being moved, then what happened.
+  const [movingTask, setMovingTask] = useState<MoveTaskRef | null>(null);
+  const [movedToast, setMovedToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!movedToast) return;
+    const t = setTimeout(() => setMovedToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [movedToast]);
   // A link like /board?project=<id> (e.g. "Open board" on a project page) wins; otherwise the
   // last project this user viewed (remembered per user), else the first.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -300,6 +311,42 @@ export function BoardPage() {
     statusMoveMut.mutate({ id: t.id, toColumnId: target, taskKey, status });
   }
 
+  // Each card's menu: "Move to another project…", offered to those who may (and saying why to others).
+  const moveTargets = useMoveTargets();
+  const refByKey = useMemo(() => {
+    const refs = new Map<string, MoveTaskRef>();
+    if (isAll) {
+      for (const t of allQ.data ?? []) refs.set(t.key, { id: t.id, key: t.key, title: t.title, projectId: t.projectId });
+    } else if (boardQ.data && projectId) {
+      for (const column of boardQ.data.columns) {
+        for (const t of column.tasks) {
+          const id = boardQ.data.idByKey[t.key];
+          if (id) refs.set(t.key, { id, key: t.key, title: t.title, projectId });
+        }
+      }
+    }
+    return refs;
+  }, [isAll, allQ.data, boardQ.data, projectId]);
+  // Only for someone who may move the task: others (members who don't manage it) see no ⋯ at all.
+  const cardMenu = (key: string): CardMenuItem[] | null => {
+    const ref = refByKey.get(key);
+    if (!ref) return null;
+    const name = projects.find((p) => p.id === ref.projectId)?.name;
+    if (!moveAvailability(ref.projectId, moveTargets, name).canMove) return null;
+    return [{ label: 'Move to another project…', onSelect: () => setMovingTask(ref) }];
+  };
+
+  /** Where keyboard focus goes once a moved card has left the board: the next card in its column (else the one before), else the board. */
+  function focusAfterMove(movedKey: string) {
+    const column = boardColumns.find((c) => c.tasks.some((t) => t.key === movedKey));
+    const at = column ? column.tasks.findIndex((t) => t.key === movedKey) : -1;
+    const neighbour = column ? (column.tasks[at + 1] ?? column.tasks[at - 1]) : undefined;
+    return () => {
+      const card = neighbour ? document.querySelector<HTMLElement>(`[data-card-key="${CSS.escape(neighbour.key)}"]`) : null;
+      (card ?? document.querySelector<HTMLElement>('[role="region"][aria-label="Board columns"]'))?.focus();
+    };
+  }
+
   const boardColumns = isAll ? allColumns : boardQ.data?.columns ?? [];
   const idByKey = useMemo(
     () => (isAll ? Object.fromEntries((allQ.data ?? []).map((t) => [t.key, t.id])) : boardQ.data?.idByKey ?? {}),
@@ -511,6 +558,7 @@ export function BoardPage() {
           // On All projects a status mixes projects: cards keep their order (due date, then priority).
           onReorder={isAll ? undefined : onReorder}
           onAddTask={(columnId) => openAddTask(columnId)}
+          cardMenu={cardMenu}
           onTaskClick={(key) => {
             const id = idByKey[key];
             if (id) setOpenTaskId(id);
@@ -519,6 +567,31 @@ export function BoardPage() {
       )}
 
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
+
+      {movingTask ? (
+        <MoveTaskDialog
+          tasks={[movingTask]}
+          onClose={() => setMovingTask(null)}
+          onMoved={(result) => {
+            const refocus = focusAfterMove(movingTask.key);
+            setMovingTask(null);
+            setMovedToast(movedText(result));
+            // Off this board, onto the other project's (live boards elsewhere hear it too). Its card —
+            // and the ⋯ button focus went back to — leaves: focus moves on to its neighbour.
+            void invalidateTaskQueries(qc).then(() => setTimeout(refocus, 0));
+          }}
+        />
+      ) : null}
+      {movedToast ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+          <p role="status" className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-lift">
+            <span>{movedToast}</span>
+            <button type="button" onClick={() => setMovedToast(null)} aria-label="Dismiss" className="text-ink-2 hover:text-ink">
+              ✕
+            </button>
+          </p>
+        </div>
+      ) : null}
 
       {addingTask && projectId ? (
         // One request creates the task with its people; the board day keeps it on the day being viewed.

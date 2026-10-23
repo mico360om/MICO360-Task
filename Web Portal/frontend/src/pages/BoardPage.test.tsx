@@ -212,3 +212,96 @@ describe('BoardPage', () => {
     expect(localStorage.getItem(userStorageKey('u1', 'board.projectId'))).toBeNull();
   });
 });
+
+describe('Board cards: moving a task to another project', () => {
+  const TARGET_PROJECTS = PROJECTS.map((p) => ({ id: p.id, code: p.code, name: p.name, status: 'ACTIVE', color: p.color, icon: null, imageUrl: null }));
+  /** Where tasks may go and the move itself, on top of the board's usual answers; the task leaves the board once moved. */
+  function withMoves(opts: { managesAll?: boolean; managed?: string[] } = {}) {
+    let moved = false;
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (u.endsWith('/tasks/move-targets')) return json({ data: { managesAll: opts.managesAll ?? true, managedProjectIds: opts.managed ?? [], projects: TARGET_PROJECTS } });
+      if (u.endsWith('/tasks/move-preview')) {
+        return json({ data: { project: { ...TARGET_PROJECTS[1], defaultDueToday: false }, columns: [{ id: 'c-p2', name: 'Ops To Do', category: 'TODO', position: 0, enabled: true }], outsiders: [], tasks: [
+          { id: 't1', key: 'MICO-1', title: 'Prepare report', from: { id: 'p1', code: 'MICO', name: 'MICO360 Platform' }, canMove: true, reason: null, newKey: 'OPS-17', currentCategory: 'TODO', columnId: 'c-p2', milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] },
+        ] } });
+      }
+      if (u.endsWith('/tasks/t1/move-to-project') && method === 'POST') {
+        moved = true;
+        calls.push({ url: u, method, body: JSON.parse(String(init!.body)), headers: {} });
+        return json({ data: { task: { id: 't1', key: 'OPS-17', projectId: 'p2' }, from: { projectId: 'p1', name: 'MICO360 Platform', key: 'MICO-1' }, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' }, addedToTeam: [], unassigned: [], milestoneCleared: false, dueDateSet: null } });
+      }
+      if (moved && u.includes('/tasks?')) return json({ data: [] });
+      return base(url, init);
+    });
+  }
+
+  it('each card’s menu offers “Move to another project…”: the card leaves the board and a toast says where it went', async () => {
+    withMoves();
+    renderPage();
+    await screen.findByRole('button', { name: 'MICO-1: Prepare report' });
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for MICO-1' }));
+    const menu = await screen.findByRole('menu', { name: 'Actions for MICO-1' });
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Move to another project…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move to another project' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Project' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: /^Move task/ }));
+    const toast = await screen.findByText('Moved to Operations as OPS-17');
+    expect(toast.closest('[role="status"]')).not.toBeNull();
+    expect(calls.find((c) => c.url.endsWith('/tasks/t1/move-to-project'))?.body).toEqual({ projectId: 'p2', columnId: 'c-p2' });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'MICO-1: Prepare report' })).not.toBeInTheDocument());
+  });
+
+  it('for someone who can’t move the task, the card has no ⋯ menu at all', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    withMoves({ managesAll: false, managed: ['p2'] });
+    renderPage();
+    await screen.findByRole('button', { name: 'MICO-1: Prepare report' });
+    // Once it is known where they may move tasks (to Operations, but not out of this project).
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/tasks/move-targets')) || vi.mocked(fetch).mock.calls.some((c) => String(c[0]).endsWith('/tasks/move-targets'))).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole('button', { name: 'More actions for MICO-1' })).not.toBeInTheDocument();
+  });
+
+  it('after a move, focus goes to the next card in its column (not lost on the page)', async () => {
+    withMoves();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let moved = false;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.endsWith('/tasks/t1/move-to-project')) moved = true;
+      if (u.includes('/tasks?')) {
+        const t = (id: string, key: string, title: string) => ({ id, key, title, description: null, projectId: 'p1', columnId: 'c-p1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' });
+        return json({ data: moved ? [t('t2', 'MICO-2', 'Check figures')] : [t('t1', 'MICO-1', 'Prepare report'), t('t2', 'MICO-2', 'Check figures')] });
+      }
+      return base(url, init);
+    });
+    renderPage();
+    await screen.findByRole('button', { name: 'MICO-1: Prepare report' });
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for MICO-1' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to another project…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move to another project' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Project' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: /^Move task/ }));
+    await screen.findByText('Moved to Operations as OPS-17');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'MICO-1: Prepare report' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'MICO-2: Check figures' })).toHaveFocus());
+  });
+
+  it('the card menu works from the keyboard: it opens on its first item, Escape closes it back to its button', async () => {
+    withMoves();
+    renderPage();
+    await screen.findByRole('button', { name: 'MICO-1: Prepare report' });
+    const button = screen.getByRole('button', { name: 'More actions for MICO-1' });
+    button.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('menuitem', { name: 'Move to another project…' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu', { name: 'Actions for MICO-1' })).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+  });
+});

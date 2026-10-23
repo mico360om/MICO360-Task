@@ -17,6 +17,8 @@ import type { ProjectOverviewSource } from './modules/projects/project-overview'
 import type { ProjectService } from './modules/projects/project-service';
 import { registerTaskRoutes, type TaskMeetingLookup } from './modules/tasks/task-routes';
 import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
+import { registerTaskMoveRoutes } from './modules/tasks/task-move-routes';
+import type { TaskMoveService } from './modules/tasks/task-move-service';
 import type { TaskExportSource } from './modules/tasks/task-export';
 import type { TaskService } from './modules/tasks/task-service';
 import { registerAssigneeRoutes } from './modules/tasks/assignee-routes';
@@ -117,6 +119,8 @@ export interface AppDeps extends AuthRouteDeps {
   /** Object-level view authorization (T2.7). When present, task/column/member/comment reads are gated to accessible projects. */
   projectAccess?: ProjectAccess;
   taskService?: TaskService;
+  /** Moving tasks to another project (move-targets, move-preview, move-to-project). */
+  taskMoveService?: TaskMoveService;
   carryForwardService?: import('./modules/tasks/carry-forward-service').CarryForwardService;
   assigneeService?: AssigneeService;
   watcherService?: WatcherService;
@@ -478,6 +482,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
         });
+      }
+      if (deps.taskMoveService) {
+        await registerTaskMoveRoutes(api, { service: deps.taskMoveService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
       }
       if (deps.assigneeService) {
         await registerAssigneeRoutes(api, {

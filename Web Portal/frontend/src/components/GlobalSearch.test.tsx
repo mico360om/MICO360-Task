@@ -84,6 +84,22 @@ describe('GlobalSearch', () => {
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/move') || String(c[0]).includes('/columns'))).toBe(false);
   });
 
+  it('a task’s old key still opens it after it moved project (open RIG-4 → OPS-17)', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(json(String(url).includes('/search')
+      ? { data: { tasks: [{ id: 't4', key: 'OPS-17', title: 'Inspect the rig', projectId: 'p2', formerKeys: ['RIG-4'] }], projects: [], users: [] } }
+      : { data: [] }))));
+    setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'open rig-4{Enter}');
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?task=t4'));
+  });
+
+  it('a found task that moved shows the key it had too, so it can be told apart', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't4', key: 'OPS-17', title: 'Inspect the rig', projectId: 'p2', formerKeys: ['RIG-4'] }], projects: [], users: [] } }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'rig-4');
+    expect(await screen.findByText('OPS-17 (was RIG-4)')).toBeInTheDocument();
+  });
+
   describe('a person in the results', () => {
     const people = { tasks: [], projects: [], users: [{ id: 'u7', username: 'sara', firstName: 'Sara', lastName: 'Ahmed' }, { id: 'me', username: 'me', firstName: 'Me', lastName: 'Myself' }] };
     const signIn = (roles: string[]) => useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles }, accessToken: 'at', refreshToken: 'rt' });
