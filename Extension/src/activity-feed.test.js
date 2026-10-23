@@ -15,6 +15,8 @@ describe('the task timeline (activity, read-only), worded as on the web', () => 
     expect(buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }, { field: 'dueDate', from: null, to: '2026-10-12' }] })])[0].text)
       .toBe('changed priority from Normal to High and set the due date to 12 Oct 2026');
     expect(buildTimeline([e('a1', 'ATTACHED', 'A', 1, { filename: 'report.pdf' })])[0].text).toBe('attached report.pdf');
+    expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'A', 1, { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' })])[0].text)
+      .toBe('moved this task from Rig Inspection (RIG-4) to Operations (OPS-17)');
   });
 
   it('folds a quick run by one person into one line, newest first', () => {
@@ -59,6 +61,9 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['COMMENTED', { commentId: 'c1' }], ['ATTACHED', { filename: 'report.pdf' }], ['ATTACHED', { filename: 'b.png' }], ['ATTACHED'], ['ATTACHMENT_REMOVED', { filename: 'old.xlsx' }],
     ['BLOCKER_ADDED', { key: 'MICO-7', title: 'Get approval' }], ['BLOCKER_REMOVED', { key: 'MICO-8' }], ['BLOCKER_ADDED'],
     ['comment.added'], ['attachment.added'], ['checklist.added'], ['SOMETHING_ELSE'], [''],
+    ['PROJECT_CHANGED', { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' }],
+    ['PROJECT_CHANGED', { fromProject: 'Operations', fromKey: 'OPS-17', toProject: 'العمليات', toKey: 'OPR-2' }], ['PROJECT_CHANGED', { toProject: 'Operations' }],
+    ['PROJECT_CHANGED', { fromKey: 'RIG-4', toKey: 'OPS-17' }], ['PROJECT_CHANGED'],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];

@@ -51,6 +51,23 @@ describe('buildTimeline: one readable line per event', () => {
     expect(buildTimeline([e('a1', 'task.created', 'A', 1)])[0]).toMatchObject({ kind: 'created' });
     expect(buildTimeline([e('a1', 'SOMETHING_ELSE', 'A', 1)])[0]).toMatchObject({ kind: 'other', text: 'something else' });
   });
+  it('says where a task moved to another project, with the keys it had there and has now', () => {
+    const moved = { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' };
+    expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'Aisha Khan', 1, moved)])[0]).toMatchObject({
+      kind: 'other',
+      actorName: 'Aisha Khan',
+      text: 'moved this task from Rig Inspection (RIG-4) to Operations (OPS-17)',
+    });
+    // Each move is its own line, even right after another.
+    const twice = buildTimeline([
+      e('a2', 'PROJECT_CHANGED', 'A', 1, { fromProject: 'Operations', fromKey: 'OPS-17', toProject: 'Admin', toKey: 'ADM-3' }),
+      e('a1', 'PROJECT_CHANGED', 'A', 2, moved),
+    ]);
+    expect(twice.map((i) => i.text)).toEqual(['moved this task from Operations (OPS-17) to Admin (ADM-3)', 'moved this task from Rig Inspection (RIG-4) to Operations (OPS-17)']);
+    // Without the details, or only some of them, still a plain sentence.
+    expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'A', 1)])[0]!.text).toBe('moved this task to another project');
+    expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'A', 1, { toProject: 'Operations' })])[0]!.text).toBe('moved this task to Operations');
+  });
 });
 
 describe('buildTimeline: checklist, comments, files and blockers', () => {

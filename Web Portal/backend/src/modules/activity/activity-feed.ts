@@ -116,6 +116,20 @@ function someOf(names: string[], shown = 3): string {
 const quote = (s: string) => `“${s}”`;
 const blockerName = (e: FeedEntry) => [str(e.meta?.key), str(e.meta?.title) ? quote(str(e.meta?.title)!) : null].filter(Boolean).join(' ') || 'a task';
 
+/** A project and the task's key in it: "Rig Inspection (RIG-4)" (either alone when the other is missing). */
+function projectAndKey(project: unknown, key: unknown): string | null {
+  const name = str(project);
+  const k = str(key);
+  return name && k ? `${name} (${k})` : name ?? k;
+}
+/** "moved this task from Rig Inspection (RIG-4) to Operations (OPS-17)" — a move to another project. */
+function projectMoveText(e: FeedEntry): string {
+  const from = projectAndKey(e.meta?.fromProject, e.meta?.fromKey);
+  const to = projectAndKey(e.meta?.toProject, e.meta?.toKey);
+  if (from && to) return `moved this task from ${from} to ${to}`;
+  return to ? `moved this task to ${to}` : 'moved this task to another project';
+}
+
 interface Change {
   field: string;
   from?: unknown;
@@ -233,6 +247,8 @@ function toItem(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       return { ...base, text: names.length === 1 ? `${verb} the blocker ${names[0]}` : `${verb} the blockers ${someOf(names)}` };
     }
     default:
+      // A move to another project is a line of its own (never merged with status moves or edits).
+      if (newest.action === 'PROJECT_CHANGED') return { ...base, text: projectMoveText(newest) };
       return { ...base, text: OTHER_TEXT[newest.action] ?? (newest.action || '').toLowerCase().replace(/[._]/g, ' ') };
   }
 }
