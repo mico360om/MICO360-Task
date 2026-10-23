@@ -13,6 +13,7 @@ const ACTION_VERB: Record<string, string> = {
   COMPLETED: 'completed',
   REOPENED: 'reopened',
   ASSIGNED: 'assigned',
+  PROJECT_CHANGED: 'moved',
 };
 const ACTION_TONE: Record<string, string> = {
   CREATED: 'text-info',
@@ -20,6 +21,7 @@ const ACTION_TONE: Record<string, string> = {
   COMPLETED: 'text-success',
   REOPENED: 'text-warning',
   ASSIGNED: 'text-brand',
+  PROJECT_CHANGED: 'text-ink-2',
 };
 const ACTION_DOT: Record<string, string> = {
   CREATED: 'bg-info',
@@ -60,6 +62,14 @@ function detailOf(a: ApiActivity): string {
       return to ? `re-opened in ${to}` : 're-opened';
     case 'ASSIGNED':
       return str(m.assignee) ? `→ ${str(m.assignee)}` : '';
+    case 'PROJECT_CHANGED': {
+      // To another project: from where, by the key it had there ("from Rig Inspection (RIG-4) to Operations").
+      const fromProject = str(m.fromProject);
+      const toProject = str(m.toProject);
+      const fromKey = str(m.fromKey);
+      if (!fromProject || !toProject) return toProject ? `to ${toProject}` : 'to another project';
+      return `from ${fromProject}${fromKey ? ` (${fromKey})` : ''} to ${toProject}`;
+    }
     default:
       return '';
   }

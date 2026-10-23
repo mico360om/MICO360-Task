@@ -84,5 +84,16 @@ describe('ActivityPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /show all activity/i }));
     expect(screen.queryByText(/no .* activity/i)).not.toBeInTheDocument();
   });
+  it('a task moved to another project: from where (and its old key) to where', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{
+      id: 'a9', taskId: 't4', projectId: 'p2', userId: 'u1', action: 'PROJECT_CHANGED', createdAt: new Date().toISOString(),
+      meta: { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' },
+      actor: { id: 'u1', name: 'Aisha Khan' }, task: { id: 't4', key: 'OPS-17', title: 'Inspect the rig' }, project: { id: 'p2', name: 'Operations' },
+    }] })));
+    renderPage();
+    expect(await screen.findByText('moved')).toBeInTheDocument();
+    expect(screen.getByText('OPS-17')).toBeInTheDocument();
+    expect(screen.getByText(/from Rig Inspection \(RIG-4\) to Operations/)).toBeInTheDocument();
+  });
 });
 

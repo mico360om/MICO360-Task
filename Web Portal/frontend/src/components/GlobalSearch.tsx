@@ -77,10 +77,12 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
 
   // ── Action executors ──
   // Commands act only on the task whose key matches exactly — search is a substring match, so
-  // "complete WEB-5" must never fall back to WEB-50 when WEB-5 is gone or not visible to you.
+  // "complete WEB-5" must never fall back to WEB-50 when WEB-5 is gone or not visible to you. A key a
+  // task had before it moved project counts too: "open RIG-4" opens what is OPS-17 now.
   const resolveTask = async (key: string) => {
     const r = await searchApi(apiClient).search(key);
-    return r.tasks.find((t) => t.key.toLowerCase() === key.toLowerCase()) ?? null;
+    const k = key.toLowerCase();
+    return r.tasks.find((t) => t.key.toLowerCase() === k) ?? r.tasks.find((t) => (t.formerKeys ?? []).some((f) => f.toLowerCase() === k)) ?? null;
   };
   const openTask = (id: string) => {
     setSearchParams((prev) => {
@@ -165,7 +167,11 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
 
     const r = q.data;
     if (searchEnabled && r) {
-      for (const t of r.tasks.slice(0, 6)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: t.title, hint: t.key, run: () => openTask(t.id) });
+      // A task that moved project shows the key it had too, so "RIG-4" finding OPS-17 makes sense.
+      for (const t of r.tasks.slice(0, 6)) {
+        const hint = t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key;
+        out.push({ id: `task-${t.id}`, group: 'Tasks', primary: t.title, hint, run: () => openTask(t.id) });
+      }
       const looks = Array.isArray(projectsQ.data) ? projectsQ.data : [];
       for (const p of r.projects.slice(0, 5)) {
         const look = looks.find((x) => x.id === p.id);
