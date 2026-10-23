@@ -36,9 +36,9 @@ describe('PrismaDailyEmailRepository (integration)', () => {
   it('finds retries that are due and sends stuck since a crash, and only one sweep retakes each', async () => {
     const now = new Date('2026-10-21T03:00:00Z');
     const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
-    await repo.finish(a.id, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T02:55:00Z'), lastError: 'HTTP 503' });
+    await repo.finish(a, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T02:55:00Z'), lastError: 'HTTP 503' });
     const b = (await repo.claim(userId, '2026-10-21', 'COMPLETED'))!;
-    await repo.finish(b.id, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T03:30:00Z') }); // not yet
+    await repo.finish(b, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T03:30:00Z') }); // not yet
     const stuck = (await repo.claim(userId, '2026-10-20', 'PENDING'))!;
     await prisma.dailyTaskEmail.update({ where: { id: stuck.id }, data: { updatedAt: new Date('2026-10-21T02:00:00Z') } });
 
@@ -53,9 +53,9 @@ describe('PrismaDailyEmailRepository (integration)', () => {
 
   it('keeps the delivery log, with who it was for, newest first and filtered', async () => {
     const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
-    await repo.finish(a.id, { status: 'SENT', taskCount: 4, sentAt: new Date('2026-10-21T02:00:05Z') });
+    await repo.finish(a, { status: 'SENT', taskCount: 4, sentAt: new Date('2026-10-21T02:00:05Z') });
     const b = (await repo.claim(userId, '2026-10-21', 'COMPLETED'))!;
-    await repo.finish(b.id, { status: 'SKIPPED', taskCount: 0 });
+    await repo.finish(b, { status: 'SKIPPED', taskCount: 0 });
     const all = await repo.list({ day: '2026-10-21' });
     expect(all.map((r) => r.kind)).toEqual(['COMPLETED', 'PENDING']);
     expect(all[1]).toMatchObject({ status: 'SENT', taskCount: 4, userName: 'Dai Ly', email: 'daily@mico360.test' });
@@ -64,7 +64,7 @@ describe('PrismaDailyEmailRepository (integration)', () => {
 
   it('finds one person’s record for a day and email, or none', async () => {
     const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
-    await repo.finish(a.id, { status: 'SENT', taskCount: 2, sentAt: new Date('2026-10-21T02:00:05Z') });
+    await repo.finish(a, { status: 'SENT', taskCount: 2, sentAt: new Date('2026-10-21T02:00:05Z') });
     expect(await repo.find(userId, '2026-10-21', 'PENDING')).toMatchObject({ id: a.id, status: 'SENT', taskCount: 2 });
     expect(await repo.find(userId, '2026-10-21', 'COMPLETED')).toBeNull();
     expect(await repo.find(userId, '2026-10-22', 'PENDING')).toBeNull();
@@ -80,9 +80,43 @@ describe('PrismaDailyEmailRepository (integration)', () => {
     expect(await repo.forDays([])).toEqual([]);
   });
 
+  it('writes down how an attempt went only while that attempt still holds the row', async () => {
+    const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!; // attempt 1
+    // It hung so long it was taken again (attempt 2), and that one went.
+    await prisma.dailyTaskEmail.update({ where: { id: a.id }, data: { updatedAt: new Date('2026-10-21T02:00:00Z') } });
+    const again = (await repo.retake(a))!;
+    expect(await repo.finish(again, { status: 'SENT', taskCount: 1, sentAt: new Date('2026-10-21T02:20:00Z'), nextAttemptAt: null, lastError: null })).toBe(true);
+    // The first attempt finally fails: what the second one wrote down stands.
+    expect(await repo.finish(a, { status: 'RETRY', lastError: 'Timed out', nextAttemptAt: new Date('2026-10-21T02:25:00Z') })).toBe(false);
+    expect(await repo.find(userId, '2026-10-21', 'PENDING')).toMatchObject({ status: 'SENT', attempts: 2, lastError: null, nextAttemptAt: null });
+    // Nor twice by the same attempt.
+    expect(await repo.finish(again, { status: 'FAILED', lastError: 'x' })).toBe(false);
+  });
+
+  it('an administrator’s failed try sets the attempts back, so the automatic retries stay', async () => {
+    const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
+    await repo.finish(a, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T02:05:00Z'), lastError: 'HTTP 503' });
+    const retry = (await repo.find(userId, '2026-10-21', 'PENDING'))!;
+    const taken = (await repo.retake(retry))!;
+    expect(taken.attempts).toBe(2);
+    await repo.finish(taken, { status: 'RETRY', attempts: 1, nextAttemptAt: retry.nextAttemptAt, lastError: 'HTTP 502' });
+    expect(await repo.find(userId, '2026-10-21', 'PENDING')).toMatchObject({ status: 'RETRY', attempts: 1, nextAttemptAt: new Date('2026-10-21T02:05:00Z'), lastError: 'HTTP 502' });
+  });
+
+  it('taking a row again moves its last change on, so a send just taken never looks stuck', async () => {
+    const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
+    const old = new Date('2026-10-21T02:00:00Z');
+    await prisma.dailyTaskEmail.update({ where: { id: a.id }, data: { updatedAt: old } });
+    const stuck = (await repo.dueForRetry(new Date(), new Date(Date.now() - 15 * 60_000))).find((r) => r.id === a.id)!;
+    expect(stuck.updatedAt).toEqual(old);
+    const taken = (await repo.retake(stuck))!;
+    expect(taken.updatedAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    expect((await repo.dueForRetry(new Date(), new Date(Date.now() - 15 * 60_000))).some((r) => r.id === a.id)).toBe(false);
+  });
+
   it('lets only one administrator’s resend take a sent email at the same moment', async () => {
     const a = (await repo.claim(userId, '2026-10-21', 'PENDING'))!;
-    await repo.finish(a.id, { status: 'SENT', taskCount: 1, sentAt: new Date('2026-10-21T02:00:05Z') });
+    await repo.finish(a, { status: 'SENT', taskCount: 1, sentAt: new Date('2026-10-21T02:00:05Z') });
     const sent = (await repo.find(userId, '2026-10-21', 'PENDING'))!;
     const takes = await Promise.all([repo.retake(sent), repo.retake(sent), repo.retake(sent)]);
     expect(takes.filter(Boolean)).toHaveLength(1);

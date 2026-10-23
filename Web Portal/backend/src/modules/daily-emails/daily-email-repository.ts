@@ -26,6 +26,8 @@ export interface DailyEmailLogRow extends DailyEmailRecord {
 
 export interface DailyEmailFinish {
   status: 'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED';
+  /** Set back (an administrator's try that failed doesn't use up the automatic retries). */
+  attempts?: number;
   taskCount?: number;
   nextAttemptAt?: Date | null;
   lastError?: string | null;
@@ -43,7 +45,12 @@ export interface DailyEmailRepository {
    * also retakes a failed, skipped or (a resend) sent one.
    */
   retake(row: DailyEmailRecord): Promise<DailyEmailRecord | null>;
-  finish(id: string, patch: DailyEmailFinish): Promise<void>;
+  /**
+   * Writes down how an attempt went — only while that attempt still holds the row (SENDING, with the
+   * attempt count it took it at). False when someone else took it meanwhile (a send that hung so long
+   * it was taken again): what they wrote down stands.
+   */
+  finish(taken: Pick<DailyEmailRecord, 'id' | 'attempts'>, patch: DailyEmailFinish): Promise<boolean>;
   /** The record for (person, day, email), or null when there is none yet. */
   find(userId: string, day: string, kind: DailyEmailKind): Promise<DailyEmailRecord | null>;
   /** Every record for these days ('YYYY-MM-DD'): the admins' overview of a day. */

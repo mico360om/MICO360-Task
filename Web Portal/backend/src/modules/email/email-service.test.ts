@@ -106,6 +106,15 @@ describe('EmailService.sendPrepared (an email already built, e.g. the daily task
     expect(entries).toEqual([{ toAddress: 'ada@x.co', template: 'daily-pending', subject: 'Your pending tasks: 2', status: 'SENT', providerMessageId: 'mj-1' }]);
   });
 
+  it('says whether it went or the address is blocked (after a bounce or spam complaint), so the caller never counts that as sent', async () => {
+    const { transport, sent } = fakeTransport();
+    const svc = createEmailService({ transport, isSuppressed: async (email) => email === 'bounced@x.co' });
+    const content = { subject: 's', html: 'h', text: 't' };
+    expect(await svc.sendPrepared('daily-pending', 'ada@x.co', content)).toBe('sent');
+    expect(await svc.sendPrepared('daily-pending', 'bounced@x.co', content)).toBe('suppressed');
+    expect(sent.map((m) => m.to)).toEqual(['ada@x.co']);
+  });
+
   it('throws when it can’t be delivered, so the caller can try again', async () => {
     const { transport } = fakeTransport({ ok: false, status: 503, error: 'busy' });
     await expect(createEmailService({ transport }).sendPrepared('daily-pending', 'ada@x.co', { subject: 's', html: 'h', text: 't' })).rejects.toBeInstanceOf(EmailDeliveryError);

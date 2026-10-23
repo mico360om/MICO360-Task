@@ -95,7 +95,7 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
 
   it('a failed email taken again by two sends at once goes once; a resend keeps the one record', async () => {
     const failed = (await repo.claim(ada, '2026-10-21', 'PENDING'))!;
-    await repo.finish(failed.id, { status: 'FAILED', lastError: 'HTTP 503' });
+    await repo.finish(failed, { status: 'FAILED', lastError: 'HTTP 503' });
     const { service, sent } = makeService(new Date('2026-10-21T03:00:00Z'));
     await Promise.all([service.sendFor(ada, { kind: 'PENDING' }), service.sendFor(ada, { kind: 'PENDING' })]);
     expect(sent).toEqual(['dadm-ada@mico360.test daily-pending']);
@@ -110,7 +110,7 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     const { service } = makeService(new Date('2026-10-21T02:00:00Z'));
     await service.sendFor(ada, { kind: 'PENDING' });
     const failed = (await repo.claim(bo, '2026-10-21', 'PENDING'))!;
-    await repo.finish(failed.id, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T02:20:00Z'), lastError: 'HTTP 503' });
+    await repo.finish(failed, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T02:20:00Z'), lastError: 'HTTP 503' });
     await repo.claim(ada, '2026-10-20', 'PENDING'); // another day: not shown for today
 
     const o = await service.overview();

@@ -48,17 +48,20 @@ export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEma
       return taken ? toRecord(taken) : null;
     },
 
-    async finish(id, patch) {
-      await prisma.dailyTaskEmail.update({
-        where: { id },
+    async finish(taken, patch) {
+      // Only the attempt that holds the row: still SENDING, at the attempt count it took it at.
+      const { count } = await prisma.dailyTaskEmail.updateMany({
+        where: { id: taken.id, status: 'SENDING', attempts: taken.attempts },
         data: {
           status: patch.status,
+          ...(patch.attempts !== undefined ? { attempts: patch.attempts } : {}),
           ...(patch.taskCount !== undefined ? { taskCount: patch.taskCount } : {}),
           ...(patch.nextAttemptAt !== undefined ? { nextAttemptAt: patch.nextAttemptAt } : {}),
           ...(patch.lastError !== undefined ? { lastError: patch.lastError?.slice(0, 2000) ?? null } : {}),
           ...(patch.sentAt !== undefined ? { sentAt: patch.sentAt } : {}),
         },
       });
+      return count === 1;
     },
 
     async find(userId, day, kind) {

@@ -2,7 +2,7 @@ import { shiftDayKey, zonedStartOfDay } from '../../lib/due-date';
 import type { EmailContent } from '../email/email-templates';
 import { dailyEmailPrefs, type NotificationPreferences } from '../notifications/notification-preferences';
 import { completedEmail, pendingEmail, type DailyTask } from './daily-email-content';
-import type { DailyEmailKind, DailyEmailRecord, DailyEmailRepository, DailyEmailStatus } from './daily-email-repository';
+import type { DailyEmailFinish, DailyEmailKind, DailyEmailRecord, DailyEmailRepository, DailyEmailStatus } from './daily-email-repository';
 
 /** Someone who may get the morning emails (active accounts only). */
 export interface DailyRecipient {
@@ -23,8 +23,11 @@ export interface DailyEmailServiceDeps {
     pending(userId: string): Promise<DailyTask[]>;
     completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]>;
   };
-  /** Sends one email; throws when it can't be delivered. */
-  send(to: string, content: EmailContent, template: string): Promise<void>;
+  /**
+   * Sends one email; throws when it can't be delivered. 'suppressed': the address is blocked after a
+   * bounce or spam complaint, so nothing was sent.
+   */
+  send(to: string, content: EmailContent, template: string): Promise<'sent' | 'suppressed' | void>;
   /** False while no email provider is set up: nothing is attempted (and nothing piles up). */
   isConfigured(): boolean;
   companyTimeZone: string;
@@ -93,8 +96,8 @@ export interface DailyEmailOverview {
   people: DailyEmailOverviewPerson[];
 }
 
-/** How an administrator's send of one email went. */
-export type ManualSendOutcome = 'sent' | 'empty' | 'retry' | 'failed' | 'already-sent' | 'already-done' | 'busy' | 'off';
+/** How an administrator's send of one email went ('blocked': the address is blocked after a bounce or spam complaint). */
+export type ManualSendOutcome = 'sent' | 'empty' | 'blocked' | 'retry' | 'failed' | 'already-sent' | 'already-done' | 'busy' | 'off';
 export interface ManualSendResult {
   kind: DailyEmailKind;
   outcome: ManualSendOutcome;
@@ -111,6 +114,9 @@ const MAX_ATTEMPTS = RETRY_DELAYS_MIN.length + 1;
 const STUCK_AFTER_MS = 15 * 60 * 1000;
 const KINDS: DailyEmailKind[] = ['PENDING', 'COMPLETED'];
 const TEMPLATE: Record<DailyEmailKind, string> = { PENDING: 'daily-pending', COMPLETED: 'daily-completed' };
+/** Why an email to an address the provider reported (a hard bounce, a spam complaint) wasn't sent. */
+export const BLOCKED_ADDRESS = 'Address blocked after a bounce or spam complaint.';
+const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function validZone(tz: string | null, fallback: string): string {
   if (!tz) return fallback;
@@ -164,46 +170,93 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     status: 'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED';
     error: string | null;
     sentAt: Date | null;
+    /** Not sent: the address is blocked after a bounce or spam complaint. */
+    blocked?: boolean;
   }
 
   /**
-   * Sends a taken (SENDING) row and records how it went. `again`: a resend of an email that already
-   * went — it stays counted as sent whatever happens (a failure is noted, never retried by the sweep).
+   * Emails that went but whose record couldn't be written (the database didn't answer): written at the
+   * next check — meanwhile their record is never taken again, so they are never sent a second time.
    */
-  async function attempt(row: DailyEmailRecord, person: DailyRecipient, again = false): Promise<Attempted> {
-    const at = now();
-    const keepSent = async (error: string | null): Promise<Attempted> => {
-      await deps.repo.finish(row.id, { status: 'SENT', nextAttemptAt: null, ...(error ? { lastError: error } : {}) });
-      return { status: error ? 'FAILED' : 'SKIPPED', error, sentAt: row.sentAt };
-    };
+  const unrecorded = new Map<string, { taken: DailyEmailRecord; patch: DailyEmailFinish }>();
+
+  /** Writes down how an attempt went, for an email that may have gone: never throws. */
+  async function recordSent(taken: DailyEmailRecord, patch: DailyEmailFinish): Promise<void> {
     try {
-      if (!person.email || !isOn(dailyEmailPrefs(person.prefs), row.kind)) {
-        // Turned off (or no address) since it was due: nothing to send.
-        if (again) return await keepSent(null);
-        await deps.repo.finish(row.id, { status: 'SKIPPED', taskCount: 0, nextAttemptAt: null });
-        return { status: 'SKIPPED', error: null, sentAt: null };
+      if (!(await deps.repo.finish(taken, patch))) {
+        deps.logger?.warn('daily task email: its record was taken by another send meanwhile', { userId: taken.userId, kind: taken.kind, day: taken.day });
       }
-      const { count, content } = await build(row.kind, person, row.day, at);
-      if (!content) {
-        if (again) return await keepSent(null);
-        await deps.repo.finish(row.id, { status: 'SKIPPED', taskCount: 0, nextAttemptAt: null });
-        return { status: 'SKIPPED', error: null, sentAt: null };
-      }
-      await deps.send(person.email, content, TEMPLATE[row.kind]);
-      await deps.repo.finish(row.id, { status: 'SENT', taskCount: count, sentAt: at, nextAttemptAt: null, lastError: null });
-      return { status: 'SENT', error: null, sentAt: at };
     } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      if (again) return keepSent(error);
-      if (row.attempts >= MAX_ATTEMPTS) {
-        await deps.repo.finish(row.id, { status: 'FAILED', lastError: error, nextAttemptAt: null });
-        deps.logger?.warn('daily task email failed for good', { userId: row.userId, kind: row.kind, day: row.day, error });
+      unrecorded.set(taken.id, { taken, patch });
+      deps.logger?.warn('daily task email went, but writing that down failed; it is written at the next check', { userId: taken.userId, kind: taken.kind, day: taken.day, error: messageOf(err) });
+    }
+  }
+
+  async function writeUnrecorded(): Promise<void> {
+    for (const [id, { taken, patch }] of unrecorded) {
+      try {
+        await deps.repo.finish(taken, patch);
+        unrecorded.delete(id);
+      } catch {
+        /* still not answering: next time */
+      }
+    }
+  }
+
+  /**
+   * Sends a taken (SENDING) row and records how it went. An email that went before (`sentAt`: a resend,
+   * or a resend cut off part-way) stays counted as sent whatever happens — a failure is noted, never
+   * retried by the sweep. `manual`: an administrator's try; one that fails while the email waits for an
+   * automatic retry (`before` was RETRY) leaves those retries as they were. The send and the writing
+   * down are apart: an email that went is never retried because writing it down failed.
+   */
+  async function attempt(taken: DailyEmailRecord, person: DailyRecipient, opts: { manual?: boolean; before?: DailyEmailRecord | null } = {}): Promise<Attempted> {
+    const again = taken.sentAt !== null;
+    const at = now();
+    const finish = (patch: DailyEmailFinish) => deps.repo.finish(taken, patch);
+
+    const failed = async (err: unknown): Promise<Attempted> => {
+      const error = messageOf(err);
+      if (again) {
+        await finish({ status: 'SENT', nextAttemptAt: null, lastError: error });
+        return { status: 'FAILED', error, sentAt: taken.sentAt };
+      }
+      if (opts.manual && opts.before?.status === 'RETRY') {
+        await finish({ status: 'RETRY', attempts: opts.before.attempts, nextAttemptAt: opts.before.nextAttemptAt, lastError: error });
+        return { status: 'RETRY', error, sentAt: null };
+      }
+      if (taken.attempts >= MAX_ATTEMPTS) {
+        await finish({ status: 'FAILED', lastError: error, nextAttemptAt: null });
+        deps.logger?.warn('daily task email failed for good', { userId: taken.userId, kind: taken.kind, day: taken.day, error });
         return { status: 'FAILED', error, sentAt: null };
       }
-      const delay = RETRY_DELAYS_MIN[row.attempts - 1]!;
-      await deps.repo.finish(row.id, { status: 'RETRY', lastError: error, nextAttemptAt: new Date(at.getTime() + delay * 60_000) });
+      const delay = RETRY_DELAYS_MIN[taken.attempts - 1]!;
+      await finish({ status: 'RETRY', lastError: error, nextAttemptAt: new Date(at.getTime() + delay * 60_000) });
       return { status: 'RETRY', error, sentAt: null };
+    };
+    /** Nothing goes (turned off, no address, nothing in it, a blocked address). */
+    const skipped = async (error: string | null): Promise<Attempted> => {
+      if (again) await recordSent(taken, { status: 'SENT', nextAttemptAt: null, ...(error ? { lastError: error } : {}) });
+      else await finish({ status: 'SKIPPED', taskCount: 0, nextAttemptAt: null, lastError: error });
+      return { status: 'SKIPPED', error, sentAt: again ? taken.sentAt : null, ...(error === BLOCKED_ADDRESS ? { blocked: true } : {}) };
+    };
+
+    let built: { count: number; content: EmailContent | null } = { count: 0, content: null };
+    try {
+      if (person.email && isOn(dailyEmailPrefs(person.prefs), taken.kind)) built = await build(taken.kind, person, taken.day, at);
+    } catch (err) {
+      return failed(err);
     }
+    if (!person.email || !built.content) return skipped(null); // turned off since it was due, or nothing in it
+    let result: 'sent' | 'suppressed' | void;
+    try {
+      result = await deps.send(person.email, built.content, TEMPLATE[taken.kind]);
+    } catch (err) {
+      return failed(err);
+    }
+    if (result === 'suppressed') return skipped(BLOCKED_ADDRESS);
+    await recordSent(taken, { status: 'SENT', taskCount: built.count, sentAt: at, nextAttemptAt: null, lastError: null });
+    return { status: 'SENT', error: null, sentAt: at };
   }
 
   async function runSweep(): Promise<Record<'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED', number>> {
@@ -212,6 +265,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       tally[s]++;
     };
     const at = now();
+    await writeUnrecorded();
     if (!deps.isConfigured()) {
       if (!warnedNotConfigured) deps.logger?.warn('Daily task emails are waiting: email sending is not set up on this server');
       warnedNotConfigured = true;
@@ -236,11 +290,12 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     }
 
     for (const due of await deps.repo.dueForRetry(at, new Date(at.getTime() - STUCK_AFTER_MS))) {
+      if (unrecorded.has(due.id)) continue; // it went: only writing that down is still to do
       const taken = await deps.repo.retake(due);
       if (!taken) continue;
       const person = await deps.people.find(taken.userId);
       if (!person) {
-        await deps.repo.finish(taken.id, { status: 'SKIPPED', taskCount: 0, lastError: 'The account is no longer active.' });
+        await deps.repo.finish(taken, { status: taken.sentAt ? 'SENT' : 'SKIPPED', ...(taken.sentAt ? {} : { taskCount: 0 }), nextAttemptAt: null, lastError: 'The account is no longer active.' });
         count('SKIPPED');
         continue;
       }
@@ -279,18 +334,17 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     const result = (outcome: ManualSendOutcome, error: string | null = null, sentAt: Date | null = null): ManualSendResult => ({ kind, outcome, error, sentAt });
     if (!isOn(dailyEmailPrefs(person.prefs), kind)) return result('off');
     let row = await deps.repo.claim(person.id, day, kind);
-    let again = false;
+    let before: DailyEmailRecord | null = null;
     if (!row) {
-      const existing = await deps.repo.find(person.id, day, kind);
-      if (!existing || existing.status === 'SENDING') return result('busy');
-      if (existing.status === 'SENT' && !opts.resend) return result('already-sent', null, existing.sentAt);
-      if (existing.status === 'SKIPPED' && !opts.retrySkipped) return result('already-done');
-      again = existing.status === 'SENT';
-      row = await deps.repo.retake(existing);
+      before = await deps.repo.find(person.id, day, kind);
+      if (!before || before.status === 'SENDING') return result('busy');
+      if (before.status === 'SENT' && !opts.resend) return result('already-sent', null, before.sentAt);
+      if (before.status === 'SKIPPED' && !opts.retrySkipped) return result('already-done');
+      row = await deps.repo.retake(before);
       if (!row) return result('busy'); // someone else took it a moment ago
     }
-    const done = await attempt(row, person, again);
-    return result(OUTCOME[done.status], done.error, done.sentAt);
+    const done = await attempt(row, person, { manual: true, before });
+    return result(done.blocked ? 'blocked' : OUTCOME[done.status], done.error, done.sentAt);
   }
 
   /**
@@ -307,7 +361,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       for (const kind of KINDS) {
         const { outcome } = await sendOne(person, day, kind, { resend: false, retrySkipped: false });
         if (outcome === 'sent') tally.sent++;
-        else if (outcome === 'empty') tally.skipped++;
+        else if (outcome === 'empty' || outcome === 'blocked') tally.skipped++;
         else if (outcome === 'retry') {
           tally.failed++;
           tally.retrying++;
