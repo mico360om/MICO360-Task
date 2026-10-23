@@ -322,6 +322,18 @@ paths:
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [userIds], properties: { userIds: { type: array, items: { type: string } } } } } } }
       responses: { '200': { description: OK } }
+  /tasks/{id}/assignees/swap:
+    post:
+      summary: >-
+        Hand the task from one person to another in one write (the Workload page's suggestion) — the
+        same view check and assignee rules as adding someone, with the usual notifications and activity.
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, expectedVersion: { type: integer } } } } } }
+      responses:
+        '200': { description: The task's assignees now }
+        '400': { description: '`to` may not be assigned in the task''s project' }
+        '403': { description: Not allowed to see the task }
+        '409': { description: 'VERSION_CONFLICT (changed since expectedVersion), TASK_DONE, or ASSIGNEE_GONE (`from` is no longer on it)' }
   /tasks/{id}/checklist:
     get: { summary: List checklist items, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
     post: { summary: Add a checklist item, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '201': { description: Created } } }
@@ -365,10 +377,11 @@ paths:
         (share done, rounded as on the Projects page: 99 until every task is done), `timeUsed` (share
         of the days from start to target gone, 0–100; null without a target), `health` — `late`
         (target day passed; `daysLate`), `at-risk` (timeUsed − progress ≥ 20), `on-track` or
-        `no-target` — `dueByWeek` (open tasks due in each of `weeks`), `milestones` [{ id, key, title,
-        date, done }] by date (undated last), `nextMilestone` (first not reached), `milestonesSoon`
-        (not reached, due from today to 30 days on), `meetings` in the shown weeks [{ id, title,
-        startAt, day }] (not cancelled) and `meetingsThisWeek`.
+        `no-target` — `dueByWeek` (open tasks due in each of `weeks`), `milestones` due in the shown
+        weeks [{ id, key, title, date, done }] by date, `nextMilestone` (the earliest not reached, else
+        an undated one), `milestoneCount`, `milestonesSoon` (not reached, due from today to 30 days on),
+        `meetings` in the shown weeks [{ id, title, startAt, day }] (not cancelled) and
+        `meetingsThisWeek`. No read is capped. `from` and `to` must be within two years of today.
       parameters:
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
         - { name: to, in: query, required: true, schema: { type: string, format: date } }
@@ -378,7 +391,7 @@ paths:
           description: >-
             `{ data: { from, to, weekStart, today, currentWeek, weeks: [date], projects: [TimelineProject] } }`
             — each project also carries id, code, name, color, icon, imageUrl, status and owner { id, name, avatarUrl }.
-        '400': { description: 'VALIDATION: a missing or unreal date, an unknown week start, `to` before `from`, or more than 53 weeks' }
+        '400': { description: 'VALIDATION: a missing or unreal date, a date more than two years from today, an unknown week start, `to` before `from`, or more than 53 weeks' }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /workload:
     get:
@@ -387,16 +400,19 @@ paths:
         limit (system setting `workload.dailyLimit`, 1–50, default 5; administrators change it with
         PUT /system-settings/workload.dailyLimit). An administrator sees everyone; a project manager
         (the project's manager or owner, or a MANAGER member) the people on the projects they manage
-        and only those projects' tasks; anyone else only their own row.
+        and only those projects' tasks (their own row: all their own tasks in the projects they can see);
+        anyone else only their own row. Completed and archived projects are left out.
       description: >-
         Days off come from the company's working hours (`meetings.workingHours`): on a day off the
         limit is 0. For each day over the limit, as many tasks as it is over carry one `suggestion`:
         `{ kind: reassign, to: { id, name }, count }` — the least-busy person on the task's project team
-        (active, shown to the caller, not already on the task) with room that day — or `{ kind: move,
-        date, count }`, the next working day (today or later) with room, within three weeks. Teammates
-        and days are weighed by all the caller may see, and each suggestion counts towards the next.
+        (active, shown to the caller, not already on the task) with room that day; `count` is their
+        number that day for an administrator only (null for anyone else) — or `{ kind: move, date }`,
+        the next working day (today or later, within three weeks) with room for everyone on the task.
+        Teammates and days are weighed by everyone's whole load (every live project, also people the
+        caller can't see, whose figures are never sent), and each suggestion counts towards the next.
         Only administrators and project managers get reassign suggestions. Nothing is changed: the page
-        applies a suggestion through the usual task endpoints (POST/DELETE /tasks/{id}/assignees, PUT /tasks/{id}).
+        applies a suggestion with POST /tasks/{id}/assignees/swap or PUT /tasks/{id} (with expectedVersion).
       parameters:
         - { name: week, in: query, required: true, schema: { type: string, format: date }, description: The first of the seven days shown }
         - { name: projectId, in: query, schema: { type: string }, description: 'Only this project''s tasks, and its team and whoever has its tasks (ignored when not in the caller''s scope)' }
@@ -407,7 +423,7 @@ paths:
             projectId, projects: [{ id, code, name, color, icon, imageUrl }], people: [{ id, name, avatarUrl, me,
             overdue, total, weekLimit, days: [{ date, count, limit, over, tasks: [{ id, key, title, projectId,
             priority, version, suggestion }] }] }] } }` — in a day's tasks the suggested ones come first.
-        '400': { description: 'VALIDATION: a missing or unreal week' }
+        '400': { description: 'VALIDATION: a missing or unreal week, or one more than two years from today' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /search:

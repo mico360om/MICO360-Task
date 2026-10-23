@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { PROJECTS_OVERVIEW_KEY } from '../api/projects';
+import { TIMELINE_ROOT } from '../api/planning';
 
 /**
  * Every cached query that shows task data somewhere in the app: the board, My Tasks, the calendar,
@@ -23,13 +24,12 @@ export const TASK_QUERY_ROOTS = [
   'report-workload',
   'report-completion',
   'report-timeseries',
-  // The Timeline and Workload pages count open tasks, overdue ones and those due each day or week.
-  'timeline',
+  // The Workload page counts open tasks due each day and overdue ones.
   'workload',
 ] as const;
 
-/** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…). */
-export const TASK_FIGURE_KEYS: readonly (readonly string[])[] = [PROJECTS_OVERVIEW_KEY];
+/** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…) and the Timeline's. */
+export const TASK_FIGURE_KEYS: readonly (readonly string[])[] = [PROJECTS_OVERVIEW_KEY, TIMELINE_ROOT];
 
 /** Refresh every task-related view after any task mutation (create, edit, move, assign, delete…). */
 export function invalidateTaskQueries(qc: QueryClient): Promise<void> {

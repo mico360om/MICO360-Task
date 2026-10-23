@@ -95,7 +95,12 @@ export function SystemSettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const setMut = useMutation({
     mutationFn: ({ key, value }: { key: string; value: unknown }) => systemSettingsApi(apiClient).set(key, value),
-    onSuccess: () => { setSaveError(null); void qc.invalidateQueries({ queryKey: ['system-settings'] }); },
+    onSuccess: () => {
+      setSaveError(null);
+      void qc.invalidateQueries({ queryKey: ['system-settings'] });
+      // The Workload page reads the daily limit and the working hours.
+      void qc.invalidateQueries({ queryKey: ['workload'] });
+    },
     onError: () => setSaveError('Couldn’t save the setting. Please try again.'),
   });
   const runMut = useMutation({

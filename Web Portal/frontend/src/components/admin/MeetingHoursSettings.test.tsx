@@ -67,6 +67,19 @@ describe('System Settings: Meeting hours', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Saved.');
   });
 
+  it('has the Workload page read its days off again after saving', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(['workload', '2026-10-25', '', '2026-10-24'], {});
+    render(
+      <QueryClientProvider client={qc}>
+        <MeetingHoursSettings />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Sat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save meeting hours' }));
+    await waitFor(() => expect(qc.getQueryState(['workload', '2026-10-25', '', '2026-10-24'])?.isInvalidated).toBe(true));
+  });
+
   it('says when the day ends before it starts, and saves nothing', async () => {
     renderIt();
     fireEvent.change(await screen.findByLabelText('Day ends'), { target: { value: '07:00' } });
