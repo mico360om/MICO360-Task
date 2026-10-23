@@ -80,6 +80,8 @@ export interface TurnInput {
 export const MAX_TOOL_STEPS = 6;
 /** Rows of a result the model reads (tables still get every row kept). */
 const ROWS_FOR_MODEL = 25;
+/** An earlier message is shown to the model up to this many characters. */
+const HISTORY_CHARS = 1500;
 const MAX_TEXT = 8000;
 const MAX_TABLES = 3;
 const MAX_FOLLOW_UPS = 3;
@@ -196,7 +198,8 @@ function turnPrompt(input: TurnInput, results: ToolResult[], note: string | null
   if (input.history.length) {
     const lines = input.history.map((h) => {
       const tables = (h.tables ?? []).map((t) => ` [table "${t.title}" from ${t.fromResult}, ${t.rows} rows]`).join('');
-      return `${h.role === 'user' ? 'User' : 'MICO AI'}: ${safeJson(h.text)}${tables}`;
+      const words = h.text.length > HISTORY_CHARS ? `${h.text.slice(0, HISTORY_CHARS)}…` : h.text;
+      return `${h.role === 'user' ? 'User' : 'MICO AI'}: ${safeJson(words)}${tables}`;
     });
     parts.push(`The chat so far (oldest first):\n${lines.join('\n')}`);
   }

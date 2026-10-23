@@ -301,7 +301,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
   const meetingVisible = (s: Scope, m: AiMeetingRec) =>
     s.viewer.roles.includes('ADMIN') || m.organizerId === s.viewer.userId || m.createdById === s.viewer.userId || m.attendeeUserIds.includes(s.viewer.userId) || s.allowed(m.projectId);
 
-  async function visibleMeetings(s: Scope, filter: { projectId?: string; from: Date; to: Date }) {
+  async function visibleMeetings(s: Scope, filter: { projectId?: string; from: Date; to: Date; text?: string }) {
     const rows = await data.meetings(s.viewer, { projectIds: s.projectIds, ...filter, limit: MAX_RESULT_ROWS });
     return rows.filter((m) => meetingVisible(s, m) && (!filter.projectId || m.projectId === filter.projectId) && m.startAt >= filter.from && m.startAt <= filter.to).sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
   }
@@ -532,7 +532,8 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       if (!/\s/.test(said) && (await data.canViewMeeting(s.viewer, said))) id = said;
       if (!id) {
         const n = normalizeForSearch(said);
-        const all = await visibleMeetings(s, { from: new Date(0), to: new Date(Date.UTC(2100, 0, 1)) });
+        // By title in the database, so a recent meeting is found however many there are.
+        const all = await visibleMeetings(s, { from: new Date(0), to: new Date(Date.UTC(2100, 0, 1)), text: said });
         const exact = all.filter((m) => normalizeForSearch(m.title) === n);
         const found = exact.length ? exact : all.filter((m) => matchesNormalized(n, m.title));
         if (found.length > 1) throw new ToolProblem(`Several meetings match “${said}”: ${found.slice(-6).map((m) => `${m.title} on ${zonedDayKey(m.startAt, timeZone)} (meeting:${m.id})`).join(', ')}. Ask which one, or use its ref.`);

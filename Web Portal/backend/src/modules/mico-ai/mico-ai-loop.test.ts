@@ -273,6 +273,14 @@ describe('MICO AI tool loop', () => {
     expect(prompt.indexOf('Which of those are Omar’s?')).toBeGreaterThan(prompt.indexOf('2 tasks are overdue.'));
   });
 
+  it('earlier messages are trimmed in the prompt (a long answer doesn’t crowd out the question)', async () => {
+    const { d, model } = deps([answer({ text: 'Fine.' })]);
+    await runTurn(d, input('And now?', { history: [{ role: 'assistant', text: `${'long words '.repeat(1000)}END-OF-ANSWER` }] }));
+    const prompt = model.prompts[0]!.prompt;
+    expect(prompt).not.toContain('END-OF-ANSWER');
+    expect(prompt.length).toBeLessThan(8000);
+  });
+
   it('stops when told to: before the next step, and mid-call', async () => {
     const stop = new AbortController();
     const { d, ran } = deps([{ action: 'tool', name: 'search_tasks', args: {} }, answer()]);

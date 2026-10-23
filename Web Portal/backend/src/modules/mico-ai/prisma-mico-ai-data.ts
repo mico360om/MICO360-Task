@@ -147,7 +147,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       return rows.map((a) => ({ id: a.id, taskId: a.taskId, projectId: a.projectId, userId: a.userId, action: a.action, meta: a.meta, createdAt: a.createdAt, task: a.task }));
     },
 
-    async meetings(viewer, { projectIds, projectId, from, to, limit }) {
+    async meetings(viewer, { projectIds, projectId, from, to, limit, text }) {
       const u = viewer.userId;
       // The meeting rule: organizer, creator or attendee, or someone who can see its project (admins: all).
       const visible = isAdmin(viewer)
@@ -161,7 +161,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
             ],
           };
       const rows = await prisma.meeting.findMany({
-        where: { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...visible },
+        where: { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...(text ? { title: { contains: text } } : {}), ...visible },
         orderBy: { startAt: 'asc' },
         take: limit,
         include: { attendees: { select: { userId: true } } },

@@ -161,7 +161,7 @@ export interface MicoAiDataPort {
   /** Newest first. */
   activity(filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; limit: number }): Promise<AiActivityRec[]>;
   /** Meetings the viewer may see (the meeting-access rule), starting in the range. */
-  meetings(viewer: Viewer, filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; limit: number }): Promise<AiMeetingRec[]>;
+  meetings(viewer: Viewer, filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; limit: number; text?: string }): Promise<AiMeetingRec[]>;
   /** The meeting pages' own check. */
   canViewMeeting(viewer: Viewer, meetingId: string): Promise<boolean>;
   meetingDetail(meetingId: string): Promise<AiMeetingDetail | null>;

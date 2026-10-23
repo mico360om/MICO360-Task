@@ -78,7 +78,9 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
     },
     async meetings(v, f) {
       calls.push('meetings');
-      return (d.meetings ?? []).filter((m) => meetingVisible(v, m) && (!f.projectId || m.projectId === f.projectId) && inRange(m.startAt, f.from, f.to)).slice(0, f.limit);
+      return (d.meetings ?? [])
+        .filter((m) => meetingVisible(v, m) && (!f.projectId || m.projectId === f.projectId) && inRange(m.startAt, f.from, f.to) && (!f.text || m.title.toLowerCase().includes(f.text.toLowerCase())))
+        .slice(0, f.limit);
     },
     async canViewMeeting(v, id) {
       calls.push('canViewMeeting');

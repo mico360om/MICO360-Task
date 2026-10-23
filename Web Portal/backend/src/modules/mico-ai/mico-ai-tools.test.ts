@@ -177,6 +177,15 @@ describe('MICO AI tools: meetings', () => {
     expect((await run(OMAR, 'meeting_details', { meeting: 'Falcon pricing' })).error).toMatch(/No meeting you can see/);
   });
 
+  it('looks a meeting up by its title in the database, not among a first page of meetings', async () => {
+    const data = company();
+    const seen: Array<{ text?: string }> = [];
+    const port = createMemoryMicoAiData(data);
+    const t = createMicoAiTools({ data: { ...port, meetings: async (v, f) => (seen.push(f), port.meetings(v, f)) }, timeZone: 'Asia/Muscat', now: () => NOW });
+    await t.run(OMAR, 'meeting_details', { meeting: 'Weekly review' });
+    expect(seen.at(-1)?.text).toBe('Weekly review');
+  });
+
   it('action items come only from meetings the person can see', async () => {
     const r = await run(SARA, 'list_action_items', { from: '2026-10-01', to: '2026-10-31' });
     expect(keys(r.rows, 'item')).toEqual(['Check the vendor’s certificate']);
