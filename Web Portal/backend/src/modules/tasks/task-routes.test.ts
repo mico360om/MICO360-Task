@@ -19,7 +19,7 @@ const COLUMNS: Record<string, ColumnInfo> = {
 };
 
 /** In-memory tasks; tags/assignees written on create land in the shared stores, like the real nested write. */
-function inMemory(stores: { tags?: TagRepository; links?: Set<string> } = {}) {
+function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?: Set<string> } = {}) {
   const rows = new Map<string, TaskRecord>();
   let seq = 0;
   const assigneesOf = (id: string) => [...(stores.links ?? [])].filter((l) => l.startsWith(`${id}:`)).map((l) => l.split(':')[1]!);
@@ -104,7 +104,10 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string> } = {}) {
       });
     },
   };
-  const projects: ProjectLookup = { async getCodeById(id) { return id === 'p1' ? 'MICO' : id === 'p2' ? 'RIG' : null; } };
+  const projects: ProjectLookup = {
+    async getCodeById(id) { return id === 'p1' ? 'MICO' : id === 'p2' ? 'RIG' : null; },
+    async getTaskSettings(id) { return id === 'p1' || id === 'p2' ? { defaultDueToday: stores.dueToday?.has(id) ?? false } : null; },
+  };
   return { tasks, projects, rows };
 }
 
@@ -729,5 +732,38 @@ describe('GET /tasks/:id — the meeting lookup built from the meeting service',
     expect((await get(live.id, 'u2')).meeting).toMatchObject({ id: 'm1', title: 'Weekly review', canView: true });
     expect((await get(live.id, 'u1')).meeting).toEqual({ id: 'm1', title: null, startAt: null, canView: false });
     expect((await get(gone.id, 'u2')).meeting).toBeNull();
+  });
+});
+
+describe('POST /tasks — a project whose new tasks are due today', () => {
+  // 01:30 on 23 Oct in Muscat — still the 22nd in UTC.
+  const NOW = new Date('2026-10-22T21:30:00Z');
+  async function build() {
+    const taskService = createTaskService({ ...inMemory({ dueToday: new Set(['p1']) }), timeZone: 'Asia/Muscat', now: () => NOW });
+    const a = await buildApp({ authService, tokenService, taskService });
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const post = (payload: Record<string, unknown>) => a.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload });
+    const put = (id: string, payload: Record<string, unknown>) => a.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload });
+    return { post, put };
+  }
+
+  it('a task sent without a due date — from the website, the extension, the Android app or quick add — is due today', async () => {
+    const { post } = await build();
+    const res = await post({ title: 'Call the client', projectId: 'p1', columnId: 'c1' });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.dueDate).toBe('2026-10-23T00:00:00.000Z');
+  });
+
+  it('keeps a date that was picked, and leaves projects without the setting alone', async () => {
+    const { post } = await build();
+    expect((await post({ title: 'Picked', projectId: 'p1', columnId: 'c1', dueDate: '2026-11-05' })).json().data.dueDate).toBe('2026-11-05T00:00:00.000Z');
+    expect((await post({ title: 'Other project', projectId: 'p2', columnId: 'c3' })).json().data.dueDate).toBeNull();
+  });
+
+  it('a date cleared later stays cleared, and an edit that doesn’t mention it doesn’t bring it back', async () => {
+    const { post, put } = await build();
+    const id = (await post({ title: 'Call the client', projectId: 'p1', columnId: 'c1' })).json().data.id;
+    expect((await put(id, { dueDate: null })).json().data.dueDate).toBeNull();
+    expect((await put(id, { title: 'Call the client back' })).json().data.dueDate).toBeNull();
   });
 });

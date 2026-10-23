@@ -3,6 +3,7 @@ import { dueDayKey } from '../../lib/due-date';
 import { isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { defaultCompanyTimeZone } from './task-status';
+import { dueDateOnEntry } from '../projects/project-task-settings';
 import {
   TaskKeyConflictError,
   TaskVersionConflictError,
@@ -122,7 +123,15 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     }
     const column = await requireColumn(input.columnId, input.projectId);
     const at = now();
-    const dueDate = toDueDay(input.dueDate);
+    // Every way a task is created comes through here (the REST API used by the website, extension and
+    // Android app, quick add, meeting notes made into tasks): a project whose new tasks are due today
+    // gives an undated one today's date, and a date someone picked is kept.
+    const dueDate = dueDateOnEntry(
+      { dueDate: toDueDay(input.dueDate), startDate: input.startDate },
+      await projects.getTaskSettings(input.projectId),
+      timeZone,
+      at,
+    );
     if (input.startDate) assertDateOrder(input.startDate, dueDate);
     // The start date is automatic: the creation time, or the due day when that is already past.
     const startDate = input.startDate ?? (dueDate && dayOf(at) > dayOf(dueDate) ? dueDate : at);

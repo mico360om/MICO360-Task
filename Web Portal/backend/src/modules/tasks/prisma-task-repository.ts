@@ -296,5 +296,8 @@ export function createPrismaProjectLookup(prisma: PrismaClient): ProjectLookup {
       const p = await prisma.project.findFirst({ where: { id, deletedAt: null }, select: { code: true } });
       return p?.code ?? null;
     },
+    async getTaskSettings(id) {
+      return prisma.project.findFirst({ where: { id, deletedAt: null }, select: { defaultDueToday: true } });
+    },
   };
 }
