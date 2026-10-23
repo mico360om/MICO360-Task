@@ -28,6 +28,11 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: 'Workload' })).toHaveAttribute('href', '/workload');
   });
 
+  it('shows MICO AI to every user', () => {
+    renderSidebar(false);
+    expect(screen.getByRole('link', { name: 'MICO AI' })).toHaveAttribute('href', '/mico-ai');
+  });
+
   it('hides admin-only items from employees', () => {
     renderSidebar(false);
     expect(screen.queryByRole('link', { name: /user management/i })).not.toBeInTheDocument();

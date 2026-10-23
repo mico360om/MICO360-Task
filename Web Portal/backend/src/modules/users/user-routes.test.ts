@@ -289,7 +289,7 @@ describe('Download my data (GET /users/me/export)', () => {
           exportedAt: '2026-09-28T22:30:00.000Z', // already 29 September in Muscat
           profile: { id: userId, firstName: 'سارة' },
           projects: [], tasksAssignedToMe: [], tasksICreated: [], comments: [], attachments: [],
-          chatMessages: [], meetingNotes: [], actionItems: [], activity: [], accountEvents: [],
+          chatMessages: [], meetingNotes: [], actionItems: [], activity: [], accountEvents: [], micoAiChats: [],
         };
       },
     });

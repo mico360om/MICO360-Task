@@ -26,6 +26,37 @@ describe('AI usage limiter (per user)', () => {
   });
 });
 
+describe('AI usage limiter: checking without counting', () => {
+  it('says whether one more request would be allowed, without counting it', () => {
+    const limiter = createAiUsageLimiter({ perMinute: 100, perDay: 2 }, 'Asia/Muscat', () => new Date('2026-09-26T08:00:00Z'));
+    limiter.check('u1');
+    limiter.check('u1');
+    limiter.take('u1');
+    limiter.check('u1');
+    limiter.take('u1');
+    expect(() => limiter.check('u1')).toThrow(/today/);
+  });
+});
+
+describe('AI usage limiter: MICO AI questions', () => {
+  it('a question counts once against the minute; each of its calls counts against the day only', () => {
+    const limiter = createAiUsageLimiter({ perMinute: 2, perDay: 5 }, 'Asia/Muscat', () => new Date('2026-09-26T08:00:00Z'));
+    limiter.startQuestion('u1');
+    for (let i = 0; i < 4; i++) limiter.takeDaily('u1'); // many calls, but the minute counted the question only
+    limiter.startQuestion('u1');
+    expect(() => limiter.startQuestion('u1')).toThrow(/too quickly/);
+    limiter.takeDaily('u1');
+    expect(() => limiter.takeDaily('u1')).toThrow(/today/);
+    expect(() => limiter.take('u2')).not.toThrow(); // others are unaffected
+  });
+
+  it('a question is refused up front when the day is used up', () => {
+    const limiter = createAiUsageLimiter({ perMinute: 10, perDay: 1 }, 'Asia/Muscat', () => new Date('2026-09-26T08:00:00Z'));
+    limiter.takeDaily('u1');
+    expect(() => limiter.startQuestion('u1')).toThrow(/today/);
+  });
+});
+
 describe('concurrency gate (per model)', () => {
   it('lets at most `limit` requests run at once and queues the rest', async () => {
     const gate = createConcurrencyGate(1000);

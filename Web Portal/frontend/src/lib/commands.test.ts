@@ -47,6 +47,10 @@ describe('matchNavCommands', () => {
     expect(parseCommand('go to workload', false)).toEqual({ type: 'navigate', to: '/workload', label: 'Workload' });
   });
 
+  it('finds MICO AI by its name and by "ask" or "assistant"', () => {
+    for (const q of ['mico ai', 'ask', 'assistant']) expect(matchNavCommands(q, false)[0]?.to, q).toBe('/mico-ai');
+  });
+
   it('hides Reports (admin-only) from non-admins', () => {
     expect(matchNavCommands('reports', false).some((c) => c.to === '/reports')).toBe(false);
     expect(parseCommand('go to reports', false)).toBeNull();

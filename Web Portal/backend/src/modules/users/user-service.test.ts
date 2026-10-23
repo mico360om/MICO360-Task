@@ -207,6 +207,14 @@ describe('UserService', () => {
     expect(unlocked.locked).toBe(false);
   });
 
+  it('deletes the person’s own data that only they could see (their MICO AI chats) when they are deleted', async () => {
+    const gone: string[] = [];
+    const { svc } = make({ onDeleted: async (id) => void gone.push(id) });
+    const u = await svc.createUser(person());
+    await svc.deleteUser(u.id);
+    expect(gone).toEqual([u.id]);
+  });
+
   it('ends sessions when a user is deleted', async () => {
     const { svc, revoked } = make();
     const u = await svc.createUser(person());

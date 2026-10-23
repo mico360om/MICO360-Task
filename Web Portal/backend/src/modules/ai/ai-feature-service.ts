@@ -97,16 +97,39 @@ export function createAiFeatureService({
     prompt: string,
     maxTokens: number | undefined,
     requester?: AiRequester,
-    opts: { json?: boolean; wait?: number } = {},
+    opts: { json?: boolean; wait?: number; signal?: AbortSignal; dailyOnly?: boolean } = {},
   ): Promise<string> {
     const { model, chat } = resolveChatModel(await repo.load());
-    if (requester) usage.take(requester.userId);
+    if (requester) {
+      if (opts.dailyOnly) usage.takeDaily(requester.userId);
+      else usage.take(requester.userId);
+    }
     const release = await gate.acquire(model.id, model.concurrencyLimit);
     try {
-      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: opts.wait ?? timeoutMs, allowPrivateHosts });
+      return await complete(chat, { system, prompt, maxTokens, json: opts.json }, doFetch, { timeoutMs: opts.wait ?? timeoutMs, allowPrivateHosts, signal: opts.signal });
     } finally {
       release();
     }
+  }
+
+  /** Is a chat model set up and usable? (MICO AI says so on its page before anyone types.) */
+  async function chatReady(): Promise<boolean> {
+    return effectiveModel(await repo.load(), 'chat') !== null;
+  }
+
+  /**
+   * One model call for MICO AI's tool loop: the default chat model, its concurrency slot and the
+   * configured wait, with the caller's stop. With a requester, the call counts against the person's
+   * daily AI limit, the same one every AI feature uses; the minute counted the question once
+   * (startMicoAiQuestion), so a question of several steps never fails halfway on the minute.
+   */
+  async function chat(input: { system: string; prompt: string; maxTokens?: number; json?: boolean; signal?: AbortSignal }, requester?: AiRequester): Promise<string> {
+    return run(input.system, input.prompt, input.maxTokens, requester, { json: input.json, signal: input.signal, dailyOnly: true });
+  }
+
+  /** A MICO AI question starts: it counts once against the minute; throws (429) when the minute or the day is used up. */
+  function startMicoAiQuestion(userId: string): void {
+    usage.startQuestion(userId);
   }
 
   /** Break a task into 3–7 short checklist steps. */
@@ -368,7 +391,7 @@ export function createAiFeatureService({
     return obj;
   }
 
-  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes };
+  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat, startMicoAiQuestion };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;

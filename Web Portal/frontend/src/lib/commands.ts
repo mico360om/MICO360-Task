@@ -16,6 +16,7 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'timeline', label: 'Timeline', to: '/timeline', keywords: ['gantt', 'roadmap', 'milestones', 'targets', 'late projects'] },
   { id: 'workload', label: 'Workload', to: '/workload', keywords: ['capacity', 'load', 'busy', 'daily limit', 'rebalance'] },
   { id: 'chat', label: 'Chat', to: '/chat', keywords: ['messages', 'talk'] },
+  { id: 'mico-ai', label: 'MICO AI', to: '/mico-ai', keywords: ['ai', 'ask', 'assistant', 'question', 'chatbot'] },
   { id: 'activity', label: 'Activity', to: '/activity', keywords: ['feed', 'history'] },
   { id: 'notifications', label: 'Notifications', to: '/notifications', keywords: ['alerts', 'bell'] },
   { id: 'reports', label: 'Reports', to: '/reports', keywords: ['analytics', 'stats', 'charts', 'trends'], admin: true },

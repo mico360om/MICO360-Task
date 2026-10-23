@@ -39,6 +39,7 @@ const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'M
 // Takes props (see ChatRoute), so it is loaded with its own type rather than through lazyPage.
 const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
+const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
@@ -98,6 +99,7 @@ export function App() {
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />
             <Route path="/chat" element={<ChatRoute />} />
+            <Route path="/mico-ai" element={<MicoAiPage />} />
             <Route path="/activity" element={<ActivityPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

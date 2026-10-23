@@ -173,6 +173,10 @@ import { createSettingsService } from './modules/settings/settings-service';
 import { createAiConfigService } from './modules/ai/ai-config-service';
 import { createAiFeatureService } from './modules/ai/ai-feature-service';
 import { createPrismaFinalMinutesRepository } from './modules/meetings/final-minutes-repository';
+import { createMicoAiService } from './modules/mico-ai/mico-ai-service';
+import { createMicoAiTools } from './modules/mico-ai/mico-ai-tools';
+import { createPrismaMicoAiData } from './modules/mico-ai/prisma-mico-ai-data';
+import { createPrismaMicoAiRepository } from './modules/mico-ai/prisma-mico-ai-repository';
 import { createPrismaAiConfigRepository } from './modules/ai/prisma-ai-config-repository';
 import { createPrismaSettingsRepository } from './modules/settings/prisma-settings-repository';
 import { createOtpService } from './modules/auth/otp-service';
@@ -405,6 +409,8 @@ async function main(): Promise<void> {
     throw new Error('token service not ready');
   };
   const userMgmtRepository = createPrismaUserMgmtRepository(prisma);
+  // MICO AI's chats (their service is built further down): a deleted person's chats go with them.
+  const micoAiRepository = createPrismaMicoAiRepository(prisma);
   const userService = createUserService({
     users: userMgmtRepository,
     revokeSessions: (userId) => revokeSessions(userId),
@@ -412,6 +418,7 @@ async function main(): Promise<void> {
     issueSession: (u) => issueSession(u),
     // The device-token repository is created below; this runs only when access is revoked.
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
+    onDeleted: (userId) => micoAiRepository.deleteAllForUser(userId).then(() => undefined),
   });
   // Resolve user/project ids → display names for server-rendered documents (meeting minutes).
   const resolveUserNames = async (ids: string[]): Promise<Map<string, string>> => {
@@ -830,6 +837,37 @@ async function main(): Promise<void> {
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
   });
 
+  // MICO AI: each person's private chats with a read-only assistant. Its tools read with the app's
+  // own rules (project access, the meeting rule, the chat module's conversations); it asks the same
+  // default chat model as the other AI features, and every call counts against the person's AI limit.
+  const micoAiService = createMicoAiService({
+    repo: micoAiRepository,
+    tools: createMicoAiTools({
+      data: createPrismaMicoAiData({
+        prisma,
+        projectAccess,
+        meetingAccess,
+        conversationIdsFor: (userId) => chatService.accessibleConversationIds(userId),
+        finalMinutes: createPrismaFinalMinutesRepository(prisma),
+      }),
+      timeZone: companyTz,
+    }),
+    model: {
+      ready: () => aiFeatureService.chatReady(),
+      chat: (req, userId) => aiFeatureService.chat(req, { userId }),
+      startQuestion: (userId) => aiFeatureService.startMicoAiQuestion(userId),
+    },
+    audit: auditService,
+    timeZone: companyTz,
+    userName: async (id) => {
+      const u = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true, username: true } });
+      return u ? [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username : '';
+    },
+    logger,
+  });
+  // Answers a restart cut off (pending past the time limit) are marked interrupted, so no chat stays blocked.
+  void micoAiService.interruptStale().catch((err) => logger.error('MICO AI: marking interrupted answers failed', { err }));
+
   // Per-date boards: each night carry still-open tasks onto today's board. Config lives in
   // system settings (admin-editable) — carryForward.enabled + carryForward.statuses — with defaults.
   const carryForwardService = createCarryForwardService({
@@ -1237,6 +1275,7 @@ async function main(): Promise<void> {
     settingsService,
     aiConfigService,
     aiFeatureService,
+    micoAiService,
     emailWebhookService,
     mailjetWebhookToken: env.MAILJET_WEBHOOK_TOKEN || undefined,
     corsOrigins: corsOrigin(parseCorsOrigins(env.CORS_ORIGINS)),
