@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { PROJECTS_OVERVIEW_KEY } from '../api/projects';
 
 /**
  * Every cached query that shows task data somewhere in the app: the board, My Tasks, the calendar,
@@ -24,7 +25,11 @@ export const TASK_QUERY_ROOTS = [
   'report-timeseries',
 ] as const;
 
+/** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…). */
+export const TASK_FIGURE_KEYS: readonly (readonly string[])[] = [PROJECTS_OVERVIEW_KEY];
+
 /** Refresh every task-related view after any task mutation (create, edit, move, assign, delete…). */
 export function invalidateTaskQueries(qc: QueryClient): Promise<void> {
-  return Promise.all(TASK_QUERY_ROOTS.map((root) => qc.invalidateQueries({ queryKey: [root] }))).then(() => undefined);
+  const keys = [...TASK_QUERY_ROOTS.map((root) => [root]), ...TASK_FIGURE_KEYS.map((k) => [...k])];
+  return Promise.all(keys.map((queryKey) => qc.invalidateQueries({ queryKey }))).then(() => undefined);
 }

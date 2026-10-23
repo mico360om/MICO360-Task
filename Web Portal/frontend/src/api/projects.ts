@@ -44,6 +44,9 @@ export interface ProjectStats {
   lastActivityAt: string;
 }
 
+/** The Projects page's list. Under ['projects'], so a project saved anywhere refreshes it; task changes refresh it too (lib/task-cache). */
+export const PROJECTS_OVERVIEW_KEY = ['projects', 'overview'] as const;
+
 /** A project as the Projects page lists it: its details, figures, owner and team. */
 export interface ProjectOverview extends ApiProject {
   managerId?: string | null;

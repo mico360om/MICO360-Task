@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, type ProjectOverview, type ProjectStatus } from '../api/projects';
+import { PROJECTS_OVERVIEW_KEY, projectsApi, type ProjectOverview, type ProjectStatus } from '../api/projects';
 import { apiClient } from '../api/client';
 import { ProjectCard } from '../components/projects/ProjectCard';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
@@ -30,8 +30,7 @@ import {
 } from '../lib/project-list';
 import { useProjectListState } from '../lib/useProjectListState';
 
-/** Under ['projects'], so a project saved anywhere in the app refreshes the list too. */
-const OVERVIEW_KEY = ['projects', 'overview'] as const;
+const OVERVIEW_KEY = PROJECTS_OVERVIEW_KEY;
 const PANEL_ID = 'projects-panel';
 const tabId = (t: StatusTab) => `projects-tab-${t}`;
 

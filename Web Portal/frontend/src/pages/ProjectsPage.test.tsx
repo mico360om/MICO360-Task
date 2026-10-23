@@ -7,6 +7,7 @@ import { ProjectsPage } from './ProjectsPage';
 import { ShortcutProvider } from '../components/shortcuts/ShortcutProvider';
 import { useAuthStore } from '../stores/auth-store';
 import type { ProjectOverview, ProjectStats } from '../api/projects';
+import { invalidateTaskQueries } from '../lib/task-cache';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const person = (id: string, name: string) => ({ id, name, avatarUrl: null });
@@ -106,8 +107,7 @@ function Where() {
   );
 }
 
-function renderPage(at = '/projects') {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(at = '/projects', qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[at]}>
@@ -135,6 +135,17 @@ describe('ProjectsPage', () => {
     await loaded();
     const api = calls.filter((c) => !c.url.endsWith('/config'));
     expect(api.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/projects/overview']);
+  });
+
+  it('fetches its figures again after a task changes anywhere (they count tasks)', async () => {
+    // As in the app: data stays fresh for 30 seconds unless something marks it stale.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    renderPage('/projects', qc);
+    await loaded();
+    const fetches = () => calls.filter((c) => c.url.endsWith('/projects/overview')).length;
+    expect(fetches()).toBe(1);
+    await act(() => invalidateTaskQueries(qc));
+    await waitFor(() => expect(fetches()).toBe(2));
   });
 
   it('heads the page with how many projects there are and how many need attention', async () => {
