@@ -122,6 +122,18 @@ components:
         id: { type: string }
         code: { type: string }
         name: { type: string }
+        carryForward:
+          type: boolean
+          description: >
+            Each night, unfinished tasks on past board days move to today's board (default true). The
+            company-wide setting carryForward.enabled comes first: when it is off, nothing carries.
+            Optional on create and update (admin); left out of an update, it stays as it is.
+        defaultDueToday:
+          type: boolean
+          description: >
+            A task created in the project without a due date gets today's date, the company's calendar
+            day (default false). A date that is sent is always kept. Optional on create and update
+            (admin); left out of an update, it stays as it is.
   responses:
     Unauthorized:
       description: Missing or invalid token
