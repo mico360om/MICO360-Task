@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-23
+
 ### New features
 - In the Android app, a Meetings tab like the website's: Up next, search, filters and each meeting's
   details; Accept, Maybe or Decline; Join; and My Action Items. Meeting links and notifications open in
