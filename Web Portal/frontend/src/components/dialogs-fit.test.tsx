@@ -8,6 +8,7 @@ import { CreateUserModal } from './CreateUserModal';
 import { CreateTaskFromNoteModal } from './CreateTaskFromNoteModal';
 import { NewTaskModal } from './NewTaskModal';
 import { MeetingFormModal } from './MeetingFormModal';
+import { MoveTaskDialog } from './MoveTaskDialog';
 import type { MeetingNote } from '../api/meetings';
 
 beforeEach(() => {
@@ -24,6 +25,7 @@ const DIALOGS: [name: RegExp, element: ReactElement][] = [
   [/new user/i, <CreateUserModal onClose={() => {}} />],
   [/create task from note/i, <CreateTaskFromNoteModal meetingId="m1" note={note} defaultProjectId={null} onClose={() => {}} onCreated={() => {}} />],
   [/new meeting/i, <MeetingFormModal onClose={() => {}} onSaved={() => {}} />],
+  [/move to another project/i, <MoveTaskDialog tasks={[{ id: 't1', key: 'RIG-4', title: 'Inspect the rig', projectId: 'p1' }]} onClose={() => {}} />],
 ];
 const PROJECT_FORM: [name: RegExp, element: ReactElement] = [/new project/i, <ProjectFormDialog onClose={() => {}} />];
 const TASK_FORM: [name: RegExp, element: ReactElement] = [/new task/i, <NewTaskModal onClose={() => {}} />];
