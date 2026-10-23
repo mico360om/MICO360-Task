@@ -16,12 +16,18 @@ const moved = (title = 'Inspect the rig'): MoveResult & { actorId: string } => (
   unassigned: [],
   milestoneCleared: false,
   dueDateSet: null,
+  statusChange: null,
   actorId: 'aisha',
 });
 
 describe('The notification that a task moved project', () => {
   it('names the key people knew it by and where it went, then the task as it is now', () => {
     expect(moveNotice(moved())).toEqual({ title: 'RIG-4 moved to Operations', body: 'OPS-17 · Inspect the rig' });
+  });
+
+  it('one notice also says when the move completed or re-opened it (no second “moved to Done” notice)', () => {
+    expect(moveNotice({ ...moved(), statusChange: 'COMPLETED' }).title).toBe('RIG-4 moved to Operations and marked complete');
+    expect(moveNotice({ ...moved(), statusChange: 'REOPENED' }).title).toBe('RIG-4 moved to Operations and reopened');
   });
 
   it('goes to the people following the task (its assignees and watchers) who can still open it — never the mover', async () => {

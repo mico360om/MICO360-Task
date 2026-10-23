@@ -484,7 +484,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.taskMoveService) {
-        await registerTaskMoveRoutes(api, { service: deps.taskMoveService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService });
+        await registerTaskMoveRoutes(api, { service: deps.taskMoveService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
       }
       if (deps.assigneeService) {
         await registerAssigneeRoutes(api, {

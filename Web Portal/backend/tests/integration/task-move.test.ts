@@ -4,7 +4,7 @@ import { createPrismaTaskRepository, createPrismaProjectLookup } from '../../src
 import { createTaskService } from '../../src/modules/tasks/task-service';
 import { createPrismaTaskMoveRepository } from '../../src/modules/tasks/prisma-task-move-repository';
 import { createTaskMoveService } from '../../src/modules/tasks/task-move-service';
-import { TaskMovedConflictError } from '../../src/modules/tasks/task-move-repository';
+import { TaskChangedConflictError, TaskMovedConflictError } from '../../src/modules/tasks/task-move-repository';
 import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
 import { createPrismaSearchDataSource } from '../../src/modules/search/prisma-search-data-source';
@@ -23,7 +23,7 @@ const recurrence = createRecurrenceService({ tasks: createPrismaRecurrencePort(p
 const search = createPrismaSearchDataSource(prisma);
 
 const CODES = ['MVRIG', 'MVOPS'];
-const EMAILS = ['move-manager@mico360.test', 'move-mate@mico360.test', 'move-outsider@mico360.test'];
+const EMAILS = ['move-manager@mico360.test', 'move-mate@mico360.test', 'move-outsider@mico360.test', 'move-owner@mico360.test', 'move-named@mico360.test'];
 
 let manager = { id: '', roles: [] as string[] };
 let mateId = '';
@@ -107,12 +107,25 @@ describe('Moving a task to another project (integration)', () => {
     expect(await prisma.taskWatcher.count({ where: { taskId: task.id } })).toBe(1);
     expect(await prisma.taskDependency.count({ where: { taskId: task.id, dependsOnTaskId: blocker.id } })).toBe(1);
     // Its history goes with it, filed under the new project, with the move as the newest line.
-    const history = await prisma.activity.findMany({ where: { taskId: task.id } });
+    const history = await prisma.activity.findMany({ where: { taskId: task.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
     expect(new Set(history.map((h) => h.projectId))).toEqual(new Set([ops.id]));
-    expect(history.map((h) => h.action).sort()).toEqual(['CREATED', 'PROJECT_CHANGED']);
+    // Its old line, then the move's: what it changed (the milestone it no longer is), then the move, newest.
+    expect(history.map((h) => h.action)).toEqual(['CREATED', 'UPDATED', 'PROJECT_CHANGED']);
+    expect(history[1]!.meta).toEqual({ changes: [{ field: 'milestone', from: true, to: false }] });
     const line = history.find((h) => h.action === 'PROJECT_CHANGED')!;
     expect(line).toMatchObject({ userId: manager.id });
     expect(line.meta).toEqual({ fromProject: 'Rig Inspection', fromKey: 'MVRIG-2', toProject: 'Operations', toKey: 'MVOPS-2', fromProjectId: rig.id, toProjectId: ops.id });
+    // The old project, which no longer lists its history, keeps one line saying where it went.
+    const left = await prisma.activity.findMany({ where: { projectId: rig.id } });
+    expect(left).toEqual([
+      expect.objectContaining({
+        taskId: null,
+        userId: manager.id,
+        action: 'PROJECT_MOVED_OUT',
+        meta: { key: 'MVRIG-2', title: 'Inspect the rig', fromProjectId: rig.id, fromProject: 'Rig Inspection', toProjectId: ops.id, toProject: 'Operations', toKey: 'MVOPS-2' },
+      }),
+    ]);
+    expect(left[0]!.createdAt.getTime()).toBeGreaterThan(line.createdAt.getTime());
   });
 
   it('can take people who aren’t on the new team off the task instead', async () => {
@@ -133,6 +146,41 @@ describe('Moving a task to another project (integration)', () => {
     expect(moved.dueDateSet).toBe('2026-10-24');
     const line = await prisma.activity.findFirstOrThrow({ where: { taskId: task.id, action: 'UPDATED' } });
     expect(line.meta).toEqual({ changes: [{ field: 'dueDate', from: null, to: '2026-10-24' }] });
+  });
+
+  it('the project’s owner and its named manager manage it too (as do MANAGER members and administrators)', async () => {
+    const user = (email: string, first: string) => prisma.user.create({ data: { email, username: email.split('@')[0]!, passwordHash: 'x', firstName: first, lastName: 'Test' } });
+    const owner = { id: (await user(EMAILS[3]!, 'Owner')).id, roles: ['EMPLOYEE'] };
+    const named = { id: (await user(EMAILS[4]!, 'Named')).id, roles: ['EMPLOYEE'] };
+    // Neither is a MANAGER member: one owns both projects, the other is their named manager.
+    await prisma.project.updateMany({ where: { id: { in: [rig.id, ops.id] } }, data: { ownerId: owner.id } });
+    const one = await newTask('By the owner');
+    expect((await moves.moveTask(owner, one.id, { projectId: ops.id })).task.projectId).toBe(ops.id);
+    await prisma.project.updateMany({ where: { id: { in: [rig.id, ops.id] } }, data: { ownerId: null, managerId: named.id } });
+    const two = await newTask('By the named manager');
+    expect((await moves.moveTask(named, two.id, { projectId: ops.id })).task.projectId).toBe(ops.id);
+    expect([...(await moves.targets(named)).managedProjectIds].sort()).toEqual([rig.id, ops.id].sort());
+    // A plain member manages neither.
+    const three = await newTask('Not by a member');
+    await expect(moves.moveTask({ id: mateId, roles: ['EMPLOYEE'] }, three.id, { projectId: ops.id })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('numbers by value: after MVOPS-9 and MVOPS-10 comes MVOPS-11', async () => {
+    for (const n of [9, 10]) await prisma.task.create({ data: { key: `MVOPS-${n}`, title: `Old ${n}`, projectId: ops.id, columnId: ops.todo, createdById: manager.id } });
+    const a = await newTask('A');
+    expect((await moves.moveTask(manager, a.id, { projectId: ops.id })).task.key).toBe('MVOPS-11');
+    expect((await taskService.createTask({ title: 'New', projectId: ops.id, columnId: ops.todo, createdById: manager.id })).key).toBe('MVOPS-12');
+  });
+
+  it('refuses a task changed since it was read (e.g. completed meanwhile), saving nothing', async () => {
+    const task = await newTask('Changing');
+    const read = (await moveRepo.findTasks([task.id]))[0]!;
+    await prisma.task.update({ where: { id: task.id }, data: { columnId: rig.done, completedAt: NOW, version: { increment: 1 } } });
+    await expect(
+      moveRepo.move({ taskId: task.id, title: read.title, version: read.version, from: { projectId: rig.id, name: 'Rig Inspection', key: read.key }, to: { projectId: ops.id, name: 'Operations', code: 'MVOPS' }, columnId: ops.todo, patch: {}, addToTeam: [], unassign: [], actorId: manager.id }),
+    ).rejects.toBeInstanceOf(TaskChangedConflictError);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).toMatchObject({ projectId: rig.id, key: read.key, columnId: rig.done });
+    expect(await prisma.taskKeyAlias.count({ where: { taskId: task.id } })).toBe(0);
   });
 
   it('never gives an old key to another task: new tasks and repeat copies in the old project take the next unused number', async () => {
@@ -182,6 +230,8 @@ describe('Moving a task to another project (integration)', () => {
     await expect(
       moveRepo.move({
         taskId: task.id,
+        title: 'Moving twice',
+        version: 0,
         from: { projectId: rig.id, name: 'Rig Inspection', key: 'MVRIG-1' },
         to: { projectId: ops.id, name: 'Operations', code: 'MVOPS' },
         columnId: ops.todo,

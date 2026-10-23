@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
+import type { Logger } from '../../lib/logger';
 import type { BulkMoveItem, MoveResult, TaskMovePreview, TaskMoveService } from './task-move-service';
 import { idString } from './validation';
 
@@ -23,11 +24,13 @@ export interface TaskMoveRouteDeps {
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
   /** People added to a project's team by a move are recorded like any other team change. */
   audit?: AuditService;
+  /** Where a failure after a saved move is reported (the move itself stands). */
+  logger?: Pick<Logger, 'error'>;
 }
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Task not found.' } };
 const hiddenPreview = (id: string): TaskMovePreview => ({
-  id, key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, currentCategory: null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [],
+  id, key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, currentCategory: null, completed: false, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [],
 });
 
 /**
@@ -45,11 +48,15 @@ export async function registerTaskMoveRoutes(app: FastifyInstance, deps: TaskMov
     return new Set(ids.filter((_, i) => seen[i]));
   }
 
-  /** Tell both boards, and record people the move put on a team. */
+  /**
+   * Tell both boards, and record people the move put on a team. The move is saved by now: a failure
+   * here is logged, never turned into an error (and never stops the next task's announcement).
+   */
   async function announce(req: FastifyRequest, move: MoveResult): Promise<void> {
     deps.broadcast?.(move.from.projectId, 'task:updated', move.task);
     deps.broadcast?.(move.to.projectId, 'task:created', move.task);
-    if (move.addedToTeam.length > 0) {
+    if (move.addedToTeam.length === 0) return;
+    try {
       await deps.audit?.record({
         userId: req.user!.id,
         ip: req.ip ?? null,
@@ -58,6 +65,8 @@ export async function registerTaskMoveRoutes(app: FastifyInstance, deps: TaskMov
         entityId: move.to.projectId,
         newValue: { userIds: move.addedToTeam.map((p) => p.id), taskId: move.task.id, reason: `task moved from ${move.from.name}` },
       });
+    } catch (err) {
+      deps.logger?.error('moving a task: the audit log line for people added to the team failed', { err, taskId: move.task.id, projectId: move.to.projectId });
     }
   }
 

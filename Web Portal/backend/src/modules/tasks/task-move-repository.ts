@@ -41,6 +41,8 @@ export interface MovableTask {
   startDate: Date | null;
   boardDate: Date | null;
   completedAt: Date | null;
+  /** Its version when read: the move is saved only if nobody changed it since. */
+  version: number;
   /** Carries the repeat rule: the newest copy of its series, whose next copies follow it. */
   repeats: boolean;
   /** One of the copies of a repeating series (the newest or an earlier one). */
@@ -51,6 +53,10 @@ export interface MovableTask {
 /** What a move writes, in one transaction. */
 export interface ProjectMoveWrite {
   taskId: string;
+  /** Its title, for the line the old project keeps ("moved RIG-4 to Operations (OPS-17)"). */
+  title: string;
+  /** The version it was read at: TaskChangedConflictError when it changed since. */
+  version: number;
   /** Where the task is now: the move is refused (TaskMovedConflictError) if it has left it meanwhile. */
   from: { projectId: string; name: string; key: string };
   /** The new key is `code` and the project's next number, read in the move's own transaction. */
@@ -66,6 +72,14 @@ export interface ProjectMoveWrite {
   actorId: string;
   /** The due day the move gave the task ('YYYY-MM-DD'), for its activity line. */
   dueDateSet?: string | null;
+}
+
+/** The task changed after it was read (an edit, or completed or re-opened): nothing was saved. */
+export class TaskChangedConflictError extends Error {
+  constructor(id: string) {
+    super(`Task ${id} changed while it was being moved.`);
+    this.name = 'TaskChangedConflictError';
+  }
 }
 
 /** The task left the project it was read from before this move could be saved (another move won). */
@@ -92,10 +106,11 @@ export interface TaskMoveRepository {
   nextKeyNumber(projectId: string): Promise<number>;
   /**
    * Move the task in one transaction: the new key, project, column and fields; the old key kept as an
-   * alias; people added to the team or taken off; its history filed under the new project with a
-   * PROJECT_CHANGED line. TaskKeyConflictError when another task took the new key at the same moment
-   * (a new try reads the next number afresh), and TaskMovedConflictError when the task is no longer
-   * in `from`. Resolves the task as it is now.
+   * alias; people added to the team or taken off; its history filed under the new project, with the
+   * lines of task-move-history (the old project keeps one saying where it went).
+   * TaskKeyConflictError when another task took the new key at the same moment (a new try reads the
+   * next number afresh), TaskMovedConflictError when the task is no longer in `from`, and
+   * TaskChangedConflictError when it changed since it was read. Resolves the task as it is now.
    */
   move(write: ProjectMoveWrite): Promise<TaskRecord>;
 }

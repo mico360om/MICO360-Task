@@ -3,7 +3,7 @@ import { dueDateOnEntry } from '../projects/project-task-settings';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { columnEntryChange, defaultCompanyTimeZone } from './task-status';
 import { TaskKeyConflictError, type TaskRecord } from './task-repository';
-import { TaskMovedConflictError, type MovableTask, type MoveColumn, type MovePerson, type MoveProject, type ProjectMoveWrite, type TaskMoveRepository } from './task-move-repository';
+import { TaskChangedConflictError, TaskMovedConflictError, type MovableTask, type MoveColumn, type MovePerson, type MoveProject, type ProjectMoveWrite, type TaskMoveRepository } from './task-move-repository';
 import { matchingColumn, notOnTeamMessage } from './task-move';
 
 /** What happens to people assigned to a task who aren't on the new project's team. */
@@ -51,6 +51,8 @@ export interface TaskMovePreview {
   newKey: string | null;
   /** The stage (column category) it is in now: when `columnId` is of another kind, the new project has none of this one. */
   currentCategory: string | null;
+  /** It is completed now: moved to an open column it is re-opened; an open task moved to a Done column is completed. */
+  completed: boolean;
   /** Where it goes unless another column is chosen: the same kind of column as now, else the first. */
   columnId: string | null;
   /** It is a milestone, and milestones belong to their project: moving clears it. */
@@ -82,6 +84,8 @@ export interface MoveResult {
   milestoneCleared: boolean;
   /** The due day the move gave it ('YYYY-MM-DD'), or null. */
   dueDateSet: string | null;
+  /** The move completed it (into a Done column) or re-opened it (out of one); null when neither. */
+  statusChange: 'COMPLETED' | 'REOPENED' | null;
 }
 
 export type BulkMoveItem =
@@ -227,7 +231,10 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     let numbered = 0;
     for (const id of ids) {
       const task = byId.get(id);
-      const base = { id, key: task?.key ?? '', title: task?.title ?? '', from: null, newKey: null, currentCategory: task?.columnCategory ?? null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] };
+      const base = {
+        id, key: task?.key ?? '', title: task?.title ?? '', from: null, newKey: null, currentCategory: task?.columnCategory ?? null,
+        completed: task ? task.completedAt !== null : false, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [],
+      };
       if (!task) {
         tasks.push({ ...base, canMove: false, reason: 'Task not found.' });
         continue;
@@ -289,6 +296,8 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
       try {
         moved = await repo.move({
           taskId,
+          title: task.title,
+          version: task.version,
           from: { projectId: from.id, name: from.name, key: task.key },
           to: { projectId: to.id, name: to.name, code: to.code },
           columnId: column.id,
@@ -300,6 +309,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
         });
       } catch (err) {
         if (err instanceof TaskMovedConflictError) throw new ConflictError('Someone else moved this task just now. Reload it and try again.', 'TASK_MOVED');
+        if (err instanceof TaskChangedConflictError) throw new ConflictError('This task changed while you were moving it. Reload it and try again.', 'VERSION_CONFLICT');
         if (!(err instanceof TaskKeyConflictError)) throw err;
         if (attempt >= KEY_ATTEMPTS - 1) throw new ConflictError('Another task took that number at the same moment. Please try again.', 'TASK_KEY_CONFLICT');
       }
@@ -313,10 +323,11 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
       unassigned,
       milestoneCleared: task.isMilestone,
       dueDateSet,
+      statusChange: task.completedAt === null && moved.completedAt !== null ? 'COMPLETED' : task.completedAt !== null && moved.completedAt === null ? 'REOPENED' : null,
     };
     // The move is saved: what follows it never turns it into a failure.
     try {
-      if ((task.completedAt !== null) !== (moved.completedAt !== null)) await deps.onStatusChanged?.(moved, task.columnId, actor.id);
+      if (result.statusChange) await deps.onStatusChanged?.(moved, task.columnId, actor.id);
       await deps.onMoved?.({ ...result, actorId: actor.id });
     } catch (err) {
       deps.onError?.(err, taskId);

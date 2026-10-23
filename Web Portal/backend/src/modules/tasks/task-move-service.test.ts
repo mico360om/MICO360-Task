@@ -174,6 +174,7 @@ describe('What a move will change (preview)', () => {
         reason: null,
         newKey: 'OPS-17',
         currentCategory: 'IN_PROGRESS',
+        completed: false,
         columnId: 'o-doing',
         milestoneCleared: true,
         dueDate: null,
@@ -331,16 +332,20 @@ describe('Moving one task', () => {
 
   it('into a Done column it is completed; out of one it is re-opened — and the status hooks run', async () => {
     const w = world();
+    expect((await w.service.preview(aisha, ['t1', 't7'], 'ops')).tasks.map((t) => t.completed)).toEqual([false, true]);
     const done = await w.service.moveTask(aisha, 't1', { projectId: 'ops', columnId: 'o-done' });
     expect(done.task).toMatchObject({ completedAt: NOW, progress: 100, boardDate: TODAY_BOARD });
+    expect(done.statusChange).toBe('COMPLETED');
     expect(w.onStatusChanged).toHaveBeenCalledWith(expect.objectContaining({ id: 't1', columnId: 'o-done' }), 'r-todo', 'aisha');
     w.onStatusChanged.mockClear();
     // Already done and still in a Done column: nothing about its status changes.
     const still = await w.service.moveTask(aisha, 't7', { projectId: 'ops' });
     expect(still.task).toMatchObject({ columnId: 'o-done', completedAt: new Date('2026-10-22T08:00:00Z'), progress: 100 });
+    expect(still.statusChange).toBeNull();
     expect(w.onStatusChanged).not.toHaveBeenCalled();
     const reopened = await w.service.moveTask(aisha, 't7', { projectId: 'rig', columnId: 'r-todo' });
     expect(reopened.task).toMatchObject({ columnId: 'r-todo', completedAt: null, progress: 40 });
+    expect(reopened.statusChange).toBe('REOPENED');
     expect(w.onStatusChanged).toHaveBeenCalledWith(expect.objectContaining({ id: 't7' }), 'o-done', 'aisha');
   });
 
@@ -403,5 +408,52 @@ describe('Moving many tasks', () => {
     expect(await refusal(w.service.moveTasks(aisha, ['t1', 't3'], { projectId: 'arc' }))).toMatchObject({ code: 'PROJECT_CLOSED' });
     expect(await refusal(w.service.moveTasks(khalid, ['t1'], { projectId: 'ops' }))).toMatchObject({ status: 403 });
     expect(w.find('RIG-1').projectId).toBe('rig');
+  });
+});
+
+describe('Numbering, history and changes made meanwhile — as the database does them', () => {
+  it('numbers after the highest number the project used, old keys included, even after a gap', async () => {
+    const w = world();
+    w.state.tasks.push(task({ id: 'o30', key: 'OPS-30', projectId: 'ops', columnId: 'o-todo' }));
+    expect((await w.service.preview(aisha, ['t1'], 'ops')).tasks[0]!.newKey).toBe('OPS-31');
+    expect((await w.service.moveTask(aisha, 't1', { projectId: 'ops' })).task.key).toBe('OPS-31');
+    w.state.aliases.set('RIG-40', { taskId: 'x', projectId: 'rig' });
+    expect(await w.repo.nextKeyNumber('rig')).toBe(41);
+  });
+
+  it('writes the history in order — people taken off, what changed, the move — and tells the old project where it went', async () => {
+    const w = world();
+    w.state.projects.find((p) => p.id === 'ops')!.defaultDueToday = true;
+    await w.service.moveTask(aisha, 't4', { projectId: 'ops', assignees: 'UNASSIGN' });
+    expect(w.state.activity).toEqual([
+      { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UNASSIGNED', meta: { assigneeId: 'sara', assignee: 'Sara Al Balushi' } },
+      { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'UPDATED', meta: { changes: [{ field: 'dueDate', from: null, to: '2026-10-24' }, { field: 'milestone', from: true, to: false }] } },
+      { taskId: 't4', projectId: 'ops', userId: 'aisha', action: 'PROJECT_CHANGED', meta: { fromProjectId: 'rig', fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProjectId: 'ops', toProject: 'Operations', toKey: 'OPS-17' } },
+      // Filed under the old project, not the task (its people may not be able to open it any more).
+      { taskId: null, projectId: 'rig', userId: 'aisha', action: 'PROJECT_MOVED_OUT', meta: { key: 'RIG-4', title: 'Inspect the rig', fromProjectId: 'rig', fromProject: 'Rig Inspection', toProjectId: 'ops', toProject: 'Operations', toKey: 'OPS-17' } },
+    ]);
+  });
+
+  it('a milestone cleared on its own is a history line too', async () => {
+    const w = world();
+    w.state.teams.get('ops')!.add('sara');
+    await w.service.moveTask(aisha, 't4', { projectId: 'ops' });
+    expect(w.state.activity.find((a) => a.action === 'UPDATED')!.meta).toEqual({ changes: [{ field: 'milestone', from: true, to: false }] });
+  });
+
+  it('refuses when the task changed after it was read (completed meanwhile), and leaves it as it is', async () => {
+    const w = world();
+    const changing: TaskMoveRepository = {
+      ...w.repo,
+      findTasks: async (ids) => {
+        const read = await w.repo.findTasks(ids);
+        const t = w.state.tasks.find((x) => x.id === 't1')!;
+        Object.assign(t, { version: t.version + 1, completedAt: NOW, columnId: 'r-done' });
+        return read;
+      },
+    };
+    const service = createTaskMoveService({ repo: changing, timeZone: TZ, now: () => NOW });
+    expect(await refusal(service.moveTask(aisha, 't1', { projectId: 'ops' }))).toMatchObject({ status: 409, code: 'VERSION_CONFLICT', message: 'This task changed while you were moving it. Reload it and try again.' });
+    expect(w.find('RIG-1')).toMatchObject({ key: 'RIG-1', projectId: 'rig', columnId: 'r-done' });
   });
 });

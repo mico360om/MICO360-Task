@@ -1,7 +1,9 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { createPrismaTaskRepository, firstFreeKey, highestKeyNumber, isTaskKeyConflict, liveTaskWhere } from './prisma-task-repository';
 import { TaskKeyConflictError } from './task-repository';
-import { TaskMovedConflictError, type TaskMoveRepository } from './task-move-repository';
+import { TaskChangedConflictError, TaskMovedConflictError, type TaskMoveRepository } from './task-move-repository';
+import { moveHistory } from './task-move-history';
+import { managedProjectsWhere } from '../projects/project-managers';
 
 const projectSelect = { id: true, code: true, name: true, status: true, defaultDueToday: true, color: true, icon: true, imageUrl: true } as const;
 const displayName = (u: { username: string; firstName: string | null; lastName: string | null }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
@@ -22,7 +24,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         where: { id: { in: ids }, ...liveTaskWhere },
         select: {
           id: true, key: true, title: true, projectId: true, columnId: true, isMilestone: true, dueDate: true, startDate: true, boardDate: true,
-          completedAt: true, recurrenceRule: true, recurrenceParentId: true,
+          completedAt: true, recurrenceRule: true, recurrenceParentId: true, version: true,
           column: { select: { category: true } },
           assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } }, orderBy: { assignedAt: 'asc' } },
         },
@@ -39,6 +41,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         startDate: t.startDate,
         boardDate: t.boardDate,
         completedAt: t.completedAt,
+        version: t.version,
         repeats: t.recurrenceRule !== null,
         inSeries: t.recurrenceRule !== null || t.recurrenceParentId !== null,
         assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })),
@@ -54,9 +57,9 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
     },
 
     async managedProjectIds(userId) {
-      // The per-project manage rule (ProjectAuthz): a MANAGER member of the project.
-      const rows = await prisma.projectMember.findMany({ where: { userId, role: 'MANAGER', project: { deletedAt: null } }, select: { projectId: true } });
-      return rows.map((r) => r.projectId);
+      // Its owner, its named manager or a MANAGER member (project-managers).
+      const rows = await prisma.project.findMany({ where: { deletedAt: null, ...managedProjectsWhere(userId) }, select: { id: true } });
+      return rows.map((r) => r.id);
     },
 
     async listColumns(projectId) {
@@ -93,30 +96,32 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
           else if (kept.taskId !== w.taskId) throw new TaskMovedConflictError(w.taskId);
           // At the bottom of its new column.
           const last = await tx.task.aggregate({ where: { columnId: w.columnId, deletedAt: null }, _max: { position: true } });
-          // Saved only if the task is still where it was read: two moves of one task can't both win.
+          // Saved only if the task is still where, and as, it was read: two moves of one task can't both
+          // win, and a task completed (or edited) meanwhile isn't moved on what was read before.
           const { count } = await tx.task.updateMany({
-            where: { id: w.taskId, projectId: w.from.projectId, key: w.from.key, deletedAt: null },
+            where: { id: w.taskId, projectId: w.from.projectId, key: w.from.key, version: w.version, deletedAt: null },
             data: { ...w.patch, key, projectId: w.to.projectId, columnId: w.columnId, position: (last._max.position ?? -1) + 1, version: { increment: 1 } },
           });
-          if (count === 0) throw new TaskMovedConflictError(w.taskId);
+          if (count === 0) {
+            const now = await tx.task.findFirst({ where: { id: w.taskId, deletedAt: null }, select: { projectId: true, key: true } });
+            if (!now || now.projectId !== w.from.projectId || now.key !== w.from.key) throw new TaskMovedConflictError(w.taskId);
+            throw new TaskChangedConflictError(w.taskId);
+          }
           if (w.addToTeam.length > 0) {
             await tx.projectMember.createMany({ data: w.addToTeam.map((userId) => ({ projectId: w.to.projectId, userId })), skipDuplicates: true });
           }
           if (w.unassign.length > 0) await tx.taskAssignee.deleteMany({ where: { taskId: w.taskId, userId: { in: w.unassign.map((p) => p.id) } } });
 
-          // Its history goes with it: every line is filed under the new project. What the move did to
-          // it is told by the mover's own lines, the move itself the newest of them.
+          // Its history goes with it: every line is filed under the new project. Then the move's own
+          // lines (task-move-history), a millisecond apart so they read in the order they are written.
           await tx.activity.updateMany({ where: { taskId: w.taskId }, data: { projectId: w.to.projectId } });
-          const at = new Date();
-          const line = (action: string, meta: Prisma.InputJsonValue, when = at) =>
-            tx.activity.create({ data: { taskId: w.taskId, projectId: w.to.projectId, userId: w.actorId, action, meta, createdAt: when } });
-          for (const p of w.unassign) await line('UNASSIGNED', { assigneeId: p.id, assignee: p.name });
-          if (w.dueDateSet) await line('UPDATED', { changes: [{ field: 'dueDate', from: null, to: w.dueDateSet }] });
-          await line(
-            'PROJECT_CHANGED',
-            { fromProjectId: w.from.projectId, fromProject: w.from.name, fromKey: w.from.key, toProjectId: w.to.projectId, toProject: w.to.name, toKey: key },
-            new Date(at.getTime() + 1),
-          );
+          const at = Date.now();
+          let i = 0;
+          for (const line of moveHistory(w, key)) {
+            await tx.activity.create({
+              data: { taskId: line.taskId, projectId: line.projectId, userId: w.actorId, action: line.action, meta: line.meta as Prisma.InputJsonValue, createdAt: new Date(at + i++) },
+            });
+          }
         });
       } catch (err) {
         if (isTaskKeyConflict(err)) throw new TaskKeyConflictError(key);

@@ -131,7 +131,7 @@ describe('POST /tasks/move-preview', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/move-preview', headers: await bearer('aisha'), payload: { taskIds: ['secret', 't1'], projectId: 'ops' } });
     expect(res.statusCode).toBe(200);
     const [hidden, shown] = res.json().data.tasks;
-    expect(hidden).toEqual({ id: 'secret', key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, currentCategory: null, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] });
+    expect(hidden).toEqual({ id: 'secret', key: '', title: '', from: null, canMove: false, reason: 'Task not found.', newKey: null, currentCategory: null, completed: false, columnId: null, milestoneCleared: false, dueDate: null, repeat: null, outsiders: [] });
     expect(shown).toMatchObject({ key: 'RIG-1', newKey: 'OPS-1' });
     expect(res.body).not.toContain('Pay rises');
   });
@@ -217,5 +217,42 @@ describe('POST /tasks/move-to-project (many)', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/move-to-project', headers: await bearer('aisha'), payload: { taskIds: ['t1'], projectId: 'adm' } });
     expect(res.statusCode).toBe(403);
     expect(res.json().error.message).toBe('You need to manage Admin to move tasks into it.');
+  });
+});
+
+describe('when the audit log can’t be written after a move', () => {
+  async function appWithFailingAudit() {
+    const made = await makeApp();
+    const errors: unknown[][] = [];
+    const logger = { error: (...a: unknown[]) => { errors.push(a); }, warn: () => {}, info: () => {}, debug: () => {}, child: () => logger };
+    const auditService = { async record() { throw new Error('audit table is down'); }, async list() { return []; } } as unknown as AuditService;
+    const projectAccess = { async canViewTask() { return true; }, async canViewProject() { return true; }, async canViewColumn() { return true; }, async accessibleProjectIds() { return null; } } as unknown as ProjectAccess;
+    const failing = await buildApp({
+      authService,
+      tokenService,
+      taskMoveService: createTaskMoveService({ repo: made.repo, timeZone: 'Asia/Muscat', now: () => NOW }),
+      projectAccess,
+      auditService,
+      logger: logger as never,
+      onTaskEvent: (projectId, event, payload) => { events.push({ projectId, event, payload }); },
+    });
+    return { app: failing, errors, repo: made.repo };
+  }
+
+  it('the saved move still answers 200, both boards hear it, and the failure is logged', async () => {
+    const { app: failing, errors } = await appWithFailingAudit();
+    const res = await failing.inject({ method: 'POST', url: '/api/v1/tasks/t2/move-to-project', headers: await bearer('aisha'), payload: { projectId: 'ops', assignees: 'ADD_TO_TEAM' } });
+    expect(res.statusCode).toBe(200);
+    expect(events.map((e) => [e.projectId, e.event])).toEqual([['rig', 'task:updated'], ['ops', 'task:created']]);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('moving several: every moved task is still announced, and all the results come back', async () => {
+    const { app: failing, repo: state } = await appWithFailingAudit();
+    state.state.tasks.push({ ...state.state.tasks.find((t) => t.id === 't2')!, id: 't3', key: 'RIG-3', assigneeList: [SARA] });
+    const res = await failing.inject({ method: 'POST', url: '/api/v1/tasks/move-to-project', headers: await bearer('aisha'), payload: { taskIds: ['t2', 't3'], projectId: 'ops', assignees: 'ADD_TO_TEAM' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.moved).toBe(2);
+    expect(events.filter((e) => e.event === 'task:created')).toHaveLength(2);
   });
 });

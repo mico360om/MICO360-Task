@@ -1,9 +1,15 @@
 import { taskNoticeBody } from '../notifications/task-notice';
 import type { MoveResult } from './task-move-service';
 
-/** "RIG-4 moved to Operations" — the key people knew it by — then the task as it is now ("OPS-17 · …"). */
+const STATUS_WORDS = { COMPLETED: ' and marked complete', REOPENED: ' and reopened' } as const;
+
+/**
+ * "RIG-4 moved to Operations" — the key people knew it by — then the task as it is now ("OPS-17 · …").
+ * A move that completed or re-opened it says so here: one notice, not a second "moved to Done".
+ */
 export function moveNotice(move: MoveResult): { title: string; body: string | null } {
-  return { title: `${move.from.key} moved to ${move.to.name}`, body: taskNoticeBody(move.task) };
+  const status = move.statusChange ? STATUS_WORDS[move.statusChange] : '';
+  return { title: `${move.from.key} moved to ${move.to.name}${status}`, body: taskNoticeBody(move.task) };
 }
 
 export interface MoveNotifierDeps {
