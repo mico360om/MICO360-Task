@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createTaskWrites, markReloaded, noteReplayed, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
+import { createTaskWrites, editBaseVersion, markReloaded, noteReplayed, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { QueuedMutation } from './sync-queue';
 import type { ApiTask } from './types';
 
@@ -224,5 +226,26 @@ describe('rebaseQueuedVersion — never onto a colleague’s version (2c review 
     expect(rebaseQueuedVersion(done, markReloaded({ id: 't1', version: 6 }), after5)).toEqual(
       item('task.update', { id: 't1', patch: { title: 'B', expectedVersion: 6 } }, 'later'),
     );
+  });
+});
+
+describe('editBaseVersion — a bulk edit isn’t refused over old details still kept (final review A3)', () => {
+  it('takes the newer of the details kept on this phone and the list’s (details live 5 minutes)', () => {
+    // Opened a while ago at version 3; My Tasks has just read version 5.
+    expect(editBaseVersion(undefined, 3, 5)).toBe(5);
+    expect(editBaseVersion(undefined, 6, 5)).toBe(6);
+    expect(editBaseVersion(undefined, undefined, 5)).toBe(5);
+    expect(editBaseVersion(undefined, 3, undefined)).toBe(3);
+    expect(editBaseVersion(undefined, undefined, undefined)).toBeUndefined();
+  });
+
+  it('a form’s own version stays as it opened (a colleague’s later change is refused, never overwritten unseen)', () => {
+    expect(editBaseVersion(4, 7, 9)).toBe(4);
+  });
+
+  it('every task edit goes through it', () => {
+    const file = resolve(__dirname, '../core/queries.ts');
+    const core = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    expect(core).toMatch(/const loaded = editBaseVersion\(pinnedVersion, qc\.getQueryData<ApiTask>\(\['task', taskId\]\)\?\.version, fallbackVersion\);/);
   });
 });

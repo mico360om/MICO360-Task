@@ -43,6 +43,18 @@ export type TaskWrites = ReturnType<typeof createTaskWrites>;
 /** The app's one set of task-write lanes (the detail screen and the board share it). */
 export const taskWrites = createTaskWrites();
 
+/**
+ * The version an edit is made against, before this phone's own writes are counted (expectedVersion):
+ * the one a form opened with (Edit task), else the newer of the task's loaded details' and the
+ * list's (final review A3) — details kept for minutes may be older than a list just read (My Tasks'
+ * bulk edits), and an edit made against them would be refused as someone else's change.
+ */
+export function editBaseVersion(pinned: number | undefined, cached: number | undefined, listed: number | undefined): number | undefined {
+  if (pinned !== undefined) return pinned;
+  if (cached === undefined || listed === undefined) return cached ?? listed;
+  return Math.max(cached, listed);
+}
+
 /** The edit with the version it was made against; an unknown version (older server) is left out. */
 export function withExpectedVersion<P extends object>(patch: P, version: number | undefined): P & { expectedVersion?: number } {
   return typeof version === 'number' ? { ...patch, expectedVersion: version } : patch;

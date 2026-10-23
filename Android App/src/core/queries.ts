@@ -3,7 +3,7 @@ import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, ke
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { refetchAfterMove } from '../lib/task-status';
-import { taskWrites, withExpectedVersion } from '../lib/task-writes';
+import { editBaseVersion, taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, moveRefreshes } from '../lib/task-cache';
 import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
@@ -671,8 +671,8 @@ const sentEdits = new WeakMap<object, object>();
 /**
  * Send one edit of a task through the app's task write path (its details, the Edit form and My
  * Tasks' bulk actions share it): made as the person making it now (owned), in the task's lane,
- * against the newest version this phone knows — the loaded task's, else `fallbackVersion` (the
- * list's, for a task whose details were never opened), or the one its own last write made — behind
+ * against the newest version this phone knows — the newer of the loaded task's and `fallbackVersion`
+ * (the list's: final review A3), or the one its own last write made — behind
  * an older change of the task still on this phone, and kept here when it gets no answer.
  */
 export function sendTaskEdit(
@@ -686,7 +686,7 @@ export function sendTaskEdit(
 ): Promise<ApiTask> {
   const w = owned(services);
   return taskWrites.run(taskId, async () => {
-    const loaded = pinnedVersion ?? qc.getQueryData<ApiTask>(['task', taskId])?.version ?? fallbackVersion;
+    const loaded = editBaseVersion(pinnedVersion, qc.getQueryData<ApiTask>(['task', taskId])?.version, fallbackVersion);
     const body = withExpectedVersion(patch, taskWrites.expectedVersion(taskId, loaded));
     sentEdits.set(patch, body);
     return sendInOrder(w.order, { kind: 'task.update', payload: { id: taskId, patch: body } }, async () => {
