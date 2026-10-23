@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { relativeTime } from './relative-time';
 
@@ -36,5 +36,13 @@ describe.skipIf(!existsSync(web))('the same as the website', () => {
       expect(relativeTime(ago(ms), NOW)).toBe(webRelative(ago(ms), NOW));
     }
     expect(relativeTime('', NOW)).toBe(webRelative('', NOW));
+  });
+});
+
+describe('one “…ago” in the app (final review B3)', () => {
+  it('a task’s activity and comments say it as the Activity and Alerts pages do (the website’s words, the company’s dates)', () => {
+    const kit = readFileSync(resolve(__dirname, '../components/task-detail/kit.tsx'), 'utf8');
+    expect(kit).toMatch(/export \{ relativeTime \} from '\.\.\/\.\.\/lib\/relative-time';/);
+    expect(kit).not.toMatch(/function relativeTime/);
   });
 });

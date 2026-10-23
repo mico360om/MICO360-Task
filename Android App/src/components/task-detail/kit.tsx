@@ -139,18 +139,8 @@ export function Tag({ label, color, tone }: { label: string; color?: string; ton
   );
 }
 
-/** "3m ago", "2h ago", "5d ago", else a short date. */
-export function relativeTime(iso: string, now = Date.now()): string {
-  const s = Math.round((now - new Date(iso).getTime()) / 1000);
-  if (s < 45) return 'just now';
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
+/** "3m ago", "2h ago", "5d ago", else the day — the app's one (the website's words, company dates: final review B3). */
+export { relativeTime } from '../../lib/relative-time';
 
 export function useKitStyles() {
   const c = useColors();
