@@ -318,3 +318,65 @@ describe('Edit project form', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 });
+
+describe('Project task settings', () => {
+  it('has a Tasks section with two switches and plain help, starting as every project does', () => {
+    renderForm();
+    const tasks = within(screen.getByRole('dialog', { name: 'New project' })).getByRole('group', { name: 'Tasks' });
+    const carry = within(tasks).getByRole('switch', { name: 'Carry unfinished tasks forward' });
+    const due = within(tasks).getByRole('switch', { name: 'New tasks are due today' });
+    expect(carry).toHaveAttribute('aria-checked', 'true');
+    expect(due).toHaveAttribute('aria-checked', 'false');
+    expect(carry).toHaveAccessibleDescription('Each night, unfinished tasks on past days move to today’s board.');
+    expect(due).toHaveAccessibleDescription('A task added without a due date gets today’s date. Dates people choose are kept.');
+  });
+
+  it('creates a project with the settings that were switched', async () => {
+    const { onSaved } = renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig Inspection Portal');
+    await userEvent.click(within(dialog).getByRole('switch', { name: 'Carry unfinished tasks forward' }));
+    await userEvent.click(within(dialog).getByRole('switch', { name: 'New tasks are due today' }));
+    expect(within(dialog).getByRole('switch', { name: 'Carry unfinished tasks forward' })).toHaveAttribute('aria-checked', 'false');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(posts(/\/projects$/)[0]!.body).toMatchObject({ code: 'RIP', carryForward: false, defaultDueToday: true });
+  });
+
+  it('starts from the project’s own settings and saves only the switch that changed', async () => {
+    const { onSaved } = renderForm({ project: { ...existing, carryForward: false, defaultDueToday: false } });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    expect(within(dialog).getByRole('switch', { name: 'Carry unfinished tasks forward' })).toHaveAttribute('aria-checked', 'false');
+    await userEvent.click(within(dialog).getByRole('switch', { name: 'New tasks are due today' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(requests.find((r) => r.method === 'PUT')!.body).toEqual({ defaultDueToday: true });
+  });
+
+  it('a project saved before the settings existed shows what it does (carry forward on, due today off)', async () => {
+    const { onClose } = renderForm({ project: existing });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    expect(within(dialog).getByRole('switch', { name: 'Carry unfinished tasks forward' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(dialog).getByRole('switch', { name: 'New tasks are due today' })).toHaveAttribute('aria-checked', 'false');
+    // Switched and switched back is no change: the form closes without asking.
+    await userEvent.click(within(dialog).getByRole('switch', { name: 'New tasks are due today' }));
+    await userEvent.click(within(dialog).getByRole('switch', { name: 'New tasks are due today' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when carry-forward is off for the whole company', async () => {
+    override = (u) => (u.endsWith('/system-settings') ? json({ data: [{ key: 'carryForward.enabled', value: false }] }) : undefined);
+    renderForm({ project: existing });
+    expect(await screen.findByText('Carry-forward is turned off for the whole company in System Settings.')).toBeInTheDocument();
+    // The project's own choice can still be set, for when it is turned back on.
+    expect(screen.getByRole('switch', { name: 'Carry unfinished tasks forward' })).toBeEnabled();
+  });
+
+  it('says nothing about the company setting while it is on', async () => {
+    override = (u) => (u.endsWith('/system-settings') ? json({ data: [{ key: 'carryForward.enabled', value: true }] }) : undefined);
+    renderForm({ project: existing });
+    await waitFor(() => expect(requests.some((r) => r.url.endsWith('/system-settings'))).toBe(true));
+    expect(screen.queryByText(/turned off for the whole company/i)).not.toBeInTheDocument();
+  });
+});

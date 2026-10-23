@@ -147,7 +147,8 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
             description: title,
             assigneeId: overrides.assigneeId ?? null,
             priority: overrides.priority ?? 'NORMAL',
-            dueDate: dueDate ?? null,
+            // The task's own date when none was picked: its project may make new tasks due today.
+            dueDate: dueDate ?? task.dueDate ?? null,
             sourceNoteId: note.id,
             projectId,
             taskId: task.id,

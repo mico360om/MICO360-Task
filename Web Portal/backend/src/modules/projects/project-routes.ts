@@ -40,6 +40,10 @@ const createSchema = z.object({
   color: z.string().trim().regex(HEX_COLOR, 'Use a colour like #8B1E1E.').optional(),
   icon: z.enum(PROJECT_ICONS).nullable().optional(),
   notes: longText.optional(),
+  // Task settings. Missing on create = what every project starts with; missing on update = unchanged
+  // (older apps, including the Android app, send project updates without them).
+  carryForward: z.boolean().optional(),
+  defaultDueToday: z.boolean().optional(),
 });
 const updateSchema = createSchema.partial().omit({ code: true });
 

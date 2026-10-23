@@ -173,6 +173,16 @@ describe('createTaskFromNote', () => {
       expect(res.actionItem).toMatchObject({ id: 'ai1', taskId });
     });
 
+    it('takes the task’s due date when the note had none (a project whose new tasks are due today)', async () => {
+      const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+      // The task service gives an undated task today's date in such a project.
+      f.taskService.createTask.mockImplementationOnce(async (input: Record<string, unknown>) => ({ id: 't1', key: 'MICO-9', ...input, dueDate: new Date('2026-10-23T00:00:00.000Z') }) as never);
+      const { addItem, svc } = withActionItems(f);
+      await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+      expect(f.taskService.createTask.mock.calls[0]![0]).not.toHaveProperty('dueDate');
+      expect((addItem.mock.calls[0]![2] as { dueDate: Date | null }).dueDate?.toISOString()).toBe('2026-10-23T00:00:00.000Z');
+    });
+
     it('only for action notes — a decision becomes a task without an action item', async () => {
       const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
       f.note.type = 'DECISION';

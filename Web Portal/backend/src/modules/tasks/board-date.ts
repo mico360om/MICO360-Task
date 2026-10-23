@@ -27,6 +27,8 @@ export interface CarryTask {
   columnCategory: string;
   completedAt: Date | null;
   boardDate: Date;
+  /** False when the task's project has carry-forward switched off: it stays on its day. */
+  projectCarryForward?: boolean;
 }
 
 /** One entry in a task's carry-forward history. */
@@ -45,7 +47,8 @@ export interface CarryPlan {
 /**
  * Given all candidate tasks and today's key, return the carry-forward moves to apply: every open
  * task (not DONE, no completedAt) of an eligible status whose board date is before today moves to
- * today, with a history log entry. Completed tasks stay on their day; nothing moves when disabled.
+ * today, with a history log entry. Completed tasks stay on their day; nothing moves when disabled
+ * company-wide, and a project with carry-forward switched off keeps its tasks on their days.
  */
 export function planCarryForward(
   tasks: CarryTask[],
@@ -60,6 +63,7 @@ export function planCarryForward(
   for (const t of tasks) {
     const done = t.columnCategory === 'DONE' || t.completedAt !== null;
     if (done) continue;
+    if (t.projectCarryForward === false) continue;
     if (!config.statuses.includes(t.columnCategory)) continue;
     const fromKey = boardDateKey(t.boardDate, timeZone);
     if (fromKey < todayKey) {

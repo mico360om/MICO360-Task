@@ -12,7 +12,7 @@ const COLUMNS: Record<string, ColumnInfo> = {
   x1: { id: 'x1', projectId: 'p2', category: 'TODO' },
 };
 
-function inMemory(projectCodes: Record<string, string>) {
+function inMemory(projectCodes: Record<string, string>, dueTodayProjects: Set<string> = new Set()) {
   const rows = new Map<string, TaskRecord>();
   const takenKeys = new Set<string>();
   let seq = 0;
@@ -93,6 +93,9 @@ function inMemory(projectCodes: Record<string, string>) {
   const projects: ProjectLookup = {
     async getCodeById(projectId) {
       return projectCodes[projectId] ?? null;
+    },
+    async getTaskSettings(projectId) {
+      return projectCodes[projectId] ? { defaultDueToday: dueTodayProjects.has(projectId) } : null;
     },
   };
   return { tasks, projects, takenKeys, rows };
@@ -471,5 +474,68 @@ describe('TaskService', () => {
 
   it('exposes the company time zone it works in', () => {
     expect(svc.timeZone).toBe('Asia/Muscat');
+  });
+});
+
+describe('TaskService — a project whose new tasks are due today', () => {
+  // 01:30 on 23 Oct in Muscat — still the 22nd in UTC: "today" is the company's day.
+  const NOW = new Date('2026-10-22T21:30:00Z');
+  const TODAY = '2026-10-23T00:00:00.000Z';
+  let dueMem: ReturnType<typeof inMemory>;
+  let due: ReturnType<typeof createTaskService>;
+  beforeEach(() => {
+    dueMem = inMemory({ p1: 'MICO', p2: 'RIG' }, new Set(['p1'])); // p1 has the setting, p2 doesn't
+    due = createTaskService({ tasks: dueMem.tasks, projects: dueMem.projects, timeZone: 'Asia/Muscat', now: () => NOW });
+  });
+
+  it('a task created without a due date is due today, the company’s calendar day', async () => {
+    const t = await due.createTask(base);
+    expect(t.dueDate?.toISOString()).toBe(TODAY);
+  });
+
+  it('keeps a due date someone picked', async () => {
+    const t = await due.createTask({ ...base, dueDate: new Date('2026-11-05T00:00:00Z') });
+    expect(t.dueDate?.toISOString()).toBe('2026-11-05T00:00:00.000Z');
+  });
+
+  it('a project without the setting leaves the task undated', async () => {
+    const t = await due.createTask({ ...base, projectId: 'p2', columnId: 'x1' });
+    expect(t.dueDate).toBeNull();
+  });
+
+  it('clearing the date later, within the project, leaves it with no date', async () => {
+    const t = await due.createTask(base);
+    expect((await due.updateTask(t.id, { dueDate: null })).dueDate).toBeNull();
+    expect((await due.updateTask(t.id, { title: 'Still undated' })).dueDate).toBeNull();
+    expect((await due.moveTask(t.id, 'c2')).dueDate).toBeNull();
+  });
+
+  it('a monthly repeat added without a date repeats from today', async () => {
+    const t = await due.createTask({ ...base, recurrenceRule: { freq: 'MONTHLY', interval: 1 } });
+    expect(t.dueDate?.toISOString()).toBe(TODAY);
+    expect(t.recurrenceRule).toEqual({ freq: 'MONTHLY', interval: 1, anchorDay: 23 });
+  });
+
+  it('a task that only starts on a later day keeps no date (it can’t be due before it starts)', async () => {
+    const t = await due.createTask({ ...base, startDate: new Date('2026-10-25T00:00:00Z') });
+    expect(t.dueDate).toBeNull();
+  });
+
+  it('a task added to a later day’s board is due on that day, not today — and stays on that board', async () => {
+    const t = await due.createTask({ ...base, boardDate: new Date('2026-10-27T12:00:00Z') });
+    expect(t.dueDate?.toISOString()).toBe('2026-10-27T00:00:00.000Z');
+    expect(t.boardDate?.toISOString()).toBe('2026-10-27T12:00:00.000Z');
+    expect(t.startDate).toEqual(NOW);
+  });
+
+  it('a monthly repeat added to a later day’s board repeats from that day', async () => {
+    const t = await due.createTask({ ...base, boardDate: new Date('2026-10-27T12:00:00Z'), recurrenceRule: { freq: 'MONTHLY', interval: 1 } });
+    expect(t.recurrenceRule).toEqual({ freq: 'MONTHLY', interval: 1, anchorDay: 27 });
+  });
+
+  it('a task added to a past day’s board is due today, so it never starts overdue', async () => {
+    const t = await due.createTask({ ...base, boardDate: new Date('2026-10-20T12:00:00Z') });
+    expect(t.dueDate?.toISOString()).toBe(TODAY);
+    expect(t.startDate).toEqual(NOW);
   });
 });
