@@ -168,7 +168,7 @@ describe('MICO AI over the database: what each person may see (integration)', ()
     expect(d.checklist).toEqual([{ item: 'Calibrate the gauge', done: true }]);
     expect((d.comments as Array<{ text: string }>).map((c) => c.text)).toEqual(['Vendor certificate is missing.']);
     expect((d.history as Array<{ what: string }>)[0]!.what).toMatch(/moved this task/);
-    expect(d.hiddenBlockers).toBe(1);
+    expect(d).not.toHaveProperty('hiddenBlockers');
     expect(JSON.stringify(r)).not.toMatch(/MAIB|Secret pricing/);
     expect((await t.run(viewer('a'), 'task_details', { task: 'MAIB-1' })).error).toBe('No task you can see matches “MAIB-1”.');
     expect((await t.run(viewer('a'), 'task_details', { task: ids.b1! })).error).toMatch(/No task you can see/);
@@ -183,7 +183,8 @@ describe('MICO AI over the database: what each person may see (integration)', ()
 
   it('meetings: their projects’ and the ones they attend; never another project’s or someone’s private one', async () => {
     const t = toolsFor();
-    expect(mine(col((await t.run(viewer('a'), 'list_meetings', { from: '2026-10-20', to: '2026-10-23' })).rows, 'title'))).toEqual(['MAI weekly review', 'MAI Amal and Chen']);
+    // Nearest to today first (both are past: the latest first).
+    expect(mine(col((await t.run(viewer('a'), 'list_meetings', { from: '2026-10-20', to: '2026-10-23' })).rows, 'title'))).toEqual(['MAI Amal and Chen', 'MAI weekly review']);
     expect(mine(col((await t.run(viewer('b'), 'list_meetings', { from: '2026-10-20', to: '2026-10-23' })).rows, 'title'))).toEqual(['MAI Beta pricing']);
     const m1 = await t.run(viewer('a'), 'meeting_details', { meeting: `meeting:${ids.m1}` });
     const d = m1.details as Record<string, unknown>;
@@ -214,5 +215,66 @@ describe('MICO AI over the database: what each person may see (integration)', ()
     const amal = w.rows.find((r) => r.values.person === 'Amal Test')!;
     expect(amal.values).toMatchObject({ assigned: 2, completed: 1, overdue: 1 });
     expect(col(w.rows, 'person')).not.toContain('Badr Test');
+  });
+});
+
+describe('MICO AI over the database: long lists and drafts (integration)', () => {
+  beforeAll(async () => {
+    const at = (ms: number) => new Date(NOW.getTime() + ms);
+    // 250 meetings in Alpha (150 before NOW, 100 after), each with an action item; 250 channel messages; 250 activity rows.
+    await prisma.meeting.createMany({
+      data: Array.from({ length: 250 }, (_, i) => ({ title: `MAI bulk ${i}`, organizerId: ids.admin!, createdById: ids.admin!, projectId: ids.alpha!, startAt: at((i - 150) * 86_400_000 + 3_600_000), status: 'SCHEDULED' as const })),
+    });
+    const bulk = await prisma.meeting.findMany({ where: { title: { startsWith: 'MAI bulk ' } }, select: { id: true, title: true } });
+    await prisma.actionItem.createMany({ data: bulk.map((m) => ({ meetingId: m.id, description: `MAI bulk item ${m.title.slice(9)}`, createdById: ids.admin!, assigneeId: ids.a! })) });
+    const channel = await prisma.conversation.findFirst({ where: { projectId: ids.alpha } });
+    await prisma.chatMessage.createMany({ data: Array.from({ length: 250 }, (_, i) => ({ conversationId: channel!.id, userId: ids.b!, body: `MAI bulk gauge ${i}`, createdAt: at(-(i + 1) * 60_000) })) });
+    await prisma.activity.createMany({ data: Array.from({ length: 250 }, (_, i) => ({ taskId: ids.a1!, projectId: ids.alpha!, userId: ids.a!, action: 'COMMENTED', createdAt: at(-(i + 1) * 60_000) })) });
+  });
+
+  it('meetings: the true total, the nearest kept (upcoming soonest first), a title search finds the best match', async () => {
+    const t = toolsFor();
+    const r = await t.run(viewer('a'), 'list_meetings', { from: '2025-12-01', to: '2027-06-30', text: 'MAI bulk' });
+    expect([r.rows.length, r.total, r.truncated]).toEqual([200, 250, true]);
+    expect(r.rows[0]!.values.title).toBe('MAI bulk 150');
+    expect(col(r.rows, 'title')).not.toContain('MAI bulk 0');
+    const one = await t.run(viewer('a'), 'meeting_details', { meeting: 'MAI bulk 7' });
+    expect(one.error).toBeUndefined();
+    expect(one.rows[0]!.values.title).toBe('MAI bulk 7');
+  });
+
+  it('action items, chat and activity: the true total, the latest kept', async () => {
+    const t = toolsFor();
+    const items = await t.run(viewer('a'), 'list_action_items', { from: '2025-12-01', to: '2026-10-24' });
+    expect(items.total).toBe(152); // 151 bulk meetings on or before 24 Oct + the weekly review's item
+    expect(items.rows).toHaveLength(152);
+    const chat = await t.run(viewer('a'), 'search_chat', { text: 'MAI bulk gauge', from: '2026-10-01', to: '2026-10-24' });
+    expect([chat.rows.length, chat.total, chat.truncated]).toEqual([200, 250, true]);
+    expect(chat.rows[0]!.values.message).toBe('MAI bulk gauge 0');
+    const act = await t.run(viewer('a'), 'project_activity', { from: '2026-10-20', to: '2026-10-24' });
+    expect([act.rows.length, act.total, act.truncated]).toEqual([200, 251, true]);
+  });
+
+  it('a draft Final MOM only for someone who can change the meeting', async () => {
+    const minutes = createPrismaFinalMinutesRepository(prisma);
+    await minutes.save(ids.m1!, { content: { summary: 'MAI draft: not agreed.', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'DRAFT', approvedById: null, approvedAt: null });
+    const t = toolsFor();
+    const amal = await t.run(viewer('a'), 'meeting_details', { meeting: `meeting:${ids.m1}` });
+    expect((amal.details as { finalMinutes: unknown }).finalMinutes).toBeNull();
+    expect(JSON.stringify(amal)).not.toContain('not agreed');
+    const admin = await t.run(viewer('admin'), 'meeting_details', { meeting: `meeting:${ids.m1}` });
+    expect((admin.details as { finalMinutes: { status: string } }).finalMinutes.status).toBe('Draft');
+  });
+
+  it('results kept from earlier questions are checked again against today’s access', async () => {
+    const t = toolsFor();
+    const tasks = await t.run(viewer('a'), 'search_tasks', {});
+    await prisma.projectMember.deleteMany({ where: { projectId: ids.alpha!, userId: ids.a! } });
+    try {
+      const kept = await t.recheck(viewer('a'), [{ ...tasks, id: 'r1' }]);
+      expect(kept[0]!.rows).toEqual([]);
+    } finally {
+      await prisma.projectMember.create({ data: { projectId: ids.alpha!, userId: ids.a! } });
+    }
   });
 });

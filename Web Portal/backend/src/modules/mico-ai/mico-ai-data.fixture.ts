@@ -45,6 +45,19 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
   const within = (ids: string[] | null, projectId: string | null) => ids === null || (!!projectId && ids.includes(projectId));
   const meetingVisible = (v: Viewer, m: AiMeetingDetail) =>
     isAdmin(v) || m.organizerId === v.userId || m.createdById === v.userId || m.attendeeUserIds.includes(v.userId) || (!!m.projectId && (visible(v) ?? []).includes(m.projectId));
+  /** Owner, named manager or a MANAGER member: the projects whose meetings a person may change. */
+  const manages = (userId: string, projectId: string | null) => {
+    const p = d.projects.find((x) => x.id === projectId);
+    return !!p && (p.ownerId === userId || p.managerId === userId || d.members.some((m) => m.projectId === p.id && m.userId === userId && m.role === 'MANAGER'));
+  };
+  /** Nearest to `around` first: at or after it soonest first, then earlier ones latest first. */
+  const nearest = (around: Date) => (a: { startAt: Date }, b: { startAt: Date }) => {
+    const fa = a.startAt >= around;
+    const fb = b.startAt >= around;
+    if (fa !== fb) return fa ? -1 : 1;
+    return fa ? a.startAt.getTime() - b.startAt.getTime() : b.startAt.getTime() - a.startAt.getTime();
+  };
+  const page = <T,>(rows: T[], limit: number) => ({ rows: rows.slice(0, limit), total: rows.length });
 
   return {
     calls,
@@ -64,6 +77,10 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
       calls.push('findTask');
       return d.tasks.find((t) => within(ids, t.projectId) && (t.id === keyOrId || t.key.toLowerCase() === keyOrId.toLowerCase())) ?? null;
     },
+    async taskProjectIds(ids) {
+      calls.push('taskProjectIds');
+      return new Map(d.tasks.filter((t) => ids.includes(t.id)).map((t) => [t.id, t.projectId]));
+    },
     async taskExtras(taskId) {
       calls.push('taskExtras');
       const e = d.extras?.[taskId] ?? {};
@@ -71,29 +88,55 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
     },
     async activity(f) {
       calls.push('activity');
-      return (d.activity ?? [])
+      const rows = (d.activity ?? [])
         .filter((a) => within(f.projectIds, a.projectId) && (!f.projectId || a.projectId === f.projectId) && inRange(a.createdAt, f.from, f.to))
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .slice(0, f.limit);
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return page(rows, f.limit);
     },
     async meetings(v, f) {
       calls.push('meetings');
-      return (d.meetings ?? [])
+      const rows = (d.meetings ?? [])
         .filter((m) => meetingVisible(v, m) && (!f.projectId || m.projectId === f.projectId) && inRange(m.startAt, f.from, f.to) && (!f.text || m.title.toLowerCase().includes(f.text.toLowerCase())))
-        .slice(0, f.limit);
+        .sort(nearest(f.around));
+      return page(rows, f.limit);
+    },
+    async meetingsByIds(ids) {
+      calls.push('meetingsByIds');
+      return (d.meetings ?? []).filter((m) => ids.includes(m.id));
     },
     async canViewMeeting(v, id) {
       calls.push('canViewMeeting');
+      // As the app's rule: an admin may view any meeting id, before anything checks that it exists.
+      if (isAdmin(v)) return true;
       const m = (d.meetings ?? []).find((x) => x.id === id);
       return !!m && meetingVisible(v, m);
+    },
+    async canEditMeeting(v, id) {
+      calls.push('canEditMeeting');
+      if (isAdmin(v)) return true;
+      const m = (d.meetings ?? []).find((x) => x.id === id);
+      return !!m && (m.organizerId === v.userId || m.createdById === v.userId || manages(v.userId, m.projectId));
     },
     async meetingDetail(id) {
       calls.push('meetingDetail');
       return (d.meetings ?? []).find((m) => m.id === id) ?? null;
     },
-    async actionItems(ids) {
+    async actionItems(v, f) {
       calls.push('actionItems');
-      return (d.actionItems ?? []).filter((a) => ids.includes(a.meetingId));
+      const OPEN = ['OPEN', 'IN_PROGRESS', 'PENDING'];
+      const rows = (d.actionItems ?? [])
+        .map((a) => ({ ...a, meeting: (d.meetings ?? []).find((m) => m.id === a.meetingId)! }))
+        .filter(
+          (a) =>
+            a.meeting &&
+            meetingVisible(v, a.meeting) &&
+            (!f.projectId || a.meeting.projectId === f.projectId) &&
+            inRange(a.meeting.startAt, f.from, f.to) &&
+            (!f.assigneeId || a.assigneeId === f.assigneeId) &&
+            (!f.status || (f.status === 'open') === OPEN.includes(a.status)),
+        )
+        .sort((a, b) => b.meeting.startAt.getTime() - a.meeting.startAt.getTime());
+      return page(rows, f.limit);
     },
     async conversations(v) {
       calls.push('conversations');
@@ -102,7 +145,7 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
     },
     async chatMessages(f) {
       calls.push('chatMessages');
-      return (d.messages ?? [])
+      const rows = (d.messages ?? [])
         .filter(
           (m) =>
             f.conversationIds.includes(m.conversationId) &&
@@ -110,8 +153,8 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
             (!f.senderIds || f.senderIds.includes(m.userId)) &&
             inRange(m.createdAt, f.from, f.to),
         )
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .slice(0, f.limit);
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return page(rows, f.limit);
     },
     async people() {
       calls.push('people');

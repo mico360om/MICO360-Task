@@ -19,7 +19,11 @@ import type {
 export interface PrismaMicoAiDataDeps {
   prisma: PrismaClient;
   projectAccess: { accessibleProjectIds(userId: string, roles: string[]): Promise<string[] | null> };
-  meetingAccess: { canViewMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean> };
+  meetingAccess: {
+    canViewMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean>;
+    /** Who may change a meeting (organizer, creator, its project's managers, admins): a draft Final MOM is theirs only. */
+    canEditMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean>;
+  };
   /** The conversations the chat module lets this person open (chat service's accessibleConversationIds). */
   conversationIdsFor: (userId: string) => Promise<string[]>;
   finalMinutes?: FinalMinutesRepository;
@@ -28,6 +32,7 @@ export interface PrismaMicoAiDataDeps {
 /** A bound on any one read, so a huge workspace can't make one question load everything. */
 const MAX_TASKS = 20_000;
 const OPEN_ACTIONS = { notIn: ['COMPLETED', 'CANCELLED'] as Array<'COMPLETED' | 'CANCELLED'> };
+const CLOSED_ACTIONS = { in: ['COMPLETED', 'CANCELLED'] as Array<'COMPLETED' | 'CANCELLED'> };
 
 const isAdmin = (v: Viewer) => v.roles.includes('ADMIN');
 
@@ -63,6 +68,38 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     category: t.column.category,
     columnName: t.column.name,
   });
+
+  /** The meeting rule as a query: organizer, creator or attendee, or someone who can see its project (admins: all). */
+  const visibleMeetings = (viewer: Viewer, projectIds: string[] | null) =>
+    isAdmin(viewer)
+      ? {}
+      : {
+          OR: [
+            { organizerId: viewer.userId },
+            { createdById: viewer.userId },
+            { attendees: { some: { userId: viewer.userId } } },
+            ...(projectIds && projectIds.length ? [{ projectId: { in: projectIds } }] : []),
+          ],
+        };
+  const meetingInclude = { attendees: { select: { userId: true } } } as const;
+  type MeetingRow = Awaited<ReturnType<typeof prisma.meeting.findMany<{ include: typeof meetingInclude }>>>[number];
+  async function toMeetings(rows: MeetingRow[]): Promise<AiMeetingRec[]> {
+    const counts = await meetingCounts(rows.map((m) => m.id));
+    return rows.map((m) => ({
+      id: m.id,
+      title: m.title,
+      projectId: m.projectId,
+      organizerId: m.organizerId,
+      createdById: m.createdById,
+      attendeeUserIds: m.attendees.map((a) => a.userId).filter((x): x is string => !!x),
+      startAt: m.startAt,
+      endAt: m.endAt,
+      status: m.status,
+      location: m.location,
+      decisions: counts.decisions.get(m.id) ?? 0,
+      openActionItems: counts.open.get(m.id) ?? 0,
+    }));
+  }
 
   async function meetingCounts(ids: string[]) {
     if (!ids.length) return { decisions: new Map<string, number>(), open: new Map<string, number>() };
@@ -114,6 +151,12 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       return t && (projectIds === null || projectIds.includes(t.projectId)) ? toTask(t) : null;
     },
 
+    async taskProjectIds(ids) {
+      if (!ids.length) return new Map();
+      const rows = await prisma.task.findMany({ where: { id: { in: ids }, deletedAt: null, project: { is: { deletedAt: null } } }, select: { id: true, projectId: true } });
+      return new Map(rows.map((t) => [t.id, t.projectId]));
+    },
+
     async taskExtras(taskId) {
       const linkSelect = { id: true, key: true, title: true, projectId: true, deletedAt: true, column: { select: { category: true, name: true } } } as const;
       const [task, checklist, comments, activity, blockedBy, blocks] = await Promise.all([
@@ -137,55 +180,33 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     },
 
     async activity({ projectIds, projectId, from, to, limit }) {
-      if (projectIds !== null && projectIds.length === 0) return [];
-      const rows = await prisma.activity.findMany({
-        where: { createdAt: { gte: from, lte: to }, ...inScope(projectIds), ...(projectId ? { projectId } : {}), OR: [{ taskId: null }, { task: { is: { deletedAt: null } } }] },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        include: { task: { select: { id: true, key: true, title: true } } },
-      });
-      return rows.map((a) => ({ id: a.id, taskId: a.taskId, projectId: a.projectId, userId: a.userId, action: a.action, meta: a.meta, createdAt: a.createdAt, task: a.task }));
+      if (projectIds !== null && projectIds.length === 0) return { rows: [], total: 0 };
+      const where = { createdAt: { gte: from, lte: to }, ...inScope(projectIds), ...(projectId ? { projectId } : {}), OR: [{ taskId: null }, { task: { is: { deletedAt: null } } }] };
+      const [rows, total] = await Promise.all([
+        prisma.activity.findMany({ where, orderBy: { createdAt: 'desc' }, take: limit, include: { task: { select: { id: true, key: true, title: true } } } }),
+        prisma.activity.count({ where }),
+      ]);
+      return { rows: rows.map((a) => ({ id: a.id, taskId: a.taskId, projectId: a.projectId, userId: a.userId, action: a.action, meta: a.meta, createdAt: a.createdAt, task: a.task })), total };
     },
 
-    async meetings(viewer, { projectIds, projectId, from, to, limit, text }) {
-      const u = viewer.userId;
-      // The meeting rule: organizer, creator or attendee, or someone who can see its project (admins: all).
-      const visible = isAdmin(viewer)
-        ? {}
-        : {
-            OR: [
-              { organizerId: u },
-              { createdById: u },
-              { attendees: { some: { userId: u } } },
-              ...(projectIds && projectIds.length ? [{ projectId: { in: projectIds } }] : []),
-            ],
-          };
-      const rows = await prisma.meeting.findMany({
-        where: { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...(text ? { title: { contains: text } } : {}), ...visible },
-        orderBy: { startAt: 'asc' },
-        take: limit,
-        include: { attendees: { select: { userId: true } } },
-      });
-      const counts = await meetingCounts(rows.map((m) => m.id));
-      return rows.map(
-        (m): AiMeetingRec => ({
-          id: m.id,
-          title: m.title,
-          projectId: m.projectId,
-          organizerId: m.organizerId,
-          createdById: m.createdById,
-          attendeeUserIds: m.attendees.map((a) => a.userId).filter((x): x is string => !!x),
-          startAt: m.startAt,
-          endAt: m.endAt,
-          status: m.status,
-          location: m.location,
-          decisions: counts.decisions.get(m.id) ?? 0,
-          openActionItems: counts.open.get(m.id) ?? 0,
-        }),
-      );
+    async meetings(viewer, { projectIds, projectId, from, to, limit, text, around }) {
+      const where = { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...(text ? { title: { contains: text } } : {}), ...visibleMeetings(viewer, projectIds) };
+      // Nearest first: the coming ones soonest first, then the past ones latest first.
+      const [upcoming, past, total] = await Promise.all([
+        prisma.meeting.findMany({ where: { AND: [where, { startAt: { gte: around } }] }, orderBy: { startAt: 'asc' }, take: limit, include: meetingInclude }),
+        prisma.meeting.findMany({ where: { AND: [where, { startAt: { lt: around } }] }, orderBy: { startAt: 'desc' }, take: limit, include: meetingInclude }),
+        prisma.meeting.count({ where }),
+      ]);
+      return { rows: await toMeetings([...upcoming, ...past].slice(0, limit)), total };
+    },
+
+    async meetingsByIds(ids) {
+      if (!ids.length) return [];
+      return toMeetings(await prisma.meeting.findMany({ where: { id: { in: ids }, deletedAt: null }, include: meetingInclude }));
     },
 
     canViewMeeting: (v, meetingId) => meetingAccess.canViewMeeting(v.userId, v.roles, meetingId),
+    canEditMeeting: (v, meetingId) => meetingAccess.canEditMeeting(v.userId, v.roles, meetingId),
 
     async meetingDetail(meetingId) {
       const m = await prisma.meeting.findFirst({
@@ -229,14 +250,34 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       };
     },
 
-    async actionItems(meetingIds) {
-      if (!meetingIds.length) return [];
-      const rows = await prisma.actionItem.findMany({ where: { meetingId: { in: meetingIds } }, orderBy: { createdAt: 'asc' }, take: 2000 });
+    async actionItems(viewer, { projectIds, projectId, from, to, assigneeId, status, limit }) {
+      const where = {
+        meeting: { is: { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...visibleMeetings(viewer, projectIds) } },
+        ...(assigneeId ? { assigneeId } : {}),
+        ...(status === 'open' ? { status: OPEN_ACTIONS } : status === 'done' ? { status: CLOSED_ACTIONS } : {}),
+      };
+      // The latest meetings first: when there are more than fit, the recent ones are kept.
+      const [rows, total] = await Promise.all([
+        prisma.actionItem.findMany({ where, orderBy: [{ meeting: { startAt: 'desc' } }, { createdAt: 'asc' }], take: limit, include: { meeting: { include: meetingInclude } } }),
+        prisma.actionItem.count({ where }),
+      ]);
+      const meetings = new Map((await toMeetings(rows.map((a) => a.meeting!).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i))).map((m) => [m.id, m]));
       const taskIds = rows.map((a) => a.taskId).filter((x): x is string => !!x);
       const keys = new Map((taskIds.length ? await prisma.task.findMany({ where: { id: { in: taskIds }, deletedAt: null }, select: { id: true, key: true } }) : []).map((t) => [t.id, t.key]));
-      return rows
-        .filter((a) => a.meetingId)
-        .map((a) => ({ id: a.id, description: a.description, assigneeId: a.assigneeId, dueDate: a.dueDate, status: a.status, meetingId: a.meetingId!, taskId: a.taskId, taskKey: a.taskId ? (keys.get(a.taskId) ?? null) : null }));
+      return {
+        rows: rows.map((a) => ({
+          id: a.id,
+          description: a.description,
+          assigneeId: a.assigneeId,
+          dueDate: a.dueDate,
+          status: a.status,
+          meetingId: a.meetingId!,
+          taskId: a.taskId,
+          taskKey: a.taskId ? (keys.get(a.taskId) ?? null) : null,
+          meeting: meetings.get(a.meetingId!)!,
+        })),
+        total,
+      };
     },
 
     async conversations(viewer) {
@@ -247,19 +288,19 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     },
 
     async chatMessages({ conversationIds, text, senderIds, from, to, limit }) {
-      if (!conversationIds.length) return [];
-      return prisma.chatMessage.findMany({
-        where: {
-          conversationId: { in: conversationIds },
-          deletedAt: null,
-          ...(text ? { body: { contains: text } } : {}),
-          ...(senderIds ? { userId: { in: senderIds } } : {}),
-          ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        select: { id: true, conversationId: true, userId: true, body: true, createdAt: true },
-      });
+      if (!conversationIds.length) return { rows: [], total: 0 };
+      const where = {
+        conversationId: { in: conversationIds },
+        deletedAt: null,
+        ...(text ? { body: { contains: text } } : {}),
+        ...(senderIds ? { userId: { in: senderIds } } : {}),
+        ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+      };
+      const [rows, total] = await Promise.all([
+        prisma.chatMessage.findMany({ where, orderBy: { createdAt: 'desc' }, take: limit, select: { id: true, conversationId: true, userId: true, body: true, createdAt: true } }),
+        prisma.chatMessage.count({ where }),
+      ]);
+      return { rows, total };
     },
 
     async people() {

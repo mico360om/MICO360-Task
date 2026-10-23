@@ -150,6 +150,17 @@ export interface AiMembershipRec {
   role: 'OWNER' | 'MANAGER' | 'MEMBER';
 }
 
+/** Some of the rows that matched, and how many matched in all. */
+export interface Page<T> {
+  rows: T[];
+  total: number;
+}
+
+/** An action item with the facts of its meeting (so its visibility can be checked again). */
+export interface AiActionItemWithMeeting extends AiActionItemRec {
+  meeting: AiMeetingRec;
+}
+
 export interface MicoAiDataPort {
   /** The project-access rule the task, board and project pages use: null = admin (every project). */
   accessibleProjectIds(viewer: Viewer): Promise<string[] | null>;
@@ -157,19 +168,31 @@ export interface MicoAiDataPort {
   tasks(filter: { projectIds: string[] | null; projectId?: string; assigneeId?: string }): Promise<AiTaskRec[]>;
   /** One task by key or id within the scope, or null. */
   findTask(projectIds: string[] | null, keyOrId: string): Promise<AiTaskRec | null>;
+  /** The project of each of these (not deleted) tasks: to check results kept from earlier questions. */
+  taskProjectIds(taskIds: string[]): Promise<Map<string, string>>;
   taskExtras(taskId: string): Promise<AiTaskExtras>;
-  /** Newest first. */
-  activity(filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; limit: number }): Promise<AiActivityRec[]>;
-  /** Meetings the viewer may see (the meeting-access rule), starting in the range. */
-  meetings(viewer: Viewer, filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; limit: number; text?: string }): Promise<AiMeetingRec[]>;
-  /** The meeting pages' own check. */
+  /** Newest first within the period; `total` counts every match. */
+  activity(filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; limit: number }): Promise<Page<AiActivityRec>>;
+  /**
+   * Meetings the viewer may see (the meeting-access rule) starting in the range, nearest to `around`
+   * first: those at or after it soonest first, then earlier ones latest first. `text` narrows by title.
+   */
+  meetings(viewer: Viewer, filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; limit: number; around: Date; text?: string }): Promise<Page<AiMeetingRec>>;
+  /** These meetings' facts, whoever may see them (the caller applies the meeting rule). */
+  meetingsByIds(ids: string[]): Promise<AiMeetingRec[]>;
+  /** The meeting pages' own checks: who may see it, and who may change it (a draft Final MOM is theirs only). */
   canViewMeeting(viewer: Viewer, meetingId: string): Promise<boolean>;
+  canEditMeeting(viewer: Viewer, meetingId: string): Promise<boolean>;
   meetingDetail(meetingId: string): Promise<AiMeetingDetail | null>;
-  actionItems(meetingIds: string[]): Promise<AiActionItemRec[]>;
+  /** Action items of meetings the viewer may see that start in the range, the latest meetings first. */
+  actionItems(
+    viewer: Viewer,
+    filter: { projectIds: string[] | null; projectId?: string; from: Date; to: Date; assigneeId?: string; status?: 'open' | 'done'; limit: number },
+  ): Promise<Page<AiActionItemWithMeeting>>;
   /** The conversations the chat module lets the viewer open (their direct ones and their projects' channels). */
   conversations(viewer: Viewer): Promise<AiConversationRec[]>;
-  /** Newest first. */
-  chatMessages(filter: { conversationIds: string[]; text?: string; senderIds?: string[]; from?: Date; to?: Date; limit: number }): Promise<AiChatMessageRec[]>;
+  /** Newest first; `total` counts every match. */
+  chatMessages(filter: { conversationIds: string[]; text?: string; senderIds?: string[]; from?: Date; to?: Date; limit: number }): Promise<Page<AiChatMessageRec>>;
   /** The people directory every signed-in person sees (names and usernames only). */
   people(): Promise<AiPersonRec[]>;
   /** Owners, managers and members of these projects (null: all). */

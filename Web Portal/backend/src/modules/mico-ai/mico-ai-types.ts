@@ -49,6 +49,8 @@ export interface ToolResult {
   rows: ResultRow[];
   /** How many matched in all (may be more than the rows kept). */
   total: number;
+  /** Fewer rows were kept than matched (`total` says how many matched). */
+  truncated?: boolean;
   /** Extra detail for the model (a task's comments, a meeting's notes); not stored for tables. */
   details?: unknown;
   /** Further records the details name (blockers, a meeting's tasks): citable as sources. */
@@ -67,6 +69,8 @@ export interface AnswerTable {
   fromResult: string;
   columns: ResultColumn[];
   rows: Array<{ ref: SourceRef | null; cells: CellValue[] }>;
+  /** How many matched in all: more than the rows when the list was capped ("Showing 200 of 250"). */
+  total?: number;
 }
 
 /** What MICO AI said: an answer (text, tables, sources) or a clarifying question with quick replies. */

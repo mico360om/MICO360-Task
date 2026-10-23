@@ -7,7 +7,7 @@ import { buildTimeline } from '../activity/activity-feed';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
 import { completionStats, projectPerformance, statusBreakdown, userWorkload, type ReportTask } from '../reports/report-service';
 import type { ToolInfo } from './mico-ai-loop';
-import { MAX_RESULT_ROWS, type ResultColumn, type ResultRow, type SourceRef, type ToolResult } from './mico-ai-types';
+import { MAX_RESULT_ROWS, refKey, type ResultColumn, type ResultRow, type SourceRef, type StoredResult, type ToolResult } from './mico-ai-types';
 import type { AiMeetingRec, AiPersonRec, AiProjectRec, AiTaskLink, AiTaskRec, MicoAiDataPort, Viewer } from './mico-ai-data';
 
 /**
@@ -38,7 +38,7 @@ export interface MicoAiToolsDeps {
   now?: () => Date;
 }
 
-type ToolOutput = Omit<ToolResult, 'id'>;
+type ToolOutput = Omit<ToolResult, 'id' | 'truncated'> & { truncated?: boolean };
 
 /** A tool's own words for a problem the model should hear (bad name, nothing visible by that name). */
 class ToolProblem extends Error {}
@@ -46,6 +46,7 @@ class ToolProblem extends Error {}
 // ── Arguments ──────────────────────────────────────────────────────────────────
 const words = (max = 120) => z.string().trim().min(1).max(max);
 const day = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date (YYYY-MM-DD)');
+const month = z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'must be a month (YYYY-MM)');
 const lower = <T extends [string, ...string[]]>(values: T) => z.preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase().replace(/[\s-]+/g, '_') : v), z.enum(values));
 
 const STATUS = ['open', 'done', 'overdue', 'blocked', 'in_progress', 'todo', 'review', 'backlog', 'any'] as const;
@@ -66,7 +67,7 @@ const SCHEMAS: Record<ToolName, ZodTypeAny> = {
   list_projects: z.object({ status: lower(['planning', 'active', 'on_hold', 'completed', 'archived', 'any']).optional(), text: words().optional() }),
   project_details: z.object({ project: words() }),
   project_activity: z.object({ project: words().optional(), from: day.optional(), to: day.optional() }),
-  list_meetings: z.object({ project: words().optional(), from: day.optional(), to: day.optional(), text: words(200).optional() }),
+  list_meetings: z.object({ project: words().optional(), from: day.optional(), to: day.optional(), month: month.optional(), text: words(200).optional() }),
   meeting_details: z.object({ meeting: words(200) }),
   list_action_items: z.object({
     project: words().optional(),
@@ -74,6 +75,7 @@ const SCHEMAS: Record<ToolName, ZodTypeAny> = {
     status: lower(['open', 'done', 'any']).optional(),
     from: day.optional(),
     to: day.optional(),
+    month: month.optional(),
   }),
   report_figures: z.object({
     report: lower(['workload', 'projects', 'status', 'completion']),
@@ -116,8 +118,9 @@ const CATALOGUE: Record<ToolName, Omit<ToolInfo, 'name'>> = {
     step: (a) => `Checking what changed${inProject(a)}…`,
   },
   list_meetings: {
-    purpose: 'Meetings the user can see that start in a period (default: 30 days back to 30 days ahead), with decisions and open action items.',
-    args: '{"project"?: name|code|number, "from"?, "to"?, "text"?}',
+    purpose:
+      'Meetings the user can see that start in a period, nearest to today first (upcoming, then the latest past ones), with decisions and open action items. Default: 30 days back to 30 days ahead; "from" alone: 30 days from it; "month": that month.',
+    args: '{"project"?: name|code|number, "from"?, "to"?, "month"?: "YYYY-MM", "text"?}',
     step: (a) => `Checking meetings${a.project ? ` for ${short(a.project)}` : ''}…`,
   },
   meeting_details: {
@@ -126,13 +129,13 @@ const CATALOGUE: Record<ToolName, Omit<ToolInfo, 'name'>> = {
     step: () => 'Reading the meeting…',
   },
   list_action_items: {
-    purpose: 'Action items from meetings the user can see, by the meeting’s date (default: the last 30 days).',
-    args: '{"project"?: name|code|number, "assignee"?: name|"me", "status"?: "open"|"done", "from"?, "to"?}',
+    purpose: 'Action items from meetings the user can see, by the meeting’s date, the latest meetings first (default: the last 30 days; "month": that month).',
+    args: '{"project"?: name|code|number, "assignee"?: name|"me", "status"?: "open"|"done", "from"?, "to"?, "month"?: "YYYY-MM"}',
     step: () => 'Checking action items…',
   },
   report_figures: {
     purpose:
-      'The Reports page’s figures over the tasks the user can see: "workload" (per person: assigned, open, completed, overdue), "projects" (per project: total, completed, overdue, completionPct), "status" (tasks per status) or "completion" (on time vs late). dueFrom/dueTo count only tasks due in that period.',
+      'The Reports page’s figures over the tasks the user can see: "workload" (per person: assigned, open, completed, overdue; colleagues only for admins and for the managers of their projects), "projects" (per project: total, completed, overdue, completionPct), "status" (tasks per status) or "completion" (on time vs late). dueFrom/dueTo count only tasks due in that period.',
     args: '{"report": "workload"|"projects"|"status"|"completion", "project"?: name|code|number, "person"?: name|"me", "dueFrom"?, "dueTo"?}',
     step: (a) => `Working out the figures${a.project ? ` for ${short(a.project)}` : ''}…`,
   },
@@ -200,7 +203,10 @@ const nameOf = (p: Pick<AiPersonRec, 'firstName' | 'lastName' | 'username'> | un
 const taskRef = (t: Pick<AiTaskLink, 'id' | 'key'>): SourceRef => ({ type: 'task', id: t.id, label: t.key, url: `?task=${t.id}` });
 const projectRef = (p: Pick<AiProjectRec, 'id' | 'name'>): SourceRef => ({ type: 'project', id: p.id, label: p.name, url: `/projects/${p.id}` });
 const OPEN_ACTION = new Set(['OPEN', 'IN_PROGRESS', 'PENDING']);
+/** At most this many blockers (and tasks it blocks) are listed for a task. */
+const MAX_LINKS = 10;
 const empty = (tool: string, args: Record<string, unknown>, error: string): ToolOutput => ({ tool, args, title: tool, columns: [], rows: [], total: 0, error });
+
 
 export function createMicoAiTools({ data, timeZone, now = () => new Date() }: MicoAiToolsDeps) {
   const catalogue: ToolInfo[] = TOOL_NAMES.map((name) => ({ name, ...CATALOGUE[name] }));
@@ -301,9 +307,20 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
   const meetingVisible = (s: Scope, m: AiMeetingRec) =>
     s.viewer.roles.includes('ADMIN') || m.organizerId === s.viewer.userId || m.createdById === s.viewer.userId || m.attendeeUserIds.includes(s.viewer.userId) || s.allowed(m.projectId);
 
+  /** Meetings the person may see, nearest to today first (upcoming soonest, then the latest past); `total` counts all. */
   async function visibleMeetings(s: Scope, filter: { projectId?: string; from: Date; to: Date; text?: string }) {
-    const rows = await data.meetings(s.viewer, { projectIds: s.projectIds, ...filter, limit: MAX_RESULT_ROWS });
-    return rows.filter((m) => meetingVisible(s, m) && (!filter.projectId || m.projectId === filter.projectId) && m.startAt >= filter.from && m.startAt <= filter.to).sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+    const found = await data.meetings(s.viewer, { projectIds: s.projectIds, ...filter, limit: MAX_RESULT_ROWS, around: now() });
+    const rows = found.rows.filter((m) => meetingVisible(s, m) && (!filter.projectId || m.projectId === filter.projectId) && m.startAt >= filter.from && m.startAt <= filter.to);
+    return { rows, total: Math.max(rows.length, found.total - (found.rows.length - rows.length)) };
+  }
+
+  /** May this person see a colleague's workload? Admins: anyone; a project's managers: its people; anyone else: themselves. */
+  async function workloadPeople(s: Scope, projectId: string | null): Promise<Set<string> | null> {
+    if (s.viewer.roles.includes('ADMIN')) return null;
+    const all = (await data.memberships(s.projectIds)).filter((m) => s.allowed(m.projectId) && (!projectId || m.projectId === projectId));
+    const managed = new Set(all.filter((m) => m.userId === s.viewer.userId && (m.role === 'OWNER' || m.role === 'MANAGER')).map((m) => m.projectId));
+    const people = new Set([s.viewer.userId, ...all.filter((m) => managed.has(m.projectId)).map((m) => m.userId)]);
+    return people;
   }
 
   const projectName = (s: Scope, id: string | null) => (id ? (s.projects.find((p) => p.id === id)?.name ?? '') : '');
@@ -313,6 +330,19 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     const e = to ?? (from && ahead === 0 ? t : shiftDayKey(t, ahead));
     return { fromKey: f, toKey: e, from: startOf(f), to: endOf(e) };
   };
+  /** A named month ("2026-02") from its first to its last day. */
+  const monthRange = (m: string) => {
+    const first = `${m}-01`;
+    const last = shiftDayKey(`${shiftDayKey(first, 32).slice(0, 7)}-01`, -1);
+    return { fromKey: first, toKey: last, from: startOf(first), to: endOf(last) };
+  };
+  /** A meeting period: a month, "from" alone (30 days from it), or around today. */
+  const meetingRange = (a: Record<string, unknown>) => {
+    if (a.month) return monthRange(a.month as string);
+    if (a.from && !a.to) return range(a.from as string, shiftDayKey(a.from as string, 30), 30, 30);
+    return range(a.from as string | undefined, a.to as string | undefined, 30, 30);
+  };
+  const dropped = <T,>(page: { rows: T[]; total: number }, kept: T[]) => Math.max(kept.length, page.total - (page.rows.length - kept.length));
 
   // ── The tools ────────────────────────────────────────────────────────────────
   const run: Record<ToolName, (s: Scope, a: Record<string, unknown>) => Promise<ToolOutput>> = {
@@ -350,18 +380,18 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const t = await data.findTask(s.projectIds, said);
       if (!t || !s.allowed(t.projectId)) throw new ToolProblem(`No task you can see matches “${said}”.`);
       const x = await data.taskExtras(t.id);
-      const link = (l: AiTaskLink) => ({ ref: `task:${l.id}`, key: l.key, title: l.title, status: l.columnName || categoryLabel(l.category) });
-      const blockedBy = x.blockedBy.filter((l) => s.allowed(l.projectId));
-      const blocks = x.blocks.filter((l) => s.allowed(l.projectId));
-      const hidden = x.blockedBy.length + x.blocks.length - blockedBy.length - blocks.length;
+      const link = (l: AiTaskLink) => ({ ref: `task:${l.id}`, key: l.key, title: clip(l.title, 120), status: l.columnName || categoryLabel(l.category) });
+      // A blocker in a project the person can't see is left out silently, as the task panel does.
+      const blockedBy = x.blockedBy.filter((l) => s.allowed(l.projectId)).slice(0, MAX_LINKS);
+      const blocks = x.blocks.filter((l) => s.allowed(l.projectId)).slice(0, MAX_LINKS);
       const canOpen = async (taskId: string) => {
         const other = await data.findTask(s.projectIds, taskId);
         return !!other && s.allowed(other.projectId);
       };
       const activity = await withoutHiddenBlockers(x.activity, canOpen);
       const history = buildTimeline(activity.slice(0, 60).map((e) => ({ id: e.id, action: e.action, actorName: nameOf(s.person.get(e.userId)) || 'Someone', createdAt: e.createdAt.toISOString(), meta: (e.meta as Record<string, unknown> | null) ?? null })))
-        .slice(0, 20)
-        .map((h) => ({ at: h.createdAt ? wallClock(new Date(h.createdAt), timeZone) : null, who: h.actorName, what: `${h.text}${h.path ? ` (${h.path.join(' → ')})` : ''}` }));
+        .slice(0, 15)
+        .map((h) => ({ at: h.createdAt ? wallClock(new Date(h.createdAt), timeZone) : null, who: h.actorName, what: clip(`${h.text}${h.path ? ` (${h.path.join(' → ')})` : ''}`, 200) }));
       const meeting = x.meeting && (await data.canViewMeeting(s.viewer, x.meeting.id)) ? x.meeting : null;
       const detailRefs = [...blockedBy, ...blocks].map(taskRef);
       if (meeting) detailRefs.push(meetingRef(meeting));
@@ -373,15 +403,14 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         rows: [taskRow(s, t)],
         total: 1,
         details: {
-          description: clip(x.description, 1500) || null,
+          description: clip(x.description, 1200) || null,
           milestone: t.isMilestone,
           start: dueDayKey(t.startDate, timeZone),
-          checklist: x.checklist.slice(0, 30).map((c) => ({ item: clip(c.text, 200), done: c.done })),
-          comments: x.comments.slice(-15).map((c) => ({ by: nameOf(s.person.get(c.userId)) || 'Someone', at: wallClock(c.createdAt, timeZone), text: clip(c.body, 500) })),
+          checklist: x.checklist.slice(0, 25).map((c) => ({ item: clip(c.text, 150), done: c.done })),
+          comments: x.comments.slice(-10).map((c) => ({ by: nameOf(s.person.get(c.userId)) || 'Someone', at: wallClock(c.createdAt, timeZone), text: clip(c.body, 300) })),
           history,
           blockedBy: blockedBy.map(link),
           blocks: blocks.map(link),
-          ...(hidden ? { hiddenBlockers: hidden } : {}),
           meeting: meeting ? { ref: `meeting:${meeting.id}`, title: meeting.title, date: zonedDayKey(meeting.startAt, timeZone) } : null,
         },
         detailRefs,
@@ -439,8 +468,9 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         .filter((m) => m.projectId === p.id)
         .sort((x, y) => ROLE_RANK[x.role] - ROLE_RANK[y.role] || nameOf(s.person.get(x.userId)).localeCompare(nameOf(s.person.get(y.userId))))
         .map((m) => ({ name: nameOf(s.person.get(m.userId)), role: ROLE_LABEL[m.role] }))
-        .filter((m) => m.name);
-      const mini = (t: AiTaskRec) => ({ ref: `task:${t.id}`, key: t.key, title: t.title, due: dueDayKey(t.dueDate, timeZone), status: t.columnName || categoryLabel(t.category) });
+        .filter((m) => m.name)
+        .slice(0, 40);
+      const mini = (t: AiTaskRec) => ({ ref: `task:${t.id}`, key: t.key, title: clip(t.title, 120), due: dueDayKey(t.dueDate, timeZone), status: t.columnName || categoryLabel(t.category) });
       return {
         tool: 'project_details',
         args: a,
@@ -449,25 +479,26 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         rows: listed,
         total: listed.length,
         details: {
-          description: clip(p.description, 1000) || null,
+          description: clip(p.description, 800) || null,
           client: p.clientName,
           owner: nameOf(s.person.get(p.ownerId ?? '')) || null,
           manager: nameOf(s.person.get(p.managerId ?? '')) || null,
           members: people,
           byStatus,
-          milestones: milestones.slice(0, 20).map(mini),
-          dueInNext14Days: deadlines.slice(0, 20).map(mini),
+          milestones: milestones.slice(0, 15).map(mini),
+          dueInNext14Days: deadlines.slice(0, 15).map(mini),
         },
-        detailRefs: [...milestones.slice(0, 20), ...deadlines.slice(0, 20)].map(taskRef),
+        detailRefs: [...milestones.slice(0, 15), ...deadlines.slice(0, 15)].map(taskRef),
       };
     },
 
     async project_activity(s, a) {
       const project = a.project ? resolveProject(s, a.project as string) : null;
       const { from, to, fromKey, toKey } = range(a.from as string | undefined, a.to as string | undefined, 6, 0);
-      const raw = (await data.activity({ projectIds: s.projectIds, projectId: project?.id, from, to, limit: MAX_RESULT_ROWS })).filter(
-        (e) => s.allowed(e.projectId) && (!project || e.projectId === project.id) && e.createdAt >= from && e.createdAt <= to,
-      );
+      const page = await data.activity({ projectIds: s.projectIds, projectId: project?.id, from, to, limit: MAX_RESULT_ROWS });
+      const raw = page.rows
+        .filter((e) => s.allowed(e.projectId) && (!project || e.projectId === project.id) && e.createdAt >= from && e.createdAt <= to)
+        .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime());
       const canOpen = async (taskId: string) => {
         const other = await data.findTask(s.projectIds, taskId);
         return !!other && s.allowed(other.projectId);
@@ -483,7 +514,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
             task: e.task?.key ?? null,
             title: e.task?.title ?? null,
             project: projectName(s, e.projectId),
-            change: item ? `${item.text}${item.path ? ` (${item.path.join(' → ')})` : ''}` : e.action,
+            change: clip(item ? `${item.text}${item.path ? ` (${item.path.join(' → ')})` : ''}` : e.action, 200),
           },
         };
       });
@@ -500,15 +531,16 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           { key: 'change', label: 'What changed' },
         ],
         rows,
-        total: rows.length,
+        total: dropped(page, raw),
       };
     },
 
     async list_meetings(s, a) {
       const project = a.project ? resolveProject(s, a.project as string) : null;
-      const { from, to, fromKey, toKey } = range(a.from as string | undefined, a.to as string | undefined, 30, 30);
+      const { from, to, fromKey, toKey } = meetingRange(a);
       const q = normalizeForSearch(a.text as string | undefined);
-      const meetings = (await visibleMeetings(s, { projectId: project?.id, from, to })).filter((m) => !q || matchesNormalized(q, m.title));
+      const found = await visibleMeetings(s, { projectId: project?.id, from, to, text: a.text as string | undefined });
+      const meetings = found.rows.filter((m) => !q || matchesNormalized(q, m.title));
       const rows = meetings.map(
         (m): ResultRow => ({
           ref: meetingRef(m),
@@ -523,23 +555,37 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           },
         }),
       );
-      return { tool: 'list_meetings', args: a, title: `Meetings${project ? ` for ${project.name}` : ''}, ${fromKey} to ${toKey}`, columns: MEETING_COLUMNS, rows, total: rows.length };
+      return {
+        tool: 'list_meetings',
+        args: a,
+        title: `Meetings${project ? ` for ${project.name}` : ''}, ${fromKey} to ${toKey}`,
+        columns: MEETING_COLUMNS,
+        rows,
+        total: dropped(found, meetings),
+      };
     },
 
     async meeting_details(s, a) {
       const said = String(a.meeting).replace(/^meeting:/, '').trim();
-      let id: string | null = null;
-      if (!/\s/.test(said) && (await data.canViewMeeting(s.viewer, said))) id = said;
-      if (!id) {
-        const n = normalizeForSearch(said);
-        // By title in the database, so a recent meeting is found however many there are.
-        const all = await visibleMeetings(s, { from: new Date(0), to: new Date(Date.UTC(2100, 0, 1)), text: said });
-        const exact = all.filter((m) => normalizeForSearch(m.title) === n);
-        const found = exact.length ? exact : all.filter((m) => matchesNormalized(n, m.title));
-        if (found.length > 1) throw new ToolProblem(`Several meetings match “${said}”: ${found.slice(-6).map((m) => `${m.title} on ${zonedDayKey(m.startAt, timeZone)} (meeting:${m.id})`).join(', ')}. Ask which one, or use its ref.`);
-        if (found.length === 1 && (await data.canViewMeeting(s.viewer, found[0]!.id))) id = found[0]!.id;
+      let m = null;
+      // An id only when such a meeting exists (an admin may view any id, so the check alone proves nothing).
+      if (!/\s/.test(said)) {
+        const byId = await data.meetingDetail(said);
+        if (byId && (await data.canViewMeeting(s.viewer, said))) m = byId;
       }
-      const m = id ? await data.meetingDetail(id) : null;
+      if (!m) {
+        // By title in the database, nearest to today first; the best matches win (same title, then starts with it).
+        const n = normalizeForSearch(said);
+        const { rows: all } = await visibleMeetings(s, { from: new Date(0), to: new Date(Date.UTC(2100, 0, 1)), text: said });
+        const rank = (x: AiMeetingRec) => {
+          const t = normalizeForSearch(x.title);
+          return t === n ? 0 : t.startsWith(n) ? 1 : matchesNormalized(n, x.title) ? 2 : 3;
+        };
+        const best = Math.min(3, ...all.map(rank));
+        const found = best < 3 ? all.filter((x) => rank(x) === best) : [];
+        if (found.length > 1) throw new ToolProblem(`Several meetings match “${said}”: ${found.slice(0, 6).map((x) => `${x.title} on ${zonedDayKey(x.startAt, timeZone)} (meeting:${x.id})`).join(', ')}. Ask which one, or use its ref.`);
+        if (found.length === 1 && (await data.canViewMeeting(s.viewer, found[0]!.id))) m = await data.meetingDetail(found[0]!.id);
+      }
       if (!m) throw new ToolProblem(`No meeting you can see matches “${said}”.`);
       const who = (uid: string | null) => (uid ? nameOf(s.person.get(uid)) || null : null);
       const taskRefs = m.actionItems.filter((i) => i.taskId && i.taskKey).map((i) => ({ id: i.taskId!, key: i.taskKey! }));
@@ -548,50 +594,52 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         const found = await data.findTask(s.projectIds, t.id);
         if (found && s.allowed(found.projectId)) visibleTaskRefs.push(taskRef(found));
       }
-      const fm = m.finalMinutes;
+      // As the meeting page: final minutes for everyone who can see the meeting, a draft only for those who can change it.
+      const fm = m.finalMinutes && (m.finalMinutes.status === 'APPROVED' || (await data.canEditMeeting(s.viewer, m.id))) ? m.finalMinutes : null;
+      const meeting = m;
       return {
         tool: 'meeting_details',
         args: a,
-        title: m.title,
+        title: meeting.title,
         columns: MEETING_COLUMNS,
         rows: [
           {
-            ref: meetingRef(m),
+            ref: meetingRef(meeting),
             values: {
-              when: wallClock(m.startAt, timeZone),
-              title: m.title,
-              project: projectName(s, m.projectId) || null,
-              organizer: who(m.organizerId),
-              status: MEETING_STATUS[m.status] ?? m.status,
-              decisions: m.decisions,
-              openActions: m.openActionItems,
+              when: wallClock(meeting.startAt, timeZone),
+              title: meeting.title,
+              project: projectName(s, meeting.projectId) || null,
+              organizer: who(meeting.organizerId),
+              status: MEETING_STATUS[meeting.status] ?? meeting.status,
+              decisions: meeting.decisions,
+              openActions: meeting.openActionItems,
             },
           },
         ],
         total: 1,
         details: {
-          ends: m.endAt ? wallClock(m.endAt, timeZone) : null,
-          location: m.location,
-          description: clip(m.description, 1000) || null,
-          attendees: m.attendees.slice(0, 60).map((x) => ({ name: who(x.userId) ?? x.name ?? 'Guest', response: x.response.toLowerCase(), attendance: x.attendance.toLowerCase() })),
-          agenda: m.agenda.slice(0, 40).map((x) => ({ item: clip(x.title, 200), lead: who(x.ownerId), minutes: x.minutes, done: x.completed })),
-          notes: m.notes.slice(0, 60).map((x) => ({ type: NOTE_TYPE[x.type] ?? x.type, agendaItem: x.agendaTitle, by: who(x.authorId), text: clip(x.text, 600) })),
-          actionItems: m.actionItems.slice(0, 60).map((x) => ({
-            item: clip(x.description, 300),
+          ends: meeting.endAt ? wallClock(meeting.endAt, timeZone) : null,
+          location: meeting.location,
+          description: clip(meeting.description, 800) || null,
+          attendees: meeting.attendees.slice(0, 40).map((x) => ({ name: who(x.userId) ?? x.name ?? 'Guest', response: x.response.toLowerCase(), attendance: x.attendance.toLowerCase() })),
+          agenda: meeting.agenda.slice(0, 25).map((x) => ({ item: clip(x.title, 150), lead: who(x.ownerId), minutes: x.minutes, done: x.completed })),
+          notes: meeting.notes.slice(0, 30).map((x) => ({ type: NOTE_TYPE[x.type] ?? x.type, agendaItem: x.agendaTitle ? clip(x.agendaTitle, 100) : null, by: who(x.authorId), text: clip(x.text, 300) })),
+          actionItems: meeting.actionItems.slice(0, 30).map((x) => ({
+            item: clip(x.description, 200),
             owner: who(x.assigneeId),
             due: dueDayKey(x.dueDate, timeZone),
             status: ACTION_STATUS[x.status] ?? x.status,
             task: x.taskId && visibleTaskRefs.some((r) => r.id === x.taskId) ? x.taskKey : null,
           })),
-          decisions: m.decisionsList.slice(0, 40).map((x) => ({ decision: clip(x.title, 300), detail: clip(x.description, 400) || null, status: x.status.toLowerCase() })),
+          decisions: meeting.decisionsList.slice(0, 20).map((x) => ({ decision: clip(x.title, 200), detail: clip(x.description, 200) || null, status: x.status.toLowerCase() })),
           finalMinutes: fm
             ? {
                 status: fm.status === 'APPROVED' ? 'Final' : 'Draft',
-                summary: clip(fm.summary, 2000),
-                discussion: fm.discussion.slice(0, 20).map((d) => ({ topic: clip(d.topic, 200), text: clip(d.text, 800) })),
-                decisions: fm.decisions.slice(0, 30).map((d) => clip(d, 400)),
-                risks: fm.risks.slice(0, 20).map((d) => clip(d, 400)),
-                nextSteps: fm.nextSteps.slice(0, 30).map((d) => clip(d, 400)),
+                summary: clip(fm.summary, 1000),
+                discussion: fm.discussion.slice(0, 10).map((x) => ({ topic: clip(x.topic, 120), text: clip(x.text, 400) })),
+                decisions: fm.decisions.slice(0, 15).map((x) => clip(x, 250)),
+                risks: fm.risks.slice(0, 15).map((x) => clip(x, 250)),
+                nextSteps: fm.nextSteps.slice(0, 15).map((x) => clip(x, 250)),
               }
             : null,
         },
@@ -603,15 +651,22 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const project = a.project ? resolveProject(s, a.project as string) : null;
       const person = a.assignee ? resolvePerson(s, a.assignee as string) : null;
       const status = (a.status as string | undefined) ?? 'any';
-      const { from, to, fromKey, toKey } = range(a.from as string | undefined, a.to as string | undefined, 30, 0);
-      const meetings = await visibleMeetings(s, { projectId: project?.id, from, to });
-      const byId = new Map(meetings.map((m) => [m.id, m]));
-      const items = (await data.actionItems([...byId.keys()]))
-        .filter((i) => byId.has(i.meetingId) && (!person || i.assigneeId === person.id))
-        .filter((i) => status === 'any' || (status === 'open' ? OPEN_ACTION.has(i.status) : !OPEN_ACTION.has(i.status)))
-        .sort((x, y) => byId.get(x.meetingId)!.startAt.getTime() - byId.get(y.meetingId)!.startAt.getTime() || (dueDayKey(x.dueDate, timeZone) ?? '9999').localeCompare(dueDayKey(y.dueDate, timeZone) ?? '9999'));
+      const { from, to, fromKey, toKey } = a.month ? monthRange(a.month as string) : range(a.from as string | undefined, a.to as string | undefined, 30, 0);
+      const page = await data.actionItems(s.viewer, {
+        projectIds: s.projectIds,
+        projectId: project?.id,
+        from,
+        to,
+        assigneeId: person?.id,
+        status: status === 'any' ? undefined : (status as 'open' | 'done'),
+        limit: MAX_RESULT_ROWS,
+      });
+      // Each item's meeting is checked again with the meeting rule.
+      const items = page.rows
+        .filter((i) => meetingVisible(s, i.meeting) && (!project || i.meeting.projectId === project.id) && i.meeting.startAt >= from && i.meeting.startAt <= to)
+        .filter((i) => (!person || i.assigneeId === person.id) && (status === 'any' || (status === 'open' ? OPEN_ACTION.has(i.status) : !OPEN_ACTION.has(i.status))));
       const rows = items.slice(0, MAX_RESULT_ROWS).map((i): ResultRow => {
-        const m = byId.get(i.meetingId)!;
+        const m = i.meeting;
         return {
           ref: meetingRef(m),
           values: {
@@ -619,7 +674,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
             owner: nameOf(s.person.get(i.assigneeId ?? '')) || null,
             due: dueDayKey(i.dueDate, timeZone),
             status: ACTION_STATUS[i.status] ?? i.status,
-            meeting: m.title,
+            meeting: clip(m.title, 120),
             meetingDate: zonedDayKey(m.startAt, timeZone),
             task: i.taskKey,
           },
@@ -639,7 +694,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           { key: 'task', label: 'Task', kind: 'key' },
         ],
         rows,
-        total: items.length,
+        total: dropped(page, items),
       };
     },
 
@@ -654,9 +709,13 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const where = `${project ? ` for ${project.name}` : ''}${person ? ` (${nameOf(person)})` : ''}${period}`;
       const report = a.report as 'workload' | 'projects' | 'status' | 'completion';
       if (report === 'workload') {
+        // Admins see everyone; a project's owner, named manager or MANAGER members see its people; anyone else only themselves.
+        const mayView = await workloadPeople(s, project?.id ?? null);
+        if (person && mayView && !mayView.has(person.id)) throw new ToolProblem('Only administrators and project managers can see a colleague’s workload. You can see your own.');
         const ids = new Set(tasks.flatMap((t) => t.assigneeIds));
         if (!person) for (const m of await data.memberships(project ? [project.id] : s.projectIds)) if (s.allowed(m.projectId)) ids.add(m.userId);
         const users = [...ids]
+          .filter((id) => !mayView || mayView.has(id))
           .map((id) => s.person.get(id))
           .filter((p): p is AiPersonRec => !!p && (!person || p.id === person.id))
           .map((p) => ({ id: p.id, username: p.username, name: nameOf(p) }))
@@ -746,24 +805,29 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       let convs = allowedConvs;
       if (project) convs = convs.filter((c) => c.kind === 'PROJECT' && c.projectId === project.id);
       const base = { text, from, to, limit: MAX_RESULT_ROWS };
+      const none = { rows: [], total: 0 };
       let found;
+      let matched = 0;
       if (person) {
         const direct = convs.filter((c) => c.kind === 'DIRECT' && c.participantIds.includes(person.id)).map((c) => c.id);
         const channels = convs.filter((c) => c.kind === 'PROJECT').map((c) => c.id);
         const [withThem, fromThem] = await Promise.all([
-          direct.length ? data.chatMessages({ ...base, conversationIds: direct }) : [],
-          channels.length ? data.chatMessages({ ...base, conversationIds: channels, senderIds: [person.id] }) : [],
+          direct.length ? data.chatMessages({ ...base, conversationIds: direct }) : none,
+          channels.length ? data.chatMessages({ ...base, conversationIds: channels, senderIds: [person.id] }) : none,
         ]);
-        found = [...withThem, ...fromThem.filter((m) => m.userId === person.id)];
+        found = [...withThem.rows, ...fromThem.rows.filter((m) => m.userId === person.id)];
+        matched = withThem.total + fromThem.total;
       } else {
-        found = convs.length ? await data.chatMessages({ ...base, conversationIds: convs.map((c) => c.id) }) : [];
+        const page = convs.length ? await data.chatMessages({ ...base, conversationIds: convs.map((c) => c.id) }) : none;
+        found = page.rows;
+        matched = page.total;
       }
       const scoped = new Set(convs.map((c) => c.id));
       const q = normalizeForSearch(text);
       const messages = found
         .filter((m) => allowedIds.has(m.conversationId) && scoped.has(m.conversationId) && m.createdAt >= from && m.createdAt <= to && (!q || matchesNormalized(q, m.body)))
-        .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime())
-        .slice(0, MAX_RESULT_ROWS);
+        .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime());
+      const total = Math.max(messages.length, matched - (found.length - messages.length));
       const byConv = new Map(allowedConvs.map((c) => [c.id, c]));
       const convName = (id: string) => {
         const c = byConv.get(id);
@@ -772,7 +836,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         const other = c.participantIds.filter((u) => u !== s.viewer.userId).map((u) => nameOf(s.person.get(u))).filter(Boolean);
         return `Direct: ${other.join(', ') || 'yourself'}`;
       };
-      const rows = messages.map((m): ResultRow => {
+      const rows = messages.slice(0, MAX_RESULT_ROWS).map((m): ResultRow => {
         const sender = nameOf(s.person.get(m.userId)) || 'Someone';
         return {
           ref: { type: 'chat', id: m.id, label: `${sender} · ${shortDay(m.createdAt)}`, url: `/chat?conversation=${m.conversationId}` },
@@ -790,7 +854,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           { key: 'message', label: 'Message' },
         ],
         rows,
-        total: rows.length,
+        total,
       };
     },
 
@@ -824,25 +888,75 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     },
   };
 
-  /** Run one tool for the person asking. Bad arguments and "nothing by that name" come back as `error`. */
-  async function runTool(viewer: Viewer, name: string, rawArgs: Record<string, unknown>): Promise<ToolOutput> {
-    if (!(TOOL_NAMES as readonly string[]).includes(name)) return empty(name, rawArgs, `There is no tool called “${name}”.`);
+  /**
+   * Run one tool for the person asking. Bad arguments and "nothing by that name" come back as `error`.
+   * `total` is how many matched in all; `truncated` says the rows kept are fewer than that.
+   */
+  async function runTool(viewer: Viewer, name: string, rawArgs: Record<string, unknown>): Promise<Omit<ToolResult, 'id'>> {
+    if (!(TOOL_NAMES as readonly string[]).includes(name)) return { ...empty('unknown', rawArgs, `There is no tool called “${clip(name, 60)}”.`), truncated: false };
     const tool = name as ToolName;
     const parsed = SCHEMAS[tool].safeParse(rawArgs ?? {});
     if (!parsed.success) {
       const problems = parsed.error.issues.map((i) => `${i.path.join('.') || 'args'} ${i.message}`.trim()).join('; ');
-      return empty(tool, rawArgs, `Check the arguments: ${problems}.`);
+      return { ...empty(tool, rawArgs, `Check the arguments: ${problems}.`), truncated: false };
     }
     const args = parsed.data as Record<string, unknown>;
     try {
-      return await run[tool](await scopeOf(viewer), args);
+      const out = await run[tool](await scopeOf(viewer), args);
+      return { ...out, truncated: out.total > out.rows.length };
     } catch (err) {
-      if (err instanceof ToolProblem) return empty(tool, args, err.message);
+      if (err instanceof ToolProblem) return { ...empty(tool, args, err.message), truncated: false };
       throw err;
     }
   }
 
-  return { catalogue, run: runTool };
+  /**
+   * Results kept from earlier questions in a chat, checked against what the person can see NOW: a
+   * row of a task, project, meeting or conversation they have lost access to is dropped. Figures
+   * (report_figures) can't be checked row by row, so they are not reused: the model asks again.
+   */
+  async function recheck(viewer: Viewer, results: StoredResult[]): Promise<StoredResult[]> {
+    const usable = results.filter((r) => !r.error && r.tool !== 'report_figures');
+    if (!usable.length) return [];
+    const s = await scopeOf(viewer);
+    const refs = usable.flatMap((r) => [...r.rows.map((x) => x.ref), ...(r.detailRefs ?? [])]).filter((x): x is SourceRef => !!x);
+    const conversationOf = (ref: SourceRef) => new URLSearchParams((ref.url ?? '').split('?')[1] ?? '').get('conversation');
+    const ids = (type: SourceRef['type']) => [...new Set(refs.filter((x) => x.type === type).map((x) => x.id))];
+    const [taskProjects, meetings, convs] = await Promise.all([
+      ids('task').length ? data.taskProjectIds(ids('task')) : new Map<string, string>(),
+      ids('meeting').length ? data.meetingsByIds(ids('meeting')) : [],
+      ids('chat').length ? data.conversations(viewer) : [],
+    ]);
+    const meetingById = new Map(meetings.map((m) => [m.id, m]));
+    const openConvs = new Set(convs.filter((c) => (c.kind === 'DIRECT' ? c.participantIds.includes(viewer.userId) : viewer.roles.includes('ADMIN') || s.allowed(c.projectId))).map((c) => c.id));
+    const stillVisible = (ref: SourceRef): boolean => {
+      switch (ref.type) {
+        case 'task':
+          return s.allowed(taskProjects.get(ref.id));
+        case 'project':
+          return s.allowed(ref.id);
+        case 'meeting': {
+          const m = meetingById.get(ref.id);
+          return !!m && meetingVisible(s, m);
+        }
+        case 'chat': {
+          const c = conversationOf(ref);
+          return !!c && openConvs.has(c);
+        }
+        case 'person':
+          return s.person.has(ref.id);
+        default:
+          return false;
+      }
+    };
+    return usable.map((r) => {
+      const rows = r.rows.filter((x) => !!x.ref && stillVisible(x.ref));
+      const total = Math.max(rows.length, r.total - (r.rows.length - rows.length));
+      return { ...r, rows, total, truncated: total > rows.length, detailRefs: r.detailRefs?.filter(stillVisible) };
+    });
+  }
+
+  return { catalogue, run: runTool, recheck };
 }
 
 export type MicoAiTools = ReturnType<typeof createMicoAiTools>;
