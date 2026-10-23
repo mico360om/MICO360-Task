@@ -44,6 +44,21 @@ const I = {
       <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
     </>
   ),
+  timeline: (
+    <>
+      <path d="M3 4v16" />
+      <rect x="6" y="5" width="9" height="3.5" rx="1.2" />
+      <rect x="9" y="10.25" width="11" height="3.5" rx="1.2" />
+      <rect x="6" y="15.5" width="6" height="3.5" rx="1.2" />
+    </>
+  ),
+  workload: (
+    <>
+      <circle cx="8" cy="7" r="2.6" />
+      <path d="M3.5 16a4.5 4.5 0 0 1 9 0" />
+      <path d="M15 20v-4M18 20v-7M21 20v-10" />
+    </>
+  ),
   reports: (
     <>
       <path d="M3 21h18" />
@@ -106,6 +121,8 @@ const WORKSPACE: NavItem[] = [
   { label: 'Kanban Board', to: '/board', icon: I.board },
   { label: 'Projects', to: '/projects', icon: I.projects },
   { label: 'Calendar', to: '/calendar', icon: I.calendar },
+  { label: 'Timeline', to: '/timeline', icon: I.timeline },
+  { label: 'Workload', to: '/workload', icon: I.workload },
   { label: 'Meetings', to: '/meetings', icon: I.meetings },
   { label: 'My Action Items', to: '/my-action-items', icon: I.tasks },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },

@@ -31,6 +31,7 @@ const SystemSettingsPage = lazyPage(() => import('./pages/SystemSettingsPage'), 
 const AiSettingsPage = lazyPage(() => import('./pages/AiSettingsPage'), 'AiSettingsPage');
 const ActivityPage = lazyPage(() => import('./pages/ActivityPage'), 'ActivityPage');
 const CalendarPage = lazyPage(() => import('./pages/CalendarPage'), 'CalendarPage');
+const TimelinePage = lazyPage(() => import('./pages/TimelinePage'), 'TimelinePage');
 const MeetingsPage = lazyPage(() => import('./pages/MeetingsPage'), 'MeetingsPage');
 const MeetingDetailPage = lazyPage(() => import('./pages/MeetingDetailPage'), 'MeetingDetailPage');
 const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'MyActionItemsPage');
@@ -90,6 +91,7 @@ export function App() {
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/my-tasks" element={<MyTasksPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/timeline" element={<TimelinePage />} />
             <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />

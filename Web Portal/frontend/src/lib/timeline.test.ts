@@ -9,6 +9,7 @@ import {
   heatLevel,
   heatScale,
   lateNote,
+  milestoneLine,
   monthMarks,
   nextLine,
   ownerOptions,
@@ -224,6 +225,12 @@ describe('wording', () => {
     expect(doneLine(tp('a', { tasks: { total: 0, done: 0, open: 0, overdue: 0 }, progress: 0 }))).toBe('No tasks yet');
     expect(nextLine(tp('a', { nextMilestone: beta, milestones: [beta] }), TODAY)).toBe('◆ Beta build, 6 Nov');
     expect(nextLine(tp('a'), TODAY)).toBe('No milestones');
+  });
+
+  it('gives a phone row its next milestone', () => {
+    expect(milestoneLine(tp('a', { nextMilestone: beta, milestones: [beta] }), TODAY)).toBe('Next ◆ Beta build · 6 Nov');
+    expect(milestoneLine(tp('a'), TODAY)).toBe('No milestones');
+    expect(milestoneLine(tp('a', { milestones: [{ ...beta, done: true }] }), TODAY)).toBe('Every milestone reached');
   });
 
   it('gives a phone row its target', () => {

@@ -13,6 +13,8 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'board', label: 'Kanban Board', to: '/board', keywords: ['kanban', 'board'] },
   { id: 'projects', label: 'Projects', to: '/projects', keywords: ['project'] },
   { id: 'calendar', label: 'Calendar', to: '/calendar', keywords: ['schedule', 'due dates'] },
+  { id: 'timeline', label: 'Timeline', to: '/timeline', keywords: ['gantt', 'roadmap', 'milestones', 'targets', 'late projects'] },
+  { id: 'workload', label: 'Workload', to: '/workload', keywords: ['capacity', 'load', 'busy', 'daily limit', 'rebalance'] },
   { id: 'chat', label: 'Chat', to: '/chat', keywords: ['messages', 'talk'] },
   { id: 'activity', label: 'Activity', to: '/activity', keywords: ['feed', 'history'] },
   { id: 'notifications', label: 'Notifications', to: '/notifications', keywords: ['alerts', 'bell'] },

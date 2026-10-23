@@ -12,6 +12,12 @@ describe('invalidateTaskQueries', () => {
     await invalidateTaskQueries(qc);
     expect(qc.getQueryState([...PROJECTS_OVERVIEW_KEY])?.isInvalidated).toBe(true);
     expect(qc.getQueryState(['board', 'p1'])?.isInvalidated).toBe(true);
+    // The Timeline and Workload pages count tasks too.
+    qc.setQueryData(['timeline', '2026-10-05', '2027-01-03', 1], {});
+    qc.setQueryData(['workload', '2026-10-25', ''], {});
+    await invalidateTaskQueries(qc);
+    expect(qc.getQueryState(['timeline', '2026-10-05', '2027-01-03', 1])?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(['workload', '2026-10-25', ''])?.isInvalidated).toBe(true);
     // A task change doesn't change the projects themselves.
     expect(qc.getQueryState(['projects'])?.isInvalidated).toBe(false);
   });

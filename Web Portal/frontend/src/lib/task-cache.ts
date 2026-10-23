@@ -23,6 +23,9 @@ export const TASK_QUERY_ROOTS = [
   'report-workload',
   'report-completion',
   'report-timeseries',
+  // The Timeline and Workload pages count open tasks, overdue ones and those due each day or week.
+  'timeline',
+  'workload',
 ] as const;
 
 /** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…). */

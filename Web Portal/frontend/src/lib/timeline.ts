@@ -256,6 +256,12 @@ export function subline(p: TimelineProject, today: string): string {
   return `${p.progress}% · ${milestoneWords(p, today)}`;
 }
 
+/** "Next ◆ Beta build · 6 Nov", "No milestones" — a phone row's milestone line. */
+export function milestoneLine(p: TimelineProject, today: string): string {
+  const words = milestoneWords(p, today);
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** "9% done · 45% of the time used" — on an at-risk bar. */
 export function riskLabel(p: Pick<TimelineProject, 'progress' | 'timeUsed'>): string {
   return `${p.progress}% done · ${p.timeUsed ?? 0}% of the time used`;
