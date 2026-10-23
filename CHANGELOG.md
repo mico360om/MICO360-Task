@@ -94,6 +94,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   @mentions suggest only the people in it, and new messages appear in place without a reload.
 - On the website, "Mark all read" leaves notifications that arrived while the list was open unread
   (the Chrome extension already asks for this), and phone notifications say which alert they are for.
+- In the Android app, Quick add no longer asks for estimated hours and tags, as on the website's New task
+  form.
 
 ### Bug fixes
 - In the Android app, a change saved on the phone without a connection can no longer overwrite a newer
@@ -127,9 +129,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - In the Android app, chat files and profile photos load only from your MICO360 server, picked files are
   removed from the phone's cache once sent and at sign-out, and links with a broken id or a very long or
   crafted address open nothing.
-
-### Removed
-- In the Android app, Quick add's estimated hours and tags (they aren't on the website's New task form).
 
 ## [1.9.1] - 2026-10-23
 
