@@ -63,11 +63,8 @@ export interface TimelineSource {
    * `weekFrom` and `weekTo`. Nothing is capped, so no project can lose its next milestone or its last meetings.
    */
   load(projectIds: string[], ownerIds: string[], window: TimelineWindow): Promise<TimelineRows>;
-  /**
-   * One project's task rows: the tasks with a due date from `from` on that are due or start before
-   * `to`, the open ones due before `before` (most recent first, at most a page), and the counts.
-   */
-  projectTasks(projectId: string, window: { from: Date; to: Date; before: Date }): Promise<TimelineTasksRows>;
+  /** One project's task lane for the shown weeks (see TimelineTasksWindow), in a fixed number of queries. */
+  projectTasks(projectId: string, window: TimelineTasksWindow): Promise<TimelineTasksRows>;
 }
 
 /** A task as the timeline's task rows read it. */
@@ -83,12 +80,39 @@ export interface TimelineTaskRow {
   assignees: { id: string; name: string }[];
 }
 
+/**
+ * Where a project's task lane reads, each bound a day wider than the days it stands for (due dates
+ * kept as days or as instants; the builder places each task on its own day).
+ */
+export interface TimelineTasksWindow {
+  /** The shown weeks: due from `from` on, and due or started before `to`. */
+  from: Date;
+  to: Date;
+  /** Overdue: open and due before this. */
+  overdueBefore: Date;
+  /** Open and not overdue: due from this on. */
+  upcomingFrom: Date;
+}
+
+/** A due (and start) day and how many tasks have it: what the lane's count is made from. */
+export interface TimelineTaskDays {
+  dueDate: Date;
+  startDate: Date | null;
+  count: number;
+}
+
 export interface TimelineTasksRows {
-  inRange: TimelineTaskRow[];
-  before: TimelineTaskRow[];
-  /** Every live task of the project. */
-  total: number;
-  /** Its live tasks without a due date. */
+  /** Open tasks due before today, the most overdue first (at most a few pages). */
+  overdue: TimelineTaskRow[];
+  /** Open tasks in the shown weeks not yet overdue: the earliest by due day and the earliest by start day. */
+  openInRange: TimelineTaskRow[];
+  /** Done tasks in the shown weeks, the latest due first. */
+  doneInRange: TimelineTaskRow[];
+  /** The days of every task in the shown weeks, and of every open overdue task. */
+  inRangeDays: TimelineTaskDays[];
+  overdueDays: TimelineTaskDays[];
+  /** Every open task of the project, and those of them without a due date. */
+  open: number;
   undated: number;
 }
 
@@ -112,7 +136,11 @@ export interface TimelineTasksData {
   from: string;
   to: string;
   today: string;
-  total: number;
+  /** How many tasks the lane holds (open overdue ones and those in the shown weeks); `tasks` is at most 30 of them. */
+  matched: number;
+  /** Every open task of the project. */
+  open: number;
+  /** Its open tasks without a due date. */
   undated: number;
   tasks: TimelineTask[];
 }
@@ -319,9 +347,14 @@ export function buildTimeline(
       const dates = taskDates.get(p.id);
       const ownStart = dueDayKey(p.startDate, timeZone);
       const ownTarget = dueDayKey(p.targetDate, timeZone);
-      const fromTasks = [dates?.minStart, dates?.minDue].map((d) => dueDayKey(d ?? null, timeZone)).filter((d): d is string => d !== null).sort()[0] ?? null;
-      const start = ownStart ?? fromTasks ?? zonedDayKey(p.createdAt, timeZone);
-      const startFrom = ownStart ? 'project' : fromTasks ? 'tasks' : 'created';
+      const earliest = [dates?.minStart, dates?.minDue].map((d) => dueDayKey(d ?? null, timeZone)).filter((d): d is string => d !== null).sort()[0] ?? null;
+      // A task-derived start after the project's own target says nothing about when it starts.
+      const fromTasks = earliest !== null && (ownTarget === null || earliest <= ownTarget) ? earliest : null;
+      const created = zonedDayKey(p.createdAt, timeZone);
+      // Created after its own target (only by hand in the database): the bar is its target day.
+      const createdStart = ownTarget !== null && created > ownTarget ? null : created;
+      const start = ownStart ?? fromTasks ?? createdStart ?? ownTarget!;
+      const startFrom = ownStart ? 'project' : fromTasks ? 'tasks' : createdStart ? 'created' : 'project';
       const lastDue = dueDayKey(dates?.maxDue ?? null, timeZone);
       // A task-derived end before the start says nothing about when the project ends.
       const target = ownTarget ?? (lastDue !== null && lastDue >= start ? lastDue : null);
@@ -358,12 +391,15 @@ export function buildTimeline(
   };
 }
 
-/** How many task rows a project shows; the rest are on its board. */
+/** How many task rows a project shows; the rest are on its own page. */
 export const TIMELINE_TASK_LIMIT = 30;
 
+const byKey = (a: TimelineTask, b: TimelineTask) => a.key.localeCompare(b.key, undefined, { numeric: true });
+
 /**
- * A project's task rows for the shown weeks: the tasks that fall in them (by their first day), then
- * its open tasks due before them (overdue, most recent first) — at most TIMELINE_TASK_LIMIT.
+ * A project's task lane for the shown weeks: its open overdue tasks (the most overdue first), then
+ * its open tasks in the shown weeks (by their first day), then its done ones there (the latest
+ * first) — at most TIMELINE_TASK_LIMIT, with how many the lane holds in all.
  */
 export function buildTimelineTasks(
   projectId: string,
@@ -371,30 +407,48 @@ export function buildTimelineTasks(
   { from, to, timeZone, now = new Date() }: { from: string; to: string; timeZone: string; now?: Date },
 ): TimelineTasksData {
   const today = todayKey(timeZone, now);
-  const toTask = (t: TimelineTaskRow): TimelineTask | null => {
-    const due = dueDayKey(t.dueDate, timeZone);
+  /** A task's own days: its due day, and its start day when that is on or before it. */
+  const daysOf = (dueDate: Date | null, startDate: Date | null) => {
+    const due = dueDayKey(dueDate, timeZone);
     if (!due) return null;
-    const start = dueDayKey(t.startDate, timeZone);
+    const start = dueDayKey(startDate, timeZone);
+    return { due, start: start !== null && start <= due ? start : null };
+  };
+  const inRange = (d: { due: string; start: string | null }) => (d.start ?? d.due) <= to && d.due >= from;
+  const toTask = (t: TimelineTaskRow): TimelineTask | null => {
+    const d = daysOf(t.dueDate, t.startDate);
+    if (!d) return null;
     return {
       id: t.id,
       key: t.key,
       title: t.title,
-      start: start !== null && start <= due ? start : null,
-      due,
+      start: d.start,
+      due: d.due,
       done: t.done,
-      overdue: !t.done && due < today,
+      overdue: !t.done && d.due < today,
       priority: t.priority,
       isMilestone: t.isMilestone,
       assignees: t.assignees,
     };
   };
-  const shown = rows.inRange
-    .map(toTask)
-    .filter((t): t is TimelineTask => t !== null && (t.start ?? t.due) <= to && t.due >= from)
-    .sort((a, b) => (a.start ?? a.due).localeCompare(b.start ?? b.due) || a.due.localeCompare(b.due) || a.key.localeCompare(b.key, undefined, { numeric: true }));
-  const before = rows.before
-    .map(toTask)
-    .filter((t): t is TimelineTask => t !== null && !t.done && t.due < from)
-    .sort((a, b) => b.due.localeCompare(a.due) || a.key.localeCompare(b.key, undefined, { numeric: true }));
-  return { projectId, from, to, today, total: rows.total, undated: rows.undated, tasks: [...shown, ...before].slice(0, TIMELINE_TASK_LIMIT) };
+  const tasksOf = (list: TimelineTaskRow[], keep: (t: TimelineTask) => boolean) => list.map(toTask).filter((t): t is TimelineTask => t !== null && keep(t));
+  const overdue = tasksOf(rows.overdue, (t) => t.overdue).sort((a, b) => a.due.localeCompare(b.due) || byKey(a, b));
+  const open = tasksOf(rows.openInRange, (t) => !t.done && !t.overdue && inRange(t)).sort(
+    (a, b) => (a.start ?? a.due).localeCompare(b.start ?? b.due) || a.due.localeCompare(b.due) || byKey(a, b),
+  );
+  const done = tasksOf(rows.doneInRange, (t) => t.done && inRange(t)).sort((a, b) => b.due.localeCompare(a.due) || byKey(a, b));
+  const seen = new Set<string>();
+  const tasks = [...overdue, ...open, ...done].filter((t) => !seen.has(t.id) && seen.add(t.id)).slice(0, TIMELINE_TASK_LIMIT);
+
+  // The lane: every task in the shown weeks, and every open overdue one outside them.
+  let matched = 0;
+  for (const g of rows.inRangeDays) {
+    const d = daysOf(g.dueDate, g.startDate);
+    if (d && inRange(d)) matched += g.count;
+  }
+  for (const g of rows.overdueDays) {
+    const d = daysOf(g.dueDate, g.startDate);
+    if (d && d.due < today && !inRange(d)) matched += g.count;
+  }
+  return { projectId, from, to, today, matched, open: rows.open, undated: rows.undated, tasks };
 }

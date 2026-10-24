@@ -97,8 +97,13 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       if (to < from || daysBetween(from, to) >= MAX_TIMELINE_WEEKS * 7) throw new ValidationError(`Ask for 1 to ${MAX_TIMELINE_WEEKS} weeks, ending on or after the start.`);
       const project = await deps.projectService.getVisibleProject(id, viewerOf(req));
       if (!isOpen(project.status)) throw new NotFoundError('Project not found.');
-      // A day either side, for due dates kept as days; the builder places each on its own day.
-      const rows = await source.projectTasks(project.id, { from: utcDay(shiftDayKey(from, -1)), to: utcDay(shiftDayKey(to, 2)), before: utcDay(shiftDayKey(from, 1)) });
+      // A day either side of each bound, for due dates kept as days; the builder places each on its own day.
+      const rows = await source.projectTasks(project.id, {
+        from: utcDay(shiftDayKey(from, -1)),
+        to: utcDay(shiftDayKey(to, 2)),
+        overdueBefore: utcDay(shiftDayKey(today, 1)),
+        upcomingFrom: utcDay(shiftDayKey(from > today ? from : today, -1)),
+      });
       return { data: buildTimelineTasks(project.id, rows, { from, to, timeZone, now: at }) };
     });
   }

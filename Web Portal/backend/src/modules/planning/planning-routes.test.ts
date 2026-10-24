@@ -6,7 +6,7 @@ import { createAuthService } from '../auth/auth-service';
 import { createSettingsService } from '../settings/settings-service';
 import type { ProjectRecord, ProjectRepository } from '../projects/project-repository';
 import type { SettingsRepository } from '../settings/settings-repository';
-import type { TimelineRows, TimelineSource, TimelineTasksRows, TimelineWindow } from './timeline';
+import type { TimelineRows, TimelineSource, TimelineTasksRows, TimelineTasksWindow, TimelineWindow } from './timeline';
 import { fakeWorkloadStore, type FakeCompany } from './workload-store.fixture';
 
 // Saturday 24 October 2026, 12:00 in Muscat.
@@ -53,8 +53,9 @@ const repo: ProjectRepository = {
 
 let timelineCalls: ({ projectIds: string[]; ownerIds: string[] } & TimelineWindow)[] = [];
 let timelineRows: TimelineRows = { totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
-let taskCalls: { projectId: string; from: Date; to: Date; before: Date }[] = [];
-let taskRows: TimelineTasksRows = { inRange: [], before: [], total: 0, undated: 0 };
+const NO_TASKS: TimelineTasksRows = { overdue: [], openInRange: [], doneInRange: [], inRangeDays: [], overdueDays: [], open: 0, undated: 0 };
+let taskCalls: ({ projectId: string } & TimelineTasksWindow)[] = [];
+let taskRows: TimelineTasksRows = NO_TASKS;
 const timelineSource: TimelineSource = {
   async load(projectIds, ownerIds, window) {
     timelineCalls.push({ projectIds, ownerIds, ...window });
@@ -120,7 +121,7 @@ beforeEach(async () => {
   projects = [];
   timelineCalls = [];
   taskCalls = [];
-  taskRows = { inRange: [], before: [], total: 0, undated: 0 };
+  taskRows = NO_TASKS;
   timelineRows = { totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
   company = EMPTY;
   workloadStore = fakeWorkloadStore(company);
@@ -235,21 +236,42 @@ describe('GET /timeline/projects/:id/tasks', () => {
 
   it('gives a visible open project’s task rows for the shown weeks, read in one go', async () => {
     projects = [record('rig', { ownerId: 'emp' })];
-    taskRows = { inRange: [row('a', '2026-10-28')], before: [row('b', '2026-10-01')], total: 12, undated: 2 };
+    const a = row('a', '2026-10-28');
+    const b = row('b', '2026-10-01');
+    taskRows = { ...NO_TASKS, overdue: [b], openInRange: [a], inRangeDays: [{ dueDate: a.dueDate, startDate: null, count: 1 }], overdueDays: [{ dueDate: b.dueDate, startDate: null, count: 1 }], open: 12, undated: 2 };
     const res = await app.inject({ method: 'GET', url: url('rig'), headers: await EMPLOYEE() });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toMatchObject({ projectId: 'rig', from: '2026-10-19', to: '2026-11-08', today: '2026-10-24', total: 12, undated: 2 });
+    expect(res.json().data).toMatchObject({ projectId: 'rig', from: '2026-10-19', to: '2026-11-08', today: '2026-10-24', matched: 2, open: 12, undated: 2 });
     expect(res.json().data.tasks.map((t: { id: string; overdue: boolean }) => [t.id, t.overdue])).toEqual([
-      ['a', false],
       ['b', true],
+      ['a', false],
     ]);
-    // A day either side of the shown weeks, for due dates kept as days.
+    // A day either side of each bound, for due dates kept as days: the shown weeks, overdue (before
+    // today), and open not yet overdue (from today on).
     expect(taskCalls).toHaveLength(1);
-    expect([taskCalls[0]!.from, taskCalls[0]!.to, taskCalls[0]!.before].map((d) => d.toISOString())).toEqual([
+    const { from, to, overdueBefore, upcomingFrom } = taskCalls[0]!;
+    expect([from, to, overdueBefore, upcomingFrom].map((d) => d.toISOString())).toEqual([
       '2026-10-18T00:00:00.000Z',
       '2026-11-10T00:00:00.000Z',
-      '2026-10-20T00:00:00.000Z',
+      '2026-10-25T00:00:00.000Z',
+      '2026-10-23T00:00:00.000Z',
     ]);
+  });
+
+  it('reads open work from the first shown day when the weeks are all ahead of today', async () => {
+    projects = [record('rig')];
+    await app.inject({ method: 'GET', url: url('rig', 'from=2026-11-09&to=2026-11-29'), headers: await ADMIN() });
+    expect(taskCalls[0]!.upcomingFrom.toISOString()).toBe('2026-11-08T00:00:00.000Z');
+  });
+
+  it('takes up to 53 weeks and refuses a longer range (400)', async () => {
+    projects = [record('rig')];
+    // 19 October 2026 to 24 October 2027 is 53 weeks; a day more is too long.
+    expect((await app.inject({ method: 'GET', url: url('rig', 'from=2026-10-19&to=2027-10-24'), headers: await ADMIN() })).statusCode).toBe(200);
+    const long = await app.inject({ method: 'GET', url: url('rig', 'from=2026-10-19&to=2027-10-25'), headers: await ADMIN() });
+    expect(long.statusCode).toBe(400);
+    expect(long.json().error.message).toBe('Ask for 1 to 53 weeks, ending on or after the start.');
+    expect(taskCalls).toHaveLength(1);
   });
 
   it('answers 404 for a project the asker can’t see, and for a completed or archived one (not on the timeline)', async () => {

@@ -604,7 +604,8 @@ paths:
         date, else the day it was created) with `startFrom` (project | tasks | created), `target` (its
         own target date, else its tasks' latest due date, or null) with `targetFrom` (project | tasks |
         null) — the project's own date always wins, field by field, and every live task counts, done
-        or not; a project whose end comes from its tasks is not late once every task is done —
+        or not; a start from its tasks after its own target, or an end from its tasks before its own
+        start, is left out; a project whose end comes from its tasks is not late once every task is done —
         `tasks` { total, done, open, overdue }, `progress`
         (share done, rounded as on the Projects page: 99 until every task is done), `timeUsed` (share
         of the days from start to target gone, 0–100; null without a target), `health` — `late`
@@ -628,10 +629,11 @@ paths:
   /timeline/projects/{id}/tasks:
     get:
       summary: >-
-        One project's task rows on the Timeline, read when its row is opened: the tasks due in (or
-        reaching into) the shown weeks by their first day, then its open tasks due before them —
-        at most 30 — with the project's task counts. Same projects as GET /timeline (one the caller
-        may see, not completed or archived) and the same two-year reach.
+        One project's task lane on the Timeline, read when its row is opened: its open overdue tasks
+        (the most overdue first), then its open tasks in (or reaching into) the shown weeks by their
+        first day (start, else due), then its done tasks there (the latest due first) — at most 30.
+        Same projects as GET /timeline (one the caller may see, not completed or archived) and the
+        same two-year reach.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
@@ -639,9 +641,11 @@ paths:
       responses:
         '200':
           description: >-
-            `{ data: { projectId, from, to, today, total, undated, tasks: [{ id, key, title, start (or null:
+            `{ data: { projectId, from, to, today, matched, open, undated, tasks: [{ id, key, title, start (or null:
             drawn as a marker), due, done, overdue, priority, isMilestone, assignees: [{ id, name }] }] } }`
-            — `total` is every live task of the project (the rest are on its board), `undated` those without a due date.
+            — `matched` is how many tasks the lane holds (open overdue ones and every task in the shown weeks;
+            more than `tasks` when rows were cut), `open` every open task of the project, `undated` its open
+            tasks without a due date.
         '400': { description: 'VALIDATION: a missing or unreal date, a date more than two years from today, `to` before `from`, or more than 53 weeks' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { description: 'No such project, not visible to the caller, or completed or archived' }

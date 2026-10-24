@@ -1,5 +1,5 @@
-import type { PrismaClient } from '@prisma/client';
-import type { TimelineMilestoneRow, TimelinePerson, TimelineRows, TimelineSource, TimelineTaskRow } from './timeline';
+import type { Prisma, PrismaClient } from '@prisma/client';
+import { TIMELINE_TASK_LIMIT, type TimelineMilestoneRow, type TimelinePerson, type TimelineRows, type TimelineSource, type TimelineTaskRow } from './timeline';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
 export const toPerson = (u: { id: string; firstName: string; lastName: string; username: string; avatarUrl: string | null }): TimelinePerson => ({
@@ -78,7 +78,7 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
       };
     },
 
-    async projectTasks(projectId, { from, to, before }) {
+    async projectTasks(projectId, { from, to, overdueBefore, upcomingFrom }) {
       const live = { projectId, deletedAt: null };
       const select = {
         id: true,
@@ -104,14 +104,38 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
         isMilestone: t.isMilestone,
         assignees: t.assignees.map((a) => ({ id: a.user.id, name: toPerson(a.user).name })),
       });
-      const [inRange, earlier, total, undated] = await Promise.all([
-        // Due from `from` on, and due (or started) before `to`: in or reaching into the shown weeks.
-        prisma.task.findMany({ where: { ...live, dueDate: { gte: from }, OR: [{ dueDate: { lt: to } }, { startDate: { lt: to } }] }, select, orderBy: [{ dueDate: 'asc' }, { key: 'asc' }], take: 500 }),
-        prisma.task.findMany({ where: { ...live, ...NOT_DONE, dueDate: { lt: before } }, select, orderBy: [{ dueDate: 'desc' }, { key: 'asc' }], take: 60 }),
-        prisma.task.count({ where: live }),
-        prisma.task.count({ where: { ...live, dueDate: null } }),
+      // Due from `from` on, and due (or started) before `to`: in or reaching into the shown weeks.
+      const reaches: Prisma.TaskWhereInput = { OR: [{ dueDate: { lt: to } }, { startDate: { lt: to } }] };
+      const inWindow: Prisma.TaskWhereInput = { ...live, dueDate: { gte: from }, ...reaches };
+      // Open and not yet overdue (overdue work is read on its own).
+      const openInWindow: Prisma.TaskWhereInput = { ...live, ...NOT_DONE, AND: [{ dueDate: { gte: from } }, { dueDate: { gte: upcomingFrom } }, reaches] };
+      const doneInWindow: Prisma.TaskWhereInput = { ...live, AND: [{ dueDate: { gte: from } }, reaches, { OR: [{ completedAt: { not: null } }, { column: { category: 'DONE' } }] }] };
+      // Each part is read at most two pages deep, in the order the lane shows it (open work by its
+      // first day: the earliest by due day and the earliest by start day hold it).
+      const page = 2 * TIMELINE_TASK_LIMIT;
+      const days = (where: Prisma.TaskWhereInput) => prisma.task.groupBy({ by: ['dueDate', 'startDate'], where, _count: { _all: true } });
+      const [overdue, byDue, byStart, done, inRangeDays, overdueDays, open, undated] = await Promise.all([
+        prisma.task.findMany({ where: { ...live, ...NOT_DONE, dueDate: { lt: overdueBefore } }, select, orderBy: [{ dueDate: 'asc' }, { key: 'asc' }], take: page }),
+        prisma.task.findMany({ where: openInWindow, select, orderBy: [{ dueDate: 'asc' }, { key: 'asc' }], take: page }),
+        prisma.task.findMany({ where: { ...openInWindow, startDate: { not: null } }, select, orderBy: [{ startDate: 'asc' }, { key: 'asc' }], take: page }),
+        prisma.task.findMany({ where: doneInWindow, select, orderBy: [{ dueDate: 'desc' }, { key: 'asc' }], take: page }),
+        days(inWindow),
+        days({ ...live, ...NOT_DONE, dueDate: { lt: overdueBefore } }),
+        prisma.task.count({ where: { ...live, ...NOT_DONE } }),
+        prisma.task.count({ where: { ...live, ...NOT_DONE, dueDate: null } }),
       ]);
-      return { inRange: inRange.map(toRow), before: earlier.map(toRow), total, undated };
+      const once = new Map([...byDue, ...byStart].map((t) => [t.id, t]));
+      const toDays = (g: { dueDate: Date | null; startDate: Date | null; _count: { _all: number } }[]) =>
+        g.filter((x): x is typeof x & { dueDate: Date } => x.dueDate !== null).map((x) => ({ dueDate: x.dueDate, startDate: x.startDate, count: x._count._all }));
+      return {
+        overdue: overdue.map(toRow),
+        openInRange: [...once.values()].map(toRow),
+        doneInRange: done.map(toRow),
+        inRangeDays: toDays(inRangeDays),
+        overdueDays: toDays(overdueDays),
+        open,
+        undated,
+      };
     },
   };
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaTimelineSource } from '../../src/modules/planning/prisma-timeline-source';
+import { TIMELINE_TASK_LIMIT, buildTimelineTasks } from '../../src/modules/planning/timeline';
 import { createPrismaWorkloadStore } from '../../src/modules/planning/prisma-workload-store';
 import { loadWorkload } from '../../src/modules/planning/workload-service';
 import { resolveWorkloadScope } from '../../src/modules/planning/workload';
@@ -154,23 +155,48 @@ describe('Timeline source (integration)', () => {
     expect(of('two')).toEqual({ projectId: ids.two, minStart: null, minDue: day('2026-10-29'), maxDue: day('2026-10-29') });
   });
 
-  it('reads one project’s task rows: those in the shown weeks, its open ones from before, and the counts', async () => {
+  it('reads one project’s task lane: open overdue work, open and done tasks in the shown weeks, the days to count, and the open counts', async () => {
     await prisma.task.update({ where: { id: ids.t1! }, data: { startDate: day('2026-10-20') } });
     const doing = (await prisma.kanbanColumn.findFirst({ where: { projectId: ids.one!, category: 'IN_PROGRESS' } }))!;
-    await prisma.task.create({ data: { key: 'PL-UNDATED', title: 'No date yet', projectId: ids.one!, columnId: doing.id, createdById: ids.ada! } });
-    const rows = await timeline.projectTasks(ids.one!, { from: day('2026-10-18'), to: day('2026-11-10'), before: day('2026-10-20') });
-    const titles = rows.inRange.map((t) => t.title).sort();
-    // Due 28 October (two open, two done), and Beta build on 6 November; not the deleted one, nor the one in March.
-    expect(rows.inRange).toHaveLength(5);
-    expect(titles).toContain('Beta build');
-    expect(rows.inRange.filter((t) => t.done)).toHaveLength(2);
-    const t2 = rows.inRange.find((t) => t.id === ids.t2)!;
-    expect(t2.assignees.map((a) => a.name).sort()).toEqual(['Bo Plan', 'Cy Plan']);
-    expect(rows.inRange.find((t) => t.id === ids.t1)).toMatchObject({ startDate: day('2026-10-20'), dueDate: day('2026-10-28'), done: false, priority: 'NORMAL', isMilestone: false });
-    // Before the shown weeks: only the open overdue task (Kick-off on 10 October is done).
-    expect(rows.before.map((t) => t.id)).toEqual([ids.t3]);
-    expect(rows.total).toBe(9); // the eight live ones and the undated one
+    const make = (key: string, extra: Record<string, unknown>) => prisma.task.create({ data: { key, title: key, projectId: ids.one!, columnId: doing.id, createdById: ids.ada!, ...extra } });
+    await make('PL-UNDATED', { title: 'No date yet' });
+    await make('PL-UNDATED-DONE', { completedAt: new Date() }); // done: not counted as open or undated
+    // A long task that started early and is due after the shown weeks (it starts before their end),
+    // and 65 open tasks due on 7 November: more than one page by due day.
+    const long = (await make('PL-LONG', { title: 'Long run', startDate: day('2026-10-02'), dueDate: day('2026-12-20') })).id;
+    await prisma.task.createMany({ data: Array.from({ length: 65 }, (_, i) => ({ key: `PL-BULK-${i}`, title: `Bulk ${i}`, projectId: ids.one!, columnId: doing.id, createdById: ids.ada!, dueDate: day('2026-11-07') })) });
+
+    // Shown: 19 October – 8 November; today is 24 October (each bound a day wider).
+    const rows = await timeline.projectTasks(ids.one!, { from: day('2026-10-18'), to: day('2026-11-10'), overdueBefore: day('2026-10-25'), upcomingFrom: day('2026-10-23') });
+    // Overdue: the open task due 1 October (Kick-off on 10 October is done).
+    expect(rows.overdue.map((t) => t.id)).toEqual([ids.t3]);
+    // Open in the shown weeks: the long one is read though more than a page of others is due sooner.
+    const open = new Map(rows.openInRange.map((t) => [t.id, t]));
+    expect(open.has(long)).toBe(true);
+    expect(open.get(ids.t1!)).toMatchObject({ startDate: day('2026-10-20'), dueDate: day('2026-10-28'), done: false, priority: 'NORMAL', isMilestone: false });
+    expect(open.get(ids.t2!)!.assignees.map((a) => a.name).sort()).toEqual(['Bo Plan', 'Cy Plan']);
+    expect(open.has(ids.m2!)).toBe(true); // Beta build, 6 November
+    expect(rows.openInRange.every((t) => !t.done && t.dueDate! < day('2027-01-01'))).toBe(true); // not the one in March
+    // Bounded: two pages by due day (t1, t2, Beta build and 57 of those due 7 November), and the long one by its start.
+    expect(rows.openInRange).toHaveLength(2 * TIMELINE_TASK_LIMIT + 1);
+    // Done in the shown weeks: the two due 28 October (not the deleted one).
+    expect(rows.doneInRange.map((t) => [t.done, t.dueDate])).toEqual([
+      [true, day('2026-10-28')],
+      [true, day('2026-10-28')],
+    ]);
+    // The days to count: every live task in the window, and the open overdue ones.
+    const inRange = rows.inRangeDays.reduce((n, g) => n + g.count, 0);
+    expect(inRange).toBe(71); // t1, t2 and the two done on 28 Oct, Beta build, the long one, 65 on 7 Nov
+    expect(rows.inRangeDays).toContainEqual({ dueDate: day('2026-12-20'), startDate: day('2026-10-02'), count: 1 });
+    expect(rows.overdueDays).toEqual([{ dueDate: day('2026-10-01'), startDate: null, count: 1 }]);
+    expect(rows.open).toBe(72); // t1, t2, t3, the March one, Beta build, the long one, 65, the undated one
     expect(rows.undated).toBe(1);
+
+    // Built: 30 rows — the overdue one, then the long one first among the open; the lane holds 72.
+    const lane = buildTimelineTasks(ids.one!, rows, { from: '2026-10-19', to: '2026-11-08', timeZone: 'Asia/Muscat', now: new Date('2026-10-24T08:00:00Z') });
+    expect(lane.tasks).toHaveLength(30);
+    expect(lane.tasks.slice(0, 3).map((t) => t.id)).toEqual([ids.t3, long, ids.t1]);
+    expect(lane.matched).toBe(72);
   });
 });
 
