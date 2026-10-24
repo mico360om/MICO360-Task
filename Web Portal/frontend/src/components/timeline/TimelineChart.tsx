@@ -11,6 +11,8 @@ import {
   daysBetween,
   heatLevel,
   lateNote,
+  lateNoteSpot,
+  type LabelSpot,
   markerLabel,
   markerSpanDays,
   meetingMarkers,
@@ -24,6 +26,16 @@ import {
 } from '../../lib/timeline';
 import { BAR_TONE, ExpandButton, HEAT, HealthPill, ROW } from './parts';
 import { ChartTaskRows } from './TimelineTasks';
+
+/** Where a bar's words sit, against the bar (its width is 100%). */
+const LABEL_AT: Record<LabelSpot, (fill: number) => CSSProperties> = {
+  inside: (fill) => ({ right: `calc(${100 - fill}% + 0.25rem)` }),
+  'after-fill': (fill) => ({ left: `calc(${fill}% + 0.25rem)` }),
+  'after-bar': () => ({ left: 'calc(100% + 0.375rem)' }),
+  'before-bar': () => ({ right: 'calc(100% + 0.375rem)' }),
+  end: () => ({ right: '0.25rem' }),
+  start: () => ({ left: '0.25rem' }),
+};
 
 /** What a click on the chart opens: a project's details, a group of its milestones, or of its meetings. */
 export type TimelineDetail =
@@ -197,6 +209,8 @@ function ProjectRow({
   const meetings = meetingMarkers(p.meetings.filter((m) => inRange(m.day)), span);
   const milestones = milestoneMarkers(p.milestones.filter((m) => inRange(m.date)), span);
   const end = over ? over.left + over.width : bar ? bar.left + bar.width : 0;
+  const note = p.health === 'late' ? lateNote(p, today) : null;
+  const spot = bar ? barLabelSpot(bar, label) : null;
   const sub = subline(p, today);
   const after = (detail: TimelineDetail) => (open === detailKey(detail) ? details : null);
 
@@ -226,7 +240,7 @@ function ProjectRow({
                 aria-haspopup="dialog"
                 aria-expanded={open === detailKey(projectDetail)}
                 aria-label={`${p.name}: ${HEALTH_LABEL[p.health].toLowerCase()}, ${p.progress}% done${p.timeUsed !== null && p.health !== 'late' ? `, ${p.timeUsed}% of the time used` : ''}${p.health === 'late' ? `, ${p.daysLate} ${p.daysLate === 1 ? 'day' : 'days'} late` : ''}${derived ? ', dates from its tasks' : ''}. Details`}
-                className={`absolute top-3 h-6 rounded-md text-start transition-shadow hover:shadow-lift focus-visible:z-20 ${tone.track} ${bar.startsBefore ? 'rounded-s-none' : ''} ${bar.endsAfter ? 'rounded-e-none' : ''} ${bar.open ? 'fade-end' : ''}`}
+                className={`absolute top-3 z-[1] h-6 rounded-md text-start transition-shadow hover:shadow-lift focus-visible:z-20 ${tone.track} ${bar.startsBefore ? 'rounded-s-none' : ''} ${bar.endsAfter ? 'rounded-e-none' : ''} ${bar.open ? 'fade-end' : ''}`}
                 style={{ left: `${bar.left}%`, width: `${bar.width}%` } as CSSProperties}
               >
                 {/* Dates from its tasks: a dashed outline round the bar. */}
@@ -235,14 +249,9 @@ function ProjectRow({
                 {/* Beside the end of the done part — inside it once it is long, after a short bar — so a milestone at the start never covers it. */}
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] font-bold leading-4 text-ink shadow-sm"
-                  style={
-                    {
-                      inside: { right: `calc(${100 - bar.fill}% + 0.25rem)` },
-                      'after-bar': { left: 'calc(100% + 0.375rem)' },
-                      'after-fill': { left: `calc(${bar.fill}% + 0.25rem)` },
-                    }[barLabelSpot(bar, label)]
-                  }
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] font-bold leading-4 text-ink shadow-sm"
+                  // Never past the weeks' edges: cut short only when no side has room.
+                  style={{ ...LABEL_AT[spot!.spot](bar.fill), ...(spot!.maxWidth ? { maxWidth: `calc(${spot!.maxWidth}% - 0.5rem)` } : {}) }}
                 >
                   {label}
                 </span>
@@ -251,9 +260,10 @@ function ProjectRow({
             </>
           ) : null}
           {over ? <span aria-hidden="true" className="hatch-late absolute top-3 h-6 rounded-e-md" style={{ left: `${over.left}%`, width: `${over.width}%` }} /> : null}
-          {p.health === 'late' ? (
-            <span className="absolute top-[2.55rem] whitespace-nowrap text-[11.5px] font-semibold text-danger" style={{ left: `calc(${Math.min(end, 78)}% + 0.375rem)` }}>
-              {lateNote(p, today)}
+          {note ? (
+            // After the bar when it fits, else against the right edge.
+            <span className="absolute top-[2.55rem] whitespace-nowrap text-[11.5px] font-semibold text-danger" style={lateNoteSpot(end, note) === 'after' ? { left: `calc(${end}% + 0.375rem)` } : { right: '0.375rem' }}>
+              {note}
             </span>
           ) : null}
           {milestones.map((g) => {

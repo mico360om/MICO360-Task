@@ -88,11 +88,13 @@ export interface TimelineTasksData {
   from: string;
   to: string;
   today: string;
-  /** Every live task of the project (the rest are on its board). */
-  total: number;
-  /** Its tasks without a due date. */
+  /** How many tasks the lane holds (open overdue ones and those in the shown weeks); more than `tasks` when rows were cut. */
+  matched: number;
+  /** Every open task of the project. */
+  open: number;
+  /** Its open tasks without a due date. */
   undated: number;
-  /** At most 30: the shown weeks' first, then open ones due before them. */
+  /** At most 30: open overdue first, then open ones in the shown weeks, then done ones there. */
   tasks: TimelineTask[];
 }
 

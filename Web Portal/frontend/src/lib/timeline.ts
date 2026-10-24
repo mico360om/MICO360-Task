@@ -270,15 +270,44 @@ export function barLabel(p: TimelineProject): string {
   return datesFromTasks(p) ? `${base} · dates from tasks` : base;
 }
 
+/** The weeks are at least this wide (rem); widths below are judged there, where room is least. */
+const WEEKS_MIN_REM = 36;
+/** About how wide small bold words are (rem), with their padding. */
+const wordsRem = (text: string) => text.length * 0.42 + 0.75;
+/** A share (0–100) of the weeks, in rem at their narrowest. */
+const rem = (pct: number) => (pct / 100) * WEEKS_MIN_REM;
+
+/** Where a bar's words can go. */
+export type LabelSpot = 'inside' | 'after-fill' | 'after-bar' | 'before-bar' | 'end' | 'start';
+
 /**
- * Where a bar's words go: inside its done part, at its end, when they fit there (the weeks are at
- * least 36rem wide; small bold type is about 0.42rem a letter); otherwise just after the bar when
- * most of it is done, else just after the done part.
+ * Where a bar's words go: `inside` its done part (at that part's end), `after-fill` (just after the
+ * done part), `after-bar`, `before-bar`, or at its `end` or `start` (inside the bar, running over it).
+ * Well filled bars try inside, after, before, then the bar's end; others after the done part, the
+ * bar's end, after, before. Nothing runs past the weeks' edges: when no place has room, the words
+ * go from the roomier end, cut to `maxWidth` (a share of the bar's width).
  */
-export function barLabelSpot(bar: { width: number; fill: number }, label: string): 'inside' | 'after-bar' | 'after-fill' {
-  if (bar.fill < 60) return 'after-fill';
-  const doneRem = (bar.width / 100) * (bar.fill / 100) * 36;
-  return doneRem >= label.length * 0.42 + 0.75 ? 'inside' : 'after-bar';
+export function barLabelSpot(bar: { left: number; width: number; fill: number }, label: string): { spot: LabelSpot; maxWidth?: number } {
+  const need = wordsRem(label);
+  const done = (bar.width * bar.fill) / 100;
+  const room: Record<LabelSpot, number> = {
+    inside: rem(done) - 0.25,
+    'after-fill': rem(100 - bar.left - done) - 0.25,
+    'after-bar': rem(100 - bar.left - bar.width) - 0.375,
+    'before-bar': rem(bar.left) - 0.375,
+    end: rem(bar.left + bar.width) - 0.25,
+    start: rem(100 - bar.left) - 0.25,
+  };
+  const order: LabelSpot[] = bar.fill >= 60 ? ['inside', 'after-bar', 'before-bar', 'end', 'start'] : ['after-fill', 'end', 'after-bar', 'before-bar', 'start'];
+  const fits = order.find((spot) => room[spot] >= need);
+  if (fits) return { spot: fits };
+  const [spot, share] = 100 - bar.left >= bar.left + bar.width ? (['start', 100 - bar.left] as const) : (['end', bar.left + bar.width] as const);
+  return { spot, maxWidth: Math.round((share / bar.width) * 100) };
+}
+
+/** A late project's note: just `after` its bar's end (`end`, a share of the weeks) when it fits, else against the right `edge`. */
+export function lateNoteSpot(end: number, note: string): 'after' | 'edge' {
+  return rem(100 - end) - 0.375 >= wordsRem(note) ? 'after' : 'edge';
 }
 
 /** "Next ◆ Beta build · 6 Nov", "No milestones" — a phone row's milestone line. */
@@ -410,9 +439,14 @@ export function taskWhen(t: { start: string | null; due: string }, today: string
   return t.start.slice(0, 7) === t.due.slice(0, 7) ? `${a.split(' ')[0]} → ${b}` : `${a} → ${b}`;
 }
 
-/** What a screen reader hears for a task row: "MOB-11 Login screen, 12 → 20 Oct, overdue". */
-export function taskLabel(t: { key: string; title: string; start: string | null; due: string; done: boolean; overdue: boolean }, today: string): string {
-  return `${t.key} ${t.title}, ${taskWhen(t, today)}${t.done ? ', done' : t.overdue ? ', overdue' : ''}`;
+/** What a screen reader hears for a task row: "MOB-11 Login screen, 12 → 20 Oct, overdue, assigned to Sara Ahmed". */
+export function taskLabel(
+  t: { key: string; title: string; start: string | null; due: string; done: boolean; overdue: boolean; assignees?: { id: string; name: string }[] },
+  today: string,
+): string {
+  const names = (t.assignees ?? []).map((a) => a.name);
+  const who = names.length ? `, assigned to ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]}` : '';
+  return `${t.key} ${t.title}, ${taskWhen(t, today)}${t.done ? ', done' : t.overdue ? ', overdue' : ''}${who}`;
 }
 
 /** A task on a phone: "due 20 Oct · overdue", "due 22 Oct · ✓ done". */

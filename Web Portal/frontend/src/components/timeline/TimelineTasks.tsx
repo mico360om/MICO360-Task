@@ -1,39 +1,47 @@
 import { Link } from 'react-router-dom';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { apiClient } from '../../api/client';
 import { planningApi, timelineTasksKey, type TimelineTask, type TimelineTasksData } from '../../api/planning';
 import { phoneTaskLine, shortDay, taskLabel, taskShape } from '../../lib/timeline';
 import { Initials, ROW } from './parts';
 
-/** One project's task rows for the shown weeks, read when its row is opened (and again as tasks or the weeks change). */
+/**
+ * One project's task lane for the shown weeks, read when its row is opened, and again as tasks or
+ * the weeks change. No placeholder: while other weeks load, the old rows are not drawn against them.
+ */
 function useTimelineTasks(projectId: string, range: { from: string; to: string }, today: string) {
   return useQuery({
     queryKey: timelineTasksKey(projectId, range.from, range.to, today),
-    queryFn: () => planningApi(apiClient).timelineTasks(projectId, range),
-    placeholderData: keepPreviousData,
+    queryFn: () => planningApi(apiClient).timelineTasks(projectId, { from: range.from, to: range.to }),
   });
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "Show all 12 open tasks", on the project's own Tasks tab. */
+const allOpen = (n: number) => (n === 0 ? 'Open its tasks' : n === 1 ? 'Show its 1 open task' : `Show all ${n} open tasks`);
 
-/** Under the rows: the rest on the board, and how many have no due date. */
+/** Under the rows: when some were cut, how many show and the project's open tasks; and its open tasks with no due date. */
 function footerParts(projectId: string, data: TimelineTasksData): ReactNode[] {
   const parts: ReactNode[] = [];
   if (data.tasks.length === 0) parts.push(<span key="none">No tasks in these weeks.</span>);
-  if (data.total > data.tasks.length) {
+  if (data.matched > data.tasks.length) {
     parts.push(
-      <Link key="all" to={`/board?project=${encodeURIComponent(projectId)}`} className="font-semibold text-brand hover:underline">
-        Show all {data.total} on the board
+      <span key="shown">
+        {data.tasks.length} of {data.matched} shown
+      </span>,
+      <Link key="all" to={`/projects/${encodeURIComponent(projectId)}?tab=tasks`} className="font-semibold text-brand hover:underline">
+        {allOpen(data.open)}
       </Link>,
     );
   }
-  if (data.undated) parts.push(<span key="undated">{data.undated === 1 ? '1 task has no due date' : `${plural(data.undated, 'task')} have no due date`}</span>);
+  if (data.undated) parts.push(<span key="undated">{data.undated === 1 ? '1 open task has no due date' : `${data.undated} open tasks have no due date`}</span>);
   return parts;
 }
 
+type Tone = 'overdue' | 'done' | 'open';
+const toneOf = (t: TimelineTask): Tone => (t.done ? 'done' : t.overdue ? 'overdue' : 'open');
 /** A task's colour: red when overdue, grey once done, else the timeline's blue. */
-const tone = (t: TimelineTask) => (t.done ? 'bg-ink-3/60' : t.overdue ? 'bg-danger' : 'bg-info');
+const TONE: Record<Tone, string> = { overdue: 'bg-danger', done: 'bg-ink-3/60', open: 'bg-info' };
 
 function TaskMark({ t, range, today }: { t: TimelineTask; range: { from: string; to: string }; today: string }) {
   const shape = taskShape(t, range);
@@ -41,7 +49,8 @@ function TaskMark({ t, range, today }: { t: TimelineTask; range: { from: string;
     return (
       <span
         aria-hidden="true"
-        className={`absolute top-1/2 h-3 -translate-y-1/2 rounded ${tone(t)} ${shape.startsBefore ? 'rounded-s-none' : ''} ${shape.endsAfter ? 'rounded-e-none' : ''}`}
+        data-tone={toneOf(t)}
+        className={`absolute top-1/2 h-3 -translate-y-1/2 rounded ${TONE[toneOf(t)]} ${shape.startsBefore ? 'rounded-s-none' : ''} ${shape.endsAfter ? 'rounded-e-none' : ''}`}
         style={{ left: `${shape.left}%`, width: `${shape.width}%` }}
       />
     );
@@ -49,7 +58,7 @@ function TaskMark({ t, range, today }: { t: TimelineTask; range: { from: string;
   if (shape.kind === 'marker') {
     return (
       <span aria-hidden="true" className="absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rtl:translate-x-1/2" style={{ left: `${shape.x}%` }}>
-        <span className={`block h-2.5 w-2.5 ${t.isMilestone ? 'rotate-45 rounded-[2px]' : 'rounded-full'} ${tone(t)}`} />
+        <span data-tone={toneOf(t)} className={`block h-2.5 w-2.5 ${t.isMilestone ? 'rotate-45 rounded-[2px]' : 'rounded-full'} ${TONE[toneOf(t)]}`} />
       </span>
     );
   }
@@ -58,17 +67,19 @@ function TaskMark({ t, range, today }: { t: TimelineTask; range: { from: string;
   return (
     <span
       aria-hidden="true"
+      data-tone={toneOf(t)}
       className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] font-semibold ${shape.kind === 'before' ? 'start-1.5' : 'end-1.5'} ${t.overdue ? 'text-danger' : 'text-ink-2'}`}
     >
-      {shape.kind === 'before' ? `◂ ${words}` : `${words} ▸`}
+      {shape.kind === 'before' ? `◂ ${words}${t.overdue ? ' · overdue' : ''}` : `${words} ▸`}
     </span>
   );
 }
 
 /**
- * A project's tasks as rows under it on the chart: a bar from start to due day (a marker on the due
- * day when it has no start), red when overdue, grey with ✓ once done, and who has it. The whole row
- * opens the task. At most 30 — the rest are on the board.
+ * A project's task lane under it on the chart — open overdue work first, then open tasks in the
+ * shown weeks, then done ones: a bar from start to due day (a marker on the due day when it has no
+ * start), red with ⚠ when overdue, grey with ✓ once done, and who has it. The whole row opens the
+ * task. At most 30 — when more, how many show, and the project's open tasks on its own page.
  */
 export function ChartTaskRows({
   projectId,
@@ -123,11 +134,13 @@ export function ChartTaskRows({
                   <span className="font-mono text-[11px] text-ink-2">{t.key}</span>
                   <span className="ms-1.5">
                     {t.done ? <span aria-hidden="true">✓ </span> : null}
+                    {t.overdue ? <span aria-hidden="true">⚠ </span> : null}
                     {t.isMilestone ? <span aria-hidden="true">◆ </span> : null}
                     {t.title}
                   </span>
                 </button>
-                <Initials people={t.assignees} />
+                {/* Above the stretched button, so their names show on hover; the button's name says them too. */}
+                <Initials people={t.assignees} className="relative z-20" />
               </div>
               <div className="relative h-8 border-s border-line">
                 {backdrop}
@@ -173,7 +186,7 @@ export function PhoneTaskList({ projectId, name, range, today, onOpenTask }: { p
                   </span>
                   <span className={`block text-xs ${t.overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>{phoneTaskLine(t, today)}</span>
                 </span>
-                <Initials people={t.assignees} />
+                <Initials people={t.assignees} announce />
               </button>
             </li>
           ))}

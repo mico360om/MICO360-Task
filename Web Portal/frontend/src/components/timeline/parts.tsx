@@ -98,18 +98,27 @@ export function ExpandButton({ name, expanded, onToggle, children, className = '
   );
 }
 
-/** Who has a task: their initials (the names on hover and for screen readers). */
-export function Initials({ people }: { people: { id: string; name: string }[] }) {
+/**
+ * Who has a task: their initials, their names on hover. `announce` also says the names to screen
+ * readers (where the row's own name doesn't already).
+ */
+export function Initials({ people, announce = false, className = '' }: { people: { id: string; name: string }[]; announce?: boolean; className?: string }) {
   if (people.length === 0) return null;
   const names = people.map((p) => p.name).join(', ');
+  const chip = 'grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2';
   return (
-    <span role="img" aria-label={`Assigned to ${names}`} title={names} className="flex flex-none gap-0.5">
+    <span title={names} className={`flex flex-none gap-0.5 ${className}`}>
+      {announce ? <span className="sr-only">, assigned to {names}</span> : null}
       {people.slice(0, 2).map((p) => (
-        <span key={p.id} className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2">
+        <span key={p.id} aria-hidden="true" className={chip}>
           {initialsOf(p.name)}
         </span>
       ))}
-      {people.length > 2 ? <span className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2">+{people.length - 2}</span> : null}
+      {people.length > 2 ? (
+        <span aria-hidden="true" className={chip}>
+          +{people.length - 2}
+        </span>
+      ) : null}
     </span>
   );
 }

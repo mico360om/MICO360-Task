@@ -5,6 +5,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TimelinePage } from './TimelinePage';
 import { useAuthStore } from '../stores/auth-store';
+import { invalidateTaskQueries } from '../lib/task-cache';
 import type { TimelineData, TimelineProject, TimelineTasksData } from '../api/planning';
 
 // The full task panel has its own tests; here it only has to open for the right task.
@@ -75,12 +76,15 @@ let requests: string[] = [];
 let projects: TimelineProject[] = PROJECTS;
 let fail = false;
 let ownZone: string | null = null;
+/** While set, a later quarter's task rows wait for it. */
+let holdLater: Promise<void> | null = null;
 const MOB_TASKS: TimelineTasksData = {
   projectId: 'mob',
   from: '2026-10-04',
   to: '2027-01-02',
   today: '2026-10-24',
-  total: 40,
+  matched: 33,
+  open: 12,
   undated: 3,
   tasks: [
     { id: 'k1', key: 'MOB-11', title: 'Login screen', start: '2026-10-12', due: '2026-10-20', done: false, overdue: true, priority: 'HIGH', isMilestone: false, assignees: [{ id: 'u1', name: 'Sara Ahmed' }] },
@@ -105,6 +109,7 @@ beforeEach(() => {
   projects = PROJECTS;
   fail = false;
   ownZone = null;
+  holdLater = null;
   useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal(
     'fetch',
@@ -115,7 +120,14 @@ beforeEach(() => {
       if (url.endsWith('/users/me/preferences')) return json({ data: { timeZone: ownZone, weekStart: null } });
       if (url.includes('/timeline?')) return fail ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: answer(url) });
       const taskRows = /\/timeline\/projects\/([^/]+)\/tasks\?/.exec(url);
-      if (taskRows) return json({ data: taskRows[1] === 'mob' ? MOB_TASKS : { ...MOB_TASKS, projectId: taskRows[1], total: 0, undated: 0, tasks: [] } });
+      if (taskRows) {
+        // A later quarter: one task due in January.
+        if (url.includes('from=2027-01-03')) {
+          if (holdLater) await holdLater;
+          return json({ data: { ...MOB_TASKS, from: '2027-01-03', to: '2027-04-03', matched: 1, tasks: [{ ...MOB_TASKS.tasks[2]!, id: 'k9', key: 'MOB-19', title: 'Store release', due: '2027-01-20', assignees: [] }] } });
+        }
+        return json({ data: taskRows[1] === 'mob' ? MOB_TASKS : { ...MOB_TASKS, projectId: taskRows[1], matched: 0, open: 0, undated: 0, tasks: [] } });
+      }
       return json({ data: [] });
     }),
   );
@@ -365,7 +377,7 @@ describe('TimelinePage', () => {
     expect(details).not.toHaveTextContent('Target');
   });
 
-  it('opens a project’s tasks under it on request: overdue in red, done with ✓, who has each, and the rest on the board', async () => {
+  it('opens a project’s tasks under it on request: overdue in red with ⚠, done grey with ✓, who has each, and the rest on its page', async () => {
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
     expect(requests.some((u) => u.includes('/tasks?'))).toBe(false);
@@ -378,13 +390,23 @@ describe('TimelinePage', () => {
     const tasks = await screen.findByRole('list', { name: 'Tasks of Mobile App (Phase 2)' });
     expect(requests.find((u) => u.includes('/timeline/projects/mob/tasks?'))).toContain('from=2026-10-04&to=2027-01-02');
     const items = within(tasks).getAllByRole('listitem');
-    expect(within(items[0]!).getByRole('button', { name: 'MOB-11 Login screen, 12 → 20 Oct, overdue' })).toBeInTheDocument();
+    // Who has each is in the row's name (the initials show it on sight).
+    const login = within(items[0]!).getByRole('button', { name: 'MOB-11 Login screen, 12 → 20 Oct, overdue, assigned to Sara Ahmed' });
+    expect(login).toHaveTextContent('⚠');
     expect(items[0]).toHaveTextContent('SA');
+    expect(items[0]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'overdue');
+    expect(items[0]!.querySelector('[data-tone]')).toHaveClass('bg-danger');
     expect(within(items[1]!).getByRole('button', { name: 'MOB-12 Push alerts, due 22 Oct, done' })).toHaveTextContent('✓');
+    expect(items[1]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'done');
+    expect(items[1]!.querySelector('[data-tone]')).toHaveClass('bg-ink-3/60');
+    expect(items[2]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'open');
     expect(items[2]).toHaveTextContent('OSSA');
-    expect(within(tasks).getByRole('link', { name: 'Show all 40 on the board' })).toHaveAttribute('href', '/board?project=mob');
-    expect(tasks).toHaveTextContent('3 tasks have no due date');
-    await userEvent.click(within(items[0]!).getByRole('button', { name: /^MOB-11 Login screen/ }));
+    expect(within(items[2]!).getByRole('button', { name: 'MOB-13 Beta build, due 6 Nov, assigned to Omar Said and Sara Ahmed' })).toBeInTheDocument();
+    // Rows were cut: how many show, and the project's open tasks on its own page.
+    expect(tasks).toHaveTextContent('3 of 33 shown');
+    expect(within(tasks).getByRole('link', { name: 'Show all 12 open tasks' })).toHaveAttribute('href', '/projects/mob?tab=tasks');
+    expect(tasks).toHaveTextContent('3 open tasks have no due date');
+    await userEvent.click(login);
     expect(screen.getByRole('dialog', { name: 'Task details panel' })).toHaveTextContent('open k1');
   });
 
@@ -393,10 +415,42 @@ describe('TimelinePage', () => {
     await screen.findByRole('list', { name: 'Projects' });
     await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
     expect(screen.getAllByRole('button', { name: /^Tasks of/, expanded: true })).toHaveLength(4);
-    expect(await screen.findByRole('list', { name: 'Tasks of Falcon CRM' })).toHaveTextContent('No tasks in these weeks.');
+    const falcon = await screen.findByRole('list', { name: 'Tasks of Falcon CRM' });
+    await waitFor(() => expect(falcon).toHaveTextContent('No tasks in these weeks.'));
+    // Nothing was cut there: no count, no link.
+    expect(falcon).not.toHaveTextContent(' shown');
+    expect(within(falcon).queryByRole('link')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
     expect(screen.queryByRole('list', { name: /^Tasks of/ })).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Tasks of/, expanded: false })).toHaveLength(4);
+  });
+
+  it('reads an open lane again when a task changes', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    renderPage('/timeline', qc);
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: 'Tasks of Mobile App (Phase 2)' }));
+    await screen.findByRole('button', { name: /^MOB-11 Login screen/ });
+    const lanes = () => requests.filter((u) => u.includes('/timeline/projects/mob/tasks?')).length;
+    expect(lanes()).toBe(1);
+    // What the task panel and every other task change do.
+    await act(() => invalidateTaskQueries(qc));
+    await waitFor(() => expect(lanes()).toBe(2));
+  });
+
+  it('shows Loading, not the last weeks’ rows, while a new quarter’s tasks load', async () => {
+    let release!: () => void;
+    holdLater = new Promise<void>((r) => (release = r));
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: 'Tasks of Mobile App (Phase 2)' }));
+    await screen.findByRole('button', { name: /^MOB-11 Login screen/ });
+    await userEvent.click(screen.getByRole('button', { name: 'Later' }));
+    const lane = await screen.findByRole('list', { name: 'Tasks of Mobile App (Phase 2)' });
+    await waitFor(() => expect(lane).toHaveTextContent('Loading tasks…'));
+    expect(screen.queryByRole('button', { name: /^MOB-11 Login screen/ })).not.toBeInTheDocument();
+    await act(async () => release());
+    expect(await screen.findByRole('button', { name: /^MOB-19 Store release/ })).toBeInTheDocument();
   });
 
   it('pages a quarter at a time, and Today comes back; Month asks for six weeks', async () => {

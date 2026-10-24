@@ -11,6 +11,7 @@ import {
   filterTimeline,
   heatLevel,
   heatScale,
+  lateNoteSpot,
   initialsOf,
   lateNote,
   markerDays,
@@ -345,6 +346,10 @@ describe('task rows', () => {
     expect(taskWhen(t(null, '2026-10-22'), TODAY)).toBe('due 22 Oct');
     expect(taskWhen(t('2027-01-05', '2027-01-20'), TODAY)).toBe('5 → 20 Jan 2027');
     expect(taskLabel(t('2026-10-12', '2026-10-20', { overdue: true }), TODAY)).toBe('MOB-11 Login screen, 12 → 20 Oct, overdue');
+    expect(taskLabel({ ...t(null, '2026-10-22'), assignees: [{ id: 'u1', name: 'Sara Ahmed' }] }, TODAY)).toBe('MOB-11 Login screen, due 22 Oct, assigned to Sara Ahmed');
+    expect(taskLabel({ ...t(null, '2026-10-22'), assignees: [{ id: 'u2', name: 'Omar Said' }, { id: 'u1', name: 'Sara Ahmed' }, { id: 'u3', name: 'Layla' }] }, TODAY)).toBe(
+      'MOB-11 Login screen, due 22 Oct, assigned to Omar Said, Sara Ahmed and Layla',
+    );
     expect(taskLabel(t(null, '2026-10-22', { done: true }), TODAY)).toBe('MOB-11 Login screen, due 22 Oct, done');
     expect(taskLabel(t(null, '2026-11-06'), TODAY)).toBe('MOB-11 Login screen, due 6 Nov');
     expect(phoneTaskLine(t('2026-10-12', '2026-10-20', { overdue: true }), TODAY)).toBe('due 20 Oct · overdue');
@@ -375,14 +380,31 @@ describe('task rows', () => {
 });
 
 describe('where a bar’s words go', () => {
-  it('inside the done part when they fit there, else just after the bar (well filled) or after the done part', () => {
-    // A long, well-filled bar: inside.
-    expect(barLabelSpot({ width: 60, fill: 80 }, '80%')).toBe('inside');
-    // A short bar, all done (e.g. 5–8 Oct): after the bar, never back over the project's name.
-    expect(barLabelSpot({ width: 4, fill: 100 }, '100% · dates from tasks')).toBe('after-bar');
-    expect(barLabelSpot({ width: 20, fill: 90 }, '90% · dates from tasks')).toBe('after-bar');
-    // Less than 60% done: after the done part, as before.
-    expect(barLabelSpot({ width: 60, fill: 20 }, '20%')).toBe('after-fill');
-    expect(barLabelSpot({ width: 4, fill: 0 }, '0% · dates from tasks')).toBe('after-fill');
+  // The weeks are at least 36rem wide; "100% · dates from tasks" takes about 10.4rem.
+  it('inside the done part when they fit there, else after the done part or the bar — never past the right edge', () => {
+    expect(barLabelSpot({ left: 10, width: 60, fill: 80 }, '80%')).toEqual({ spot: 'inside' });
+    expect(barLabelSpot({ left: 10, width: 60, fill: 20 }, '20%')).toEqual({ spot: 'after-fill' });
+    // A short bar, all done (e.g. 5–8 Oct): after it, never back over the project's name.
+    expect(barLabelSpot({ left: 2, width: 4, fill: 100 }, '100% · dates from tasks')).toEqual({ spot: 'after-bar' });
+    expect(barLabelSpot({ left: 10, width: 20, fill: 90 }, '90% · dates from tasks')).toEqual({ spot: 'after-bar' });
+    // The same at the right edge: before it.
+    expect(barLabelSpot({ left: 94, width: 6, fill: 100 }, '100% · dates from tasks')).toEqual({ spot: 'before-bar' });
+    // Little done, near the right edge: at the bar's end, inside it.
+    expect(barLabelSpot({ left: 70, width: 30, fill: 20 }, '20% · dates from tasks')).toEqual({ spot: 'end' });
+    // A short bar from the left edge with little done: from its start.
+    expect(barLabelSpot({ left: 0, width: 3, fill: 0 }, '0% · dates from tasks')).toEqual({ spot: 'after-fill' });
+  });
+
+  it('cuts the words short only when no side has room, on the roomier side', () => {
+    const long = '9% done · 45% of the time used · dates from tasks';
+    expect(barLabelSpot({ left: 45, width: 10, fill: 30 }, long)).toEqual({ spot: 'start', maxWidth: 550 });
+    expect(barLabelSpot({ left: 50, width: 5, fill: 30 }, long)).toEqual({ spot: 'end', maxWidth: 1100 });
+  });
+
+  it('puts a late note after the bar when it fits, else against the right edge', () => {
+    expect(lateNoteSpot(30, 'Target 21 Oct · 3 days late')).toBe('after');
+    expect(lateNoteSpot(78, 'Last task was due 21 Oct · 3 days ago')).toBe('edge');
+    expect(lateNoteSpot(60, 'Target 21 Oct · 3 days late')).toBe('after');
+    expect(lateNoteSpot(70, 'Target 21 Oct · 3 days late')).toBe('edge');
   });
 });
