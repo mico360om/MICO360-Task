@@ -270,6 +270,17 @@ export function barLabel(p: TimelineProject): string {
   return datesFromTasks(p) ? `${base} · dates from tasks` : base;
 }
 
+/**
+ * Where a bar's words go: inside its done part, at its end, when they fit there (the weeks are at
+ * least 36rem wide; small bold type is about 0.42rem a letter); otherwise just after the bar when
+ * most of it is done, else just after the done part.
+ */
+export function barLabelSpot(bar: { width: number; fill: number }, label: string): 'inside' | 'after-bar' | 'after-fill' {
+  if (bar.fill < 60) return 'after-fill';
+  const doneRem = (bar.width / 100) * (bar.fill / 100) * 36;
+  return doneRem >= label.length * 0.42 + 0.75 ? 'inside' : 'after-bar';
+}
+
 /** "Next ◆ Beta build · 6 Nov", "No milestones" — a phone row's milestone line. */
 export function milestoneLine(p: TimelineProject, today: string): string {
   const words = milestoneWords(p, today);

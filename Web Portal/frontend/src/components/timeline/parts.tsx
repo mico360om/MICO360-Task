@@ -85,7 +85,8 @@ export function ExpandButton({ name, expanded, onToggle, children, className = '
       type="button"
       onClick={onToggle}
       aria-expanded={expanded}
-      aria-label={`${expanded ? 'Hide' : 'Show'} the tasks of ${name}`}
+      // One name, open or not: aria-expanded says which.
+      aria-label={`Tasks of ${name}`}
       title={expanded ? 'Hide its tasks' : 'Show its tasks'}
       className={`inline-flex flex-none items-center justify-center gap-1 rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand ${className}`}
     >
@@ -102,13 +103,13 @@ export function Initials({ people }: { people: { id: string; name: string }[] })
   if (people.length === 0) return null;
   const names = people.map((p) => p.name).join(', ');
   return (
-    <span role="img" aria-label={`Assigned to ${names}`} title={names} className="flex flex-none -space-x-1 rtl:space-x-reverse">
-      {people.slice(0, 3).map((p) => (
-        <span key={p.id} className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2 ring-2 ring-surface">
+    <span role="img" aria-label={`Assigned to ${names}`} title={names} className="flex flex-none gap-0.5">
+      {people.slice(0, 2).map((p) => (
+        <span key={p.id} className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2">
           {initialsOf(p.name)}
         </span>
       ))}
-      {people.length > 3 ? <span className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2 ring-2 ring-surface">+{people.length - 3}</span> : null}
+      {people.length > 2 ? <span className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2">+{people.length - 2}</span> : null}
     </span>
   );
 }

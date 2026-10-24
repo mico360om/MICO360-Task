@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { TimelineProject } from '../api/planning';
 import {
   barLabel,
+  barLabelSpot,
   barShape,
   busyTotals,
   datesFromTasks,
@@ -370,5 +371,18 @@ describe('task rows', () => {
     expect(taskShape(t('2026-09-01', '2026-10-03'), RANGE)).toEqual({ kind: 'before' });
     expect(taskShape(t(null, '2027-01-03'), RANGE)).toEqual({ kind: 'after' });
     expect(taskShape(t('2027-01-03', '2027-01-09'), RANGE)).toEqual({ kind: 'after' });
+  });
+});
+
+describe('where a bar’s words go', () => {
+  it('inside the done part when they fit there, else just after the bar (well filled) or after the done part', () => {
+    // A long, well-filled bar: inside.
+    expect(barLabelSpot({ width: 60, fill: 80 }, '80%')).toBe('inside');
+    // A short bar, all done (e.g. 5–8 Oct): after the bar, never back over the project's name.
+    expect(barLabelSpot({ width: 4, fill: 100 }, '100% · dates from tasks')).toBe('after-bar');
+    expect(barLabelSpot({ width: 20, fill: 90 }, '90% · dates from tasks')).toBe('after-bar');
+    // Less than 60% done: after the done part, as before.
+    expect(barLabelSpot({ width: 60, fill: 20 }, '20%')).toBe('after-fill');
+    expect(barLabelSpot({ width: 4, fill: 0 }, '0% · dates from tasks')).toBe('after-fill');
   });
 });

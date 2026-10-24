@@ -369,11 +369,12 @@ describe('TimelinePage', () => {
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
     expect(requests.some((u) => u.includes('/tasks?'))).toBe(false);
-    const expand = screen.getByRole('button', { name: 'Show the tasks of Mobile App (Phase 2)' });
+    // One name, open or not: aria-expanded says which.
+    const expand = screen.getByRole('button', { name: 'Tasks of Mobile App (Phase 2)' });
     expect(expand).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(expand);
     expect(expand).toHaveAttribute('aria-expanded', 'true');
-    expect(expand).toHaveAccessibleName('Hide the tasks of Mobile App (Phase 2)');
+    expect(expand).toHaveAccessibleName('Tasks of Mobile App (Phase 2)');
     const tasks = await screen.findByRole('list', { name: 'Tasks of Mobile App (Phase 2)' });
     expect(requests.find((u) => u.includes('/timeline/projects/mob/tasks?'))).toContain('from=2026-10-04&to=2027-01-02');
     const items = within(tasks).getAllByRole('listitem');
@@ -391,11 +392,11 @@ describe('TimelinePage', () => {
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
     await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
-    expect(screen.getAllByRole('button', { name: /^Hide the tasks of/ })).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: /^Tasks of/, expanded: true })).toHaveLength(4);
     expect(await screen.findByRole('list', { name: 'Tasks of Falcon CRM' })).toHaveTextContent('No tasks in these weeks.');
     await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
     expect(screen.queryByRole('list', { name: /^Tasks of/ })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /^Show the tasks of/ })).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: /^Tasks of/, expanded: false })).toHaveLength(4);
   });
 
   it('pages a quarter at a time, and Today comes back; Month asks for six weeks', async () => {
@@ -443,7 +444,7 @@ describe('TimelinePage', () => {
     expect(mssp).toHaveTextContent('No target date');
     expect(within(mobile!).getByRole('link')).toHaveAttribute('href', '/projects/mob');
     // Its tasks, with their due days, on request.
-    await userEvent.click(within(mobile!).getByRole('button', { name: 'Show the tasks of Mobile App (Phase 2)' }));
+    await userEvent.click(within(mobile!).getByRole('button', { name: 'Tasks of Mobile App (Phase 2)', expanded: false }));
     const tasks = await screen.findByRole('list', { name: 'Tasks of Mobile App (Phase 2)' });
     expect(within(tasks).getAllByRole('listitem')[0]).toHaveTextContent('MOB-11Login screendue 20 Oct · overdue');
     expect(within(tasks).getAllByRole('listitem')[1]).toHaveTextContent('due 22 Oct · ✓ done');

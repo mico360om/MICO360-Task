@@ -5,6 +5,7 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import {
   HEALTH_LABEL,
   barLabel,
+  barLabelSpot,
   barShape,
   datesFromTasks,
   daysBetween,
@@ -231,11 +232,17 @@ function ProjectRow({
                 {/* Dates from its tasks: a dashed outline round the bar. */}
                 {derived ? <span aria-hidden="true" className="pointer-events-none absolute -inset-[3px] rounded-[7px] border-[1.5px] border-dashed border-ink-2/70" /> : null}
                 <span aria-hidden="true" className={`absolute inset-y-0 start-0 ${tone.fill} ${bar.startsBefore ? '' : 'rounded-s-md'} ${bar.fill >= 100 && !bar.endsAfter ? 'rounded-e-md' : ''}`} style={{ width: `${bar.fill}%` }} />
-                {/* Beside the end of the done part — inside it once it is long — so a milestone at the start never covers it. */}
+                {/* Beside the end of the done part — inside it once it is long, after a short bar — so a milestone at the start never covers it. */}
                 <span
                   aria-hidden="true"
                   className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] font-bold leading-4 text-ink shadow-sm"
-                  style={bar.fill >= 60 ? { right: `calc(${100 - bar.fill}% + 0.25rem)` } : { left: `calc(${bar.fill}% + 0.25rem)` }}
+                  style={
+                    {
+                      inside: { right: `calc(${100 - bar.fill}% + 0.25rem)` },
+                      'after-bar': { left: 'calc(100% + 0.375rem)' },
+                      'after-fill': { left: `calc(${bar.fill}% + 0.25rem)` },
+                    }[barLabelSpot(bar, label)]
+                  }
                 >
                   {label}
                 </span>
