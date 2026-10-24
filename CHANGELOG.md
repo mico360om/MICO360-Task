@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-10-24
+
 ### Bug fixes
 - Timeline: a project without its own start or target date now takes them from its tasks — from the
   earliest start or due date to the latest due date — instead of running from the day it was created
