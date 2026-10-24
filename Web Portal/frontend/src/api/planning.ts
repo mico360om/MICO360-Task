@@ -33,10 +33,13 @@ export interface TimelineProject {
   imageUrl: string | null;
   status: ProjectStatus;
   owner: { id: string; name: string; avatarUrl: string | null } | null;
-  /** The bar's first day: the start date, else the day it was created. */
+  /** The bar's first day: its own start date, else its tasks' earliest date, else the day it was created. */
   start: string;
+  startFrom: 'project' | 'tasks' | 'created';
   startIsCreated: boolean;
+  /** Its own target date, else its tasks' latest due date, or null. */
   target: string | null;
+  targetFrom: 'project' | 'tasks' | null;
   tasks: { total: number; done: number; open: number; overdue: number };
   /** Share done, rounded as on the Projects page (99 until every task is done). */
   progress: number;
@@ -64,6 +67,33 @@ export interface TimelineData {
   currentWeek: string;
   weeks: string[];
   projects: TimelineProject[];
+}
+
+/** A task on a project's expanded row: a bar from its start to its due day, or a marker on its due day. */
+export interface TimelineTask {
+  id: string;
+  key: string;
+  title: string;
+  start: string | null;
+  due: string;
+  done: boolean;
+  overdue: boolean;
+  priority: Priority;
+  isMilestone: boolean;
+  assignees: { id: string; name: string }[];
+}
+
+export interface TimelineTasksData {
+  projectId: string;
+  from: string;
+  to: string;
+  today: string;
+  /** Every live task of the project (the rest are on its board). */
+  total: number;
+  /** Its tasks without a due date. */
+  undated: number;
+  /** At most 30: the shown weeks' first, then open ones due before them. */
+  tasks: TimelineTask[];
 }
 
 /** A teammate's number that day comes only to an administrator (who sees all their tasks); else null. */
@@ -130,6 +160,8 @@ export interface WorkloadData {
  */
 export const TIMELINE_ROOT = ['projects', 'timeline'] as const;
 export const timelineKey = (from: string, to: string, weekStart: WeekStart, today: string) => [...TIMELINE_ROOT, from, to, weekStart, today] as const;
+/** A project's task rows, under the timeline's root so task and project changes refresh them. */
+export const timelineTasksKey = (projectId: string, from: string, to: string, today: string) => [...TIMELINE_ROOT, 'tasks', projectId, from, to, today] as const;
 /** The Workload's data (refreshed by task changes and by the daily limit or working hours changing), with the company day. */
 export const workloadKey = (week: string, projectId: string, today: string) => ['workload', week, projectId, today] as const;
 
@@ -137,6 +169,8 @@ export function planningApi(client: ApiClient) {
   return {
     timeline: (q: { from: string; to: string; weekStart: WeekStart }) =>
       client.get<{ data: TimelineData }>(`/timeline?from=${q.from}&to=${q.to}&weekStart=${q.weekStart}`).then((r) => r.data),
+    timelineTasks: (projectId: string, q: { from: string; to: string }) =>
+      client.get<{ data: TimelineTasksData }>(`/timeline/projects/${encodeURIComponent(projectId)}/tasks?from=${q.from}&to=${q.to}`).then((r) => r.data),
     workload: (q: { week: string; projectId?: string }) =>
       client.get<{ data: WorkloadData }>(`/workload?week=${q.week}${q.projectId ? `&projectId=${encodeURIComponent(q.projectId)}` : ''}`).then((r) => r.data),
   };

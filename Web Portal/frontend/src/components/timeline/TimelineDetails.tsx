@@ -66,7 +66,8 @@ export function TimelineDetails({
       ['Overdue', p.tasks.overdue ? plural(p.tasks.overdue, 'task') : 'None'],
       ['Next', nextLine(p, today)],
     ];
-    if (p.health === 'late') rows.push(['Target', lateNote(p, today).replace(/^Target /, '')]);
+    // Late by its own target, or past its last task's due day when its end comes from its tasks.
+    if (p.health === 'late') rows.push(p.targetFrom === 'tasks' ? ['Last task', lateNote(p, today).replace(/^Last task was /, '')] : ['Target', lateNote(p, today).replace(/^Target /, '')]);
     body = (
       <>
         <div className="flex items-start justify-between gap-2">

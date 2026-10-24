@@ -5,7 +5,17 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TimelinePage } from './TimelinePage';
 import { useAuthStore } from '../stores/auth-store';
-import type { TimelineData, TimelineProject } from '../api/planning';
+import type { TimelineData, TimelineProject, TimelineTasksData } from '../api/planning';
+
+// The full task panel has its own tests; here it only has to open for the right task.
+vi.mock('../components/TaskDrawerContainer', () => ({
+  TaskDrawerContainer: ({ taskId, onClose }: { taskId: string; onClose: () => void }) => (
+    <div role="dialog" aria-label="Task details panel">
+      open {taskId}
+      <button type="button" onClick={onClose}>Close panel</button>
+    </div>
+  ),
+}));
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const SARA = { id: 'u1', name: 'Sara Ahmed', avatarUrl: null };
@@ -24,8 +34,10 @@ function tp(id: string, extra: Partial<TimelineProject>): TimelineProject {
     status: 'ACTIVE',
     owner: null,
     start: '2026-10-01',
+    startFrom: 'project',
     startIsCreated: false,
     target: '2026-12-10',
+    targetFrom: 'project',
     tasks: { total: 10, done: 5, open: 5, overdue: 0 },
     progress: 50,
     timeUsed: 30,
@@ -63,6 +75,19 @@ let requests: string[] = [];
 let projects: TimelineProject[] = PROJECTS;
 let fail = false;
 let ownZone: string | null = null;
+const MOB_TASKS: TimelineTasksData = {
+  projectId: 'mob',
+  from: '2026-10-04',
+  to: '2027-01-02',
+  today: '2026-10-24',
+  total: 40,
+  undated: 3,
+  tasks: [
+    { id: 'k1', key: 'MOB-11', title: 'Login screen', start: '2026-10-12', due: '2026-10-20', done: false, overdue: true, priority: 'HIGH', isMilestone: false, assignees: [{ id: 'u1', name: 'Sara Ahmed' }] },
+    { id: 'k2', key: 'MOB-12', title: 'Push alerts', start: null, due: '2026-10-22', done: true, overdue: false, priority: 'NORMAL', isMilestone: false, assignees: [] },
+    { id: 'k3', key: 'MOB-13', title: 'Beta build', start: null, due: '2026-11-06', done: false, overdue: false, priority: 'NORMAL', isMilestone: true, assignees: [{ id: 'u2', name: 'Omar Said' }, { id: 'u1', name: 'Sara Ahmed' }] },
+  ],
+};
 
 function answer(url: string): TimelineData {
   const q = new URL(url, 'http://test.local').searchParams;
@@ -89,6 +114,8 @@ beforeEach(() => {
       if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
       if (url.endsWith('/users/me/preferences')) return json({ data: { timeZone: ownZone, weekStart: null } });
       if (url.includes('/timeline?')) return fail ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: answer(url) });
+      const taskRows = /\/timeline\/projects\/([^/]+)\/tasks\?/.exec(url);
+      if (taskRows) return json({ data: taskRows[1] === 'mob' ? MOB_TASKS : { ...MOB_TASKS, projectId: taskRows[1], total: 0, undated: 0, tasks: [] } });
       return json({ data: [] });
     }),
   );
@@ -315,6 +342,62 @@ describe('TimelinePage', () => {
     await waitFor(() => expect(timelineRequests().length).toBe(before + 1));
   });
 
+  it('marks a bar whose dates come from its tasks, and says so in its details', async () => {
+    projects = PROJECTS.map((p) => (p.id === 'mssp' ? { ...p, start: '2026-10-01', startFrom: 'tasks' as const, startIsCreated: false, target: '2026-12-12', targetFrom: 'tasks' as const, health: 'on-track' as const, timeUsed: 32 } : p));
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    const bar = screen.getByRole('button', { name: /^MICO360 Services: .*dates from its tasks/ });
+    expect(bar).toHaveTextContent('20% · dates from tasks');
+    await userEvent.click(bar);
+    expect(screen.getByRole('dialog', { name: 'MICO360 Services' })).toHaveTextContent('Dates1 Oct → 12 Dec 2026 (from its tasks)');
+  });
+
+  it('words a late project whose end comes from its tasks by its last task’s due day', async () => {
+    projects = PROJECTS.map((p) => (p.id === 'fcrm' ? { ...p, targetFrom: 'tasks' as const } : p));
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    const falcon = rows()[0]!;
+    expect(falcon).toHaveTextContent('Last task was due 21 Oct · 3 days ago');
+    await userEvent.click(screen.getByRole('button', { name: /^Falcon CRM: late, .*dates from its tasks/ }));
+    const details = screen.getByRole('dialog', { name: 'Falcon CRM' });
+    expect(details).toHaveTextContent('Dates1 Sep → 21 Oct 2026 (end from its tasks)');
+    expect(details).toHaveTextContent('Last taskdue 21 Oct · 3 days ago');
+    expect(details).not.toHaveTextContent('Target');
+  });
+
+  it('opens a project’s tasks under it on request: overdue in red, done with ✓, who has each, and the rest on the board', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    expect(requests.some((u) => u.includes('/tasks?'))).toBe(false);
+    const expand = screen.getByRole('button', { name: 'Show the tasks of Mobile App (Phase 2)' });
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(expand);
+    expect(expand).toHaveAttribute('aria-expanded', 'true');
+    expect(expand).toHaveAccessibleName('Hide the tasks of Mobile App (Phase 2)');
+    const tasks = await screen.findByRole('list', { name: 'Tasks of Mobile App (Phase 2)' });
+    expect(requests.find((u) => u.includes('/timeline/projects/mob/tasks?'))).toContain('from=2026-10-04&to=2027-01-02');
+    const items = within(tasks).getAllByRole('listitem');
+    expect(within(items[0]!).getByRole('button', { name: 'MOB-11 Login screen, 12 → 20 Oct, overdue' })).toBeInTheDocument();
+    expect(items[0]).toHaveTextContent('SA');
+    expect(within(items[1]!).getByRole('button', { name: 'MOB-12 Push alerts, due 22 Oct, done' })).toHaveTextContent('✓');
+    expect(items[2]).toHaveTextContent('OSSA');
+    expect(within(tasks).getByRole('link', { name: 'Show all 40 on the board' })).toHaveAttribute('href', '/board?project=mob');
+    expect(tasks).toHaveTextContent('3 tasks have no due date');
+    await userEvent.click(within(items[0]!).getByRole('button', { name: /^MOB-11 Login screen/ }));
+    expect(screen.getByRole('dialog', { name: 'Task details panel' })).toHaveTextContent('open k1');
+  });
+
+  it('opens and closes every project’s tasks at once', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    expect(screen.getAllByRole('button', { name: /^Hide the tasks of/ })).toHaveLength(4);
+    expect(await screen.findByRole('list', { name: 'Tasks of Falcon CRM' })).toHaveTextContent('No tasks in these weeks.');
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    expect(screen.queryByRole('list', { name: /^Tasks of/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^Show the tasks of/ })).toHaveLength(4);
+  });
+
   it('pages a quarter at a time, and Today comes back; Month asks for six weeks', async () => {
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
@@ -359,6 +442,11 @@ describe('TimelinePage', () => {
     expect(mobile).toHaveTextContent('Target 10 Dec');
     expect(mssp).toHaveTextContent('No target date');
     expect(within(mobile!).getByRole('link')).toHaveAttribute('href', '/projects/mob');
+    // Its tasks, with their due days, on request.
+    await userEvent.click(within(mobile!).getByRole('button', { name: 'Show the tasks of Mobile App (Phase 2)' }));
+    const tasks = await screen.findByRole('list', { name: 'Tasks of Mobile App (Phase 2)' });
+    expect(within(tasks).getAllByRole('listitem')[0]).toHaveTextContent('MOB-11Login screendue 20 Oct · overdue');
+    expect(within(tasks).getAllByRole('listitem')[1]).toHaveTextContent('due 22 Oct · ✓ done');
     await act(async () => {});
   });
 });

@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import type { TimelineProject } from '../api/planning';
 import {
+  barLabel,
   barShape,
   busyTotals,
+  datesFromTasks,
   datesLine,
   doneLine,
   filterTimeline,
   heatLevel,
   heatScale,
+  initialsOf,
   lateNote,
   markerDays,
   markerLabel,
@@ -19,6 +22,7 @@ import {
   monthMarks,
   nextLine,
   ownerOptions,
+  phoneTaskLine,
   rangeFor,
   readTimelineState,
   riskLabel,
@@ -27,6 +31,9 @@ import {
   statusLine,
   subline,
   targetLine,
+  taskLabel,
+  taskShape,
+  taskWhen,
   timelineSummary,
   writeTimelineState,
   xOf,
@@ -45,8 +52,10 @@ function tp(id: string, extra: Partial<TimelineProject> = {}): TimelineProject {
     status: 'ACTIVE',
     owner: null,
     start: '2026-10-01',
+    startFrom: 'project',
     startIsCreated: false,
     target: '2026-12-10',
+    targetFrom: 'project',
     tasks: { total: 10, done: 5, open: 5, overdue: 0 },
     progress: 50,
     timeUsed: 33,
@@ -298,5 +307,68 @@ describe('wording', () => {
     expect(targetLine(tp('a', { target: '2026-12-10' }), TODAY)).toBe('Target 10 Dec');
     expect(targetLine(FALCON, TODAY)).toBe('Target 21 Oct · 3 days late');
     expect(targetLine(MSSP, TODAY)).toBe('No target date');
+  });
+});
+
+describe('dates taken from tasks', () => {
+  const fromTasks = tp('mssp', { start: '2026-10-01', startFrom: 'tasks', target: '2026-12-12', targetFrom: 'tasks', progress: 20 });
+
+  it('says so on the bar and in the details', () => {
+    expect(datesFromTasks(fromTasks)).toBe(true);
+    expect(datesFromTasks(tp('a'))).toBe(false);
+    expect(barLabel(fromTasks)).toBe('20% · dates from tasks');
+    expect(barLabel(tp('a', { progress: 62 }))).toBe('62%');
+    expect(barLabel(tp('a', { health: 'at-risk', progress: 9, timeUsed: 45, startFrom: 'tasks' }))).toBe('9% done · 45% of the time used · dates from tasks');
+    expect(datesLine(fromTasks)).toBe('1 Oct → 12 Dec 2026 (from its tasks)');
+    expect(datesLine(tp('a', { startFrom: 'tasks' }))).toBe('1 Oct → 10 Dec 2026 (start from its tasks)');
+    expect(datesLine(tp('a', { targetFrom: 'tasks' }))).toBe('1 Oct → 10 Dec 2026 (end from its tasks)');
+  });
+
+  it('words a late end that comes from its tasks by the last task’s due day', () => {
+    const late = tp('a', { target: '2026-10-21', targetFrom: 'tasks', health: 'late', daysLate: 3 });
+    expect(lateNote(late, TODAY)).toBe('Last task was due 21 Oct · 3 days ago');
+    expect(lateNote({ ...late, daysLate: 1, target: '2026-10-23' }, TODAY)).toBe('Last task was due 23 Oct · yesterday');
+    expect(targetLine(late, TODAY)).toBe('Last task was due 21 Oct · 3 days ago');
+    expect(targetLine(fromTasks, TODAY)).toBe('Last task due 12 Dec');
+  });
+});
+
+describe('task rows', () => {
+  const RANGE = { from: '2026-10-04', to: '2027-01-02' }; // 91 days
+  const day = (n: number) => (n / 91) * 100;
+  const t = (start: string | null, due: string, extra: { done?: boolean; overdue?: boolean } = {}) => ({ key: 'MOB-11', title: 'Login screen', start, due, done: false, overdue: false, ...extra });
+
+  it('words a task’s days and state', () => {
+    expect(taskWhen(t('2026-10-12', '2026-10-20'), TODAY)).toBe('12 → 20 Oct');
+    expect(taskWhen(t('2026-10-30', '2026-11-02'), TODAY)).toBe('30 Oct → 2 Nov');
+    expect(taskWhen(t(null, '2026-10-22'), TODAY)).toBe('due 22 Oct');
+    expect(taskWhen(t('2027-01-05', '2027-01-20'), TODAY)).toBe('5 → 20 Jan 2027');
+    expect(taskLabel(t('2026-10-12', '2026-10-20', { overdue: true }), TODAY)).toBe('MOB-11 Login screen, 12 → 20 Oct, overdue');
+    expect(taskLabel(t(null, '2026-10-22', { done: true }), TODAY)).toBe('MOB-11 Login screen, due 22 Oct, done');
+    expect(taskLabel(t(null, '2026-11-06'), TODAY)).toBe('MOB-11 Login screen, due 6 Nov');
+    expect(phoneTaskLine(t('2026-10-12', '2026-10-20', { overdue: true }), TODAY)).toBe('due 20 Oct · overdue');
+    expect(phoneTaskLine(t(null, '2026-10-22', { done: true }), TODAY)).toBe('due 22 Oct · ✓ done');
+    expect(phoneTaskLine(t(null, '2027-02-03'), TODAY)).toBe('due 3 Feb 2027');
+    expect(initialsOf('Sara Ahmed')).toBe('SA');
+    expect(initialsOf(' omar  bin said ')).toBe('OB');
+    expect(initialsOf('Layla')).toBe('L');
+  });
+
+  it('draws a bar from start to the end of the due day, else a marker on the due day, cut to the shown weeks', () => {
+    const bar = taskShape(t('2026-10-12', '2026-10-20'), RANGE);
+    expect(bar).toMatchObject({ kind: 'bar', startsBefore: false, endsAfter: false });
+    expect(bar.kind === 'bar' && [bar.left, bar.width]).toEqual([day(8), day(9)]);
+    const early = taskShape(t('2026-09-20', '2026-10-06'), RANGE);
+    expect(early).toMatchObject({ kind: 'bar', left: 0, startsBefore: true, endsAfter: false });
+    expect(early.kind === 'bar' && early.width).toBeCloseTo(day(3));
+    expect(taskShape(t('2026-12-30', '2027-01-09'), RANGE)).toMatchObject({ kind: 'bar', endsAfter: true });
+    const marker = taskShape(t(null, '2026-10-22'), RANGE);
+    expect(marker.kind === 'marker' && marker.x).toBeCloseTo(day(18.5));
+    // A start after the due day is no bar.
+    expect(taskShape(t('2026-10-25', '2026-10-22'), RANGE).kind).toBe('marker');
+    expect(taskShape(t(null, '2026-10-01'), RANGE)).toEqual({ kind: 'before' });
+    expect(taskShape(t('2026-09-01', '2026-10-03'), RANGE)).toEqual({ kind: 'before' });
+    expect(taskShape(t(null, '2027-01-03'), RANGE)).toEqual({ kind: 'after' });
+    expect(taskShape(t('2027-01-03', '2027-01-09'), RANGE)).toEqual({ kind: 'after' });
   });
 });

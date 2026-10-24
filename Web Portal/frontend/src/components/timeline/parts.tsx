@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 import type { ProjectHealth } from '../../api/planning';
-import { HEALTH_LABEL } from '../../lib/timeline';
+import { HEALTH_LABEL, initialsOf } from '../../lib/timeline';
+
+/** The chart's left column and the weeks, the same in every row. */
+export const ROW = 'grid grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]';
 
 /** Small stroke icons, drawn in the current colour. */
 export function Glyph({ children, size = 14, className = '' }: { children: ReactNode; size?: number; className?: string }) {
@@ -74,3 +77,38 @@ export const HEAT: Record<0 | 1 | 2 | 3 | 4, string> = {
   3: 'bg-warning/30 text-ink',
   4: 'bg-danger/35 text-ink',
 };
+
+/** ▸ / ▾: shows or hides a project's tasks under it. */
+export function ExpandButton({ name, expanded, onToggle, children, className = '' }: { name: string; expanded: boolean; onToggle: () => void; children?: ReactNode; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-label={`${expanded ? 'Hide' : 'Show'} the tasks of ${name}`}
+      title={expanded ? 'Hide its tasks' : 'Show its tasks'}
+      className={`inline-flex flex-none items-center justify-center gap-1 rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand ${className}`}
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-none transition-transform ${expanded ? 'rotate-90' : 'rtl:rotate-180'}`}>
+        <path d="M9 6l6 6-6 6" />
+      </svg>
+      {children}
+    </button>
+  );
+}
+
+/** Who has a task: their initials (the names on hover and for screen readers). */
+export function Initials({ people }: { people: { id: string; name: string }[] }) {
+  if (people.length === 0) return null;
+  const names = people.map((p) => p.name).join(', ');
+  return (
+    <span role="img" aria-label={`Assigned to ${names}`} title={names} className="flex flex-none -space-x-1 rtl:space-x-reverse">
+      {people.slice(0, 3).map((p) => (
+        <span key={p.id} className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2 ring-2 ring-surface">
+          {initialsOf(p.name)}
+        </span>
+      ))}
+      {people.length > 3 ? <span className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2 ring-2 ring-surface">+{people.length - 3}</span> : null}
+    </span>
+  );
+}

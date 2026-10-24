@@ -11,7 +11,9 @@ import { ProjectAvatar } from '../components/ProjectAvatar';
 import { useMediaQuery } from '../components/calendar/calendar-ui';
 import { TimelineChart, detailKey, type TimelineDetail } from '../components/timeline/TimelineChart';
 import { TimelineDetails } from '../components/timeline/TimelineDetails';
-import { BAR_TONE, Glyph, HEAT, HealthPill, ICONS } from '../components/timeline/parts';
+import { PhoneTaskList } from '../components/timeline/TimelineTasks';
+import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
+import { BAR_TONE, ExpandButton, Glyph, HEAT, HealthPill, ICONS } from '../components/timeline/parts';
 import { useDateSettings } from '../lib/useDatePrefs';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useNow } from '../lib/useNow';
@@ -74,12 +76,26 @@ function Card({ icon, tone, value, label, pressed, onToggle, ring }: { icon: Rea
   );
 }
 
-function PhoneList({ projects, today }: { projects: TimelineProject[]; today: string }) {
+function PhoneList({
+  projects,
+  today,
+  range,
+  expanded,
+  onExpand,
+  onOpenTask,
+}: {
+  projects: TimelineProject[];
+  today: string;
+  range: { from: string; to: string };
+  expanded: ReadonlySet<string>;
+  onExpand: (projectId: string) => void;
+  onOpenTask: (taskId: string) => void;
+}) {
   return (
     <ul aria-label="Projects" className="grid gap-2">
       {projects.map((p) => (
-        <li key={p.id}>
-          <Link to={`/projects/${p.id}`} className="card block p-3.5 transition-colors hover:border-brand/30">
+        <li key={p.id} className="card overflow-hidden">
+          <Link to={`/projects/${p.id}`} className="block p-3.5 pb-2 transition-colors hover:bg-ground/40">
             <span className="flex items-center gap-2.5">
               <ProjectAvatar project={p} size="md" />
               <span className="min-w-0 flex-1 truncate font-bold text-ink">{p.name}</span>
@@ -101,6 +117,12 @@ function PhoneList({ projects, today }: { projects: TimelineProject[]; today: st
             <span className="mt-2 block truncate text-xs text-ink-2">{milestoneLine(p, today)}</span>
             <span className={`block text-xs ${p.health === 'late' ? 'font-semibold text-danger' : 'text-ink-2'}`}>{targetLine(p, today)}</span>
           </Link>
+          <div className="px-2 pb-1.5">
+            <ExpandButton name={p.name} expanded={expanded.has(p.id)} onToggle={() => onExpand(p.id)} className="min-h-[2rem] px-1.5 text-xs font-bold">
+              Tasks
+            </ExpandButton>
+          </div>
+          {expanded.has(p.id) ? <PhoneTaskList projectId={p.id} name={p.name} range={range} today={today} onOpenTask={onOpenTask} /> : null}
         </li>
       ))}
     </ul>
@@ -116,6 +138,7 @@ function Legend({ labels }: { labels: string[] }) {
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} hatch-late`} />⏱ Late — hatched part is past the target</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rotate-45 bg-surface ring-2 ring-ink" />Milestone (filled once reached)</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-[2px] bg-meeting" />Meeting</li>
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2.5 w-5 rounded-sm border-[1.5px] border-dashed border-ink-2/70" />Dates from its tasks</li>
       <li className="ms-auto">Busy weeks:</li>
       {labels.map((l, i) => (
         <li key={l} className="inline-flex items-center gap-1.5">
@@ -131,8 +154,8 @@ function Legend({ labels }: { labels: string[] }) {
  * Timeline: every open project on one chart — its bar from start to target filled to the share done,
  * at risk when less is done than time used, late with the part past the target hatched, its
  * milestones and meetings — with five summary cards (Late and At risk filter the rows), the open
- * tasks due each week, and a plain list on a phone. View, place, owner, sort and the card filter are
- * kept in the address.
+ * tasks due each week, and a plain list on a phone. A project's row opens to show its tasks under it
+ * (read when opened). View, place, owner, sort and the card filter are kept in the address.
  */
 export function TimelinePage() {
   const [params, setParams] = useSearchParams();
@@ -178,6 +201,21 @@ export function TimelinePage() {
     trigger.current = el;
     setDetail(next);
   }
+
+  // The projects whose tasks show under them, and the task open in the side panel.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const expand = (projectId: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(projectId)) next.add(projectId);
+      return next;
+    });
+  const expandAll = () => setExpanded(shown.every((p) => expanded.has(p.id)) ? new Set() : new Set(shown.map((p) => p.id)));
+  const openTask = (taskId: string) => {
+    setDetail(null);
+    setOpenTaskId(taskId);
+  };
 
   const toggle = (show: Exclude<TimelineShow, ''>) => {
     setDetail(null);
@@ -268,7 +306,7 @@ export function TimelinePage() {
           action={<Button variant="secondary" onClick={() => update({ show: '', owner: '' })}>Show every project</Button>}
         />
       ) : phone ? (
-        <PhoneList projects={shown} today={today} />
+        <PhoneList projects={shown} today={today} range={{ from: data.from, to: data.to }} expanded={expanded} onExpand={expand} onOpenTask={openTask} />
       ) : (
         <div className="card overflow-hidden">
           <TimelineChart
@@ -280,6 +318,10 @@ export function TimelinePage() {
             scale={scale}
             open={openKey}
             onOpen={openDetail}
+            expanded={expanded}
+            onExpand={expand}
+            onExpandAll={expandAll}
+            onOpenTask={openTask}
             details={
               detail && detailProject ? (
                 <TimelineDetails detail={detail} project={detailProject} today={today} timeZone={timeZone} trigger={trigger} onClose={() => setDetail(null)} />
@@ -289,6 +331,7 @@ export function TimelinePage() {
           <Legend labels={scale.labels} />
         </div>
       )}
+      {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
     </div>
   );
 }

@@ -261,6 +261,15 @@ export function subline(p: TimelineProject, today: string): string {
   return `${p.progress}% · ${milestoneWords(p, today)}`;
 }
 
+/** Its start or end (or both) comes from its tasks, the project having no date of its own. */
+export const datesFromTasks = (p: Pick<TimelineProject, 'startFrom' | 'targetFrom'>) => p.startFrom === 'tasks' || p.targetFrom === 'tasks';
+
+/** On the bar: "62%", "9% done · 45% of the time used", with " · dates from tasks" when they are. */
+export function barLabel(p: TimelineProject): string {
+  const base = p.health === 'at-risk' ? riskLabel(p) : `${p.progress}%`;
+  return datesFromTasks(p) ? `${base} · dates from tasks` : base;
+}
+
 /** "Next ◆ Beta build · 6 Nov", "No milestones" — a phone row's milestone line. */
 export function milestoneLine(p: TimelineProject, today: string): string {
   const words = milestoneWords(p, today);
@@ -272,16 +281,20 @@ export function riskLabel(p: Pick<TimelineProject, 'progress' | 'timeUsed'>): st
   return `${p.progress}% done · ${p.timeUsed ?? 0}% of the time used`;
 }
 
-/** "Target 21 Oct · 3 days late". */
-export function lateNote(p: Pick<TimelineProject, 'target' | 'daysLate'>, today: string): string {
-  return `Target ${p.target ? shortDay(p.target, today) : '—'} · ${plural(p.daysLate, 'day')} late`;
+/** "Target 21 Oct · 3 days late"; when the end comes from its tasks, "Last task was due 21 Oct · 3 days ago". */
+export function lateNote(p: Pick<TimelineProject, 'target' | 'daysLate'> & { targetFrom?: TimelineProject['targetFrom'] }, today: string): string {
+  const day = p.target ? shortDay(p.target, today) : '—';
+  if (p.targetFrom === 'tasks') return `Last task was due ${day} · ${p.daysLate === 1 ? 'yesterday' : `${plural(p.daysLate, 'day')} ago`}`;
+  return `Target ${day} · ${plural(p.daysLate, 'day')} late`;
 }
 
 /** "1 Oct → 10 Dec 2026". */
-export function datesLine(p: Pick<TimelineProject, 'start' | 'startIsCreated' | 'target'>): string {
+export function datesLine(p: Pick<TimelineProject, 'start' | 'startIsCreated' | 'target'> & Partial<Pick<TimelineProject, 'startFrom' | 'targetFrom'>>): string {
   const sameYear = p.target !== null && p.target.slice(0, 4) === p.start.slice(0, 4);
   const start = `${sameYear ? shortDay(p.start, p.start) : fullDay(p.start)}${p.startIsCreated ? ' (created)' : ''}`;
-  return `${start} → ${p.target ? fullDay(p.target) : 'no target date'}`;
+  const [a, b] = [p.startFrom === 'tasks', p.targetFrom === 'tasks'];
+  const from = a && b ? ' (from its tasks)' : a ? ' (start from its tasks)' : b ? ' (end from its tasks)' : '';
+  return `${start} → ${p.target ? fullDay(p.target) : 'no target date'}${from}`;
 }
 
 /** "1 of 11 tasks (9%) · 45% of the time used". */
@@ -302,7 +315,8 @@ export function nextLine(p: TimelineProject, today: string): string {
 /** A phone row's target: "Target 10 Dec", "Target 21 Oct · 3 days late", "No target date". */
 export function targetLine(p: TimelineProject, today: string): string {
   if (!p.target) return 'No target date';
-  return p.health === 'late' ? lateNote(p, today) : `Target ${shortDay(p.target, today)}`;
+  if (p.health === 'late') return lateNote(p, today);
+  return p.targetFrom === 'tasks' ? `Last task due ${shortDay(p.target, today)}` : `Target ${shortDay(p.target, today)}`;
 }
 
 const WEEKDAY_DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -377,6 +391,55 @@ export function milestoneMarkerLabel(g: MilestoneMarker, today: string): string 
   const state = reached === g.items.length ? 'all reached' : reached ? `${reached} reached` : 'not reached yet';
   return `${g.items.length} milestones, ${dayRange(g, shortDay(g.first, today))}, ${state}`;
 }
+
+/** A task row's days: "12 → 20 Oct", "30 Oct → 2 Nov", or "due 22 Oct" (no start). */
+export function taskWhen(t: { start: string | null; due: string }, today: string): string {
+  if (!t.start) return `due ${shortDay(t.due, today)}`;
+  const [a, b] = [shortDay(t.start, today), shortDay(t.due, today)];
+  return t.start.slice(0, 7) === t.due.slice(0, 7) ? `${a.split(' ')[0]} → ${b}` : `${a} → ${b}`;
+}
+
+/** What a screen reader hears for a task row: "MOB-11 Login screen, 12 → 20 Oct, overdue". */
+export function taskLabel(t: { key: string; title: string; start: string | null; due: string; done: boolean; overdue: boolean }, today: string): string {
+  return `${t.key} ${t.title}, ${taskWhen(t, today)}${t.done ? ', done' : t.overdue ? ', overdue' : ''}`;
+}
+
+/** A task on a phone: "due 20 Oct · overdue", "due 22 Oct · ✓ done". */
+export function phoneTaskLine(t: { due: string; done: boolean; overdue: boolean }, today: string): string {
+  return `due ${shortDay(t.due, today)}${t.done ? ' · ✓ done' : t.overdue ? ' · overdue' : ''}`;
+}
+
+export type TaskShape =
+  | { kind: 'bar'; left: number; width: number; startsBefore: boolean; endsAfter: boolean }
+  | { kind: 'marker'; x: number }
+  | { kind: 'before' }
+  | { kind: 'after' };
+
+/** A task row's mark: a bar from its start to the end of its due day, else a marker on its due day — or before or after the shown weeks. */
+export function taskShape(t: { start: string | null; due: string }, range: { from: string; to: string }): TaskShape {
+  const total = daysBetween(range.from, range.to) + 1;
+  if (t.start && t.start <= t.due) {
+    const a = xOf(t.start, range.from, total);
+    const b = xOf(shiftDayKey(t.due, 1), range.from, total);
+    if (b <= 0) return { kind: 'before' };
+    if (a >= 100) return { kind: 'after' };
+    const [l, r] = [Math.max(0, a), Math.min(100, b)];
+    return { kind: 'bar', left: l, width: r - l, startsBefore: a < 0, endsAfter: b > 100 };
+  }
+  if (t.due < range.from) return { kind: 'before' };
+  if (t.due > range.to) return { kind: 'after' };
+  return { kind: 'marker', x: xOf(t.due, range.from, total) + 50 / total };
+}
+
+/** "Sara Ahmed" → "SA". */
+export const initialsOf = (name: string) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0] ?? '')
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
 
 /** "Today · 24 Oct". */
 export const todayLabel = (today: string) => `Today · ${shortDay(today, today)}`;
