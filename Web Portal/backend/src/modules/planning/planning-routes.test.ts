@@ -6,7 +6,7 @@ import { createAuthService } from '../auth/auth-service';
 import { createSettingsService } from '../settings/settings-service';
 import type { ProjectRecord, ProjectRepository } from '../projects/project-repository';
 import type { SettingsRepository } from '../settings/settings-repository';
-import type { TimelineRows, TimelineSource, TimelineWindow } from './timeline';
+import type { TimelineRows, TimelineSource, TimelineTasksRows, TimelineWindow } from './timeline';
 import { fakeWorkloadStore, type FakeCompany } from './workload-store.fixture';
 
 // Saturday 24 October 2026, 12:00 in Muscat.
@@ -52,11 +52,17 @@ const repo: ProjectRepository = {
 };
 
 let timelineCalls: ({ projectIds: string[]; ownerIds: string[] } & TimelineWindow)[] = [];
-let timelineRows: TimelineRows = { totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
+let timelineRows: TimelineRows = { totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
+let taskCalls: { projectId: string; from: Date; to: Date; before: Date }[] = [];
+let taskRows: TimelineTasksRows = { inRange: [], before: [], total: 0, undated: 0 };
 const timelineSource: TimelineSource = {
   async load(projectIds, ownerIds, window) {
     timelineCalls.push({ projectIds, ownerIds, ...window });
     return timelineRows;
+  },
+  async projectTasks(projectId, window) {
+    taskCalls.push({ projectId, ...window });
+    return taskRows;
   },
 };
 
@@ -113,7 +119,9 @@ let app: Awaited<ReturnType<typeof makeApp>>;
 beforeEach(async () => {
   projects = [];
   timelineCalls = [];
-  timelineRows = { totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
+  taskCalls = [];
+  taskRows = { inRange: [], before: [], total: 0, undated: 0 };
+  timelineRows = { totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
   company = EMPTY;
   workloadStore = fakeWorkloadStore(company);
   stored = {};
@@ -190,6 +198,74 @@ describe('GET /timeline', () => {
 
   it('needs a sign-in (401)', async () => {
     expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
+  });
+});
+
+describe('GET /timeline: dates from tasks', () => {
+  it('gives a project without its own dates the dates of its tasks, and says where each comes from', async () => {
+    projects = [record('mssp'), record('rig', { startDate: new Date('2026-10-05T00:00:00Z') })];
+    timelineRows = {
+      ...timelineRows,
+      taskDates: [
+        { projectId: 'mssp', minStart: null, minDue: new Date('2026-10-01T00:00:00Z'), maxDue: new Date('2026-12-12T00:00:00Z') },
+        { projectId: 'rig', minStart: null, minDue: new Date('2026-09-01T00:00:00Z'), maxDue: new Date('2026-11-30T00:00:00Z') },
+      ],
+    };
+    const res = await app.inject({ method: 'GET', url: '/api/v1/timeline?from=2026-10-05&to=2026-12-31&weekStart=1', headers: await ADMIN() });
+    const [mssp, rig] = res.json().data.projects;
+    expect(mssp).toMatchObject({ start: '2026-10-01', startFrom: 'tasks', target: '2026-12-12', targetFrom: 'tasks' });
+    expect(rig).toMatchObject({ start: '2026-10-05', startFrom: 'project', target: '2026-11-30', targetFrom: 'tasks' });
+  });
+});
+
+describe('GET /timeline/projects/:id/tasks', () => {
+  const url = (id: string, q = 'from=2026-10-19&to=2026-11-08') => `/api/v1/timeline/projects/${id}/tasks?${q}`;
+  const row = (id: string, due: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    key: `RIG-${id}`,
+    title: `Task ${id}`,
+    startDate: null,
+    dueDate: new Date(`${due}T00:00:00Z`),
+    done: false,
+    priority: 'NORMAL' as const,
+    isMilestone: false,
+    assignees: [],
+    ...extra,
+  });
+
+  it('gives a visible open project’s task rows for the shown weeks, read in one go', async () => {
+    projects = [record('rig', { ownerId: 'emp' })];
+    taskRows = { inRange: [row('a', '2026-10-28')], before: [row('b', '2026-10-01')], total: 12, undated: 2 };
+    const res = await app.inject({ method: 'GET', url: url('rig'), headers: await EMPLOYEE() });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ projectId: 'rig', from: '2026-10-19', to: '2026-11-08', today: '2026-10-24', total: 12, undated: 2 });
+    expect(res.json().data.tasks.map((t: { id: string; overdue: boolean }) => [t.id, t.overdue])).toEqual([
+      ['a', false],
+      ['b', true],
+    ]);
+    // A day either side of the shown weeks, for due dates kept as days.
+    expect(taskCalls).toHaveLength(1);
+    expect([taskCalls[0]!.from, taskCalls[0]!.to, taskCalls[0]!.before].map((d) => d.toISOString())).toEqual([
+      '2026-10-18T00:00:00.000Z',
+      '2026-11-10T00:00:00.000Z',
+      '2026-10-20T00:00:00.000Z',
+    ]);
+  });
+
+  it('answers 404 for a project the asker can’t see, and for a completed or archived one (not on the timeline)', async () => {
+    projects = [record('theirs'), record('done', { status: 'COMPLETED', ownerId: 'emp' }), record('old', { status: 'ARCHIVED', ownerId: 'emp' })];
+    for (const id of ['theirs', 'done', 'old', 'missing']) {
+      expect((await app.inject({ method: 'GET', url: url(id), headers: await EMPLOYEE() })).statusCode, id).toBe(404);
+    }
+    expect(taskCalls).toHaveLength(0);
+  });
+
+  it('refuses dates far away or the wrong way round (400), and needs a sign-in (401)', async () => {
+    projects = [record('rig')];
+    for (const q of ['from=2026-11-08&to=2026-10-19', 'from=9999-01-01&to=9999-02-01', 'to=2026-11-08']) {
+      expect((await app.inject({ method: 'GET', url: url('rig', q), headers: await ADMIN() })).statusCode, q).toBe(400);
+    }
+    expect((await app.inject({ method: 'GET', url: url('rig') })).statusCode).toBe(401);
   });
 });
 

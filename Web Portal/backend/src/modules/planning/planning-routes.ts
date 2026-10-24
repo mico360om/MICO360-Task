@@ -4,15 +4,15 @@ import type { AuthGuard } from '../auth/auth-guard';
 import type { ProjectService } from '../projects/project-service';
 import { DEFAULT_DAILY_LIMIT, DEFAULT_WORKING_HOURS, type WorkingHours } from '../settings/settings-service';
 import { isCalendarDate } from '../tasks/validation';
-import { ValidationError } from '../../lib/http-errors';
+import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import { shiftDayKey, todayKey, zonedStartOfDay } from '../../lib/due-date';
-import { MAX_TIMELINE_WEEKS, MILESTONE_HORIZON_DAYS, buildTimeline, timelineRange, weekOf, type TimelineSource, type WeekStart } from './timeline';
+import { MAX_TIMELINE_WEEKS, MILESTONE_HORIZON_DAYS, buildTimeline, buildTimelineTasks, daysBetween, timelineRange, weekOf, type TimelineSource, type WeekStart } from './timeline';
 import { buildWorkload, resolveWorkloadScope } from './workload';
 import { loadWorkload, type WorkloadStore } from './workload-service';
 
 export interface PlanningRouteDeps {
   guard: AuthGuard;
-  projectService: Pick<ProjectService, 'listVisibleProjects'>;
+  projectService: Pick<ProjectService, 'listVisibleProjects' | 'getVisibleProject'>;
   /** Enables GET /timeline. */
   timeline?: TimelineSource;
   /** Enables GET /workload. */
@@ -82,6 +82,24 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
         weekTo: zonedStartOfDay(shiftDayKey(thisWeek, 7), timeZone),
       });
       return { data: buildTimeline(projects, rows, { timeZone, now: at, range, weekStart }) };
+    });
+
+    // One project's task rows for the shown weeks, read when its row is opened: the same projects as
+    // the timeline (one the asker may see, not completed or archived), the same two-year reach.
+    app.get('/timeline/projects/:id/tasks', { preHandler: guard.authenticate }, async (req) => {
+      const { id } = req.params as { id: string };
+      const q = req.query as Record<string, unknown>;
+      const at = now();
+      const today = todayKey(timeZone, at);
+      const reach = 'Pick dates within two years of today.';
+      const from = dayParam(q.from, today, reach, 'Say which days to show (from and to, YYYY-MM-DD).');
+      const to = dayParam(q.to, today, reach, 'Say which days to show (from and to, YYYY-MM-DD).');
+      if (to < from || daysBetween(from, to) >= MAX_TIMELINE_WEEKS * 7) throw new ValidationError(`Ask for 1 to ${MAX_TIMELINE_WEEKS} weeks, ending on or after the start.`);
+      const project = await deps.projectService.getVisibleProject(id, viewerOf(req));
+      if (!isOpen(project.status)) throw new NotFoundError('Project not found.');
+      // A day either side, for due dates kept as days; the builder places each on its own day.
+      const rows = await source.projectTasks(project.id, { from: utcDay(shiftDayKey(from, -1)), to: utcDay(shiftDayKey(to, 2)), before: utcDay(shiftDayKey(from, 1)) });
+      return { data: buildTimelineTasks(project.id, rows, { from, to, timeZone, now: at }) };
     });
   }
 

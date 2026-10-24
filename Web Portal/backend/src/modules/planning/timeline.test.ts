@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTimeline, progressPct, projectHealth, timelineRange, weekOf, type TimelineRows } from './timeline';
+import { TIMELINE_TASK_LIMIT, buildTimeline, buildTimelineTasks, progressPct, projectHealth, timelineRange, weekOf, type TimelineRows, type TimelineTaskRow } from './timeline';
 import type { ProjectRecord } from '../projects/project-repository';
 
 const project = (id: string, extra: Partial<ProjectRecord> = {}): ProjectRecord => ({
@@ -27,7 +27,7 @@ const project = (id: string, extra: Partial<ProjectRecord> = {}): ProjectRecord 
   ...extra,
 });
 
-const empty: TimelineRows = { totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
+const empty: TimelineRows = { totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
 // Saturday 24 October 2026, 12:00 in Muscat.
 const now = new Date('2026-10-24T08:00:00Z');
 const day = (key: string) => new Date(`${key}T00:00:00.000Z`);
@@ -116,9 +116,56 @@ describe('buildTimeline', () => {
       opts,
     );
     const [mob, fcrm, mssp] = data.projects;
-    expect(mob).toMatchObject({ start: '2026-10-01', startIsCreated: false, target: '2026-12-10', progress: 9, timeUsed: 33, health: 'at-risk', daysLate: 0 });
-    expect(fcrm).toMatchObject({ start: '2026-10-01', startIsCreated: true, target: '2026-10-21', progress: 85, timeUsed: 100, health: 'late', daysLate: 3 });
+    expect(mob).toMatchObject({ start: '2026-10-01', startIsCreated: false, startFrom: 'project', target: '2026-12-10', targetFrom: 'project', progress: 9, timeUsed: 33, health: 'at-risk', daysLate: 0 });
+    expect(fcrm).toMatchObject({ start: '2026-10-01', startIsCreated: true, startFrom: 'created', target: '2026-10-21', progress: 85, timeUsed: 100, health: 'late', daysLate: 3 });
     expect(mssp).toMatchObject({ start: '2026-09-01', target: null, progress: 0, timeUsed: null, health: 'no-target' });
+  });
+
+  it('takes a project’s missing dates from its tasks: the earliest start or due date, and the latest due date', () => {
+    const rows: TimelineRows = {
+      ...empty,
+      totals: [{ projectId: 'mssp', total: 4 }],
+      openByDue: [{ projectId: 'mssp', dueDate: day('2026-12-12'), count: 3 }],
+      taskDates: [{ projectId: 'mssp', minStart: day('2026-10-05'), minDue: day('2026-10-01'), maxDue: day('2026-12-12') }],
+    };
+    const [p] = buildTimeline([project('mssp')], rows, opts).projects;
+    expect(p).toMatchObject({ start: '2026-10-01', startFrom: 'tasks', startIsCreated: false, target: '2026-12-12', targetFrom: 'tasks', health: 'on-track', timeUsed: 32, progress: 25 });
+  });
+
+  it('keeps the project’s own date where it has one, field by field', () => {
+    const rows: TimelineRows = { ...empty, taskDates: [{ projectId: 'a', minStart: null, minDue: day('2026-10-01'), maxDue: day('2026-12-12') }, { projectId: 'b', minStart: null, minDue: day('2026-10-01'), maxDue: day('2026-12-12') }] };
+    const [a, b] = buildTimeline([project('a', { startDate: day('2026-09-20') }), project('b', { targetDate: day('2027-01-15') })], rows, opts).projects;
+    expect(a).toMatchObject({ start: '2026-09-20', startFrom: 'project', target: '2026-12-12', targetFrom: 'tasks' });
+    expect(b).toMatchObject({ start: '2026-10-01', startFrom: 'tasks', target: '2027-01-15', targetFrom: 'project' });
+  });
+
+  it('falls back to the day it was created only when no task has a date, and has no target then', () => {
+    const rows: TimelineRows = { ...empty, taskDates: [{ projectId: 'a', minStart: null, minDue: null, maxDue: null }] };
+    const [a, b] = buildTimeline([project('a'), project('b')], rows, opts).projects;
+    expect(a).toMatchObject({ start: '2026-09-01', startFrom: 'created', startIsCreated: true, target: null, targetFrom: null, health: 'no-target' });
+    expect(b).toMatchObject({ startFrom: 'created', targetFrom: null });
+  });
+
+  it('is late when the last task’s due day has passed with work still open — but not once every task is done', () => {
+    const late: TimelineRows = {
+      ...empty,
+      totals: [{ projectId: 'a', total: 3 }, { projectId: 'b', total: 3 }],
+      openByDue: [{ projectId: 'a', dueDate: day('2026-10-21'), count: 1 }],
+      taskDates: [
+        { projectId: 'a', minStart: null, minDue: day('2026-09-10'), maxDue: day('2026-10-21') },
+        { projectId: 'b', minStart: null, minDue: day('2026-09-10'), maxDue: day('2026-10-21') },
+      ],
+    };
+    const [a, b] = buildTimeline([project('a'), project('b')], late, opts).projects;
+    expect(a).toMatchObject({ target: '2026-10-21', targetFrom: 'tasks', health: 'late', daysLate: 3 });
+    // Every task done: its dates are over, not late.
+    expect(b).toMatchObject({ target: '2026-10-21', targetFrom: 'tasks', progress: 100, health: 'on-track', daysLate: 0 });
+  });
+
+  it('ignores a task-derived end that falls before the project’s own start', () => {
+    const rows: TimelineRows = { ...empty, taskDates: [{ projectId: 'a', minStart: null, minDue: day('2026-09-01'), maxDue: day('2026-09-15') }] };
+    const [a] = buildTimeline([project('a', { startDate: day('2026-10-01') })], rows, opts).projects;
+    expect(a).toMatchObject({ start: '2026-10-01', startFrom: 'project', target: null, targetFrom: null, health: 'no-target' });
   });
 
   it('counts done, open and overdue tasks, judging overdue by the company’s today', () => {
@@ -233,5 +280,64 @@ describe('buildTimeline', () => {
     const data = buildTimeline([project('b', { name: 'Beta', color: '#7A5AA8', icon: 'rocket' }), project('a')], empty, opts);
     expect(data.projects.map((p) => p.id)).toEqual(['b', 'a']);
     expect(data.projects[0]).toMatchObject({ code: 'B', name: 'Beta', color: '#7A5AA8', icon: 'rocket', imageUrl: null, status: 'ACTIVE' });
+  });
+});
+
+describe('buildTimelineTasks (a project’s task rows)', () => {
+  // The chart shows 19 October – 8 November; today is Saturday 24 October in Muscat.
+  const r = (id: string, due: string | null, extra: Partial<TimelineTaskRow> = {}): TimelineTaskRow => ({
+    id,
+    key: `MOB-${id}`,
+    title: `Task ${id}`,
+    startDate: null,
+    dueDate: due ? day(due) : null,
+    done: false,
+    priority: 'NORMAL',
+    isMilestone: false,
+    assignees: [],
+    ...extra,
+  });
+  const q = { from: '2026-10-19', to: '2026-11-08', timeZone: 'Asia/Muscat', now };
+
+  it('lists the tasks in the shown weeks by their first day, then open ones from before them, with start, due, done and overdue', () => {
+    const data = buildTimelineTasks(
+      'mob',
+      {
+        inRange: [
+          r('late', '2026-10-20'), // overdue, open
+          r('span', '2026-11-10', { startDate: day('2026-10-15') }), // runs into the shown weeks from before
+          r('done', '2026-10-22', { done: true, assignees: [{ id: 'u1', name: 'Sara Ahmed' }] }),
+          r('next', '2026-10-30', { startDate: day('2026-10-26') }),
+          r('after', '2026-11-12'), // after the shown weeks: not listed
+        ],
+        before: [r('old', '2026-10-01'), r('older', '2026-09-20'), r('closed', '2026-10-02', { done: true })],
+        total: 40,
+        undated: 3,
+      },
+      q,
+    );
+    expect(data.tasks.map((t) => [t.id, t.start, t.due, t.done, t.overdue])).toEqual([
+      ['span', '2026-10-15', '2026-11-10', false, false],
+      ['late', null, '2026-10-20', false, true],
+      ['done', null, '2026-10-22', true, false],
+      ['next', '2026-10-26', '2026-10-30', false, false],
+      ['old', null, '2026-10-01', false, true],
+      ['older', null, '2026-09-20', false, true],
+    ]);
+    expect(data.tasks[2]!.assignees).toEqual([{ id: 'u1', name: 'Sara Ahmed' }]);
+    expect(data).toMatchObject({ projectId: 'mob', from: '2026-10-19', to: '2026-11-08', today: '2026-10-24', total: 40, undated: 3 });
+  });
+
+  it('shows at most 30, the shown weeks’ first', () => {
+    const inRange = Array.from({ length: 35 }, (_, i) => r(`t${i}`, `2026-10-${String(19 + (i % 10)).padStart(2, '0')}`));
+    const data = buildTimelineTasks('mob', { inRange, before: [r('old', '2026-10-01')], total: 36, undated: 0 }, q);
+    expect(TIMELINE_TASK_LIMIT).toBe(30);
+    expect(data.tasks).toHaveLength(30);
+    expect(data.tasks.some((t) => t.id === 'old')).toBe(false);
+  });
+
+  it('draws a task whose start comes after its due date as a marker on its due date', () => {
+    const [t] = buildTimelineTasks('mob', { inRange: [r('odd', '2026-10-25', { startDate: day('2026-10-28') })], before: [], total: 1, undated: 0 }, q).tasks;
+    expect(t).toMatchObject({ start: null, due: '2026-10-25' });
   });
 });

@@ -142,7 +142,35 @@ describe('Timeline source (integration)', () => {
   });
 
   it('answers nothing for no projects', async () => {
-    expect(await timeline.load([], [], WIN)).toEqual({ totals: [], openByDue: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] });
+    expect(await timeline.load([], [], WIN)).toEqual({ totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] });
+  });
+
+  it('reads each project’s earliest start and due dates and latest due date from all its live tasks, done or not', async () => {
+    await prisma.task.update({ where: { id: ids.t1! }, data: { startDate: day('2026-10-20') } });
+    const rows = await timeline.load([ids.one!, ids.two!], [], WIN);
+    const of = (key: string) => rows.taskDates.find((d) => d.projectId === ids[key]);
+    // One: t3 due 1 October is the earliest; the task due in March 2027 the latest; the deleted one doesn't count.
+    expect(of('one')).toEqual({ projectId: ids.one, minStart: day('2026-10-20'), minDue: day('2026-10-01'), maxDue: day('2027-03-01') });
+    expect(of('two')).toEqual({ projectId: ids.two, minStart: null, minDue: day('2026-10-29'), maxDue: day('2026-10-29') });
+  });
+
+  it('reads one project’s task rows: those in the shown weeks, its open ones from before, and the counts', async () => {
+    await prisma.task.update({ where: { id: ids.t1! }, data: { startDate: day('2026-10-20') } });
+    const doing = (await prisma.kanbanColumn.findFirst({ where: { projectId: ids.one!, category: 'IN_PROGRESS' } }))!;
+    await prisma.task.create({ data: { key: 'PL-UNDATED', title: 'No date yet', projectId: ids.one!, columnId: doing.id, createdById: ids.ada! } });
+    const rows = await timeline.projectTasks(ids.one!, { from: day('2026-10-18'), to: day('2026-11-10'), before: day('2026-10-20') });
+    const titles = rows.inRange.map((t) => t.title).sort();
+    // Due 28 October (two open, two done), and Beta build on 6 November; not the deleted one, nor the one in March.
+    expect(rows.inRange).toHaveLength(5);
+    expect(titles).toContain('Beta build');
+    expect(rows.inRange.filter((t) => t.done)).toHaveLength(2);
+    const t2 = rows.inRange.find((t) => t.id === ids.t2)!;
+    expect(t2.assignees.map((a) => a.name).sort()).toEqual(['Bo Plan', 'Cy Plan']);
+    expect(rows.inRange.find((t) => t.id === ids.t1)).toMatchObject({ startDate: day('2026-10-20'), dueDate: day('2026-10-28'), done: false, priority: 'NORMAL', isMilestone: false });
+    // Before the shown weeks: only the open overdue task (Kick-off on 10 October is done).
+    expect(rows.before.map((t) => t.id)).toEqual([ids.t3]);
+    expect(rows.total).toBe(9); // the eight live ones and the undated one
+    expect(rows.undated).toBe(1);
   });
 });
 

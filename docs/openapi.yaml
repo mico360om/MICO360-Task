@@ -600,8 +600,12 @@ paths:
         the open tasks due each week. One request, answered by a fixed number of grouped queries.
       description: >-
         Days are company-time calendar days. `from` / `to` are widened to whole weeks starting on
-        `weekStart`. Each project: `start` (its start date, else the day it was created —
-        `startIsCreated`), `target` (or null), `tasks` { total, done, open, overdue }, `progress`
+        `weekStart`. Each project: `start` (its own start date, else its tasks' earliest start or due
+        date, else the day it was created) with `startFrom` (project | tasks | created), `target` (its
+        own target date, else its tasks' latest due date, or null) with `targetFrom` (project | tasks |
+        null) — the project's own date always wins, field by field, and every live task counts, done
+        or not; a project whose end comes from its tasks is not late once every task is done —
+        `tasks` { total, done, open, overdue }, `progress`
         (share done, rounded as on the Projects page: 99 until every task is done), `timeUsed` (share
         of the days from start to target gone, 0–100; null without a target), `health` — `late`
         (target day passed; `daysLate`), `at-risk` (timeUsed − progress ≥ 20), `on-track` or
@@ -621,6 +625,26 @@ paths:
             — each project also carries id, code, name, color, icon, imageUrl, status and owner { id, name, avatarUrl }.
         '400': { description: 'VALIDATION: a missing or unreal date, a date more than two years from today, an unknown week start, `to` before `from`, or more than 53 weeks' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /timeline/projects/{id}/tasks:
+    get:
+      summary: >-
+        One project's task rows on the Timeline, read when its row is opened: the tasks due in (or
+        reaching into) the shown weeks by their first day, then its open tasks due before them —
+        at most 30 — with the project's task counts. Same projects as GET /timeline (one the caller
+        may see, not completed or archived) and the same two-year reach.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: >-
+            `{ data: { projectId, from, to, today, total, undated, tasks: [{ id, key, title, start (or null:
+            drawn as a marker), due, done, overdue, priority, isMilestone, assignees: [{ id, name }] }] } }`
+            — `total` is every live task of the project (the rest are on its board), `undated` those without a due date.
+        '400': { description: 'VALIDATION: a missing or unreal date, a date more than two years from today, `to` before `from`, or more than 53 weeks' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'No such project, not visible to the caller, or completed or archived' }
   /workload:
     get:
       summary: >-

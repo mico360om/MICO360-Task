@@ -39,6 +39,8 @@ export interface TimelineRows {
   totals: { projectId: string; total: number }[];
   /** Open (not done) tasks per project and due date (null: no due date), counted. */
   openByDue: { projectId: string; dueDate: Date | null; count: number }[];
+  /** Per project, its live tasks' (done or not) earliest start date, earliest and latest due date. */
+  taskDates: { projectId: string; minStart: Date | null; minDue: Date | null; maxDue: Date | null }[];
   /** Milestones (tasks marked as milestones) due in the shown weeks, done or not: the markers. */
   milestones: TimelineMilestoneRow[];
   /** Each project's earliest milestone not reached yet (all of them on that day), or its undated ones when none has a date. */
@@ -61,6 +63,58 @@ export interface TimelineSource {
    * `weekFrom` and `weekTo`. Nothing is capped, so no project can lose its next milestone or its last meetings.
    */
   load(projectIds: string[], ownerIds: string[], window: TimelineWindow): Promise<TimelineRows>;
+  /**
+   * One project's task rows: the tasks with a due date from `from` on that are due or start before
+   * `to`, the open ones due before `before` (most recent first, at most a page), and the counts.
+   */
+  projectTasks(projectId: string, window: { from: Date; to: Date; before: Date }): Promise<TimelineTasksRows>;
+}
+
+/** A task as the timeline's task rows read it. */
+export interface TimelineTaskRow {
+  id: string;
+  key: string;
+  title: string;
+  startDate: Date | null;
+  dueDate: Date | null;
+  done: boolean;
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  isMilestone: boolean;
+  assignees: { id: string; name: string }[];
+}
+
+export interface TimelineTasksRows {
+  inRange: TimelineTaskRow[];
+  before: TimelineTaskRow[];
+  /** Every live task of the project. */
+  total: number;
+  /** Its live tasks without a due date. */
+  undated: number;
+}
+
+export interface TimelineTask {
+  id: string;
+  key: string;
+  title: string;
+  /** Its start day when it has one (on or before its due day), else null: drawn as a marker. */
+  start: string | null;
+  due: string;
+  done: boolean;
+  /** Open and due before today. */
+  overdue: boolean;
+  priority: TimelineTaskRow['priority'];
+  isMilestone: boolean;
+  assignees: { id: string; name: string }[];
+}
+
+export interface TimelineTasksData {
+  projectId: string;
+  from: string;
+  to: string;
+  today: string;
+  total: number;
+  undated: number;
+  tasks: TimelineTask[];
 }
 
 /** The weeks a timeline shows: `from` is a week's first day, `to` a week's last day. */
@@ -98,11 +152,16 @@ export interface TimelineProject {
   imageUrl: string | null;
   status: ProjectRecord['status'];
   owner: TimelinePerson | null;
-  /** The first day of its bar: its start date, else the day it was created. */
+  /** The first day of its bar: its start date, else its tasks' earliest date, else the day it was created. */
   start: string;
+  /** Where `start` comes from. */
+  startFrom: 'project' | 'tasks' | 'created';
+  /** Kept for older clients: `startFrom === 'created'`. */
   startIsCreated: boolean;
-  /** Its target day, or null. */
+  /** Its target day, else its tasks' latest due day, or null. */
   target: string | null;
+  /** Where `target` comes from (null without one). */
+  targetFrom: 'project' | 'tasks' | null;
   tasks: { total: number; done: number; open: number; overdue: number };
   /** Share of tasks done, as the Projects page rounds it (99 until every task is done). */
   progress: number;
@@ -172,13 +231,13 @@ export function timelineRange(from: string, to: string, weekStart: WeekStart): T
 export const AT_RISK_GAP = 20;
 
 /** On track, at risk (20 points or more less done than time used), late (target passed) or without a target. */
-export function projectHealth({ start, target, today, progress }: { start: string; target: string | null; today: string; progress: number }): {
+export function projectHealth({ start, target, today, progress, finished = false }: { start: string; target: string | null; today: string; progress: number; finished?: boolean }): {
   health: ProjectHealth;
   timeUsed: number | null;
   daysLate: number;
 } {
   if (!target) return { health: 'no-target', timeUsed: null, daysLate: 0 };
-  if (target < today) return { health: 'late', timeUsed: 100, daysLate: daysBetween(target, today) };
+  if (target < today) return finished ? { health: 'on-track', timeUsed: 100, daysLate: 0 } : { health: 'late', timeUsed: 100, daysLate: daysBetween(target, today) };
   // As the project dashboard works it out: the days gone over the days from start to target.
   const span = Math.max(1, daysBetween(start, target));
   const timeUsed = Math.max(0, Math.min(100, Math.round((daysBetween(start, today) / span) * 100)));
@@ -226,6 +285,7 @@ export function buildTimeline(
     if (day !== null && day >= today && day <= soonEnd) soon.set(r.projectId, (soon.get(r.projectId) ?? 0) + 1);
   }
   const milestoneCounts = new Map(rows.milestoneCounts.map((c) => [c.projectId, c.count]));
+  const taskDates = new Map(rows.taskDates.map((d) => [d.projectId, d]));
   const thisWeek = new Map(rows.meetingsThisWeek.map((c) => [c.projectId, c.count]));
   const milestones = new Map<string, TimelineMilestone[]>();
   for (const m of rows.milestones) {
@@ -255,9 +315,17 @@ export function buildTimeline(
       const o = open.get(p.id) ?? { open: 0, overdue: 0, weeks: range.weeks.map(() => 0) };
       const done = Math.max(0, total - o.open);
       const progress = progressPct(total, done);
-      const own = dueDayKey(p.startDate, timeZone);
-      const start = own ?? zonedDayKey(p.createdAt, timeZone);
-      const target = dueDayKey(p.targetDate, timeZone);
+      // The project's own dates win, field by field; missing ones come from its tasks.
+      const dates = taskDates.get(p.id);
+      const ownStart = dueDayKey(p.startDate, timeZone);
+      const ownTarget = dueDayKey(p.targetDate, timeZone);
+      const fromTasks = [dates?.minStart, dates?.minDue].map((d) => dueDayKey(d ?? null, timeZone)).filter((d): d is string => d !== null).sort()[0] ?? null;
+      const start = ownStart ?? fromTasks ?? zonedDayKey(p.createdAt, timeZone);
+      const startFrom = ownStart ? 'project' : fromTasks ? 'tasks' : 'created';
+      const lastDue = dueDayKey(dates?.maxDue ?? null, timeZone);
+      // A task-derived end before the start says nothing about when the project ends.
+      const target = ownTarget ?? (lastDue !== null && lastDue >= start ? lastDue : null);
+      const targetFrom = ownTarget ? 'project' : target ? 'tasks' : null;
       const list = (milestones.get(p.id) ?? []).sort(byDate);
 
       return {
@@ -270,11 +338,14 @@ export function buildTimeline(
         status: p.status,
         owner: p.ownerId ? owners.get(p.ownerId) ?? null : null,
         start,
-        startIsCreated: own === null,
+        startFrom,
+        startIsCreated: startFrom === 'created',
         target,
+        targetFrom,
         tasks: { total, done, open: o.open, overdue: o.overdue },
         progress,
-        ...projectHealth({ start, target, today, progress }),
+        // Dates taken from its tasks are over, not late, once every task is done.
+        ...projectHealth({ start, target, today, progress, finished: targetFrom === 'tasks' && total > 0 && o.open === 0 }),
         dueByWeek: o.weeks,
         milestones: list,
         nextMilestone: next.get(p.id) ?? null,
@@ -285,4 +356,45 @@ export function buildTimeline(
       };
     }),
   };
+}
+
+/** How many task rows a project shows; the rest are on its board. */
+export const TIMELINE_TASK_LIMIT = 30;
+
+/**
+ * A project's task rows for the shown weeks: the tasks that fall in them (by their first day), then
+ * its open tasks due before them (overdue, most recent first) — at most TIMELINE_TASK_LIMIT.
+ */
+export function buildTimelineTasks(
+  projectId: string,
+  rows: TimelineTasksRows,
+  { from, to, timeZone, now = new Date() }: { from: string; to: string; timeZone: string; now?: Date },
+): TimelineTasksData {
+  const today = todayKey(timeZone, now);
+  const toTask = (t: TimelineTaskRow): TimelineTask | null => {
+    const due = dueDayKey(t.dueDate, timeZone);
+    if (!due) return null;
+    const start = dueDayKey(t.startDate, timeZone);
+    return {
+      id: t.id,
+      key: t.key,
+      title: t.title,
+      start: start !== null && start <= due ? start : null,
+      due,
+      done: t.done,
+      overdue: !t.done && due < today,
+      priority: t.priority,
+      isMilestone: t.isMilestone,
+      assignees: t.assignees,
+    };
+  };
+  const shown = rows.inRange
+    .map(toTask)
+    .filter((t): t is TimelineTask => t !== null && (t.start ?? t.due) <= to && t.due >= from)
+    .sort((a, b) => (a.start ?? a.due).localeCompare(b.start ?? b.due) || a.due.localeCompare(b.due) || a.key.localeCompare(b.key, undefined, { numeric: true }));
+  const before = rows.before
+    .map(toTask)
+    .filter((t): t is TimelineTask => t !== null && !t.done && t.due < from)
+    .sort((a, b) => b.due.localeCompare(a.due) || a.key.localeCompare(b.key, undefined, { numeric: true }));
+  return { projectId, from, to, today, total: rows.total, undated: rows.undated, tasks: [...shown, ...before].slice(0, TIMELINE_TASK_LIMIT) };
 }
