@@ -14,6 +14,20 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Timeline: a project without its own start or target date now takes them from its tasks — from the
+  earliest start or due date to the latest due date — instead of running from the day it was created
+  with no end. Its bar has a dashed outline and says "dates from tasks", and its details say
+  "1 Oct → 12 Dec 2026 (from its tasks)". When the last task's due day has passed with work still open,
+  it shows as Late: "Last task was due 21 Oct · 3 days ago".
+
+### Improvements
+- Timeline: open a project's row (▸) to see its tasks under it: overdue ones first (red, ⚠), then open
+  ones in the shown weeks, then done ones (grey, ✓), each with who has it; click one to open it. Up to
+  30 per project; when there are more, "30 of 57 shown" and "Show all 12 open tasks" (on the project's
+  Tasks tab), plus "N open tasks have no due date". Expand all / Collapse all opens every row, and on a
+  phone each project's Tasks button lists its tasks with their due days.
+
 ## [1.12.0] - 2026-10-24
 
 ### New features
