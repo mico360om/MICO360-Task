@@ -20,7 +20,9 @@ import { useNow } from '../lib/useNow';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 
 /** The cards: one column on a phone, up to four on a wide screen. */
-const GRID = 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3 min-[1800px]:grid-cols-4';
+// As many columns as fit with each card at least 20rem wide (one on a phone or beside the sidebar
+// on a tablet), so titles, places and organizers keep room to be read.
+const GRID = 'grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))]';
 type Scope = 'all' | 'mine';
 /** How many of each group show before "Show more" (Today always shows in full); rows of 3 or 4 cards. */
 const PAGE: Record<GroupKey, number> = { today: Infinity, next7: 12, later: 12, drafts: 12, past: 12 };
@@ -204,9 +206,11 @@ export function MeetingsPage() {
       ) : null}
 
       {upNext ? <UpNextCard meeting={upNext} timeZone={timeZone} now={now} project={upNext.projectId ? projectOf(upNext.projectId) : null} /> : null}
+      {/* The "Up next" card's place while meetings load, so the list doesn't jump down under it. */}
+      {meetingsQ.isLoading && !filtered ? <div aria-hidden="true" className="skeleton mb-4 h-[5.75rem] rounded-2xl" /> : null}
 
       {meetingsQ.isLoading ? (
-        <div className={GRID} aria-busy="true" aria-label="Loading meetings">
+        <div key="loading" className={GRID} aria-busy="true" aria-label="Loading meetings">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex gap-3 rounded-xl border border-line bg-surface p-3">
               <div className="skeleton h-16 w-14 flex-none rounded-xl" />
@@ -238,7 +242,7 @@ export function MeetingsPage() {
           />
         )
       ) : (
-        <div className="flex flex-col gap-5">
+        <div key="list" className="flex flex-col gap-5">
           {groups.map((g) => {
             const limit = shown[g.key] ?? PAGE[g.key];
             const items = g.items.slice(0, limit);

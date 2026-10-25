@@ -377,7 +377,7 @@ describe('TimelinePage', () => {
     expect(details).not.toHaveTextContent('Target');
   });
 
-  it('opens a project’s tasks under it on request: overdue in red with ⚠, done grey with ✓, who has each, and the rest on its page', async () => {
+  it('opens a project’s tasks under it on request: overdue in red with a warning sign, done grey with a tick, who has each, and the rest on its page', async () => {
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
     expect(requests.some((u) => u.includes('/tasks?'))).toBe(false);
@@ -392,11 +392,11 @@ describe('TimelinePage', () => {
     const items = within(tasks).getAllByRole('listitem');
     // Who has each is in the row's name (the initials show it on sight).
     const login = within(items[0]!).getByRole('button', { name: 'MOB-11 Login screen, 12 → 20 Oct, overdue, assigned to Sara Ahmed' });
-    expect(login).toHaveTextContent('⚠');
+    expect(login.querySelector('svg[data-icon="overdue"]')).not.toBeNull();
     expect(items[0]).toHaveTextContent('SA');
     expect(items[0]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'overdue');
     expect(items[0]!.querySelector('[data-tone]')).toHaveClass('bg-danger');
-    expect(within(items[1]!).getByRole('button', { name: 'MOB-12 Push alerts, due 22 Oct, done' })).toHaveTextContent('✓');
+    expect(within(items[1]!).getByRole('button', { name: 'MOB-12 Push alerts, due 22 Oct, done' }).querySelector('svg[data-icon="done"]')).not.toBeNull();
     expect(items[1]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'done');
     expect(items[1]!.querySelector('[data-tone]')).toHaveClass('bg-ink-3/60');
     expect(items[2]!.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'open');

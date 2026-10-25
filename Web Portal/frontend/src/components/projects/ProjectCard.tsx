@@ -40,8 +40,8 @@ function Figure({ label, children, late }: { label: string; children: ReactNode;
 }
 
 /**
- * A project on the Projects page: its colour, picture, name and code · number · client; its status
- * (a menu for those who may change it) and "⋯"; progress and last update; open, overdue and next
+ * A project on the Projects page: its colour, picture and name; under the name its status (a menu
+ * for those who may change it) and code · number · client; "⋯"; progress and last update; open, overdue and next
  * due; the team, owner and target date. The title is the card's one link — stretched over the
  * card — and the buttons sit above it, so nothing interactive is nested.
  */
@@ -85,17 +85,22 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
               <bdi>{p.name}</bdi>
             </Link>
           </h2>
-          <p data-testid="project-meta" className="mt-1 text-xs leading-relaxed text-ink-2">
-            {meta.map((part, i) => (
-              <Fragment key={i}>
-                {i ? <span aria-hidden="true" className="text-ink-3"> · </span> : null}
-                {part}
-              </Fragment>
-            ))}
-          </p>
+          {/* The status sits under the name, so a long name keeps the card's width. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="relative z-10 flex">
+              <ProjectStatusMenu project={p} onChange={onChangeStatus ? (s) => onChangeStatus(p, s) : undefined} />
+            </span>
+            <p data-testid="project-meta" className="min-w-0 text-xs leading-relaxed text-ink-2">
+              {meta.map((part, i) => (
+                <Fragment key={i}>
+                  {i ? <span aria-hidden="true" className="text-ink-3"> · </span> : null}
+                  {part}
+                </Fragment>
+              ))}
+            </p>
+          </div>
         </div>
-        <div className="relative z-10 -me-1 flex flex-none items-center gap-1.5">
-          <ProjectStatusMenu project={p} onChange={onChangeStatus ? (s) => onChangeStatus(p, s) : undefined} />
+        <div className="relative z-10 -me-1 flex flex-none items-center">
           <ActionMenu label={`More actions for ${p.name}`} items={actions} buttonClassName={MORE_BUTTON} />
         </div>
       </div>

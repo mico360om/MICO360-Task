@@ -6,9 +6,9 @@ import { HEALTH_LABEL, initialsOf } from '../../lib/timeline';
 export const ROW = 'grid grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]';
 
 /** Small stroke icons, drawn in the current colour. */
-export function Glyph({ children, size = 14, className = '' }: { children: ReactNode; size?: number; className?: string }) {
+export function Glyph({ children, size = 14, className = '', ...rest }: { children: ReactNode; size?: number; className?: string; 'data-icon'?: string }) {
   return (
-    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-none ${className}`}>
+    <svg {...rest} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-none ${className}`}>
       {children}
     </svg>
   );
@@ -50,7 +50,7 @@ const PILL: Record<ProjectHealth, { tone: string; icon: ReactNode | null }> = {
   'no-target': { tone: 'bg-ground text-ink-2', icon: null },
 };
 
-/** "✓ On track", "⚠ At risk", "⏱ Late", "No target": an icon and words, never colour alone. */
+/** On track (tick), At risk (warning sign), Late (clock), No target: an icon and words, never colour alone. */
 export function HealthPill({ health, className = '' }: { health: ProjectHealth; className?: string }) {
   const p = PILL[health];
   return (
@@ -105,7 +105,7 @@ export function ExpandButton({ name, expanded, onToggle, children, className = '
 export function Initials({ people, announce = false, className = '' }: { people: { id: string; name: string }[]; announce?: boolean; className?: string }) {
   if (people.length === 0) return null;
   const names = people.map((p) => p.name).join(', ');
-  const chip = 'grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[9.5px] font-bold text-ink-2';
+  const chip = 'grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ground px-0.5 text-[10px] font-bold text-ink-2';
   return (
     <span title={names} className={`flex flex-none gap-0.5 ${className}`}>
       {announce ? <span className="sr-only">, assigned to {names}</span> : null}
