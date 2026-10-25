@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ProposalItem, ProposalRecord, ProposalStatus } from './mico-ai-actions-types';
 
 /**
  * Where MICO AI keeps a person's chats. Every chat read and change takes the owner's id, so a chat
@@ -67,6 +68,15 @@ export interface MessagePatch {
   step?: string | null;
 }
 
+export interface NewProposal {
+  messageId: string;
+  userId: string;
+  items: ProposalItem[];
+  note: string | null;
+}
+
+export type ProposalPatch = Partial<Pick<ProposalRecord, 'items' | 'sendInvites' | 'results' | 'undo' | 'confirmedAt' | 'undoUntil' | 'undoneAt'>>;
+
 export interface MicoAiRepository {
   /** The owner's chats, newest activity first; with `query`, those whose title or messages contain it. */
   listChats(userId: string, opts: { query?: string; limit: number }): Promise<ChatMatch[]>;
@@ -104,6 +114,19 @@ export interface MicoAiRepository {
   updateMessage(messageId: string, patch: MessagePatch, onlyIf?: MessageStatus): Promise<boolean>;
   /** Answers still pending but untouched since `before` (cut off by a restart) become `content` errors; in one chat or all. */
   interruptStale(before: Date, content: unknown, chatId?: string): Promise<number>;
+  /** Keep a card of proposed changes with its answer (one per answer). */
+  createProposal(input: NewProposal): Promise<ProposalRecord>;
+  /** The card of an answer, or null. */
+  getProposal(messageId: string): Promise<ProposalRecord | null>;
+  /** The cards of these answers (those that have one). */
+  proposalsFor(messageIds: string[]): Promise<ProposalRecord[]>;
+  /**
+   * Move a card on from one of `from` to `to` (with `patch`), in one step two requests can't both
+   * win: true if this call moved it.
+   */
+  moveProposal(id: string, from: ProposalStatus[], to: ProposalStatus, patch?: ProposalPatch): Promise<boolean>;
+  /** Change a card; with `onlyIf`, only while it has that status (true if it changed). */
+  updateProposal(id: string, patch: ProposalPatch, onlyIf?: ProposalStatus): Promise<boolean>;
 }
 
 /** Words around the first match of `query` in `text` (about 120 characters). */
@@ -124,9 +147,12 @@ const withoutResults = (m: StoredMessage): MessageRecord => {
 };
 
 /** In-memory storage, for tests. */
-export function createMemoryMicoAiRepository(now: () => Date = () => new Date()): MicoAiRepository & { messages: StoredMessage[]; chats: ChatRecord[] } {
+export function createMemoryMicoAiRepository(now: () => Date = () => new Date()): MicoAiRepository & { messages: StoredMessage[]; chats: ChatRecord[]; proposals: ProposalRecord[] } {
   const chats: ChatRecord[] = [];
   const messages: StoredMessage[] = [];
+  const proposals: ProposalRecord[] = [];
+  // Cards are stored as copies, as a database would: changing what was read changes nothing here.
+  const copy = <T,>(v: T): T => structuredClone(v);
   // A strictly increasing clock: rows made in the same millisecond still sort in the order they were made.
   let last = 0;
   const tick = () => {
@@ -145,11 +171,21 @@ export function createMemoryMicoAiRepository(now: () => Date = () => new Date())
   };
   const removeChat = (chat: ChatRecord) => {
     chats.splice(chats.indexOf(chat), 1);
-    for (let i = messages.length - 1; i >= 0; i--) if (messages[i]!.chatId === chat.id) messages.splice(i, 1);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]!.chatId !== chat.id) continue;
+      const gone = messages.splice(i, 1)[0]!;
+      const p = proposals.findIndex((x) => x.messageId === gone.id);
+      if (p >= 0) proposals.splice(p, 1);
+    }
+  };
+  const applyProposal = (p: ProposalRecord, patch: ProposalPatch) => {
+    for (const [k, v] of Object.entries(patch)) if (v !== undefined) Object.assign(p, { [k]: copy(v) });
+    p.updatedAt = tick();
   };
   return {
     chats,
     messages,
+    proposals,
     async listChats(userId, { query, limit }) {
       const q = query?.trim().toLowerCase();
       const mine = chats.filter((c) => c.userId === userId).sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
@@ -249,6 +285,49 @@ export function createMemoryMicoAiRepository(now: () => Date = () => new Date())
         }
       }
       return n;
+    },
+    async createProposal(input) {
+      if (proposals.some((p) => p.messageId === input.messageId)) throw new Error('This answer already has a card.');
+      const at = tick();
+      const p: ProposalRecord = {
+        id: randomUUID(),
+        messageId: input.messageId,
+        userId: input.userId,
+        status: 'PROPOSED',
+        items: copy(input.items),
+        note: input.note,
+        sendInvites: true,
+        results: null,
+        undo: null,
+        confirmedAt: null,
+        undoUntil: null,
+        undoneAt: null,
+        createdAt: at,
+        updatedAt: at,
+      };
+      proposals.push(p);
+      return copy(p);
+    },
+    async getProposal(messageId) {
+      const p = proposals.find((x) => x.messageId === messageId);
+      return p ? copy(p) : null;
+    },
+    async proposalsFor(messageIds) {
+      return proposals.filter((p) => messageIds.includes(p.messageId)).map(copy);
+    },
+    // No await between the check and the change: two calls can't both move it.
+    async moveProposal(id, from, to, patch = {}) {
+      const p = proposals.find((x) => x.id === id);
+      if (!p || !from.includes(p.status)) return false;
+      p.status = to;
+      applyProposal(p, patch);
+      return true;
+    },
+    async updateProposal(id, patch, onlyIf) {
+      const p = proposals.find((x) => x.id === id);
+      if (!p || (onlyIf && p.status !== onlyIf)) return false;
+      applyProposal(p, patch);
+      return true;
     },
   };
 }

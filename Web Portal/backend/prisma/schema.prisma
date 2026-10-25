@@ -1094,7 +1094,37 @@ model MicoAiMessage {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   chat      MicoAiChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  proposal  MicoAiProposal?
 
   @@index([chatId, createdAt])
   @@map("mico_ai_messages")
+}
+
+/// A card of changes MICO AI proposed in an answer (one per answer). Nothing is changed until its
+/// owner confirms it; Confirm and Undo move `status` on in one statement, so neither runs twice.
+model MicoAiProposal {
+  id          String        @id @default(cuid())
+  messageId   String        @unique
+  userId      String
+  /// PROPOSED, then CONFIRMING → DONE (or CANCELLED), then UNDOING → UNDONE.
+  status      String        @default("PROPOSED") @db.VarChar(16)
+  /// The changes as checked when proposed (names resolved to ids), and as confirmed once confirmed.
+  items       Json
+  /// A note for the whole card ("Only the first 50 changes are here").
+  note        String?       @db.VarChar(300)
+  /// The card's "Email the invitations" tick box.
+  sendInvites Boolean       @default(true)
+  /// Per change, once confirmed: done or refused (with why), and what Undo needs.
+  results     Json?
+  /// Per change, once undone.
+  undo        Json?
+  confirmedAt DateTime?
+  undoUntil   DateTime?
+  undoneAt    DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  message     MicoAiMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mico_ai_proposals")
 }

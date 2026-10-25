@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { snippetOf, type ChatMatch, type MessageRecord, type MessageRole, type MessageStatus, type MessageWithResults, type MicoAiRepository } from './mico-ai-repository';
+import { snippetOf, type ChatMatch, type MessageRecord, type MessageRole, type MessageStatus, type MessageWithResults, type MicoAiRepository, type ProposalPatch } from './mico-ai-repository';
+import type { ItemResult, ItemUndo, ProposalItem, ProposalRecord, ProposalStatus } from './mico-ai-actions-types';
 
 /**
  * MICO AI's chats in mico_ai_chats / mico_ai_messages. Every chat lookup is filtered by its owner
@@ -28,6 +29,34 @@ export function createPrismaMicoAiRepository(prisma: PrismaClient): MicoAiReposi
     createdAt: m.createdAt,
     updatedAt: m.updatedAt,
   });
+  type ProposalRow = Prisma.MicoAiProposalGetPayload<object>;
+  const toProposal = (p: ProposalRow): ProposalRecord => ({
+    id: p.id,
+    messageId: p.messageId,
+    userId: p.userId,
+    status: p.status as ProposalStatus,
+    items: (Array.isArray(p.items) ? p.items : []) as unknown as ProposalItem[],
+    note: p.note,
+    sendInvites: p.sendInvites,
+    results: (p.results ?? null) as unknown as Record<string, ItemResult> | null,
+    undo: (p.undo ?? null) as unknown as Record<string, ItemUndo> | null,
+    confirmedAt: p.confirmedAt,
+    undoUntil: p.undoUntil,
+    undoneAt: p.undoneAt,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  });
+  const proposalData = (patch: ProposalPatch): Prisma.MicoAiProposalUpdateManyMutationInput => {
+    const data: Prisma.MicoAiProposalUpdateManyMutationInput = {};
+    if (patch.items !== undefined) data.items = patch.items as unknown as Prisma.InputJsonValue;
+    if (patch.sendInvites !== undefined) data.sendInvites = patch.sendInvites;
+    if (patch.results !== undefined) data.results = json(patch.results);
+    if (patch.undo !== undefined) data.undo = json(patch.undo);
+    if (patch.confirmedAt !== undefined) data.confirmedAt = patch.confirmedAt;
+    if (patch.undoUntil !== undefined) data.undoUntil = patch.undoUntil;
+    if (patch.undoneAt !== undefined) data.undoneAt = patch.undoneAt;
+    return data;
+  };
   const order = [{ lastMessageAt: 'desc' as const }, { createdAt: 'desc' as const }];
   const oldestFirst = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
   const newestFirst = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
@@ -143,6 +172,29 @@ export function createPrismaMicoAiRepository(prisma: PrismaClient): MicoAiReposi
         data: { status: 'ERROR', content: json(content), step: null },
       });
       return count;
+    },
+    async createProposal(input) {
+      const row = await prisma.micoAiProposal.create({
+        data: { messageId: input.messageId, userId: input.userId, items: input.items as unknown as Prisma.InputJsonValue, note: input.note ? input.note.slice(0, 300) : null },
+      });
+      return toProposal(row);
+    },
+    async getProposal(messageId) {
+      const row = await prisma.micoAiProposal.findUnique({ where: { messageId } });
+      return row ? toProposal(row) : null;
+    },
+    async proposalsFor(messageIds) {
+      if (messageIds.length === 0) return [];
+      return (await prisma.micoAiProposal.findMany({ where: { messageId: { in: messageIds } } })).map(toProposal);
+    },
+    // One conditional statement: of two requests at the same moment, only one finds it still in `from`.
+    async moveProposal(id, from, to, patch = {}) {
+      const { count } = await prisma.micoAiProposal.updateMany({ where: { id, status: { in: from } }, data: { ...proposalData(patch), status: to } });
+      return count > 0;
+    },
+    async updateProposal(id, patch, onlyIf) {
+      const { count } = await prisma.micoAiProposal.updateMany({ where: { id, ...(onlyIf ? { status: onlyIf } : {}) }, data: proposalData(patch) });
+      return count > 0;
     },
   };
 }

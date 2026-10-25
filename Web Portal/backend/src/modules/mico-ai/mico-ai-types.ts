@@ -1,3 +1,5 @@
+import type { ProposalDraft } from './mico-ai-actions-types';
+
 /**
  * MICO AI's shapes: the records a read-only tool returns (each row carries the source it came
  * from), the tables and sources of an answer (built by the server from those rows, never from the
@@ -73,9 +75,12 @@ export interface AnswerTable {
   total?: number;
 }
 
-/** What MICO AI said: an answer (text, tables, sources) or a clarifying question with quick replies. */
+/**
+ * What MICO AI said: an answer (text, tables, sources), a clarifying question with quick replies,
+ * or a card of proposed changes (they happen only once the person confirms them).
+ */
 export interface AssistantContent {
-  kind: 'answer' | 'clarify';
+  kind: 'answer' | 'clarify' | 'proposal';
   /** A small Markdown subset: paragraphs, "- " bullets, **bold**. */
   text: string;
   /** "That isn't in MICO360": shown as the amber note. */
@@ -87,6 +92,10 @@ export interface AssistantContent {
   options: string[];
   /** The tool results found for this question (kept for later questions; not sent to the page). */
   results: StoredResult[];
+  /** A proposal's card as the server checked it (stored on its own; the message keeps its id). */
+  proposal?: ProposalDraft;
+  /** The stored card of a proposal. */
+  proposalId?: string;
 }
 
 /** At most this many rows of a result are kept (tables and downloads use them all). */
