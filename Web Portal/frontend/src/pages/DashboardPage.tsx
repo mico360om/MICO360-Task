@@ -21,6 +21,7 @@ import { isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { LoadError } from '../components/ui/LoadError';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
+import { Icon } from '../components/meeting/kit';
 
 // Category colours reference the shared design tokens (rgb(var(--…))) so the
 // charts adapt to light/dark theme instead of being pinned to light-mode hex.
@@ -240,7 +241,7 @@ export function DashboardPage() {
                 // An outage must never read as "all clear".
                 <LoadError what="due tasks" onRetry={() => void allTasksQ.refetch()} className="py-4 text-center" />
               ) : dueSoon.length === 0 ? (
-                <p className="py-4 text-center text-sm text-ink-2">Nothing due — you’re all clear. 🎉</p>
+                <p className="flex items-center justify-center gap-1.5 py-4 text-center text-sm text-ink-2"><span className="text-success">{Icon.checkCircle}</span>Nothing due — you’re all clear.</p>
               ) : (
                 <ul className="flex flex-col">
                   {dueSoon.map((t) => (

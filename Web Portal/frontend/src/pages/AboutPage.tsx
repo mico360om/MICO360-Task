@@ -53,7 +53,17 @@ export function AboutPage() {
         ) : versionQ.isError ? (
           <LoadError what="the version" onRetry={() => void versionQ.refetch()} />
         ) : (
-          <div className="skeleton h-6 w-40" aria-busy="true" />
+          // Shaped like what arrives (for an administrator, the technical details too), so the
+          // version history under it doesn't jump down.
+          <div aria-busy="true">
+            <div className="skeleton h-7 w-40" />
+            <div className="skeleton mt-2 h-4 w-56 max-w-full" />
+            {isAdmin ? (
+              <div className="mt-4 border-t border-line pt-4">
+                <div className="skeleton h-[12.5rem] w-full" />
+              </div>
+            ) : null}
+          </div>
         )}
 
         {isAdmin && v ? (

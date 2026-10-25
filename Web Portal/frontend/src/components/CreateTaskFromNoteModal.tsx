@@ -17,6 +17,7 @@ import { Badge } from './ui/Badge';
 import { useDialog } from '../hooks/useDialog';
 import { ModalPortal } from './ui/ModalPortal';
 import { projectOption } from './project-option';
+import { Icon } from './meeting/kit';
 
 export interface CreateTaskFromNoteModalProps {
   meetingId: string;
@@ -123,7 +124,7 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
   const intro = (
     <>
       <h2 className="mb-1 flex items-center gap-2 font-display text-xl font-bold text-ink">
-        <span aria-hidden="true">⭐</span> Create task from note
+        <span className="text-brand">{Icon.task}</span> Create task from note
       </h2>
 
       {/* Source note context */}

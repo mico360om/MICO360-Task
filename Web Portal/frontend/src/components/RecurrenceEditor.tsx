@@ -1,6 +1,7 @@
 import type { RecurrenceRule } from '../api/tasks';
 import { upcomingDates, WEEK_OF_MONTH, WEEKDAY_NAMES } from '../lib/recurrence-summary';
 import { formatDueDay } from '../lib/due-display';
+import { Icon } from './meeting/kit';
 
 export interface RecurrenceEditorProps {
   value: RecurrenceRule | null;
@@ -287,7 +288,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
               rule.paused ? 'border-brand bg-brand/10 text-brand' : 'border-line text-ink-2 hover:bg-ground'
             }`}
           >
-            {rule.paused ? '▶ Resume series' : '⏸ Pause series'}
+            {rule.paused ? <><span className="me-1 inline-flex align-[-1px]">{Icon.play}</span>Resume series</> : <><span className="me-1 inline-flex align-[-1px]">{Icon.pause}</span>Pause series</>}
           </button>
           {rule.paused ? <span className="text-xs text-ink-3">Paused — no new tasks will be created.</span> : null}
         </div>

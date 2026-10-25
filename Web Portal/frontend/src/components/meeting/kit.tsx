@@ -130,4 +130,9 @@ export const Icon = {
   ),
   task: <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>,
   repeat: <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true"><path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" /></svg>,
+  lock: <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></svg>,
+  checkCircle: <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12.5 2.8 2.8L16.5 9.5" /></svg>,
+  chat: <svg viewBox="0 0 24 24" {...ICON} width={26} height={26} strokeWidth={1.7} aria-hidden="true"><path d="M20.5 11.5a8 8 0 0 1-11.7 7.1L3.5 20l1.4-5.1A8 8 0 1 1 20.5 11.5z" /></svg>,
+  pause: <svg viewBox="0 0 24 24" {...ICON} width={12} height={12} strokeWidth={2.4} aria-hidden="true"><path d="M9 5v14M15 5v14" /></svg>,
+  play: <svg viewBox="0 0 24 24" {...ICON} width={12} height={12} strokeWidth={2.2} aria-hidden="true"><path d="M7 4.5v15l12-7.5z" /></svg>,
 };
