@@ -7,6 +7,7 @@ import { buildTimeline } from '../activity/activity-feed';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
 import { completionStats, projectPerformance, statusBreakdown, userWorkload, type ReportTask } from '../reports/report-service';
 import type { ToolInfo } from './mico-ai-loop';
+import { matchPerson, matchProject } from './mico-ai-resolve';
 import { MAX_RESULT_ROWS, type ResultColumn, type ResultRow, type SourceRef, type StoredResult, type ToolResult } from './mico-ai-types';
 import type { AiMeetingRec, AiPersonRec, AiProjectRec, AiTaskLink, AiTaskRec, MicoAiDataPort, Viewer } from './mico-ai-data';
 
@@ -231,24 +232,16 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
   type Scope = Awaited<ReturnType<typeof scopeOf>>;
 
   function resolveProject(s: Scope, said: string): AiProjectRec {
-    const n = normalizeForSearch(said);
-    const exact = s.projects.filter((p) => [p.code, p.number, p.name].some((x) => x && normalizeForSearch(x) === n));
-    const found = exact.length ? exact : s.projects.filter((p) => matchesNormalized(n, p.name, p.code, p.number));
-    if (found.length === 1) return found[0]!;
-    if (found.length > 1) throw new ToolProblem(`Several projects match “${said}”: ${found.slice(0, 6).map((p) => `${p.name} (${p.code})`).join(', ')}. Ask which one.`);
+    const m = matchProject(s.projects, said);
+    if ('found' in m) return m.found;
+    if ('several' in m) throw new ToolProblem(`Several projects match “${said}”: ${m.several.slice(0, 6).map((p) => `${p.name} (${p.code})`).join(', ')}. Ask which one.`);
     throw new ToolProblem(`No project you can see matches “${said}”.`);
   }
 
   function resolvePerson(s: Scope, said: string): AiPersonRec {
-    if (/^(me|myself|my|i|mine)$/i.test(said.trim())) {
-      const me = s.person.get(s.viewer.userId);
-      if (me) return me;
-    }
-    const n = normalizeForSearch(said);
-    const exact = s.people.filter((p) => [p.username, p.firstName, p.lastName, `${p.firstName} ${p.lastName}`].some((x) => normalizeForSearch(x) === n));
-    const found = exact.length ? exact : s.people.filter((p) => matchesNormalized(n, `${p.firstName} ${p.lastName}`, p.username));
-    if (found.length === 1) return found[0]!;
-    if (found.length > 1) throw new ToolProblem(`Several people match “${said}”: ${found.slice(0, 6).map((p) => `${nameOf(p)} (${p.username})`).join(', ')}. Ask which one.`);
+    const m = matchPerson(s.people, said, s.viewer.userId);
+    if ('found' in m) return m.found;
+    if ('several' in m) throw new ToolProblem(`Several people match “${said}”: ${m.several.slice(0, 6).map((p) => `${nameOf(p)} (${p.username})`).join(', ')}. Ask which one.`);
     throw new ToolProblem(`No one matches “${said}”.`);
   }
 
