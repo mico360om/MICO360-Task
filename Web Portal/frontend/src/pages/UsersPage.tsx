@@ -12,11 +12,16 @@ import { ApiError } from '../lib/api-client';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import {
   MAX_WELCOME_BATCH,
+  SIGN_OUT_NOTE,
+  leftOutText,
+  namesText,
   signInText,
   sortBySignIn,
   welcomeBatchSummary,
+  welcomeBlockedReason,
   welcomeCandidates,
   welcomeConfirmTitle,
+  welcomeOneConfirmTitle,
   welcomeSentText,
   type SignInSort,
 } from '../lib/user-sign-in';
@@ -52,12 +57,29 @@ function createdNotice({ user, welcome }: CreatedUser): Notice {
 
 interface Notice {
   text: string;
-  /** The people a bulk send didn't reach, each with why. */
-  items?: string[];
+  /** The people a bulk send didn't reach, each with why (keyed by person and place: two may read alike). */
+  items?: { key: string; text: string }[];
   error?: boolean;
 }
 
 const NOT_SET_UP_ID = 'users-email-not-set-up';
+const fullName = (u: ApiUser) => `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username;
+
+/** A padlock, drawn (an emoji looks different on every system). */
+const LockIcon = () => (
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="-mt-px">
+    <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+    <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+  </svg>
+);
+
+/** An envelope: the row's "Send welcome email" on a phone, where the words would widen the row. */
+const EnvelopeIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="sm:hidden">
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3.5 6.5 8.5 6.5 8.5-6.5" />
+  </svg>
+);
 
 export function UsersPage() {
   const qc = useQueryClient();
@@ -83,17 +105,32 @@ export function UsersPage() {
   // People picked for "Send welcome emails" (kept in the list's own order when sent).
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [confirmingBatch, setConfirmingBatch] = useState(false);
+  // How many "Everyone who has never signed in" left out (sent one in the last 7 days); null once the
+  // selection is changed by hand.
+  const [leftOut, setLeftOut] = useState<number | null>(null);
+  const [confirmingOne, setConfirmingOne] = useState<ApiUser | null>(null);
   const chosen = users.filter((u) => selected.has(u.id));
-  const candidates = welcomeCandidates(users);
+  const candidates = welcomeCandidates(users, new Date());
   const allShownSelected = shown.length > 0 && shown.every((u) => selected.has(u.id));
-  const toggle = (id: string) =>
+  const pickNeverSignedIn = () => {
+    setSelected(new Set(candidates.pick.map((u) => u.id)));
+    setLeftOut(candidates.leftOut);
+  };
+  const clearSelection = () => {
+    setSelected(new Set());
+    setLeftOut(null);
+  };
+  const toggle = (id: string) => {
+    setLeftOut(null);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  const toggleShown = () =>
+  };
+  const toggleShown = () => {
+    setLeftOut(null);
     setSelected((prev) => {
       const next = new Set(prev);
       for (const u of shown) {
@@ -102,21 +139,25 @@ export function UsersPage() {
       }
       return next;
     });
+  };
 
   const welcomeOneMut = useMutation({
     mutationFn: (u: ApiUser) => usersApi(apiClient).sendWelcome(u.id),
     onSuccess: (out, u) => {
+      setConfirmingOne(null);
       setNotice({ text: `Welcome email sent to ${u.username} (${out.email ?? u.email}).` });
       void qc.invalidateQueries({ queryKey: ['users'] });
     },
-    onError: (err) => setNotice({ text: welcomeFailure(err), error: true }),
   });
   const welcomeBatchMut = useMutation({
     mutationFn: (ids: string[]) => usersApi(apiClient).sendWelcomes(ids),
     onSuccess: (r) => {
       setConfirmingBatch(false);
-      setSelected(new Set());
-      const missed = r.results.filter((x) => !x.sent).map((x) => `${x.username ?? x.name ?? 'Someone'}: ${x.why ?? 'not sent'}`);
+      clearSelection();
+      const missed = r.results
+        .map((x, i) => ({ x, i }))
+        .filter(({ x }) => !x.sent)
+        .map(({ x, i }) => ({ key: `${x.userId}-${i}`, text: `${x.username ?? x.name ?? 'Someone'}: ${x.why ?? 'not sent'}` }));
       setNotice({ text: welcomeBatchSummary(r), ...(missed.length ? { items: missed } : {}), error: r.sent === 0 && r.notSent > 0 });
       void qc.invalidateQueries({ queryKey: ['users'] });
     },
@@ -162,7 +203,7 @@ export function UsersPage() {
             <p id="users-notice-text">{notice.text}</p>
             {notice.items ? (
               <ul className="mt-1 list-disc pl-5">
-                {notice.items.map((item) => <li key={item}>{item}</li>)}
+                {notice.items.map((item) => <li key={item.key}>{item.text}</li>)}
               </ul>
             ) : null}
           </div>
@@ -202,10 +243,10 @@ export function UsersPage() {
           {chosen.length > 0 ? <span className="text-sm font-medium text-ink">{chosen.length} selected</span> : null}
           <Button
             variant="secondary"
-            onClick={() => setSelected(new Set(candidates.map((u) => u.id)))}
-            disabled={!emailEnabled || candidates.length === 0}
+            onClick={pickNeverSignedIn}
+            disabled={!emailEnabled || candidates.pick.length === 0}
             aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
-            title={emailEnabled && candidates.length === 0 ? 'Everyone active has signed in at least once' : undefined}
+            title={emailEnabled && candidates.pick.length === 0 ? 'No one to pick: everyone active has signed in, or was sent a welcome email in the last 7 days' : undefined}
           >
             Select everyone who has never signed in
           </Button>
@@ -214,7 +255,7 @@ export function UsersPage() {
               <Button onClick={() => { welcomeBatchMut.reset(); setConfirmingBatch(true); }} disabled={!emailEnabled || chosen.length > MAX_WELCOME_BATCH} aria-describedby={chosen.length > MAX_WELCOME_BATCH ? 'users-too-many' : undefined}>
                 Send welcome emails
               </Button>
-              <button type="button" onClick={() => setSelected(new Set())} className="rounded-lg px-2 py-1.5 text-sm font-medium text-ink-2 hover:bg-ground hover:text-ink">
+              <button type="button" onClick={clearSelection} className="rounded-lg px-2 py-1.5 text-sm font-medium text-ink-2 hover:bg-ground hover:text-ink">
                 Clear selection
               </button>
             </>
@@ -233,6 +274,8 @@ export function UsersPage() {
             Couldn’t load users (admin only).{' '}
             <button type="button" onClick={() => void q.refetch()} className="font-semibold underline">Retry</button>
           </p>
+        ) : show === 'never' && shown.length === 0 ? (
+          <p className="p-4 text-ink-2">Everyone has signed in at least once.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -253,6 +296,7 @@ export function UsersPage() {
             <tbody>
               {shown.map((u) => {
                 const isSelf = u.id === meId;
+                const welcomeBlocked = welcomeBlockedReason(u, meId);
                 return (
                   <tr key={u.id} className="border-b border-line last:border-0">
                     {emailEnabled ? (
@@ -267,8 +311,9 @@ export function UsersPage() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[u.status]}`}>{u.status}</span>
                         {u.locked ? (
-                          <span className="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning" title="Locked after too many failed sign-in attempts">
-                            🔒 Locked
+                          <span className="inline-flex items-center gap-1 rounded-md bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning" title="Locked after too many failed sign-in attempts">
+                            <LockIcon />
+                            Locked
                           </span>
                         ) : null}
                       </div>
@@ -280,13 +325,15 @@ export function UsersPage() {
                     <td className="p-3">
                       <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => welcomeOneMut.mutate(u)}
-                          disabled={!emailEnabled || (welcomeOneMut.isPending && welcomeOneMut.variables?.id === u.id)}
+                          onClick={() => { welcomeOneMut.reset(); setConfirmingOne(u); }}
+                          disabled={!emailEnabled || !!welcomeBlocked}
                           aria-label={`Send welcome email to ${u.username}`}
                           aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
-                          className="whitespace-nowrap rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink disabled:opacity-50"
+                          title={welcomeBlocked ?? undefined}
+                          className="inline-flex items-center whitespace-nowrap rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink disabled:opacity-50"
                         >
-                          Send welcome email
+                          <EnvelopeIcon />
+                          <span className="hidden sm:inline">Send welcome email</span>
                         </button>
                         {u.locked ? (
                           <button
@@ -366,7 +413,27 @@ export function UsersPage() {
           onConfirm={() => welcomeBatchMut.mutate(chosen.map((u) => u.id))}
           onClose={() => setConfirmingBatch(false)}
         >
-          Each gets their username and a link to set their password, valid for 7 days. Any password they already have keeps working until they use the link, and an earlier welcome link stops working.
+          {/* Everyone it goes to, people filtered off the page included. */}
+          <p>To: {namesText(chosen.map(fullName))}.</p>
+          <p className="mt-2">
+            Each gets their username and a link to set their password, valid for 7 days. Any password they already have keeps working until they use the link, and an earlier welcome link stops working.
+          </p>
+          <p className="mt-2">{SIGN_OUT_NOTE}</p>
+          {leftOut ? <p className="mt-2">{leftOutText(leftOut)}</p> : null}
+        </ConfirmDialog>
+      ) : null}
+      {confirmingOne ? (
+        <ConfirmDialog
+          title={welcomeOneConfirmTitle(fullName(confirmingOne), confirmingOne.email)}
+          confirmLabel="Send"
+          keepLabel="Cancel"
+          tone="primary"
+          busy={welcomeOneMut.isPending}
+          error={welcomeOneMut.isError ? welcomeFailure(welcomeOneMut.error) : null}
+          onConfirm={() => welcomeOneMut.mutate(confirmingOne)}
+          onClose={() => setConfirmingOne(null)}
+        >
+          {SIGN_OUT_NOTE}
         </ConfirmDialog>
       ) : null}
       {creating ? <CreateUserModal onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} /> : null}

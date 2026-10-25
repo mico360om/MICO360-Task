@@ -3,14 +3,19 @@ import {
   signInText,
   welcomeSentText,
   welcomeConfirmTitle,
+  welcomeOneConfirmTitle,
   welcomeBatchSummary,
   welcomeCandidates,
+  leftOutText,
+  namesText,
+  welcomeBlockedReason,
   sortBySignIn,
   MAX_WELCOME_BATCH,
+  SIGN_OUT_NOTE,
 } from './user-sign-in';
 
-type U = { id: string; status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'; lastLoginAt?: string | null };
-const u = (id: string, lastLoginAt: string | null, status: U['status'] = 'ACTIVE'): U => ({ id, status, lastLoginAt });
+type U = { id: string; status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'; lastLoginAt?: string | null; welcomeSentAt?: string | null };
+const u = (id: string, lastLoginAt: string | null, status: U['status'] = 'ACTIVE', welcomeSentAt: string | null = null): U => ({ id, status, lastLoginAt, welcomeSentAt });
 
 describe('signInText — "Last sign-in" in User Management', () => {
   it('the date and time in the company time zone', () => {
@@ -55,9 +60,60 @@ describe('the bulk send’s words', () => {
 });
 
 describe('welcomeCandidates — "Everyone who has never signed in"', () => {
+  const now = new Date('2026-10-25T06:00:00.000Z');
   it('the active people who have never signed in (inactive and suspended accounts can’t get one)', () => {
     const people = [u('a', null), u('b', '2026-10-01T00:00:00Z'), u('c', null, 'SUSPENDED'), u('d', null, 'INACTIVE'), u('e', null)];
-    expect(welcomeCandidates(people).map((p) => p.id)).toEqual(['a', 'e']);
+    expect(welcomeCandidates(people, now)).toEqual({ pick: [people[0], people[4]], leftOut: 0 });
+  });
+
+  it('leaves out anyone sent one in the last 7 days (their link may still be in use), and counts them', () => {
+    const people = [
+      u('a', null, 'ACTIVE', '2026-10-24T08:00:00.000Z'),
+      u('b', null, 'ACTIVE', '2026-10-18T06:00:01.000Z'),
+      u('c', null, 'ACTIVE', '2026-10-18T06:00:00.000Z'),
+      u('d', null),
+      u('e', null, 'SUSPENDED', '2026-10-24T08:00:00.000Z'),
+    ];
+    const { pick, leftOut } = welcomeCandidates(people, now);
+    expect(pick.map((p) => p.id)).toEqual(['c', 'd']);
+    expect(leftOut).toBe(2);
+  });
+
+  it('says how many were left out, and why', () => {
+    expect(leftOutText(3)).toBe('3 people were sent one in the last 7 days and are left out.');
+    expect(leftOutText(1)).toBe('1 person was sent one in the last 7 days and is left out.');
+  });
+});
+
+describe('who a send goes to, and what it does', () => {
+  it('names up to 10 people, then how many more', () => {
+    expect(namesText(['Ada K', 'Bo T'])).toBe('Ada K, Bo T');
+    const twelve = Array.from({ length: 12 }, (_, i) => `P${i + 1}`);
+    expect(namesText(twelve)).toBe('P1, P2, P3, P4, P5, P6, P7, P8, P9, P10 and 2 more');
+    expect(namesText(twelve.slice(0, 10))).toBe('P1, P2, P3, P4, P5, P6, P7, P8, P9, P10');
+  });
+
+  it('one person: asks with their name and address', () => {
+    expect(welcomeOneConfirmTitle('Sara K', 'sara@x.co')).toBe('Send a welcome email to Sara K (sara@x.co)?');
+  });
+
+  it('says that using the link signs them out everywhere else', () => {
+    expect(SIGN_OUT_NOTE).toBe('Using the link signs them out of MICO360 Tasks on their other devices (the app and the extension too).');
+  });
+});
+
+describe('welcomeBlockedReason — why a row’s "Send welcome email" can’t be used', () => {
+  const base = { id: 'u1', status: 'ACTIVE' as const, email: 'a@x.co', locked: false };
+  it('your own row, an inactive or suspended account, or no email address', () => {
+    expect(welcomeBlockedReason(base, 'u1')).toBe('You can’t send yourself a welcome email');
+    expect(welcomeBlockedReason({ ...base, status: 'INACTIVE' }, 'me')).toBe('This account is inactive, so it can’t get a welcome email');
+    expect(welcomeBlockedReason({ ...base, status: 'SUSPENDED' }, 'me')).toBe('This account is suspended, so it can’t get a welcome email');
+    expect(welcomeBlockedReason({ ...base, email: ' ' }, 'me')).toBe('This account has no email address');
+  });
+
+  it('a locked account can still be sent one (the server says how it went)', () => {
+    expect(welcomeBlockedReason({ ...base, locked: true }, 'me')).toBeNull();
+    expect(welcomeBlockedReason(base, 'me')).toBeNull();
   });
 });
 
