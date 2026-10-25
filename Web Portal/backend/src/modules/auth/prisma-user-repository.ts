@@ -49,5 +49,8 @@ export function createPrismaUserRepository(prisma: PrismaClient): AuthUserReposi
         data: { failedLoginAttempts: 0, lockedUntil: null },
       });
     },
+    async recordSignIn(userId, at) {
+      await prisma.user.updateMany({ where: { id: userId }, data: { lastLoginAt: at } });
+    },
   };
 }

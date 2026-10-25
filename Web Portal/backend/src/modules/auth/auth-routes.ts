@@ -31,6 +31,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     const { identifier, password } = loginSchema.parse(req.body);
     const user = await deps.authService.login(identifier, password);
     const tokens = await deps.tokenService.issueTokens(user);
+    await deps.authService.recordSignIn(user.id);
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
   });
 
@@ -92,6 +93,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     }
     const user = await deps.authService.getUserForSession(owner.userId);
     const tokens = await deps.tokenService.issueTokens(user);
+    await deps.authService.recordSignIn(user.id);
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
   });
 
@@ -115,6 +117,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       const { identifier, code } = otpVerifySchema.parse(req.body);
       const user = await otp.verifyLoginOtp(identifier, code);
       const tokens = await deps.tokenService.issueTokens(user);
+      await deps.authService.recordSignIn(user.id);
       // Same user shape as password sign-in (username + avatar for the header straight away).
       return reply.send({ data: { user: toPublicUser(user), ...tokens } });
     });

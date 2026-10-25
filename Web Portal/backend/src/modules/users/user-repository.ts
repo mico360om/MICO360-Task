@@ -11,6 +11,10 @@ export interface UserSummary {
   departmentId: string | null;
   /** Last time the user held a live socket (presence). */
   lastActiveAt?: Date | null;
+  /** Last sign-in (password, emailed code or fingerprint); null: never signed in. Admin views only. */
+  lastLoginAt?: Date | null;
+  /** When an administrator last sent them a welcome email; null: never. Admin views only. */
+  welcomeSentAt?: Date | null;
   roles: string[];
   /** True while a password lockout is in force; it lifts by itself at `lockedUntil`. */
   locked?: boolean;

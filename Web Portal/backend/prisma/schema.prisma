@@ -55,6 +55,8 @@ enum ColumnCategory {
 enum OtpPurpose {
   LOGIN
   PASSWORD_RESET
+  // A welcome email's "Set your password" link (7 days, single use; sending again replaces it).
+  WELCOME
 }
 
 enum EmailStatus {
@@ -89,6 +91,10 @@ model User {
   avatarUrl           String?
   status              UserStatus @default(ACTIVE)
   lastActiveAt        DateTime? // last time the user held a live socket (drives presence "last active" + chat delivered)
+  // Last sign-in by password, emailed code or fingerprint (a token refresh doesn't count); null: never.
+  lastLoginAt         DateTime?
+  // When an administrator last sent this person a welcome email (its link is in login_otps, WELCOME).
+  welcomeSentAt       DateTime?
   departmentId        String?
   // Lockout (M2 / T2.11)
   failedLoginAttempts Int        @default(0)

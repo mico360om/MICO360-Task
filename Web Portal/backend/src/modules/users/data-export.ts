@@ -60,6 +60,8 @@ export function createPrismaDataExporter(prisma: PrismaClient): DataExporter {
         theme: true,
         notificationPrefs: true,
         lastActiveAt: true,
+        lastLoginAt: true,
+        welcomeSentAt: true,
         createdAt: true,
         updatedAt: true,
         roles: { select: { role: { select: { name: true } } } },

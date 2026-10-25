@@ -27,4 +27,9 @@ export interface AuthUserRepository {
   applyFailedAttempt(userId: string, attempts: number, lockedUntil: Date | null, expected?: number): Promise<boolean | void>;
   /** Clear the failure counter and any lock (successful sign-in). */
   resetFailedAttempts(userId: string): Promise<void>;
+  /**
+   * Remember when the person last signed in (by password, emailed code or fingerprint — a token
+   * refresh is not a sign-in). Shown in User Management. Optional so older fakes keep working.
+   */
+  recordSignIn?(userId: string, at: Date): Promise<void>;
 }

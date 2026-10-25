@@ -6,9 +6,15 @@ import { createMemoryRefreshTokenStore } from './memory-refresh-token-store';
 import { hashPassword } from '../../lib/password';
 import type { AuthUser, AuthUserRepository } from './user-repository';
 
+/** Each recorded sign-in (the person's last sign-in time, shown in User Management). */
+let signIns: { userId: string; at: Date }[] = [];
+
 function inMemoryUsers(users: AuthUser[]): AuthUserRepository {
   const byId = new Map(users.map((u) => [u.id, { ...u }]));
   return {
+    async recordSignIn(uid, at) {
+      signIns.push({ userId: uid, at });
+    },
     async findByIdentifier(id) {
       for (const u of byId.values()) if (u.email === id || u.username === id) return { ...u };
       return null;
@@ -53,6 +59,7 @@ async function makeApp(users: AuthUser[], store: Store = createMemoryRefreshToke
 let hash: string;
 beforeEach(async () => {
   hash = await hashPassword('CorrectHorse1');
+  signIns = [];
 });
 
 function user(o: Partial<AuthUser> = {}): AuthUser {
@@ -362,6 +369,66 @@ describe('Fingerprint sign-in: POST /auth/biometric-credential and /auth/biometr
     expect(refused.json().error.message).toBe(
       'Fingerprint sign-in has stopped: your password was changed, or the app wasn’t used for 30 days. Sign in with your password, then turn it on again in Settings.',
     );
+    await app.close();
+  });
+});
+
+describe('Last sign-in: recorded on each sign-in, never on a refresh', () => {
+  const login = (app: Awaited<ReturnType<typeof makeApp>>, password = 'CorrectHorse1') =>
+    app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { identifier: 'ada', password } });
+
+  it('a password sign-in records when the person signed in', async () => {
+    const app = await makeApp([user()]);
+    const before = Date.now();
+    expect((await login(app)).statusCode).toBe(200);
+    expect(signIns).toHaveLength(1);
+    expect(signIns[0]!.userId).toBe('u1');
+    expect(signIns[0]!.at.getTime()).toBeGreaterThanOrEqual(before);
+    await app.close();
+  });
+
+  it('a wrong password, a locked account or an inactive account records nothing', async () => {
+    const app = await makeApp([user()]);
+    expect((await login(app, 'nope')).statusCode).toBe(401);
+    const locked = await makeApp([user({ failedLoginAttempts: 5, lockedUntil: inMinutes(10) })]);
+    expect((await login(locked)).statusCode).toBe(423);
+    const inactive = await makeApp([user({ status: 'INACTIVE' })]);
+    expect((await login(inactive)).statusCode).toBe(403);
+    expect(signIns).toEqual([]);
+    await Promise.all([app.close(), locked.close(), inactive.close()]);
+  });
+
+  it('a token refresh is not a sign-in', async () => {
+    const app = await makeApp([user()]);
+    const refreshToken = (await login(app)).json().data.refreshToken as string;
+    signIns = [];
+    const res = await app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken } });
+    expect(res.statusCode).toBe(200);
+    expect(signIns).toEqual([]);
+    await app.close();
+  });
+
+  it('a fingerprint sign-in records it; making the fingerprint key does not', async () => {
+    const app = await makeApp([user()]);
+    const session = (await login(app)).json().data as { refreshToken: string };
+    signIns = [];
+    const key = (await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-credential', payload: { refreshToken: session.refreshToken } })).json().data.refreshToken as string;
+    expect(signIns).toEqual([]);
+    const res = await app.inject({ method: 'POST', url: '/api/v1/auth/biometric-sign-in', payload: { credential: key } });
+    expect(res.statusCode).toBe(200);
+    expect(signIns.map((s) => s.userId)).toEqual(['u1']);
+    await app.close();
+  });
+
+  it('a sign-in still works when the time could not be written', async () => {
+    const users = inMemoryUsers([user()]);
+    users.recordSignIn = async () => {
+      throw new Error('database away');
+    };
+    const authService = createAuthService({ users, maxAttempts: 5 });
+    const tokenService = createTokenService({ accessSecret: 'access-secret-long-enough', refreshSecret: 'refresh-secret-long-enough', accessTtl: 900, refreshTtl: 1000, refreshStore: createMemoryRefreshTokenStore() });
+    const app = await buildApp({ authService, tokenService });
+    expect((await login(app)).statusCode).toBe(200);
     await app.close();
   });
 });

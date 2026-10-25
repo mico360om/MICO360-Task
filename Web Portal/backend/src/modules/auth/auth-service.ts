@@ -10,6 +10,7 @@ export interface AuthServiceDeps {
   /** Length of the first lock in minutes; each further failure doubles it (T2.11). Default 15. */
   lockMinutes?: number;
   now?: () => Date;
+  logger?: { warn(msg: string, ctx?: Record<string, unknown>): void };
 }
 
 /** The public user shape returned by sign-in and refresh. */
@@ -46,7 +47,7 @@ function toSessionUser(user: AuthUser): SessionUser {
 let dummyHash: Promise<string> | null = null;
 const getDummyHash = () => (dummyHash ??= hashPassword(randomBytes(18).toString('base64')));
 
-export function createAuthService({ users, maxAttempts, lockMinutes = 15, now = () => new Date() }: AuthServiceDeps) {
+export function createAuthService({ users, maxAttempts, lockMinutes = 15, now = () => new Date(), logger }: AuthServiceDeps) {
   /**
    * Authenticate by email OR username + password (T2.2) with a time-limited lockout (T2.11).
    * Whether an account is inactive is only revealed after the correct password.
@@ -91,7 +92,19 @@ export function createAuthService({ users, maxAttempts, lockMinutes = 15, now = 
     return toSessionUser(user);
   }
 
-  return { login, getUserForSession };
+  /**
+   * A sign-in succeeded (password, emailed code or fingerprint): remember when, for User
+   * Management's "Last sign-in". Bookkeeping only, so a failed write never fails the sign-in.
+   */
+  async function recordSignIn(userId: string): Promise<void> {
+    try {
+      await users.recordSignIn?.(userId, now());
+    } catch (err) {
+      logger?.warn('could not record the sign-in time', { userId, err });
+    }
+  }
+
+  return { login, getUserForSession, recordSignIn };
 }
 
 export type AuthService = ReturnType<typeof createAuthService>;

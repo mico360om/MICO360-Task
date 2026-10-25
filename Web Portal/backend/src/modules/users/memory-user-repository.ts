@@ -36,6 +36,8 @@ export function createMemoryUserRepository() {
         avatarUrl: null,
         status: 'ACTIVE',
         departmentId: data.departmentId ?? null,
+        lastLoginAt: null,
+        welcomeSentAt: null,
         roles: data.roleNames,
       };
       if ([...rows.values()].some((r) => r.user.email === data.email || r.user.username === data.username)) {
@@ -110,6 +112,8 @@ export function createMemoryUserRepository() {
     repo,
     hashOf: (id: string) => rows.get(id)?.passwordHash,
     tokenVersion: (id: string) => rows.get(id)?.tokenVersion ?? 0,
+    /** Simulate a sign-in at `at` (what the auth repository records). */
+    signedIn: (id: string, at: Date) => void (rows.get(id)!.user = { ...rows.get(id)!.user, lastLoginAt: at }),
     /** Simulate failed sign-ins that locked the account. */
     lock: (id: string, until: Date) => Object.assign(rows.get(id)!, { failedLoginAttempts: 5, lockedUntil: until }),
     /** Simulate a row soft-deleted before deletes renamed the email/username. */

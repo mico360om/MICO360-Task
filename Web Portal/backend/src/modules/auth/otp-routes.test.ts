@@ -6,8 +6,14 @@ import { createTokenService } from './token-service';
 import { createAuthService } from './auth-service';
 import type { AuthUserRepository } from './user-repository';
 
+/** Sign-ins the auth service recorded (the emailed-code sign-in records one too). */
+const signIns: string[] = [];
+
 // Minimal auth service (login route stays present but unused here).
 const noopUsers: AuthUserRepository = {
+  async recordSignIn(userId) {
+    signIns.push(userId);
+  },
   async findByIdentifier() {
     return null;
   },
@@ -100,6 +106,20 @@ describe('OTP login routes', () => {
     });
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe('INVALID_OTP');
+    await app.close();
+  });
+
+  it('POST /auth/otp/verify records the sign-in time; asking for a code or a wrong code does not', async () => {
+    signIns.length = 0;
+    const { app, emails, flush } = await makeApp();
+    await app.inject({ method: 'POST', url: '/api/v1/auth/otp/request', payload: { identifier: 'ada' } });
+    await flush();
+    const code = emails[0]!.code;
+    await app.inject({ method: 'POST', url: '/api/v1/auth/otp/verify', payload: { identifier: 'ada', code: code === '000000' ? '111111' : '000000' } });
+    expect(signIns).toEqual([]);
+    const res = await app.inject({ method: 'POST', url: '/api/v1/auth/otp/verify', payload: { identifier: 'ada', code } });
+    expect(res.statusCode).toBe(200);
+    expect(signIns).toEqual(['u1']);
     await app.close();
   });
 });

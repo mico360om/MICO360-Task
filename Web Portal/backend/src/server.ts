@@ -208,6 +208,7 @@ async function main(): Promise<void> {
     users: createPrismaUserRepository(prisma),
     maxAttempts: env.ACCOUNT_LOCK_MAX_ATTEMPTS,
     lockMinutes: env.ACCOUNT_LOCK_MINUTES,
+    logger,
   });
 
   const projectRepository = createPrismaProjectRepository(prisma);

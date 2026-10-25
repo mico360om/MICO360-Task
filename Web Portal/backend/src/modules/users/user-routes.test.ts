@@ -68,6 +68,30 @@ describe('People directory', () => {
   });
 });
 
+describe('Last sign-in in User Management', () => {
+  it('the admin list says when each person last signed in (null: never) and when a welcome email went', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const sara = (await app.inject({ method: 'POST', url: '/api/v1/users', headers: admin, payload: newUser })).json().data;
+    await app.inject({ method: 'POST', url: '/api/v1/users', headers: admin, payload: { ...newUser, email: 'omar@x.co', username: 'omar' } });
+    mem.signedIn(sara.id, new Date('2026-10-24T05:12:00.000Z'));
+    const res = await app.inject({ method: 'GET', url: '/api/v1/users', headers: admin });
+    expect(res.statusCode).toBe(200);
+    const byName = Object.fromEntries(res.json().data.map((u: { username: string; lastLoginAt: string | null; welcomeSentAt: string | null }) => [u.username, [u.lastLoginAt, u.welcomeSentAt]]));
+    expect(byName).toEqual({ sara: ['2026-10-24T05:12:00.000Z', null], omar: [null, null] });
+  });
+
+  it('only administrators see it: the people directory leaves it out', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const sara = (await app.inject({ method: 'POST', url: '/api/v1/users', headers: admin, payload: newUser })).json().data;
+    mem.signedIn(sara.id, new Date());
+    const employee = { authorization: `Bearer ${await tokenFor(sara.id, ['EMPLOYEE'])}` };
+    expect((await app.inject({ method: 'GET', url: '/api/v1/users', headers: employee })).statusCode).toBe(403);
+    const dir = await app.inject({ method: 'GET', url: '/api/v1/users/directory', headers: employee });
+    expect(dir.json().data[0]).not.toHaveProperty('lastLoginAt');
+    expect(dir.json().data[0]).not.toHaveProperty('welcomeSentAt');
+  });
+});
+
 describe('User routes (admin only)', () => {
   it('lets an admin create a user (201)', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers: { authorization: `Bearer ${await token(['ADMIN'])}` }, payload: newUser });

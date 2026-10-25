@@ -17,6 +17,8 @@ function toSummary(u: UserWithRoles): UserSummary {
     status: u.status,
     departmentId: u.departmentId,
     lastActiveAt: u.lastActiveAt,
+    lastLoginAt: u.lastLoginAt,
+    welcomeSentAt: u.welcomeSentAt,
     roles: u.roles.map((r) => r.role.name),
     locked: isLocked(u.lockedUntil),
     lockedUntil: isLocked(u.lockedUntil) ? u.lockedUntil : null,
