@@ -6,10 +6,16 @@ import { authApi } from '../api/auth';
 import { ApiError } from '../lib/api-client';
 import { FieldLabel, FieldError, fieldClass } from '../components/ui/Field';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
+import { PRODUCT_NAME, usePageName } from '../lib/page-meta';
+
+/** A welcome email's "Set your password" link opens this page with ?welcome=1: its own words. */
+const WELCOME_LINK_REFUSED = 'This welcome link has expired or has already been used. Ask your administrator to send a new one, or get a password reset link.';
 
 export function ResetPasswordPage() {
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
+  const welcome = params.get('welcome') === '1';
+  usePageName(welcome ? 'Set your password' : null);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,12 +49,26 @@ export function ResetPasswordPage() {
       await authApi(apiClient).resetPassword(token, password);
       setDone(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to reach the server. Try again.');
       // The server refused the link itself (used, expired or wrong): only a new link will do.
-      setLinkRefused(err instanceof ApiError && err.status === 400 && /link|token|expired/i.test(`${err.code} ${err.message}`));
+      const refused = err instanceof ApiError && err.status === 400 && /link|token|expired/i.test(`${err.code} ${err.message}`);
+      setError(refused && welcome ? WELCOME_LINK_REFUSED : err instanceof ApiError ? err.message : 'Unable to reach the server. Try again.');
+      setLinkRefused(refused);
     } finally {
       setLoading(false);
     }
+  }
+
+  const newLink = (
+    <Link to="/forgot" className="tap text-sm font-semibold text-brand hover:underline">{welcome ? 'Get a password reset link' : 'Request a new reset link'}</Link>
+  );
+
+  if (!token && welcome) {
+    return (
+      <AuthShell title="Invalid link">
+        <p className="text-sm text-ink-2">This link is missing its token. Ask your administrator to send a new welcome email, or get a password reset link.</p>
+        <div className="mt-6">{newLink}</div>
+      </AuthShell>
+    );
   }
 
   if (!token) {
@@ -57,6 +77,17 @@ export function ResetPasswordPage() {
         <p className="text-sm text-ink-2">This link is missing its reset token. Request a new one to continue.</p>
         <Link to="/forgot" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
           Request a new reset link
+        </Link>
+      </AuthShell>
+    );
+  }
+
+  if (done && welcome) {
+    return (
+      <AuthShell title="Password set">
+        <p className="text-sm text-ink-2">Your password is set. Sign in with your username or email address and your new password.</p>
+        <Link to="/login" className="tap mt-6 inline-block text-sm font-medium text-brand hover:underline">
+          Go to sign in →
         </Link>
       </AuthShell>
     );
@@ -74,7 +105,10 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <AuthShell title="Choose a new password" subtitle="Pick a strong password you don’t use elsewhere.">
+    <AuthShell
+      title={welcome ? 'Set your password' : 'Choose a new password'}
+      subtitle={welcome ? `Welcome to ${PRODUCT_NAME}. Choose a password to finish setting up your account.` : 'Pick a strong password you don’t use elsewhere.'}
+    >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="password" required>
@@ -128,16 +162,14 @@ export function ResetPasswordPage() {
             {error}
           </p>
         ) : null}
-        {error && linkRefused ? (
-          <Link to="/forgot" className="tap text-sm font-semibold text-brand hover:underline">Request a new reset link</Link>
-        ) : null}
+        {error && linkRefused ? newLink : null}
 
         <button
           type="submit"
           disabled={loading}
           className="rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-2 disabled:opacity-60"
         >
-          {loading ? 'Updating…' : 'Update password'}
+          {loading ? (welcome ? 'Saving…' : 'Updating…') : welcome ? 'Set password' : 'Update password'}
         </button>
       </form>
     </AuthShell>
