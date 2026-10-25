@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-25
+
 ### New features
 - Chat in the menu shows how many chat messages you haven't read, on its icon (99+ above 99), and
   screen readers hear "Chat, 3 unread messages". It goes up as messages arrive and down as soon as
