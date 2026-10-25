@@ -21,8 +21,20 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   everything is read, or when you mute, archive or delete elsewhere. Like the Android app's Chat
   tab, it leaves out muted and archived conversations and the one open in front of you. On a phone,
   the menu button gets a dot.
+- MICO AI: "PDF report" on every answer — the question, the whole answer, every table (each under
+  its own heading) and the sources in one professional PDF: page margins, one type scale, a header
+  and footer on every page with "Page N of M" and who made it when, table headers repeated on each
+  page, rows kept whole, wide tables turned landscape and fitted. Text-only answers get one too.
 
 ### Improvements
+- MICO AI has a cleaner, ChatGPT-style page that uses the whole width: a slim chats rail (a sheet on
+  phones and tablets), your questions as bubbles on the right, answers as full-width text, and a
+  message box pinned at the bottom that grows as you type and turns into Stop while MICO AI works.
+  Wide tables use the room beside the text and show when there's more to scroll; long answers open
+  at their start; "Jump to latest" when you've scrolled up; suggestions as cards; screen readers
+  hear when it starts working. Excel downloads now include the sources.
+- PDFs: a table row taller than a page continues on the next page instead of being cut, a heading is
+  never left alone at the bottom of a page, and an over-long title or footer ends with "…".
 - Chat unread counts (on the Chat page, the new menu badge and the Android app's Chat tab) count
   your direct messages and the channels of projects you're on the team of (owner, manager or
   member). A channel you've never opened counts only messages since you joined its team, instead of
