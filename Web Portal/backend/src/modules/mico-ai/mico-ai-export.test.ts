@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { tableFileName, tablePdf, tableXlsx, type TableExport } from './mico-ai-export';
+import { cellText, tableFileName, tablePdf, tableXlsx, type TableExport } from './mico-ai-export';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { measureText } from '../../lib/pdf-text';
 
 const ref = (id: string, key: string) => ({ type: 'task' as const, id, label: key, url: `?task=${id}` });
 const doc: TableExport = {
@@ -68,5 +69,185 @@ describe('MICO AI downloads of a capped list', () => {
   });
   it('a complete list says nothing of the kind', () => {
     expect(inspectXlsx(tableXlsx(doc)).text[0]!.some((t) => t.includes('Showing'))).toBe(false);
+  });
+});
+
+// ── A long answer with a wide table: 80 rows × 8 columns, long text, Arabic, an unbroken link, empty cells ──
+const URL_TEXT = 'https://files.example.com/rig-inspection/2026/october/site-visit-photos-batch-0042/originals/IMG_2026_10_21_143355.jpg';
+const TITLES = [
+  'Pressure test report for the north manifold, including the calibration certificates from the vendor',
+  'تحديث مخزون الصمامات في الموقع الشمالي ومراجعة الكميات مع المورد',
+  `Upload photos ${URL_TEXT}`,
+  'Safety checklist v2',
+  'Supercalifragilisticexpialidociousandsomemorewordswithoutanyspacesatall',
+];
+const PEOPLE = ['Omar Said', 'سارة البلوشي', 'Hassan Ahmed, Layla Nasser, Mariam Al-Harthy', '', 'Khurram Shahzad'];
+const STATUSES = ['In progress', 'Blocked', 'To do', 'Review', 'Done'];
+const big: TableExport = {
+  table: {
+    title: 'Overdue tasks in Rig Inspection and the platform audit',
+    fromResult: 'r1',
+    columns: [
+      { key: 'key', label: 'Task', kind: 'key' },
+      { key: 'title', label: 'Title' },
+      { key: 'project', label: 'Project' },
+      { key: 'status', label: 'Status' },
+      { key: 'assignees', label: 'Assigned to' },
+      { key: 'due', label: 'Due', kind: 'date' },
+      { key: 'overdueDays', label: 'Overdue', kind: 'days' },
+      { key: 'progress', label: 'Progress', kind: 'percent' },
+    ],
+    rows: Array.from({ length: 80 }, (_, i) => ({
+      ref: ref(`t${i + 1}`, `RIG-${i + 1}`),
+      cells: [
+        `RIG-${i + 1}`,
+        `${TITLES[i % TITLES.length]} (#${i + 1})`,
+        i % 3 === 0 ? 'Rig Inspection Portal' : 'مشروع فحص المنصات',
+        STATUSES[i % STATUSES.length]!,
+        PEOPLE[i % PEOPLE.length]!,
+        `2026-10-${String((i % 28) + 1).padStart(2, '0')}`,
+        i % 7 === 0 ? null : (i * 3) % 40,
+        i % 4 === 0 ? null : (i * 13) % 101,
+      ],
+    })),
+  },
+  question: 'Which tasks are overdue in Rig Inspection and the platform audit, who has them, and how far along are they?',
+  text: [
+    '**80 tasks** are overdue across Rig Inspection Portal and مشروع فحص المنصات.',
+    'The oldest are blocked on vendor paperwork.',
+    '',
+    `See ${URL_TEXT} for the photos.`,
+    '- **Omar Said** has 16 of them, mostly pressure tests.',
+    '- سارة البلوشي لديها **16** مهمة متأخرة.',
+    '',
+    'Empty cells mean no progress was entered.',
+  ].join('\n'),
+  chatTitle: 'Overdue tasks in Rig Inspection and the platform audit, with owners',
+  generatedAt: new Date('2026-10-25T05:00:00Z'),
+  timeZone: 'Asia/Muscat',
+  generatedBy: 'Khurram Shahzad',
+  sources: [ref('t1', 'RIG-1'), ref('t2', 'RIG-2'), { type: 'project', id: 'p1', label: 'Rig Inspection Portal', url: '/projects/p1' }],
+};
+const squash = (s: string) => s.replace(/\s+/g, '');
+const HEADERS = ['Task', 'Title', 'Project', 'Status', 'Assigned to', 'Due', 'Overdue', 'Progress'];
+const shown = (r: { cells: Array<string | number | null> }) => r.cells.map((v, i) => cellText(big.table.columns[i]!.kind, v));
+
+describe('MICO AI PDF report: a long answer with a wide table', () => {
+  const buf = tablePdf(big);
+  const pdf = inspectPdf(buf);
+  const W = 841.89;
+  const H = 595.28;
+
+  it('is landscape A4, and every row of the table is there whole on one page — every cell, in order', () => {
+    expect(buf.toString('latin1')).toMatch(/\/MediaBox \[0 0 841\.89 595\.28\]/);
+    expect(pdf.pages.length).toBeGreaterThan(2);
+    const perPage = pdf.pages.map((p) => squash(p.join('')));
+    big.table.rows.forEach((r, i) => {
+      const whole = squash(shown(r).join(''));
+      expect(perPage.filter((p) => p.includes(whole)).length, `row ${i + 1}`).toBe(1);
+    });
+    // Each task key is drawn exactly once (no row repeated on two pages).
+    const keys = pdf.pages.flat().filter((t) => /^RIG-\d+$/.test(t));
+    expect(keys).toEqual(big.table.rows.map((r) => r.cells[0]));
+  });
+
+  it('repeats the table’s header row at the top of every page the table runs onto', () => {
+    const first = pdf.pages.findIndex((p) => p.includes('RIG-1'));
+    for (let p = first; p < pdf.pages.length; p++) {
+      const page = pdf.pages[p]!;
+      const at = page.indexOf('Task');
+      expect(page.slice(at, at + HEADERS.length), `page ${p + 1}`).toEqual(HEADERS);
+    }
+  });
+
+  it('every page has a header (logo and the chat) and a footer with “Page N of M”, when and by whom', () => {
+    const n = pdf.pages.length;
+    pdf.lines.forEach((lines, p) => {
+      const footer = lines.filter((l) => l.y > H - 50).map((l) => l.text);
+      expect(footer, `page ${p + 1}`).toContain(`Page ${p + 1} of ${n}`);
+      expect(footer.join(' ')).toContain('Generated 25 Oct 2026, 09:00 (Asia/Muscat) by Khurram Shahzad');
+      if (p > 0) expect(lines.filter((l) => l.y < 54).map((l) => l.text).join(' ')).toContain('MICO AI · Overdue tasks in Rig Inspection');
+      expect(pdf.contents[p]).toMatch(/\/I\d+ Do/); // the company logo
+    });
+  });
+
+  it('keeps the page body clear of the header and the footer (nothing overlaps them or runs off the page)', () => {
+    pdf.lines.forEach((lines, p) => {
+      const body = lines.filter((l) => l.y >= 54 && l.y <= H - 50);
+      for (const l of body) {
+        expect(l.y, `page ${p + 1}: ${l.text}`).toBeLessThanOrEqual(H - 62);
+        if (p > 0) expect(l.y, `page ${p + 1}: ${l.text}`).toBeGreaterThan(54 + 14);
+        expect(l.x).toBeGreaterThanOrEqual(54 - 0.5);
+        expect(l.x + measureText(l.text, l.size, l.fonts.some((f) => /SemiBold|Bold/.test(f)))).toBeLessThanOrEqual(W - 54 + 0.5);
+      }
+    });
+  });
+
+  it('puts the question and the whole answer — paragraphs, line breaks, bullets, bold and the long link — before the table, then the sources', () => {
+    const page1 = pdf.pages[0]!;
+    const stream = squash(page1.join(''));
+    const q = stream.indexOf(squash(big.question));
+    const a = stream.indexOf(squash('80 tasks are overdue across Rig Inspection Portal and مشروع فحص المنصات.'));
+    const link = stream.indexOf(squash(`See ${URL_TEXT} for the photos.`));
+    const sources = stream.indexOf(squash('Sources: RIG-1 · RIG-2 · Rig Inspection Portal'));
+    const table = stream.indexOf(squash(HEADERS.join('')));
+    expect(q).toBeGreaterThanOrEqual(0);
+    expect(a).toBeGreaterThan(q);
+    expect(link).toBeGreaterThan(a);
+    expect(sources).toBeGreaterThan(link);
+    expect(table).toBeGreaterThan(sources);
+    for (const s of ['Omar Said has 16 of them, mostly pressure tests.', 'سارة البلوشي لديها 16 مهمة متأخرة.', 'Empty cells mean no progress was entered.']) expect(stream).toContain(squash(s));
+    // A line break inside a paragraph stays a line break (as on the page).
+    expect(pdf.lines[0]!.map((l) => l.text)).toContain('The oldest are blocked on vendor paperwork.');
+    const bold = pdf.lines[0]!.find((l) => l.text.startsWith('80 tasks are overdue'))!;
+    expect(bold.fonts[0]).toMatch(/SemiBold/);
+  });
+
+  it('right-aligns the numbers (overdue days, progress) on one edge per column', () => {
+    const edges = (re: RegExp) =>
+      new Set(
+        pdf.lines
+          .flat()
+          .filter((l) => re.test(l.text))
+          .map((l) => Math.round((l.x + measureText(l.text, l.size)) * 2) / 2),
+      );
+    expect(edges(/^\d+ days?$/).size).toBe(1);
+    expect(edges(/^\d+%$/).size).toBe(1);
+  });
+});
+
+describe('MICO AI PDF report: page shape', () => {
+  it('a narrow table stays portrait at the full table size', () => {
+    const narrow: TableExport = { ...big, table: { ...big.table, columns: big.table.columns.slice(0, 3), rows: big.table.rows.slice(0, 5).map((r) => ({ ...r, cells: r.cells.slice(0, 3) })) } };
+    const out = tablePdf(narrow);
+    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/);
+    const cell = inspectPdf(out).lines.flat().find((l) => l.text === 'RIG-1')!;
+    expect(cell.size).toBe(9);
+  });
+
+  it('a very wide table turns landscape and shrinks its type, to no less than 7 pt, before it breaks words', () => {
+    const cols = Array.from({ length: 13 }, (_, i) => ({ key: `c${i}`, label: `Column ${i + 1}` }));
+    const wide: TableExport = { ...big, table: { title: 'Wide', fromResult: 'r1', columns: cols, rows: [{ ref: null, cells: cols.map((_, i) => `Inspection${i} certificates`) }] } };
+    const out = tablePdf(wide);
+    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 841\.89 595\.28\]/);
+    const cells = inspectPdf(out).lines.flat().filter((l) => /^Inspection\d+\b/.test(l.text));
+    expect(cells.map((c) => c.text.split(' ')[0])).toEqual(cols.map((_, i) => `Inspection${i}`)); // no word broken
+    for (const c of cells) {
+      expect(c.size).toBeLessThan(9);
+      expect(c.size).toBeGreaterThanOrEqual(7);
+    }
+  });
+
+  it('an answer without words or sources still makes a report of the table', () => {
+    const bare: TableExport = { ...doc, text: '', sources: [] };
+    const all = inspectPdf(tablePdf(bare)).pages.flat();
+    expect(all).toEqual(expect.arrayContaining(['RIG-14', 'Pressure test report']));
+    expect(all.join(' ')).not.toContain('Sources:');
+  });
+});
+
+describe('MICO AI Excel download: sources', () => {
+  it('lists the answer’s sources under the question', () => {
+    expect(inspectXlsx(tableXlsx(big)).text[0]!.some((t) => t === 'Sources: RIG-1 · RIG-2 · Rig Inspection Portal')).toBe(true);
   });
 });

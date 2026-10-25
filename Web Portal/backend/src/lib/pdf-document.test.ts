@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PdfDocument, hexToRgb } from './pdf-document';
 import { inspectPdf } from './pdf-inspect';
+import { measureText } from './pdf-text';
 
 describe('PdfDocument', () => {
   it('produces a valid PDF envelope whose xref offsets point at each object', () => {
@@ -384,5 +385,122 @@ describe('PdfDocument — measuring what follows a heading', () => {
   it('says how much room a subheading keeps together, so a heading above it can keep it too', () => {
     expect(new PdfDocument().subheadingRoom({ topGap: 4, keepWith: 60 })).toBeCloseTo(4 + 11 * 1.6 + 60, 5);
     expect(new PdfDocument().subheadingRoom({ topGap: 4 })).toBeCloseTo(4 + 11 * 1.6 + 28, 5);
+  });
+});
+
+describe('PdfDocument — tables never lose or overlap text', () => {
+  const PAGE_H = 841.89;
+
+  it('a cell taller than a page continues on the next page (under the repeated header) instead of being cut', () => {
+    const words = Array.from({ length: 3000 }, (_, i) => `w${i}`);
+    const doc = new PdfDocument();
+    doc.table([{ header: 'Id' }, { header: 'Notes' }], [['1', words.join(' ')], ['2', 'after']]);
+    const { pages } = inspectPdf(doc.build());
+    expect(pages.length).toBeGreaterThan(2);
+    for (const p of pages) expect(p.slice(0, 2)).toEqual(['Id', 'Notes']);
+    const drawn = pages.flat().filter((t) => /^w\d/.test(t));
+    expect(drawn.join(' ')).toBe(words.join(' '));
+    expect(pages[pages.length - 1]).toEqual(expect.arrayContaining(['2', 'after']));
+  });
+
+  describe('balanced columns (fit)', () => {
+    const cols = [
+      { header: 'Task', nowrap: true },
+      { header: 'Title' },
+      { header: 'Assigned to' },
+      { header: 'Due', nowrap: true },
+      { header: 'Overdue', align: 'right' as const, nowrap: true },
+    ];
+    const title = 'Pressure test report for the north manifold, including the calibration certificates from the vendor';
+    const rows = [
+      ['RIG-14', title, 'Hassan Ahmed, Layla Nasser, Mariam Al-Harthy', '19 Oct 2026', '5 days'],
+      ['RIG-9', 'تحديث مخزون الصمامات في الموقع الشمالي', '', '2 Oct 2026', '12 days'],
+      ['RIG-21', 'Safety checklist v2', 'Omar Said', '30 Sep 2026', '115 days'],
+    ];
+    const draw = () => {
+      const doc = new PdfDocument();
+      doc.table(cols, rows, { size: 9, fit: { minSize: 7 } });
+      return inspectPdf(doc.build()).lines[0]!.filter((l) => l.y < PAGE_H - 62);
+    };
+
+    it('never breaks a word or a date, and keeps every cell’s words in order', () => {
+      const lines = draw();
+      const words = new Set(rows.flat().join(' ').split(/\s+/).concat(cols.map((c) => c.header).join(' ').split(' ')));
+      for (const l of lines) for (const w of l.text.split(' ')) expect(words, `"${w}" in "${l.text}"`).toContain(w);
+      const titleLines = lines.filter((l) => title.includes(l.text) && l.text.length > 3);
+      expect(titleLines.map((l) => l.text).join(' ')).toBe(title);
+      for (const d of ['19 Oct 2026', '2 Oct 2026', '30 Sep 2026']) expect(lines.map((l) => l.text)).toContain(d);
+    });
+
+    it('right-aligns numbers on one edge, and no line runs past its column', () => {
+      const lines = draw();
+      const right = (t: string, bold = false) => {
+        const l = lines.find((x) => x.text === t)!;
+        return l.x + measureText(t, l.size, bold);
+      };
+      expect(right('5 days')).toBeCloseTo(right('115 days'), 1);
+      expect(right('12 days')).toBeCloseTo(right('Overdue', true), 1);
+      // Left-aligned headers mark where each column's text starts; nothing crosses into the next column.
+      const starts = ['Task', 'Title', 'Assigned to', 'Due'].map((h) => lines.find((l) => l.text === h)!.x);
+      for (const l of lines) {
+        const col = starts.findIndex((s, i) => l.x >= s - 0.5 && (i === starts.length - 1 || l.x < starts[i + 1]! - 0.5));
+        if (col < 0 || col === starts.length - 1) continue;
+        expect(l.x + measureText(l.text, l.size), l.text).toBeLessThanOrEqual(starts[col + 1]! - 5 + 0.5);
+      }
+    });
+
+    it('gives a long word the room it needs when every column has to wrap (instead of an equal share that breaks it)', () => {
+      const six = Array.from({ length: 6 }, (_, i) => ({ header: `Notes ${i + 1}` }));
+      const filler = 'and then the team will review the list again '.repeat(4).trim();
+      const doc = new PdfDocument();
+      doc.table(six, [six.map((_, i) => (i === 2 ? `Electromechanical ${filler}` : filler))], { size: 9, fit: { minSize: 7 } });
+      const lines = inspectPdf(doc.build()).lines[0]!;
+      const word = lines.filter((l) => l.text.split(' ').includes('Electromechanical'));
+      expect(word).toHaveLength(1);
+      expect(word[0]!.size).toBe(9);
+    });
+
+    it('a table too wide for the page shrinks its type (to no less than the minimum) before it breaks words', () => {
+      const many = Array.from({ length: 13 }, (_, i) => ({ header: `Column ${i + 1}` }));
+      const row = many.map((_, i) => `Inspection${i} certificates`);
+      const doc = new PdfDocument({ orientation: 'landscape' });
+      doc.table(many, [row], { size: 9, fit: { minSize: 7 } });
+      const body = inspectPdf(doc.build()).lines[0]!.filter((l) => l.text.startsWith('Inspection') || l.text === 'certificates');
+      expect(body.length).toBeGreaterThan(0);
+      for (const l of body) {
+        expect(l.size).toBeLessThan(9);
+        expect(l.size).toBeGreaterThanOrEqual(7);
+      }
+    });
+  });
+});
+
+describe('PdfDocument — running header and footer never cut text silently', () => {
+  const PAGE_H = 841.89;
+  const fill = (doc: PdfDocument) => {
+    for (let i = 0; i < 120; i++) doc.text(`Line ${i}`);
+    return inspectPdf(doc.build());
+  };
+
+  it('a running title too long for the header ends with “…”', () => {
+    const title = 'Overdue tasks in Rig Inspection and the platform audit with owners and dates '.repeat(4).trim();
+    const { lines } = fill(new PdfDocument({ runningTitle: title }));
+    const top = lines[1]!.filter((l) => l.y < 54);
+    expect(top).toHaveLength(1);
+    expect(top[0]!.text.endsWith('…')).toBe(true);
+    expect(title.startsWith(top[0]!.text.slice(0, -1).trimEnd())).toBe(true);
+  });
+
+  it('a footer line too long for the page shrinks a little, then ends with “…”; a short one is unchanged', () => {
+    const long = `MICO360 Tasks · Generated 25 Oct 2026, 09:00 (Asia/Muscat) by ${'Khurram Shahzad Al-Balushi '.repeat(6).trim()}`;
+    const { lines } = fill(new PdfDocument({ footerLeft: `${long}\nShort line` }));
+    const footer = lines[0]!.filter((l) => l.y > PAGE_H - 50);
+    const first = footer.find((l) => l.text.startsWith('MICO360 Tasks'))!;
+    expect(first.size).toBeLessThan(8);
+    expect(first.size).toBeGreaterThanOrEqual(6.5);
+    expect(first.text.endsWith('…')).toBe(true);
+    const page = footer.find((l) => l.text.startsWith('Page '))!;
+    expect(first.x + measureText(first.text, first.size)).toBeLessThan(page.x);
+    expect(footer.find((l) => l.text === 'Short line')!.size).toBe(8);
   });
 });
