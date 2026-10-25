@@ -55,7 +55,6 @@ async function asked(s: ReturnType<typeof setup>, viewer = OMAR, text = 'Make ta
   return { chatId: chat.id, messageId: answer.id, message: await s.svc.getMessage(viewer, chat.id, answer.id) };
 }
 const card = (m: { answer?: { proposal?: ProposalView } }) => m.answer!.proposal!;
-const all = (p: ProposalView) => p.items.map((x) => ({ id: x.id, include: true }));
 
 describe('MICO AI service: a proposal is a card kept with its answer', () => {
   it('the answer shows the card, checked by the server, and nothing has changed yet', async () => {

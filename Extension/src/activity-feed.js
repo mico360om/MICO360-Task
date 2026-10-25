@@ -2,7 +2,8 @@
  * The task activity timeline: turns raw activity rows (newest first) into short readable lines —
  * "moved this task To Do → In Progress", "assigned Omar Ahmed", "changed priority from Normal to
  * High" — and collapses repetitive runs by one person (several quick moves, people assigned at once,
- * successive edits) into a single line.
+ * successive edits) into a single line. A change the person made through MICO AI (meta.via
+ * "mico-ai") ends "via MICO AI", and never folds into a line they made by hand.
  *
  * A plain-JavaScript copy of the web app's `lib/activity-feed.ts` (which the Android app shares);
  * src/activity-feed.test.js runs both over the same activity, so the wording can't drift apart.
@@ -58,12 +59,18 @@ const isMove = (k) => k === 'moved' || k === 'completed' || k === 'reopened';
  * any status moves; assignments; edits; and each kind of checklist, comment, file or blocker change.
  */
 function mergeKey(entry) {
+  const key = runKey(entry);
+  return key !== null && viaMicoAi(entry) ? `${key}|mico-ai` : key;
+}
+function runKey(entry) {
   const kind = kindOf(entry.action);
   if (isMove(kind)) return 'move';
   if (kind === 'assigned' || kind === 'unassigned' || kind === 'updated') return kind;
   if (kind === 'checklist' || kind === 'comment' || kind === 'file' || kind === 'blocker') return entry.action;
   return null;
 }
+/** Made through MICO AI (the person confirmed it there). */
+const viaMicoAi = (entry) => entry.meta?.via === 'mico-ai';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** "2026-10-12" → "12 Oct 2026" (the same in every locale and time zone). */
@@ -164,6 +171,11 @@ function statusPath(chronological) {
 }
 
 function toItem(kind, entries) {
+  const item = lineOf(kind, entries);
+  return item && viaMicoAi(entries[0]) ? { ...item, text: `${item.text} via MICO AI` } : item;
+}
+
+function lineOf(kind, entries) {
   const newest = entries[0];
   const chronological = [...entries].reverse();
   const base = { id: newest.id, kind, actorName: newest.actorName, createdAt: newest.createdAt, count: entries.length };

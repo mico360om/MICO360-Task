@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createActivityService } from './activity-service';
+import { actingVia } from '../../lib/acting-via';
 import type { ActivityRecord, ActivityRepository } from './activity-repository';
 
 function inMemory(): ActivityRepository {
@@ -42,5 +43,18 @@ describe('ActivityService', () => {
     const svc = createActivityService({ activities: inMemory() });
     await svc.record({ taskId: 't2', userId: 'u1', action: 'X' });
     expect(await svc.listForTask('t1')).toHaveLength(0);
+  });
+
+  it('a line written while MICO AI carries out a confirmed change is marked via MICO AI (and nothing else is)', async () => {
+    const svc = createActivityService({ activities: inMemory() });
+    await actingVia('mico-ai', async () => {
+      await svc.record({ taskId: 't1', userId: 'u1', action: 'UPDATED', meta: { changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }] } });
+      await svc.record({ taskId: 't1', userId: 'u1', action: 'CREATED' });
+    });
+    await svc.record({ taskId: 't1', userId: 'u1', action: 'COMMENTED', meta: { commentId: 'c1' } });
+    const [comment, created, updated] = await svc.listForTask('t1');
+    expect(updated!.meta).toEqual({ changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }], via: 'mico-ai' });
+    expect(created!.meta).toEqual({ via: 'mico-ai' });
+    expect(comment!.meta).toEqual({ commentId: 'c1' });
   });
 });

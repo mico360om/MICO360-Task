@@ -174,3 +174,26 @@ describe('buildTimeline: repetitive runs collapse into one line (newest first)',
     ).toEqual([]);
   });
 });
+
+describe('buildTimeline: changes made through MICO AI', () => {
+  const via = { via: 'mico-ai' };
+  it('says so after the line, for every kind of change', () => {
+    expect(buildTimeline([e('a1', 'CREATED', 'Sara Ahmed', 1, { title: 'X', ...via })])[0]).toMatchObject({ actorName: 'Sara Ahmed', text: 'created this task via MICO AI' });
+    expect(buildTimeline([e('a1', 'UPDATED', 'Sara Ahmed', 1, { changes: [{ field: 'dueDate', from: '2026-10-19', to: '2026-10-25' }], ...via })])[0]!.text).toBe(
+      'moved the due date from 19 Oct 2026 to 25 Oct 2026 via MICO AI',
+    );
+    expect(buildTimeline([e('a1', 'ASSIGNED', 'Sara Ahmed', 1, { assignee: 'Omar Ahmed', ...via })])[0]!.text).toBe('assigned Omar Ahmed via MICO AI');
+    expect(buildTimeline([e('a1', 'COMPLETED', 'Sara Ahmed', 1, { from: 'Review', to: 'Done', ...via })])[0]).toMatchObject({ text: 'completed this task via MICO AI', path: ['Review', 'Done'] });
+  });
+  it('a line made through MICO AI never folds into one made by hand (or the other way round)', () => {
+    const items = buildTimeline([
+      e('a3', 'ASSIGNED', 'Sara Ahmed', 1, { assignee: 'Bilal Ahmed' }),
+      e('a2', 'ASSIGNED', 'Sara Ahmed', 2, { assignee: 'Omar Ahmed', ...via }),
+      e('a1', 'ASSIGNED', 'Sara Ahmed', 3, { assignee: 'Zara Ahmed', ...via }),
+    ]);
+    expect(items.map((i) => i.text)).toEqual(['assigned Bilal Ahmed', 'assigned Zara Ahmed and Omar Ahmed via MICO AI']);
+  });
+  it('any other value is not MICO AI', () => {
+    expect(buildTimeline([e('a1', 'CREATED', 'A', 1, { via: 'something' })])[0]!.text).toBe('created this task');
+  });
+});

@@ -2,7 +2,8 @@
  * The task activity timeline: turns raw activity rows (newest first) into short readable lines —
  * "moved this task To Do → In Progress", "assigned Omar Ahmed", "changed priority from Normal to
  * High" — and collapses repetitive runs by one person (several quick moves, people assigned at once,
- * successive edits) into a single line.
+ * successive edits) into a single line. A change the person made through MICO AI (meta.via
+ * "mico-ai") ends "via MICO AI", and never folds into a line they made by hand.
  */
 
 export interface FeedEntry {
@@ -85,12 +86,18 @@ const isMove = (k: TimelineKind) => k === 'moved' || k === 'completed' || k === 
  * any status moves; assignments; edits; and each kind of checklist, comment, file or blocker change.
  */
 function mergeKey(entry: FeedEntry): string | null {
+  const key = runKey(entry);
+  return key !== null && viaMicoAi(entry) ? `${key}|mico-ai` : key;
+}
+function runKey(entry: FeedEntry): string | null {
   const kind = KIND_OF[entry.action] ?? 'other';
   if (isMove(kind)) return 'move';
   if (kind === 'assigned' || kind === 'unassigned' || kind === 'updated') return kind;
   if (kind === 'checklist' || kind === 'comment' || kind === 'file' || kind === 'blocker') return entry.action;
   return null;
 }
+/** Made through MICO AI (the person confirmed it there). */
+const viaMicoAi = (entry: FeedEntry) => entry.meta?.via === 'mico-ai';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** "2026-10-12" → "12 Oct 2026" (the same in every locale and time zone). */
@@ -196,6 +203,11 @@ function statusPath(chronological: FeedEntry[]): string[] | undefined {
 }
 
 function toItem(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
+  const item = lineOf(kind, entries);
+  return item && viaMicoAi(entries[0]!) ? { ...item, text: `${item.text} via MICO AI` } : item;
+}
+
+function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
   const newest = entries[0]!;
   const chronological = [...entries].reverse();
   const base = { id: newest.id, kind, actorName: newest.actorName, createdAt: newest.createdAt, count: entries.length };
