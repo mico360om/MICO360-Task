@@ -273,7 +273,7 @@ function ConnectProviderForm({ config, apply, api }: SectionProps) {
           />
           <FieldError>{errors.key}</FieldError>
           {preset.keyUrl ? (
-            <a href={preset.keyUrl} target="_blank" rel="noopener noreferrer" className="self-start text-xs text-brand hover:underline">
+            <a href={preset.keyUrl} target="_blank" rel="noopener noreferrer" className="tap self-start text-xs text-brand hover:underline">
               Get a key from {preset.name}
             </a>
           ) : null}

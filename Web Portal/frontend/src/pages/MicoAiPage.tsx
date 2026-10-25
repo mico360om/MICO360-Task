@@ -402,7 +402,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
             </button>
           </header>
 
-          <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-5 sm:px-6">
+          {/* Focusable, so the messages can be scrolled from the keyboard even when nothing in them is a control. */}
+          <div ref={scroller} tabIndex={0} role="region" aria-label="Messages" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/50 sm:px-6">
             <div className="mx-auto flex max-w-3xl flex-col gap-5">
               {!ready ? (
                 <p className="rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-ink">{statusQ.data?.message ?? 'MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.'}</p>
