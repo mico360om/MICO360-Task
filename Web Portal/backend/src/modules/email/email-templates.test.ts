@@ -65,7 +65,8 @@ describe('welcomeEmail (an administrator welcomes a person: set your password)',
       expect(out).toContain('Hi Sara, your MICO360 Tasks account is ready. Set your password, then sign in with your username or email address.');
       expect(out).toContain('sara.k');
       expect(out).toContain('https://task.mico360.test');
-      expect(out).toContain('This link works once and expires in 7 days. If it has expired, choose “Forgot password?” on the sign-in page, or ask your administrator to send a new one.');
+      expect(out).toContain('This link works once and expires in 7 days. Using it signs you out of MICO360 Tasks on your other devices.');
+      expect(out).toContain('If it has expired, choose “Forgot password?” on the sign-in page, or ask your administrator to send a new one.');
       expect(out).toContain('help@mico360.test');
     }
     expect(e.html).toMatch(/<a href="https:\/\/task\.mico360\.test\/reset\?token=abc123&amp;welcome=1"[^>]*>Set your password<\/a>/);

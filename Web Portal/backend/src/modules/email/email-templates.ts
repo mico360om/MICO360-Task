@@ -122,10 +122,9 @@ export function welcomeEmail(params: WelcomeEmailParams, opts?: TemplateOptions)
     { kind: 'text', text: `Hi ${name}, your ${product} account is ready. Set your password, then sign in with your username or email address.` },
     { kind: 'details', rows: [['Your username', params.username], ['Site', brand.appUrl]] },
     { kind: 'button', label: 'Set your password', href: params.setPasswordLink },
-    {
-      kind: 'text',
-      text: `This link works once and expires in ${days} day${days === 1 ? '' : 's'}. If it has expired, choose “Forgot password?” on the sign-in page, or ask your administrator to send a new one.`,
-    },
+    // Setting the password ends every other sign-in (the reset page does that), so the email says so.
+    { kind: 'text', text: `This link works once and expires in ${days} day${days === 1 ? '' : 's'}. Using it signs you out of ${product} on your other devices.` },
+    { kind: 'text', text: 'If it has expired, choose “Forgot password?” on the sign-in page, or ask your administrator to send a new one.' },
     linkFallback(params.setPasswordLink),
   ];
   if (apps.length) {
