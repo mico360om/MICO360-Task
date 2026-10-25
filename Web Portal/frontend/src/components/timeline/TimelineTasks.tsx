@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { apiClient } from '../../api/client';
 import { planningApi, timelineTasksKey, type TimelineTask, type TimelineTasksData } from '../../api/planning';
 import { phoneTaskLine, shortDay, taskLabel, taskShape } from '../../lib/timeline';
-import { Initials, ROW } from './parts';
+import { Glyph, ICONS, Initials, ROW } from './parts';
 
 /**
  * One project's task lane for the shown weeks, read when its row is opened, and again as tasks or
@@ -78,7 +78,7 @@ function TaskMark({ t, range, today }: { t: TimelineTask; range: { from: string;
 /**
  * A project's task lane under it on the chart — open overdue work first, then open tasks in the
  * shown weeks, then done ones: a bar from start to due day (a marker on the due day when it has no
- * start), red with ⚠ when overdue, grey with ✓ once done, and who has it. The whole row opens the
+ * start), red with a warning sign when overdue, grey with a tick once done, and who has it. The whole row opens the
  * task. At most 30 — when more, how many show, and the project's open tasks on its own page.
  */
 export function ChartTaskRows({
@@ -129,15 +129,13 @@ export function ChartTaskRows({
                   type="button"
                   onClick={() => onOpenTask(t.id)}
                   aria-label={taskLabel(t, today)}
-                  className={`min-w-0 flex-1 truncate text-start text-[12.5px] after:absolute after:inset-0 after:z-10 after:content-[''] group-hover:underline ${t.done ? 'text-ink-3' : t.overdue ? 'font-semibold text-danger' : 'text-ink'}`}
+                  className={`flex min-w-0 flex-1 items-center gap-1.5 text-start text-[12.5px] after:absolute after:inset-0 after:z-10 after:content-[''] group-hover:underline ${t.done ? 'text-ink-3' : t.overdue ? 'font-semibold text-danger' : 'text-ink'}`}
                 >
-                  <span className="font-mono text-[11px] text-ink-2">{t.key}</span>
-                  <span className="ms-1.5">
-                    {t.done ? <span aria-hidden="true">✓ </span> : null}
-                    {t.overdue ? <span aria-hidden="true">⚠ </span> : null}
-                    {t.isMilestone ? <span aria-hidden="true">◆ </span> : null}
-                    {t.title}
-                  </span>
+                  <span className="flex-none font-mono text-[11px] text-ink-2">{t.key}</span>
+                  {t.done ? <Glyph size={13} className="text-success" data-icon="done">{ICONS.check}</Glyph> : null}
+                  {t.overdue ? <Glyph size={13} data-icon="overdue">{ICONS.warning}</Glyph> : null}
+                  {t.isMilestone ? <Glyph size={12} data-icon="milestone">{ICONS.diamond}</Glyph> : null}
+                  <span className="min-w-0 truncate">{t.title}</span>
                 </button>
                 {/* Above the stretched button, so their names show on hover; the button's name says them too. */}
                 <Initials people={t.assignees} className="relative z-20" />

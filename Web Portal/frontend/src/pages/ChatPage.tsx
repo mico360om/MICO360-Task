@@ -38,6 +38,7 @@ import { MessageList } from '../components/chat/MessageList';
 import { SearchResults } from '../components/chat/SearchResults';
 import { ConnectionBanner, ConversationHeader, ImageViewer, MembersPanel, type MemberRow } from '../components/chat/parts';
 import { CloseIcon, SearchIcon } from '../components/chat/icons';
+import { Icon } from '../components/meeting/kit';
 
 export { MAX_MESSAGE_LENGTH };
 
@@ -878,7 +879,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
                     renderMessage={renderMessage}
                     empty={
                       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-                        <span className="text-4xl" aria-hidden="true">👋</span>
+                        <span className="grid h-14 w-14 place-items-center rounded-2xl bg-brand/10 text-brand">{Icon.chat}</span>
                         <p className="text-sm font-semibold text-ink">No messages yet</p>
                         <p className="text-xs text-ink-2">Say hello to get the conversation started.</p>
                       </div>

@@ -133,9 +133,9 @@ function Legend({ labels }: { labels: string[] }) {
   const sw = 'inline-block h-2.5 w-5 flex-none rounded-sm';
   return (
     <ul aria-label="Legend" className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line bg-surface-2 px-4 py-2.5 text-xs text-ink-2">
-      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} bg-info`} />✓ On track</li>
-      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} bg-warning`} />⚠ At risk — less done than time used</li>
-      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} hatch-late`} />⏱ Late — hatched part is past the target</li>
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} bg-info`} /><Glyph size={12} className="text-success">{ICONS.check}</Glyph>On track</li>
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} bg-warning`} /><Glyph size={12} className="text-warning">{ICONS.warning}</Glyph>At risk — less done than time used</li>
+      <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`${sw} hatch-late`} /><Glyph size={12} className="text-danger">{ICONS.clock}</Glyph>Late — hatched part is past the target</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rotate-45 bg-surface ring-2 ring-ink" />Milestone (filled once reached)</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-[2px] bg-meeting" />Meeting</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2.5 w-5 rounded-sm border-[1.5px] border-dashed border-ink-2/70" />Dates from its tasks</li>

@@ -99,7 +99,8 @@ export function MeetingDetailPage() {
 
   if (meetingQ.isLoading) {
     return (
-      <div aria-busy="true">
+      // Its own key: the page replaces it rather than reusing its boxes, which would slide down.
+      <div key="loading" aria-busy="true">
         <div className="skeleton h-4 w-24" />
         <div className="skeleton mt-4 h-8 w-80 max-w-full" />
         <div className="skeleton mt-3 h-4 w-96 max-w-full" />

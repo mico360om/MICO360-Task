@@ -35,7 +35,7 @@ import {
 const isDay = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand';
 const BOX = 'flex h-9 min-w-0 items-center gap-1.5 rounded-xl border border-line bg-surface ps-3 text-sm transition-colors focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20';
-const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 text-sm font-semibold text-ink outline-none';
+const SELECT = 'h-full min-w-[4.25rem] cursor-pointer rounded-xl bg-transparent pe-2 text-sm font-semibold text-ink outline-none';
 
 /** A number's look: quiet, green below the limit, amber at it, red with "!" over it. */
 const TONE: Record<Exclude<CellTone, 'off' | 'none'>, string> = {
@@ -263,13 +263,15 @@ export function WorkloadPage() {
         <LoadError what="the workload" onRetry={() => void query.refetch()} />
       ) : data ? (
         <div>
+          {/* On a phone the days don't fit beside the names: the names stay put while the days scroll. */}
+          <p className="mb-2 text-xs text-ink-2 sm:hidden">Swipe the table sideways to see each day.</p>
           <div className="card overflow-hidden">
             <div className="relative overflow-x-auto">
-              <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
+              <table className="w-full min-w-[42rem] border-separate border-spacing-0 text-sm sm:min-w-[48rem]">
                 <caption className="sr-only">Open tasks due each day, per person — {weekLabel(week, today)}</caption>
                 <thead>
                   <tr className="bg-surface-2 text-[11.5px] font-bold uppercase tracking-wide text-ink-2">
-                    <th scope="col" className="w-72 border-b border-line px-4 py-2.5 text-start font-bold">Person · this week</th>
+                    <th scope="col" className="sticky start-0 z-[2] w-44 border-b border-e border-line bg-surface-2 px-3 py-2.5 text-start font-bold sm:w-72 sm:border-e-0 sm:px-4">Person · this week</th>
                     <th scope="col" className="border-b border-line px-1 py-2.5 text-center font-bold">Overdue</th>
                     {days.map((d) => (
                       <th key={d.date} scope="col" className={`border-b border-line px-1 py-2.5 text-center font-bold ${d.date === today ? 'bg-brand/[0.05] text-brand' : ''}`}>
@@ -283,7 +285,7 @@ export function WorkloadPage() {
                     const bar = weekBar(p);
                     return (
                       <tr key={p.id}>
-                        <th scope="row" className="border-b border-line-2 px-4 py-2.5 text-start font-normal">
+                        <th scope="row" className="sticky start-0 z-[1] border-b border-e border-line-2 border-e-line bg-surface px-3 py-2.5 text-start font-normal sm:border-e-0 sm:px-4">
                           <span className="flex items-center gap-2.5">
                             <Avatar name={p.name} src={p.avatarUrl} size="md" />
                             <span className="min-w-0">

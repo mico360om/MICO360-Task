@@ -221,14 +221,16 @@ function ProjectRow({
           <ExpandButton name={p.name} expanded={expanded} onToggle={onExpand} className="h-7 w-7" />
           <ProjectAvatar project={p} size="md" />
           <div className="min-w-0 flex-1">
-            <Link to={`/projects/${p.id}`} className="block truncate text-[13.5px] font-bold text-ink hover:text-brand">
+            <Link to={`/projects/${p.id}`} title={p.name} className="tap block truncate text-[13.5px] font-bold text-ink hover:text-brand">
               {p.name}
             </Link>
-            <p className="truncate text-xs text-ink-2" title={sub}>
-              {sub}
-            </p>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              <HealthPill health={p.health} className="!py-px" />
+              <p className="min-w-0 truncate text-xs text-ink-2" title={sub}>
+                {sub}
+              </p>
+            </div>
           </div>
-          <HealthPill health={p.health} />
         </div>
         <div className="relative h-[4.25rem] border-s border-line">
           {backdrop}

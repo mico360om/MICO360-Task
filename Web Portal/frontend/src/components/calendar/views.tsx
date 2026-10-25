@@ -3,7 +3,7 @@ import type { CalItem } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
 import { monthOf, monthWeeks, weekDays, weekdayLabels, type WeekStart } from '../../lib/calendar';
 import { MeetingChip, STATUS_META, TaskChip, dayLabel } from './calendar-ui';
-import { chipSlots } from '../../lib/calendar-fit';
+import { chipSlots, isTouchScreen } from '../../lib/calendar-fit';
 
 /** Overdue tasks listed before "Show all" in the agenda. */
 const OVERDUE_PREVIEW = 8;
@@ -80,7 +80,7 @@ function useHeight(ref: RefObject<HTMLElement | null>, enabled: boolean): number
 function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: string; dayNumber: number; outside: boolean; p: ViewProps; rowHeight?: number }) {
   const items = p.byDay.get(cellKey) ?? [];
   const meetings = meetingsOf(p, cellKey);
-  const max = chipSlots(rowHeight, items.length + meetings.length);
+  const max = chipSlots(rowHeight, items.length + meetings.length, isTouchScreen());
   const shownMeetings = meetings.slice(0, max);
   const shown = items.slice(0, Math.max(0, max - shownMeetings.length));
   const hiddenMeetings = meetings.length - shownMeetings.length;
@@ -128,7 +128,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: str
           type="button"
           onClick={() => p.onOpenDay(cellKey)}
           aria-label={`${more} more ${moreNoun} on ${dayLabel(cellKey)}`}
-          className="flex-none self-start rounded px-1 text-[11px] font-semibold leading-4 text-brand hover:underline"
+          className="flex h-[22px] flex-none items-center self-start rounded px-1.5 text-[11px] font-semibold text-brand hover:bg-brand/[0.06] hover:underline [@media(pointer:coarse)]:h-[28px] [@media(pointer:coarse)]:min-h-[28px]"
         >
           +{more} more
         </button>

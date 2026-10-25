@@ -249,7 +249,12 @@ export function ProjectDetailPage() {
               <span aria-hidden>·</span>
               <span>Owner: {ownerName(project.ownerId)}</span>
             </p>
-          ) : null}
+          ) : (
+            // The details line's place, so nothing under it moves when the project arrives.
+            <p className="mt-0.5 flex h-5 items-center" aria-hidden="true">
+              <span className="skeleton inline-block h-3.5 w-72 max-w-full" />
+            </p>
+          )}
           {detailsProblem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{detailsProblem}</p> : null}
         </div>
         {canEditProject && project ? (
@@ -274,7 +279,7 @@ export function ProjectDetailPage() {
       {/* Stat tiles — a snapshot of every task by where it stands */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {/* "—" until the tasks arrive: a zero would read as "this project has no tasks". */}
-        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady && stats.pending ? `${stats.pending} not started` : undefined} />
+        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady && stats.pending ? `${stats.pending} not started` : ''} />
         <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="success" />
         <StatTile label="Ongoing" value={statsReady ? stats.ongoing : '—'} tone="info" />
         <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" />
@@ -393,7 +398,8 @@ function StatTile({ label, value, tone = 'default', hint, className = '' }: { la
     <div className={`card p-4 ${className}`}>
       <p className={`font-display text-2xl font-bold ${TILE_TONE[tone]}`}>{value}</p>
       <p className="mt-0.5 text-xs font-medium text-ink-2">{label}</p>
-      {hint ? <p className="text-[11px] text-ink-3">{hint}</p> : null}
+      {/* An empty hint still keeps its line, so the tiles don't grow when the numbers arrive. */}
+      {hint !== undefined ? <p className="min-h-[1rem] text-[11px] leading-4 text-ink-2">{hint}</p> : null}
     </div>
   );
 }

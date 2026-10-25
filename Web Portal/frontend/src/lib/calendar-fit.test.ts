@@ -14,14 +14,24 @@ describe('chipSlots', () => {
     expect(chipSlots(120, 0)).toBe(0);
   });
 
+  it('on a touch screen, entries and “+N more” are 28px tall, so fewer fit', () => {
+    // 165px of room: 4 entries (30px each with the gap) and the 28px "+N more" line.
+    expect(chipSlots(200, 10, true)).toBe(4);
+    // 85px: three would need 88px, so one entry and "+N more".
+    expect(chipSlots(120, 3, true)).toBe(1);
+    expect(chipSlots(120, 2, true)).toBe(2);
+    expect(chipSlots(undefined, 6, true)).toBe(3);
+  });
+
   it('keeps room for “+N more” when they don’t all fit', () => {
     // 120px: room for three entries alone, but only two and the "+N more" line.
     expect(chipSlots(120, 4)).toBe(2);
   });
 
   it('fills a tall row', () => {
-    expect(chipSlots(200, 10)).toBe(6);
-    expect(chipSlots(200, 7)).toBe(6);
+    // 165px of room: 5 entries and the 22px "+N more" line, or all 6 when they fit without it.
+    expect(chipSlots(200, 10)).toBe(5);
+    expect(chipSlots(200, 7)).toBe(5);
     expect(chipSlots(200, 6)).toBe(6);
   });
 

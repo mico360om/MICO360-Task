@@ -299,9 +299,9 @@ export function TaskDrawer({
           <div className="mt-2 flex flex-wrap gap-1.5">
             {task.meeting ? <MeetingLink meeting={task.meeting} timeZone={timeZone} /> : null}
             {task.recurrenceRule ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">🔁 {recurrenceSummary(task.recurrenceRule)}</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">{Icon.repeat}{recurrenceSummary(task.recurrenceRule)}</span>
             ) : inSeries ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2">🔁 Part of a repeating series</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2">{Icon.repeat}Part of a repeating series</span>
             ) : null}
             {carried ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2" title={carried.map((e) => `${e.from} → ${e.to}`).join('\n')}>
@@ -380,7 +380,7 @@ export function TaskDrawer({
 
       {/* Deleting is kept apart from everything else, and always asks first. */}
       {onDelete ? (
-        <footer className="flex-none border-t border-line px-4 py-2.5 sm:px-6">
+        <div data-drawer-footer className="flex-none border-t border-line px-4 py-2.5 sm:px-6">
           {confirmingDelete ? (
             <div role="group" aria-label="Confirm delete" className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-ink">{inSeries ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
@@ -411,7 +411,7 @@ export function TaskDrawer({
               <ShortcutHint action="delete" />
             </button>
           )}
-        </footer>
+        </div>
       ) : null}
     </div>
   );
