@@ -36,6 +36,8 @@ let calls: Array<{ method: string; url: string; body?: unknown }>;
 /** What a pending answer becomes on the next poll. */
 let next: Partial<MicoAiMessage> | null;
 let seq: number;
+/** How the fake answers Confirm, Cancel and Undo on a card (changing the message, or a refusal). */
+let onCard: ((kind: 'confirm' | 'cancel' | 'undo', msg: MicoAiMessage, body: unknown) => Response | void) | null;
 
 const now = new Date().toISOString();
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -79,6 +81,7 @@ beforeEach(() => {
   calls = [];
   next = null;
   seq = 0;
+  onCard = null;
   useAuthStore.setState({ user: { id: 'u1', email: 'k@mico360.test', username: 'khurram', roles: ['EMPLOYEE'] }, accessToken: 'token', isAuthenticated: true });
   vi.stubGlobal(
     'fetch',
@@ -102,7 +105,7 @@ beforeEach(() => {
         chats.unshift(c);
         return json({ data: summary(c) }, 201);
       }
-      const m = /^\/mico-ai\/chats\/([^/]+)(?:\/messages(?:\/([^/]+)(\/stop|\/report\.pdf|\/tables\/(\d+)\.(xlsx|pdf))?)?)?$/.exec(path);
+      const m = /^\/mico-ai\/chats\/([^/]+)(?:\/messages(?:\/([^/]+)(\/stop|\/confirm|\/cancel|\/undo|\/report\.pdf|\/tables\/(\d+)\.(xlsx|pdf))?)?)?$/.exec(path);
       const c = m ? chats.find((x) => x.id === m[1]) : undefined;
       if (m && !c) return json({ error: { code: 'NOT_FOUND', message: 'This chat doesn’t exist, or it isn’t yours.' } }, 404);
       if (m && c) {
@@ -127,6 +130,11 @@ beforeEach(() => {
         const msg = c.messages.find((x) => x.id === messageId)!;
         if (tail === '/stop') {
           Object.assign(msg, { status: 'stopped', step: null });
+          return json({ data: msg });
+        }
+        if (tail === '/confirm' || tail === '/cancel' || tail === '/undo') {
+          const reply = onCard?.(tail.slice(1) as 'confirm' | 'cancel' | 'undo', msg, body);
+          if (reply) return reply;
           return json({ data: msg });
         }
         if (tail === '/report.pdf') return new Response('bytes', { status: 200, headers: { 'content-disposition': 'attachment; filename="mico-ai-overdue-2026-10-25.pdf"' } });
@@ -777,5 +785,88 @@ describe('MICO AI page: review fixes (2)', () => {
     await userEvent.type(box(), 'Hello there');
     expect(box()).toHaveValue('Hello there');
     expect(messageRenders.count).toBe(0);
+  });
+});
+
+describe('MICO AI page: a card of proposed changes', () => {
+  const card = (status: 'proposed' | 'done', extra: Record<string, unknown> = {}): MicoAiMessage => ({
+    id: 'a1',
+    role: 'assistant',
+    status: 'done',
+    text: 'Here is the task to create. Check it, then confirm.',
+    createdAt: now,
+    step: null,
+    answer: {
+      kind: 'proposal',
+      unavailable: false,
+      tables: [],
+      sources: [],
+      followUps: [],
+      options: [],
+      proposal: {
+        id: 'p1',
+        status,
+        note: null,
+        sendInvites: true,
+        hasMeetings: false,
+        confirmedAt: status === 'done' ? new Date().toISOString() : null,
+        undoUntil: status === 'done' ? new Date(Date.now() + 15 * 60_000).toISOString() : null,
+        canUndo: status === 'done',
+        items: [
+          {
+            id: 'c1',
+            type: 'create_task',
+            problem: null,
+            locked: false,
+            warning: null,
+            result: status === 'done' ? { status: 'done', message: null, link: { label: 'RIG-35', url: '?task=t35' } } : null,
+            undo: null,
+            fields: { title: 'Replace the gauge', projectId: 'p-rig', assigneeIds: [], due: null, priority: 'NORMAL', description: '' },
+            labels: { project: 'Rig Inspection Portal', assignees: [] },
+          },
+        ],
+        ...extra,
+      },
+    },
+  });
+  const chat = (): FakeChat => ({ id: 'c9', title: 'Make a task', lastMessageAt: now, messages: [{ id: 'q1', role: 'user', status: 'done', text: 'Make a task to replace the gauge', createdAt: now, step: null }, card('proposed')] });
+
+  it('Confirm sends the card, and the answer shows what happened (announced once)', async () => {
+    chats = [chat()];
+    onCard = (kind, msg) => {
+      if (kind === 'confirm') Object.assign(msg, card('done'));
+    };
+    renderPage('/mico-ai?chat=c9');
+    await userEvent.click(await screen.findByRole('button', { name: /^Confirm/ }));
+    await waitFor(() => expect(posted('/messages/a1/confirm')).toHaveLength(1));
+    expect(posted('/messages/a1/confirm')[0]!.body).toEqual({ items: [{ id: 'c1', include: true }] });
+    expect(await screen.findByRole('link', { name: 'Open RIG-35' })).toHaveAttribute('href', '/mico-ai?chat=c9&task=t35');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Changes made: 1 done.'));
+    expect(screen.getByRole('button', { name: /^Undo/ })).toBeInTheDocument();
+  });
+
+  it('Undo refused by the server (its 15 minutes are up) says why on the card, and the card is read again', async () => {
+    chats = [{ ...chat(), messages: [chat().messages[0]!, card('done')] }];
+    onCard = (kind, msg) => {
+      if (kind !== 'undo') return;
+      Object.assign(msg, card('done', { canUndo: false }));
+      return json({ error: { code: 'UNDO_EXPIRED', message: 'Undo is only available for 15 minutes after confirming.' } }, 409);
+    };
+    renderPage('/mico-ai?chat=c9');
+    await userEvent.click(await screen.findByRole('button', { name: /^Undo/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Undo is only available for 15 minutes after confirming.');
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Undo/ })).not.toBeInTheDocument());
+    expect(screen.getByText('Undo is no longer available.')).toBeInTheDocument();
+  });
+
+  it('Cancel closes the card', async () => {
+    chats = [chat()];
+    onCard = (kind, msg) => {
+      if (kind === 'cancel') Object.assign(msg, card('proposed', { status: 'cancelled' }));
+    };
+    renderPage('/mico-ai?chat=c9');
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByText('Cancelled — nothing was changed.')).toBeInTheDocument();
+    expect(posted('/messages/a1/cancel')).toHaveLength(1);
   });
 });

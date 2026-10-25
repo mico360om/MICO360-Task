@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { micoAiApi, micoAiChatKey, MICO_AI_CHATS_KEY, type MicoAiChat, type MicoAiMessage } from '../api/mico-ai';
+import { micoAiApi, micoAiChatKey, MICO_AI_CHATS_KEY, type ConfirmBody, type MicoAiChat, type MicoAiMessage } from '../api/mico-ai';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import { ApiError } from '../lib/api-client';
@@ -16,6 +16,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { ModalPortal } from '../components/ui/ModalPortal';
 import { ChatList } from '../components/mico-ai/ChatList';
 import { MessageView } from '../components/mico-ai/MessageView';
+import type { ProposalActions } from '../components/mico-ai/ProposalCard';
 import { MicoAiMark } from '../components/mico-ai/AnswerParts';
 import { Composer, type ComposerHandle } from '../components/mico-ai/Composer';
 import { AlertIcon, ArrowDownIcon, CloseIcon, EditIcon, PlusIcon } from '../components/chat/icons';
@@ -30,6 +31,8 @@ const NEAR_END = 48;
 const JUMP_AFTER = 240;
 /** What a screen reader hears once when MICO AI starts on a question. */
 const WORKING = 'MICO AI is working on your question…';
+/** What a confirmed (or undone) card can change: these lists are read again, so open views show it. */
+const CHANGED_BY_CARDS = new Set(['tasks', 'task', 'board', 'project-tasks', 'my-tasks', 'calendar', 'task-activity', 'assignees', 'workload', 'project', 'meetings', 'meeting', 'my-action-items']);
 
 /** Our sentence for a request that failed: the server's own words for a refusal, else a plain cause. */
 function errorText(err: unknown): string {
@@ -42,6 +45,7 @@ function errorText(err: unknown): string {
 function announcement(m: MicoAiMessage): string {
   if (m.status === 'stopped') return 'MICO AI stopped.';
   if (m.status === 'error') return `MICO AI couldn’t answer: ${m.error ?? ''}`;
+  if (m.answer?.kind === 'proposal') return `MICO AI suggests changes: ${m.text.slice(0, 300)} Nothing changes until you confirm them.`;
   return `MICO AI answered: ${copyTextOf(m).slice(0, 400)}`;
 }
 
@@ -201,6 +205,48 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       qc.setQueryData<{ chat: MicoAiChat; messages: MicoAiMessage[] }>(micoAiChatKey(id), (old) => (old ? { ...old, messages: old.messages.map((x) => (x.id === m.id ? m : x)) } : old));
     },
     [qc],
+  );
+
+  /** A message as the server now has it: in the chat, and among older messages loaded above it. */
+  const applyMessage = useCallback(
+    (id: string, m: MicoAiMessage) => {
+      patchMessage(id, m);
+      setEarlier((e) => (e && e.chatId === id && e.messages.some((x) => x.id === m.id) ? { ...e, messages: e.messages.map((x) => (x.id === m.id ? m : x)) } : e));
+    },
+    [patchMessage],
+  );
+
+  /**
+   * Confirm, cancel or undo a card of proposed changes. The server's answer replaces the message (a
+   * repeat returns the same one); the task and meeting lists that may be open are read again. A
+   * refusal comes back as words for the card, and the card is read again (its state may have moved on).
+   */
+  const cardActions = useCallback(
+    (messageId: string): ProposalActions => {
+      const refresh = () => {
+        if (!chatId) return;
+        void api.message(chatId, messageId).then((m) => applyMessage(chatId, m), () => {});
+      };
+      const act = async (call: (id: string) => Promise<MicoAiMessage>): Promise<string | null> => {
+        if (!chatId) return 'This chat isn’t open any more.';
+        try {
+          applyMessage(chatId, await call(chatId));
+          void qc.invalidateQueries({ predicate: (q) => CHANGED_BY_CARDS.has(String(q.queryKey[0])) });
+          return null;
+        } catch (err) {
+          refresh();
+          return errorText(err);
+        }
+      };
+      return {
+        confirm: (body: ConfirmBody) => act((id) => api.confirm(id, messageId, body)),
+        cancel: () => act((id) => api.cancel(id, messageId)),
+        undo: () => act((id) => api.undo(id, messageId)),
+        announce: setLive,
+        refresh,
+      };
+    },
+    [chatId, applyMessage, qc],
   );
 
   // Follow a pending answer until it is written (or stopped, or fails).
@@ -609,6 +655,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
                     download: (n, f) => void download(m.id, n, f),
                     report: () => void report(m.id),
                     canAsk,
+                    ...(m.answer?.kind === 'proposal' ? { proposal: cardActions(m.id) } : {}),
                   }}
                 />
               ))}

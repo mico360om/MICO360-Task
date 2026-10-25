@@ -3,6 +3,7 @@ import type { MicoAiMessage } from '../../api/mico-ai';
 import { copyTextOf } from '../../lib/mico-ai';
 import { CopyIcon } from '../chat/icons';
 import { AnswerTable, AnswerText, MicoAiMark, SourceChips, Thinking } from './AnswerParts';
+import { ProposalCard, type ProposalActions } from './ProposalCard';
 
 export interface MessageActions {
   /** Ask this text as the next question (quick replies, follow-ups). */
@@ -15,6 +16,8 @@ export interface MessageActions {
   report: () => void;
   /** Whether a new question can be sent now (no answer is being written). */
   canAsk: boolean;
+  /** Confirm, cancel or undo a card of proposed changes (absent: the card can't be acted on). */
+  proposal?: ProposalActions;
 }
 
 const DownloadIcon = () => (
@@ -88,6 +91,8 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
       </div>
     );
   else body = <AnswerText text={message.text} />;
+  // A card of proposed changes: MICO AI's words, then the card to check, edit and confirm.
+  const card = a?.kind === 'proposal' && a.proposal && message.status === 'done' ? <ProposalCard proposal={a.proposal} actions={actions.proposal} /> : null;
 
   return (
     // Focus lands here when an answer finishes or is stopped (so it isn't lost when Stop disappears).
@@ -104,6 +109,7 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
       <div className="min-w-0 flex-1 space-y-3.5">
         <span className="sr-only">MICO AI: </span>
         {body}
+        {card}
         {a?.kind === 'clarify' && a.options.length ? (
           <div role="group" aria-label="Quick replies" className="flex flex-wrap gap-2">
             {a.options.map((o) => (

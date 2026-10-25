@@ -192,7 +192,7 @@ export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: 
 }
 
 /** Where a source opens: a task in the task panel on this page (?task=), anything else at its own page. */
-function useSourceTarget() {
+export function useSourceTarget() {
   const location = useLocation();
   return (url: string) => {
     if (!url.startsWith('?')) return url;
