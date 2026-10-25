@@ -194,4 +194,51 @@ describe('A welcome link from start to finish (database stores, sign-in and the 
     await expect(r.reset.resetPassword(r.tokenOf(r.links[0]!), 'NewPass456')).rejects.toMatchObject({ code: 'INVALID_RESET_TOKEN' });
     await expect(r.reset.resetPassword(r.tokenOf(r.links[1]!), 'NewPass456')).resolves.toEqual({ reset: true });
   });
+
+  it('a mistyped address fixed by the administrator: the link sent to it no longer sets a password', async () => {
+    const r = rig({ t: Date.now() });
+    const users = createUserService({ users: userMgmt });
+    const sara = await users.createUser({ email: `sara.typo${DOMAIN}`, username: 'wlk-sara', firstName: 'Sara', lastName: 'K' });
+    await r.welcome.send(sara.id);
+    await users.updateUser(sara.id, { email: `sara${DOMAIN}` });
+    await expect(r.reset.resetPassword(r.tokenOf(r.links[0]!), 'Stolen123')).rejects.toMatchObject({ code: 'INVALID_RESET_TOKEN' });
+    await expect(r.auth.login('wlk-sara', 'Stolen123')).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
+  });
+
+  it('a suspended account: its link no longer works, not even once it is made active again', async () => {
+    const r = rig({ t: Date.now() });
+    const users = createUserService({ users: userMgmt });
+    const bo = await users.createUser({ email: `bo${DOMAIN}`, username: 'wlk-bo', firstName: 'Bo', lastName: 'K' });
+    await r.welcome.send(bo.id);
+    await users.setUserStatus(bo.id, 'SUSPENDED');
+    await expect(r.reset.resetPassword(r.tokenOf(r.links[0]!), 'BoPass123')).rejects.toMatchObject({ code: 'INVALID_RESET_TOKEN' });
+    await users.setUserStatus(bo.id, 'ACTIVE');
+    await expect(r.reset.resetPassword(r.tokenOf(r.links[0]!), 'BoPass123')).rejects.toMatchObject({ code: 'INVALID_RESET_TOKEN' });
+  });
+
+  it('the set-password page refuses a link for an account that isn’t active, whatever made it so (same words as an expired link)', async () => {
+    const r = rig({ t: Date.now() });
+    const ada = await person('ada');
+    const cy = await person('cy');
+    await r.welcome.send(ada.id);
+    await r.welcome.send(cy.id);
+    // Changed straight in the database (not through the user service), so only the page's own check stands.
+    await prisma.user.update({ where: { id: ada.id }, data: { status: 'INACTIVE' } });
+    await prisma.user.update({ where: { id: cy.id }, data: { deletedAt: new Date() } });
+    for (const link of r.links) {
+      await expect(r.reset.resetPassword(r.tokenOf(link), 'NewPass456')).rejects.toMatchObject({
+        code: 'INVALID_RESET_TOKEN',
+        message: 'This reset link is invalid or has expired. Request a new one.',
+      });
+    }
+  });
+
+  it('a locked but active account can still use its link, which unlocks it', async () => {
+    const r = rig({ t: Date.now() });
+    const ada = await person('ada');
+    await r.welcome.send(ada.id);
+    await prisma.user.update({ where: { id: ada.id }, data: { failedLoginAttempts: 5, lockedUntil: new Date(Date.now() + 15 * 60_000) } });
+    await expect(r.reset.resetPassword(r.tokenOf(r.links[0]!), 'NewPass456')).resolves.toEqual({ reset: true });
+    await expect(r.auth.login('wlk-ada', 'NewPass456')).resolves.toMatchObject({ id: ada.id });
+  });
 });

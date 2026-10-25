@@ -13,6 +13,7 @@ interface Row {
 export function createMemoryUserRepository() {
   const rows = new Map<string, Row>();
   let seq = 0;
+  const linksEnded = new Map<string, number>();
   const summary = (r: Row): UserSummary => {
     const locked = r.lockedUntil !== null && r.lockedUntil.getTime() > Date.now();
     return { ...r.user, locked, lockedUntil: locked ? r.lockedUntil : null };
@@ -77,6 +78,9 @@ export function createMemoryUserRepository() {
       const r = row(id);
       Object.assign(r, { passwordHash, failedLoginAttempts: 0, lockedUntil: null });
     },
+    async endPasswordLinks(id) {
+      linksEnded.set(id, (linksEnded.get(id) ?? 0) + 1);
+    },
     async markWelcomeSent(id, at) {
       const r = row(id);
       r.user = { ...r.user, welcomeSentAt: at };
@@ -116,6 +120,8 @@ export function createMemoryUserRepository() {
     repo,
     hashOf: (id: string) => rows.get(id)?.passwordHash,
     tokenVersion: (id: string) => rows.get(id)?.tokenVersion ?? 0,
+    /** How many times the person's unused set-password links (welcome, reset) were ended. */
+    linksEnded: (id: string) => linksEnded.get(id) ?? 0,
     /** Simulate a sign-in at `at` (what the auth repository records). */
     signedIn: (id: string, at: Date) => void (rows.get(id)!.user = { ...rows.get(id)!.user, lastLoginAt: at }),
     /** Simulate failed sign-ins that locked the account. */

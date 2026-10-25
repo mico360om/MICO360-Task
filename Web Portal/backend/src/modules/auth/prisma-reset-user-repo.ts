@@ -11,6 +11,9 @@ export function createPrismaResetUserRepo(prisma: PrismaClient): ResetUserRepo {
       });
       return u ? { id: u.id, email: u.email } : null;
     },
+    async isActive(userId) {
+      return (await prisma.user.count({ where: { id: userId, status: 'ACTIVE', deletedAt: null } })) === 1;
+    },
     async setPasswordAndUnlock(userId, passwordHash) {
       await prisma.user.update({
         where: { id: userId },

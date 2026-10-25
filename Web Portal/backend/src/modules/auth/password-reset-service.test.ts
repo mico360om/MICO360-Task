@@ -31,9 +31,14 @@ function harness(user: { id: string; email: string } | null, opts: { configured?
     },
   };
   const updates: { userId: string; passwordHash: string }[] = [];
+  /** Whether the account is still ACTIVE and not deleted (an admin may suspend it after the link went). */
+  let accountActive = true;
   const users: ResetUserRepo = {
     async findActiveByIdentifier() {
       return user;
+    },
+    async isActive() {
+      return accountActive;
     },
     async setPasswordAndUnlock(userId, passwordHash) {
       updates.push({ userId, passwordHash });
@@ -73,7 +78,20 @@ function harness(user: { id: string; email: string } | null, opts: { configured?
     await flush();
     return new URL(emails.at(-1)!.link).searchParams.get('token')!;
   };
-  return { svc, rows, updates, emails, revoked, disconnected, forgotten, warnings, flush, requestToken, advance: (ms: number) => (clock += ms) };
+  return {
+    svc,
+    rows,
+    updates,
+    emails,
+    revoked,
+    disconnected,
+    forgotten,
+    warnings,
+    flush,
+    requestToken,
+    advance: (ms: number) => (clock += ms),
+    stopAccount: () => void (accountActive = false),
+  };
 }
 
 describe('PasswordResetService.resetPassword — session revocation', () => {
@@ -195,6 +213,16 @@ describe('PasswordResetService.resetPassword', () => {
     await expect(h.svc.resetPassword(first, 'NewPass123')).rejects.toBeInstanceOf(InvalidResetTokenError);
     await h.svc.resetPassword(second, 'NewPass123');
     expect(h.rows.every((r) => r.consumedAt !== null)).toBe(true);
+  });
+
+  it('refuses a link whose account was made inactive, suspended or deleted since: the same words as an expired one, and nothing changes', async () => {
+    const token = await h.requestToken();
+    h.stopAccount();
+    const err = await h.svc.resetPassword(token, 'NewPass123').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidResetTokenError);
+    expect((err as Error).message).toBe('This reset link is invalid or has expired. Request a new one.');
+    expect(h.updates).toEqual([]);
+    expect(h.revoked).toEqual([]);
   });
 
   it('rejects an expired token', async () => {

@@ -21,6 +21,7 @@ function makeService(configured = true) {
   const users: ResetUserRepo = {
     async findActiveByIdentifier(id) { return id === 'ada@x.com' ? { id: 'u1', email: 'ada@x.com' } : null; },
     async setPasswordAndUnlock(userId) { unlocked.push(userId); },
+    async isActive() { return true; },
   };
   const mailer: ResetMailer = { async sendPasswordReset(email, link) { emails.push({ email, link }); }, isConfigured: () => configured };
   return createPasswordResetService({

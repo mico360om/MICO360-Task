@@ -66,6 +66,11 @@ export interface UserRepository {
    * invalidates every outstanding password-reset link for the user.
    */
   setPassword(id: string, passwordHash: string): Promise<void>;
+  /**
+   * End the person's unused set-password links (welcome and password-reset): their email changed or
+   * the account stopped, so a link already sent must not set a password.
+   */
+  endPasswordLinks(id: string): Promise<void>;
   /** Remember when an administrator last sent the person a welcome email. */
   markWelcomeSent(id: string, at: Date): Promise<void>;
   /** Read the stored password hash for verification; null if the user is gone. */

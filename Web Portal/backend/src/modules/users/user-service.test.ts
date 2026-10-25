@@ -234,6 +234,36 @@ describe('UserService', () => {
   });
 });
 
+describe('UserService — set-password links stop working when the account changes hands or stops', () => {
+  it('a changed email ends every unused set-password link (welcome or reset): the old address can’t use one', async () => {
+    const { svc, mem } = make();
+    const u = await svc.createUser(person({ email: 'sara@typo.co' }));
+    await svc.updateUser(u.id, { email: 'sara@x.co' });
+    expect(mem.linksEnded(u.id)).toBe(1);
+  });
+
+  it('an edit that keeps the email (names, roles, the same address) leaves the links alone', async () => {
+    const { svc, mem } = make();
+    const u = await svc.createUser(person());
+    await svc.updateUser(u.id, { firstName: 'Ada B', roleNames: ['EMPLOYEE'] });
+    await svc.updateUser(u.id, { email: 'a@x' });
+    expect(mem.linksEnded(u.id)).toBe(0);
+  });
+
+  it('an account made inactive or suspended, or deleted, ends them; making it active again does not', async () => {
+    const { svc, mem } = make();
+    const a = await svc.createUser(person());
+    const b = await svc.createUser(person({ email: 'b@x', username: 'bo' }));
+    const c = await svc.createUser(person({ email: 'c@x', username: 'cy' }));
+    await svc.setUserStatus(a.id, 'SUSPENDED');
+    await svc.setUserStatus(b.id, 'INACTIVE');
+    await svc.deleteUser(c.id);
+    expect([mem.linksEnded(a.id), mem.linksEnded(b.id), mem.linksEnded(c.id)]).toEqual([1, 1, 1]);
+    await svc.setUserStatus(a.id, 'ACTIVE');
+    expect(mem.linksEnded(a.id)).toBe(1);
+  });
+});
+
 describe('UserService — never lose the last active administrator', () => {
   async function withAdmins(count: number) {
     const h = make();

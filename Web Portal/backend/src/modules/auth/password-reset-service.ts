@@ -15,6 +15,8 @@ export interface ResetUserRepo {
    * token version so every outstanding access token stops working.
    */
   setPasswordAndUnlock(userId: string, passwordHash: string): Promise<void>;
+  /** True while the account is ACTIVE and not deleted (a locked account is still active). */
+  isActive(userId: string): Promise<boolean>;
 }
 
 export interface ResetRecord {
@@ -121,6 +123,9 @@ export function createPasswordResetService(deps: PasswordResetServiceDeps) {
     const record = await deps.store.findActiveByHash(hashResetToken(token));
     if (!record) throw new InvalidResetTokenError();
     if (isExpired(record.expiresAt, now())) throw new InvalidResetTokenError();
+    // An account made inactive, suspended or deleted since the link went: the same answer as a dead
+    // link, so it reveals nothing. A locked account is still active, and setting a password unlocks it.
+    if (!(await deps.users.isActive(record.userId))) throw new InvalidResetTokenError();
     // Claim the token first: of two parallel resets with the same link, only one gets through.
     if (!(await deps.store.consume(record.id))) throw new InvalidResetTokenError();
 

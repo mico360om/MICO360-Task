@@ -106,6 +106,9 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
         prisma.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: now } }),
       ]);
     },
+    async endPasswordLinks(id) {
+      await prisma.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: new Date() } });
+    },
     async markWelcomeSent(id, at) {
       await prisma.user.updateMany({ where: { id }, data: { welcomeSentAt: at } });
     },

@@ -132,6 +132,9 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
       await users.releaseDeletedIdentity(email, username);
     }
     const updated = await users.update(id, next);
+    // A link already sent to the old address (a welcome or reset email) must not set this account's
+    // password: a mistyped address could belong to someone else.
+    if (patch.email !== undefined && patch.email.trim().toLowerCase() !== current.email.trim().toLowerCase()) await users.endPasswordLinks(id);
     // Roles are embedded in access tokens: a real change ends the user's current sessions.
     if (next.roleNames !== undefined && !sameRoles(current.roles, updated.roles)) await revokeAccess(id);
     return updated;
@@ -167,7 +170,11 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     const current = await getUser(id);
     if (status !== 'ACTIVE' && isActiveAdmin(current)) await ensureAnotherActiveAdmin(id);
     const updated = await users.setStatus(id, status);
-    if (status !== 'ACTIVE') await revokeAccess(id);
+    if (status !== 'ACTIVE') {
+      // A stopped account's welcome or reset link must not set a password (or work once it's reactivated).
+      await users.endPasswordLinks(id);
+      await revokeAccess(id);
+    }
     return updated;
   }
 
@@ -175,6 +182,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     const current = await getUser(id);
     if (isActiveAdmin(current)) await ensureAnotherActiveAdmin(id);
     await users.softDelete(id);
+    await users.endPasswordLinks(id);
     await revokeAccess(id);
     await onDeleted?.(id);
   }
