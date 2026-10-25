@@ -37,7 +37,7 @@ export type EditFn = (patch: Record<string, unknown>, shown?: Shown) => void;
 const fullName = (u: { firstName?: string | null; lastName?: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 const names = (list: MicoAiNamed[]) => (list.length ? list.map((p) => p.name).join(', ') : 'No one');
 const field =
-  'w-full min-w-0 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:min-h-11';
+  'w-full min-w-0 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:!min-h-[44px]';
 const labelText = 'mb-1 block text-xs font-semibold text-ink-2';
 
 /** The change's kind, as a small badge. */

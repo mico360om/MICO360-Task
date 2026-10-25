@@ -152,6 +152,16 @@ describe('MICO AI review card', () => {
     expect(confirmButton()).toHaveTextContent('Confirm (1)');
   });
 
+  it('the changes are a list for screen readers: each one a list item holding its labelled group', () => {
+    renderCard(card([create('c1'), update('c2')]));
+    const items = [...document.querySelector('[data-proposal-card] > ul')!.children] as HTMLElement[];
+    expect(items).toHaveLength(2);
+    // No role on the list item itself (a group there would stop the list being a list).
+    for (const li of items) expect([li.tagName, li.getAttribute('role')]).toEqual(['LI', null]);
+    expect(within(items[0]!).getByRole('group', { name: 'Create “Replace the gauge”' })).toBeInTheDocument();
+    expect(within(items[1]!).getByRole('group', { name: 'Change RIG-14' })).toBeInTheDocument();
+  });
+
   it('“Select all” ticks every change that can go ahead, and clears them; nothing ticked means nothing to confirm', async () => {
     renderCard(card([create('c1'), create('c2', { problem: 'Pick a project.' }), update('c3', { locked: true, problem: 'x' })]));
     const all = screen.getByRole('checkbox', { name: 'Select all' });
@@ -283,6 +293,21 @@ describe('MICO AI review card', () => {
     );
     expect(screen.getByRole('group', { name: /Create/ })).toHaveTextContent('Not undone: Sara Ahmed changed RIG-35 since, so it was left as it is.');
     expect(screen.getByText('0 put back, 1 left as it was')).toBeInTheDocument();
+  });
+
+  it('a new task Undo deleted no longer offers a link to it; a changed one still does', () => {
+    const link = { label: 'RIG-35', url: '?task=t35' };
+    renderCard(
+      card(
+        [
+          { ...create('c1'), result: { status: 'done', message: null, link }, undo: { status: 'undone', message: 'RIG-35 was deleted.' } },
+          { ...update('c2'), result: { status: 'done', message: null, link: { label: 'RIG-14', url: '?task=t14' } }, undo: { status: 'undone', message: 'RIG-14 is back as it was.' } },
+        ],
+        { status: 'undone' },
+      ),
+    );
+    expect(screen.queryByRole('link', { name: 'Open RIG-35' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open RIG-14' })).toBeInTheDocument();
   });
 
   it('Cancel closes the card without changing anything', async () => {

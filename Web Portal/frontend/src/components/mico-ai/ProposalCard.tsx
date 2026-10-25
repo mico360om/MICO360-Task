@@ -57,8 +57,11 @@ const CheckIcon = () => (
   </svg>
 );
 
-/** What happened to one change: done (with where to see it), refused or failed (with why), or skipped. */
-function ResultLine({ result }: { result: NonNullable<ProposalChange['result']> }) {
+/**
+ * What happened to one change: done (with where to see it), refused or failed (with why), or
+ * skipped. `gone`: Undo deleted what it made, so there is nothing left to open.
+ */
+function ResultLine({ result, gone = false }: { result: NonNullable<ProposalChange['result']>; gone?: boolean }) {
   const target = useSourceTarget();
   if (result.status === 'done') {
     return (
@@ -67,7 +70,7 @@ function ResultLine({ result }: { result: NonNullable<ProposalChange['result']> 
           <CheckIcon />
           Done
         </span>
-        {result.link ? (
+        {result.link && !gone ? (
           <Link to={target(result.link.url)} className="tap font-semibold text-brand underline-offset-2 hover:underline">
             {`Open ${result.link.label}`}
           </Link>
@@ -93,10 +96,10 @@ function UndoLine({ undo }: { undo: NonNullable<ProposalChange['undo']> }) {
 }
 
 const primary =
-  'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11';
+  'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:!min-h-[44px]';
 const secondary =
-  'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line bg-surface px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11';
-const quiet = 'inline-flex min-h-8 items-center rounded-lg px-2.5 text-xs font-semibold text-brand transition-colors hover:bg-brand/5 [@media(pointer:coarse)]:min-h-11';
+  'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line bg-surface px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:!min-h-[44px]';
+const quiet = 'inline-flex min-h-8 items-center rounded-lg px-2.5 text-xs font-semibold text-brand transition-colors hover:bg-brand/5 [@media(pointer:coarse)]:!min-h-[44px]';
 
 /**
  * MICO AI's review card: every change it proposes, each with a tick box (unticked when something
@@ -201,7 +204,7 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
           {cardHeading(proposal.items)}
         </h3>
         {proposed && eligible.length > 1 ? (
-          <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-xs font-semibold text-ink-2 [@media(pointer:coarse)]:min-h-11">
+          <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-xs font-semibold text-ink-2 [@media(pointer:coarse)]:!min-h-[44px]">
             <input
               ref={allRef}
               type="checkbox"
@@ -229,8 +232,9 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
           const label = changeLabel(item);
           const editing = proposed && open.has(item.id) && !item.locked;
           return (
-            <li key={item.id} role="group" aria-label={label} className={`px-3.5 py-3 sm:px-4 ${proposed && !item.locked && !ticks[item.id] ? 'bg-ground/30' : ''}`}>
-              <div className="flex items-start gap-3">
+            <li key={item.id} className={`px-3.5 py-3 sm:px-4 ${proposed && !item.locked && !ticks[item.id] ? 'bg-ground/30' : ''}`}>
+              {/* The group is inside the list item, so the list stays a list for screen readers. */}
+              <div role="group" aria-label={label} className="flex items-start gap-3">
                 {proposed ? (
                   item.locked ? (
                     <span aria-hidden="true" className="mt-0.5 h-4 w-4 flex-none rounded border border-line bg-ground" />
@@ -265,7 +269,7 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
                       <RowEditor item={item} onEdit={edit(proposal.items.find((x) => x.id === item.id)!)} />
                     </div>
                   ) : null}
-                  {!proposed && item.result ? <ResultLine result={item.result} /> : null}
+                  {!proposed && item.result ? <ResultLine result={item.result} gone={item.type === 'create_task' && item.undo?.status === 'undone'} /> : null}
                   {item.undo ? <UndoLine undo={item.undo} /> : null}
                 </div>
               </div>
@@ -278,7 +282,7 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
         {proposed ? (
           <>
             {proposal.hasMeetings ? (
-              <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-sm text-ink [@media(pointer:coarse)]:min-h-11">
+              <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-sm text-ink [@media(pointer:coarse)]:!min-h-[44px]">
                 <input type="checkbox" className="h-4 w-4 accent-brand" checked={invite} onChange={(e) => setInvite(e.target.checked)} disabled={!!busy} />
                 Email the invitations
               </label>
