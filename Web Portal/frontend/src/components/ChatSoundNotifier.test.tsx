@@ -106,6 +106,28 @@ describe('ChatSoundNotifier confirms delivery', () => {
   });
 });
 
+describe('ChatSoundNotifier keeps the unread counts current', () => {
+  it('refreshes them when you read a conversation somewhere else (another tab, the phone app)', () => {
+    const { refreshed } = mount();
+    act(() => handlers['chat:read']?.({ conversationId: 'c1', userId: 'me', at: '2026-10-25T05:00:00.000Z' }));
+    expect(refreshed(['chat', 'conversations'])).toBe(true);
+  });
+
+  it('does not refresh when someone else reads a channel you are in', () => {
+    const { invalidate } = mount();
+    act(() => handlers['chat:read']?.({ conversationId: 'c1', userId: 'u2', at: '2026-10-25T05:00:00.000Z' }));
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('refreshes them after the live connection comes back (messages may have arrived meanwhile)', () => {
+    const { refreshed } = mount();
+    act(() => handlers['connect']?.()); // first connection
+    expect(refreshed(['chat', 'conversations'])).toBe(false);
+    act(() => handlers['connect']?.()); // back after a drop
+    expect(refreshed(['chat', 'conversations'])).toBe(true);
+  });
+});
+
 describe('ChatSoundNotifier keeps the bell current', () => {
   it('refreshes the notification count soon after a message from someone else arrives (not on the next 30 s poll)', async () => {
     const { refreshed } = mount();

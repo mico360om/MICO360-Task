@@ -20,8 +20,9 @@ const BELL_REFRESH_DELAY_MS = 1200;
  * bell's 30-second poll. Mounted once in the app shell.
  *
  * It keeps the conversation list loaded on every page too: that is where your per-conversation
- * mute lives, and how this app tells the server a direct message has reached it (its sender then
- * sees "Delivered" instead of "Sent").
+ * mute lives, how this app tells the server a direct message has reached it (its sender then
+ * sees "Delivered" instead of "Sent"), and what the Chat menu's unread badge counts — so it is
+ * refreshed when a message arrives, when you read somewhere else, and after a reconnect.
  */
 export function ChatSoundNotifier() {
   const myId = useAuthStore((s) => s.user?.id);
@@ -57,13 +58,20 @@ export function ChatSoundNotifier() {
     };
   }, []);
 
+  const refreshInbox = () => void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
   useChatRealtime(projectIds, (event: string, payload: ChatEventPayload) => {
+    // You read a conversation in another tab or on your phone: its unread count (and the Chat
+    // menu's badge) goes down here too. Others reading a channel you share changes nothing for you.
+    if (event === 'chat:read') {
+      if ((payload as { userId?: string }).userId === myId) refreshInbox();
+      return;
+    }
     if (event !== 'chat:message') return;
     const message = (payload as { message?: { id?: string; userId?: string } }).message;
     const authorId = message?.userId;
     if (!authorId || authorId === myId) return; // nothing to announce for your own messages
     // Unread counts, a conversation that is new to this person, and the delivery report above.
-    void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+    refreshInbox();
     // A direct message or a mention has just created a notification: show it now (once per burst).
     if (!bellTimer.current) {
       bellTimer.current = setTimeout(() => {
@@ -85,7 +93,7 @@ export function ChatSoundNotifier() {
     });
     // One chime per message: a repeated event, or the same message in another tab, stays quiet.
     if (chime && claimChime(message?.id ?? `${payload.conversationId}:${Date.now()}`)) playChime();
-  });
+  }, refreshInbox); // after a dropped connection: messages may have arrived meanwhile
 
   return null;
 }

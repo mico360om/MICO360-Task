@@ -3,10 +3,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import { Sidebar } from './Sidebar';
 
-function renderSidebar(isAdmin: boolean, path = '/') {
+function renderSidebar(isAdmin: boolean, path = '/', chatUnread = 0) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Sidebar isAdmin={isAdmin} />
+      <Sidebar isAdmin={isAdmin} chatUnread={chatUnread} />
     </MemoryRouter>,
   );
 }
@@ -88,6 +88,42 @@ describe('Sidebar on a short screen', () => {
     Element.prototype.scrollIntoView = spy;
     renderSidebar(true, '/admin/audit');
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  describe('the unread badge on Chat', () => {
+    it('shows the number of unread messages on the Chat icon, and says it to screen readers', () => {
+      renderSidebar(false, '/dashboard', 3);
+      const chat = screen.getByRole('link', { name: 'Chat, 3 unread messages' });
+      expect(chat).toHaveAttribute('href', '/chat');
+      const badge = chat.querySelector('[data-chat-badge]');
+      expect(badge).toHaveTextContent('3');
+      // The icon and its badge sit together; the number itself is not read twice.
+      expect(badge).toHaveAttribute('aria-hidden', 'true');
+      expect(badge!.parentElement!.querySelector('svg')).not.toBeNull();
+    });
+
+    it('shows 99+ above 99', () => {
+      renderSidebar(false, '/dashboard', 150);
+      expect(screen.getByRole('link', { name: 'Chat, 150 unread messages' }).querySelector('[data-chat-badge]')).toHaveTextContent('99+');
+    });
+
+    it('is hidden when nothing is unread', () => {
+      renderSidebar(false, '/dashboard', 0);
+      const chat = screen.getByRole('link', { name: 'Chat' });
+      expect(chat.querySelector('[data-chat-badge]')).toBeNull();
+    });
+
+    it('stays readable on the highlighted Chat link while you are on the Chat page', () => {
+      renderSidebar(false, '/chat', 2);
+      const chat = screen.getByRole('link', { name: 'Chat, 2 unread messages' });
+      expect(chat).toHaveAttribute('aria-current', 'page');
+      expect(chat.querySelector('[data-chat-badge]')).toHaveClass('bg-white');
+    });
+
+    it('is only on Chat', () => {
+      renderSidebar(true, '/dashboard', 4);
+      expect(document.querySelectorAll('[data-chat-badge]')).toHaveLength(1);
+    });
   });
 
   it('marks the list as the scrolling part of the rail', () => {

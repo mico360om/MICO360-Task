@@ -70,6 +70,43 @@ describe('AppShell', () => {
     vi.unstubAllGlobals();
   });
 
+  describe('unread chat messages', () => {
+    const answer = (url: string) => {
+      const data = String(url).endsWith('/conversations')
+        ? [
+            { conversation: { id: 'c1', kind: 'DIRECT', projectId: null, createdAt: '' }, participants: [], unread: 2, lastMessage: null, prefs: { favorite: false, archived: false, muted: false } },
+            { conversation: { id: 'c2', kind: 'PROJECT', projectId: 'p1', createdAt: '' }, participants: [], unread: 3, lastMessage: null, prefs: { favorite: false, archived: false, muted: false } },
+            { conversation: { id: 'c3', kind: 'PROJECT', projectId: 'p2', createdAt: '' }, participants: [], unread: 9, lastMessage: null, prefs: { favorite: false, archived: false, muted: true } },
+          ]
+        : String(url).includes('/notifications') ? { count: 0 } : [];
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+
+    it('shows the total on the sidebar’s Chat link (muted conversations left out)', async () => {
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => answer(url)));
+      renderShell();
+      const chat = await screen.findByRole('link', { name: 'Chat, 5 unread messages' });
+      expect(chat.querySelector('[data-chat-badge]')).toHaveTextContent('5');
+    });
+
+    it('marks the phone’s menu button, which hides the sidebar, and shows the count inside the menu', async () => {
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => answer(url)));
+      renderShell();
+      const opener = await screen.findByRole('button', { name: 'Open menu, 5 unread chat messages' });
+      expect(opener.querySelector('[data-chat-dot]')).not.toBeNull();
+      await userEvent.click(opener);
+      const menu = screen.getByRole('dialog', { name: 'Menu' });
+      expect(menu.querySelector('a[href="/chat"]')).toHaveAccessibleName('Chat, 5 unread messages');
+    });
+
+    it('shows nothing when every message is read', async () => {
+      renderShell();
+      expect(await screen.findByRole('button', { name: 'Open menu' })).toBeInTheDocument();
+      expect(document.querySelector('[data-chat-badge]')).toBeNull();
+      expect(document.querySelector('[data-chat-dot]')).toBeNull();
+    });
+  });
+
   describe('phone menu', () => {
     it('opens as a dialog with focus inside it, and closes with Escape', async () => {
       renderShell();

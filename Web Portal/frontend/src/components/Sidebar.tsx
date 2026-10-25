@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { chatBadgeText, chatNavLabel } from '../lib/chat-badge';
 import logo from '../assets/logo.png';
 import logoW from '../assets/logo-w.png';
 import { RUNNING_BUILD } from '../lib/release';
@@ -142,6 +143,8 @@ const ADMIN: NavItem[] = [
 
 export interface SidebarProps {
   isAdmin: boolean;
+  /** Unread chat messages, shown on the Chat icon (none at 0). */
+  chatUnread?: number;
 }
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -174,35 +177,70 @@ function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-ink-3">{children}</div>;
 }
 
-function NavGroup({ label, items, onNavigate }: { label: string; items: NavItem[]; onNavigate?: () => void }) {
+/**
+ * The unread count on the Chat icon: a small pill over its top corner, in the notification bell's
+ * style — brand red on a plain row, white on the highlighted one, so it reads on both. The number is
+ * said through the link's name.
+ */
+function ChatBadge({ count, active }: { count: number; active: boolean }) {
+  const text = chatBadgeText(count);
+  if (!text) return null;
+  return (
+    <span
+      data-chat-badge
+      aria-hidden="true"
+      className={`pointer-events-none absolute -end-3 -top-2.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums ring-2 ${
+        active ? 'bg-white text-brand ring-brand' : 'bg-brand text-white ring-surface'
+      }`}
+    >
+      {text}
+    </span>
+  );
+}
+
+function NavGroup({ label, items, onNavigate, chatUnread = 0 }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number }) {
   return (
     <>
       <SectionLabel>{label}</SectionLabel>
       <div className="flex flex-col gap-0.5">
-        {items.map((item) => (
-          <NavLink key={item.to} to={item.to} className={linkClass} onClick={onNavigate}>
-            <NavIcon>{item.icon}</NavIcon>
-            <span className="truncate">{item.label}</span>
-          </NavLink>
-        ))}
+        {items.map((item) =>
+          item.to === '/chat' ? (
+            <NavLink key={item.to} to={item.to} className={linkClass} onClick={onNavigate} aria-label={chatNavLabel(chatUnread)}>
+              {({ isActive }) => (
+                <>
+                  <span className="relative flex shrink-0">
+                    <NavIcon>{item.icon}</NavIcon>
+                    <ChatBadge count={chatUnread} active={isActive} />
+                  </span>
+                  <span className="truncate">{item.label}</span>
+                </>
+              )}
+            </NavLink>
+          ) : (
+            <NavLink key={item.to} to={item.to} className={linkClass} onClick={onNavigate}>
+              <NavIcon>{item.icon}</NavIcon>
+              <span className="truncate">{item.label}</span>
+            </NavLink>
+          ),
+        )}
       </div>
     </>
   );
 }
 
-export function Sidebar({ isAdmin }: SidebarProps) {
+export function Sidebar({ isAdmin, chatUnread = 0 }: SidebarProps) {
   return (
     <nav
       aria-label="Main"
       className="sticky top-0 hidden h-screen w-60 flex-none flex-col border-r border-line bg-surface/95 md:flex supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} />
+      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} />
     </nav>
   );
 }
 
 /** The sidebar's inner content — reused by the desktop rail and the mobile drawer. */
-export function SidebarBody({ isAdmin, onNavigate }: SidebarProps & { onNavigate?: () => void }) {
+export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0 }: SidebarProps & { onNavigate?: () => void }) {
   const { pathname } = useLocation();
   const list = useRef<HTMLDivElement>(null);
   // On a short window the list scrolls: never leave the link of the current page below the fold.
@@ -230,7 +268,7 @@ export function SidebarBody({ isAdmin, onNavigate }: SidebarProps & { onNavigate
 
       <div ref={list} className="scroll-shadows flex-1 overflow-y-auto px-3 py-3">
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => isAdmin || !i.adminOnly)} onNavigate={onNavigate} />
-        <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} />
+        <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} />
         {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} /> : null}
       </div>
 

@@ -17,13 +17,15 @@ import { useAuthStore } from '../stores/auth-store';
 import { useDialog } from '../hooks/useDialog';
 import { ShortcutProvider } from './shortcuts/ShortcutProvider';
 import { AppFooter } from './AppFooter';
+import { useChatBadge } from '../lib/useChatBadge';
+import { menuButtonLabel } from '../lib/chat-badge';
 
 /**
  * The phone's navigation menu: a dialog over the page. Focus moves into it and stays there, Escape
  * and the Close button dismiss it, and focus then returns to the menu button. (It used to be a
  * plain panel: Escape did nothing and Tab went to the page hidden behind it.)
  */
-function MobileMenu({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
+function MobileMenu({ isAdmin, chatUnread, onClose }: { isAdmin: boolean; chatUnread: number; onClose: () => void }) {
   const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
   return (
     <div className="fixed inset-0 z-50 md:hidden">
@@ -47,7 +49,7 @@ function MobileMenu({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => voi
           </svg>
         </button>
         <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-          <SidebarBody isAdmin={isAdmin} onNavigate={onClose} />
+          <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} onNavigate={onClose} />
         </nav>
       </div>
     </div>
@@ -60,6 +62,8 @@ export function AppShell() {
   const location = useLocation();
   const qc = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Unread chat messages, live: on the sidebar's Chat icon and, on a phone, the menu button.
+  const chatUnread = useChatBadge();
   // Global task drawer: any page/command can open a task by putting ?task=<id> in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const openTaskId = searchParams.get('task');
@@ -108,22 +112,24 @@ export function AppShell() {
         Skip to content
       </a>
 
-      <Sidebar isAdmin={isAdmin()} />
+      <Sidebar isAdmin={isAdmin()} chatUnread={chatUnread} />
 
       {/* Mobile drawer */}
-      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} onClose={() => setDrawerOpen(false)} /> : null}
+      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} chatUnread={chatUnread} onClose={() => setDrawerOpen(false)} /> : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="keyboard-unstick glass sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 sm:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <button
               onClick={() => setDrawerOpen(true)}
-              className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-line text-ink transition-colors hover:bg-ground md:hidden"
-              aria-label="Open menu"
+              className="relative grid h-9 w-9 flex-none place-items-center rounded-lg border border-line text-ink transition-colors hover:bg-ground md:hidden"
+              aria-label={menuButtonLabel(chatUnread)}
             >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <path d="M4 7h16M4 12h16M4 17h16" />
               </svg>
+              {/* The sidebar, and Chat's count, are folded away behind this button on a phone. */}
+              {chatUnread > 0 ? <span data-chat-dot aria-hidden="true" className="absolute -end-1 -top-1 h-2.5 w-2.5 rounded-full bg-brand ring-2 ring-surface" /> : null}
             </button>
             <span className="hidden sm:block md:hidden lg:block">
               <SystemClock />

@@ -10,13 +10,21 @@ const CLAIM_PREFIX = 'mico360.chat.chimed.';
 const CLAIM_TTL_MS = 2 * 60_000;
 
 let viewing: string | null = null;
+const watchers = new Set<() => void>();
 
 /** The chat page says which conversation it has open (null when none). */
 export function setViewingConversation(conversationId: string | null): void {
+  if (viewing === conversationId) return;
   viewing = conversationId;
+  for (const w of watchers) w();
 }
 export function viewingConversation(): string | null {
   return viewing;
+}
+/** Be told when the open conversation changes (the Chat menu's unread badge leaves it out). */
+export function subscribeViewing(onChange: () => void): () => void {
+  watchers.add(onChange);
+  return () => watchers.delete(onChange);
 }
 
 export function shouldChime(e: {

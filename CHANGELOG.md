@@ -14,6 +14,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Chat in the menu shows how many chat messages you haven't read, on its icon (99+ above 99), and
+  screen readers hear "Chat, 3 unread messages". It goes up as messages arrive and down as soon as
+  you read them — here, in another tab or on your phone — without reloading, and it's hidden when
+  everything is read. Like the Android app's Chat tab, it leaves out muted and archived
+  conversations and the one open in front of you. On a phone, the menu button gets a dot.
+
 ## [1.13.0] - 2026-10-25
 
 ### New features
