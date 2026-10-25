@@ -151,6 +151,15 @@ describe('CreateUserModal — "Send a welcome email"', () => {
     expect(screen.getByLabelText(/temp password/i)).toBeRequired();
   });
 
+  it('when email isn’t set up and no password is given, the advice doesn’t point at the option it can’t use', async () => {
+    config = { timeZone: 'Asia/Muscat', emailEnabled: false };
+    renderModal();
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Send a welcome email' })).toBeDisabled());
+    await fill('');
+    expect(screen.getByRole('alert')).toHaveTextContent(/^Email isn’t set up on this server, so a welcome email can’t be sent\. Give them a temporary password\.$/);
+    expect(posted).toBeNull();
+  });
+
   it('tells the page whether the welcome email went', async () => {
     answer = () => json({ data: { id: 'u9', username: 'sara' }, meta: { welcome: { userId: 'u9', username: 'sara', email: 'sara@x.test', sent: true } } }, 201);
     const onCreated = vi.fn();
@@ -160,12 +169,18 @@ describe('CreateUserModal — "Send a welcome email"', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ user: { id: 'u9', username: 'sara' }, welcome: { userId: 'u9', username: 'sara', email: 'sara@x.test', sent: true } }));
   });
 
-  it('says plainly when the server can’t send it because email isn’t set up', async () => {
-    answer = () => json({ error: { code: 'EMAIL_NOT_CONFIGURED', message: 'Email isn’t set up on this server yet, so no welcome email can be sent. An administrator needs to add the email (Mailjet) keys.' } }, 503);
+  it('says plainly when the server can’t send it because email isn’t set up, and the option then shows as unavailable', async () => {
+    answer = () => {
+      config = { timeZone: 'Asia/Muscat', emailEnabled: false }; // what the server says when the page asks again
+      return json({ error: { code: 'EMAIL_NOT_CONFIGURED', message: 'Email isn’t set up on this server yet, so no welcome email can be sent. An administrator needs to add the email (Mailjet) keys.' } }, 503);
+    };
     const onClose = renderModal();
     await screen.findByRole('checkbox', { name: 'Send a welcome email' });
     await fill('');
-    expect(await screen.findByRole('alert')).toHaveTextContent('Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Turn off “Send a welcome email” and give them a temporary password.');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /^Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created\. Give them a temporary password\.$/,
+    );
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Send a welcome email' })).toBeDisabled());
     expect(onClose).not.toHaveBeenCalled();
   });
 });

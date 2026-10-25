@@ -23,7 +23,7 @@ function createFailure(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === 'WEAK_PASSWORD') return PASSWORD_RULE_ERROR;
     if (e.code === 'EMAIL_NOT_CONFIGURED') {
-      return 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Turn off “Send a welcome email” and give them a temporary password.';
+      return 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Give them a temporary password.';
     }
     if (e.code === 'DUPLICATE_USER' || e.status === 409) return 'That email or username is already in use. Choose a different one.';
     const fields = (e.details as { fieldErrors?: Record<string, string[] | undefined> } | undefined)?.fieldErrors ?? {};
@@ -65,7 +65,11 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
       onCreated?.(result);
       onClose();
     },
-    onError: (e) => setError(createFailure(e)),
+    onError: (e) => {
+      setError(createFailure(e));
+      // The page thought email was set up: ask again, so the option shows as unavailable.
+      if (e instanceof ApiError && e.code === 'EMAIL_NOT_CONFIGURED') void qc.invalidateQueries({ queryKey: ['app-config'] });
+    },
   });
 
   function submit(e: FormEvent) {
@@ -78,7 +82,12 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
     }
     // With a welcome email they set their own password; without one, a temporary password is needed.
     if (!password && !sendWelcome) {
-      setError('Enter a temporary password, or turn on “Send a welcome email” so they can set their own.');
+      // Only point at the option when it can be turned on.
+      setError(
+        emailEnabled
+          ? 'Enter a temporary password, or turn on “Send a welcome email” so they can set their own.'
+          : 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password.',
+      );
       passwordRef.current?.focus();
       return;
     }
