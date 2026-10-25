@@ -1,6 +1,6 @@
 import type { ProjectManagerLookup } from './project-authz';
 
-/** Read-side project access: who may *see* a project's data (owner / manager / creator / member). */
+/** Read-side project access: who may *see* a project's data (owner / named manager / team member). */
 export interface ProjectAccessRepo {
   isAccessibleTo(projectId: string, userId: string): Promise<boolean>;
   listForUser(userId: string): Promise<{ id: string }[]>;
@@ -14,7 +14,8 @@ export interface TaskAssigneeLookup {
 /**
  * Object-level view authorization (T2.7 companion to ProjectAuthz's manage checks). Admins see
  * everything; otherwise a user may see a project — and every task/column/comment under it — only
- * when they own, manage, created, or belong to that project. Task access follows the task's
+ * when they own, manage or are on the team of that project (having created it is not enough: the
+ * creator is on its team, and leaving it means leaving the project). Task access follows the task's
  * project: being assigned is not a way in (assignees must be project members, and someone who
  * leaves the project loses its tasks). Deleted projects and tasks resolve to nothing.
  */

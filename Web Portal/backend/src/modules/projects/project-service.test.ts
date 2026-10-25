@@ -8,7 +8,7 @@ function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember
   const members = new Map<string, Set<string>>();
   let seq = 0;
   const canAccess = (p: ProjectRecord, userId: string) =>
-    p.ownerId === userId || p.managerId === userId || p.createdById === userId || (members.get(p.id)?.has(userId) ?? false);
+    p.ownerId === userId || p.managerId === userId || (members.get(p.id)?.has(userId) ?? false);
   return {
     all: () => [...rows.values()],
     addMember: (projectId, userId) => {

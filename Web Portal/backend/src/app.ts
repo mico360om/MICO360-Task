@@ -71,6 +71,7 @@ import type { ColumnService } from './modules/projects/column-service';
 import { registerMemberRoutes } from './modules/projects/member-routes';
 import type { MemberService } from './modules/projects/member-service';
 import { createProjectAuthz, type ProjectAuthz } from './modules/projects/project-authz';
+import type { ProjectNotices } from './modules/projects/project-notices';
 import type { ProjectAccess } from './modules/projects/project-access';
 import { registerActivityRoutes } from './modules/activity/activity-routes';
 import type { ActivityService } from './modules/activity/activity-service';
@@ -129,6 +130,8 @@ export interface AppDeps extends AuthRouteDeps {
   columnService?: ColumnService;
   memberService?: MemberService;
   projectAuthz?: ProjectAuthz;
+  /** Tells people they've been put on a project (on creation and on the Team tab). */
+  projectNotices?: ProjectNotices;
   /** Object-level view authorization (T2.7). When present, task/column/member/comment reads are gated to accessible projects. */
   projectAccess?: ProjectAccess;
   taskService?: TaskService;
@@ -460,6 +463,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           storage: deps.chatAttachmentStorage,
           imageMaxBytes: deps.attachmentMaxSizeBytes,
           authz: projectAuthz,
+          notices: deps.projectNotices,
         });
       }
       if (deps.projectService && (deps.timelineSource || deps.workloadStore)) {
@@ -492,7 +496,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.memberService) {
-        await registerMemberRoutes(api, { memberService: deps.memberService, authz: projectAuthz, guard, audit: deps.auditService, canViewProject });
+        await registerMemberRoutes(api, { memberService: deps.memberService, authz: projectAuthz, guard, audit: deps.auditService, canViewProject, notices: deps.projectNotices });
       }
       if (deps.taskService) {
         await registerTaskRoutes(api, {

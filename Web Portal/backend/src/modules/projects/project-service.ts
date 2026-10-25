@@ -18,6 +18,11 @@ export interface ProjectActor {
   roles: string[];
 }
 
+/** How many people an employee may put on a new project's team at once (more: the Team tab). */
+export const NEW_TEAM_LIMIT = 100;
+
+const MANAGER_IS_ADMINS = 'Only an administrator can name a project’s manager.';
+
 /** A new project as asked for: the project, and the people picked for its team. */
 export type NewProjectRequest = Omit<CreateProjectData, 'members'> & { memberIds?: string[] };
 
@@ -60,10 +65,19 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
    * Returns the project and the team it was given.
    */
   async function createProject(input: NewProjectRequest, actor?: ProjectActor): Promise<ProjectRecord & { team: NewProjectMember[] }> {
-    const { memberIds = [], ...data } = input;
+    const { memberIds: picked = [], ...data } = input;
+    const memberIds = [...new Set(picked)];
+    const byAdmin = actor ? isAdmin(actor.roles) : true;
+    if (!byAdmin) {
+      // Naming a project's manager is an administrator's; an employee naming nobody or themselves is ignored.
+      if (data.managerId && data.managerId !== data.createdById) throw new ValidationError(MANAGER_IS_ADMINS, { field: 'managerId' });
+      delete data.managerId;
+      if (memberIds.length > NEW_TEAM_LIMIT) {
+        throw new ValidationError(`A new project’s team can have at most ${NEW_TEAM_LIMIT} people to begin with. Add the others on its Team tab afterwards.`, { field: 'memberIds' });
+      }
+    }
     const code = normalizeCode(data.code);
     if (await codeInUse(code)) throw new ConflictError(`The code ${code} is already used by another project (or a deleted one).`, 'DUPLICATE_PROJECT_CODE');
-    const byAdmin = actor ? isAdmin(actor.roles) : true;
     // An employee's project always has an owner: them, unless they pick someone else.
     const ownerId = !byAdmin && !data.ownerId ? data.createdById : data.ownerId;
     // The creator is signed in; everyone else they name must be an active user.
@@ -126,23 +140,25 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
   /**
    * Someone who may change the project edits it. A new owner or manager must be an active user (one
    * left as it was is not checked again, so a project whose owner has left can still be edited).
-   * An employee who runs it as its owner or named manager and hands that over keeps running it: they
-   * stay on (or join) its team as a MANAGER in the same write — so an edit never leaves a project
-   * that only an administrator can run. To step away they leave the team.
+   * Naming the manager is an administrator's: from anyone else an unchanged value is ignored and a
+   * change refused. Whoever held the owner or manager place before a change stays on (or joins) its
+   * team as a MANAGER in the same write, whoever makes it — nobody silently loses a project they
+   * ran, and an edit never leaves one that only an administrator can run. To step away, they leave
+   * the team.
    */
-  async function editProject(id: string, patch: UpdateProjectData, actor: ProjectActor): Promise<{ project: ProjectRecord; keptAsManager: string | null }> {
+  async function editProject(id: string, input: UpdateProjectData, actor: ProjectActor): Promise<{ project: ProjectRecord; keptAsManagers: string[] }> {
     const before = await getProject(id);
+    const patch = { ...input };
+    if (patch.managerId !== undefined && !isAdmin(actor.roles)) {
+      if (patch.managerId !== before.managerId) throw new ValidationError(MANAGER_IS_ADMINS, { field: 'managerId' });
+      delete patch.managerId;
+    }
     const ownerChanged = patch.ownerId !== undefined && patch.ownerId !== before.ownerId;
     const managerChanged = patch.managerId !== undefined && patch.managerId !== before.managerId;
     await requireActive({ ownerId: ownerChanged ? patch.ownerId : null, managerId: managerChanged ? patch.managerId : null });
-    let keep: string | null = null;
-    if (!isAdmin(actor.roles) && (before.ownerId === actor.id || before.managerId === actor.id)) {
-      const owner = patch.ownerId !== undefined ? patch.ownerId : before.ownerId;
-      const manager = patch.managerId !== undefined ? patch.managerId : before.managerId;
-      if (owner !== actor.id && manager !== actor.id) keep = actor.id;
-    }
-    const project = await projects.update(id, patch, keep ? { keepManager: keep } : undefined);
-    return { project, keptAsManager: keep };
+    const keep = [...new Set([ownerChanged ? before.ownerId : null, managerChanged ? before.managerId : null].filter((x): x is string => !!x))];
+    const project = await projects.update(id, patch, keep.length ? { keepManagers: keep } : undefined);
+    return { project, keptAsManagers: keep };
   }
 
   async function archiveProject(id: string): Promise<ProjectRecord> {

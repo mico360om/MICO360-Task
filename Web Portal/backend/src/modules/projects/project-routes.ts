@@ -4,6 +4,7 @@ import type { ProjectService } from './project-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { ProjectAuthz } from './project-authz';
 import type { ProjectRecord } from './project-repository';
+import type { ProjectNotices } from './project-notices';
 import type { AuditService } from '../audit/audit-service';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
@@ -37,7 +38,8 @@ const createSchema = z.object({
   name: requiredText,
   description: longText.optional(),
   clientName: shortText.optional(),
-  managerId: idString.optional(),
+  // The named manager: an administrator's to set or clear (null); others may only leave it as it is.
+  managerId: idString.nullable().optional(),
   ownerId: idString.nullable().optional(),
   status: statusEnum.optional(),
   priority: priorityEnum.optional(),
@@ -75,6 +77,8 @@ export interface ProjectRouteDeps {
    * only administrators may.
    */
   authz?: ProjectAuthz;
+  /** Tells the owner and the team of a new project that they're on it. */
+  notices?: ProjectNotices;
 }
 
 export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectRouteDeps): Promise<void> {
@@ -154,6 +158,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const body = createSchema.parse(req.body);
     const { team, ...created } = await projectService.createProject({ ...body, createdById: user.id }, user);
     await logAudit(req, 'project.create', created.id, { code: created.code, name: created.name, createdById: user.id, ownerId: created.ownerId, team });
+    await deps.notices?.projectCreated({ actorId: user.id, project: created, userIds: team.map((m) => m.userId) });
     return reply.status(201).send({ data: await withCanManage(user, created) });
   });
 
@@ -163,8 +168,8 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const user = viewer(req);
     await projectToChange(req, id);
     const body = updateSchema.parse(req.body);
-    const { project, keptAsManager } = await projectService.editProject(id, body, user);
-    await logAudit(req, 'project.update', id, keptAsManager ? { ...body, keptAsManager } : body);
+    const { project, keptAsManagers } = await projectService.editProject(id, body, user);
+    await logAudit(req, 'project.update', id, keptAsManagers.length ? { ...body, keptAsManagers } : body);
     return { data: await withCanManage(user, project) };
   });
 

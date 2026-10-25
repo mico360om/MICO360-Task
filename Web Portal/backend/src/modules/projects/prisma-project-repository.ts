@@ -81,11 +81,13 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
       const ps = await prisma.project.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } });
       return ps.map(toRecord);
     },
+    // Who sees a project: its owner, its named manager and its team. Having created it is not a way
+    // in (the creator is on its team from the start, so leaving the team means leaving the project).
     async listForUser(userId) {
       const ps = await prisma.project.findMany({
         where: {
           deletedAt: null,
-          OR: [{ ownerId: userId }, { managerId: userId }, { createdById: userId }, { members: { some: { userId } } }],
+          OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }],
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -96,24 +98,27 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
         where: {
           id: projectId,
           deletedAt: null,
-          OR: [{ ownerId: userId }, { managerId: userId }, { createdById: userId }, { members: { some: { userId } } }],
+          OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }],
         },
         select: { id: true },
       });
       return p !== null;
     },
     async update(id, patch: UpdateProjectData, opts) {
-      const keep = opts?.keepManager;
-      if (!keep) return toRecord(await prisma.project.update({ where: { id }, data: patch }));
-      const [p] = await prisma.$transaction([
-        prisma.project.update({ where: { id }, data: patch }),
-        prisma.projectMember.upsert({
-          where: { projectId_userId: { projectId: id, userId: keep } },
-          update: { role: 'MANAGER' },
-          create: { projectId: id, userId: keep, role: 'MANAGER' },
-        }),
-      ]);
-      return toRecord(p);
+      const keep = [...new Set(opts?.keepManagers ?? [])];
+      if (keep.length === 0) return toRecord(await prisma.project.update({ where: { id }, data: patch }));
+      return prisma.$transaction(async (tx) => {
+        const p = await tx.project.update({ where: { id }, data: patch });
+        const people = await tx.user.findMany({ where: { id: { in: keep }, deletedAt: null }, select: { id: true } });
+        for (const { id: userId } of people) {
+          await tx.projectMember.upsert({
+            where: { projectId_userId: { projectId: id, userId } },
+            update: { role: 'MANAGER' },
+            create: { projectId: id, userId, role: 'MANAGER' },
+          });
+        }
+        return toRecord(p);
+      });
     },
     async softDelete(id) {
       await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });

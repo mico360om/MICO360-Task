@@ -35,12 +35,23 @@ describe('Prisma chat repositories', () => {
 describe('Prisma chat member lookup — project visibility (CHAT-03)', () => {
   const project = { id: 'p1', ownerId: 'owner', managerId: 'manager', createdById: 'creator' };
 
-  it('opens the channel to the owner, manager and creator without a member row', async () => {
+  it('opens the channel to the owner and manager without a member row', async () => {
     const { prisma, calls } = recorder({ 'project.findFirst': project });
     const lookup = createPrismaChatMemberLookup(prisma);
-    for (const u of ['owner', 'manager', 'creator']) expect(await lookup.canAccessProject('p1', u)).toBe(true);
+    for (const u of ['owner', 'manager']) expect(await lookup.canAccessProject('p1', u)).toBe(true);
     expect(calls.every((c) => c.op === 'project.findFirst')).toBe(true);
     expect(calls[0]!.args.where).toEqual({ id: 'p1', deletedAt: null });
+  });
+
+  it('does not open it to the project’s creator as such (off the team, they are out)', async () => {
+    const { prisma } = recorder({ 'project.findFirst': project });
+    const lookup = createPrismaChatMemberLookup(prisma);
+    expect(await lookup.canAccessProject('p1', 'creator')).toBe(false);
+    const listed = recorder({ 'project.findFirst': { ...project, members: [] }, 'user.findMany': (a: Record<string, unknown>) => ((a.where as { id: { in: string[] } }).id.in).map((id) => ({ id })) });
+    expect(await createPrismaChatMemberLookup(listed.prisma).projectMemberIds!('p1')).toEqual(['owner', 'manager']);
+    const scoped = recorder({ 'project.findMany': [] });
+    await createPrismaChatMemberLookup(scoped.prisma).accessibleProjectIds('creator');
+    expect(JSON.stringify(scoped.calls.find((c) => c.op === 'project.findMany')!.args.where)).not.toContain('createdById');
   });
 
   it('opens it to members and admins, and not to anyone else', async () => {

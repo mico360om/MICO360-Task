@@ -177,14 +177,14 @@ export function createPrismaChatAttachmentRepository(prisma: PrismaClient): Chat
 }
 
 /**
- * Chat access follows project visibility — the owner, manager, creator and members of a live
- * project, plus admins (read from the database, so a revoked admin role takes effect at once).
+ * Chat access follows project visibility — the owner, named manager and team of a live project,
+ * plus admins (read from the database, so a revoked admin role takes effect at once). Having
+ * created a project is not a way in.
  */
 export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLookup {
   const visibleTo = (userId: string) => [
     { ownerId: userId },
     { managerId: userId },
-    { createdById: userId },
     { members: { some: { userId } } },
   ];
   async function isAdmin(userId: string): Promise<boolean> {
@@ -196,9 +196,9 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
   }
   return {
     async canAccessProject(projectId, userId) {
-      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: { id: true, ownerId: true, managerId: true, createdById: true } });
+      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: { id: true, ownerId: true, managerId: true } });
       if (!p) return false;
-      if (p.ownerId === userId || p.managerId === userId || p.createdById === userId) return true;
+      if (p.ownerId === userId || p.managerId === userId) return true;
       const member = await prisma.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } }, select: { userId: true } });
       if (member) return true;
       return isAdmin(userId);
@@ -215,10 +215,10 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
     async projectMemberIds(projectId) {
       const p = await prisma.project.findFirst({
         where: { id: projectId, deletedAt: null },
-        select: { ownerId: true, managerId: true, createdById: true, members: { select: { userId: true } } },
+        select: { ownerId: true, managerId: true, members: { select: { userId: true } } },
       });
       if (!p) return [];
-      const ids = [p.ownerId, p.managerId, p.createdById, ...p.members.map((m) => m.userId)].filter((x): x is string => !!x);
+      const ids = [p.ownerId, p.managerId, ...p.members.map((m) => m.userId)].filter((x): x is string => !!x);
       const active = await prisma.user.findMany({ where: { id: { in: [...new Set(ids)] }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
       return active.map((u) => u.id);
     },

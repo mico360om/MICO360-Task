@@ -4,6 +4,7 @@ import type { MemberService } from './member-service';
 import type { ProjectAuthz } from './project-authz';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
+import type { ProjectNotices } from './project-notices';
 import { ForbiddenError } from '../../lib/http-errors';
 import { idString } from '../tasks/validation';
 
@@ -18,6 +19,8 @@ export interface MemberRouteDeps {
   audit?: AuditService;
   /** Object-level view authorization: may this user see this project? (gates the member roster) */
   canViewProject?: (userId: string, roles: string[], projectId: string) => Promise<boolean>;
+  /** Tells the people newly added that they're on the project. */
+  notices?: ProjectNotices;
 }
 
 export async function registerMemberRoutes(app: FastifyInstance, deps: MemberRouteDeps): Promise<void> {
@@ -42,8 +45,11 @@ export async function registerMemberRoutes(app: FastifyInstance, deps: MemberRou
     const { id } = req.params as { id: string };
     await requireManage(req, id);
     const { userIds } = addSchema.parse(req.body);
+    // Who is on it already: only the people newly added are told.
+    const before = deps.notices ? new Set((await memberService.listMembers(id)).map((m) => m.id)) : null;
     const result = await memberService.addMembers(id, userIds);
     await logAudit(req, 'member.add', id, { userIds });
+    if (before) await deps.notices!.membersAdded({ actorId: req.user!.id, projectId: id, userIds: userIds.filter((u) => !before.has(u)) });
     return { data: result };
   });
 

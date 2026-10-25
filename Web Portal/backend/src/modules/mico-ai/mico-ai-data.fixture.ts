@@ -40,7 +40,7 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
     isAdmin(v)
       ? null
       : d.projects
-          .filter((p) => p.ownerId === v.userId || p.managerId === v.userId || p.createdById === v.userId || d.members.some((m) => m.projectId === p.id && m.userId === v.userId))
+          .filter((p) => p.ownerId === v.userId || p.managerId === v.userId || d.members.some((m) => m.projectId === p.id && m.userId === v.userId))
           .map((p) => p.id);
   const within = (ids: string[] | null, projectId: string | null) => ids === null || (!!projectId && ids.includes(projectId));
   const meetingVisible = (v: Viewer, m: AiMeetingDetail) =>

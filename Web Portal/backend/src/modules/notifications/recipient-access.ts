@@ -4,7 +4,7 @@
  * lines, and a mention can't leak a task to someone outside the project.
  */
 
-/** The project-visibility facts of one task (the same rule as project access: owner, manager, creator, member). */
+/** The project-visibility facts of one task (the same rule as project access: owner, named manager, team). */
 export interface TaskAudienceFacts {
   /** Assignees can always open their task. */
   assigneeIds: string[];
@@ -12,7 +12,6 @@ export interface TaskAudienceFacts {
     deletedAt: Date | null;
     ownerId: string | null;
     managerId: string | null;
-    createdById: string;
     memberIds: string[];
   } | null;
 }
@@ -35,7 +34,6 @@ export function taskAudience(facts: TaskAudienceFacts, opts: AudienceOptions): (
   const visible = new Set<string>([
     ...facts.assigneeIds,
     ...project.memberIds,
-    project.createdById,
     ...(project.ownerId ? [project.ownerId] : []),
     ...(project.managerId ? [project.managerId] : []),
   ]);

@@ -25,8 +25,9 @@ import { createPrismaWorkloadStore } from './modules/planning/prisma-workload-st
 import { createColumnService } from './modules/projects/column-service';
 import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
-import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup } from './modules/projects/prisma-member-repository';
+import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup, projectRunnerIds } from './modules/projects/prisma-member-repository';
 import { createProjectAuthz } from './modules/projects/project-authz';
+import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
@@ -82,14 +83,14 @@ import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
-import { filterTaskRecipients, type TaskAudienceFacts } from './modules/notifications/recipient-access';
+import { filterTaskRecipients } from './modules/notifications/recipient-access';
+import { taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
 import { createDeviceTokenService } from './modules/device-tokens/device-token-service';
 import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prisma-device-token-repository';
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
 import { createFcmTransport, parseServiceAccount } from './modules/device-tokens/fcm-transport';
 import { createPrismaUserStateLookup } from './modules/auth/prisma-user-state-lookup';
 import { todayKey } from './lib/due-date';
-import type { Prisma } from '@prisma/client';
 
 /** Validate an IANA time zone; fall back to Asia/Muscat (Oman) if misconfigured. */
 function resolveTimeZone(tz: string): string {
@@ -124,25 +125,6 @@ function loadFcmServiceAccount(source: { json: string; file: string }, onProblem
   return account;
 }
 
-/** Project-visibility facts of a task, for filtering notification recipients (see recipient-access). */
-const taskAudienceSelect = {
-  assignees: { select: { userId: true } },
-  project: { select: { deletedAt: true, ownerId: true, managerId: true, createdById: true, members: { select: { userId: true } } } },
-} satisfies Prisma.TaskSelect;
-
-interface TaskAudienceRow {
-  assignees: { userId: string }[];
-  project: { deletedAt: Date | null; ownerId: string | null; managerId: string | null; createdById: string; members: { userId: string }[] } | null;
-}
-
-function toAudienceFacts(t: TaskAudienceRow): TaskAudienceFacts {
-  return {
-    assigneeIds: t.assignees.map((a) => a.userId),
-    project: t.project
-      ? { deletedAt: t.project.deletedAt, ownerId: t.project.ownerId, managerId: t.project.managerId, createdById: t.project.createdById, memberIds: t.project.members.map((m) => m.userId) }
-      : null,
-  };
-}
 import { createReportService } from './modules/reports/report-service';
 import { createPrismaTaskExportSource } from './modules/tasks/task-export';
 import { createPrismaReportDataSource } from './modules/reports/prisma-report-data-source';
@@ -1058,10 +1040,8 @@ async function main(): Promise<void> {
       { timeZone: companyTz },
     );
     if (plans.length === 0) return;
-    // Recipients = each project's owner + managers.
-    const projectIds = Array.from(new Set(plans.map((p) => p.projectId)));
-    const projects = await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, ownerId: true, members: { where: { role: 'MANAGER' }, select: { userId: true } } } });
-    const recipientsByProject = new Map(projects.map((p) => [p.id, Array.from(new Set([...(p.ownerId ? [p.ownerId] : []), ...p.members.map((m) => m.userId)]))]));
+    // Recipients = whoever runs each project: its owner, its named manager and its MANAGER members.
+    const recipientsByProject = await projectRunnerIds(prisma, Array.from(new Set(plans.map((p) => p.projectId))));
     const planned = plans.flatMap((plan) =>
       (recipientsByProject.get(plan.projectId) ?? []).map((userId) => ({
         userId,
@@ -1199,6 +1179,15 @@ async function main(): Promise<void> {
     columnService,
     memberService,
     projectAuthz,
+    projectNotices: createProjectNotices({
+      notify: (n) => notificationService.notify(n),
+      nameOf: async (userId) => {
+        const u = await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, username: true } });
+        return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Someone';
+      },
+      projectName: async (projectId) => (await projectService.getProject(projectId)).name,
+      logger,
+    }),
     taskService,
     taskMoveService,
     carryForwardService,

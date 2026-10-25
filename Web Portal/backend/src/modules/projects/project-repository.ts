@@ -94,15 +94,16 @@ export interface ProjectRepository {
   /** Whether any project — deleted ones too — has this code (the database keeps codes unique). */
   codeInUse?(code: string): Promise<boolean>;
   list(): Promise<ProjectRecord[]>;
-  /** Projects a non-admin user may see: those they own, manage, created, or are a member of. */
+  /** Projects a non-admin user may see: those they own, manage or are on the team of (not ones they merely created). */
   listForUser(userId: string): Promise<ProjectRecord[]>;
-  /** True if the user owns, manages, created, or is a member of the project. */
+  /** True if the user owns, manages or is on the team of the project. */
   isAccessibleTo(projectId: string, userId: string): Promise<boolean>;
   /**
-   * Change a project. `keepManager`: in the same write, make sure this person is a MANAGER member
-   * (added, or promoted from MEMBER) — someone who hands over a project they run keeps running it.
+   * Change a project. `keepManagers`: in the same write, make sure these people are MANAGER members
+   * (added, or promoted from MEMBER) — whoever held the owner or manager place keeps running it.
+   * Someone deleted since is not put back on the team.
    */
-  update(id: string, patch: UpdateProjectData, opts?: { keepManager?: string }): Promise<ProjectRecord>;
+  update(id: string, patch: UpdateProjectData, opts?: { keepManagers?: string[] }): Promise<ProjectRecord>;
   softDelete(id: string): Promise<void>;
 }
 

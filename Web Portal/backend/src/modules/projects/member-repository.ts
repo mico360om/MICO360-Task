@@ -14,14 +14,15 @@ export interface MemberRepository {
   add(projectId: string, userId: string): Promise<void>;
   remove(projectId: string, userId: string): Promise<void>;
   setRole(projectId: string, userId: string, role: ProjectMemberRole): Promise<void>;
-  /** True if the user still sees the project without membership (its owner, manager or creator, or an admin). */
+  /** True if the user still sees the project without membership (its owner or named manager, or an admin). */
   hasImplicitAccess?(projectId: string, userId: string): Promise<boolean>;
   /**
-   * Would the project still have someone running it without this user's MANAGER place on its team?
-   * True when it has an owner or a named manager (team changes don't touch those), or another
-   * MANAGER member.
+   * Take someone off the team (`{ remove: true }`) or change their role, refusing (409
+   * LAST_PROJECT_MANAGER) when that would leave nobody active running the project: no active owner,
+   * named manager or other MANAGER member. The check and the change are one transaction holding the
+   * project's row, so two managers stepping down at once can't both go.
    */
-  hasOtherRunner?(projectId: string, userId: string): Promise<boolean>;
+  changeGuarded?(projectId: string, userId: string, change: { remove: true } | { role: ProjectMemberRole }): Promise<void>;
   /** Drop the user's task assignments and watches in the project, in one transaction. */
   removeTaskLinks?(projectId: string, userId: string): Promise<void>;
 }

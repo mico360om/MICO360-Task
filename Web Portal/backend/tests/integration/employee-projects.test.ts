@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaPeopleLookup, createPrismaProjectRepository } from '../../src/modules/projects/prisma-project-repository';
-import { createPrismaMemberRepository, createPrismaProjectManagerLookup } from '../../src/modules/projects/prisma-member-repository';
+import { createPrismaMemberRepository, createPrismaProjectManagerLookup, projectRunnerIds } from '../../src/modules/projects/prisma-member-repository';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -82,20 +82,51 @@ describe('Employee projects (integration)', () => {
     expect(await people.activeIds([])).toEqual([]);
   });
 
-  it('keeps the person who hands a project over on as a MANAGER, in the same write', async () => {
-    // Not on the team yet: added as a manager.
-    await projects.update(rig, { ownerId: id.member }, { keepManager: id.owner });
-    // Already a plain member: promoted.
-    await projects.update(rig, { managerId: null }, { keepManager: id.member });
+  it('keeps the people who held the owner and manager places on as MANAGERs, in the same write', async () => {
+    // The owner had no team row: added as a manager. The named manager is a plain member: promoted.
+    await prisma.projectMember.create({ data: { projectId: rig, userId: id.named, role: 'MEMBER' } });
+    await projects.update(rig, { ownerId: id.member, managerId: null }, { keepManagers: [id.owner, id.named] });
     const rows = await prisma.projectMember.findMany({ where: { projectId: rig }, select: { userId: true, role: true } });
-    expect(Object.fromEntries(rows.map((r) => [r.userId, r.role]))).toEqual({ [id.owner]: 'MANAGER', [id.lead]: 'MANAGER', [id.member]: 'MANAGER' });
+    expect(Object.fromEntries(rows.map((r) => [r.userId, r.role]))).toEqual({ [id.owner]: 'MANAGER', [id.named]: 'MANAGER', [id.lead]: 'MANAGER', [id.member]: 'MEMBER' });
     expect(await prisma.project.findUnique({ where: { id: rig }, select: { ownerId: true, managerId: true } })).toEqual({ ownerId: id.member, managerId: null });
   });
 
-  it('knows whether someone else still runs a project', async () => {
-    expect(await members.hasOtherRunner!(rig, id.lead)).toBe(true); // it has an owner
+  it('does not put a deleted person back on the team', async () => {
+    await prisma.project.update({ where: { id: rig }, data: { ownerId: id.deleted } });
+    await projects.update(rig, { ownerId: id.member }, { keepManagers: [id.deleted] });
+    expect(await prisma.projectMember.count({ where: { projectId: rig, userId: id.deleted } })).toBe(0);
+    expect((await prisma.project.findUnique({ where: { id: rig }, select: { ownerId: true } }))!.ownerId).toBe(id.member);
+  });
+
+  it('refuses to take the last active runner off a project, in one locked write', async () => {
+    // It has an owner: the lead may step down.
+    await members.changeGuarded!(rig, id.lead, { role: 'MEMBER' });
+    expect((await prisma.projectMember.findUnique({ where: { projectId_userId: { projectId: rig, userId: id.lead } } }))!.role).toBe('MEMBER');
+    // No owner and a named manager who has left: they don't count, so the only MANAGER can't go.
+    await prisma.projectMember.update({ where: { projectId_userId: { projectId: rig, userId: id.lead } }, data: { role: 'MANAGER' } });
+    await prisma.project.update({ where: { id: rig }, data: { ownerId: null, managerId: id.inactive } });
+    await expect(members.changeGuarded!(rig, id.lead, { remove: true })).rejects.toMatchObject({ status: 409, code: 'LAST_PROJECT_MANAGER' });
+    await expect(members.changeGuarded!(rig, id.lead, { role: 'MEMBER' })).rejects.toMatchObject({ status: 409 });
+    expect(await prisma.projectMember.count({ where: { projectId: rig, userId: id.lead, role: 'MANAGER' } })).toBe(1);
+    // A plain member comes and goes as before.
+    await members.changeGuarded!(rig, id.member, { remove: true });
+    expect(await prisma.projectMember.count({ where: { projectId: rig, userId: id.member } })).toBe(0);
+  });
+
+  it('lets only one of two managers stepping down at once go, when one of them must stay', async () => {
     await prisma.project.update({ where: { id: rig }, data: { ownerId: null, managerId: null } });
-    expect(await members.hasOtherRunner!(rig, id.lead)).toBe(false); // the lead is the only one
-    expect(await members.hasOtherRunner!(rig, id.member)).toBe(true); // the lead still runs it
+    await prisma.projectMember.update({ where: { projectId_userId: { projectId: rig, userId: id.member } }, data: { role: 'MANAGER' } });
+    const results = await Promise.allSettled([members.changeGuarded!(rig, id.lead, { role: 'MEMBER' }), members.changeGuarded!(rig, id.member, { remove: true })]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason.code)).toEqual(['LAST_PROJECT_MANAGER']);
+    expect(await prisma.projectMember.count({ where: { projectId: rig, role: 'MANAGER' } })).toBe(1);
+  });
+
+  it('names who runs each project — owner, named manager and MANAGER members, active ones only', async () => {
+    const other = (await prisma.project.create({ data: { code: 'EMPC', name: 'Other', createdById: id.creator, ownerId: id.inactive, managerId: id.lead } })).id;
+    const runners = await projectRunnerIds(prisma, [rig, other]);
+    expect([...(runners.get(rig) ?? [])].sort()).toEqual([id.owner, id.named, id.lead].sort());
+    expect(runners.get(other)).toEqual([id.lead]); // the deactivated owner is left out
+    expect((await projectRunnerIds(prisma, [])).size).toBe(0);
   });
 });
