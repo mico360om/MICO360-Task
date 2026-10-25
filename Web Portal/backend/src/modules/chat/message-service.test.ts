@@ -155,14 +155,25 @@ function makeRepos(opts?: { projectMembers?: Record<string, string[]>; users?: s
   const storage = { async save() { return { storageKey: 'x', url: '/uploads/x', sizeBytes: 0 }; }, async remove(key: string) { removedKeys.push(key); } };
 
   // Project visibility (owner/manager/creator/member/admin) is modelled as one list per project.
+  // `notOnTeam` marks someone who may open a channel without being on the team (an admin);
+  // `joined` is when someone joined a project's team (the start of time unless set).
+  const notOnTeam = new Set<string>();
+  const joined: Record<string, Record<string, Date>> = {};
   const members: ChatMemberLookup = {
     async canAccessProject(projectId, userId) { return (projectMembers[projectId] ?? []).includes(userId); },
     async accessibleProjectIds(userId) { return Object.keys(projectMembers).filter((pid) => projectMembers[pid]!.includes(userId)); },
     async isActiveUser(userId) { return activeUsers.has(userId); },
     async projectMemberIds(projectId) { return [...(projectMembers[projectId] ?? [])]; },
+    async teamSince(userId) {
+      const map = new Map<string, Date>();
+      for (const pid of Object.keys(projectMembers)) {
+        if (projectMembers[pid]!.includes(userId) && !notOnTeam.has(`${pid}:${userId}`)) map.set(pid, joined[pid]?.[userId] ?? new Date(0));
+      }
+      return map;
+    },
   };
 
-  return { conversations, participants, messages, reactions: reactionRepo, attachments, members, storage, removedKeys, projectMembers, msgs };
+  return { conversations, participants, messages, reactions: reactionRepo, attachments, members, storage, removedKeys, projectMembers, msgs, notOnTeam, joined };
 }
 
 let svc: MessageService;
@@ -454,6 +465,49 @@ describe('unread + read state', () => {
     expect(await svc.unreadCount(c.id, 'u1')).toBe(2);
     await svc.markRead(c.id, 'u1');
     expect(await svc.unreadCount(c.id, 'u1')).toBe(0);
+  });
+});
+
+describe('unread counts follow your teams', () => {
+  it('a channel you never opened counts only what was said since you joined the team', async () => {
+    const chan = await svc.getOrCreateProjectConversation('p1', 'u2');
+    await svc.sendMessage(chan.id, 'u2', 'before you joined');
+    const second = await svc.sendMessage(chan.id, 'u2', 'still before');
+    deps.joined.p1 = { u1: second.createdAt };
+    await svc.sendMessage(chan.id, 'u2', 'after you joined');
+    const mine = (await svc.listConversations('u1')).find((s) => s.conversation.id === chan.id)!;
+    expect(mine.unread).toBe(1);
+    expect(await svc.unreadCount(chan.id, 'u1')).toBe(1);
+  });
+
+  it('once you have read it, it counts what came after, as before', async () => {
+    const chan = await svc.getOrCreateProjectConversation('p1', 'u1');
+    deps.joined.p1 = { u1: new Date(Date.now() + 10_000_000) }; // joined "later" — reading wins
+    await svc.sendMessage(chan.id, 'u2', 'one');
+    await svc.markRead(chan.id, 'u1');
+    await svc.sendMessage(chan.id, 'u2', 'two');
+    await svc.sendMessage(chan.id, 'u2', 'three');
+    expect((await svc.listConversations('u1')).find((s) => s.conversation.id === chan.id)!.unread).toBe(2);
+  });
+
+  it('a channel of a project you are not on (an administrator’s view) is listed but never counts as unread', async () => {
+    deps.notOnTeam.add('p1:u1');
+    const chan = await svc.getOrCreateProjectConversation('p1', 'u2');
+    await svc.sendMessage(chan.id, 'u2', 'team talk');
+    await svc.sendMessage(chan.id, 'u3', 'more team talk');
+    const mine = (await svc.listConversations('u1')).find((s) => s.conversation.id === chan.id);
+    expect(mine).toBeDefined();
+    expect(mine!.unread).toBe(0);
+    expect(await svc.unreadCount(chan.id, 'u1')).toBe(0);
+    // The team still sees it as unread.
+    expect((await svc.listConversations('u3')).find((s) => s.conversation.id === chan.id)!.unread).toBe(1);
+  });
+
+  it('direct messages count as before', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u2');
+    await svc.sendMessage(dm.id, 'u2', 'hi');
+    await svc.sendMessage(dm.id, 'u2', 'there');
+    expect((await svc.listConversations('u1')).find((s) => s.conversation.id === dm.id)!.unread).toBe(2);
   });
 });
 

@@ -189,8 +189,8 @@ function ChatBadge({ count, active }: { count: number; active: boolean }) {
     <span
       data-chat-badge
       aria-hidden="true"
-      className={`pointer-events-none absolute -end-3 -top-2.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums ring-2 ${
-        active ? 'bg-white text-brand ring-brand' : 'bg-brand text-white ring-surface'
+      className={`pointer-events-none absolute -end-2 -top-2 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums ring-2 ${
+        active ? 'bg-white text-brand-ink ring-brand' : 'bg-brand text-white ring-surface'
       }`}
     >
       {text}

@@ -113,6 +113,32 @@ describe('ChatSoundNotifier keeps the unread counts current', () => {
     expect(refreshed(['chat', 'conversations'])).toBe(true);
   });
 
+  it('does not refresh again for a conversation you are reading on this page (the Chat page already did)', () => {
+    const { invalidate } = mount();
+    setViewingConversation('c1');
+    act(() => handlers['chat:read']?.({ conversationId: 'c1', userId: 'me', at: '2026-10-25T05:00:00.000Z' }));
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('refreshes them when a message is deleted (an unread one stops counting)', () => {
+    const { refreshed } = mount();
+    act(() => handlers['chat:message:deleted']?.({ conversationId: 'c1', id: 'm1' }));
+    expect(refreshed(['chat', 'conversations'])).toBe(true);
+  });
+
+  it('refreshes them when you mute or archive a conversation somewhere else', () => {
+    const { refreshed } = mount();
+    act(() => handlers['chat:prefs']?.({ conversationId: 'c1', prefs: { favorite: false, archived: false, muted: true } }));
+    expect(refreshed(['chat', 'conversations'])).toBe(true);
+  });
+
+  it('refreshes them, and your projects, when you are taken off a project', () => {
+    const { refreshed } = mount();
+    act(() => handlers['project:removed']?.({ projectId: 'p1' }));
+    expect(refreshed(['chat', 'conversations'])).toBe(true);
+    expect(refreshed(['projects'])).toBe(true);
+  });
+
   it('does not refresh when someone else reads a channel you are in', () => {
     const { invalidate } = mount();
     act(() => handlers['chat:read']?.({ conversationId: 'c1', userId: 'u2', at: '2026-10-25T05:00:00.000Z' }));

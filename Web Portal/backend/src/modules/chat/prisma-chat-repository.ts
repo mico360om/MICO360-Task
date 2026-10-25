@@ -222,5 +222,21 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
       const active = await prisma.user.findMany({ where: { id: { in: [...new Set(ids)] }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
       return active.map((u) => u.id);
     },
+    async teamSince(userId) {
+      // On the team: the owner or manager (since the project was made) or a member (since they
+      // were added). Having created a project (an administrator sets them up for others) or an
+      // administrator's access to every project is not being on its team.
+      const rows = await prisma.project.findMany({
+        where: { deletedAt: null, OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }] },
+        select: { id: true, createdAt: true, ownerId: true, managerId: true, members: { where: { userId }, select: { addedAt: true } } },
+      });
+      const team = new Map<string, Date>();
+      for (const p of rows) {
+        const leads = p.ownerId === userId || p.managerId === userId;
+        const added = p.members[0]?.addedAt;
+        team.set(p.id, leads || !added ? p.createdAt : added);
+      }
+      return team;
+    },
   };
 }

@@ -8,6 +8,7 @@ import { playChime, isChatMuted, primeAudio } from '../lib/notificationSound';
 import { NOTIFICATIONS_KEY, UNREAD_COUNT_KEY } from '../api/notifications';
 import { chatApi, type ConversationSummary } from '../api/chat';
 import { claimChime, shouldChime, viewingConversation } from '../lib/chat-sound';
+import { CHAT_INBOX_KEY, chatInboxQuery } from '../lib/chat-inbox-query';
 import { needsDeliveryAck } from '../lib/chat-model';
 
 /** How long after a message the bell is refreshed: time for the server to store its notification, and one refresh for a burst. */
@@ -32,7 +33,7 @@ export function ChatSoundNotifier() {
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   // Defensive: never let an unexpected projects payload crash the app shell.
   const projectIds = Array.isArray(projectsQ.data) ? projectsQ.data.map((p) => p.id) : [];
-  const inboxQ = useQuery({ queryKey: ['chat', 'conversations'], queryFn: () => chatApi(apiClient).conversations(), enabled: !!myId });
+  const inboxQ = useQuery({ ...chatInboxQuery, enabled: !!myId });
 
   // Report each newly received direct message once (a failed report is tried again next time).
   const acked = useRef(new Set<string>());
@@ -58,12 +59,24 @@ export function ChatSoundNotifier() {
     };
   }, []);
 
-  const refreshInbox = () => void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+  const refreshInbox = () => void qc.invalidateQueries({ queryKey: CHAT_INBOX_KEY });
   useChatRealtime(projectIds, (event: string, payload: ChatEventPayload) => {
     // You read a conversation in another tab or on your phone: its unread count (and the Chat
-    // menu's badge) goes down here too. Others reading a channel you share changes nothing for you.
+    // menu's badge) goes down here too. Others reading a channel you share changes nothing for you,
+    // and a conversation this page is reading was already refreshed by the Chat page.
     if (event === 'chat:read') {
-      if ((payload as { userId?: string }).userId === myId) refreshInbox();
+      if ((payload as { userId?: string }).userId === myId && payload.conversationId !== viewingConversation()) refreshInbox();
+      return;
+    }
+    // A deleted message (an unread one stops counting), or you muted or archived a conversation elsewhere.
+    if (event === 'chat:message:deleted' || event === 'chat:prefs') {
+      refreshInbox();
+      return;
+    }
+    // Taken off a project: its channel leaves your list, and this socket stops following it.
+    if (event === 'project:removed') {
+      refreshInbox();
+      void qc.invalidateQueries({ queryKey: ['projects'] });
       return;
     }
     if (event !== 'chat:message') return;

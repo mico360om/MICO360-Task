@@ -153,4 +153,10 @@ export interface ChatMemberLookup {
   isActiveUser(userId: string): Promise<boolean>;
   /** Everyone who can see a project's channel (owner, manager, creator, members). */
   projectMemberIds?(projectId: string): Promise<string[]>;
+  /**
+   * Since when the user has been on each project's team (owner, manager or member).
+   * Unread counts use it: a channel they never opened counts from here, and a project they can
+   * open without being on its team (an administrator) is absent and never counts as unread.
+   */
+  teamSince?(userId: string): Promise<Map<string, Date>>;
 }

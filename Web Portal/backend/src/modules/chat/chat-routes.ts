@@ -99,7 +99,10 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
   // The caller's own settings for a conversation: favorite, archived, muted.
   app.put('/conversations/:id/prefs', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
-    return { data: await chat.setPreferences(id, req.user!.id, prefsSchema.parse(req.body ?? {})) };
+    const prefs = await chat.setPreferences(id, req.user!.id, prefsSchema.parse(req.body ?? {}));
+    // The caller's other tabs and phone: a muted or archived conversation leaves their Chat badge.
+    deps.broadcastToUser?.(req.user!.id, 'chat:prefs', { conversationId: id, prefs });
+    return { data: prefs };
   });
 
   // The caller's app has received this conversation's messages: the senders see "delivered".

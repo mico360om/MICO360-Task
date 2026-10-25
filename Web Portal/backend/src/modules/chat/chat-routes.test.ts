@@ -205,6 +205,10 @@ describe('Chat routes — retries, replies, settings, delivery, search, members'
     expect(res.json().data).toEqual({ favorite: true, archived: false, muted: true });
     const inbox = (await app.inject({ method: 'GET', url: '/api/v1/conversations', headers: await auth('u1') })).json().data;
     expect(inbox.find((s: { conversation: { id: string } }) => s.conversation.id === convId).prefs.favorite).toBe(true);
+    // Your other tabs and your phone hear about it (a muted or archived conversation leaves the Chat badge), and nobody else does.
+    const told = userEvents.filter((e) => e.event === 'chat:prefs');
+    expect(told.map((e) => e.userId)).toEqual(['u1']);
+    expect(told[0]!.payload).toMatchObject({ conversationId: convId, prefs: { favorite: true, muted: true } });
     expect((await app.inject({ method: 'PUT', url: `/api/v1/conversations/${convId}/prefs`, headers: await auth('u3'), payload: { favorite: true } })).statusCode).toBe(403);
     expect((await app.inject({ method: 'PUT', url: `/api/v1/conversations/${convId}/prefs`, headers: await auth('u1'), payload: { favorite: 'yes' } })).statusCode).toBe(400);
   });

@@ -14,6 +14,12 @@ export function chatBadgeCount(inbox: ConversationSummary[] | undefined, { viewi
   }, 0);
 }
 
+/** The list right after this conversation was read: its unread is 0 (the same list when it already was). */
+export function withConversationRead(inbox: ConversationSummary[] | undefined, conversationId: string): ConversationSummary[] | undefined {
+  if (!Array.isArray(inbox) || !inbox.some((s) => s.conversation.id === conversationId && s.unread > 0)) return inbox;
+  return inbox.map((s) => (s.conversation.id === conversationId ? { ...s, unread: 0 } : s));
+}
+
 /** What the badge shows: nothing at 0, the number up to 99, then "99+". */
 export function chatBadgeText(n: number): string | null {
   if (n <= 0) return null;

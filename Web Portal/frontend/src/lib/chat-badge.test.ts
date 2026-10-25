@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chatBadgeCount, chatBadgeText, chatNavLabel, menuButtonLabel } from './chat-badge';
+import { chatBadgeCount, chatBadgeText, chatNavLabel, menuButtonLabel, withConversationRead } from './chat-badge';
 import type { ConversationSummary } from '../api/chat';
 
 const summary = (id: string, unread: number, prefs: Partial<ConversationSummary['prefs']> = {}): ConversationSummary =>
@@ -33,6 +33,21 @@ describe('chatBadgeCount', () => {
   it('ignores a missing or broken count', () => {
     const broken = { ...summary('a', 0), unread: undefined } as unknown as ConversationSummary;
     expect(chatBadgeCount([broken, summary('b', 1)], { viewing: null })).toBe(1);
+  });
+});
+
+// The same as the Android app's helper: applied the moment a conversation is read, so its old
+// count can't come back for a moment when you leave it before the list is fetched again.
+describe('withConversationRead', () => {
+  it('sets that conversation’s unread to 0 and leaves the others', () => {
+    const next = withConversationRead([summary('a', 2), summary('b', 3)], 'b')!;
+    expect(next.map((s) => s.unread)).toEqual([2, 0]);
+  });
+
+  it('returns the same list when there is nothing to change', () => {
+    const inbox = [summary('a', 2), summary('b', 0)];
+    expect(withConversationRead(inbox, 'b')).toBe(inbox);
+    expect(withConversationRead(undefined, 'b')).toBeUndefined();
   });
 });
 

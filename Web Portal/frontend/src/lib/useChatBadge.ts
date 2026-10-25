@@ -1,9 +1,9 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { chatApi } from '../api/chat';
+import type { ConversationSummary } from '../api/chat';
 import { useAuthStore } from '../stores/auth-store';
 import { chatBadgeCount } from './chat-badge';
+import { chatInboxQuery } from './chat-inbox-query';
 import { subscribeViewing, viewingConversation } from './chat-sound';
 
 /**
@@ -14,7 +14,9 @@ import { subscribeViewing, viewingConversation } from './chat-sound';
  */
 export function useChatBadge(): number {
   const myId = useAuthStore((s) => s.user?.id);
-  const inboxQ = useQuery({ queryKey: ['chat', 'conversations'], queryFn: () => chatApi(apiClient).conversations(), enabled: !!myId });
   const viewing = useSyncExternalStore(subscribeViewing, viewingConversation, viewingConversation);
-  return myId ? chatBadgeCount(inboxQ.data, { viewing }) : 0;
+  // Only the number leaves the query, so a new message that doesn't change it re-renders nothing.
+  const select = useCallback((inbox: ConversationSummary[]) => chatBadgeCount(inbox, { viewing }), [viewing]);
+  const countQ = useQuery({ ...chatInboxQuery, enabled: !!myId, select });
+  return myId ? countQ.data ?? 0 : 0;
 }

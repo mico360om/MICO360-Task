@@ -3,7 +3,9 @@ import type { Socket } from 'socket.io-client';
 import { useAuthStore } from '../stores/auth-store';
 import { openAuthedSocket } from './authedSocket';
 
-const CHAT_EVENTS = ['chat:message', 'chat:message:edited', 'chat:message:deleted', 'chat:reaction', 'chat:read', 'chat:delivered'] as const;
+// chat:prefs (your own settings, from another tab or the phone) and project:removed (taken off a
+// project) go to your own sockets only.
+const CHAT_EVENTS = ['chat:message', 'chat:message:edited', 'chat:message:deleted', 'chat:reaction', 'chat:read', 'chat:delivered', 'chat:prefs', 'project:removed'] as const;
 
 /** The live connection, as the chat page shows it. */
 export type ChatConnection = 'connecting' | 'connected' | 'reconnecting' | 'offline';

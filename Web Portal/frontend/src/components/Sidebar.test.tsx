@@ -117,7 +117,8 @@ describe('Sidebar on a short screen', () => {
       renderSidebar(false, '/chat', 2);
       const chat = screen.getByRole('link', { name: 'Chat, 2 unread messages' });
       expect(chat).toHaveAttribute('aria-current', 'page');
-      expect(chat.querySelector('[data-chat-badge]')).toHaveClass('bg-white');
+      // White with the dark brand ink: readable in the light and the dark theme.
+      expect(chat.querySelector('[data-chat-badge]')).toHaveClass('bg-white', 'text-brand-ink');
     });
 
     it('is only on Chat', () => {

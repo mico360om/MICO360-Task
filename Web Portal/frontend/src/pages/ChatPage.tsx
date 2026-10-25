@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { chatApi, type ApiChatAttachment, type ApiMessage, type ConversationPrefs, type ConversationSummary } from '../api/chat';
+import { CHAT_INBOX_KEY, chatInboxQuery } from '../lib/chat-inbox-query';
+import { withConversationRead } from '../lib/chat-badge';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import { ApiError } from '../lib/api-client';
@@ -107,7 +109,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   const frameOffset = useFrameOffset(frameRef);
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
-  const inboxQ = useQuery({ queryKey: ['chat', 'conversations'], queryFn: () => chatApi(apiClient).conversations() });
+  const inboxQ = useQuery(chatInboxQuery);
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() }); // shared key — one cache entry app-wide
 
   const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
@@ -223,7 +225,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   // ── Live updates ──
   const onRealtime = (event: string, payload: ChatEventPayload) => {
     void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
-    if (event === 'chat:read' || event === 'chat:delivered') return; // receipts come from the inbox summary
+    // Receipts come from the inbox summary; your settings and your projects need no message refresh.
+    if (event === 'chat:read' || event === 'chat:delivered' || event === 'chat:prefs' || event === 'project:removed') return;
     const cid = typeof payload.conversationId === 'string' ? payload.conversationId : undefined;
     if (!cid) {
       void qc.invalidateQueries({ queryKey: ['chat', 'messages'] });
@@ -258,6 +261,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
 
   // ── Read state ──
   const markRead = useCallback((conversationId: string) => {
+    // Show it read at once (the Chat menu's badge too), so leaving it can't flash its old count.
+    qc.setQueryData<ConversationSummary[]>(CHAT_INBOX_KEY, (old) => withConversationRead(old, conversationId));
     void chatApi(apiClient)
       .markRead(conversationId)
       .then(() => qc.invalidateQueries({ queryKey: ['chat', 'conversations'] }))

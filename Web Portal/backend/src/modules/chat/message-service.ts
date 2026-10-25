@@ -371,19 +371,35 @@ export function createMessageService(deps: MessageServiceDeps) {
     await bestEffort('read', () => deps.onRead?.({ conversationId, userId }));
   }
 
+  /**
+   * Unread messages for this person: a direct message counts everything after they last read it;
+   * a project channel counts only for the project's team — from when they last read it or, never
+   * opened, from when they joined the team (an administrator's view of other projects never counts).
+   */
+  async function unreadFor(conv: Conversation, userId: string, lastReadAt: Date | null, team: Map<string, Date> | null): Promise<number> {
+    if (conv.kind === 'PROJECT' && team) {
+      const since = conv.projectId ? team.get(conv.projectId) : undefined;
+      if (!since) return 0;
+      return messages.countAfter(conv.id, lastReadAt ?? since, userId);
+    }
+    return messages.countAfter(conv.id, lastReadAt, userId);
+  }
+
   async function unreadCount(conversationId: string, userId: string): Promise<number> {
     const conv = await load(conversationId);
     await assertAccess(conv, userId);
     const p = await participants.find(conversationId, userId);
-    return messages.countAfter(conversationId, p?.lastReadAt ?? null, userId);
+    const team = conv.kind === 'PROJECT' && members.teamSince ? await members.teamSince(userId) : null;
+    return unreadFor(conv, userId, p?.lastReadAt ?? null, team);
   }
 
   async function listConversations(userId: string): Promise<ConversationSummary[]> {
     // DMs come from participant rows; project channels from the projects the user can see NOW —
     // a stale participant row from a project they've left grants nothing.
-    const [participantConvs, projectConvs] = await Promise.all([
+    const [participantConvs, projectConvs, team] = await Promise.all([
       participants.listConversationIdsForUser(userId).then((ids) => conversations.listByIds(ids)),
       members.accessibleProjectIds(userId).then((ids) => conversations.listProjectConversations(ids)),
+      members.teamSince ? members.teamSince(userId) : Promise.resolve(null),
     ]);
     const byId = new Map<string, Conversation>();
     for (const c of participantConvs) if (c.kind === 'DIRECT') byId.set(c.id, c);
@@ -395,7 +411,7 @@ export function createMessageService(deps: MessageServiceDeps) {
         return {
           conversation,
           participants: (await participants.listByConversation(conversation.id)).map(publicParticipant),
-          unread: await messages.countAfter(conversation.id, p?.lastReadAt ?? null, userId),
+          unread: await unreadFor(conversation, userId, p?.lastReadAt ?? null, team),
           lastMessage: latest ? redact(latest) : null,
           prefs: prefsOf(p),
         };
