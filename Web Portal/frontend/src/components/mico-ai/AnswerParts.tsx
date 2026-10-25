@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { MicoAiSource, MicoAiTable } from '../../api/mico-ai';
 import { answerBlocks, cellDisplay, type Run } from '../../lib/mico-ai';
@@ -70,62 +70,123 @@ const FIRST_ROWS = 25;
 function textColumnClass(table: MicoAiTable, col: number): string {
   const longest = Math.max(table.columns[col]?.label.length ?? 0, ...table.rows.map((r) => String(r.cells[col] ?? '').length));
   if (longest <= 24) return 'whitespace-nowrap';
-  return longest <= 60 ? 'min-w-[11rem] max-w-[20rem] [overflow-wrap:anywhere]' : 'min-w-[15rem] max-w-[26rem] [overflow-wrap:anywhere]';
+  return longest <= 60 ? 'min-w-[10rem] max-w-[20rem] [overflow-wrap:anywhere]' : 'min-w-[13rem] max-w-[26rem] [overflow-wrap:anywhere]';
 }
 
-/** A table copied by the server from the data (its figures are the data's, never the AI's). */
-export function AnswerTable({ table }: { table: MicoAiTable }) {
+const DownloadIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 4v12M7 11l5 5 5-5M5 20h14" />
+  </svg>
+);
+
+/** Which sides of a sideways-scrolling box still have more to show (updated on scroll and on resize). */
+function useScrollEdges() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const update = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const left = Math.abs(el.scrollLeft);
+    const more = el.scrollWidth - el.clientWidth;
+    const next = { start: more > 1 && left > 1, end: more > 1 && left < more - 1 };
+    setEdges((e) => (e.start === next.start && e.end === next.end ? e : next));
+  }, []);
+  useEffect(() => {
+    const el = ref.current;
+    update();
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [update]);
+  return { ref, edges, update };
+}
+
+/**
+ * A table copied by the server from the data (its figures are the data's, never the AI's), with its
+ * Excel download. On a wide screen a table wider than the reading column may break out of it, up to
+ * the message area's width, centred on the answer; wider still, it scrolls sideways in its own box,
+ * with a fade at each side that has more to show.
+ *
+ * The widths come from the message area (a size container): the answer's text is
+ * min(48rem, 100cqw) - 92px wide from 40em (the column's 1.5rem padding each side, the mark and its
+ * gap), 100cqw - 72px on a phone.
+ */
+export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: () => void }) {
   const [all, setAll] = useState(false);
   const rows = all ? table.rows : table.rows.slice(0, FIRST_ROWS);
   const textClass = useMemo(() => table.columns.map((c, j) => (c.kind === 'text' || !c.kind ? textColumnClass(table, j) : '')), [table]);
+  const { ref, edges, update } = useScrollEdges();
+  useEffect(update, [all, update]);
   return (
-    <div className="min-w-0">
-      {/* Scrolls sideways when it is wider than the answer: a region the keyboard can reach and scroll. */}
-      <div role="region" aria-label={table.title} tabIndex={0} className="max-w-full overflow-x-auto rounded-xl border border-line bg-surface outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
-        <table className="w-full border-collapse text-sm">
-          <caption className="border-b border-line bg-ground/60 px-3 py-2 text-start text-xs font-semibold text-ink-2">{table.title}</caption>
-          <thead>
-            <tr className="border-b border-line bg-ground/40 text-xs text-ink-2">
-              {table.columns.map((c) => (
-                <th key={c.key} scope="col" className={`whitespace-nowrap px-3 py-2 font-semibold ${NUMERIC.has(c.kind ?? '') ? 'text-end' : 'text-start'}`}>
-                  {c.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-t border-line first:border-t-0 even:bg-ground/30">
-                {r.cells.map((v, j) => {
-                  const kind = table.columns[j]?.kind;
-                  const text = cellDisplay(kind, v);
-                  return (
-                    <td key={j} dir={kind === 'text' || !kind ? 'auto' : undefined} className={`px-3 py-2 align-top text-ink ${NUMERIC.has(kind ?? '') ? 'whitespace-nowrap text-end tabular-nums' : kind === 'date' || kind === 'datetime' ? 'whitespace-nowrap' : ''}`}>
-                      {kind === 'text' || !kind ? (
-                        <span className={`block ${textClass[j]}`}>{text}</span>
-                      ) : kind === 'key' && text ? (
-                        <span className="whitespace-nowrap rounded-md bg-ground px-1.5 py-0.5 font-mono text-xs text-ink-2">{text}</span>
-                      ) : kind === 'days' && text ? (
-                        <span className="font-semibold text-danger">{text}</span>
-                      ) : (
-                        text
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    // Breaks out of the reading column (equally on both sides of the answer) by as much as the message area allows.
+    <div data-answer-table="" className="min-w-0 [margin-inline:min(0px,calc((100%_-_100cqw_+_92px)/2))]">
+      {/* As wide as the table needs: at least the answer's width, at most the room there is. */}
+      <div className="mx-auto w-fit min-w-[min(100%,calc(100cqw_-_72px))] max-w-full sm:min-w-[min(100%,calc(min(48rem,100cqw)_-_92px))]">
+        <div className="relative">
+          {/* Scrolls sideways when it is wider than the room: a region the keyboard can reach and scroll. */}
+          <div ref={ref} onScroll={update} role="region" aria-label={table.title} tabIndex={0} className="max-w-full overflow-x-auto rounded-xl border border-line bg-surface outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+            <table className="w-full border-collapse text-sm">
+              <caption className="border-b border-line bg-ground/60 px-3 py-2 text-start text-xs font-semibold text-ink-2">{table.title}</caption>
+              <thead>
+                <tr className="border-b border-line bg-ground/40 text-xs text-ink-2">
+                  {table.columns.map((c) => (
+                    <th key={c.key} scope="col" className={`whitespace-nowrap px-3 py-2 font-semibold ${NUMERIC.has(c.kind ?? '') ? 'text-end' : 'text-start'}`}>
+                      {c.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-t border-line first:border-t-0 even:bg-ground/30">
+                    {r.cells.map((v, j) => {
+                      const kind = table.columns[j]?.kind;
+                      const text = cellDisplay(kind, v);
+                      return (
+                        <td key={j} dir={kind === 'text' || !kind ? 'auto' : undefined} className={`px-3 py-2 align-top text-ink ${NUMERIC.has(kind ?? '') ? 'whitespace-nowrap text-end tabular-nums' : kind === 'date' || kind === 'datetime' ? 'whitespace-nowrap' : ''}`}>
+                          {kind === 'text' || !kind ? (
+                            <span className={`block ${textClass[j]}`}>{text}</span>
+                          ) : kind === 'key' && text ? (
+                            <span className="whitespace-nowrap rounded-md bg-ground px-1.5 py-0.5 font-mono text-xs text-ink-2">{text}</span>
+                          ) : kind === 'days' && text ? (
+                            <span className="font-semibold text-danger">{text}</span>
+                          ) : (
+                            text
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* More to see that way: a fade over that edge (drawn, not a scrollbar, which a phone or a Mac hides). */}
+          {edges.start ? <div aria-hidden="true" data-scroll-cue="start" className="pointer-events-none absolute inset-y-px start-px w-10 rounded-s-xl bg-gradient-to-r from-surface via-surface/70 to-transparent shadow-[inset_8px_0_8px_-8px_rgb(var(--c-ink)/0.18)]" /> : null}
+          {edges.end ? <div aria-hidden="true" data-scroll-cue="end" className="pointer-events-none absolute inset-y-px end-px w-10 rounded-e-xl bg-gradient-to-l from-surface via-surface/70 to-transparent shadow-[inset_-8px_0_8px_-8px_rgb(var(--c-ink)/0.18)]" /> : null}
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {onExcel ? (
+            <button
+              type="button"
+              aria-label={`Download ${table.title} as Excel`}
+              onClick={onExcel}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground"
+            >
+              <DownloadIcon />
+              Excel
+            </button>
+          ) : null}
+          {table.total !== undefined && table.total > table.rows.length ? <p className="text-xs text-ink-3">{`Showing ${table.rows.length} of ${table.total}`}</p> : null}
+          {table.rows.length > FIRST_ROWS ? (
+            <button type="button" onClick={() => setAll((v) => !v)} className="tap text-xs font-medium text-brand hover:underline">
+              {all ? 'Show fewer rows' : `Show all ${table.rows.length} rows`}
+            </button>
+          ) : null}
+        </div>
       </div>
-      {table.total !== undefined && table.total > table.rows.length ? (
-        <p className="mt-1.5 text-xs text-ink-3">{`Showing ${table.rows.length} of ${table.total}`}</p>
-      ) : null}
-      {table.rows.length > FIRST_ROWS ? (
-        <button type="button" onClick={() => setAll((v) => !v)} className="mt-1.5 text-xs font-medium text-brand hover:underline">
-          {all ? 'Show fewer rows' : `Show all ${table.rows.length} rows`}
-        </button>
-      ) : null}
     </div>
   );
 }

@@ -8,6 +8,19 @@ import { useAuthStore } from '../stores/auth-store';
 import type { MicoAiMessage } from '../api/mico-ai';
 import { shiftDayKey, todayKey } from '../lib/due-date';
 
+// Counts how often the messages are drawn (typing in the box must not redraw them).
+const messageRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../components/mico-ai/MessageView', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../components/mico-ai/MessageView')>();
+  return {
+    ...mod,
+    MessageView: (props: Parameters<typeof mod.MessageView>[0]) => {
+      messageRenders.count++;
+      return mod.MessageView(props);
+    },
+  };
+});
+
 // ── A small fake of the MICO AI API ──
 interface FakeChat {
   id: string;
@@ -89,7 +102,7 @@ beforeEach(() => {
         chats.unshift(c);
         return json({ data: summary(c) }, 201);
       }
-      const m = /^\/mico-ai\/chats\/([^/]+)(?:\/messages(?:\/([^/]+)(\/stop|\/tables\/(\d+)\.(xlsx|pdf))?)?)?$/.exec(path);
+      const m = /^\/mico-ai\/chats\/([^/]+)(?:\/messages(?:\/([^/]+)(\/stop|\/report\.pdf|\/tables\/(\d+)\.(xlsx|pdf))?)?)?$/.exec(path);
       const c = m ? chats.find((x) => x.id === m[1]) : undefined;
       if (m && !c) return json({ error: { code: 'NOT_FOUND', message: 'This chat doesn’t exist, or it isn’t yours.' } }, 404);
       if (m && c) {
@@ -116,6 +129,7 @@ beforeEach(() => {
           Object.assign(msg, { status: 'stopped', step: null });
           return json({ data: msg });
         }
+        if (tail === '/report.pdf') return new Response('bytes', { status: 200, headers: { 'content-disposition': 'attachment; filename="mico-ai-overdue-2026-10-25.pdf"' } });
         if (format) return new Response('bytes', { status: 200, headers: { 'content-disposition': `attachment; filename="mico-ai-overdue-tasks.${format}"` } });
         if (msg.status === 'pending' && next) Object.assign(msg, next);
         return json({ data: msg });
@@ -218,8 +232,8 @@ describe('MICO AI page', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Download Overdue tasks as Excel' }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/tables/1.xlsx'))).toBe(true));
-    await userEvent.click(screen.getByRole('button', { name: 'Download Overdue tasks as a PDF report' }));
-    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/tables/1.pdf'))).toBe(true));
+    await userEvent.click(screen.getByRole('button', { name: 'Download this answer as a PDF report' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/messages/a3/report.pdf'))).toBe(true));
   });
 
   it('Stop ends an answer', async () => {
@@ -507,6 +521,14 @@ describe('MICO AI page: a ChatGPT-style layout', () => {
     expect(region.scrollTop).toBe(1500);
     fireEvent.scroll(region);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument());
+    // A click or tap leaves focus alone (on a phone, focusing the box would open the keyboard)…
+    expect(box()).not.toHaveFocus();
+    // …from the keyboard, focus moves on to the box (the button it was on is gone).
+    region.scrollTop = 200;
+    fireEvent.scroll(region);
+    (await screen.findByRole('button', { name: 'Jump to latest' })).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(region.scrollTop).toBe(1500);
     expect(box()).toHaveFocus();
   });
 
@@ -570,5 +592,190 @@ describe('MICO AI page: a ChatGPT-style layout', () => {
     expect(sheet.closest('.above-keyboard')).not.toBeNull();
     // At the end of <body>: the page's animated wrapper would otherwise keep it under the app's top bar.
     expect(container.contains(sheet)).toBe(false);
+  });
+});
+
+describe('MICO AI page: review fixes (2)', () => {
+  const rect = (top: number, height: number) => ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+  /** A scroll area jsdom can't measure: its size (a number, or worked out each time) and a scroll position that sticks. */
+  function measure(el: HTMLElement, size: { scrollHeight: number | (() => number); clientHeight: number; scrollTop: number }) {
+    let top = size.scrollTop;
+    const height = () => (typeof size.scrollHeight === 'function' ? size.scrollHeight() : size.scrollHeight);
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: height });
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => size.clientHeight });
+    Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => (top = Math.max(0, Math.min(v, height() - size.clientHeight))) });
+    return size;
+  }
+  const question = (id: string, text: string): MicoAiMessage => ({ id, role: 'user', status: 'done', text, createdAt: now, step: null });
+  const done = (id: string, extra: Partial<MicoAiMessage>): MicoAiMessage => ({ id, role: 'assistant', createdAt: now, ...(tableAnswer as Omit<MicoAiMessage, 'id' | 'role' | 'createdAt'>), ...extra });
+  const pendingChat = (): FakeChat => ({ id: 'c9', title: 'Working', lastMessageAt: now, messages: [question('q1', 'Which tasks are overdue?'), { id: 'a1', role: 'assistant', status: 'pending', text: '', createdAt: now, step: 'Checking tasks…' }] });
+
+  it('every finished answer with something in it offers the whole answer as a PDF report (a text-only one too); Excel sits with each table', async () => {
+    chats = [
+      {
+        id: 'c9',
+        title: 'Mixed',
+        lastMessageAt: now,
+        messages: [
+          question('q1', 'Which tasks are overdue?'),
+          done('a1', {}),
+          question('q2', 'Summarize this week’s meetings'),
+          done('a2', { text: 'Two meetings this week.', answer: { kind: 'answer', unavailable: false, options: [], followUps: [], sources: [], tables: [] } }),
+          question('q3', 'Make a workload report.'),
+          done('a3', { text: 'Which team do you mean?', answer: { kind: 'clarify', unavailable: false, options: ['Rig Inspection'], followUps: [], sources: [], tables: [] } }),
+        ],
+      },
+    ];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('Two meetings this week.');
+    const reports = screen.getAllByRole('button', { name: 'Download this answer as a PDF report' });
+    expect(reports).toHaveLength(2); // not for the clarifying question
+    expect(screen.queryByRole('button', { name: 'Download Overdue tasks as a PDF report' })).not.toBeInTheDocument();
+    const excel = screen.getByRole('button', { name: 'Download Overdue tasks as Excel' });
+    expect(excel.closest('[data-answer-table]')).toBe(screen.getByRole('region', { name: 'Overdue tasks' }).closest('[data-answer-table]'));
+    // Big enough to hit: 36px tall (min-h-9), like the buttons around them.
+    for (const b of [reports[0]!, excel, screen.getAllByRole('button', { name: 'Copy' })[0]!, screen.getAllByRole('button', { name: 'Retry' })[0]!]) expect(b).toHaveClass('min-h-9');
+    await userEvent.click(reports[1]!);
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/messages/a2/report.pdf'))).toBe(true));
+  });
+
+  it('a wide table breaks out of the reading column on a wide screen, and fades at the side it can still scroll to (on scroll and on resize)', async () => {
+    const resized: Array<() => void> = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private cb: () => void) {}
+        observe() {
+          resized.push(() => this.cb());
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    chats = [{ id: 'c9', title: 'Overdue', lastMessageAt: now, messages: [question('q1', 'Which tasks are overdue?'), done('a1', {})] }];
+    renderPage('/mico-ai?chat=c9');
+    const region = await screen.findByRole('region', { name: 'Overdue tasks' });
+    expect(screen.getByRole('region', { name: 'Messages' }).className).toContain('[container-type:inline-size]');
+    expect(region.closest('[data-answer-table]')!.className).toMatch(/cqw/);
+    const cues = () => [...region.parentElement!.querySelectorAll('[data-scroll-cue]')].map((c) => c.getAttribute('data-scroll-cue'));
+    expect(cues()).toEqual([]);
+    let left = 0;
+    let width = 600;
+    Object.defineProperty(region, 'scrollWidth', { configurable: true, get: () => 1200 });
+    Object.defineProperty(region, 'clientWidth', { configurable: true, get: () => width });
+    Object.defineProperty(region, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => (left = v) });
+    act(() => resized.forEach((r) => r()));
+    expect(cues()).toEqual(['end']);
+    left = 300;
+    fireEvent.scroll(region);
+    expect(cues()).toEqual(['start', 'end']);
+    left = 600;
+    fireEvent.scroll(region);
+    expect(cues()).toEqual(['start']);
+    width = 1200; // a wider window: it all fits
+    left = 0;
+    act(() => resized.forEach((r) => r()));
+    expect(cues()).toEqual([]);
+  });
+
+  it('a new chat stays at its top when the area is resized (the greeting and any notice stay in view)', async () => {
+    const resized: Array<() => void> = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private cb: () => void) {}
+        observe() {
+          resized.push(() => this.cb());
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    ready = false;
+    renderPage();
+    await screen.findByText('MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.');
+    const region = screen.getByRole('region', { name: 'Messages' });
+    measure(region, { scrollHeight: 1200, clientHeight: 500, scrollTop: 0 });
+    act(() => resized.forEach((r) => r()));
+    expect(region.scrollTop).toBe(0);
+  });
+
+  it('follows MICO AI’s progress only while you are at the end', async () => {
+    chats = [pendingChat()];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('Checking tasks…');
+    const region = screen.getByRole('region', { name: 'Messages' });
+    const size = measure(region, { scrollHeight: 2000, clientHeight: 500, scrollTop: 300 });
+    fireEvent.scroll(region); // reading further up
+    size.scrollHeight = 2100;
+    next = { status: 'pending', step: 'Reading meetings…' };
+    await screen.findByText('Reading meetings…');
+    expect(region.scrollTop).toBe(300);
+    region.scrollTop = 1600; // back at the end
+    fireEvent.scroll(region);
+    size.scrollHeight = 2200;
+    next = { status: 'pending', step: 'Checking reports…' };
+    await screen.findByText('Checking reports…');
+    expect(region.scrollTop).toBe(1700);
+  });
+
+  it('when a long answer finishes, its start comes into view (not its end)', async () => {
+    chats = [pendingChat()];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('Checking tasks…');
+    const region = screen.getByRole('region', { name: 'Messages' });
+    const size = measure(region, { scrollHeight: 1000, clientHeight: 500, scrollTop: 500 });
+    fireEvent.scroll(region); // at the end, following
+    region.getBoundingClientRect = () => rect(100, 500);
+    screen.getByRole('article', { name: 'MICO AI’s answer' }).getBoundingClientRect = () => rect(400, 1400);
+    size.scrollHeight = 2400;
+    next = tableAnswer;
+    await screen.findByRole('table', { name: 'Overdue tasks' });
+    // Its top was 300px into the view: it now starts just under the top edge.
+    expect(region.scrollTop).toBe(500 + 300 - 16);
+  });
+
+  it('“Load earlier messages” keeps your place', async () => {
+    chats = [{ id: 'c9', title: 'Long', lastMessageAt: now, messages: [question('q9', 'latest question')], older: [question('q1', 'an early question'), question('q2', 'another early one')] }];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('latest question');
+    const region = screen.getByRole('region', { name: 'Messages' });
+    measure(region, { scrollHeight: () => 100 + 400 * document.querySelectorAll('[data-mico-message]').length, clientHeight: 300, scrollTop: 150 });
+    await userEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+    await screen.findByText('an early question');
+    expect(region.scrollTop).toBe(150 + 800);
+  });
+
+  it('the box lines up with the reading column: the same width and the same side padding', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    const column = screen.getByRole('region', { name: 'Messages' }).querySelector('[data-mico-column]')!;
+    const form = screen.getByRole('form', { name: 'Ask MICO AI' });
+    for (const c of ['mx-auto', 'max-w-3xl', 'px-4', 'sm:px-6']) {
+      expect(column).toHaveClass(c);
+      expect(form).toHaveClass(c);
+    }
+    expect(form.parentElement!.className).not.toMatch(/(^|\s)(sm:)?px-/);
+  });
+
+  it('tells a screen reader once that MICO AI is working, then that it answered', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    await userEvent.type(box(), 'Dig deep{Enter}');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('MICO AI is working on your question…'));
+    next = { status: 'done', step: null, text: 'Done digging.', answer: { kind: 'answer', unavailable: false, options: [], followUps: [], sources: [], tables: [] } };
+    await screen.findByText('Done digging.');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('MICO AI answered: Done digging.'));
+  });
+
+  it('typing in the box doesn’t redraw the conversation', async () => {
+    chats = [{ id: 'c9', title: 'Overdue', lastMessageAt: now, messages: [question('q1', 'Which tasks are overdue?'), done('a1', {})] }];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByRole('table', { name: 'Overdue tasks' });
+    await new Promise((r) => setTimeout(r, 50));
+    messageRenders.count = 0;
+    await userEvent.type(box(), 'Hello there');
+    expect(box()).toHaveValue('Hello there');
+    expect(messageRenders.count).toBe(0);
   });
 });

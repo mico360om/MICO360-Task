@@ -9,7 +9,10 @@ export interface MessageActions {
   ask: (text: string) => void;
   /** Ask the question this answer was for again. */
   retry: () => void;
+  /** Table n (1 = the first) as an Excel file. */
   download: (n: number, format: 'xlsx' | 'pdf') => void;
+  /** The whole answer (its words, every table, its sources) as one PDF report. */
+  report: () => void;
   /** Whether a new question can be sent now (no answer is being written). */
   canAsk: boolean;
 }
@@ -31,8 +34,8 @@ const CheckIcon = () => (
   </svg>
 );
 
-const quiet = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:cursor-not-allowed disabled:opacity-50';
-const download = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 text-xs font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground';
+const quiet = 'inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:cursor-not-allowed disabled:opacity-50';
+const download = 'inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground';
 const pill =
   'inline-flex min-h-9 max-w-full items-center rounded-full border border-brand/25 bg-brand/5 px-3.5 py-1.5 text-start text-sm font-medium text-brand transition-colors hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -110,23 +113,20 @@ export function MessageView({ message, actions, latest }: { message: MicoAiMessa
             ))}
           </div>
         ) : null}
-        {a?.tables.map((t, i) => <AnswerTable key={i} table={t} />)}
+        {a?.tables.map((t, i) => <AnswerTable key={i} table={t} onExcel={message.status === 'done' ? () => actions.download(i + 1, 'xlsx') : undefined} />)}
         {a ? <SourceChips sources={a.sources} /> : null}
         {message.status !== 'pending' ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            {a?.tables.map((t, i) => (
-              <span key={i} className="contents">
-                <button type="button" aria-label={`Download ${t.title} as Excel`} onClick={() => actions.download(i + 1, 'xlsx')} className={download}>
-                  <DownloadIcon />
-                  Excel
-                </button>
-                <button type="button" aria-label={`Download ${t.title} as a PDF report`} onClick={() => actions.download(i + 1, 'pdf')} className={download}>
+            {/* The whole answer as one report: its words, every table and its sources (text-only answers too). */}
+            {a && message.status === 'done' && a.kind === 'answer' && (message.text.trim() || a.tables.length) ? (
+              <>
+                <button type="button" aria-label="Download this answer as a PDF report" onClick={actions.report} className={download}>
                   <DownloadIcon />
                   PDF report
                 </button>
-              </span>
-            ))}
-            {a?.tables.length ? <span aria-hidden="true" className="mx-1 h-4 w-px bg-line" /> : null}
+                <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-line" />
+              </>
+            ) : null}
             {a && message.status === 'done' ? (
               <button type="button" className={quiet} onClick={() => void copy()}>
                 {copied ? <CheckIcon /> : <CopyIcon size={14} />}

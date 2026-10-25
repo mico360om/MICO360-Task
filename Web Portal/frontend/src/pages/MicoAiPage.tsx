@@ -17,18 +17,19 @@ import { ModalPortal } from '../components/ui/ModalPortal';
 import { ChatList } from '../components/mico-ai/ChatList';
 import { MessageView } from '../components/mico-ai/MessageView';
 import { MicoAiMark } from '../components/mico-ai/AnswerParts';
+import { Composer, type ComposerHandle } from '../components/mico-ai/Composer';
 import { AlertIcon, ArrowDownIcon, CloseIcon, EditIcon, PlusIcon } from '../components/chat/icons';
 import { useMediaQuery } from '../components/calendar/calendar-ui';
 
 const api = micoAiApi(apiClient);
 const SCOPE = ['Tasks', 'Meetings', 'Reports', 'Chat'];
 const MAX_QUESTION = 4000;
-/** The box grows with what is typed up to this height (px), then scrolls. */
-const MAX_BOX = 200;
 /** Within this many px of the end, the conversation counts as "at the newest message". */
 const NEAR_END = 48;
 /** Scrolled up further than this (px), "Jump to latest" appears. */
 const JUMP_AFTER = 240;
+/** What a screen reader hears once when MICO AI starts on a question. */
+const WORKING = 'MICO AI is working on your question…';
 
 /** Our sentence for a request that failed: the server's own words for a refusal, else a plain cause. */
 function errorText(err: unknown): string {
@@ -145,7 +146,6 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
 
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
@@ -160,21 +160,13 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   /** Scrolled well up from the newest message: offer "Jump to latest". */
   const [jump, setJump] = useState(false);
-  const box = useRef<HTMLTextAreaElement>(null);
+  const composer = useRef<ComposerHandle>(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** The newest message is in view (so it stays in view when the area gets shorter). */
   const atEnd = useRef(true);
   const frameRef = useRef<HTMLDivElement>(null);
   const frameOffset = useFrameOffset(frameRef);
   const wide = useMediaQuery('(min-width: 40em)');
-
-  // The box grows with what is typed (up to MAX_BOX) and shrinks back once it is sent.
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    if (draft) el.style.height = `${Math.min(el.scrollHeight, MAX_BOX)}px`;
-  }, [draft]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), searchDebounceMs);
@@ -244,18 +236,75 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     followed.current = pending?.id ?? null;
     if (!was || pending) return;
     const active = document.activeElement;
-    if (!active || active === document.body) document.getElementById(`mico-ai-message-${was}`)?.focus();
+    // (Without scrolling: where the conversation scrolls to is decided below.)
+    if (!active || active === document.body) document.getElementById(`mico-ai-message-${was}`)?.focus({ preventScroll: true });
   }, [pending]);
 
-  // Keep the newest message in view (the list is scrolled directly: scrollIntoView moves the Tab start in
-  // Chrome). A new chat opens at its top instead: the greeting, and any notice above it, come first.
+  // A screen reader hears once that MICO AI is working on a question (not every step); the answer, a
+  // stop or a failure is announced when it comes.
+  const announced = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pending || announced.current === pending.id) return;
+    announced.current = pending.id;
+    setLive(WORKING);
+  }, [pending]);
+
+  // Where the conversation scrolls (the list is scrolled directly: scrollIntoView moves the Tab start in
+  // Chrome). What changed since the last look decides it:
+  // - another chat: its newest message (a new chat opens at its top: the greeting and any notice first);
+  // - older messages came in above ("Load earlier messages"): you stay where you were;
+  // - a new message at the end (you asked): the end;
+  // - an answer finished while you followed it: its start, when it is taller than the view, else the end;
+  // - a new progress step: the end, only if you are already there.
+  // (Nothing seen yet: the first look always places the conversation, a new chat at its top.)
+  const seen = useRef<{ chatId: string | null | undefined; first: string | null; last: string | null; pendingId: string | null; step: string | null }>({ chatId: undefined, first: null, last: null, pendingId: null, step: null });
+  /** The message area's height and position just before older messages are put in above. */
+  const keepPlace = useRef<{ height: number; top: number } | null>(null);
+  const firstId = messages[0]?.id ?? null;
+  const lastId = messages[messages.length - 1]?.id ?? null;
   useLayoutEffect(() => {
     const el = scroller.current;
+    const was = seen.current;
+    seen.current = { chatId, first: firstId, last: lastId, pendingId: pending?.id ?? null, step: pending?.step ?? null };
     if (!el) return;
-    el.scrollTop = messages.length ? el.scrollHeight : 0;
-    atEnd.current = messages.length > 0;
-    setJump(false);
-  }, [messages.length, pending?.step, chatId]);
+    const toEnd = () => {
+      el.scrollTop = el.scrollHeight;
+      atEnd.current = true;
+      setJump(false);
+    };
+    const toTop = () => {
+      el.scrollTop = 0;
+      atEnd.current = false;
+      setJump(false);
+    };
+    if (chatId !== was.chatId) {
+      keepPlace.current = null;
+      if (messages.length) toEnd();
+      else toTop();
+      return;
+    }
+    if (keepPlace.current && firstId !== was.first) {
+      el.scrollTop = keepPlace.current.top + (el.scrollHeight - keepPlace.current.height);
+      keepPlace.current = null;
+      return;
+    }
+    if (lastId !== was.last) {
+      if (messages.length) toEnd();
+      else toTop();
+      return;
+    }
+    if (was.pendingId && was.pendingId !== (pending?.id ?? null)) {
+      if (!atEnd.current) return;
+      const answer = document.getElementById(`mico-ai-message-${was.pendingId}`);
+      const r = answer?.getBoundingClientRect();
+      if (r && r.height > el.clientHeight) {
+        el.scrollTop = Math.max(0, el.scrollTop + r.top - el.getBoundingClientRect().top - 16);
+        atEnd.current = false;
+      } else toEnd();
+      return;
+    }
+    if ((pending?.step ?? null) !== was.step && atEnd.current) toEnd();
+  }, [chatId, firstId, lastId, pending?.id, pending?.step, messages.length]);
 
   // When the message area gets shorter (a phone's keyboard opens, the window is resized) while the
   // newest message is in view, it stays in view.
@@ -277,15 +326,14 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     setJump(fromEnd > JUMP_AFTER);
   };
 
-  const jumpToLatest = () => {
+  /** Back to the newest message. From the keyboard, focus moves on to the box (the button goes away); a click or tap leaves focus alone, so a phone doesn't open its keyboard. */
+  const jumpToLatest = (fromKeyboard: boolean) => {
     const el = scroller.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     atEnd.current = true;
     setJump(false);
-    // The button goes away: focus moves on to the box (or the messages, when the box is off).
-    if (box.current && !box.current.disabled) box.current.focus();
-    else el.focus();
+    if (fromKeyboard) composer.current?.focus();
   };
 
   const openChat = (id: string | null) => {
@@ -300,7 +348,6 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       if (!text || sending) return;
       setSending(true);
       setError(null);
-      setDraft('');
       // A chat deleted elsewhere can't take a question: a new one starts.
       let id = opts.newChat || (chatId && gone === chatId) ? null : chatId;
       let created = false;
@@ -322,7 +369,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
         void qc.invalidateQueries({ queryKey: micoAiChatKey(id) });
       } catch (err) {
         setError(errorText(err));
-        setDraft(text);
+        composer.current?.restore(text); // the question goes back in the box
         // A chat made just for this question stays only if the question was asked.
         if (created && id) {
           await api.remove(id).catch(() => {});
@@ -332,7 +379,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
         refreshList();
       } finally {
         setSending(false);
-        box.current?.focus();
+        composer.current?.focus();
       }
     },
     [chatId, sending, qc, goTo, refreshList, chats, gone],
@@ -392,6 +439,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     setLoadingEarlier(true);
     try {
       const page = await api.older(chatId, first.id);
+      const el = scroller.current;
+      if (el) keepPlace.current = { height: el.scrollHeight, top: el.scrollTop };
       setEarlier({ chatId, messages: [...page.messages, ...(older?.messages ?? [])], hasMore: page.hasMore });
     } catch (err) {
       setError(errorText(err));
@@ -405,6 +454,17 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     try {
       const blob = await api.download(chatId, messageId, n, format);
       downloadBlob(fileNameOf(blob) ?? `mico-ai-table-${n}.${format}`, blob);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  };
+
+  /** The whole answer (its words, every table, its sources) as one PDF report. */
+  const report = async (messageId: string) => {
+    if (!chatId) return;
+    try {
+      const blob = await api.report(chatId, messageId);
+      downloadBlob(fileNameOf(blob) ?? 'mico-ai-answer.pdf', blob);
     } catch (err) {
       setError(errorText(err));
     }
@@ -424,7 +484,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       onOpen={(id) => openChat(id)}
       onNew={() => {
         openChat(null);
-        setTimeout(() => box.current?.focus(), 0);
+        setTimeout(() => composer.current?.focus(), 0);
       }}
       onRename={(id, title) => void rename(id, title)}
       onDelete={(c) => {
@@ -472,7 +532,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
             role="region"
             aria-label="Messages"
             onScroll={onScroll}
-            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/50"
+            // A size container: an answer's wide table may use its width (see AnswerTable).
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain outline-none [container-type:inline-size] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/50"
           >
             <div data-mico-column="" className={`mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-5 sm:gap-7 sm:px-6 sm:py-8 ${welcome ? 'min-h-full justify-center' : ''}`}>
               {!ready ? (
@@ -546,6 +607,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
                     ask: (t) => void send(t),
                     retry: () => void send(questionBefore(i)),
                     download: (n, f) => void download(m.id, n, f),
+                    report: () => void report(m.id),
                     canAsk,
                   }}
                 />
@@ -553,90 +615,30 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
             </div>
           </div>
 
-          {/* The box, pinned under the messages (a soft fade over what scrolls beneath it). */}
-          <div className="relative flex-none bg-surface px-3 pb-2.5 pt-1 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-gradient-to-t before:from-surface before:to-transparent before:content-[''] sm:px-6 sm:pb-4">
+          {/* The box, pinned under the messages (a soft fade over what scrolls beneath it), as wide as the reading column. */}
+          <div className="relative flex-none bg-surface pb-2.5 pt-1 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-gradient-to-t before:from-surface before:to-transparent before:content-[''] sm:pb-4">
             {jump ? (
               <button
                 type="button"
                 aria-label="Jump to latest"
-                onClick={jumpToLatest}
+                onClick={(e) => jumpToLatest(e.detail === 0)}
                 className="absolute bottom-full left-1/2 z-10 mb-3 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-line bg-surface text-ink-2 shadow-card transition-colors hover:text-ink"
               >
                 <ArrowDownIcon size={17} />
               </button>
             ) : null}
-            <form
-              aria-label="Ask MICO AI"
-              className="mx-auto max-w-3xl"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void send(draft);
-              }}
-            >
-              {error ? (
-                <p role="alert" dir="auto" className="mb-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
-              ) : null}
-              {/* One row on a phone (the box and its button side by side); on a wider screen the button sits under the box with the hint. */}
-              <div className="flex items-end gap-2 rounded-3xl border border-line bg-surface py-1.5 pe-1.5 ps-3.5 shadow-card transition-colors focus-within:border-brand/60 focus-within:ring-4 focus-within:ring-brand/10 sm:block sm:px-4 sm:pb-2 sm:pt-2.5">
-                <textarea
-                  ref={box}
-                  rows={1}
-                  dir="auto"
-                  aria-label="Ask MICO AI"
-                  enterKeyHint="send"
-                  placeholder={!ready ? 'MICO AI isn’t set up yet' : wide ? 'Ask about tasks, projects, meetings or reports…' : 'Ask MICO AI…'}
-                  disabled={!ready}
-                  maxLength={MAX_QUESTION}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      if (canAsk) void send(draft);
-                    }
-                  }}
-                  className="block max-h-[200px] min-h-[1.75rem] min-w-0 flex-1 resize-none self-center bg-transparent px-0.5 py-1 text-[0.9375rem] leading-6 text-ink outline-none placeholder:text-ink-3 disabled:cursor-not-allowed sm:w-full"
-                />
-                <div className="flex flex-none items-center gap-2 sm:pt-1">
-                  <p className="hidden min-w-0 flex-1 truncate text-xs text-ink-3 sm:block">
-                    {pending ? (
-                      <span className="inline-flex items-center gap-1.5 font-medium text-ink-2">
-                        <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />
-                        MICO AI is working…
-                      </span>
-                    ) : sending ? (
-                      'Sending…'
-                    ) : ready ? (
-                      'Enter to send · Shift+Enter for a new line'
-                    ) : null}
-                  </p>
-                  {/* Keyed apart: Stop is removed (not turned into Send), so focus moves on to the answer. */}
-                  {pending ? (
-                    <button key="stop" type="button" onClick={() => void stop()} className="inline-flex h-9 flex-none items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 text-sm font-semibold text-ink transition-colors hover:bg-ground">
-                      <span aria-hidden="true" className="h-2.5 w-2.5 rounded-sm bg-ink" />
-                      Stop
-                    </button>
-                  ) : (
-                    <button
-                      key="send"
-                      type="submit"
-                      aria-label="Send"
-                      disabled={!canAsk || !draft.trim()}
-                      className="grid h-9 w-9 flex-none place-items-center rounded-full bg-brand-gradient text-white shadow-brand transition-opacity disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
-                    >
-                      {sending ? (
-                        <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" />
-                      ) : (
-                        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M12 19V5M6 11l6-6 6 6" />
-                        </svg>
-                      )}
-                    </button>
-                  )}
-                </div>
-              </div>
-              <p className="mt-2 text-center text-xs leading-snug text-ink-3">MICO AI answers only from MICO360 data you can see, and links its sources. Check important figures before sharing.</p>
-            </form>
+            <Composer
+              ref={composer}
+              ready={ready}
+              canAsk={canAsk}
+              pending={!!pending}
+              sending={sending}
+              wide={wide}
+              error={error}
+              maxLength={MAX_QUESTION}
+              onSend={(text) => void send(text)}
+              onStop={() => void stop()}
+            />
           </div>
         </section>
       </div>
