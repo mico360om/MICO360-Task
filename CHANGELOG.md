@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-25
+
 ### New features
 - Welcome emails: administrators can send a new person their username, the site's address and a
   "Set your password" link (it works once and for 7 days), with the Android app and the Chrome
