@@ -25,6 +25,7 @@ import {
   type EmailContent,
   type TemplateOptions,
   type LoginCodeOptions,
+  type WelcomeEmailParams,
 } from './email-templates';
 
 /** One row per send attempt in email_log. */
@@ -130,6 +131,8 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
   return {
     /** False when no mail provider is configured, so nothing can be sent. */
     isConfigured,
+    /** True when emails to the address are blocked (it bounced or was marked as spam). */
+    isBlocked: async (email: string): Promise<boolean> => (isSuppressed ? isSuppressed(email) : false),
 
     // Auth & account
     sendLoginCode: (email: string, code: string, opts?: LoginCodeOptions) => deliver('otp', email, otpCodeEmail(code, opts), { essential: true }),
@@ -137,7 +140,12 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
       deliver('password-reset', email, passwordResetEmail(link, opts), { essential: true }),
     sendActivation: (email: string, username: string, link: string, opts?: TemplateOptions) =>
       deliver('activation', email, accountActivationEmail(username, link, opts), { essential: true }),
-    sendWelcome: (email: string, username: string, opts?: TemplateOptions) => deliver('welcome', email, welcomeEmail(username, opts)),
+    /**
+     * An administrator's welcome email with its "Set your password" link: 'sent', or 'suppressed' when
+     * the address is blocked (never sent to it). The email log records the subject, never the link.
+     */
+    sendWelcome: (email: string, params: WelcomeEmailParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
+      deliverResult('welcome', email, welcomeEmail(params, opts)),
     sendPasswordChanged: (email: string, username: string, opts?: TemplateOptions) =>
       deliver('password-changed', email, passwordChangedEmail(username, opts)),
     sendAccountLocked: (email: string, username: string, resetLink: string, opts?: TemplateOptions) =>

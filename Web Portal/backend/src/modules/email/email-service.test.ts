@@ -93,7 +93,35 @@ describe('EmailService', () => {
   it('still throws the delivery error when writing the log fails', async () => {
     const { transport } = fakeTransport({ ok: false, status: 500 });
     const svc = createEmailService({ transport, log: { async record() { throw new Error('db down'); } } });
-    await expect(svc.sendWelcome('ada@x.co', 'ada')).rejects.toBeInstanceOf(EmailDeliveryError);
+    await expect(svc.sendWelcome('ada@x.co', { firstName: 'Ada', username: 'ada', setPasswordLink: 'https://app.test/reset?token=t1&welcome=1', expiresInDays: 7 })).rejects.toBeInstanceOf(EmailDeliveryError);
+  });
+});
+
+describe('EmailService.sendWelcome (an administrator’s welcome email)', () => {
+  const welcome = { firstName: 'Ada', username: 'ada', setPasswordLink: 'https://app.test/reset?token=t1&welcome=1', expiresInDays: 7 };
+
+  it('sends the set-password email, logged as "welcome" without the link, and says it went', async () => {
+    const { transport, sent } = fakeTransport();
+    const { log, entries } = withLog();
+    const svc = createEmailService({ transport, log });
+    expect(await svc.sendWelcome('ada@x.co', welcome)).toBe('sent');
+    expect(sent[0]).toMatchObject({ to: 'ada@x.co', subject: expect.stringMatching(/set your password/) });
+    expect(sent[0]!.text).toContain('https://app.test/reset?token=t1&welcome=1');
+    expect(entries).toEqual([{ toAddress: 'ada@x.co', template: 'welcome', subject: sent[0]!.subject, status: 'SENT', providerMessageId: 'mj-1' }]);
+    expect(JSON.stringify(entries)).not.toContain('t1');
+  });
+
+  it('never goes to a blocked address (after a bounce or spam complaint): it says so instead', async () => {
+    const { transport, sent } = fakeTransport();
+    const svc = createEmailService({ transport, isSuppressed: async (email) => email === 'bounced@x.co' });
+    expect(await svc.isBlocked('bounced@x.co')).toBe(true);
+    expect(await svc.isBlocked('ada@x.co')).toBe(false);
+    expect(await svc.sendWelcome('bounced@x.co', welcome)).toBe('suppressed');
+    expect(sent).toEqual([]);
+  });
+
+  it('nothing is blocked when the server keeps no list of blocked addresses', async () => {
+    expect(await createEmailService({ transport: fakeTransport().transport }).isBlocked('ada@x.co')).toBe(false);
   });
 });
 

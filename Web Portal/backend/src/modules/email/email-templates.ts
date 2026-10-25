@@ -87,19 +87,53 @@ export function accountActivationEmail(username: string, activationLink: string,
   );
 }
 
-export function welcomeEmail(username: string, opts?: TemplateOptions): EmailContent {
+export interface WelcomeEmailParams {
+  /** Greeting name; the username is used when it's blank. */
+  firstName: string;
+  username: string;
+  /** The one-time "Set your password" link (the reset page, marked as a welcome). */
+  setPasswordLink: string;
+  /** How long the link works. */
+  expiresInDays: number;
+  /** The site's own download links; an app the site doesn't offer is left out. */
+  androidAppUrl?: string | null;
+  extensionUrl?: string | null;
+}
+
+/** How to install the zipped extension (it isn't in the Chrome Web Store) — the website says the same. */
+const EXTENSION_INSTALL_HINT =
+  'To install the extension: unzip it, open chrome://extensions, turn on Developer mode, then choose Load unpacked and pick the unzipped folder.';
+
+/**
+ * An administrator welcomes a person: their username, the site, and a one-time link to set their own
+ * password. Never a password: whatever password they may have been given keeps working until the
+ * link is used.
+ */
+export function welcomeEmail(params: WelcomeEmailParams, opts?: TemplateOptions): EmailContent {
   const brand = resolveBrand(opts?.brand);
-  return build(
-    `Welcome to ${brand.productName}`,
-    `Your ${brand.productName} account is ready`,
-    'Welcome aboard',
-    [
-      { kind: 'text', text: `Hi ${username}, your ${brand.productName} account is ready. Jump in to see your boards, tasks and projects.` },
-      { kind: 'button', label: 'Open the app', href: brand.appUrl },
-      { kind: 'list', items: ['Track work on Kanban boards', 'Get notified about assignments and mentions', 'See due dates on your calendar'] },
-    ],
-    opts,
-  );
+  const product = brand.productName;
+  const name = params.firstName.trim() || params.username;
+  const days = Math.max(1, Math.round(params.expiresInDays));
+  const apps = [
+    ...(params.androidAppUrl ? [{ label: 'Android app', href: params.androidAppUrl }] : []),
+    ...(params.extensionUrl ? [{ label: 'Chrome extension', href: params.extensionUrl }] : []),
+  ];
+  const blocks: Block[] = [
+    { kind: 'text', text: `Hi ${name}, your ${product} account is ready. Set your password, then sign in with your username or email address.` },
+    { kind: 'details', rows: [['Your username', params.username], ['Site', brand.appUrl]] },
+    { kind: 'button', label: 'Set your password', href: params.setPasswordLink },
+    {
+      kind: 'text',
+      text: `This link works once and expires in ${days} day${days === 1 ? '' : 's'}. If it has expired, choose “Forgot password?” on the sign-in page, or ask your administrator to send a new one.`,
+    },
+    linkFallback(params.setPasswordLink),
+  ];
+  if (apps.length) {
+    blocks.push({ kind: 'text', text: `Get the apps: ${product} on your phone and in Chrome.` }, { kind: 'links', items: apps });
+    if (params.extensionUrl) blocks.push({ kind: 'text', text: EXTENSION_INSTALL_HINT });
+  }
+  blocks.push({ kind: 'text', text: `Need help? Write to ${brand.supportEmail}.` });
+  return build(`Welcome to ${product}: set your password`, `Your ${product} account is ready. Set your password to sign in.`, `Welcome to ${product}`, blocks, opts);
 }
 
 export function passwordChangedEmail(username: string, opts?: TemplateOptions): EmailContent {

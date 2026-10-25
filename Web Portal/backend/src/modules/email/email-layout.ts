@@ -11,6 +11,7 @@ export type Block =
   | { kind: 'details'; rows: Array<[string, string]> }
   | { kind: 'callout'; text: string; tone?: Tone }
   | { kind: 'list'; items: string[] }
+  | { kind: 'links'; items: Array<{ label: string; href: string }> }
   | { kind: 'chips'; items: EmailChip[] }
   | { kind: 'project'; project: EmailProjectCard; items: EmailTaskItem[]; more?: { text: string; href: string } }
   | { kind: 'divider' };
@@ -199,6 +200,10 @@ function renderBlockHtml(block: Block, brand: Brand, locale: Locale): string {
       return `<ul class="email-text" style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:${c.ink}">${block.items
         .map((item) => `<li style="margin:0 0 4px">${escapeHtml(item)}</li>`)
         .join('')}</ul>`;
+    case 'links':
+      return `<ul class="email-text" style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:${c.ink}">${block.items
+        .map((item) => `<li style="margin:0 0 4px"><a href="${safeHref(item.href)}" target="_blank" class="email-link" style="font-weight:700;color:${c.brand};text-decoration:underline">${escapeHtml(item.label)}</a></li>`)
+        .join('')}</ul>`;
     case 'chips':
       return `<div style="margin:0 0 22px">${chipsHtml(block.items)}</div>`;
     case 'project': {
@@ -256,6 +261,8 @@ function renderBlockText(block: Block): string {
       return `> ${block.text}`;
     case 'list':
       return block.items.map((i) => `  - ${i}`).join('\n');
+    case 'links':
+      return block.items.map((i) => `  - ${i.label}: ${i.href}`).join('\n');
     case 'chips':
       return chipsText(block.items);
     case 'project': {

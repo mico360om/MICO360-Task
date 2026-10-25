@@ -45,8 +45,62 @@ describe('email templates (existing signatures preserved)', () => {
     expect(e.html).toContain('https://app/reset?t=abc');
   });
 
-  it('welcomeEmail greets the user', () => {
-    expect(welcomeEmail('ada').html).toContain('ada');
+});
+
+describe('welcomeEmail (an administrator welcomes a person: set your password)', () => {
+  const brand = { appUrl: 'https://task.mico360.test', supportEmail: 'help@mico360.test', productName: 'MICO360 Tasks' };
+  const params = {
+    firstName: 'Sara',
+    username: 'sara.k',
+    setPasswordLink: 'https://task.mico360.test/reset?token=abc123&welcome=1',
+    expiresInDays: 7,
+    androidAppUrl: 'https://task.mico360.test/downloads/MICO360-Tasks.apk',
+    extensionUrl: 'https://task.mico360.test/downloads/MICO360-Tasks-Chrome-Extension.zip',
+  };
+
+  it('greets them by name and gives their username, the site, the Set your password button and how long it works', () => {
+    const e = welcomeEmail(params, { brand });
+    expect(e.subject).toBe('Welcome to MICO360 Tasks: set your password');
+    for (const out of [e.html, e.text]) {
+      expect(out).toContain('Hi Sara, your MICO360 Tasks account is ready. Set your password, then sign in with your username or email address.');
+      expect(out).toContain('sara.k');
+      expect(out).toContain('https://task.mico360.test');
+      expect(out).toContain('This link works once and expires in 7 days. If it has expired, choose “Forgot password?” on the sign-in page, or ask your administrator to send a new one.');
+      expect(out).toContain('help@mico360.test');
+    }
+    expect(e.html).toMatch(/<a href="https:\/\/task\.mico360\.test\/reset\?token=abc123&amp;welcome=1"[^>]*>Set your password<\/a>/);
+    expect(e.text).toContain('Set your password: https://task.mico360.test/reset?token=abc123&welcome=1');
+    expect(e.text).toContain('  - Your username: sara.k');
+    expect(e.text).toContain('  - Site: https://task.mico360.test');
+  });
+
+  it('offers the Android app and the Chrome extension, with how to install the extension', () => {
+    const e = welcomeEmail(params, { brand });
+    expect(e.html).toContain('>Android app</a>');
+    expect(e.html).toContain('href="https://task.mico360.test/downloads/MICO360-Tasks.apk"');
+    expect(e.html).toContain('>Chrome extension</a>');
+    expect(e.text).toContain('  - Android app: https://task.mico360.test/downloads/MICO360-Tasks.apk');
+    expect(e.text).toContain('  - Chrome extension: https://task.mico360.test/downloads/MICO360-Tasks-Chrome-Extension.zip');
+    expect(e.text).toContain('To install the extension: unzip it, open chrome://extensions, turn on Developer mode, then choose Load unpacked and pick the unzipped folder.');
+  });
+
+  it('leaves out an app the site doesn’t offer (no dead links)', () => {
+    const none = welcomeEmail({ ...params, androidAppUrl: null, extensionUrl: null }, { brand });
+    expect(none.text).not.toMatch(/Android app|Chrome extension|Get the apps/);
+    const androidOnly = welcomeEmail({ ...params, extensionUrl: null }, { brand });
+    expect(androidOnly.text).toContain('Android app');
+    expect(androidOnly.text).not.toMatch(/Chrome extension|chrome:\/\/extensions/);
+  });
+
+  it('never contains a password, and escapes the name', () => {
+    const e = welcomeEmail({ ...params, firstName: '<script>x</script>' }, { brand });
+    expect(e.html).not.toContain('<script>x</script>');
+    expect(e.html).toContain('&lt;script&gt;');
+    expect(`${e.html} ${e.text}`).not.toMatch(/temporary password|temp password|password is/i);
+  });
+
+  it('greets them by username when no first name is known', () => {
+    expect(welcomeEmail({ ...params, firstName: ' ' }, { brand }).text).toContain('Hi sara.k, your MICO360 Tasks account is ready.');
   });
 });
 
@@ -151,7 +205,7 @@ describe('new notification templates', () => {
   it('every template ships an HTML + non-empty text part', () => {
     const samples = [
       otpCodeEmail('1'),
-      welcomeEmail('a'),
+      welcomeEmail({ firstName: 'A', username: 'a', setPasswordLink: 'https://x/reset?token=t&welcome=1', expiresInDays: 7 }),
       passwordChangedEmail('a'),
       alertEmail({ title: 't', message: 'm' }),
       genericNotificationEmail({ heading: 'h', message: 'm' }),

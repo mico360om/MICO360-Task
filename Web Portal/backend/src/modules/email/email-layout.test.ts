@@ -121,6 +121,19 @@ describe('renderEmail — layout', () => {
     expect(text).toContain('482913');
   });
 
+  it('renders a list of links (the apps in a welcome email), escaped, with unsafe addresses neutralised', () => {
+    const { html, text } = renderEmail({
+      preheader: 'x',
+      heading: 'Links',
+      blocks: [{ kind: 'links', items: [{ label: 'Android app', href: 'https://app.test/downloads/a.apk' }, { label: '<b>Bad</b>', href: 'javascript:alert(1)' }] }],
+    });
+    expect(html).toContain('<a href="https://app.test/downloads/a.apk"');
+    expect(html).toContain('>Android app</a>');
+    expect(html).toContain('&lt;b&gt;Bad&lt;/b&gt;');
+    expect(html).not.toContain('javascript:');
+    expect(text).toContain('  - Android app: https://app.test/downloads/a.apk');
+  });
+
   it('honours a locale (dir + translated chrome)', () => {
     const { html } = renderEmail({ preheader: 'x', heading: 'h', blocks: [], locale: 'ar' });
     expect(html).toContain('dir="rtl"');
