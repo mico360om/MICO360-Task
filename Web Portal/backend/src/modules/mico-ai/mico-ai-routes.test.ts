@@ -100,6 +100,17 @@ describe('MICO AI routes', () => {
     expect(text).toContain('5 days');
     expect(text).toContain('Generated 24 Oct 2026, 12:00 (Asia/Muscat) by Omar Said');
 
+    // The whole answer as one PDF report: the question, the words, every table, the sources.
+    const report = await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/report.pdf`, headers: omar });
+    expect(report.statusCode).toBe(200);
+    expect(report.headers['content-type']).toBe('application/pdf');
+    expect(report.headers['content-disposition']).toBe('attachment; filename="mico-ai-which-tasks-are-overdue-in-rig-inspection-2026-10-24.pdf"');
+    expect(report.headers['cache-control']).toBe('no-store');
+    const whole = inspectPdf(report.rawPayload).pages.flat().join('\n');
+    for (const s of ['Which tasks are overdue in Rig Inspection?', '3 tasks are overdue.', 'Overdue tasks (3 rows)', 'RIG-14', '5 days']) expect(whole).toContain(s);
+    // A question has no report.
+    expect((await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${question.id}/report.pdf`, headers: omar })).statusCode).toBe(404);
+
     expect((await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/tables/2.pdf`, headers: omar })).statusCode).toBe(404);
     expect((await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/tables/1.csv`, headers: omar })).statusCode).toBe(404);
     await app.close();
@@ -135,6 +146,7 @@ describe('MICO AI routes', () => {
         ['POST', `${base}/messages/${answer.id}/stop`, undefined],
         ['GET', `${base}/messages/${answer.id}/tables/1.xlsx`, undefined],
         ['GET', `${base}/messages/${answer.id}/tables/1.pdf`, undefined],
+        ['GET', `${base}/messages/${answer.id}/report.pdf`, undefined],
       ] as const;
       for (const [method, url, payload] of calls) {
         const res = await app.inject({ method, url, headers: who, ...(payload ? { payload } : {}) });

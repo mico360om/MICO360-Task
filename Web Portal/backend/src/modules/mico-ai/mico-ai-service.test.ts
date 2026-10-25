@@ -280,6 +280,39 @@ describe('MICO AI service: chats are private', () => {
     expect(t.text).toBe('**3 tasks** in Rig Inspection Portal are overdue.');
     await expect(svc.table(OMAR, chat, answer.id, 2)).rejects.toMatchObject({ status: 404 });
   });
+
+  it('the whole answer for its report: the question, the words, every table and the sources — for the chat’s owner only', async () => {
+    const { svc } = setup([overdueTool, tableAnswer]);
+    const { chat, question, answer } = await askAndWait(svc);
+    const a = await svc.answer(OMAR, chat, answer.id);
+    expect(a.question).toBe('Which tasks are overdue in Rig Inspection?');
+    expect(a.text).toBe('**3 tasks** in Rig Inspection Portal are overdue.');
+    expect(a.tables.map((t) => t.rows.map((r) => r.cells))).toEqual(answer.answer!.tables.map((t) => t.rows.map((r) => r.cells)));
+    expect(a.sources).toEqual(answer.answer!.sources);
+    expect(a.generatedBy).toBe('Omar Said');
+    for (const other of [SARA, ADMIN]) await expect(svc.answer(other, chat, answer.id)).rejects.toMatchObject({ status: 404 });
+    await expect(svc.answer(OMAR, chat, question.id)).rejects.toMatchObject({ status: 404 }); // a question has no report
+    await expect(svc.answer(OMAR, chat, 'nope')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('a text-only answer has a report too; one still being written, or stopped, has none', async () => {
+    const { svc } = setup([{ action: 'answer', text: 'Two meetings this week:\n- **Weekly review**, Wed 21 Oct\n- Site visit, Thu 22 Oct' }]);
+    const { chat, answer } = await askAndWait(svc, OMAR, 'Summarize this week’s meetings');
+    const a = await svc.answer(OMAR, chat, answer.id);
+    expect(a.tables).toEqual([]);
+    expect(a.text).toContain('Weekly review');
+
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const slow = setup([async () => (await held, { action: 'answer', text: 'Late.' })]);
+    const c = await slow.svc.createChat(OMAR, {});
+    const { answer: pending } = await slow.svc.ask(OMAR, c.id, 'slow?');
+    await expect(slow.svc.answer(OMAR, c.id, pending.id)).rejects.toMatchObject({ status: 404 });
+    await slow.svc.stop(OMAR, c.id, pending.id);
+    release();
+    await slow.svc.whenDone(pending.id);
+    await expect(slow.svc.answer(OMAR, c.id, pending.id)).rejects.toMatchObject({ status: 404 });
+  });
 });
 
 describe('MICO AI service: review fixes', () => {

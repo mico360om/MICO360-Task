@@ -79,5 +79,7 @@ export function micoAiApi(client: ApiClient) {
     stop: (chatId: string, messageId: string) => client.post<{ data: MicoAiMessage }>(`${message(chatId, messageId)}/stop`).then((r) => r.data),
     /** Table n (1 = the first) of an answer, as Excel or PDF. */
     download: (chatId: string, messageId: string, n: number, format: 'xlsx' | 'pdf') => client.getBlob(`${message(chatId, messageId)}/tables/${n}.${format}`),
+    /** The whole answer (its words, every table, its sources) as one PDF report. */
+    report: (chatId: string, messageId: string) => client.getBlob(`${message(chatId, messageId)}/report.pdf`),
   };
 }

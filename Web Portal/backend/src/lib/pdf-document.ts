@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { drawTextLine, layoutStyledText, layoutText, lineBox, measureText, registerPdfFonts, type StyledRun, type TextLine } from './pdf-text';
 import { printableImage } from './pdf-image';
+import { fitColumns, measureColumns, paginateRows } from './pdf-table-layout';
 
 export type RGB = [number, number, number];
 
@@ -147,6 +148,18 @@ export interface TableColumn {
   header: string;
   /** 'auto' (default): numeric columns right-aligned, text by its own direction. */
   align?: 'auto' | 'left' | 'right';
+  /** With `fit` tables: keep each cell on one line when the width allows (dates, numbers, codes). */
+  nowrap?: boolean;
+}
+
+/** Room between a table cell's edge and its text, left and right (points). */
+export const TABLE_PAD_X = 5;
+
+const MARGIN = 54; // 0.75"
+
+/** The width between the side margins of an A4 page in this orientation, in points. */
+export function contentWidthOf(orientation: 'portrait' | 'landscape' = 'portrait'): number {
+  return (orientation === 'landscape' ? 841.89 : 595.28) - MARGIN * 2;
 }
 
 const NUMERIC = /^[-+]?[\d,]*\.?\d+%?$/;
@@ -167,7 +180,7 @@ export const BULLET = '•';
 export class PdfDocument {
   readonly pageWidth: number; // A4, the paper size used in Oman
   readonly pageHeight: number;
-  readonly margin = 54; // 0.75"
+  readonly margin = MARGIN;
   readonly bottomMargin = 62; // leaves room for the footer
   /** Where content starts on pages after the first when a running header is drawn above it. */
   private readonly continuationTop: number;
@@ -625,8 +638,10 @@ export class PdfDocument {
   heading(text: string, options: { size?: number; color?: RGB; topGap?: number; keepWith?: number } = {}): this {
     const size = options.size ?? 12.5;
     this.spacer(options.topGap ?? 14);
-    // Heading + rule + the start of what follows (at least two lines, or `keepWith` points).
-    this.ensure(size * 1.8 + 9 + Math.max(32, Math.min(options.keepWith ?? 0, this.contentBottom - this.continuationTop - size * 1.8 - 9)));
+    // Heading + rule + the start of what follows (at least two lines, or `keepWith` points). A long
+    // heading counts all its lines (one line keeps the room it always kept).
+    const own = Math.max(size * 1.8, this.textHeight(text, { bold: true, size, family: 'display' }));
+    this.ensure(own + 9 + Math.max(32, Math.min(options.keepWith ?? 0, this.contentBottom - this.continuationTop - own - 9)));
     this.text(text, { bold: true, size, color: options.color ?? this.pal.brand, family: 'display' });
     this.y += 3;
     this.fillRect(this.margin, this.y, this.contentWidth, 0.7, this.pal.line);
@@ -935,9 +950,10 @@ export class PdfDocument {
 
   /**
    * A data table spanning the content width. Columns are sized from their content,
-   * cells wrap within their column, rows never split across pages, and the header row
-   * repeats at the top of every page. Numeric columns align right; text cells align to
-   * their own direction (Arabic right, English left).
+   * cells wrap within their column, rows never split across pages (unless one is taller
+   * than a page on its own: then its lines continue on the next page, so nothing is cut),
+   * and the header row repeats at the top of every page. Numeric columns align right;
+   * text cells align to their own direction (Arabic right, English left).
    */
   table(
     columns: TableColumn[],
@@ -947,38 +963,56 @@ export class PdfDocument {
       cellColor?: (row: number, col: number) => RGB | null;
       /** The column that takes the width left over (the others keep their natural width); by default every column gets a share. */
       wide?: number;
+      /**
+       * Balanced columns (see fitColumns): each at least as wide as its longest word, the spare
+       * room to the columns with the most to say; a table too wide for that sets its type smaller,
+       * down to `minSize`, before any word breaks.
+       */
+      fit?: { minSize?: number };
     } = {},
   ): this {
     const n = columns.length;
     if (n === 0) return this;
-    const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide);
-    const { size, padX, padY, total, box, widths, numeric, header, body } = layout;
+    const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit);
+    const { size, padX, padY, total, widths, numeric, header, body } = layout;
 
-    const drawRow = (row: { laid: TextLine[][]; height: number }, fill: RGB | null, ri: number | null) => {
-      if (fill) this.fillRect(this.margin, this.y, total, row.height, fill);
+    // Lines [from, to) of a row: all of it, or the part of a too-tall row that goes on this page.
+    const drawRow = (row: TableRowLayout, fill: RGB | null, ri: number | null, from = 0, to = row.lines) => {
+      const box = row.box;
+      const height = (to - from) * box.height + padY * 2;
+      if (fill) this.fillRect(this.margin, this.y, total, height, fill);
       let x = this.margin;
       row.laid.forEach((lines, ci) => {
         const color = (ri !== null && options.cellColor?.(ri, ci)) || this.pal.ink;
-        lines.forEach((ln, li) => {
-          const baseline = this.y + padY + li * box.height + box.ascent;
-          this.placeLine(ln, x + padX, widths[ci]! - padX * 2, baseline, size, color, numeric[ci] ? 'right' : 'start');
-        });
+        for (let li = from; li < Math.min(to, lines.length); li++) {
+          const baseline = this.y + padY + (li - from) * box.height + box.ascent;
+          this.placeLine(lines[li]!, x + padX, widths[ci]! - padX * 2, baseline, size, color, numeric[ci] ? 'right' : 'start');
+        }
         x += widths[ci]!;
       });
-      this.fillRect(this.margin, this.y + row.height - 0.5, total, 0.5, this.pal.line);
-      this.y += row.height;
+      this.fillRect(this.margin, this.y + height - 0.5, total, 0.5, this.pal.line);
+      this.y += height;
     };
 
     const headerFill = mix(this.pal.brand, WHITE, 0.9);
     const stripe = mix(this.pal.line, WHITE, 0.72);
-    this.ensure(header.height + (body[0]?.height ?? 0));
-    drawRow(header, headerFill, null);
-    body.forEach((row, ri) => {
-      if (this.y + row.height > this.contentBottom) {
-        this.newPage();
-        drawRow(header, headerFill, null); // repeat the header on every page
-      }
-      drawRow(row, ri % 2 === 1 ? stripe : null, ri);
+    const plan = paginateRows(
+      body.map((r) => r.lines),
+      {
+        lineHeight: header.box.height,
+        lineHeights: body.map((r) => r.box.height),
+        padY,
+        header: header.height,
+        room: this.remaining,
+        pageRoom: this.contentBottom - this.continuationTop,
+        atTop: this.y <= this.continuationTop + 0.5,
+      },
+    );
+    if (plan.newPage) this.newPage();
+    plan.pages.forEach((pieces, pi) => {
+      if (pi > 0) this.newPage();
+      drawRow(header, headerFill, null); // the header on every page the table is on
+      for (const p of pieces) drawRow(body[p.row]!, p.row % 2 === 1 ? stripe : null, p.row, p.from, p.to);
     });
     return this;
   }
@@ -987,22 +1021,59 @@ export class PdfDocument {
    * The height a table would take if drawn now on one page (header + every row, or just its first
    * `firstRows` rows — columns sized from all of them, as table() sizes them), in points.
    */
-  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number; wide?: number; firstRows?: number } = {}): number {
+  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number; wide?: number; firstRows?: number; fit?: { minSize?: number } } = {}): number {
     if (columns.length === 0) return 0;
-    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide);
+    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit);
     return header.height + body.slice(0, options.firstRows ?? body.length).reduce((s, r) => s + r.height, 0);
   }
 
-  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number, wide?: number) {
-    const n = columns.length;
-    const padX = 5;
+  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, baseSize: number, wide?: number, fit?: { minSize?: number }) {
+    const padX = TABLE_PAD_X;
     const padY = 3;
     const total = this.contentWidth;
-    // One line height for every cell (Arabic-safe), so baselines line up across a row
-    // and every row has the same rhythm whether or not it contains Arabic.
+    let size = baseSize;
+    let widths: number[];
+    if (fit) {
+      const plan = fitColumns(measureColumns(columns, rows), total, { size, minSize: fit.minSize, padX, wide });
+      size = plan.size;
+      widths = plan.widths;
+    } else {
+      widths = this.naturalColumnWidths(columns, rows, size, wide);
+    }
+    // One line height for every cell (Arabic-safe), so baselines line up across a row and every row
+    // has the same rhythm whether or not it contains Arabic. A balanced (fit) table gives each row
+    // its own: the normal one, or the taller Arabic one when the row has Arabic (its cells still
+    // share one baseline).
     const box = lineBox(null, size, true);
 
-    // Column widths: natural single-line widths, stretched to fill or water-filled to fit.
+    const numeric = columns.map((c, ci) => {
+      if (c.align === 'right') return true;
+      if (c.align === 'left') return false;
+      const vals = rows.map((r) => (r[ci] ?? '').trim()).filter((v) => v.length > 0);
+      return vals.length > 0 && vals.every((v) => NUMERIC.test(v));
+    });
+
+    // Every line of every cell is kept: a row taller than a page continues on the next (see table()).
+    const layoutRow = (cells: ReadonlyArray<string>, bold: boolean): TableRowLayout => {
+      const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold, maxWidth: widths[ci]! - padX * 2 }));
+      const lines = Math.max(1, ...laid.map((l) => l.length));
+      const rowBox = fit ? lineBox(null, size, laid.some((cell) => cell.some((ln) => ln.arabic))) : box;
+      return { laid, lines, box: rowBox, height: lines * rowBox.height + padY * 2 };
+    };
+
+    const header = layoutRow(
+      columns.map((c) => c.header),
+      true,
+    );
+    const body = rows.map((r) => layoutRow(r, false));
+    return { size, padX, padY, total, widths, numeric, header, body };
+  }
+
+  /** The original column sizing: natural single-line widths, stretched to fill or water-filled to fit. */
+  private naturalColumnWidths(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, size: number, wide?: number): number[] {
+    const n = columns.length;
+    const padX = TABLE_PAD_X;
+    const total = this.contentWidth;
     const natural = columns.map((c, ci) => {
       let w = measureText(c.header, size, true);
       for (const r of rows) w = Math.max(w, measureText(r[ci] ?? '', size));
@@ -1035,27 +1106,7 @@ export class PdfDocument {
         open = open.filter((i) => natural[i]! > fair);
       }
     }
-
-    const numeric = columns.map((c, ci) => {
-      if (c.align === 'right') return true;
-      if (c.align === 'left') return false;
-      const vals = rows.map((r) => (r[ci] ?? '').trim()).filter((v) => v.length > 0);
-      return vals.length > 0 && vals.every((v) => NUMERIC.test(v));
-    });
-
-    // Never let one row outgrow a page: an absurdly tall cell is cut to what fits.
-    const maxLines = Math.max(1, Math.floor((this.contentBottom - this.margin - 3 * box.height - padY * 4) / box.height));
-    const layoutRow = (cells: ReadonlyArray<string>, bold: boolean) => {
-      const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold, maxWidth: widths[ci]! - padX * 2 }).slice(0, maxLines));
-      return { laid, height: Math.max(...laid.map((l) => l.length)) * box.height + padY * 2 };
-    };
-
-    const header = layoutRow(
-      columns.map((c) => c.header),
-      true,
-    );
-    const body = rows.map((r) => layoutRow(r, false));
-    return { size, padX, padY, total, box, widths, numeric, header, body };
+    return widths;
   }
 
   /** Serialize to a PDF byte buffer (idempotent). */
@@ -1074,8 +1125,9 @@ export class PdfDocument {
         const h = 16;
         if (logo) this.doc.image(logo, this.margin, 26, { height: h });
         else this.logoMark(this.margin, this.pageHeight - 26 - h, h);
-        const t = layoutText(this.opts.runningTitle, { size: 8, maxWidth: this.contentWidth - h * LOGO_ASPECT - 20 })[0]!;
-        drawTextLine(this.doc, t, this.pageWidth - this.margin - t.width, 37, 8, toHex(muted));
+        // A title too long for the header ends with "…" (the first page's own header shows it in full).
+        const t = fitLine(this.opts.runningTitle.replace(/\s+/g, ' '), { size: 8, maxWidth: this.contentWidth - h * LOGO_ASPECT - 20 });
+        drawTextLine(this.doc, t.line, this.pageWidth - this.margin - t.line.width, 37, t.size, toHex(muted));
         this.fillRect(this.margin, 48, this.contentWidth, 0.6, line);
       }
       // Footer: hairline (with a short brand accent at the left) + credit lines + page number.
@@ -1086,8 +1138,9 @@ export class PdfDocument {
       const leftWidth = this.contentWidth - pageLine.width - 12;
       footerLines.forEach((text, li) => {
         // The footer is a left-aligned block: lay each line out left-to-right (Arabic runs still read RTL).
-        const ln = layoutText(text, { size: 8, maxWidth: leftWidth, direction: 'ltr' })[0]!;
-        drawTextLine(this.doc, ln, this.margin, this.pageHeight - 34 + li * 10.5, 8, toHex(muted));
+        // A line too long for it shrinks a little, then ends with "…": never cut off without a sign.
+        const ln = fitLine(text, { size: 8, minSize: 6.5, maxWidth: leftWidth, direction: 'ltr' });
+        drawTextLine(this.doc, ln.line, this.margin, this.pageHeight - 34 + li * 10.5, ln.size, toHex(muted));
       });
       drawTextLine(this.doc, pageLine, this.pageWidth - this.margin - pageLine.width, this.pageHeight - 34, 8, toHex(muted));
     }
@@ -1100,4 +1153,36 @@ export class PdfDocument {
     this.built = Buffer.concat(chunks);
     return this.built;
   }
+}
+
+/** A table row laid out: each cell's lines, the most lines any cell has, its line box and its height. */
+interface TableRowLayout {
+  laid: TextLine[][];
+  lines: number;
+  box: { height: number; ascent: number };
+  height: number;
+}
+
+/**
+ * One line of text that must fit `maxWidth`: set at `size`, or smaller (in half points, down to
+ * `minSize`) when it doesn't fit; if it still doesn't, it is cut at the last character that fits
+ * and ends with "…", so a shortened line always says so.
+ */
+function fitLine(text: string, opts: { size: number; minSize?: number; maxWidth: number; direction?: TextDirection }): { line: TextLine; size: number } {
+  const one = (t: string, size: number) => layoutText(t, { size, direction: opts.direction })[0]!;
+  let size = opts.size;
+  let line = one(text, size);
+  while (line.width > opts.maxWidth && size - 0.5 >= (opts.minSize ?? opts.size) - 1e-9) {
+    size -= 0.5;
+    line = one(text, size);
+  }
+  if (line.width <= opts.maxWidth) return { line, size };
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (measureText(`${text.slice(0, mid).trimEnd()}…`, size) <= opts.maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return { line: one(`${text.slice(0, lo).trimEnd()}…`, size), size };
 }
