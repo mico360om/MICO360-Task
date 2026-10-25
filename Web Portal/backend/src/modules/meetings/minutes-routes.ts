@@ -99,15 +99,18 @@ export interface MinutesRouteDeps {
 /** Who gets the minutes: some of the meeting's own people (by email); omitted = everyone. */
 const sendBody = z.object({ recipients: z.array(z.string().trim().email()).min(1).max(500).optional() });
 
-export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesRouteDeps): Promise<void> {
-  const { meetingService, attendeeService, agendaService, noteService, guard } = deps;
-  const notFound = { error: { code: 'NOT_FOUND', message: 'Meeting not found.' } };
-  const canView = (req: FastifyRequest, id: string): Promise<boolean> =>
-    deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
-
-  /** Assemble the minutes data of a meeting the caller may view (`alsoName`: more people to name). */
-  async function gather(
-    req: FastifyRequest,
+/**
+ * What a meeting's minutes are made of — the meeting, its people, agenda, notes and action items,
+ * named — as the minutes PDF and the final minutes' AI draft read it. Callers check first that the
+ * person may see the meeting. (MICO AI drafts final minutes from the same facts.)
+ */
+export function createMinutesData(
+  deps: Pick<MinutesRouteDeps, 'meetingService' | 'attendeeService' | 'agendaService' | 'noteService' | 'actionItemService' | 'resolveUserNames' | 'resolveProject' | 'readProjectImage' | 'printableProjectImage' | 'resolveTaskKeys'>,
+) {
+  const { meetingService, attendeeService, agendaService, noteService } = deps;
+  /** The minutes data of a meeting, for the person `viewerId` (`alsoName`: more people to name). */
+  return async function gather(
+    viewerId: string,
     id: string,
     alsoName: string[] = [],
   ): Promise<{ data: MinutesData; title: string; nameOf: (uid: string | null) => string | null }> {
@@ -122,7 +125,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
 
     const ids = new Set<string>();
     ids.add(meeting.organizerId);
-    ids.add(req.user!.id);
+    ids.add(viewerId);
     for (const u of alsoName) ids.add(u);
     if (projectSrc?.ownerId) ids.add(projectSrc.ownerId);
     for (const a of attendees) if (a.userId) ids.add(a.userId);
@@ -213,11 +216,22 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         open: a.status !== 'COMPLETED' && a.status !== 'CANCELLED',
       })),
       generatedAt: new Date().toISOString(),
-      generatedByName: nameOf(req.user!.id),
+      generatedByName: nameOf(viewerId),
     };
 
     return { data, title: meeting.title, nameOf };
-  }
+  };
+}
+
+export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesRouteDeps): Promise<void> {
+  const { meetingService, guard } = deps;
+  const notFound = { error: { code: 'NOT_FOUND', message: 'Meeting not found.' } };
+  const canView = (req: FastifyRequest, id: string): Promise<boolean> =>
+    deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
+
+  /** Assemble the minutes data of a meeting the caller may view (`alsoName`: more people to name). */
+  const gatherFor = createMinutesData(deps);
+  const gather = (req: FastifyRequest, id: string, alsoName: string[] = []) => gatherFor(req.user!.id, id, alsoName);
 
   /** The final minutes as stored, when this server keeps them. */
   const finalOf = async (id: string): Promise<FinalMinutesRecord | null> => (deps.finalMinutes ? deps.finalMinutes.get(id) : null);

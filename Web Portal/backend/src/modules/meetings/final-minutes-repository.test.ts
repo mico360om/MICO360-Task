@@ -11,6 +11,14 @@ describe('final minutes storage (memory)', () => {
     expect(saved).toEqual({ content, status: 'DRAFT', approvedById: null, approvedAt: null, savedAt: new Date('2026-10-14T08:00:00Z') });
     expect(await repo.get('m1')).toEqual(saved);
   });
+
+  it('a draft can be taken back out (MICO AI’s Undo of a first draft): the meeting has none again', async () => {
+    const repo = createMemoryFinalMinutesRepository();
+    await repo.save('m1', { content, status: 'DRAFT', approvedById: null, approvedAt: null });
+    await repo.remove('m1');
+    expect(await repo.get('m1')).toBeNull();
+    await expect(repo.remove('m1')).resolves.toBeUndefined();
+  });
 });
 
 describe('final minutes storage (database)', () => {
@@ -26,6 +34,10 @@ describe('final minutes storage (database)', () => {
           const row = rows.has(where.meetingId) ? { ...rows.get(where.meetingId)!, ...update } : { id: 'x', ...create };
           rows.set(where.meetingId, row);
           return row;
+        },
+        async deleteMany({ where }: { where: { meetingId: string } }) {
+          const had = rows.delete(where.meetingId);
+          return { count: had ? 1 : 0 };
         },
       },
     };
@@ -51,5 +63,13 @@ describe('final minutes storage (database)', () => {
       approvedAt: null,
       savedAt: new Date('2026-01-01T00:00:00Z'),
     });
+  });
+
+  it('removing the row leaves the meeting without final minutes', async () => {
+    const prisma = fakePrisma();
+    const repo = createPrismaFinalMinutesRepository(prisma as never);
+    await repo.save('m1', { content, status: 'DRAFT', approvedById: null, approvedAt: null });
+    await repo.remove('m1');
+    expect(prisma.rows.has('m1')).toBe(false);
   });
 });

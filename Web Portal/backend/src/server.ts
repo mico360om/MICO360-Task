@@ -179,6 +179,10 @@ import { createMicoAiService } from './modules/mico-ai/mico-ai-service';
 import { createMicoAiTools } from './modules/mico-ai/mico-ai-tools';
 import { createPrismaMicoAiData } from './modules/mico-ai/prisma-mico-ai-data';
 import { createPrismaMicoAiRepository } from './modules/mico-ai/prisma-mico-ai-repository';
+import { createMicoAiActions } from './modules/mico-ai/mico-ai-actions';
+import { createMicoAiActionsPort } from './modules/mico-ai/mico-ai-actions-port';
+import { createMinutesData } from './modules/meetings/minutes-routes';
+import { minutesFacts } from './modules/meetings/final-minutes';
 import { createPrismaAiConfigRepository } from './modules/ai/prisma-ai-config-repository';
 import { createPrismaSettingsRepository } from './modules/settings/prisma-settings-repository';
 import { createOtpService } from './modules/auth/otp-service';
@@ -840,21 +844,51 @@ async function main(): Promise<void> {
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
   });
 
-  // MICO AI: each person's private chats with a read-only assistant. Its tools read with the app's
-  // own rules (project access, the meeting rule, the chat module's conversations); it asks the same
-  // default chat model as the other AI features, and every call counts against the person's AI limit.
+  // MICO AI: each person's private chats with the assistant. Its tools read with the app's own rules
+  // (project access, the meeting rule, the chat module's conversations); it asks the same default chat
+  // model as the other AI features, and every call counts against the person's AI limit.
+  const micoAiData = createPrismaMicoAiData({
+    prisma,
+    projectAccess,
+    meetingAccess,
+    conversationIdsFor: (userId) => chatService.accessibleConversationIds(userId),
+    finalMinutes: createPrismaFinalMinutesRepository(prisma),
+  });
+  // The changes it proposes are made only once the person confirms them, through the app's own
+  // services as that person (with the usual checks, notifications and live updates). The meeting
+  // emails and live updates are set up further down, so they are reached through these arrows.
+  const gatherMinutes = createMinutesData({ meetingService, attendeeService, agendaService, noteService, actionItemService, resolveUserNames, resolveProject, resolveTaskKeys });
+  const micoAiActions = createMicoAiActions({
+    data: micoAiData,
+    timeZone: companyTz,
+    port: createMicoAiActionsPort({
+      prisma,
+      timeZone: companyTz,
+      taskService,
+      assigneeService,
+      projectAccess,
+      meetingService,
+      attendeeService,
+      agendaService,
+      meetingNotify: {
+        sendInvites: (meetingId, opts) => meetingNotifyService.sendInvites(meetingId, opts),
+        sendCancellation: (meetingId, opts) => meetingNotifyService.sendCancellation(meetingId, opts),
+      },
+      finalMinutes: createPrismaFinalMinutesRepository(prisma),
+      minutesFacts: async (viewer, meetingId) => minutesFacts((await gatherMinutes(viewer.userId, meetingId)).data),
+      draftMinutesWithAi: (facts, requester) => aiFeatureService.draftMinutes(facts, requester),
+      onFinalMinutesChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:updated'),
+      workingDays: async () => (await settingsService.workingHours()).days,
+      isActiveUser,
+      broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+      audit: auditService,
+      logger,
+    }),
+  });
   const micoAiService = createMicoAiService({
     repo: micoAiRepository,
-    tools: createMicoAiTools({
-      data: createPrismaMicoAiData({
-        prisma,
-        projectAccess,
-        meetingAccess,
-        conversationIdsFor: (userId) => chatService.accessibleConversationIds(userId),
-        finalMinutes: createPrismaFinalMinutesRepository(prisma),
-      }),
-      timeZone: companyTz,
-    }),
+    tools: createMicoAiTools({ data: micoAiData, timeZone: companyTz }),
+    actions: micoAiActions,
     model: {
       ready: () => aiFeatureService.chatReady(),
       chat: (req, userId) => aiFeatureService.chat(req, { userId }),

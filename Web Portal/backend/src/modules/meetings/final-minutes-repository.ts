@@ -16,6 +16,8 @@ export type FinalMinutesWrite = Omit<FinalMinutesRecord, 'savedAt'>;
 export interface FinalMinutesRepository {
   get(meetingId: string): Promise<FinalMinutesRecord | null>;
   save(meetingId: string, minutes: FinalMinutesWrite): Promise<FinalMinutesRecord>;
+  /** Take the meeting's final minutes out again (Undo of a first draft); nothing to remove is fine. */
+  remove(meetingId: string): Promise<void>;
 }
 
 /** In-memory storage, for tests. */
@@ -29,6 +31,9 @@ export function createMemoryFinalMinutesRepository(now: () => Date = () => new D
       const record = { ...minutes, savedAt: now() };
       rows.set(meetingId, record);
       return record;
+    },
+    async remove(meetingId) {
+      rows.delete(meetingId);
     },
   };
 }
@@ -69,6 +74,9 @@ export function createPrismaFinalMinutesRepository(prisma: PrismaClient, now: ()
       };
       const row = await prisma.meetingMinutes.upsert({ where: { meetingId }, create: { meetingId, ...data }, update: data });
       return toRecord(row);
+    },
+    async remove(meetingId) {
+      await prisma.meetingMinutes.deleteMany({ where: { meetingId } });
     },
   };
 }
