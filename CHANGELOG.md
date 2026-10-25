@@ -14,6 +14,42 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Welcome emails: administrators can send a new person their username, the site's address and a
+  "Set your password" link (it works once and for 7 days), with the Android app and the Chrome
+  extension — never a password. Send one from a person's row in User Management, to people you tick,
+  or to everyone who has never signed in (people sent one in the last 7 days are left out). Each send
+  asks first, says who it goes to, and lists who it couldn't be sent to and why. Inactive, suspended
+  or blocked addresses never get one. Add user sends one by default, so the temporary password is
+  now optional. Every email sent is in the Audit Log.
+- User Management shows each person's last sign-in ("Never signed in" for those who haven't), can
+  show only the people who have never signed in, and sorts by last sign-in. Existing people get
+  their last sign-in from their newest session when this version is installed.
+
+### Security
+- A welcome or password-reset link stops working when the person's email address is changed, or when
+  the account is made inactive, suspended or deleted. A link for an account that isn't active is
+  refused.
+
+### Improvements
+- Projects: a project's name gets the card's full width; its status sits under it with the code and
+  client, so names no longer cut to "Finance Automat…".
+- Timeline: the same for each project's row (the status under the name), drawn icons for overdue,
+  done and milestone tasks, and the legend uses the same icons as the badges.
+- Meetings: the cards fit as many columns as have room, so beside the menu on a tablet they keep a
+  readable width instead of two cramped columns.
+- Touch screens: calendar entries and "+N more" are taller (28px) and the month works out how many fit
+  at that size; the footer's links and "Get a key" in AI Management are easier to tap; on a phone,
+  Workload and User Management keep the names in view while the rest of the table scrolls sideways,
+  and say to swipe.
+- Pages no longer jump while they load: Meetings, a meeting, a project and About keep the space of
+  what's coming.
+- Accessibility: MICO AI's messages can be scrolled with the keyboard; the task panel's delete bar is
+  no longer announced as a second page footer; the calendar's "+N more" is a full-size target; the
+  Workload daily-limit box is wide enough to read.
+- Drawn icons replace emoji for repeating tasks, an all-clear dashboard, an empty chat, "Create task
+  from note", pausing a series and a locked account.
+
 ## [1.12.1] - 2026-10-24
 
 ### Bug fixes
