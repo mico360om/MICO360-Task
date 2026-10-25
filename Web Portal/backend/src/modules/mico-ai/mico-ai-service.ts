@@ -8,6 +8,9 @@ import type { MicoAiTools } from './mico-ai-tools';
 import type { Viewer } from './mico-ai-data';
 import type { AnswerTable, AssistantContent, SourceRef, StoredResult } from './mico-ai-types';
 import type { ChatRecord, MessageRecord, MessageWithResults, MicoAiRepository } from './mico-ai-repository';
+import type { MicoAiActions } from './mico-ai-actions';
+import { UNDO_WINDOW_MS, type ItemChoice, type ItemResult, type ItemUndo, type ProposalRecord, type ProposalView } from './mico-ai-actions-types';
+import { proposalHistory, proposalSearchText, proposalView } from './mico-ai-proposal-view';
 
 /**
  * MICO AI's chats: create, rename, search, delete and switch between them, ask a question and
@@ -15,6 +18,11 @@ import type { ChatRecord, MessageRecord, MessageWithResults, MicoAiRepository } 
  * person and touches only their own chats (anyone else's reads as "not found", admins included).
  * An answer runs in the background: asking returns at once with a pending answer the page polls,
  * so a long answer never hangs on one HTTP request, and Stop aborts the model call in flight.
+ *
+ * An answer may be a card of proposed changes (when `actions` are wired). The card is stored with
+ * the answer; Confirm acts on that stored card — with only the person's own edits on top, checked
+ * again — and moves it on in one step, so a double click or a retry never carries it out twice.
+ * Undo stays open for 15 minutes after.
  */
 
 export const NOT_READY = 'MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.';
@@ -23,6 +31,10 @@ const INTERRUPTED = 'This answer was interrupted. Try again.';
 const TOO_LONG = 'MICO AI took too long to answer, so it stopped. Try a narrower question, for example one project or one week.';
 const FAILED = 'Something went wrong while answering. Try again.';
 const NOT_FOUND = 'This chat doesn’t exist, or it isn’t yours.';
+const NO_CARD = 'That answer has no changes to confirm.';
+const INTERRUPTED_CHANGE = 'This was interrupted before it was made. Check it before trying again.';
+/** A Confirm or Undo untouched this long has no live run behind it (a restart cut it off). */
+const STALE_CARD_MS = 5 * 60_000;
 
 /** The recent messages sent with each question. */
 export const HISTORY_WINDOW = 20;
@@ -63,6 +75,15 @@ export interface MicoAiServiceDeps {
   logger?: Pick<Logger, 'error'>;
   /** The longest an answer may take. Default 3 minutes. */
   answerTimeoutMs?: number;
+  /** MICO AI's changes: without them it stays read-only. */
+  actions?: Pick<MicoAiActions, 'prepare' | 'applyEdits' | 'carryOut' | 'revert'>;
+}
+
+/** The person's choices on a card, sent with Confirm. */
+export interface ConfirmInput {
+  items: ItemChoice[];
+  /** The card's "Email the invitations" tick box. */
+  sendInvites?: boolean;
 }
 
 export interface ChatSummary {
@@ -83,7 +104,7 @@ export interface MessageView {
   createdAt: string;
   /** While pending: what MICO AI is doing. */
   step: string | null;
-  answer?: Omit<AssistantContent, 'results' | 'text'>;
+  answer?: Omit<AssistantContent, 'results' | 'text' | 'proposal' | 'proposalId'> & { proposal?: ProposalView };
   error?: string;
 }
 
@@ -107,15 +128,20 @@ export function titleFrom(question: string): string {
 
 const asContent = (m: MessageRecord): AssistantContent | null => {
   const c = m.content as Partial<AssistantContent> | null;
-  return c && typeof c === 'object' && (c.kind === 'answer' || c.kind === 'clarify') ? (c as AssistantContent) : null;
+  return c && typeof c === 'object' && (c.kind === 'answer' || c.kind === 'clarify' || c.kind === 'proposal') ? (c as AssistantContent) : null;
 };
+const isProposal = (m: MessageRecord) => m.role === 'assistant' && asContent(m)?.kind === 'proposal';
 const resultsOf = (m: MessageWithResults): StoredResult[] => (Array.isArray(m.results) ? (m.results as StoredResult[]) : []);
 
-/** What the model is shown of an earlier message. */
-function historyTurn(m: MessageRecord): HistoryTurn | null {
+/** What the model is shown of an earlier message (a card of changes with what became of it). */
+function historyTurn(m: MessageRecord, cards?: Map<string, ProposalRecord>): HistoryTurn | null {
   if (m.role === 'user') return { role: 'user', text: m.text };
   const c = asContent(m);
   if (m.status !== 'DONE' || !c) return null;
+  if (c.kind === 'proposal') {
+    const card = cards?.get(m.id);
+    return { role: 'assistant', text: card ? `${c.text}\n${proposalHistory(card)}` : c.text };
+  }
   const text = c.kind === 'clarify' && c.options.length ? `${c.text} (options: ${c.options.join(' | ')})` : c.text;
   return { role: 'assistant', text, tables: c.tables.map((t) => ({ title: t.title, fromResult: t.fromResult, rows: t.rows.length })) };
 }
@@ -133,7 +159,7 @@ function plainError(err: unknown): string {
 }
 
 export function createMicoAiService(deps: MicoAiServiceDeps) {
-  const { repo, tools, model, timeZone } = deps;
+  const { repo, tools, model, timeZone, actions } = deps;
   const now = deps.now ?? (() => new Date());
   const answerTimeoutMs = deps.answerTimeoutMs ?? ANSWER_TIMEOUT_MS;
   /** A pending answer untouched this long has no live run behind it (a restart cut it off). */
@@ -148,6 +174,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
   };
   /** Answers being written in this process: their stop switch and when they finish. */
   const running = new Map<string, { controller: AbortController; done: Promise<void> }>();
+  /** Cards being confirmed or undone in this process. */
+  const carrying = new Set<string>();
 
   async function ownChat(viewer: Viewer, chatId: string): Promise<ChatRecord> {
     const chat = await repo.getChat(viewer.userId, chatId);
@@ -157,7 +185,28 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
 
   const isStale = (m: MessageRecord) => m.status === 'PENDING' && !running.has(m.id) && m.updatedAt < staleBefore();
 
-  function view(m: MessageRecord): MessageView {
+  /** A Confirm or Undo a restart cut off: settled, so the card never stays half-way. */
+  async function settled(p: ProposalRecord): Promise<ProposalRecord> {
+    const busy = p.status === 'CONFIRMING' || p.status === 'UNDOING';
+    if (!busy || carrying.has(p.id) || p.updatedAt.getTime() > now().getTime() - STALE_CARD_MS) return p;
+    if (p.status === 'CONFIRMING') {
+      const results: Record<string, ItemResult> = { ...(p.results ?? {}) };
+      for (const item of p.items) results[item.id] ??= { status: 'failed', message: INTERRUPTED_CHANGE, link: null };
+      const any = Object.values(results).some((r) => r.status === 'done' && r.undo);
+      await repo.moveProposal(p.id, ['CONFIRMING'], 'DONE', { results, confirmedAt: p.updatedAt, undoUntil: any ? new Date(p.updatedAt.getTime() + UNDO_WINDOW_MS) : null });
+    } else await repo.moveProposal(p.id, ['UNDOING'], 'UNDONE', { undoneAt: p.updatedAt });
+    return (await repo.getProposal(p.messageId)) ?? p;
+  }
+
+  /** The cards of these messages, settled. */
+  async function cardsOf(messages: MessageRecord[]): Promise<Map<string, ProposalRecord>> {
+    const ids = messages.filter(isProposal).map((m) => m.id);
+    if (!ids.length) return new Map();
+    const found = await Promise.all((await repo.proposalsFor(ids)).map(settled));
+    return new Map(found.map((p) => [p.messageId, p]));
+  }
+
+  function view(m: MessageRecord, cards?: Map<string, ProposalRecord>): MessageView {
     const base = { id: m.id, role: m.role, text: m.text, createdAt: m.createdAt.toISOString(), step: null as string | null };
     if (m.role === 'user') return { ...base, status: 'done' };
     if (isStale(m)) return { ...base, text: '', status: 'error', error: INTERRUPTED };
@@ -170,8 +219,17 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const c = asContent(m);
     if (!c) return { ...base, status: 'error', error: FAILED };
     const { kind, unavailable, tables, sources, followUps, options } = c;
+    if (kind === 'proposal') {
+      const card = cards?.get(m.id);
+      if (!card) return { ...base, status: 'error', error: FAILED };
+      return { ...base, status: 'done', text: c.text, answer: { kind, unavailable, tables: [], sources: [], followUps: [], options: [], proposal: proposalView(card, now()) } };
+    }
     return { ...base, status: 'done', text: c.text, answer: { kind, unavailable, tables, sources, followUps, options } };
   }
+  const viewAll = async (messages: MessageRecord[]) => {
+    const cards = await cardsOf(messages);
+    return messages.map((m) => view(m, cards));
+  };
 
   async function status(): Promise<{ ready: boolean; message: string | null }> {
     const ready = await model.ready();
@@ -197,13 +255,13 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const chat = await ownChat(viewer, chatId);
     await interruptStale(chat.id);
     const page = await repo.pageMessages(chat.id, { limit: PAGE_SIZE });
-    return { chat: summaryOf(chat), messages: page.messages.map(view), hasMore: page.hasMore };
+    return { chat: summaryOf(chat), messages: await viewAll(page.messages), hasMore: page.hasMore };
   }
 
   async function olderMessages(viewer: Viewer, chatId: string, before: string, limit = PAGE_SIZE): Promise<{ messages: MessageView[]; hasMore: boolean }> {
     const chat = await ownChat(viewer, chatId);
     const page = await repo.pageMessages(chat.id, { limit: Math.min(Math.max(1, limit), PAGE_SIZE), before });
-    return { messages: page.messages.map(view), hasMore: page.hasMore };
+    return { messages: await viewAll(page.messages), hasMore: page.hasMore };
   }
 
   async function renameChat(viewer: Viewer, chatId: string, title: string): Promise<ChatSummary> {
@@ -227,8 +285,10 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     if (!fresh) return;
     const upTo = total - HISTORY_WINDOW;
     if (upTo - fresh.summarizedCount < SUMMARY_BATCH) return;
-    const lines = (await repo.messageRange(chat.id, fresh.summarizedCount, upTo - fresh.summarizedCount))
-      .map(historyTurn)
+    const older = await repo.messageRange(chat.id, fresh.summarizedCount, upTo - fresh.summarizedCount);
+    const cards = await cardsOf(older);
+    const lines = older
+      .map((m) => historyTurn(m, cards))
       .filter((h): h is HistoryTurn => !!h)
       .map((h) => `${h.role === 'user' ? 'User' : 'MICO AI'}: ${JSON.stringify(h.text.slice(0, 1500)).replace(/</g, '\\u003c')}`);
     const raw = await model.chat(
@@ -274,7 +334,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     try {
       // The recent turns (with their results) before this question: the new question and answer are the last two.
       const window = (await repo.recentMessages(chat.id, HISTORY_WINDOW + 2)).filter((m) => m.id !== answerId).slice(0, -1);
-      const history = window.map(historyTurn).filter((h): h is HistoryTurn => !!h);
+      const cards = await cardsOf(window);
+      const history = window.map((m) => historyTurn(m, cards)).filter((h): h is HistoryTurn => !!h);
       const kept = window.flatMap((m) => (m.role === 'assistant' && m.status === 'DONE' ? resultsOf(m) : [])).slice(-EARLIER_RESULTS);
       // Checked against what the person can see now: access may have changed since they were found.
       const earlier = kept.length ? await tools.recheck(viewer, kept) : [];
@@ -290,12 +351,18 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
             await repo.updateMessage(answerId, { step }, 'PENDING');
           },
           context: { today, todayLabel: `${weekday} ${formatDay(today)}`, timeZone, userName: (await deps.userName?.(viewer.userId)) || 'the user' },
+          ...(actions ? { propose: (changes: Array<Record<string, unknown>>, opts: { final: boolean }) => actions.prepare(viewer, changes, opts) } : {}),
         },
         { question, history, summary: chat.summary, earlier, signal },
       );
       if (signal.aborted) throw new AiCallStoppedError();
-      const { results, ...answer } = out;
-      await repo.updateMessage(answerId, { status: 'DONE', text: searchText(out), content: answer, results, step: null }, 'PENDING');
+      const { results, proposal, ...answer } = out;
+      if (proposal) {
+        // The card is kept on its own (with what Undo will need); the answer keeps only its id.
+        const card = await repo.createProposal({ messageId: answerId, userId: viewer.userId, items: proposal.items, note: proposal.note });
+        const words = `${out.text}\n${proposalSearchText(proposal.items)}`.slice(0, 60_000);
+        await repo.updateMessage(answerId, { status: 'DONE', text: words, content: { ...answer, proposalId: card.id }, results, step: null }, 'PENDING');
+      } else await repo.updateMessage(answerId, { status: 'DONE', text: searchText(out), content: answer, results, step: null }, 'PENDING');
       clearTimeout(timer);
       await summarize(viewer, chat, new AbortController().signal).catch((err) => log('MICO AI summary failed', err));
     } catch (err) {
@@ -342,7 +409,91 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const chat = await ownChat(viewer, chatId);
     const m = await repo.getMessage(chat.id, messageId);
     if (!m) throw new NotFoundError('That message doesn’t exist.');
-    return view(m);
+    return (await viewAll([m]))[0]!;
+  }
+
+  /** The card of one of the person's own answers (404 for anyone else's, or an answer without one). */
+  async function ownCard(viewer: Viewer, chatId: string, messageId: string): Promise<{ message: MessageRecord; card: ProposalRecord }> {
+    const chat = await ownChat(viewer, chatId);
+    const message = await repo.getMessage(chat.id, messageId);
+    const card = message && message.status === 'DONE' && isProposal(message) ? await repo.getProposal(message.id) : null;
+    if (!message || !card || card.userId !== viewer.userId) throw new NotFoundError(NO_CARD);
+    return { message, card: await settled(card) };
+  }
+  const cardView = async (message: MessageRecord) => (await viewAll([message]))[0]!;
+
+  /**
+   * Confirm a card: the stored changes, with the person's edits and ticks, are checked again and made
+   * one by one as the person. Only the first of several confirms moves the card on; the others (a
+   * double click, a retry) get the card as it is.
+   */
+  async function confirm(viewer: Viewer, chatId: string, messageId: string, input: ConfirmInput, meta: { ip: string | null }): Promise<MessageView> {
+    const { message, card } = await ownCard(viewer, chatId, messageId);
+    if (!actions || card.status !== 'PROPOSED') return cardView(message);
+    const choices = new Map(input.items.map((c) => [c.id, c]));
+    const items = actions.applyEdits(card.items, input.items);
+    const include = Object.fromEntries(items.map((i) => [i.id, choices.get(i.id)?.include ?? (!i.problem && !i.locked)]));
+    const sendInvites = input.sendInvites ?? card.sendInvites;
+    if (!(await repo.moveProposal(card.id, ['PROPOSED'], 'CONFIRMING', { items, sendInvites }))) return cardView(message);
+    carrying.add(card.id);
+    let results: Record<string, ItemResult> = {};
+    let out = items;
+    try {
+      const done = await actions.carryOut(viewer, items, {
+        include,
+        sendInvites,
+        ip: meta.ip,
+        onResult: async (r) => {
+          results = r;
+          await repo.updateProposal(card.id, { results: r }, 'CONFIRMING');
+        },
+      });
+      results = done.results;
+      out = done.items;
+    } catch (err) {
+      log('MICO AI could not finish confirming a card', err);
+      for (const item of items) results[item.id] ??= { status: 'failed', message: INTERRUPTED_CHANGE, link: null };
+    } finally {
+      const at = now();
+      const any = Object.values(results).some((r) => r.status === 'done' && r.undo);
+      await repo.moveProposal(card.id, ['CONFIRMING'], 'DONE', { items: out, results, confirmedAt: at, undoUntil: any ? new Date(at.getTime() + UNDO_WINDOW_MS) : null });
+      carrying.delete(card.id);
+    }
+    return cardView(message);
+  }
+
+  /** Cancel a card that hasn't been confirmed: nothing is changed. */
+  async function cancel(viewer: Viewer, chatId: string, messageId: string): Promise<MessageView> {
+    const { message, card } = await ownCard(viewer, chatId, messageId);
+    await repo.moveProposal(card.id, ['PROPOSED'], 'CANCELLED');
+    return cardView(message);
+  }
+
+  /** Undo a confirmed card within 15 minutes: each change is put back unless someone changed it since. */
+  async function undo(viewer: Viewer, chatId: string, messageId: string, meta: { ip: string | null }): Promise<MessageView> {
+    const { message, card } = await ownCard(viewer, chatId, messageId);
+    if (card.status === 'UNDOING' || card.status === 'UNDONE') return cardView(message);
+    const made = Object.values(card.results ?? {}).some((r) => r.status === 'done' && r.undo);
+    if (!actions || card.status !== 'DONE' || !made || !card.undoUntil) throw new ConflictError('Nothing on this card was made, so there is nothing to undo.', 'NOTHING_TO_UNDO');
+    if (now().getTime() > card.undoUntil.getTime()) throw new ConflictError('Undo is only open for 15 minutes after confirming. Change these on their own pages instead.', 'UNDO_EXPIRED');
+    if (!(await repo.moveProposal(card.id, ['DONE'], 'UNDOING'))) return cardView(message);
+    carrying.add(card.id);
+    let undone: Record<string, ItemUndo> = {};
+    try {
+      undone = await actions.revert(viewer, card.items, card.results ?? {}, {
+        ip: meta.ip,
+        onUndo: async (u) => {
+          undone = u;
+          await repo.updateProposal(card.id, { undo: u }, 'UNDOING');
+        },
+      });
+    } catch (err) {
+      log('MICO AI could not finish undoing a card', err);
+    } finally {
+      await repo.moveProposal(card.id, ['UNDOING'], 'UNDONE', { undo: undone, undoneAt: now() });
+      carrying.delete(card.id);
+    }
+    return cardView(message);
   }
 
   /** Stop an answer being written: the model call is aborted and the answer is marked stopped. */
@@ -352,7 +503,7 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     if (!m) throw new NotFoundError('That message doesn’t exist.');
     running.get(m.id)?.controller.abort();
     await repo.updateMessage(m.id, { status: 'STOPPED', step: null }, 'PENDING');
-    return view((await repo.getMessage(chat.id, messageId))!);
+    return (await viewAll([(await repo.getMessage(chat.id, messageId))!]))[0]!;
   }
 
   /** An answer's table (1-based) with what a download needs: the question, the answer's words, the chat. */
@@ -395,7 +546,7 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     await running.get(messageId)?.done;
   }
 
-  return { status, listChats, createChat, getChat, olderMessages, renameChat, deleteChat, ask, getMessage, stop, table, answer, whenDone, interruptStale };
+  return { status, listChats, createChat, getChat, olderMessages, renameChat, deleteChat, ask, getMessage, stop, table, answer, whenDone, interruptStale, confirm, cancel, undo };
 }
 
 export type MicoAiService = ReturnType<typeof createMicoAiService>;

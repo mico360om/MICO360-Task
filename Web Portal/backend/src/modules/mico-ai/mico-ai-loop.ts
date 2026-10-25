@@ -353,6 +353,7 @@ export function looksCutOff(raw: string): boolean {
 
 const NOTE_CUT_OFF = 'Your last reply was cut off before it ended. Reply again, shorter: keep the text brief, and show lists as tables instead of writing them out.';
 const NOTE_MALFORMED = 'Your last reply was not valid JSON in the required format. Reply again with ONLY one JSON object: a tool, a clarify or an answer.';
+const READ_ONLY = 'MICO AI can’t make changes here. It can answer questions about your tasks, projects, meetings, reports and chat.';
 const NOTE_READ_ONLY = 'You can’t make changes here: MICO AI is read-only. Reply with an answer saying so, and offer what you can show instead.';
 const NOTE_UNGROUNDED =
   'Your answer has figures, but no tool has given you any data yet. Run a tool to get the data first, or say clearly that it isn’t available. Never estimate.';
@@ -423,6 +424,8 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
   let nudged = false;
   /** Problems with a proposal were told to the model once: the next one makes the card. */
   let proposeRetried = false;
+  /** Read-only: told once that it can't make changes; proposing again ends the turn with that answer. */
+  let toldReadOnly = false;
   const stopped = () => {
     if (input.signal.aborted) throw new AiCallStoppedError();
   };
@@ -458,6 +461,8 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
 
     if (action.action === 'propose') {
       if (!deps.propose) {
+        if (toldReadOnly) return { kind: 'answer', text: READ_ONLY, unavailable: true, tables: [], sources: [], followUps: [], options: [], results: results.map(stored) };
+        toldReadOnly = true;
         note = NOTE_READ_ONLY;
         continue;
       }

@@ -427,6 +427,14 @@ describe('MICO AI tool loop: proposing changes (they happen only once the person
     expect(model.prompts[0]!.system).not.toContain('create_task');
   });
 
+  it('a model that keeps proposing in read-only mode is told once, then answered for (never a loop)', async () => {
+    const { d, model } = deps([proposeReply]);
+    const out = await runTurn(d, input('Make a task'));
+    expect(model.calls()).toBe(2);
+    expect(out).toMatchObject({ kind: 'answer', unavailable: true });
+    expect(out.text).toMatch(/can’t make changes/i);
+  });
+
   it('the rules for proposing are in the system prompt when the actions are wired', async () => {
     const { d, model } = deps([answer({ text: 'Hi.' })]);
     d.propose = (async () => ({ kind: 'card', card })) as Propose;

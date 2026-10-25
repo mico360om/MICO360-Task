@@ -180,3 +180,67 @@ describe('MICO AI routes', () => {
     await app.close();
   });
 });
+
+describe('MICO AI routes: confirming, cancelling and undoing a card', () => {
+  async function withCard() {
+    const { createMicoAiActions } = await import('./mico-ai-actions');
+    const { createFakeWorld } = await import('./mico-ai-actions.fixture');
+    const world = createFakeWorld(company());
+    const reply = { action: 'propose', text: 'Two tasks to make.', changes: [{ type: 'create_task', title: 'A', project: 'RIG' }, { type: 'create_task', title: 'B', project: 'RIG' }] };
+    const micoAiService = createMicoAiService({
+      repo: createMemoryMicoAiRepository(() => NOW),
+      tools: createMicoAiTools({ data: world.read, timeZone: 'Asia/Muscat', now: () => NOW }),
+      actions: createMicoAiActions({ data: world.read, port: world.port, timeZone: 'Asia/Muscat', now: () => NOW }),
+      model: { ready: async () => true, chat: async () => JSON.stringify(reply), startQuestion: () => {} },
+      timeZone: 'Asia/Muscat',
+      now: () => NOW,
+    });
+    const app = await buildApp({ authService, tokenService, micoAiService });
+    const omar = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'u-omar', roles: ['EMPLOYEE'] })).accessToken}` };
+    const sara = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'u-sara', roles: ['EMPLOYEE'] })).accessToken}` };
+    const chatId = (await app.inject({ method: 'POST', url: '/api/v1/mico-ai/chats', headers: omar, payload: {} })).json().data.id;
+    const answer = (await app.inject({ method: 'POST', url: `/api/v1/mico-ai/chats/${chatId}/messages`, headers: omar, payload: { text: 'Make two tasks' } })).json().data.answer;
+    await micoAiService.whenDone(answer.id);
+    const base = `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}`;
+    return { app, world, omar, sara, base };
+  }
+
+  it('needs a signed-in person, and is the chat owner’s only (404 for anyone else)', async () => {
+    const { app, sara, base } = await withCard();
+    for (const action of ['confirm', 'cancel', 'undo']) {
+      expect((await app.inject({ method: 'POST', url: `${base}/${action}`, payload: {} })).statusCode).toBe(401);
+      expect((await app.inject({ method: 'POST', url: `${base}/${action}`, headers: sara, payload: {} })).statusCode).toBe(404);
+    }
+    await app.close();
+  });
+
+  it('Confirm with ticks and edits returns the message with each change’s result; again, the same', async () => {
+    const { app, omar, base, world } = await withCard();
+    const body = { items: [{ id: 'c1', include: true, edits: { title: 'A, edited' } }, { id: 'c2', include: false }], sendInvites: true };
+    const first = await app.inject({ method: 'POST', url: `${base}/confirm`, headers: omar, payload: body });
+    expect(first.statusCode).toBe(200);
+    const card = first.json().data.answer.proposal;
+    expect(card.status).toBe('done');
+    expect(card.items.map((i: { result: { status: string } }) => i.result.status)).toEqual(['done', 'skipped']);
+    const again = await app.inject({ method: 'POST', url: `${base}/confirm`, headers: omar, payload: body });
+    expect(again.json().data.answer.proposal.status).toBe('done');
+    expect(world.calls.filter((c) => c.startsWith('createTask'))).toHaveLength(1);
+    // Undo, then Undo again: the same, nothing more.
+    const undone = await app.inject({ method: 'POST', url: `${base}/undo`, headers: omar });
+    expect(undone.statusCode).toBe(200);
+    expect(undone.json().data.answer.proposal.status).toBe('undone');
+    expect((await app.inject({ method: 'POST', url: `${base}/undo`, headers: omar })).json().data.answer.proposal.status).toBe('undone');
+    await app.close();
+  });
+
+  it('a bad body is a 400; Undo before Confirm is a 409 NOTHING_TO_UNDO; Cancel closes the card', async () => {
+    const { app, omar, base } = await withCard();
+    expect((await app.inject({ method: 'POST', url: `${base}/confirm`, headers: omar, payload: { items: [{ id: 'c1', include: 'yes' }] } })).statusCode).toBe(400);
+    const early = await app.inject({ method: 'POST', url: `${base}/undo`, headers: omar });
+    expect(early.statusCode).toBe(409);
+    expect(early.json().error.code).toBe('NOTHING_TO_UNDO');
+    const cancelled = await app.inject({ method: 'POST', url: `${base}/cancel`, headers: omar });
+    expect(cancelled.json().data.answer.proposal.status).toBe('cancelled');
+    await app.close();
+  });
+});

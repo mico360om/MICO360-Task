@@ -20,6 +20,13 @@ const createBody = z.object({ title: z.string().max(200).optional() }).default({
 const renameBody = z.object({ title: z.string().max(200) });
 const askBody = z.object({ text: z.string().max(4000) });
 const olderQuery = z.object({ before: id, limit: z.coerce.number().int().min(1).max(50).optional() });
+// The person's ticks and edits on a card (the server checks each edit again; nothing else is taken from here).
+const confirmBody = z
+  .object({
+    items: z.array(z.object({ id: z.string().min(1).max(20), include: z.boolean(), edits: z.record(z.unknown()).optional() })).max(60).default([]),
+    sendInvites: z.boolean().optional(),
+  })
+  .default({});
 
 const viewer = (req: FastifyRequest) => ({ userId: req.user!.id, roles: req.user!.roles ?? [] });
 
@@ -27,7 +34,8 @@ const viewer = (req: FastifyRequest) => ({ userId: req.user!.id, roles: req.user
  * MICO AI: a person's own chats with the assistant (private to them: anyone else's chat is 404).
  * Asking returns 202 with the question and a pending answer; the page polls the answer for its
  * progress line and stops it with /stop. An answer's tables download as .xlsx or .pdf, and the whole
- * answer (every table) as one PDF report.
+ * answer (every table) as one PDF report. An answer that proposes changes holds a card: /confirm
+ * makes them (once, however often it is sent), /cancel drops them, /undo puts them back (15 minutes).
  */
 export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRouteDeps): Promise<void> {
   const { micoAiService: svc, guard } = deps;
@@ -83,6 +91,24 @@ export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRou
   app.post('/mico-ai/chats/:chatId/messages/:messageId/stop', auth, async (req) => {
     const { chatId, messageId } = messageParams.parse(req.params);
     return { data: await svc.stop(viewer(req), chatId, messageId) };
+  });
+
+  // A card of proposed changes: confirm (the person's ticks and edits), cancel, or undo once confirmed.
+  // Each returns the message with its card as it now is.
+  app.post('/mico-ai/chats/:chatId/messages/:messageId/confirm', auth, async (req) => {
+    const { chatId, messageId } = messageParams.parse(req.params);
+    const body = confirmBody.parse(req.body ?? {});
+    return { data: await svc.confirm(viewer(req), chatId, messageId, body, { ip: req.ip ?? null }) };
+  });
+
+  app.post('/mico-ai/chats/:chatId/messages/:messageId/cancel', auth, async (req) => {
+    const { chatId, messageId } = messageParams.parse(req.params);
+    return { data: await svc.cancel(viewer(req), chatId, messageId) };
+  });
+
+  app.post('/mico-ai/chats/:chatId/messages/:messageId/undo', auth, async (req) => {
+    const { chatId, messageId } = messageParams.parse(req.params);
+    return { data: await svc.undo(viewer(req), chatId, messageId, { ip: req.ip ?? null }) };
   });
 
   // An answer's table n (1 = the first) as Excel or a branded PDF: tables/1.xlsx, tables/1.pdf.

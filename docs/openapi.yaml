@@ -781,7 +781,9 @@ paths:
       summary: >-
         Ask a question. Returns at once (202) with the question and a pending answer; MICO AI then reads,
         with the person's own access only (read-only tools: tasks, projects, meetings and minutes, report
-        figures, team chat they are part of, people), and writes the answer. Poll the answer for its step
+        figures, team chat they are part of, people), and writes the answer — or, when asked to make or
+        change something, a card of proposed changes (answer.kind "proposal") that changes nothing until
+        it is confirmed (…/confirm). Poll the answer for its step
         and result. The question counts once against the person's per-minute AI limit and every AI call it
         makes against their daily limit (both shared with the other AI features); an answer may take at
         most 3 minutes. One answer at a time per chat. The audit
@@ -807,6 +809,63 @@ paths:
     post:
       summary: Stop an answer being written (the AI call in flight is aborted; nothing it says later is kept).
       responses: { '200': { description: 'The MicoAiMessage, stopped' }, '404': { description: No such message in a chat of yours } }
+  /mico-ai/chats/{chatId}/messages/{messageId}/confirm:
+    parameters:
+      - { name: chatId, in: path, required: true, schema: { type: string } }
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+    post:
+      summary: >-
+        Confirm an answer's card of proposed changes (answer.kind "proposal"). The card stored with the
+        answer is carried out, with only the person's ticks and edits on top (each checked again: their
+        access, the project's people, real dates, and whether a task or the minutes changed since it was
+        proposed). Each change is made through the app's own services as the person, marked "via MICO AI"
+        in its history, with an audit entry (mico-ai.task.create, mico-ai.task.update,
+        mico-ai.meeting.create, mico-ai.minutes.draft) and the usual notifications. A refused or failed
+        change never stops the others. Only the first confirm moves the card on: a repeat (a double click,
+        a retry) returns the card as it is and changes nothing. Undo then stays open for 15 minutes.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  maxItems: 60
+                  items:
+                    type: object
+                    required: [id, include]
+                    properties:
+                      id: { type: string, description: The change on the card (c1, c2 …) }
+                      include: { type: boolean, description: Ticked }
+                      edits: { type: object, description: 'The person''s edits to its fields (ids and values: projectId, assigneeIds, due, priority, columnId, title, date, time, minutes, attendeeIds, agenda, description, content)' }
+                sendInvites: { type: boolean, description: 'The card''s "Email the invitations" tick box (on by default)' }
+      responses:
+        '200': { description: 'The MicoAiMessage, its answer.proposal with each change''s result (done, refused, failed or skipped, with why)' }
+        '400': { description: The body is not in the expected form }
+        '404': { description: No such answer with a card in a chat of yours }
+  /mico-ai/chats/{chatId}/messages/{messageId}/cancel:
+    parameters:
+      - { name: chatId, in: path, required: true, schema: { type: string } }
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Cancel a card that hasn't been confirmed (nothing is changed). A card already confirmed is returned as it is.
+      responses: { '200': { description: 'The MicoAiMessage, its card cancelled' }, '404': { description: No such answer with a card in a chat of yours } }
+  /mico-ai/chats/{chatId}/messages/{messageId}/undo:
+    parameters:
+      - { name: chatId, in: path, required: true, schema: { type: string } }
+      - { name: messageId, in: path, required: true, schema: { type: string } }
+    post:
+      summary: >-
+        Undo a confirmed card, up to 15 minutes after confirming: newest first, each change is put back
+        (a new task deleted, a task's fields and people restored, a new meeting cancelled — the people
+        invited are told — or deleted when nobody was invited, the earlier draft of the minutes restored)
+        unless someone changed it since; then it says so for that change and leaves it. A repeat changes
+        nothing more. Audit action mico-ai.undo.
+      responses:
+        '200': { description: 'The MicoAiMessage, its card undone with each change''s outcome' }
+        '404': { description: No such answer with a card in a chat of yours }
+        '409': { description: 'UNDO_EXPIRED: more than 15 minutes since confirming; NOTHING_TO_UNDO: not confirmed, or nothing was made' }
   /mico-ai/chats/{chatId}/messages/{messageId}/tables/{n}.xlsx:
     parameters:
       - { name: chatId, in: path, required: true, schema: { type: string } }
