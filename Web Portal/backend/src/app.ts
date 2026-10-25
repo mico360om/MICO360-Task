@@ -439,7 +439,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const projectAuthz =
         deps.projectAuthz ??
         createProjectAuthz({
-          managers: { async isManager() { return false; }, async projectIdOfColumn() { return null; }, async projectIdOfTask() { return null; } },
+          managers: { async managesProject() { return false; }, async projectIdOfColumn() { return null; }, async projectIdOfTask() { return null; } },
         });
       // Object-level view authorization (undefined ⇒ endpoints stay open, e.g. in unit tests).
       const access = deps.projectAccess;
@@ -459,6 +459,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           audit: deps.auditService,
           storage: deps.chatAttachmentStorage,
           imageMaxBytes: deps.attachmentMaxSizeBytes,
+          authz: projectAuthz,
         });
       }
       if (deps.projectService && (deps.timelineSource || deps.workloadStore)) {

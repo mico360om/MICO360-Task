@@ -47,6 +47,14 @@ export interface CreateProjectData {
   carryForward?: boolean;
   defaultDueToday?: boolean;
   createdById: string;
+  /** Its team from the start, written with the project in one go (one row per person). */
+  members?: NewProjectMember[];
+}
+
+/** A person put on a new project's team. */
+export interface NewProjectMember {
+  userId: string;
+  role: 'MEMBER' | 'MANAGER';
 }
 
 export interface UpdateProjectData {
@@ -90,6 +98,16 @@ export interface ProjectRepository {
   listForUser(userId: string): Promise<ProjectRecord[]>;
   /** True if the user owns, manages, created, or is a member of the project. */
   isAccessibleTo(projectId: string, userId: string): Promise<boolean>;
-  update(id: string, patch: UpdateProjectData): Promise<ProjectRecord>;
+  /**
+   * Change a project. `keepManager`: in the same write, make sure this person is a MANAGER member
+   * (added, or promoted from MEMBER) — someone who hands over a project they run keeps running it.
+   */
+  update(id: string, patch: UpdateProjectData, opts?: { keepManager?: string }): Promise<ProjectRecord>;
   softDelete(id: string): Promise<void>;
+}
+
+/** Who may be picked for a project (owner, manager, team): people who are active and not deleted. */
+export interface PeopleLookup {
+  /** Those of `ids` who are active users, each once. */
+  activeIds(ids: string[]): Promise<string[]>;
 }

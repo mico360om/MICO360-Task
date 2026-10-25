@@ -149,14 +149,15 @@ describe('Project routes', () => {
     expect(res.json().data.code).toBe('MICO');
   });
 
-  it('forbids an employee from creating a project (403)', async () => {
+  it('lets an employee create a project, which they own unless they pick someone else (201)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/projects',
-      headers: { authorization: `Bearer ${await token(['EMPLOYEE'])}` },
-      payload: { code: 'X', name: 'X' },
+      headers: { authorization: `Bearer ${await tokenFor('emp1', ['EMPLOYEE'])}` },
+      payload: { code: 'EMP', name: 'Employee project' },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ code: 'EMP', ownerId: 'emp1', createdById: 'emp1' });
   });
 
   it('rejects an unauthenticated create (401)', async () => {

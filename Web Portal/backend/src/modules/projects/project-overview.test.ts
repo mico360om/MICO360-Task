@@ -121,7 +121,7 @@ describe('buildProjectOverview', () => {
     const [item] = buildProjectOverview([project('p1', { description: 'Long scope…', notes: 'Private notes', targetDate: new Date('2026-11-30T00:00:00Z') })], rows, opts);
     // The response shape, field by field.
     expect(Object.keys(item!).sort()).toEqual(
-      ['clientName', 'code', 'color', 'icon', 'id', 'imageUrl', 'mine', 'name', 'number', 'owner', 'ownerId', 'stats', 'status', 'targetDate', 'team', 'teamCount'].sort(),
+      ['canManage', 'clientName', 'code', 'color', 'icon', 'id', 'imageUrl', 'mine', 'name', 'number', 'owner', 'ownerId', 'stats', 'status', 'targetDate', 'team', 'teamCount'].sort(),
     );
     expect(item!.team.map((m) => m.id)).toEqual(['u0', 'u1', 'u2', 'u3']);
     expect(item!.teamCount).toBe(6);
@@ -136,5 +136,14 @@ describe('buildProjectOverview', () => {
       opts,
     );
     expect(Object.fromEntries(list.map((p) => [p.id, p.mine]))).toEqual({ owner: true, manager: true, member: true, creator: false, other: false });
+  });
+});
+
+describe('buildProjectOverview — who may change each project', () => {
+  it('marks the projects the viewer may change (as the server decided), and no others', () => {
+    const list = buildProjectOverview([project('p1'), project('p2')], empty, { ...opts, manageable: new Set(['p2']) });
+    expect(list.map((p) => [p.id, p.canManage])).toEqual([['p1', false], ['p2', true]]);
+    // Not told: nobody may.
+    expect(buildProjectOverview([project('p1')], empty, opts)[0]!.canManage).toBe(false);
   });
 });

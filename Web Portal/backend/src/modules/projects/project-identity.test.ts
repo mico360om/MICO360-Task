@@ -102,7 +102,8 @@ describe('Project identity: code, icon and colour', () => {
     expect((await check('rig')).json().data).toEqual({ code: 'RIG', valid: true, available: true });
     expect((await check('mico')).json().data).toEqual({ code: 'MICO', valid: true, available: false, suggestion: 'MICO3' });
     expect((await check('1x')).json().data).toMatchObject({ code: '1X', valid: false, available: false });
-    expect((await check('rig', ['EMPLOYEE'])).statusCode).toBe(403);
+    // Anyone signed in may create a project, so anyone may check a code first.
+    expect((await check('rig', ['EMPLOYEE'])).statusCode).toBe(200);
   });
 });
 

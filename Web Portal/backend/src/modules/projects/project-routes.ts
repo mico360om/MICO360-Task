@@ -2,10 +2,12 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ProjectService } from './project-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import type { ProjectAuthz } from './project-authz';
+import type { ProjectRecord } from './project-repository';
 import type { AuditService } from '../audit/audit-service';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
-import { ValidationError } from '../../lib/http-errors';
+import { ForbiddenError, ValidationError } from '../../lib/http-errors';
 import { computeProjectProgress, type ProgressTask } from './project-progress';
 import { buildProjectOverview, type ProjectOverviewSource } from './project-overview';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
@@ -46,8 +48,13 @@ const createSchema = z.object({
   // (older apps, including the Android app, send project updates without them).
   carryForward: z.boolean().optional(),
   defaultDueToday: z.boolean().optional(),
+  // New projects only: the people put on its team at once (the creator and the owner join anyway).
+  memberIds: z.array(idString).max(500).optional(),
 });
-const updateSchema = createSchema.partial().omit({ code: true });
+const updateSchema = createSchema.partial().omit({ code: true, memberIds: true });
+
+/** What a refused change says (the project's other members see it; outsiders get a 404). */
+export const CHANGE_REFUSED = 'Only this project’s owner, its managers or an administrator can change it.';
 
 export interface ProjectRouteDeps {
   projectService: ProjectService;
@@ -63,16 +70,43 @@ export interface ProjectRouteDeps {
   /** File storage for project images; when absent, the image upload endpoint is disabled. */
   storage?: AttachmentStorage;
   imageMaxBytes?: number;
+  /**
+   * Who may change a project (its owner, named manager or MANAGER members, and admins). Without it,
+   * only administrators may.
+   */
+  authz?: ProjectAuthz;
 }
 
 export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectRouteDeps): Promise<void> {
   const { projectService, guard } = deps;
   const logAudit = (req: FastifyRequest, action: string, entityId: string | null, newValue?: unknown) =>
     deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'projects', action, entityId, newValue });
+  const viewer = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+  const isAdmin = (roles: string[]) => roles.includes('ADMIN');
+  const canManage = (user: { id: string; roles: string[] }, projectId: string) =>
+    deps.authz ? deps.authz.canManageProject(user.id, user.roles, projectId) : Promise.resolve(isAdmin(user.roles));
+  const manageable = async (user: { id: string; roles: string[] }, ids: string[]): Promise<Set<string>> =>
+    deps.authz ? deps.authz.manageableProjectIds(user.id, user.roles, ids) : new Set(isAdmin(user.roles) ? ids : []);
+  /** A project as sent back: with whether the person asking may change it. */
+  const withCanManage = async (user: { id: string; roles: string[] }, project: ProjectRecord) => ({ ...project, canManage: await canManage(user, project.id) });
+
+  /**
+   * The project, if the person asking may change it: hidden (404) from someone who can't even see
+   * it, refused (403) for its other members.
+   */
+  async function projectToChange(req: FastifyRequest, id: string): Promise<ProjectRecord> {
+    const user = viewer(req);
+    const project = await projectService.getVisibleProject(id, user);
+    if (!(await canManage(user, id))) throw new ForbiddenError(CHANGE_REFUSED);
+    return project;
+  }
 
   app.get('/projects', { preHandler: guard.authenticate }, async (req) => {
     // Employees see only projects they own/manage/belong to; admins see everything.
-    return { data: await projectService.listVisibleProjects({ id: req.user!.id, roles: req.user!.roles ?? [] }) };
+    const user = viewer(req);
+    const projects = await projectService.listVisibleProjects(user);
+    const can = await manageable(user, projects.map((p) => p.id));
+    return { data: projects.map((p) => ({ ...p, canManage: can.has(p.id) })) };
   });
 
   // The Projects page: every project the caller may see, with only what its card shows — figures
@@ -81,22 +115,26 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
   // by a fixed number of grouped queries.
   if (deps.overview) {
     app.get('/projects/overview', { preHandler: guard.authenticate }, async (req) => {
-      const projects = await projectService.listVisibleProjects({ id: req.user!.id, roles: req.user!.roles ?? [] });
+      const user = viewer(req);
+      const projects = await projectService.listVisibleProjects(user);
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
-      const rows = await deps.overview!.load(projects.map((p) => p.id), ownerIds);
-      return { data: buildProjectOverview(projects, rows, { timeZone: deps.timeZone ?? defaultCompanyTimeZone(), viewerId: req.user!.id }) };
+      const ids = projects.map((p) => p.id);
+      const [rows, can] = await Promise.all([deps.overview!.load(ids, ownerIds), manageable(user, ids)]);
+      return { data: buildProjectOverview(projects, rows, { timeZone: deps.timeZone ?? defaultCompanyTimeZone(), viewerId: user.id, manageable: can }) };
     });
   }
 
-  // Is a code well formed and free (deleted projects keep theirs)? Asked while typing a new project.
-  app.get('/projects/code-check', { preHandler: guard.requireRoles('ADMIN') }, async (req) => {
+  // Is a code well formed and free (deleted projects keep theirs)? Asked while typing a new project —
+  // which anyone signed in may create.
+  app.get('/projects/code-check', { preHandler: guard.authenticate }, async (req) => {
     const { code } = z.object({ code: z.string().max(40) }).parse(req.query);
     return { data: await projectService.checkCode(code) };
   });
 
   app.get('/projects/:id', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
-    return { data: await projectService.getVisibleProject(id, { id: req.user!.id, roles: req.user!.roles ?? [] }) };
+    const user = viewer(req);
+    return { data: await withCanManage(user, await projectService.getVisibleProject(id, user)) };
   });
 
   // Per-project progress/dashboard — available to any user who can see the project.
@@ -109,26 +147,32 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     });
   }
 
-  app.post('/projects', { preHandler: guard.requireRoles('ADMIN') }, async (req, reply) => {
+  // Anyone signed in may create a project. An employee owns it unless they pick someone else, and is
+  // on its team as a manager either way (project-service: newProjectTeam).
+  app.post('/projects', { preHandler: guard.authenticate }, async (req, reply) => {
+    const user = viewer(req);
     const body = createSchema.parse(req.body);
-    const created = await projectService.createProject({ ...body, createdById: req.user!.id });
-    await logAudit(req, 'project.create', created.id, { code: created.code, name: created.name });
-    return reply.status(201).send({ data: created });
+    const { team, ...created } = await projectService.createProject({ ...body, createdById: user.id }, user);
+    await logAudit(req, 'project.create', created.id, { code: created.code, name: created.name, createdById: user.id, ownerId: created.ownerId, team });
+    return reply.status(201).send({ data: await withCanManage(user, created) });
   });
 
-  app.put('/projects/:id', { preHandler: guard.requireRoles('ADMIN') }, async (req) => {
+  // Its owner, named manager or MANAGER members (or an admin) change its details, status and owner.
+  app.put('/projects/:id', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
+    const user = viewer(req);
+    await projectToChange(req, id);
     const body = updateSchema.parse(req.body);
-    const updated = await projectService.updateProject(id, body);
-    await logAudit(req, 'project.update', id, body);
-    return { data: updated };
+    const { project, keptAsManager } = await projectService.editProject(id, body, user);
+    await logAudit(req, 'project.update', id, keptAsManager ? { ...body, keptAsManager } : body);
+    return { data: await withCanManage(user, project) };
   });
 
-  // Upload / remove a project image (admin, consistent with other project mutations).
-  app.post('/projects/:id/image', { preHandler: guard.requireRoles('ADMIN') }, async (req) => {
+  // Upload / remove a project image (whoever may change the project, as for its other details).
+  app.post('/projects/:id/image', { preHandler: guard.authenticate }, async (req) => {
     if (!deps.storage) throw new ValidationError('Uploads are not enabled.');
     const { id } = req.params as { id: string };
-    const before = await projectService.getProject(id); // 404 if missing
+    const before = await projectToChange(req, id); // 404 if missing or hidden, 403 if not theirs to change
     const file = await req.file();
     if (!file) throw new ValidationError('No file uploaded.');
     const content = await file.toBuffer();
@@ -142,27 +186,29 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const old = storedKey(before.imageUrl);
     if (old) await deps.storage.remove(old).catch(() => {});
     await logAudit(req, 'project.image.set', id);
-    return { data: updated };
+    return { data: await withCanManage(viewer(req), updated) };
   });
 
-  app.delete('/projects/:id/image', { preHandler: guard.requireRoles('ADMIN') }, async (req) => {
+  app.delete('/projects/:id/image', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
-    const before = await projectService.getProject(id);
+    const before = await projectToChange(req, id);
     const updated = await projectService.updateProject(id, { imageUrl: null });
     const old = storedKey(before.imageUrl);
     if (old && deps.storage) await deps.storage.remove(old).catch(() => {});
     await logAudit(req, 'project.image.clear', id);
-    return { data: updated };
+    return { data: await withCanManage(viewer(req), updated) };
   });
 
-  // Archive (soft) — a first-class action instead of a raw status PUT (admin-only).
-  app.post('/projects/:id/archive', { preHandler: guard.requireRoles('ADMIN') }, async (req) => {
+  // Archive (soft) — a first-class action instead of a raw status PUT (whoever may change the project).
+  app.post('/projects/:id/archive', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
+    await projectToChange(req, id);
     const archived = await projectService.archiveProject(id);
     await logAudit(req, 'project.archive', id);
-    return { data: archived };
+    return { data: await withCanManage(viewer(req), archived) };
   });
 
+  // Deleting a project stays an administrator's alone.
   app.delete('/projects/:id', { preHandler: guard.requireRoles('ADMIN') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     await projectService.deleteProject(id);

@@ -18,7 +18,7 @@ import { secretBoxFromEnv } from './modules/settings/secret-box';
 import { createPrismaUserRepository } from './modules/auth/prisma-user-repository';
 import { createPrismaRefreshTokenStore } from './modules/auth/prisma-refresh-token-store';
 import { createProjectService } from './modules/projects/project-service';
-import { createPrismaProjectRepository } from './modules/projects/prisma-project-repository';
+import { createPrismaPeopleLookup, createPrismaProjectRepository } from './modules/projects/prisma-project-repository';
 import { createPrismaProjectOverviewSource } from './modules/projects/prisma-project-overview-source';
 import { createPrismaTimelineSource } from './modules/planning/prisma-timeline-source';
 import { createPrismaWorkloadStore } from './modules/planning/prisma-workload-store';
@@ -34,7 +34,6 @@ import { createCarryForwardService } from './modules/tasks/carry-forward-service
 import { createTaskMoveService, type MoveResult } from './modules/tasks/task-move-service';
 import { createPrismaTaskMoveRepository } from './modules/tasks/prisma-task-move-repository';
 import { createMoveNotifier } from './modules/tasks/task-move-notices';
-import { managedProjectsWhere } from './modules/projects/project-managers';
 import { createStatusChangeEffects, type StatusChangeEffects } from './modules/tasks/task-status-effects';
 import { directMessageTitle } from './modules/chat/chat-notices';
 import { taskNoticeBody } from './modules/notifications/task-notice';
@@ -214,7 +213,7 @@ async function main(): Promise<void> {
   });
 
   const projectRepository = createPrismaProjectRepository(prisma);
-  const projectService = createProjectService({ projects: projectRepository });
+  const projectService = createProjectService({ projects: projectRepository, people: createPrismaPeopleLookup(prisma) });
 
   const columnService = createColumnService({ columns: createPrismaColumnRepository(prisma) });
 
@@ -489,11 +488,7 @@ async function main(): Promise<void> {
     projectAccess: {
       canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
       accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles),
-      async canManageProject(userId, roles, projectId) {
-        if (roles.includes('ADMIN')) return true;
-        const managed = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null, ...managedProjectsWhere(userId) }, select: { id: true } });
-        return managed !== null;
-      },
+      canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
     },
   });
   const canEditMeeting = (userId: string, roles: string[], meetingId: string) => meetingAccess.canEditMeeting(userId, roles, meetingId);

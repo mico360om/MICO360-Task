@@ -27,7 +27,7 @@ export async function registerMemberRoutes(app: FastifyInstance, deps: MemberRou
 
   async function requireManage(req: { user?: { id: string; roles?: string[] } }, projectId: string): Promise<void> {
     const ok = await authz.canManageProject(req.user!.id, req.user!.roles ?? [], projectId);
-    if (!ok) throw new ForbiddenError('Only an admin or a manager of this project can do that.');
+    if (!ok) throw new ForbiddenError('Only this project’s owner, its managers or an administrator can do that.');
   }
 
   app.get('/projects/:id/members', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -51,7 +51,7 @@ export async function registerMemberRoutes(app: FastifyInstance, deps: MemberRou
     const { id, userId } = req.params as { id: string; userId: string };
     await requireManage(req, id);
     const { role } = roleSchema.parse(req.body);
-    const result = await memberService.setMemberRole(id, userId, role);
+    const result = await memberService.setMemberRole(id, userId, role, { byAdmin: (req.user!.roles ?? []).includes('ADMIN') });
     await logAudit(req, 'member.role', id, { userId, role });
     return { data: result };
   });
@@ -59,7 +59,7 @@ export async function registerMemberRoutes(app: FastifyInstance, deps: MemberRou
   app.delete('/projects/:id/members/:userId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id, userId } = req.params as { id: string; userId: string };
     await requireManage(req, id);
-    await memberService.removeMember(id, userId);
+    await memberService.removeMember(id, userId, { byAdmin: (req.user!.roles ?? []).includes('ADMIN') });
     await logAudit(req, 'member.remove', id, { userId });
     return reply.status(204).send();
   });
