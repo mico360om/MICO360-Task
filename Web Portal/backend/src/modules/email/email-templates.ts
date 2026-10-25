@@ -129,7 +129,7 @@ export function welcomeEmail(params: WelcomeEmailParams, opts?: TemplateOptions)
     linkFallback(params.setPasswordLink),
   ];
   if (apps.length) {
-    blocks.push({ kind: 'text', text: `Get the apps: ${product} on your phone and in Chrome.` }, { kind: 'links', items: apps });
+    blocks.push({ kind: 'text', text: apps.length > 1 ? 'Get the apps:' : 'Get the app:' }, { kind: 'links', items: apps });
     if (params.extensionUrl) blocks.push({ kind: 'text', text: EXTENSION_INSTALL_HINT });
   }
   blocks.push({ kind: 'text', text: `Need help? Write to ${brand.supportEmail}.` });

@@ -92,6 +92,13 @@ describe('welcomeEmail (an administrator welcomes a person: set your password)',
     expect(androidOnly.text).not.toMatch(/Chrome extension|chrome:\/\/extensions/);
   });
 
+  it('introduces the apps by what is offered (never “on your phone” when there is no phone app)', () => {
+    expect(welcomeEmail(params, { brand }).text).toContain('\n\nGet the apps:\n\n  - Android app:');
+    const extensionOnly = welcomeEmail({ ...params, androidAppUrl: null }, { brand }).text;
+    expect(extensionOnly).toContain('\n\nGet the app:\n\n  - Chrome extension:');
+    expect(extensionOnly).not.toMatch(/phone/i);
+  });
+
   it('never contains a password, and escapes the name', () => {
     const e = welcomeEmail({ ...params, firstName: '<script>x</script>' }, { brand });
     expect(e.html).not.toContain('<script>x</script>');
