@@ -24,6 +24,20 @@ export interface TableExport {
   sources?: ReadonlyArray<SourceRef>;
 }
 
+/** The whole answer for its PDF report: the question, the words, every table and the sources. */
+export interface AnswerExport {
+  question: string;
+  text: string;
+  tables: AnswerTable[];
+  sources: ReadonlyArray<SourceRef>;
+  chatTitle: string;
+  generatedAt: Date;
+  timeZone: string;
+  generatedBy: string | null;
+}
+
+type Made = Pick<TableExport, 'generatedAt' | 'timeZone' | 'generatedBy'>;
+
 /** "**bold**" runs of one paragraph (its lines joined by "\n"). */
 function runsOf(text: string): StyledRun[] {
   const runs: StyledRun[] = [];
@@ -86,10 +100,10 @@ export function showingLine(t: AnswerTable): string | null {
   return t.total !== undefined && t.total > t.rows.length ? `Showing ${t.rows.length} of ${t.total}` : null;
 }
 
-const generatedLine = (d: TableExport) => `Generated ${formatDateTime(d.generatedAt, d.timeZone)} (${d.timeZone})${d.generatedBy ? ` by ${d.generatedBy}` : ''}`;
+const generatedLine = (d: Made) => `Generated ${formatDateTime(d.generatedAt, d.timeZone)} (${d.timeZone})${d.generatedBy ? ` by ${d.generatedBy}` : ''}`;
 
 /** "Sources: RIG-14 · RIG-9 · Rig Inspection Portal", or null when the answer named none. */
-function sourcesLine(d: TableExport): string | null {
+function sourcesLine(d: { sources?: ReadonlyArray<Pick<SourceRef, 'label'>> }): string | null {
   const labels = (d.sources ?? []).map((s) => s.label.replace(/\s+/g, ' ').trim()).filter(Boolean);
   return labels.length ? `Sources: ${labels.join(' · ')}` : null;
 }
@@ -97,6 +111,11 @@ function sourcesLine(d: TableExport): string | null {
 /** "mico-ai-overdue-tasks-2026-10-24.xlsx" (the company day). */
 export function tableFileName(d: Pick<TableExport, 'table' | 'generatedAt' | 'timeZone'>, ext: 'xlsx' | 'pdf'): string {
   return `mico-ai-${slugPart(d.table.title) || 'table'}-${wallClock(d.generatedAt, d.timeZone).slice(0, 10)}.${ext}`;
+}
+
+/** "mico-ai-overdue-tasks-in-rig-inspection-2026-10-24.pdf": the chat's name (or the question), and the company day. */
+export function answerFileName(d: Pick<AnswerExport, 'chatTitle' | 'question' | 'generatedAt' | 'timeZone'>): string {
+  return `mico-ai-${slugPart(d.chatTitle) || slugPart(d.question) || 'answer'}-${wallClock(d.generatedAt, d.timeZone).slice(0, 10)}.pdf`;
 }
 
 /** Excel: a sheet named after the table, its title, the question, the sources and when, then the rows. */
@@ -136,28 +155,35 @@ export function pageOrientation(columns: TableColumn[], rows: string[][]): 'port
   return fitColumns(measureColumns(columns, rows), contentWidthOf('portrait'), { size: TYPE.table, padX: TABLE_PAD_X }).fits ? 'portrait' : 'landscape';
 }
 
+/** A table's cells as the PDF shows them. */
+function pdfRows(t: AnswerTable): string[][] {
+  return t.rows.map((r) => t.columns.map((c, i) => cellText(c.kind, r.cells[i] ?? null)));
+}
+
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+const clipped = (text: string, n: number) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
+
 /**
- * PDF: the company header (with the chat and when it was made), the question, the answer's words and
- * its sources, then the whole table: its header row repeated on every page, its rows kept whole. Every
- * page has the logo and the chat at the top, and "Page N of M", when and by whom at the bottom.
+ * A MICO AI report: the company header, the question, the answer's words and its sources, then each
+ * table under its own heading (kept with its header row and first row), its header row repeated on
+ * every page, its rows kept whole. Every page has the logo and the chat at the top, and "Page N of M",
+ * when and by whom at the bottom. Landscape when any table needs the width (see pageOrientation).
  */
-export function tablePdf(d: TableExport): Buffer {
-  const columns = pdfColumns(d.table);
-  const rows = d.table.rows.map((r) => d.table.columns.map((c, i) => cellText(c.kind, r.cells[i] ?? null)));
-  const chat = d.chatTitle.replace(/\s+/g, ' ').trim();
+function reportPdf(r: { title: string; details: string[]; runningTitle: string; question: string; text: string; sources: string | null; tables: AnswerTable[]; made: Made }): Buffer {
+  const tables = r.tables.map((t) => ({ t, columns: pdfColumns(t), rows: pdfRows(t) }));
   const doc = new PdfDocument({
-    orientation: pageOrientation(columns, rows),
-    title: d.table.title,
-    runningTitle: `MICO AI · ${chat || d.question.replace(/\s+/g, ' ').trim() || d.table.title}`,
-    footerLeft: `MICO360 Tasks · MICO AI report · ${generatedLine(d)}`,
+    orientation: tables.some((x) => pageOrientation(x.columns, x.rows) === 'landscape') ? 'landscape' : 'portrait',
+    title: r.title,
+    runningTitle: r.runningTitle,
+    footerLeft: `MICO360 Tasks · MICO AI report · ${generatedLine(r.made)}`,
     palette: { brand: BRAND },
   });
-  doc.reportHeader({ title: d.table.title, subtitle: 'MICO AI report', details: [...(chat ? [`Chat: ${chat}`] : []), generatedLine(d)] });
+  doc.reportHeader({ title: r.title, subtitle: 'MICO AI report', details: r.details });
 
   doc.heading('Question', { size: TYPE.heading, topGap: 0, keepWith: 30 });
-  doc.text(d.question.trim() || '—', { size: TYPE.body, inset: 10, bar: hexToRgb(BRAND), gap: 2 });
+  doc.text(r.question.trim() || '—', { size: TYPE.body, inset: 10, bar: hexToRgb(BRAND), gap: 2 });
 
-  const blocks = answerBlocks(d.text);
+  const blocks = answerBlocks(r.text);
   if (blocks.length) {
     doc.heading('Answer', { size: TYPE.heading, topGap: 12, keepWith: 30 });
     blocks.forEach((b, i) => {
@@ -166,21 +192,60 @@ export function tablePdf(d: TableExport): Buffer {
       doc.richBlocks([b], { size: TYPE.body });
     });
   }
-  const sources = sourcesLine(d);
-  if (sources) {
+  if (r.sources) {
     doc.spacer(blocks.length ? 8 : 4);
-    doc.text(sources, { size: TYPE.note, color: MUTED });
+    doc.text(r.sources, { size: TYPE.note, color: MUTED });
   }
 
-  const showing = showingLine(d.table);
-  const titleCol = d.table.columns.findIndex((c) => c.key === 'title' || c.key === 'message' || c.key === 'item');
-  const options = { size: TYPE.table, fit: { minSize: TYPE.tableMin }, ...(titleCol >= 0 ? { wide: titleCol } : {}) };
-  // The heading stays with the table's header row and its first row (never alone at a page end).
-  doc.heading(`${d.table.title} (${showing ?? `${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`})`, {
-    size: TYPE.heading,
-    topGap: 14,
-    keepWith: doc.tableHeight(columns, rows, { ...options, firstRows: 1 }),
+  tables.forEach(({ t, columns, rows }, i) => {
+    const showing = showingLine(t);
+    const titleCol = t.columns.findIndex((c) => c.key === 'title' || c.key === 'message' || c.key === 'item');
+    const options = { size: TYPE.table, fit: { minSize: TYPE.tableMin }, ...(titleCol >= 0 ? { wide: titleCol } : {}) };
+    // The heading stays with the table's header row and its first row (never alone at a page end).
+    doc.heading(`${t.title} (${showing ?? `${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`})`, {
+      size: TYPE.heading,
+      topGap: i === 0 ? 14 : 18,
+      keepWith: doc.tableHeight(columns, rows, { ...options, firstRows: 1 }) + (rows.length ? 0 : 16),
+    });
+    doc.table(columns, rows, options);
+    if (rows.length === 0) doc.text('No rows.', { size: TYPE.note, color: MUTED, gap: 2 });
   });
-  doc.table(columns, rows, options);
   return doc.build();
+}
+
+/**
+ * One table's PDF: the report with just that table, under the table's own title (the chat named
+ * beneath it).
+ */
+export function tablePdf(d: TableExport): Buffer {
+  const chat = oneLine(d.chatTitle);
+  return reportPdf({
+    title: d.table.title,
+    details: [...(chat ? [`Chat: ${chat}`] : []), generatedLine(d)],
+    runningTitle: `MICO AI · ${chat || oneLine(d.question) || d.table.title}`,
+    question: d.question,
+    text: d.text,
+    sources: sourcesLine(d),
+    tables: [d.table],
+    made: d,
+  });
+}
+
+/**
+ * The whole answer as one PDF report, under the chat's name: the question, every word of the answer,
+ * every one of its tables (each under its own heading; an empty one says so) and its sources. An
+ * answer without tables (a summary of meetings) makes a report too.
+ */
+export function answerPdf(d: AnswerExport): Buffer {
+  const title = clipped(oneLine(d.chatTitle) || oneLine(d.question), 120) || 'MICO AI answer';
+  return reportPdf({
+    title,
+    details: [generatedLine(d)],
+    runningTitle: `MICO AI · ${title}`,
+    question: d.question,
+    text: d.text,
+    sources: sourcesLine(d),
+    tables: d.tables,
+    made: d,
+  });
 }

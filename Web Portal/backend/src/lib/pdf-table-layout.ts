@@ -11,6 +11,17 @@ export interface ColumnMeasure {
   natural: number;
   /** Its longest piece that shouldn't break: a word (a very long one is capped: it may break), or a whole cell when the column is kept on one line. */
   longestWord: number;
+  /**
+   * The words of each of its cells, header first (a column that wraps): how many lines a cell takes
+   * at a width can be told without laying it out, so fitColumns can trade width between columns.
+   */
+  cells?: CellWords[];
+}
+
+/** One cell's words and the space between them, measured for a 1 pt font. */
+export interface CellWords {
+  words: number[];
+  space: number;
 }
 
 /** A column to measure: its header, and whether its cells stay on one line (dates, numbers, keys). */
@@ -38,19 +49,53 @@ export function measureColumns(columns: ReadonlyArray<MeasuredColumn>, rows: Rea
     }
     return width;
   };
+  const full = new Map<string, number>();
+  /** A word's whole width (uncapped: for counting lines). */
+  const wordWidth = (w: string, bold: boolean) => {
+    const key = `${bold ? 'b' : 'r'}${w}`;
+    let width = full.get(key);
+    if (width === undefined) {
+      width = measureText(w, 1, bold);
+      full.set(key, width);
+    }
+    return width;
+  };
   const longest = (text: string, bold: boolean) => text.split(/\s+/).reduce((m, w) => (w ? Math.max(m, word(w, bold)) : m), 0);
+  const space = measureText('a a', 1) - measureText('aa', 1);
+  const cellWords = (text: string, bold: boolean): CellWords => ({ words: text.split(/\s+/).filter(Boolean).map((w) => wordWidth(w, bold)), space });
   return columns.map((c, ci) => {
     let natural = measureText(c.header, 1, true);
     let longestWord = longest(c.header, true);
+    const cells: CellWords[] | undefined = c.nowrap ? undefined : [cellWords(c.header, true)];
     for (const r of rows) {
       const cell = r[ci] ?? '';
+      if (cells) cells.push(cellWords(cell, false));
       if (!cell.trim()) continue;
       const w = measureText(cell, 1);
       natural = Math.max(natural, w);
       longestWord = Math.max(longestWord, c.nowrap ? w : longest(cell, false));
     }
-    return { natural, longestWord: Math.min(longestWord, natural) };
+    return { natural, longestWord: Math.min(longestWord, natural), ...(cells ? { cells } : {}) };
   });
+}
+
+/** How many lines a cell takes at a width (in ems), wrapping as the text engine does: by words, a word too long broken. */
+export function cellLines(cell: CellWords, width: number): number {
+  if (width <= 0) return Math.max(1, cell.words.length);
+  let lines = 1;
+  let used = 0;
+  for (const w of cell.words) {
+    if (used > 0 && used + cell.space + w <= width + 1e-9) {
+      used += cell.space + w;
+      continue;
+    }
+    if (used > 0) lines++;
+    // A word wider than the line takes as many lines as it needs; the next word starts after its last piece.
+    const pieces = Math.max(1, Math.ceil(w / width - 1e-9));
+    lines += pieces - 1;
+    used = w - (pieces - 1) * width;
+  }
+  return lines;
 }
 
 export interface ColumnPlan {
@@ -61,6 +106,9 @@ export interface ColumnPlan {
   /** Every column is at least as wide as its longest word (false: some words break inside their cells). */
   fits: boolean;
 }
+
+/** A column whose longest line is no wider than this (in ems) is a short phrase: once on one line, it stays there. */
+const SHORT_PHRASE_EM = 14;
 
 /** No column is narrower than this (points). */
 export const MIN_COLUMN = 30;
@@ -118,7 +166,9 @@ export function fitColumns(measures: ReadonlyArray<ColumnMeasure>, total: number
     const sumWant = sum(open.map((i) => want[i]!));
     if (open.length > 0) for (const i of open) widths[i] = min[i]! + (spare * want[i]!) / sumWant;
     else widths.forEach((_, i) => (widths[i] = widths[i]! + spare / n));
-    return { size, widths, fits: true };
+    // Then the columns trade width while that saves lines: a list of names doesn't take three lines
+    // while a long title has width to spare. A short phrase already on its one line keeps it.
+    return { size, widths: rebalance(widths, min, max, measures, size, opts.padX, open), fits: true };
   }
   return { size, widths: min.map((w) => (w * total) / sumMin), fits: false };
 }
@@ -146,6 +196,8 @@ export function paginateRows(
   lines: ReadonlyArray<number>,
   opts: {
     lineHeight: number;
+    /** Each row's own line height, when rows differ (a row with Arabic is taller); else lineHeight for all. */
+    lineHeights?: ReadonlyArray<number>;
     padY: number;
     /** The header row's height. */
     header: number;
@@ -159,12 +211,13 @@ export function paginateRows(
     minLines?: number;
   },
 ): TablePages {
-  const { lineHeight: lh, padY, header } = opts;
+  const { padY, header } = opts;
   const minLines = opts.minLines ?? 2;
-  const height = (n: number) => n * lh + padY * 2;
+  const lineHeightOf = (row: number) => opts.lineHeights?.[row] ?? opts.lineHeight;
   const fresh = opts.pageRoom - header;
   const first = lines[0];
-  const need = header + (first === undefined ? 0 : height(height(first) <= fresh ? first : Math.min(first, minLines)));
+  const firstHeight = (n: number) => n * lineHeightOf(0) + padY * 2;
+  const need = header + (first === undefined ? 0 : firstHeight(firstHeight(first) <= fresh ? first : Math.min(first, minLines)));
   const newPage = opts.room < need && !opts.atTop;
 
   const pages: RowPiece[][] = [[]];
@@ -174,6 +227,8 @@ export function paginateRows(
     left = fresh;
   };
   lines.forEach((n, row) => {
+    const lh = lineHeightOf(row);
+    const height = (k: number) => k * lh + padY * 2;
     const h = height(n);
     if (h <= left) {
       pages[pages.length - 1]!.push({ row, from: 0, to: n });
@@ -204,6 +259,59 @@ export function paginateRows(
     }
   });
   return { newPage, pages };
+}
+
+/**
+ * Move width between the columns that wrap (`open`), a step at a time (large steps first), while the
+ * table gets shorter: the sum over its rows (header included) of the most lines any cell of the row
+ * takes, and on a tie the lines of all its cells.
+ */
+function rebalance(start: number[], min: number[], max: number[], measures: ReadonlyArray<ColumnMeasure>, size: number, padX: number, open: number[]): number[] {
+  // A short phrase on its one line (a status, a project's name) keeps it; longer columns may trade.
+  const cols = measures.map((_, i) => i).filter((i) => measures[i]!.cells?.length && (open.includes(i) || measures[i]!.natural > SHORT_PHRASE_EM));
+  if (cols.length < 2) return start;
+  const rows = Math.min(...cols.map((i) => measures[i]!.cells!.length));
+  const widths = [...start];
+  const linesAt = (col: number, w: number) => measures[col]!.cells!.slice(0, rows).map((c) => cellLines(c, (w - padX * 2) / size));
+  const lines = new Map(cols.map((c) => [c, linesAt(c, widths[c]!)]));
+  // The table's height in lines; on a tie, fewer lines in all its cells (fewer cells wrapped further than they need).
+  const height = (override: Map<number, number[]>) => {
+    let h = 0;
+    let all = 0;
+    for (let r = 0; r < rows; r++) {
+      let most = 1;
+      for (const c of cols) {
+        const k = (override.get(c) ?? lines.get(c)!)[r]!;
+        most = Math.max(most, k);
+        all += k;
+      }
+      h += most;
+    }
+    return h * 1e6 + all;
+  };
+  let current = height(new Map());
+  for (const step of [48, 24, 12, 6, 3]) {
+    for (let guard = 0; guard < 200; guard++) {
+      let best: { from: number; to: number; h: number; lf: number[]; lt: number[] } | null = null;
+      for (const from of cols) {
+        if (widths[from]! - step < min[from]! - 1e-9) continue;
+        const lf = linesAt(from, widths[from]! - step);
+        for (const to of cols) {
+          if (to === from || widths[to]! + step > max[to]! + 1e-9) continue;
+          const lt = linesAt(to, widths[to]! + step);
+          const h = height(new Map([[from, lf], [to, lt]]));
+          if (h < (best?.h ?? current)) best = { from, to, h, lf, lt };
+        }
+      }
+      if (!best) break;
+      widths[best.from] = widths[best.from]! - step;
+      widths[best.to] = widths[best.to]! + step;
+      lines.set(best.from, best.lf);
+      lines.set(best.to, best.lt);
+      current = best.h;
+    }
+  }
+  return widths;
 }
 
 function sum(xs: ReadonlyArray<number>): number {

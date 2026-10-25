@@ -638,8 +638,10 @@ export class PdfDocument {
   heading(text: string, options: { size?: number; color?: RGB; topGap?: number; keepWith?: number } = {}): this {
     const size = options.size ?? 12.5;
     this.spacer(options.topGap ?? 14);
-    // Heading + rule + the start of what follows (at least two lines, or `keepWith` points).
-    this.ensure(size * 1.8 + 9 + Math.max(32, Math.min(options.keepWith ?? 0, this.contentBottom - this.continuationTop - size * 1.8 - 9)));
+    // Heading + rule + the start of what follows (at least two lines, or `keepWith` points). A long
+    // heading counts all its lines (one line keeps the room it always kept).
+    const own = Math.max(size * 1.8, this.textHeight(text, { bold: true, size, family: 'display' }));
+    this.ensure(own + 9 + Math.max(32, Math.min(options.keepWith ?? 0, this.contentBottom - this.continuationTop - own - 9)));
     this.text(text, { bold: true, size, color: options.color ?? this.pal.brand, family: 'display' });
     this.y += 3;
     this.fillRect(this.margin, this.y, this.contentWidth, 0.7, this.pal.line);
@@ -972,10 +974,11 @@ export class PdfDocument {
     const n = columns.length;
     if (n === 0) return this;
     const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit);
-    const { size, padX, padY, total, box, widths, numeric, header, body } = layout;
+    const { size, padX, padY, total, widths, numeric, header, body } = layout;
 
     // Lines [from, to) of a row: all of it, or the part of a too-tall row that goes on this page.
     const drawRow = (row: TableRowLayout, fill: RGB | null, ri: number | null, from = 0, to = row.lines) => {
+      const box = row.box;
       const height = (to - from) * box.height + padY * 2;
       if (fill) this.fillRect(this.margin, this.y, total, height, fill);
       let x = this.margin;
@@ -996,7 +999,8 @@ export class PdfDocument {
     const plan = paginateRows(
       body.map((r) => r.lines),
       {
-        lineHeight: box.height,
+        lineHeight: header.box.height,
+        lineHeights: body.map((r) => r.box.height),
         padY,
         header: header.height,
         room: this.remaining,
@@ -1036,8 +1040,10 @@ export class PdfDocument {
     } else {
       widths = this.naturalColumnWidths(columns, rows, size, wide);
     }
-    // One line height for every cell (Arabic-safe), so baselines line up across a row
-    // and every row has the same rhythm whether or not it contains Arabic.
+    // One line height for every cell (Arabic-safe), so baselines line up across a row and every row
+    // has the same rhythm whether or not it contains Arabic. A balanced (fit) table gives each row
+    // its own: the normal one, or the taller Arabic one when the row has Arabic (its cells still
+    // share one baseline).
     const box = lineBox(null, size, true);
 
     const numeric = columns.map((c, ci) => {
@@ -1051,7 +1057,8 @@ export class PdfDocument {
     const layoutRow = (cells: ReadonlyArray<string>, bold: boolean): TableRowLayout => {
       const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold, maxWidth: widths[ci]! - padX * 2 }));
       const lines = Math.max(1, ...laid.map((l) => l.length));
-      return { laid, lines, height: lines * box.height + padY * 2 };
+      const rowBox = fit ? lineBox(null, size, laid.some((cell) => cell.some((ln) => ln.arabic))) : box;
+      return { laid, lines, box: rowBox, height: lines * rowBox.height + padY * 2 };
     };
 
     const header = layoutRow(
@@ -1059,7 +1066,7 @@ export class PdfDocument {
       true,
     );
     const body = rows.map((r) => layoutRow(r, false));
-    return { size, padX, padY, total, box, widths, numeric, header, body };
+    return { size, padX, padY, total, widths, numeric, header, body };
   }
 
   /** The original column sizing: natural single-line widths, stretched to fill or water-filled to fit. */
@@ -1148,10 +1155,11 @@ export class PdfDocument {
   }
 }
 
-/** A table row laid out: each cell's lines, the most lines any cell has, and its height. */
+/** A table row laid out: each cell's lines, the most lines any cell has, its line box and its height. */
 interface TableRowLayout {
   laid: TextLine[][];
   lines: number;
+  box: { height: number; ascent: number };
   height: number;
 }
 

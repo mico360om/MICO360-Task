@@ -504,3 +504,52 @@ describe('PdfDocument — running header and footer never cut text silently', ()
     expect(footer.find((l) => l.text === 'Short line')!.size).toBe(8);
   });
 });
+
+describe('PdfDocument — review fixes', () => {
+  const cols = [{ header: 'Task', nowrap: true }, { header: 'Title' }];
+
+  it('keeps a heading that wraps onto several lines with the table after it (never alone at a page end)', () => {
+    const title = 'Open tasks in Rig Inspection Portal and the platform audit, with their owners, due dates and progress, for the weekly review';
+    const rows = [['RIG-1', 'Pressure test report'], ['RIG-2', 'Valve inventory']];
+    const doc = new PdfDocument();
+    const keep = doc.tableHeight(cols, rows, { size: 9, fit: {}, firstRows: 1 });
+    // Leave room for a one-line heading and the table's start, but not for this heading's three lines.
+    doc.spacer(doc.remaining - (11 * 1.8 + 9 + keep + 2));
+    doc.heading(title, { size: 11, topGap: 0, keepWith: keep });
+    doc.table(cols, rows, { size: 9, fit: {} });
+    const { pages } = inspectPdf(doc.build());
+    const headingPage = pages.findIndex((p) => p.some((t) => title.startsWith(t) && t.length > 10));
+    const tablePage = pages.findIndex((p) => p.includes('RIG-1'));
+    expect(headingPage).toBe(tablePage);
+    expect(pages[headingPage]!.filter((t) => title.includes(t)).join(' ')).toBe(title);
+  });
+
+  it('a one-line heading keeps exactly the room it kept before', () => {
+    const a = new PdfDocument();
+    const b = new PdfDocument();
+    a.heading('Activity', { keepWith: 40 });
+    b.heading('Activity', { keepWith: 40 });
+    expect(a.remaining).toBeCloseTo(b.remaining, 6);
+    const doc = new PdfDocument();
+    doc.spacer(doc.remaining - (12.5 * 1.8 + 9 + 40 + 14 + 1));
+    doc.heading('Activity', { keepWith: 40 });
+    doc.text('After');
+    expect(inspectPdf(doc.build()).pages).toHaveLength(1);
+  });
+
+  it('balanced (fit) tables set rows without Arabic at the normal line height; a row with Arabic keeps the taller one, its cells on one baseline', () => {
+    const latin = [['RIG-1', 'Pressure test report'], ['RIG-2', 'Valve inventory']];
+    const doc = new PdfDocument();
+    const h = doc.tableHeight(cols, latin, { size: 9, fit: {} });
+    expect(h).toBeCloseTo(3 * (9 * 1.4 + 6), 5); // header + 2 rows, one line each
+    const mixed = [...latin, ['RIG-3', 'تحديث مخزون الصمامات']];
+    expect(doc.tableHeight(cols, mixed, { size: 9, fit: {} })).toBeCloseTo(3 * (9 * 1.4 + 6) + (9 * 1.72 + 6), 5);
+    // Other tables are unchanged: every row Arabic-safe.
+    expect(doc.tableHeight(cols, latin, { size: 9 })).toBeCloseTo(3 * (9 * 1.72 + 6), 5);
+    doc.table(cols, mixed, { size: 9, fit: {} });
+    const lines = inspectPdf(doc.build()).lines[0]!;
+    const y = (t: string) => lines.find((l) => l.text === t)!.y;
+    expect(y('RIG-3')).toBeCloseTo(y('تحديث مخزون الصمامات'), 5);
+    expect(y('RIG-2') - y('RIG-1')).toBeCloseTo(9 * 1.4 + 6, 5);
+  });
+});

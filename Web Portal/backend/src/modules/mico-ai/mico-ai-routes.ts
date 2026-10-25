@@ -4,7 +4,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { NotFoundError } from '../../lib/http-errors';
 import { XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
 import type { MicoAiService } from './mico-ai-service';
-import { tableFileName, tablePdf, tableXlsx } from './mico-ai-export';
+import { answerFileName, answerPdf, tableFileName, tablePdf, tableXlsx } from './mico-ai-export';
 
 export interface MicoAiRouteDeps {
   micoAiService: MicoAiService;
@@ -26,7 +26,8 @@ const viewer = (req: FastifyRequest) => ({ userId: req.user!.id, roles: req.user
 /**
  * MICO AI: a person's own chats with the assistant (private to them: anyone else's chat is 404).
  * Asking returns 202 with the question and a pending answer; the page polls the answer for its
- * progress line and stops it with /stop. An answer's tables download as .xlsx or .pdf.
+ * progress line and stops it with /stop. An answer's tables download as .xlsx or .pdf, and the whole
+ * answer (every table) as one PDF report.
  */
 export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRouteDeps): Promise<void> {
   const { micoAiService: svc, guard } = deps;
@@ -96,5 +97,16 @@ export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRou
       .header('Content-Disposition', `attachment; filename="${tableFileName(doc, format)}"`)
       .header('Cache-Control', 'no-store')
       .send(format === 'xlsx' ? tableXlsx(doc) : tablePdf(doc));
+  });
+
+  // The whole answer as one PDF report: the question, the words, every table and the sources.
+  app.get('/mico-ai/chats/:chatId/messages/:messageId/report.pdf', auth, async (req, reply) => {
+    const { chatId, messageId } = messageParams.parse(req.params);
+    const doc = await svc.answer(viewer(req), chatId, messageId);
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${answerFileName(doc)}"`)
+      .header('Cache-Control', 'no-store')
+      .send(answerPdf(doc));
   });
 }

@@ -372,12 +372,30 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     return { table: t, question, text: c.text, chatTitle: chat.title, sources: c.sources, generatedAt: now(), timeZone, generatedBy };
   }
 
+  /**
+   * A whole answer for its PDF report (the chat's owner only): the question it was for, its words,
+   * every table and its sources. Only a finished answer with something in it has one.
+   */
+  async function answer(
+    viewer: Viewer,
+    chatId: string,
+    messageId: string,
+  ): Promise<{ question: string; text: string; tables: AnswerTable[]; sources: SourceRef[]; chatTitle: string; generatedAt: Date; timeZone: string; generatedBy: string | null }> {
+    const chat = await ownChat(viewer, chatId);
+    const m = await repo.getMessage(chat.id, messageId);
+    const c = m && m.role === 'assistant' && m.status === 'DONE' ? asContent(m) : null;
+    if (!c || (!c.text.trim() && c.tables.length === 0)) throw new NotFoundError('That answer doesn’t exist.');
+    const question = (await repo.questionBefore(chat.id, messageId)) ?? '';
+    const generatedBy = (await deps.userName?.(viewer.userId)) || null;
+    return { question, text: c.text, tables: c.tables, sources: c.sources, chatTitle: chat.title, generatedAt: now(), timeZone, generatedBy };
+  }
+
   /** Resolves when an answer being written has finished (tests, and a clean shutdown). */
   async function whenDone(messageId: string): Promise<void> {
     await running.get(messageId)?.done;
   }
 
-  return { status, listChats, createChat, getChat, olderMessages, renameChat, deleteChat, ask, getMessage, stop, table, whenDone, interruptStale };
+  return { status, listChats, createChat, getChat, olderMessages, renameChat, deleteChat, ask, getMessage, stop, table, answer, whenDone, interruptStale };
 }
 
 export type MicoAiService = ReturnType<typeof createMicoAiService>;

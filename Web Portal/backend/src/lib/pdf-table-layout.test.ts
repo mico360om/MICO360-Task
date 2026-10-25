@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fitColumns, measureColumns, paginateRows, type ColumnMeasure } from './pdf-table-layout';
-import { measureText } from './pdf-text';
+import { layoutText, measureText } from './pdf-text';
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const PAD = 5;
@@ -153,5 +153,46 @@ describe('table rows: pages', () => {
     expect(plan.newPage).toBe(true);
     expect(plan.pages[0]![0]!.from).toBe(0);
     expect(plan.pages[0]![0]!.to).toBe(Math.floor((300 - 16 - 6) / 10));
+  });
+});
+
+describe('table layout: review fixes', () => {
+  it('a row can have its own line height (a row with Arabic is taller); pages fill by each row’s real height', () => {
+    const base = { lineHeight: 10, padY: 3, header: 16, pageRoom: 300, atTop: false };
+    // Rows of 2 lines: 26 tall at 10, 46 tall at 20. Under the header there is room for 80.
+    const plan = paginateRows([2, 2, 2], { ...base, lineHeights: [10, 20, 10], room: 16 + 80 });
+    expect(plan.pages.map((p) => p.map((x) => x.row))).toEqual([[0, 1], [2]]);
+    // With one line height for all, the same room holds all three (3 × 26 = 78).
+    expect(paginateRows([2, 2, 2], { ...base, room: 16 + 80 }).pages).toHaveLength(1);
+  });
+
+  it('rebalances wrapping columns to save lines: a list of names doesn’t take three lines while a long title has width to give', () => {
+    const titles = ['Pressure test report for the north manifold, including the calibration certificates from the vendor (#12)', 'Safety checklist v2 (#4)', 'Valve inventory update for the north site (#7)'];
+    const names = ['Bilal Ahmed, Zara Ahmed, Hassan Ahmed', 'Aisha Khan, Sara Ahmed', 'Omar Said'];
+    const rows = Array.from({ length: 30 }, (_, i) => [titles[i % 3]!, names[i % 3]!]);
+    const cols = [{ header: 'Title' }, { header: 'Assigned to' }];
+    const measured = measureColumns(cols, rows);
+    const opts = { size: 9, padX: PAD };
+    const total = 280;
+    const plain = fitColumns(
+      measured.map(({ natural, longestWord }) => ({ natural, longestWord })),
+      total,
+      opts,
+    );
+    const balanced = fitColumns(measured, total, opts);
+    const linesOf = (text: string, w: number) => layoutText(text, { size: 9, maxWidth: w - PAD * 2 }).length;
+    const totalLines = (w: number[]) => rows.reduce((s, r) => s + Math.max(...r.map((c, i) => linesOf(c, w[i]!))), 0);
+    expect(Math.max(...names.map((n) => linesOf(n, plain.widths[1]!)))).toBe(3); // the old share: three lines of names
+    expect(Math.max(...names.map((n) => linesOf(n, balanced.widths[1]!)))).toBeLessThanOrEqual(2);
+    expect(totalLines(balanced.widths)).toBeLessThan(totalLines(plain.widths));
+    expect(sum(balanced.widths)).toBeCloseTo(total, 6);
+    balanced.widths.forEach((w, i) => expect(w + 1e-9).toBeGreaterThanOrEqual(measured[i]!.longestWord * 9 + PAD * 2));
+  });
+
+  it('never takes width from a short phrase that already fits on its line', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => [i % 2 ? 'In progress' : 'Waiting / Blocked', 'Pressure test report for the north manifold, including the calibration certificates from the vendor']);
+    const measured = measureColumns([{ header: 'Status' }, { header: 'Title' }], rows);
+    const plan = fitColumns(measured, 300, { size: 9, padX: PAD });
+    expect(plan.widths[0]).toBeCloseTo(measured[0]!.natural * 9 + PAD * 2, 6);
   });
 });

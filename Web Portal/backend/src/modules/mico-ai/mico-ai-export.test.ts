@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cellText, tableFileName, tablePdf, tableXlsx, type TableExport } from './mico-ai-export';
+import { answerFileName, answerPdf, cellText, tableFileName, tablePdf, tableXlsx, type AnswerExport, type TableExport } from './mico-ai-export';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
 import { measureText } from '../../lib/pdf-text';
@@ -249,5 +249,98 @@ describe('MICO AI PDF report: page shape', () => {
 describe('MICO AI Excel download: sources', () => {
   it('lists the answer’s sources under the question', () => {
     expect(inspectXlsx(tableXlsx(big)).text[0]!.some((t) => t === 'Sources: RIG-1 · RIG-2 · Rig Inspection Portal')).toBe(true);
+  });
+});
+
+// ── The whole answer as one PDF report ──
+const asAnswer = (d: TableExport, tables: TableExport['table'][]): AnswerExport => ({
+  question: d.question,
+  text: d.text,
+  tables,
+  sources: d.sources ?? [],
+  chatTitle: d.chatTitle,
+  generatedAt: d.generatedAt,
+  timeZone: d.timeZone,
+  generatedBy: d.generatedBy,
+});
+const footerOk = (pdf: ReturnType<typeof inspectPdf>, height: number) => {
+  const n = pdf.pages.length;
+  pdf.lines.forEach((lines, p) => {
+    const footer = lines.filter((l) => l.y > height - 50).map((l) => l.text);
+    expect(footer, `page ${p + 1}`).toContain(`Page ${p + 1} of ${n}`);
+    expect(footer.join(' ')).toMatch(/Generated .* \(Asia\/Muscat\) by /);
+    if (p > 0) expect(lines.filter((l) => l.y < 54).map((l) => l.text).join(' ')).toMatch(/^MICO AI · /);
+  });
+};
+
+describe('MICO AI answer report: the whole answer as one PDF', () => {
+  it('a text-only answer (“Summarize this week’s meetings”): portrait, the question, every paragraph and bullet, the sources', () => {
+    const meetings: AnswerExport = {
+      ...asAnswer(doc, []),
+      question: 'Summarize this week’s meetings',
+      text: 'Two meetings this week.\n\n- **Weekly review**, Wed 21 Oct: Omar finishes the pressure test.\n- **Site visit**, Thu 22 Oct: the test moved from rig 2 to rig 3.\n\nNo decisions are waiting.',
+      sources: [{ type: 'meeting', id: 'm1', label: 'Weekly review · 21 Oct', url: '/meetings/m1' }],
+      chatTitle: 'This week’s meetings',
+    };
+    const out = answerPdf(meetings);
+    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 595\.28 841\.89\]/);
+    const pdf = inspectPdf(out);
+    const stream = squash(pdf.pages.flat().join(''));
+    for (const s of ['This week’s meetings', 'MICO AI report', 'Summarize this week’s meetings', 'Two meetings this week.', 'Weekly review, Wed 21 Oct: Omar finishes the pressure test.', 'Site visit, Thu 22 Oct: the test moved from rig 2 to rig 3.', 'No decisions are waiting.', 'Sources: Weekly review · 21 Oct'])
+      expect(stream).toContain(squash(s));
+    expect(stream).not.toContain('rows)');
+    footerOk(pdf, 841.89);
+  });
+
+  it('every table of the answer in order, each under its own heading kept with it, its header row repeated on every page it runs onto; an empty table says so', () => {
+    const blocked = { title: 'Blocked tasks', fromResult: 'r3', columns: [{ key: 'key', label: 'Task', kind: 'key' as const }, { key: 'title', label: 'Title' }], rows: [] };
+    const report = asAnswer(big, [doc.table, big.table, blocked]);
+    const out = answerPdf(report);
+    expect(out.toString('latin1')).toMatch(/\/MediaBox \[0 0 841\.89 595\.28\]/); // a wide table: the report is landscape
+    const pdf = inspectPdf(out);
+    const all = squash(pdf.pages.flat().join(''));
+    const at = (s: string) => all.indexOf(squash(s));
+    const order = ['80 tasks are overdue', 'Sources: RIG-1 · RIG-2 · Rig Inspection Portal', 'Overdue tasks (2 rows)', 'Overdue tasks in Rig Inspection and the platform audit (80 rows)', 'Blocked tasks (0 rows)', 'No rows.'].map(at);
+    order.forEach((i) => expect(i).toBeGreaterThanOrEqual(0));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Every row of every table is there, whole on one page.
+    const perPage = pdf.pages.map((p) => squash(p.join('')));
+    for (const t of [doc.table, big.table]) {
+      t.rows.forEach((r, i) => {
+        const whole = squash(r.cells.map((v, c) => cellText(t.columns[c]!.kind, v)).join(''));
+        expect(perPage.filter((p) => p.includes(whole)).length, `${t.title} row ${i + 1}`).toBe(1);
+      });
+    }
+    // The big table's header row heads every page its rows are on.
+    pdf.pages.forEach((page, p) => {
+      if (!page.some((t) => /^RIG-\d+$/.test(t))) return;
+      const start = page.findIndex((t) => /^RIG-\d+$/.test(t));
+      const header = page.slice(0, start);
+      const h = header.lastIndexOf('Task');
+      expect(h, `page ${p + 1}`).toBeGreaterThanOrEqual(0);
+    });
+    footerOk(pdf, 595.28);
+    // Each heading is on the same page as its table's header row (never alone at a page end).
+    for (const heading of ['Overdue tasks (2 rows)', 'Blocked tasks (0 rows)']) {
+      const p = pdf.pages.findIndex((page) => squash(page.join('')).includes(squash(heading)));
+      const after = squash(pdf.pages[p]!.join('')).split(squash(heading))[1]!;
+      expect(after.startsWith('Task'), heading).toBe(true);
+    }
+  });
+
+  it('one very long answer runs over many pages with nothing lost, a header and footer on each', () => {
+    const paragraphs = Array.from({ length: 140 }, (_, i) => `Paragraph ${i + 1}: the pressure test on rig ${i % 7} waits for the calibrated gauge and the vendor’s certificate, so it moves to next week.`);
+    const long: AnswerExport = { ...asAnswer(doc, []), text: paragraphs.join('\n\n') };
+    const pdf = inspectPdf(answerPdf(long));
+    expect(pdf.pages.length).toBeGreaterThan(3);
+    // The page bodies in reading order (a paragraph may run on from one page to the next).
+    const body = squash(pdf.lines.flatMap((lines) => lines.filter((l) => l.y > 54 && l.y < 841.89 - 50).map((l) => l.text)).join(''));
+    paragraphs.forEach((p) => expect(body.split(squash(p)).length - 1, p.slice(0, 14)).toBe(1));
+    footerOk(pdf, 841.89);
+  });
+
+  it('a file name from the chat and the company day', () => {
+    expect(answerFileName(asAnswer(doc, []))).toBe('mico-ai-overdue-tasks-in-rig-inspection-2026-10-24.pdf');
+    expect(answerFileName({ ...asAnswer(doc, []), chatTitle: 'المهام المتأخرة', question: 'ما هي المهام المتأخرة؟' })).toBe('mico-ai-answer-2026-10-24.pdf');
   });
 });
