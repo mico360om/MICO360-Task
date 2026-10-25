@@ -33,11 +33,16 @@ const pm = (id: string, extra: Record<string, unknown>) => ({
 });
 let overview: Record<string, unknown>;
 let extraTasks: Record<string, unknown>[];
+/** What the server says about the signed-in person and this project (undefined: an older server). */
+let projectExtra: Record<string, unknown> = {};
+let memberRole: 'MEMBER' | 'MANAGER' = 'MANAGER';
 
 let calls: string[] = [];
 beforeEach(() => {
   calls = [];
   extraTasks = [];
+  projectExtra = {};
+  memberRole = 'MANAGER';
   for (const k of Object.keys(socketHandlers)) delete socketHandlers[k];
   overview = {
     meetings: [
@@ -60,7 +65,7 @@ beforeEach(() => {
     const u = String(url);
     calls.push(u);
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
-    if (u.includes('/members')) return json({ data: [{ id: 'u1', username: 'manager', email: '', firstName: 'Mona', lastName: 'M', role: 'MANAGER' }] });
+    if (u.includes('/members')) return json({ data: [{ id: 'u1', username: 'manager', email: '', firstName: 'Mona', lastName: 'M', role: memberRole }] });
     if (u.endsWith('/users/directory')) return json({ data: [
       { id: 'u1', username: 'manager', firstName: 'Mona', lastName: 'M', avatarUrl: null },
       { id: 'u7', username: 'sara', firstName: 'Sara', lastName: 'K', avatarUrl: null },
@@ -76,7 +81,7 @@ beforeEach(() => {
       task('t4', { title: 'Go-live', isMilestone: true, dueDate: '2026-10-10T00:00:00.000Z', assignees: [{ id: 'u7', name: 'Sara K' }] }),
       ...extraTasks,
     ] });
-    return json({ data: PROJECT });
+    return json({ data: { ...PROJECT, ...projectExtra } });
   }));
 });
 afterEach(() => {
@@ -207,13 +212,35 @@ describe('ProjectDetailPage', () => {
     expect(calls.some((u) => u.endsWith('/users'))).toBe(false);
   });
 
-  it('offers editing the project and its owner only to an admin — the server refuses them to anyone else', async () => {
-    // A project manager (the default user here) may manage the team, not the project's own details.
+  it('offers editing the project and its owner to someone who runs it, as the server says', async () => {
+    // Its owner, named manager or a MANAGER member — not only an admin.
+    projectExtra = { canManage: true };
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    await userEvent.click(screen.getByRole('button', { name: /edit project/i }));
+    expect(await screen.findByRole('dialog', { name: 'Edit project' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /project owner/i })).toBeInTheDocument();
+  });
+
+  it('offers neither the edit, the owner nor the team controls to a member who doesn’t run it', async () => {
+    projectExtra = { canManage: false };
+    memberRole = 'MEMBER';
     renderPage();
     await screen.findByRole('heading', { name: 'MICO Platform' });
     expect(screen.queryByRole('button', { name: /edit project/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /project owner/i })).not.toBeInTheDocument();
-    expect(screen.getByText('No owner')).toBeInTheDocument(); // the owner is still shown, as text
+    expect(screen.getAllByText('No owner').length).toBeGreaterThan(0); // the owner is still shown, as text
+    await userEvent.click(screen.getByRole('tab', { name: /team/i }));
+    expect(screen.queryByLabelText(/add a member/i)).not.toBeInTheDocument();
+  });
+
+  it('lets an owner who isn’t a MANAGER member run the team (the server counts owners as running it)', async () => {
+    projectExtra = { canManage: true, ownerId: 'u1' };
+    memberRole = 'MEMBER';
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    await userEvent.click(screen.getByRole('tab', { name: /team/i }));
+    expect(await screen.findByLabelText(/add a member/i)).toBeInTheDocument();
   });
 
   it('shows the project picture in the header: its icon on its colour, or its initials', async () => {

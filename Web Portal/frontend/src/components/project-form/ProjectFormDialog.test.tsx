@@ -43,7 +43,18 @@ beforeEach(() => {
     if (/\/projects\/\w+$/.test(u) && method === 'PUT') return json({ data: { ...existing, ...(body as object) } });
     if (u.endsWith('/image') && method === 'POST') return json({ data: { ...existing, id: u.includes('pNew') ? 'pNew' : 'p1', imageUrl: '/uploads/new.webp' } });
     if (u.endsWith('/image') && method === 'DELETE') return json({ data: { ...existing, imageUrl: null } });
-    if (u.endsWith('/users/directory')) return json({ data: [{ id: 'u1', username: 'ada', firstName: 'Ada', lastName: 'Lovelace' }, { id: 'u2', username: 'omar', firstName: 'Omar', lastName: 'Ahmed' }] });
+    if (u.endsWith('/users/directory')) {
+      return json({
+        data: [
+          { id: 'u1', username: 'ada', firstName: 'Ada', lastName: 'Lovelace' },
+          { id: 'u2', username: 'omar', firstName: 'Omar', lastName: 'Ahmed' },
+          { id: 'emp', username: 'sara', firstName: 'Sara', lastName: 'Said', active: true },
+          { id: 'admin', username: 'admin', firstName: 'Khurram', lastName: 'Admin', active: true },
+          // Deactivated: still named in history, never offered.
+          { id: 'u3', username: 'layla', firstName: 'Layla', lastName: 'Gone', active: false },
+        ],
+      });
+    }
     return json({ data: [] });
   }));
 });
@@ -378,5 +389,104 @@ describe('Project task settings', () => {
     renderForm({ project: existing });
     await waitFor(() => expect(requests.some((r) => r.url.endsWith('/system-settings'))).toBe(true));
     expect(screen.queryByText(/turned off for the whole company/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('Owner and team for a new project', () => {
+  const signInAs = (id: string, roles: string[]) =>
+    useAuthStore.getState().setSession({ user: { id, email: `${id}@x`, username: id, roles }, accessToken: 'at', refreshToken: 'rt' });
+  const fill = async (dialog: HTMLElement) => {
+    await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig Inspection Portal');
+    expect(await within(dialog).findByText(/RIP is free/i)).toBeInTheDocument();
+  };
+
+  it('an employee owns it by default, may hand it to someone else, and picks a team', async () => {
+    signInAs('emp', ['EMPLOYEE']);
+    const { onSaved } = renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    await fill(dialog);
+    // The owner starts as the person creating it.
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Owner' })).toHaveTextContent('Sara Said'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
+    const owners = await screen.findByRole('listbox');
+    // Everyone active — not the deactivated, and no "No owner" for an employee's own project.
+    expect(within(owners).queryByRole('option', { name: /Layla/ })).not.toBeInTheDocument();
+    expect(within(owners).queryByRole('option', { name: 'No owner' })).not.toBeInTheDocument();
+    await userEvent.click(within(owners).getByRole('option', { name: /Omar Ahmed/ }));
+
+    // The team: active people as removable chips, picked from a search box.
+    expect(within(dialog).getByText(/you’ll be on the team as a manager/i)).toBeInTheDocument();
+    const add = within(dialog).getByRole('combobox', { name: 'Add people to the team' });
+    await userEvent.click(add);
+    expect(screen.queryByRole('option', { name: /Layla/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('option', { name: /Ada Lovelace/ }));
+    const team = within(dialog).getByRole('list', { name: 'Team' });
+    expect(within(team).getByText('Ada Lovelace')).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Add people to the team' }));
+    await userEvent.click(screen.getByRole('option', { name: /Khurram Admin/ }));
+    await userEvent.click(within(team).getByRole('button', { name: 'Remove Khurram Admin' }));
+    expect(within(team).queryByText('Khurram Admin')).not.toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(posts(/\/projects$/)[0]!.body).toMatchObject({ code: 'RIP', ownerId: 'u2', memberIds: ['u1'] });
+  });
+
+  it('an employee who keeps the project sends themselves as owner and no team when none is picked', async () => {
+    signInAs('emp', ['EMPLOYEE']);
+    const { onSaved } = renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    await fill(dialog);
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Owner' })).toHaveTextContent('Sara Said'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const body = posts(/\/projects$/)[0]!.body as Record<string, unknown>;
+    expect(body.ownerId).toBe('emp');
+    expect(body).not.toHaveProperty('memberIds');
+  });
+
+  it('an administrator owns it by default too, and may still leave it without an owner', async () => {
+    renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Owner' })).toHaveTextContent('Khurram Admin'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
+    expect(await screen.findByRole('option', { name: 'No owner' })).toBeInTheDocument();
+    expect(within(dialog).getByText(/the owner joins the team too/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/you’ll be on the team as a manager/i)).not.toBeInTheDocument();
+  });
+
+  it('has no team picker when editing (the Team tab runs an existing team)', () => {
+    renderForm({ project: existing });
+    expect(screen.queryByRole('combobox', { name: 'Add people to the team' })).not.toBeInTheDocument();
+  });
+
+  it('never offers a deactivated person as a new owner', async () => {
+    renderForm({ project: existing });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Owner' })).toHaveTextContent('Ada Lovelace'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
+    const owners = await screen.findByRole('listbox');
+    expect(within(owners).getByRole('option', { name: /Omar Ahmed/ })).toBeInTheDocument();
+    expect(within(owners).queryByRole('option', { name: /Layla/ })).not.toBeInTheDocument();
+  });
+
+  it('when editing, keeps a deactivated owner shown (once), and offers only active people as a new one', async () => {
+    renderForm({ project: { ...existing, ownerId: 'u3' } });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Owner' })).toHaveTextContent('Layla Gone'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
+    const owners = await screen.findByRole('listbox');
+    expect(within(owners).getAllByRole('option', { name: /Layla/ })).toHaveLength(1);
+    expect(within(owners).getByRole('option', { name: /Omar Ahmed/ })).toBeInTheDocument();
+  });
+
+  it('tells an employee owner handing the project over that they stay on as a manager', async () => {
+    signInAs('emp', ['EMPLOYEE']);
+    renderForm({ project: { ...existing, ownerId: 'emp' } });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    expect(within(dialog).queryByText(/you’ll stay on the team as a manager/i)).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Omar Ahmed/ }));
+    expect(within(dialog).getByText(/you’ll stay on the team as a manager/i)).toBeInTheDocument();
   });
 });

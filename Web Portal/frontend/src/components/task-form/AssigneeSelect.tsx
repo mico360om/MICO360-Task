@@ -13,15 +13,37 @@ const fold = (s: string) => s.toLocaleLowerCase().normalize('NFKD').replace(/[̀
 
 /**
  * Who works on a task: the chosen people as removable chips, and a search box listing the rest of
- * the project's team (by name or username, with their pictures).
+ * the project's team (by name or username, with their pictures). The words can be changed for other
+ * lists of people (a new project's team).
  */
-export function AssigneeSelect({ people, value, onChange, note, disabled = false }: {
+export function AssigneeSelect({
+  people,
+  value,
+  onChange,
+  note,
+  noteId,
+  disabled = false,
+  listLabel = 'Assigned people',
+  addLabel = 'Add people',
+  noPeopleText = 'No one is on this project yet',
+  allChosenText = 'Everyone on this project is assigned.',
+}: {
   people: PersonOption[];
   value: string[];
   onChange: (ids: string[]) => void;
   /** Shown under the box — e.g. who gets the task when nobody is picked. */
   note?: ReactNode;
+  /** The note's id, for a label elsewhere to point at. */
+  noteId?: string;
   disabled?: boolean;
+  /** What the chips are called (a screen reader reads it). */
+  listLabel?: string;
+  /** The search box's name. */
+  addLabel?: string;
+  /** The box's placeholder when there is nobody to pick. */
+  noPeopleText?: string;
+  /** Said when everyone has been picked. */
+  allChosenText?: string;
 }) {
   const [query, setQuery] = useState('');
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -33,7 +55,7 @@ export function AssigneeSelect({ people, value, onChange, note, disabled = false
   return (
     <div className="flex flex-col gap-2">
       {chosen.length ? (
-        <ul aria-label="Assigned people" className="flex flex-wrap gap-1.5">
+        <ul aria-label={listLabel} className="flex flex-wrap gap-1.5">
           {chosen.map((p) => (
             <li key={p.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-ground py-1 pe-1 ps-1 text-sm text-ink">
               <span aria-hidden="true" className="flex"><Avatar name={p.name} size="sm" src={p.avatarUrl} /></span>
@@ -53,8 +75,8 @@ export function AssigneeSelect({ people, value, onChange, note, disabled = false
         </ul>
       ) : null}
       <ComboPicker
-        label="Add people"
-        placeholder={people.length ? 'Search by name…' : 'No one is on this project yet'}
+        label={addLabel}
+        placeholder={people.length ? 'Search by name…' : noPeopleText}
         query={query}
         onQuery={setQuery}
         openOnFocus
@@ -66,13 +88,13 @@ export function AssigneeSelect({ people, value, onChange, note, disabled = false
           lead: <span aria-hidden="true" className="flex"><Avatar name={p.name} size="sm" src={p.avatarUrl} /></span>,
           trail: p.username ? <span className="flex-none text-xs text-ink-2">@{p.username}</span> : undefined,
         }))}
-        emptyText={rest.length === 0 ? 'Everyone on this project is assigned.' : `No one matches “${query.trim()}”.`}
+        emptyText={rest.length === 0 ? allChosenText : `No one matches “${query.trim()}”.`}
         onPick={(id) => {
           onChange([...value, id]);
           setQuery('');
         }}
       />
-      {note ? <p className="text-xs text-ink-2">{note}</p> : null}
+      {note ? <p id={noteId} className="text-xs text-ink-2">{note}</p> : null}
     </div>
   );
 }

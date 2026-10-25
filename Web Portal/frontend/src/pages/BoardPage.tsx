@@ -452,7 +452,8 @@ export function BoardPage() {
                 </div>
               ) : null}
               {isAll ? <ProjectFilter projects={shownProjects} hidden={hiddenProjects} onChange={chooseHidden} /> : null}
-              {isAdmin && !isAll ? (
+              {/* Whoever runs the project (the server says) and admins change its columns. */}
+              {(isAdmin || project?.canManage === true) && !isAll ? (
                 <button
                   onClick={() => setManageColumns((v) => !v)}
                   aria-expanded={manageColumns}

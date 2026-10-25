@@ -18,12 +18,19 @@ export interface ApiProject {
   icon?: string | null;
   imageUrl: string | null;
   ownerId: string | null;
+  /** The person named as its manager (the web form doesn't set it; other apps may). */
+  managerId?: string | null;
   startDate: string | null;
   targetDate: string | null;
   /** Each night, its unfinished tasks on past days move to today's board. Missing (older server) = on. */
   carryForward?: boolean;
   /** A task added without a due date gets today's date. Missing (older server) = off. */
   defaultDueToday?: boolean;
+  /**
+   * You may change it — its details, picture, status, owner and team: you are an admin, or its
+   * owner, its named manager or a manager on its team (the server decides). Missing from an older server.
+   */
+  canManage?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +69,8 @@ export interface ProjectOverview
   teamCount: number;
   /** You own it, manage it or are on its team (worked out by the server). */
   mine: boolean;
+  /** You may change it (see ApiProject.canManage). */
+  canManage?: boolean;
 }
 
 export interface NewProjectInput {
@@ -80,6 +89,8 @@ export interface NewProjectInput {
   carryForward?: boolean;
   /** Left out: off for a new project (unchanged on an update). */
   defaultDueToday?: boolean;
+  /** New projects only: people put on its team at once (the creator and the owner join it anyway). */
+  memberIds?: string[];
 }
 
 /** Whether a code can be used for a new project (deleted projects keep theirs). */
@@ -97,14 +108,14 @@ export function projectsApi(client: ApiClient) {
     /** Every project you may see, with its card figures, owner and team — one request for the list. */
     overview: () => client.get<{ data: ProjectOverview[] }>('/projects/overview').then((r) => r.data),
     get: (id: string) => client.get<{ data: ApiProject }>(`/projects/${id}`).then((r) => r.data),
-    /** Admin: is this code well formed and free? */
+    /** Is this code well formed and free? (Anyone may ask: anyone may create a project.) */
     checkCode: (code: string) => client.get<{ data: CodeCheck }>(`/projects/code-check?code=${encodeURIComponent(code)}`).then((r) => r.data),
     create: (input: NewProjectInput) => client.post<{ data: ApiProject }>('/projects', input).then((r) => r.data),
     update: (id: string, patch: Partial<NewProjectInput>) => client.put<{ data: ApiProject }>(`/projects/${id}`, patch).then((r) => r.data),
     /** Soft-archive a project (sets status ARCHIVED). */
     archive: (id: string) => client.post<{ data: ApiProject }>(`/projects/${id}/archive`, {}).then((r) => r.data),
     remove: (id: string) => client.del<void>(`/projects/${id}`),
-    /** Upload a project image (admin; returns the updated project). `onProgress` hears 0–1. */
+    /** Upload a project image (whoever may change the project; returns it updated). `onProgress` hears 0–1. */
     uploadImage: (id: string, file: File | Blob, opts: { filename?: string; onProgress?: (fraction: number) => void } = {}) => {
       const form = new FormData();
       form.append('file', file, opts.filename ?? (file instanceof File ? file.name : 'project-image'));

@@ -13,7 +13,6 @@ import { useAuthStore } from '../stores/auth-store';
 import { ProjectMembers } from '../components/ProjectMembers';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
-import { Avatar } from '../components/ui/Avatar';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { MeetingFormModal } from '../components/MeetingFormModal';
 import { todayKey } from '../lib/due-date';
@@ -23,6 +22,7 @@ import { useProjectRealtime, type ProjectChange } from '../lib/useProjectRealtim
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
+import { ownerChoices } from '../components/project-form/owner-options';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
@@ -132,10 +132,11 @@ export function ProjectDetailPage() {
   const project = projectQ.data;
   usePageName(project?.name);
   const members = Array.isArray(membersQ.data) ? membersQ.data : [];
-  const canManage = isAdmin || members.some((m) => m.id === myId && m.role === 'MANAGER');
-  // The project's own details (name, look, owner…) are an admin's to change — the server refuses anyone
-  // else, so a manager is not shown controls that would fail. Managers run the team (see the Team tab).
-  const canEditProject = isAdmin;
+  // Who runs the project — an admin, or its owner, named manager or a manager on its team — changes
+  // its details, picture, status and owner, and runs its team. The server says (canManage); an
+  // older one that doesn't let MANAGER members run the team only.
+  const canManage = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
+  const canEditProject = isAdmin || project?.canManage === true;
   const [detailsProblem, setDetailsProblem] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
@@ -145,20 +146,24 @@ export function ProjectDetailPage() {
     const u = directory.find((d) => d.id === ownerId);
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Unknown';
   };
-  const ownerOptions = [
-    { value: '', label: 'No owner' },
-    ...directory.map((u) => {
-      const label = `${u.firstName} ${u.lastName}`.trim() || u.username;
-      return { value: u.id, label, hint: `@${u.username}`, icon: <Avatar name={label} size="sm" src={u.avatarUrl} /> };
-    }),
-  ];
+  // Everyone active (and the current owner, even after they've left).
+  const ownerOptions = ownerChoices(directory, project?.ownerId, { allowNone: true });
   const ownerMut = useMutation({
     mutationFn: (ownerId: string | null) => projectsApi(apiClient).update(id, { ownerId }),
     onMutate: () => setDetailsProblem(null),
-    onError: (e) => setDetailsProblem(e instanceof ApiError && e.status === 403 ? 'Only an administrator can change the project owner.' : 'Couldn’t change the owner. Please try again.'),
+    onError: (e) =>
+      setDetailsProblem(
+        e instanceof ApiError && e.status === 403
+          ? 'Only this project’s owner, its managers or an administrator can change its owner.'
+          : e instanceof ApiError && e.status === 400 && e.message
+            ? e.message
+            : 'Couldn’t change the owner. Please try again.',
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['project', id] });
       void qc.invalidateQueries({ queryKey: ['projects'] });
+      // Someone who hands over a project they own stays on its team as a manager.
+      void invalidateMembers();
     },
   });
 
