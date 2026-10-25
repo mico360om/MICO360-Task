@@ -8,19 +8,44 @@ import { zonedDayKey } from '../../lib/due-date';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ValidationError } from '../../lib/http-errors';
+import { WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeRefusal, type WelcomeService } from './welcome-service';
 
 // Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
 const password = z.string().min(1).max(200);
 const name = z.string().trim().min(1).max(191);
-const createSchema = z.object({
-  email: z.string().trim().email().max(191),
-  username: name,
-  password,
-  firstName: name,
-  lastName: name,
-  departmentId: z.string().optional(),
-  roleNames: z.array(z.string()).min(1).optional(),
-});
+// With "Send a welcome email" the temporary password is optional (the person sets theirs with the
+// link); without it, a temporary password is required, as before.
+const createSchema = z
+  .object({
+    email: z.string().trim().email().max(191),
+    username: name,
+    password: z.string().max(200).optional(),
+    firstName: name,
+    lastName: name,
+    departmentId: z.string().optional(),
+    roleNames: z.array(z.string()).min(1).optional(),
+    sendWelcome: z.boolean().optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (!b.sendWelcome && !b.password) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
+  });
+/** Welcome emails to several people: at most this many a send. */
+const MAX_WELCOME_BATCH = 200;
+const welcomeBatchSchema = z.object({ userIds: z.array(z.string().min(1).max(64)).min(1).max(MAX_WELCOME_BATCH) });
+/** One bulk send per administrator this often. */
+const WELCOME_BATCH_GAP_MS = 60_000;
+
+/** A refused single send: its HTTP status (the words come from the outcome). */
+const REFUSAL_STATUS: Record<WelcomeRefusal, number> = {
+  NOT_FOUND: 404,
+  ACCOUNT_INACTIVE: 409,
+  ACCOUNT_SUSPENDED: 409,
+  ACCOUNT_LOCKED: 409,
+  NO_EMAIL: 409,
+  EMAIL_BLOCKED: 409,
+  TOO_SOON: 429,
+  DELIVERY_FAILED: 502,
+};
 const updateSchema = z.object({
   firstName: name.optional(),
   lastName: name.optional(),
@@ -45,6 +70,8 @@ export interface UserRouteDeps {
   exportData?: DataExporter;
   /** Company time zone — dates the export file name. */
   timeZone?: string;
+  /** Welcome emails ("Set your password" links); when absent, they aren't offered. */
+  welcome?: WelcomeService;
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
@@ -116,13 +143,68 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     return { data: await userService.getUser(id) };
   });
 
+  /**
+   * A welcome email went: who sent it (the entry's user), to whom (the entry and address), when. Never
+   * the link. The email has gone already, so a problem writing the entry doesn't turn that into an error.
+   */
+  const auditWelcome = async (req: FastifyRequest, out: WelcomeOutcome, bulk: boolean) => {
+    try {
+      await logAudit(req, 'user.welcome_email', out.userId, { to: out.email, username: out.username, bulk });
+    } catch {
+      /* the send itself stands */
+    }
+  };
+
   app.post('/users', adminOnly, async (req, reply) => {
-    const body = createSchema.parse(req.body);
-    const created = await userService.createUser(body);
+    const { sendWelcome, password, ...body } = createSchema.parse(req.body);
+    // Asked for a welcome email that can't be sent: say so before making an account no one can use.
+    if (sendWelcome && !deps.welcome?.isConfigured()) throw new WelcomeEmailUnavailableError();
+    let created = await userService.createUser({ ...body, ...(password ? { password } : {}) });
     // Never log the password — only non-secret identifying fields.
-    await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles });
-    return reply.status(201).send({ data: created });
+    await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles, ...(sendWelcome !== undefined ? { welcomeEmail: sendWelcome } : {}) });
+    if (!sendWelcome || !deps.welcome) return reply.status(201).send({ data: created });
+    // The account stands whatever happens to the email; the answer says whether it went.
+    const welcome = await deps.welcome.send(created.id);
+    if (welcome.sent) {
+      await auditWelcome(req, welcome, false);
+      created = await userService.getUser(created.id);
+    }
+    return reply.status(201).send({ data: created, meta: { welcome } });
   });
+
+  const welcome = deps.welcome;
+  if (welcome) {
+    const lastBatch = new Map<string, number>();
+
+    // "Send welcome emails": the chosen people (or everyone who has never signed in, chosen on the
+    // page), each told apart in the answer. One send a minute per administrator, 200 people at most.
+    app.post('/users/welcome-emails', adminOnly, async (req, reply) => {
+      const { userIds } = welcomeBatchSchema.parse(req.body);
+      if (!welcome.isConfigured()) throw new WelcomeEmailUnavailableError();
+      const adminId = req.user!.id;
+      const at = Date.now();
+      if (at - (lastBatch.get(adminId) ?? -Infinity) < WELCOME_BATCH_GAP_MS) {
+        return reply.status(429).send({ error: { code: 'TOO_SOON', message: 'Welcome emails were just sent. Wait a minute before sending more.' } });
+      }
+      lastBatch.set(adminId, at);
+      const results = await welcome.sendMany(userIds);
+      for (const out of results) if (out.sent) await auditWelcome(req, out, true);
+      const sent = results.filter((r) => r.sent).length;
+      return { data: { sent, notSent: results.length - sent, results } };
+    });
+
+    // "Send welcome email" for one person.
+    app.post('/users/:id/welcome-email', adminOnly, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const out = await welcome.send(id);
+      if (!out.sent) {
+        const reason = out.reason ?? 'DELIVERY_FAILED';
+        return reply.status(REFUSAL_STATUS[reason]).send({ error: { code: reason, message: `No welcome email was sent: ${out.why}.` } });
+      }
+      await auditWelcome(req, out, false);
+      return { data: out };
+    });
+  }
 
   app.put('/users/:id', adminOnly, async (req) => {
     const { id } = req.params as { id: string };

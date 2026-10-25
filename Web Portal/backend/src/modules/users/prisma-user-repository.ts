@@ -102,9 +102,12 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       const now = new Date();
       await prisma.$transaction([
         prisma.user.update({ where: { id }, data: { passwordHash, failedLoginAttempts: 0, lockedUntil: null } }),
-        // Earlier reset links must not be able to change the password again.
-        prisma.loginOtp.updateMany({ where: { userId: id, purpose: 'PASSWORD_RESET', consumedAt: null }, data: { consumedAt: now } }),
+        // Earlier reset and welcome links must not be able to change the password again.
+        prisma.loginOtp.updateMany({ where: { userId: id, purpose: { in: ['PASSWORD_RESET', 'WELCOME'] }, consumedAt: null }, data: { consumedAt: now } }),
       ]);
+    },
+    async markWelcomeSent(id, at) {
+      await prisma.user.updateMany({ where: { id }, data: { welcomeSentAt: at } });
     },
     async getPasswordHash(id) {
       const u = await prisma.user.findFirst({ where: { id, deletedAt: null }, select: { passwordHash: true } });

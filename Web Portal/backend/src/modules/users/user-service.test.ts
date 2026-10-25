@@ -3,6 +3,7 @@ import { createUserService, type UserServiceDeps } from './user-service';
 import { createMemoryUserRepository } from './memory-user-repository';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { WeakPasswordError } from '../auth/errors';
+import { verifyPassword } from '../../lib/password';
 
 function make(extra: Partial<UserServiceDeps> = {}) {
   const mem = createMemoryUserRepository();
@@ -35,6 +36,16 @@ describe('UserService', () => {
     void roleNames; // dropped on purpose: createUser must default it
     expect((await svc.createUser(noRoles)).roles).toEqual(['EMPLOYEE']);
     await expect(svc.createUser(person({ email: 'b@x', username: 'b', roleNames: [] }))).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('creates an account without a password: it gets an unusable random one until the person sets theirs', async () => {
+    const { svc, mem } = make();
+    const a = await svc.createUser(person({ password: undefined }));
+    const b = await svc.createUser(person({ email: 'b@x', username: 'bo', password: undefined }));
+    const hashA = mem.hashOf(a.id)!;
+    expect(hashA).toMatch(/^\$2[aby]\$/); // a real bcrypt hash, so a sign-in attempt takes the usual time
+    expect(hashA).not.toBe(mem.hashOf(b.id));
+    for (const guess of ['', 'undefined', 'null', 'Password1!']) expect(await verifyPassword(guess, hashA)).toBe(false);
   });
 
   it('enforces the password policy on create', async () => {

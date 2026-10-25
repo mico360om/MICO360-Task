@@ -24,7 +24,8 @@ export interface UserSummary {
 export interface NewUser {
   email: string;
   username: string;
-  password: string;
+  /** Absent: the account gets an unusable random password until the person sets one (welcome link). */
+  password?: string;
   firstName: string;
   lastName: string;
   departmentId?: string | null;
@@ -65,6 +66,8 @@ export interface UserRepository {
    * invalidates every outstanding password-reset link for the user.
    */
   setPassword(id: string, passwordHash: string): Promise<void>;
+  /** Remember when an administrator last sent the person a welcome email. */
+  markWelcomeSent(id: string, at: Date): Promise<void>;
   /** Read the stored password hash for verification; null if the user is gone. */
   getPasswordHash(id: string): Promise<string | null>;
   /** Soft delete. Frees the email and username so they can be used for a new account. */

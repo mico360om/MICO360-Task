@@ -51,6 +51,33 @@ export function androidAppLink(configured: string, webRoot: string | null, downl
   return null;
 }
 
+/** Code-hosting sites: a releases page there is not a download for the person (the website says the same). */
+const CODE_HOSTING = /^https:\/\/(www\.)?(github|gitlab|bitbucket)\.(com|org)\//i;
+
+/**
+ * The apps an email can offer (a welcome email): full addresses on the site for the Android app and
+ * the Chrome extension it actually has, or an https page an administrator set for the Android app.
+ * An app the site doesn't offer is null, so an email never carries a link that fails.
+ */
+export function emailDownloadLinks(opts: { appUrl: string; androidAppUrl: string; webRoot: string | null; downloadsDir: string | null }): {
+  androidAppUrl: string | null;
+  extensionUrl: string | null;
+} {
+  const site = opts.appUrl.replace(/\/+$/, '');
+  const android = androidAppLink(opts.androidAppUrl, opts.webRoot, opts.downloadsDir);
+  const androidAppUrl = !android
+    ? null
+    : android.startsWith('/') && !android.startsWith('//')
+      ? `${site}${android}`
+      : /^https:\/\//i.test(android) && !CODE_HOSTING.test(android)
+        ? android
+        : null;
+  const hasExtension =
+    (opts.downloadsDir && existsSync(join(opts.downloadsDir, EXTENSION_FILE))) ||
+    (opts.webRoot && existsSync(join(opts.webRoot, ...HOSTED_EXTENSION_PATH.split('/').filter(Boolean))));
+  return { androidAppUrl, extensionUrl: hasExtension ? `${site}${HOSTED_EXTENSION_PATH}` : null };
+}
+
 /** Paths owned by the API; they never fall back to the web app. */
 const SERVER_PREFIXES = ['/api/', '/socket.io/', '/uploads/', '/email-assets/'];
 

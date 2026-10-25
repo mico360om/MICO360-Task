@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { hashPassword, verifyPassword } from '../../lib/password';
 import { isStrongPassword } from '../../lib/password-policy';
@@ -84,12 +85,14 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
   }
 
   async function createUser(input: NewUser): Promise<UserSummary> {
-    if (!isStrongPassword(input.password)) throw new WeakPasswordError();
+    if (input.password !== undefined && !isStrongPassword(input.password)) throw new WeakPasswordError();
     const roleNames = requireRoles(input.roleNames ?? DEFAULT_ROLES);
     const existing = await users.findByEmailOrUsername(input.email, input.username);
     if (existing) throw new ConflictError('A user with this email or username already exists.', 'DUPLICATE_USER');
     await users.releaseDeletedIdentity(input.email, input.username);
-    const passwordHash = await hashPassword(input.password);
+    // No password given (a welcome email lets them set one): a real hash of a secret no one knows, so
+    // no password signs in, and a try takes the usual time.
+    const passwordHash = await hashPassword(input.password ?? randomBytes(32).toString('base64url'));
     return users.create({
       email: input.email,
       username: input.username,

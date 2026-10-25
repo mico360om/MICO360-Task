@@ -77,6 +77,10 @@ export function createMemoryUserRepository() {
       const r = row(id);
       Object.assign(r, { passwordHash, failedLoginAttempts: 0, lockedUntil: null });
     },
+    async markWelcomeSent(id, at) {
+      const r = row(id);
+      r.user = { ...r.user, welcomeSentAt: at };
+    },
     async getPasswordHash(id) {
       const r = rows.get(id);
       return r && !r.deleted ? r.passwordHash : null;

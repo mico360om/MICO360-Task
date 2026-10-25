@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { brotliCompressSync, brotliDecompressSync, gzipSync, gunzipSync } from 'node:zlib';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor, androidAppLink, robotsTagFor, HOSTED_APK_PATH, HOSTED_EXTENSION_PATH, downloadsDirFor } from './web-app';
+import { registerWebApp, isClientRoute, webAppCsp, cacheControlFor, androidAppLink, robotsTagFor, HOSTED_APK_PATH, HOSTED_EXTENSION_PATH, downloadsDirFor, emailDownloadLinks } from './web-app';
 
 describe('isClientRoute', () => {
   it('accepts page routes and rejects server paths, files and non-GET requests', () => {
@@ -74,6 +74,32 @@ describe('androidAppLink', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('emailDownloadLinks — the apps a welcome email offers', () => {
+  it('full addresses on the site for the files it hosts, and nothing for a file it doesn’t have', () => {
+    const root = mkdtempSync(join(tmpdir(), 'webapp-mail-'));
+    const kept = mkdtempSync(join(tmpdir(), 'webapp-kept-'));
+    try {
+      const links = () => emailDownloadLinks({ appUrl: 'https://task.mico360.test/', androidAppUrl: '', webRoot: root, downloadsDir: kept });
+      expect(links()).toEqual({ androidAppUrl: null, extensionUrl: null });
+      mkdirSync(join(root, 'downloads'));
+      writeFileSync(join(root, 'downloads', 'MICO360-Tasks-Chrome-Extension.zip'), 'PK');
+      expect(links()).toEqual({ androidAppUrl: null, extensionUrl: 'https://task.mico360.test/downloads/MICO360-Tasks-Chrome-Extension.zip' });
+      writeFileSync(join(kept, 'MICO360-Tasks.apk'), 'PK');
+      expect(links().androidAppUrl).toBe('https://task.mico360.test/downloads/MICO360-Tasks.apk');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(kept, { recursive: true, force: true });
+    }
+  });
+
+  it('an https address an administrator set for the Android app is used as it is; a code-hosting page is not', () => {
+    const base = { appUrl: 'https://task.mico360.test', webRoot: null, downloadsDir: null };
+    expect(emailDownloadLinks({ ...base, androidAppUrl: 'https://play.google.com/store/apps/details?id=x' }).androidAppUrl).toBe('https://play.google.com/store/apps/details?id=x');
+    expect(emailDownloadLinks({ ...base, androidAppUrl: 'https://github.com/x/y/releases' }).androidAppUrl).toBeNull();
+    expect(emailDownloadLinks({ ...base, androidAppUrl: 'http://insecure.test/app.apk' }).androidAppUrl).toBeNull();
   });
 });
 

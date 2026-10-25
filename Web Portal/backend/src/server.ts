@@ -5,7 +5,9 @@ import { buildApp } from './app';
 import { createPrismaIdempotencyStore } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
-import { registerWebApp, androidAppLink, downloadsDirFor } from './lib/web-app';
+import { registerWebApp, androidAppLink, downloadsDirFor, emailDownloadLinks } from './lib/web-app';
+import { createWelcomeService } from './modules/users/welcome-service';
+import { createPrismaWelcomeTokenStore } from './modules/users/prisma-welcome-store';
 import { createHostedApkVersion } from './lib/apk-version';
 import { loadReleaseFile } from './modules/about/build-info';
 import { resolve as resolvePath } from 'node:path';
@@ -1164,6 +1166,18 @@ async function main(): Promise<void> {
     logger.warn('Could not create the downloads folder', { downloadsDir, error: err instanceof Error ? err.message : String(err) });
   }
 
+  // Welcome emails from User Management: a "Set your password" link (single use, 7 days) with the
+  // username, the site and the apps it offers. Sent only when an administrator asks, never by itself.
+  const webRootDir = env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null;
+  const welcomeService = createWelcomeService({
+    users: userMgmtRepository,
+    tokens: createPrismaWelcomeTokenStore(prisma),
+    mailer: emailService,
+    appUrl: env.APP_URL,
+    downloads: () => emailDownloadLinks({ appUrl: env.APP_URL, androidAppUrl: env.ANDROID_APP_URL, webRoot: webRootDir, downloadsDir }),
+    logger,
+  });
+
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
@@ -1203,6 +1217,7 @@ async function main(): Promise<void> {
     pictureShrinking: imageShrinker.status,
     dependencyService,
     userService,
+    welcomeService,
     notificationService,
     dailyEmails: { service: dailyEmailService, log: dailyEmailRepository, isConfigured: () => emailService.isConfigured() },
     deviceTokenService,

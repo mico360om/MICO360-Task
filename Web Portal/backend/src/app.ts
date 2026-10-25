@@ -40,6 +40,7 @@ import type { DependencyService } from './modules/tasks/dependency-service';
 import { registerUserRoutes } from './modules/users/user-routes';
 import { registerPreferenceRoutes, type PreferencesRepository } from './modules/users/user-preferences';
 import type { UserService } from './modules/users/user-service';
+import type { WelcomeService } from './modules/users/welcome-service';
 import { registerNotificationRoutes } from './modules/notifications/notification-routes';
 import { registerDailyEmailRoutes, type DailyEmailRouteDeps } from './modules/daily-emails/daily-email-routes';
 import type { NotificationService } from './modules/notifications/notification-service';
@@ -154,6 +155,8 @@ export interface AppDeps extends AuthRouteDeps {
   pictureShrinking?: () => boolean | null;
   dependencyService?: DependencyService;
   userService?: UserService;
+  /** Welcome emails from User Management (a "Set your password" link); administrators only. */
+  welcomeService?: WelcomeService;
   notificationService?: NotificationService;
   /** Free times for Schedule meeting (busy meetings, working hours, names). */
   meetingFreeTimes?: import('./modules/meetings/meeting-routes').FreeTimesDeps;
@@ -605,6 +608,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           avatarMaxBytes: deps.attachmentMaxSizeBytes,
           exportData: deps.dataExporter,
           timeZone: deps.appConfig?.timeZone,
+          welcome: deps.welcomeService,
         });
       }
       if (deps.notificationService) {
