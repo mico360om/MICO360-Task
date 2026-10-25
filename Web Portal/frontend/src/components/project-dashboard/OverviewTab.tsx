@@ -48,6 +48,10 @@ export interface OverviewProps {
   statsReady: boolean;
   members: Array<{ id: string; name: string; role: 'MEMBER' | 'MANAGER' }>;
   ownerName: string;
+  /** The person named as its manager, if any (they run it too). */
+  namedManager?: { id: string; name: string } | null;
+  /** Who created the project. */
+  createdByName?: string | null;
   /** The owner picker (admins), shown instead of the owner's name. */
   ownerControl: ReactNode | null;
   meetings: ProjectMeetingsOverview | null;
@@ -69,7 +73,8 @@ export function OverviewTab(p: OverviewProps) {
   const marks = milestones(tasks, today, timeZone);
   const soon = deadlines(tasks, today, 14, timeZone);
   const people = workload(tasks, today, timeZone);
-  const managers = p.members.filter((m) => m.role === 'MANAGER');
+  // Who runs it besides the owner: the named manager first, then the managers on its team.
+  const managers = [...(p.namedManager ? [p.namedManager] : []), ...p.members.filter((m) => m.role === 'MANAGER' && m.id !== p.namedManager?.id)];
   const next = p.meetings?.stats.nextMeetingId ? p.meetings.meetings.find((m) => m.id === p.meetings!.stats.nextMeetingId) ?? null : null;
   const live = p.meetings?.meetings.find((m) => m.phase === 'ongoing') ?? null;
   const focus = live ?? next;
@@ -86,6 +91,7 @@ export function OverviewTab(p: OverviewProps) {
             <Detail label="Start date">{dayText(project.startDate)}</Detail>
             <Detail label="Target date">{dayText(project.targetDate)}</Detail>
             <Detail label="Project number">{project.number ? <span className="font-mono">{project.number}</span> : '—'}</Detail>
+            {p.createdByName ? <Detail label="Created by"><bdi>{p.createdByName}</bdi></Detail> : null}
           </dl>
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
             <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Owner</span>

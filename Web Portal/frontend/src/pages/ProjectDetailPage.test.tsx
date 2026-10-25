@@ -36,6 +36,8 @@ let extraTasks: Record<string, unknown>[];
 /** What the server says about the signed-in person and this project (undefined: an older server). */
 let projectExtra: Record<string, unknown> = {};
 let memberRole: 'MEMBER' | 'MANAGER' = 'MANAGER';
+/** Set: how the server answers a team change (add, role, remove). */
+let memberChange: ((method: string) => Response) | null = null;
 
 let calls: string[] = [];
 beforeEach(() => {
@@ -43,6 +45,7 @@ beforeEach(() => {
   extraTasks = [];
   projectExtra = {};
   memberRole = 'MANAGER';
+  memberChange = null;
   for (const k of Object.keys(socketHandlers)) delete socketHandlers[k];
   overview = {
     meetings: [
@@ -61,10 +64,12 @@ beforeEach(() => {
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'm@b.c', username: 'manager', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-30T10:00:00Z')); // 14:00 on 30 Sep in Muscat
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
-    calls.push(u);
+    const method = init?.method ?? 'GET';
+    calls.push(method === 'GET' ? u : `${method} ${u}`);
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+    if (u.includes('/members') && method !== 'GET' && memberChange) return memberChange(method);
     if (u.includes('/members')) return json({ data: [{ id: 'u1', username: 'manager', email: '', firstName: 'Mona', lastName: 'M', role: memberRole }] });
     if (u.endsWith('/users/directory')) return json({ data: [
       { id: 'u1', username: 'manager', firstName: 'Mona', lastName: 'M', avatarUrl: null },
@@ -235,6 +240,52 @@ describe('ProjectDetailPage', () => {
     expect(screen.getAllByText('No owner').length).toBeGreaterThan(0); // the owner is still shown, as text
     await userEvent.click(screen.getByRole('tab', { name: /team/i }));
     expect(screen.queryByLabelText(/add a member/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the named project manager beside the owner, and who created the project', async () => {
+    projectExtra = { ownerId: 'u1', managerId: 'u7', createdById: 'u1' };
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    // Header: owner · project manager.
+    expect(await screen.findByText('Project manager: Sara K')).toBeInTheDocument();
+    // Overview: who created it.
+    expect(screen.getByText('Created by')).toBeInTheDocument();
+    expect(screen.getByText('Created by').parentElement).toHaveTextContent('Mona M');
+    // Team tab: the owner and the project manager above the team.
+    await userEvent.click(screen.getByRole('tab', { name: /team/i }));
+    const team = screen.getByRole('tabpanel');
+    expect(within(team).getByText(/Owner: Mona M/)).toBeInTheDocument();
+    expect(within(team).getByText(/Project manager: Sara K/)).toBeInTheDocument();
+  });
+
+  it('says nothing about a project manager when none is named', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    expect(screen.queryByText(/Project manager:/)).not.toBeInTheDocument();
+  });
+
+  it('shows the server’s reason when a team change is refused — the last manager, an inactive person', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    await userEvent.click(screen.getByRole('tab', { name: /team/i }));
+    memberChange = () => json({ error: { code: 'LAST_PROJECT_MANAGER', message: 'Someone has to run this project. Make another member a manager, or give it an owner, first.' } }, 409);
+    await userEvent.click(await screen.findByRole('button', { name: 'Make Mona M a member' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Someone has to run this project.');
+    memberChange = () => json({ error: { code: 'VALIDATION', message: 'One of the people picked isn’t an active user. Take them off and try again.' } }, 400);
+    await userEvent.selectOptions(screen.getByLabelText(/add a member/i), 'Sara K');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('One of the people picked isn’t an active user.'));
+  });
+
+  it('refreshes the project after a team change, so someone who stepped down loses its controls at once', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    await userEvent.click(screen.getByRole('tab', { name: /team/i }));
+    const projectReads = () => calls.filter((u) => u.endsWith('/projects/p1')).length;
+    const before = projectReads();
+    memberChange = () => json({ data: [{ id: 'u1', username: 'manager', email: '', firstName: 'Mona', lastName: 'M', role: 'MEMBER' }] });
+    await userEvent.click(await screen.findByRole('button', { name: 'Make Mona M a member' }));
+    await waitFor(() => expect(projectReads()).toBeGreaterThan(before));
   });
 
   it('lets an owner who isn’t a MANAGER member run the team (the server counts owners as running it)', async () => {

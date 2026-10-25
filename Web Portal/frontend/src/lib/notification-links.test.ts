@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { notificationTarget } from './notification-links';
 
+describe('notificationTarget — projects', () => {
+  it('opens the project someone was added to', () => {
+    expect(notificationTarget({ entityType: 'project', entityId: 'p1' })).toEqual({ kind: 'path', to: '/projects/p1' });
+  });
+});
+
 describe('notificationTarget', () => {
   it('opens the related task (entity type in any case)', () => {
     expect(notificationTarget({ entityType: 'task', entityId: 't1' })).toEqual({ kind: 'task', taskId: 't1' });

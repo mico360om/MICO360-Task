@@ -119,11 +119,29 @@ export function ProjectDetailPage() {
   }, []);
 
   const invalidateMembers = () => qc.invalidateQueries({ queryKey: ['members', id] });
-  const addM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).add(id, userId), onSuccess: invalidateMembers });
-  const removeM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).remove(id, userId), onSuccess: invalidateMembers });
+  // A team change can change who may run the project (someone stepping down loses its controls at
+  // once), so the project and the lists that say so are read again too.
+  const afterTeamChange = () => {
+    void invalidateMembers();
+    void qc.invalidateQueries({ queryKey: ['project', id] });
+    void qc.invalidateQueries({ queryKey: ['projects'] });
+  };
+  // A refused team change says why, in the server's words (the last manager, an inactive person…).
+  const [teamProblem, setTeamProblem] = useState<string | null>(null);
+  const teamRefused = (e: unknown) =>
+    setTeamProblem(
+      e instanceof ApiError && e.status === 403
+        ? 'Only this project’s owner, its managers or an administrator can change its team.'
+        : e instanceof ApiError && e.message && !/^Request failed/.test(e.message)
+          ? e.message
+          : 'Couldn’t change the team. Please try again.',
+    );
+  const teamChange = { onMutate: () => setTeamProblem(null), onError: teamRefused, onSuccess: afterTeamChange };
+  const addM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).add(id, userId), ...teamChange });
+  const removeM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).remove(id, userId), ...teamChange });
   const roleM = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: 'MEMBER' | 'MANAGER' }) => membersApi(apiClient).setRole(id, userId, role),
-    onSuccess: invalidateMembers,
+    ...teamChange,
   });
 
   const name = (u: { firstName: string; lastName: string; username: string }) =>
@@ -141,11 +159,13 @@ export function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
 
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
-  const ownerName = (ownerId: string | null) => {
-    if (!ownerId) return 'No owner';
-    const u = directory.find((d) => d.id === ownerId);
+  const personById = (userId: string) => {
+    const u = directory.find((d) => d.id === userId);
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Unknown';
   };
+  const ownerName = (ownerId: string | null) => (ownerId ? personById(ownerId) : 'No owner');
+  // The named manager runs the project too: shown wherever the owner is.
+  const managerName = project?.managerId ? personById(project.managerId) : null;
   // Everyone active (and the current owner, even after they've left).
   const ownerOptions = ownerChoices(directory, project?.ownerId, { allowNone: true });
   const ownerMut = useMutation({
@@ -253,6 +273,7 @@ export function ProjectDetailPage() {
               {project.clientName ? <><span aria-hidden>·</span><span dir="auto">{project.clientName}</span></> : null}
               <span aria-hidden>·</span>
               <span>Owner: {ownerName(project.ownerId)}</span>
+              {managerName ? <><span aria-hidden>·</span><span>Project manager: {managerName}</span></> : null}
             </p>
           ) : (
             // The details line's place, so nothing under it moves when the project arrives.
@@ -338,6 +359,8 @@ export function ProjectDetailPage() {
               statsReady={statsReady}
               members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
               ownerName={ownerName(project.ownerId)}
+              namedManager={project.managerId && managerName ? { id: project.managerId, name: managerName } : null}
+              createdByName={project.createdById ? personById(project.createdById) : null}
               ownerControl={
                 canEditProject ? (
                   <div className="w-60 max-w-full">
@@ -373,6 +396,18 @@ export function ProjectDetailPage() {
         {tab === 'team' ? (
           <section className="card p-5">
             <h2 className="eyebrow mb-3">Team members</h2>
+            {project ? (
+              <p className="mb-3 flex flex-wrap gap-x-2 text-sm text-ink-2">
+                <span>Owner: {ownerName(project.ownerId)}</span>
+                {managerName ? <><span aria-hidden>·</span><span>Project manager: {managerName}</span></> : null}
+              </p>
+            ) : null}
+            {teamProblem ? (
+              <p role="alert" className="mb-3 flex items-start justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+                <span>{teamProblem}</span>
+                <button type="button" onClick={() => setTeamProblem(null)} aria-label="Dismiss" className="shrink-0 rounded px-1 opacity-80 hover:opacity-100">✕</button>
+              </p>
+            ) : null}
             <ProjectMembers
               members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
               addableUsers={canManage ? directory.filter((u) => u.active !== false).map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const })) : []}

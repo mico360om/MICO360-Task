@@ -480,6 +480,15 @@ describe('Owner and team for a new project', () => {
     expect(within(owners).getByRole('option', { name: /Omar Ahmed/ })).toBeInTheDocument();
   });
 
+  it('tells anyone changing the owner that the previous owner stays on the team as a manager', async () => {
+    renderForm({ project: existing }); // an admin; Ada owns it
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Owner' })).toHaveTextContent('Ada Lovelace'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Omar Ahmed/ }));
+    expect(within(dialog).getByText('Ada Lovelace stays on the team as a manager.')).toBeInTheDocument();
+  });
+
   it('tells an employee owner handing the project over that they stay on as a manager', async () => {
     signInAs('emp', ['EMPLOYEE']);
     renderForm({ project: { ...existing, ownerId: 'emp' } });

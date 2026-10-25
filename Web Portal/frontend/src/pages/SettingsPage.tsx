@@ -20,6 +20,7 @@ const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'MENTION', label: 'Mentions', desc: 'When someone @mentions you' },
   { type: 'TASK_DUE_SOON', label: 'Due soon', desc: 'A reminder shortly before a task is due' },
   { type: 'TASK_OVERDUE', label: 'Overdue', desc: 'When one of your tasks becomes overdue' },
+  { type: 'PROJECT_ADDED', label: 'Added to a project', desc: 'When someone puts you on a project’s team or makes you its owner' },
 ];
 
 const THEME_OPTIONS: ThemeChoice[] = ['light', 'dark', 'system'];

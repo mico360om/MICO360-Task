@@ -18,8 +18,10 @@ export interface ApiProject {
   icon?: string | null;
   imageUrl: string | null;
   ownerId: string | null;
-  /** The person named as its manager (the web form doesn't set it; other apps may). */
+  /** The person named as its manager (an administrator's to set; the web form doesn't). */
   managerId?: string | null;
+  /** Who created it. */
+  createdById?: string;
   startDate: string | null;
   targetDate: string | null;
   /** Each night, its unfinished tasks on past days move to today's board. Missing (older server) = on. */

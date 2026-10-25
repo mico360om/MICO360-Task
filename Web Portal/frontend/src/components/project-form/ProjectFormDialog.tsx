@@ -171,9 +171,11 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
     () => activePeople(directory).filter((u) => isAdmin || u.id !== me).map((u) => ({ id: u.id, name: personName(u), username: u.username, avatarUrl: u.avatarUrl })),
     [directory, isAdmin, me],
   );
-  // An employee who owns the project and hands it over stays on its team as a manager (the server
-  // does it): say so before they save.
-  const handingOver = editing && !isAdmin && initial.ownerId === me && draft.ownerId !== me && saved?.managerId !== me;
+  // Whoever owned it stays on its team as a manager when the owner changes (the server does it, for
+  // anyone making the change): say so before saving.
+  const previousOwner = editing && initial.ownerId && draft.ownerId !== initial.ownerId ? initial.ownerId : null;
+  const previousOwnerName = previousOwner ? personName(directory.find((u) => u.id === previousOwner) ?? { firstName: '', lastName: '', username: 'The previous owner' }) : '';
+  const handingOver = previousOwner !== null;
   const statusOptions = (['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', ...(initial.status === 'ARCHIVED' ? ['ARCHIVED'] : [])] as ProjectStatus[]).map((s) => ({
     value: s,
     label: projectStatusLabel(s),
@@ -498,7 +500,9 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
                   New tasks in this project are assigned to the owner unless you pick someone else — and anyone can reassign a task later.
                 </p>
                 {handingOver ? (
-                  <p id={ids.handover} className="mt-1 text-xs font-medium text-ink">You’ll stay on the team as a manager, so you can still run it.</p>
+                  <p id={ids.handover} className="mt-1 text-xs font-medium text-ink">
+                    {previousOwner === me ? 'You’ll stay on the team as a manager, so you can still run it.' : `${previousOwnerName} stays on the team as a manager.`}
+                  </p>
                 ) : null}
               </div>
 

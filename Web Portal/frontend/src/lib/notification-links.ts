@@ -12,6 +12,8 @@ export function notificationTarget(n: Pick<ApiNotification, 'entityType' | 'enti
   // A chat notification opens the conversation it is about (ChatRoute reads ?conversation=).
   if (type === 'conversation') return { kind: 'path', to: n.entityId ? `/chat?conversation=${encodeURIComponent(n.entityId)}` : '/chat' };
   if (type === 'meeting' && n.entityId) return { kind: 'path', to: `/meetings/${n.entityId}` };
+  // "… added you to the project …": its page.
+  if (type === 'project' && n.entityId) return { kind: 'path', to: `/projects/${encodeURIComponent(n.entityId)}` };
   return null;
 }
 
