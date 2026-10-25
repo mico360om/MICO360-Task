@@ -1,5 +1,7 @@
 import { ConflictError, NotFoundError } from '../../lib/http-errors';
 import type { MemberRepository, MemberUser, ProjectExistsLookup, ProjectMemberRole } from './member-repository';
+import type { PeopleLookup } from './project-repository';
+import { requireActiveTeam } from './active-people';
 
 export interface MemberServiceDeps {
   repo: MemberRepository;
@@ -9,9 +11,11 @@ export interface MemberServiceDeps {
    * chat participation, live socket rooms). Task watchers/assignments are handled here.
    */
   onMemberRemoved?: (projectId: string, userId: string) => void | Promise<void>;
+  /** Only active people may be added (deactivated, suspended, deleted or unknown ones are refused). */
+  people?: PeopleLookup;
 }
 
-export function createMemberService({ repo, projects, onMemberRemoved }: MemberServiceDeps) {
+export function createMemberService({ repo, projects, onMemberRemoved, people }: MemberServiceDeps) {
   async function ensureProject(projectId: string): Promise<void> {
     if (!(await projects.exists(projectId))) throw new NotFoundError('Project not found.');
   }
@@ -36,6 +40,7 @@ export function createMemberService({ repo, projects, onMemberRemoved }: MemberS
 
   async function addMembers(projectId: string, userIds: string[]): Promise<MemberUser[]> {
     await ensureProject(projectId);
+    await requireActiveTeam(people, userIds);
     for (const userId of userIds) await repo.add(projectId, userId);
     return repo.list(projectId);
   }

@@ -375,7 +375,7 @@ export function ProjectDetailPage() {
             <h2 className="eyebrow mb-3">Team members</h2>
             <ProjectMembers
               members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
-              addableUsers={canManage ? directory.map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const })) : []}
+              addableUsers={canManage ? directory.filter((u) => u.active !== false).map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const })) : []}
               canManage={canManage}
               onAdd={(userId) => addM.mutate(userId)}
               onRemove={(userId) => removeM.mutate(userId)}

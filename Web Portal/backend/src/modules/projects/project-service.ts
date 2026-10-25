@@ -2,6 +2,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-er
 import type { CreateProjectData, NewProjectMember, PeopleLookup, ProjectRecord, ProjectRepository, UpdateProjectData } from './project-repository';
 import { CODE_PATTERN, normalizeCode, suggestFreeCode } from './project-icons';
 import { PROJECT_TASK_DEFAULTS } from './project-task-settings';
+import { requireActiveTeam } from './active-people';
 
 export type { PeopleLookup } from './project-repository';
 
@@ -43,14 +44,13 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
   /** Owner, manager and team must be active people; anyone else is refused in plain words. */
   async function requireActive({ ownerId, managerId, memberIds = [] }: { ownerId?: string | null; managerId?: string | null; memberIds?: string[] }): Promise<void> {
     if (!people) return;
-    const asked = [ownerId, managerId, ...memberIds].filter((x): x is string => !!x);
-    if (asked.length === 0) return;
-    const active = new Set(await people.activeIds(asked));
-    if (ownerId && !active.has(ownerId)) throw new ValidationError('The owner you picked isn’t an active user. Pick someone else.', { field: 'ownerId' });
-    if (managerId && !active.has(managerId)) throw new ValidationError('The project manager you picked isn’t an active user. Pick someone else.', { field: 'managerId' });
-    const off = [...new Set(memberIds)].filter((id) => !active.has(id));
-    if (off.length === 1) throw new ValidationError('One of the people picked for the team isn’t an active user. Take them off and try again.', { field: 'memberIds', userIds: off });
-    if (off.length > 1) throw new ValidationError(`${off.length} of the people picked for the team aren’t active users. Take them off and try again.`, { field: 'memberIds', userIds: off });
+    const named = [ownerId, managerId].filter((x): x is string => !!x);
+    if (named.length) {
+      const active = new Set(await people.activeIds(named));
+      if (ownerId && !active.has(ownerId)) throw new ValidationError('The owner you picked isn’t an active user. Pick someone else.', { field: 'ownerId' });
+      if (managerId && !active.has(managerId)) throw new ValidationError('The project manager you picked isn’t an active user. Pick someone else.', { field: 'managerId' });
+    }
+    await requireActiveTeam(people, memberIds, ' for the team');
   }
 
   /**

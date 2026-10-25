@@ -213,7 +213,9 @@ async function main(): Promise<void> {
   });
 
   const projectRepository = createPrismaProjectRepository(prisma);
-  const projectService = createProjectService({ projects: projectRepository, people: createPrismaPeopleLookup(prisma) });
+  // Who may be picked as a project's owner, manager or team: active people only.
+  const peopleLookup = createPrismaPeopleLookup(prisma);
+  const projectService = createProjectService({ projects: projectRepository, people: peopleLookup });
 
   const columnService = createColumnService({ columns: createPrismaColumnRepository(prisma) });
 
@@ -223,6 +225,7 @@ async function main(): Promise<void> {
   const memberService = createMemberService({
     repo: createPrismaMemberRepository(prisma),
     projects: createPrismaProjectExistsLookup(prisma),
+    people: peopleLookup,
     onMemberRemoved: (projectId, userId) => onMemberRemoved(projectId, userId),
   });
 

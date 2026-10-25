@@ -147,7 +147,7 @@ beforeEach(async () => {
     authService,
     tokenService,
     projectService: createProjectService({ projects: w.repo, people: w.people }),
-    memberService: createMemberService({ repo: w.memberRepo, projects: w.exists }),
+    memberService: createMemberService({ repo: w.memberRepo, projects: w.exists, people: w.people }),
     projectAuthz: createProjectAuthz({ managers: w.managers }),
     projectOverview: overview,
     auditService,
@@ -225,6 +225,15 @@ describe('Who may change a project (owner, named manager, MANAGER member, admin)
     expect((await call('member', 'POST', `/projects/${rig}/members`, { userIds: ['omar'] })).statusCode).toBe(403);
     expect(w.team(rig).get('sara')).toBe('MANAGER');
     expect(w.team(rig).has('omar')).toBe(false);
+  });
+
+  it('the Team tab can’t add inactive or unknown people either (400 in plain words, nobody added)', async () => {
+    const one = await call('owner', 'POST', `/projects/${rig}/members`, { userIds: ['sara', 'gone'] });
+    expect(one.statusCode).toBe(400);
+    expect(one.json().error.message).toMatch(/one of the people picked isn’t an active user/i);
+    const two = await call('owner', 'POST', `/projects/${rig}/members`, { userIds: ['gone', 'nobody'] });
+    expect(two.json().error.message).toMatch(/2 of the people picked aren’t active users/i);
+    expect(w.team(rig).has('sara')).toBe(false);
   });
 
   it('tells each viewer whether they may change the project (list, details, overview)', async () => {

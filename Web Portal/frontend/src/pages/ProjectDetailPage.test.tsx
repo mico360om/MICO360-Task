@@ -69,6 +69,7 @@ beforeEach(() => {
     if (u.endsWith('/users/directory')) return json({ data: [
       { id: 'u1', username: 'manager', firstName: 'Mona', lastName: 'M', avatarUrl: null },
       { id: 'u7', username: 'sara', firstName: 'Sara', lastName: 'K', avatarUrl: null },
+      { id: 'u8', username: 'layla', firstName: 'Layla', lastName: 'Gone', avatarUrl: null, active: false },
     ] });
     if (u.endsWith('/users')) return json({ error: { code: 'FORBIDDEN', message: 'Admins only' } }, 403);
     if (u.includes('/columns')) return json({ data: COLUMNS });
@@ -209,6 +210,8 @@ describe('ProjectDetailPage', () => {
     await userEvent.click(screen.getByRole('tab', { name: /team/i }));
     const picker = await screen.findByLabelText(/add a member/i);
     expect(within(picker).getByRole('option', { name: 'Sara K' })).toBeInTheDocument();
+    // Someone deactivated is never offered (the server refuses them too).
+    expect(within(picker).queryByRole('option', { name: 'Layla Gone' })).not.toBeInTheDocument();
     expect(calls.some((u) => u.endsWith('/users'))).toBe(false);
   });
 
