@@ -1,7 +1,8 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { usersApi } from '../api/users';
+import { configApi } from '../api/config';
+import { usersApi, type CreatedUser } from '../api/users';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
@@ -11,7 +12,8 @@ import { ModalPortal } from './ui/ModalPortal';
 
 export interface CreateUserModalProps {
   onClose: () => void;
-  onCreated?: () => void;
+  /** The new account, and whether its welcome email went. */
+  onCreated?: (result: CreatedUser) => void;
 }
 
 type Role = 'EMPLOYEE' | 'ADMIN';
@@ -20,6 +22,9 @@ type Role = 'EMPLOYEE' | 'ADMIN';
 function createFailure(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === 'WEAK_PASSWORD') return PASSWORD_RULE_ERROR;
+    if (e.code === 'EMAIL_NOT_CONFIGURED') {
+      return 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Turn off “Send a welcome email” and give them a temporary password.';
+    }
     if (e.code === 'DUPLICATE_USER' || e.status === 409) return 'That email or username is already in use. Choose a different one.';
     const fields = (e.details as { fieldErrors?: Record<string, string[] | undefined> } | undefined)?.fieldErrors ?? {};
     if (fields.email?.length) return 'Enter a valid email address, like name@company.com.';
@@ -44,14 +49,20 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
   const [role, setRole] = useState<Role>('EMPLOYEE');
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  // "Send a welcome email": on unless email isn't set up on this server (then it can't be turned on).
+  const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
+  const emailEnabled = (configQ.data as { emailEnabled?: unknown } | undefined)?.emailEnabled !== false;
+  const [welcomeChoice, setWelcomeChoice] = useState(true);
+  const sendWelcome = emailEnabled && welcomeChoice;
 
   const createMut = useMutation({
     mutationFn: () =>
-      usersApi(apiClient).create({ firstName, lastName, username, email, password, roleNames: [role] }),
-    onSuccess: () => {
+      usersApi(apiClient).create({ firstName, lastName, username, email, ...(password ? { password } : {}), roleNames: [role], sendWelcome }),
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['directory'] });
-      onCreated?.();
+      onCreated?.(result);
       onClose();
     },
     onError: (e) => setError(createFailure(e)),
@@ -60,13 +71,19 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
   function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    // Same rule as the server (8+ characters with a letter and a number), so it never rejects what we accept.
-    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim() || !password) {
+    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim()) {
       setError('Fill in every field.');
       firstRef.current?.focus();
       return;
     }
-    if (!isStrongPassword(password)) {
+    // With a welcome email they set their own password; without one, a temporary password is needed.
+    if (!password && !sendWelcome) {
+      setError('Enter a temporary password, or turn on “Send a welcome email” so they can set their own.');
+      passwordRef.current?.focus();
+      return;
+    }
+    // Same rule as the server (8+ characters with a letter and a number), so it never rejects what we accept.
+    if (password && !isStrongPassword(password)) {
       setError(PASSWORD_RULE_ERROR);
       return;
     }
@@ -105,11 +122,43 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
                 <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
                 <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
               </div>
+              <div className="flex items-start gap-2.5 rounded-lg border border-line bg-ground/60 px-3 py-2.5">
+                <input
+                  id="nu-welcome"
+                  type="checkbox"
+                  checked={sendWelcome}
+                  disabled={!emailEnabled}
+                  onChange={(e) => setWelcomeChoice(e.target.checked)}
+                  aria-describedby="nu-welcome-hint"
+                  className="mt-0.5 h-4 w-4 flex-none accent-brand disabled:opacity-50"
+                />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <label htmlFor="nu-welcome" className={`text-sm font-medium ${emailEnabled ? 'text-ink' : 'text-ink-2'}`}>Send a welcome email</label>
+                  <p id="nu-welcome-hint" className="text-xs text-ink-2">
+                    {emailEnabled
+                      ? 'They get their username and a link to set their own password (it works for 7 days).'
+                      : 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password instead.'}
+                  </p>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="nu-password" required>Temp password</FieldLabel>
-                  <input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={fieldClass(false)} autoComplete="new-password" aria-describedby="nu-password-hint" />
+                  <FieldLabel htmlFor="nu-password" required={!sendWelcome}>
+                    Temp password{sendWelcome ? <span className="font-normal text-ink-2"> (optional)</span> : null}
+                  </FieldLabel>
+                  <input
+                    id="nu-password"
+                    ref={passwordRef}
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={fieldClass(false)}
+                    autoComplete="new-password"
+                    aria-required={!sendWelcome}
+                    aria-describedby={sendWelcome ? 'nu-password-hint nu-password-optional' : 'nu-password-hint'}
+                  />
                   <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+                  {sendWelcome ? <p id="nu-password-optional" className="text-xs text-ink-2">Or leave it empty: they choose their own with the link.</p> : null}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="nu-role">Role</FieldLabel>

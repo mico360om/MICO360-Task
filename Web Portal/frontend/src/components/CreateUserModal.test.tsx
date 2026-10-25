@@ -11,14 +11,18 @@ function json(body: unknown, status = 200): Response {
 let posted: Record<string, unknown> | null = null;
 /** What the server answers to the create request (default: created). */
 let answer: () => Response;
+/** The server's public config (whether email is set up). */
+let config: Record<string, unknown>;
 beforeEach(() => {
   posted = null;
+  config = { timeZone: 'Asia/Muscat', emailEnabled: true };
   answer = () => json({ data: { id: 'u9' } }, 201);
-  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') {
       posted = JSON.parse(String(init.body));
       return answer();
     }
+    if (String(url).endsWith('/config')) return json({ data: config });
     return json({ data: [] });
   }));
 });
@@ -27,11 +31,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderModal(onClose = vi.fn()) {
+function renderModal(onClose = vi.fn(), onCreated = vi.fn()) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <CreateUserModal onClose={onClose} />
+      <CreateUserModal onClose={onClose} onCreated={onCreated} />
     </QueryClientProvider>,
   );
   return onClose;
@@ -41,8 +45,8 @@ async function fill(password: string) {
   await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
   await userEvent.type(screen.getByLabelText(/last name/i), 'K');
   await userEvent.type(screen.getByLabelText(/username/i), 'sara');
-  await userEvent.type(screen.getByLabelText(/email/i), 'sara@x.test');
-  await userEvent.type(screen.getByLabelText(/temp password/i), password);
+  await userEvent.type(screen.getByLabelText(/^email/i), 'sara@x.test');
+  if (password) await userEvent.type(screen.getByLabelText(/temp password/i), password);
   await userEvent.click(screen.getByRole('button', { name: /create user/i }));
 }
 
@@ -98,5 +102,70 @@ describe('CreateUserModal', () => {
     await fill('Welcome123');
     await waitFor(() => expect(posted).toMatchObject({ username: 'sara', password: 'Welcome123' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+});
+
+describe('CreateUserModal — "Send a welcome email"', () => {
+  it('is on by default, and the temporary password is then optional', async () => {
+    renderModal();
+    const box = await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    expect(box).toBeChecked();
+    expect(screen.getByText('They get their username and a link to set their own password (it works for 7 days).')).toBeInTheDocument();
+    expect(screen.getByLabelText(/temp password/i)).not.toBeRequired();
+    expect(screen.getByText('(optional)')).toBeInTheDocument();
+    await fill('');
+    await waitFor(() => expect(posted).toEqual({ firstName: 'Sara', lastName: 'K', username: 'sara', email: 'sara@x.test', roleNames: ['EMPLOYEE'], sendWelcome: true }));
+  });
+
+  it('a password given with it still has to meet the rule, and is sent along', async () => {
+    renderModal();
+    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    await fill('abcdef');
+    expect(screen.getByRole('alert')).toHaveTextContent('Use at least 8 characters, including a letter and a number.');
+    expect(posted).toBeNull();
+    await userEvent.clear(screen.getByLabelText(/temp password/i));
+    await userEvent.type(screen.getByLabelText(/temp password/i), 'Welcome123');
+    await userEvent.click(screen.getByRole('button', { name: /create user/i }));
+    await waitFor(() => expect(posted).toMatchObject({ password: 'Welcome123', sendWelcome: true }));
+  });
+
+  it('turned off, today’s rule stays: a temporary password is required', async () => {
+    renderModal();
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Send a welcome email' }));
+    expect(screen.getByLabelText(/temp password/i)).toBeRequired();
+    await fill('');
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a temporary password, or turn on “Send a welcome email” so they can set their own.');
+    expect(posted).toBeNull();
+    await userEvent.type(screen.getByLabelText(/temp password/i), 'Welcome123');
+    await userEvent.click(screen.getByRole('button', { name: /create user/i }));
+    await waitFor(() => expect(posted).toMatchObject({ password: 'Welcome123', sendWelcome: false }));
+  });
+
+  it('when email isn’t set up, it is off, can’t be turned on, and says why', async () => {
+    config = { timeZone: 'Asia/Muscat', emailEnabled: false };
+    renderModal();
+    const box = await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    await waitFor(() => expect(box).toBeDisabled());
+    expect(box).not.toBeChecked();
+    expect(screen.getByText('Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password instead.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/temp password/i)).toBeRequired();
+  });
+
+  it('tells the page whether the welcome email went', async () => {
+    answer = () => json({ data: { id: 'u9', username: 'sara' }, meta: { welcome: { userId: 'u9', username: 'sara', email: 'sara@x.test', sent: true } } }, 201);
+    const onCreated = vi.fn();
+    renderModal(vi.fn(), onCreated);
+    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    await fill('');
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ user: { id: 'u9', username: 'sara' }, welcome: { userId: 'u9', username: 'sara', email: 'sara@x.test', sent: true } }));
+  });
+
+  it('says plainly when the server can’t send it because email isn’t set up', async () => {
+    answer = () => json({ error: { code: 'EMAIL_NOT_CONFIGURED', message: 'Email isn’t set up on this server yet, so no welcome email can be sent. An administrator needs to add the email (Mailjet) keys.' } }, 503);
+    const onClose = renderModal();
+    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    await fill('');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Turn off “Send a welcome email” and give them a temporary password.');
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

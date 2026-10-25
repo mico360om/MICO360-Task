@@ -63,7 +63,7 @@ describe('UsersPage (admin management)', () => {
     await userEvent.type(screen.getByLabelText(/first name/i), 'Nadia');
     await userEvent.type(screen.getByLabelText(/last name/i), 'Ahmed');
     await userEvent.type(screen.getByLabelText(/username/i), 'nadia');
-    await userEvent.type(screen.getByLabelText(/email/i), 'nadia@x.co');
+    await userEvent.type(screen.getByLabelText(/^email/i), 'nadia@x.co');
     await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
     await userEvent.click(screen.getByRole('button', { name: /create user/i }));
     await waitFor(() =>
@@ -75,7 +75,7 @@ describe('UsersPage (admin management)', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
     await userEvent.click(screen.getAllByRole('button', { name: /^edit /i })[0]!);
-    const email = await screen.findByLabelText(/email/i);
+    const email = await screen.findByLabelText(/^email/i);
     await userEvent.clear(email);
     await userEvent.type(email, 'omar2@x.co');
     await userEvent.click(screen.getByLabelText('Administrator'));
