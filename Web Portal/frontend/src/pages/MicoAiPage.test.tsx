@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within, act } from '@testing-library/react';
+import { render, screen, waitFor, within, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { MicoAiPage } from './MicoAiPage';
@@ -185,6 +185,7 @@ describe('MICO AI page', () => {
     renderPage();
     expect(await screen.findByText('MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.')).toBeInTheDocument();
     await waitFor(() => expect(box()).toBeDisabled());
+    expect(screen.queryByText('Enter to send · Shift+Enter for a new line')).not.toBeInTheDocument(); // no hint for a box that is off
   });
 
   it('Enter sends, Shift+Enter adds a new line; it shows its progress with Stop, then the answer with its table, sources and downloads', async () => {
@@ -404,5 +405,170 @@ describe('MICO AI page: review fixes', () => {
     chats = [{ id: 'c9', title: 'Big', lastMessageAt: now, messages: [{ ...capped, id: 'a1', role: 'assistant', createdAt: now }] }];
     renderPage('/mico-ai?chat=c9');
     expect(await screen.findByText('Showing 2 of 250')).toBeInTheDocument();
+  });
+});
+
+describe('MICO AI page: a ChatGPT-style layout', () => {
+  /** A scroll area jsdom can't measure: give it a size and a scroll position that sticks. */
+  function measure(el: HTMLElement, size: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+    let top = size.scrollTop;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => size.scrollHeight });
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => size.clientHeight });
+    Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => (top = Math.max(0, Math.min(v, size.scrollHeight - size.clientHeight))) });
+    return size;
+  }
+  const answered = (): FakeChat => ({
+    id: 'c9',
+    title: 'Overdue',
+    lastMessageAt: now,
+    messages: [
+      { id: 'q1', role: 'user', status: 'done', text: 'Which tasks are overdue?', createdAt: now, step: null },
+      { id: 'a1', role: 'assistant', createdAt: now, ...(tableAnswer as Omit<MicoAiMessage, 'id' | 'role' | 'createdAt'>) },
+    ],
+  });
+
+  it('fills the page: no boxed frame; the messages scroll across the full width while the conversation and the box sit in a centred reading column', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    const messages = screen.getByRole('region', { name: 'Messages' });
+    expect(messages).toHaveAttribute('tabindex', '0'); // still scrollable from the keyboard
+    expect(messages.querySelector('[data-mico-column]')).toHaveClass('mx-auto', 'max-w-3xl');
+    expect(screen.getByRole('form', { name: 'Ask MICO AI' })).toHaveClass('mx-auto', 'max-w-3xl');
+    const frame = messages.closest('.chat-frame')!;
+    expect(frame.className).not.toMatch(/rounded|shadow|(^|\s)sm:border(\s|$)/);
+  });
+
+  it('your question is a bubble on the right; MICO AI’s answer is full-width text beside its drawn mark, with no bubble', async () => {
+    chats = [answered()];
+    renderPage('/mico-ai?chat=c9');
+    const answer = await screen.findByRole('article', { name: 'MICO AI’s answer' });
+    const question = screen.getByText('Which tasks are overdue?').closest('[data-mico-message]')!;
+    expect(question).toHaveAttribute('data-mico-message', 'user');
+    expect(question).toHaveClass('justify-end');
+    expect(question.querySelector('[data-bubble]')).toHaveClass('rounded-3xl', 'bg-ground');
+    expect(answer).toHaveAttribute('data-mico-message', 'assistant');
+    expect(answer.className).not.toMatch(/(^|\s)bg-/);
+    // The mark is a drawing, not a text character (no ✦ that a font or an emoji set may draw differently).
+    const marks = document.querySelectorAll('[data-mico-mark]');
+    expect(marks.length).toBeGreaterThan(0);
+    marks.forEach((m) => {
+      expect(m.querySelector('svg')).not.toBeNull();
+      expect(m.textContent).toBe('');
+    });
+  });
+
+  it('while MICO AI writes, Send turns into Stop and the box says it is working; afterwards Send is back', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    expect(box()).toHaveAttribute('enterkeyhint', 'send'); // a phone keyboard's Enter key says Send
+    await userEvent.type(box(), 'Dig deep{Enter}');
+    expect(await screen.findByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+    expect(screen.getByText('MICO AI is working…')).toBeInTheDocument();
+    next = { status: 'done', step: null, text: 'Done digging.', answer: { kind: 'answer', unavailable: false, options: [], followUps: [], sources: [], tables: [] } };
+    await screen.findByText('Done digging.');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled(); // nothing typed yet
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
+    expect(screen.queryByText('MICO AI is working…')).not.toBeInTheDocument();
+  });
+
+  it('the box grows with what is typed, up to a limit', async () => {
+    let height = 120;
+    vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(() => height);
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    await userEvent.type(box(), 'Three{Shift>}{Enter}{/Shift}lines{Shift>}{Enter}{/Shift}here');
+    expect(box().style.height).toBe('120px');
+    height = 900;
+    await userEvent.type(box(), '{Shift>}{Enter}{/Shift}and many more');
+    expect(box().style.height).toBe('200px');
+  });
+
+  it('a new chat: the greeting, what MICO AI reads, and the suggestions as a grid of cards (two columns from 40em, one on a phone)', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    const suggestions = screen.getByRole('list', { name: 'Suggested questions' });
+    expect(suggestions).toHaveClass('grid', 'grid-cols-1', 'sm:grid-cols-2');
+    expect(within(suggestions).getAllByRole('button')).toHaveLength(4);
+    expect(within(screen.getByRole('list', { name: 'MICO AI reads' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Tasks', 'Meetings', 'Reports', 'Chat']);
+  });
+
+  it('scrolled up through a long chat, “Jump to latest” brings the newest message back', async () => {
+    chats = [answered()];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByRole('article', { name: 'MICO AI’s answer' });
+    const region = screen.getByRole('region', { name: 'Messages' });
+    measure(region, { scrollHeight: 2000, clientHeight: 500, scrollTop: 1500 });
+    fireEvent.scroll(region);
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument();
+    region.scrollTop = 200;
+    fireEvent.scroll(region);
+    await userEvent.click(await screen.findByRole('button', { name: 'Jump to latest' }));
+    expect(region.scrollTop).toBe(1500);
+    fireEvent.scroll(region);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument());
+    expect(box()).toHaveFocus();
+  });
+
+  it('a new chat opens at its top (the greeting, and any notice above it), not scrolled to its end', async () => {
+    chats = [answered()];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByRole('article', { name: 'MICO AI’s answer' });
+    const region = screen.getByRole('region', { name: 'Messages' });
+    measure(region, { scrollHeight: 1200, clientHeight: 500, scrollTop: 700 });
+    await userEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0]!);
+    await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
+    expect(region.scrollTop).toBe(0);
+  });
+
+  it('keeps the newest message in view when the message area gets shorter (a phone keyboard opening)', async () => {
+    const resized: Array<() => void> = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private cb: () => void) {}
+        observe() {
+          resized.push(() => this.cb());
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    chats = [answered()];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByRole('article', { name: 'MICO AI’s answer' });
+    const region = screen.getByRole('region', { name: 'Messages' });
+    const size = measure(region, { scrollHeight: 2000, clientHeight: 600, scrollTop: 1400 });
+    fireEvent.scroll(region);
+    size.clientHeight = 300; // the keyboard takes half the area
+    act(() => resized.forEach((r) => r()));
+    expect(region.scrollTop).toBe(1700);
+    // Someone reading further up is left where they are.
+    region.scrollTop = 100;
+    fireEvent.scroll(region);
+    size.clientHeight = 600;
+    act(() => resized.forEach((r) => r()));
+    expect(region.scrollTop).toBe(100);
+  });
+
+  it('not set up: an administrator is offered the way to AI Management; others are told to ask one', async () => {
+    ready = false;
+    useAuthStore.setState({ user: { id: 'u1', email: 'k@mico360.test', username: 'khurram', roles: ['ADMIN'] } });
+    const first = renderPage();
+    expect(await screen.findByRole('link', { name: 'Open AI Management' })).toHaveAttribute('href', '/admin/ai');
+    first.unmount();
+    useAuthStore.setState({ user: { id: 'u1', email: 'k@mico360.test', username: 'khurram', roles: ['EMPLOYEE'] } });
+    renderPage();
+    await screen.findByText('MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.');
+    expect(screen.queryByRole('link', { name: 'Open AI Management' })).not.toBeInTheDocument();
+  });
+
+  it('on a phone the chats are a sheet over the whole window (not under the top bar) that ends above the on-screen keyboard', async () => {
+    const { container } = renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Open chats' }));
+    const sheet = screen.getByRole('dialog', { name: 'Chats' });
+    expect(sheet.closest('.above-keyboard')).not.toBeNull();
+    // At the end of <body>: the page's animated wrapper would otherwise keep it under the app's top bar.
+    expect(container.contains(sheet)).toBe(false);
   });
 });

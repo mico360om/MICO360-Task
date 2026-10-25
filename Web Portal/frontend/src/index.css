@@ -369,6 +369,20 @@
     height: calc(var(--visible-height) - var(--chat-top, 57px) - var(--app-footer-space, 0px));
     min-height: 22rem;
   }
+  /* MICO AI on a phone: the conversation reaches the bottom of the screen, with the box at the
+     bottom like any chat app; the page footer (several lines on a phone) waits just below, a scroll
+     away, instead of taking a third of the screen. The same while an on-screen keyboard is open
+     (data-keyboard, see lib/keyboard-aware.ts) on any screen: the box sits right above the keys. */
+  @media (max-width: 39.9375em) {
+    .chat-frame.chat-frame-keyboard {
+      height: calc(var(--visible-height) - var(--chat-top, 57px));
+      min-height: 18rem;
+    }
+  }
+  html[data-keyboard] .chat-frame.chat-frame-keyboard {
+    height: calc(var(--visible-height) - var(--chat-top, 57px));
+    min-height: 12rem;
+  }
 
   /* A page sized to the window the same way (the calendar on a wide screen): under the top bar and
      the page's padding (--page-top, measured), above the footer. A short window scrolls instead. */

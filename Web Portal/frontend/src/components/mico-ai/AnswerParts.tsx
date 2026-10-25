@@ -1,14 +1,21 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { MicoAiSource, MicoAiTable } from '../../api/mico-ai';
 import { answerBlocks, cellDisplay, type Run } from '../../lib/mico-ai';
 
-/** The ✦ mark that stands for MICO AI (decorative: the text around it names it). */
+/**
+ * MICO AI's mark: a sparkle drawn on the brand tile (decorative: the text around it names it). Drawn,
+ * not a ✦ character, so every browser and phone shows the same shape.
+ */
 export function MicoAiMark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  const box = size === 'lg' ? 'h-12 w-12 rounded-xl text-xl' : size === 'sm' ? 'h-7 w-7 rounded-lg text-xs' : 'h-8 w-8 rounded-lg text-sm';
+  const box = size === 'lg' ? 'h-12 w-12 rounded-2xl' : size === 'sm' ? 'h-7 w-7 rounded-lg' : 'h-8 w-8 rounded-lg';
+  const icon = size === 'lg' ? 26 : size === 'sm' ? 15 : 17;
   return (
-    <span aria-hidden="true" className={`grid flex-none place-items-center bg-brand-gradient font-semibold text-white shadow-sm ${box}`}>
-      ✦
+    <span aria-hidden="true" data-mico-mark="" className={`grid flex-none place-items-center bg-brand-gradient text-white shadow-sm ${box}`}>
+      <svg viewBox="0 0 24 24" width={icon} height={icon} fill="currentColor" aria-hidden="true">
+        <path d="M11 3.5c.55 4.3 2.9 6.65 7.2 7.2-4.3.55-6.65 2.9-7.2 7.2-.55-4.3-2.9-6.65-7.2-7.2 4.3-.55 6.65-2.9 7.2-7.2z" />
+        <path d="M18.5 14.5c.25 1.85 1.15 2.75 3 3-1.85.25-2.75 1.15-3 3-.25-1.85-1.15-2.75-3-3 1.85-.25 2.75-1.15 3-3z" opacity=".85" />
+      </svg>
     </span>
   );
 }
@@ -27,7 +34,7 @@ function Runs({ runs }: { runs: Run[] }) {
  */
 export function AnswerText({ text }: { text: string }) {
   return (
-    <div dir="auto" className="space-y-2 text-sm leading-relaxed text-ink">
+    <div dir="auto" className="space-y-3 text-[0.9375rem] leading-7 text-ink [overflow-wrap:anywhere]">
       {answerBlocks(text).map((b, i) =>
         b.kind === 'p' ? (
           <p key={i}>
@@ -39,7 +46,7 @@ export function AnswerText({ text }: { text: string }) {
             ))}
           </p>
         ) : (
-          <ul key={i} className="list-disc space-y-1 ps-5 marker:text-brand">
+          <ul key={i} className="list-disc space-y-1.5 ps-5 marker:text-brand">
             {b.items.map((item, j) => (
               <li key={j}>
                 <Runs runs={item} />
@@ -55,18 +62,30 @@ export function AnswerText({ text }: { text: string }) {
 const NUMERIC = new Set(['number', 'percent', 'days']);
 const FIRST_ROWS = 25;
 
+/**
+ * How a text column wraps in a table that may scroll sideways: short phrases stay on one line, and
+ * longer text gets a readable width before it wraps (a browser would otherwise squeeze every column of
+ * a wide table to its narrowest, one or two words a line). A long link breaks rather than widening it.
+ */
+function textColumnClass(table: MicoAiTable, col: number): string {
+  const longest = Math.max(table.columns[col]?.label.length ?? 0, ...table.rows.map((r) => String(r.cells[col] ?? '').length));
+  if (longest <= 24) return 'whitespace-nowrap';
+  return longest <= 60 ? 'min-w-[11rem] max-w-[20rem] [overflow-wrap:anywhere]' : 'min-w-[15rem] max-w-[26rem] [overflow-wrap:anywhere]';
+}
+
 /** A table copied by the server from the data (its figures are the data's, never the AI's). */
 export function AnswerTable({ table }: { table: MicoAiTable }) {
   const [all, setAll] = useState(false);
   const rows = all ? table.rows : table.rows.slice(0, FIRST_ROWS);
+  const textClass = useMemo(() => table.columns.map((c, j) => (c.kind === 'text' || !c.kind ? textColumnClass(table, j) : '')), [table]);
   return (
     <div className="min-w-0">
       {/* Scrolls sideways when it is wider than the answer: a region the keyboard can reach and scroll. */}
-      <div role="region" aria-label={table.title} tabIndex={0} className="max-w-full overflow-x-auto rounded-xl border border-line outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+      <div role="region" aria-label={table.title} tabIndex={0} className="max-w-full overflow-x-auto rounded-xl border border-line bg-surface outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
         <table className="w-full border-collapse text-sm">
-          <caption className="border-b border-line bg-ground/60 px-3 py-1.5 text-start text-xs font-semibold text-ink-2">{table.title}</caption>
+          <caption className="border-b border-line bg-ground/60 px-3 py-2 text-start text-xs font-semibold text-ink-2">{table.title}</caption>
           <thead>
-            <tr className="bg-ground/60 text-xs text-ink-2">
+            <tr className="border-b border-line bg-ground/40 text-xs text-ink-2">
               {table.columns.map((c) => (
                 <th key={c.key} scope="col" className={`whitespace-nowrap px-3 py-2 font-semibold ${NUMERIC.has(c.kind ?? '') ? 'text-end' : 'text-start'}`}>
                   {c.label}
@@ -76,13 +95,15 @@ export function AnswerTable({ table }: { table: MicoAiTable }) {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i} className="border-t border-line">
+              <tr key={i} className="border-t border-line first:border-t-0 even:bg-ground/30">
                 {r.cells.map((v, j) => {
                   const kind = table.columns[j]?.kind;
                   const text = cellDisplay(kind, v);
                   return (
-                    <td key={j} dir={kind === 'text' || !kind ? 'auto' : undefined} className={`px-3 py-2 align-top text-ink ${NUMERIC.has(kind ?? '') ? 'whitespace-nowrap text-end tabular-nums' : ''}`}>
-                      {kind === 'key' && text ? (
+                    <td key={j} dir={kind === 'text' || !kind ? 'auto' : undefined} className={`px-3 py-2 align-top text-ink ${NUMERIC.has(kind ?? '') ? 'whitespace-nowrap text-end tabular-nums' : kind === 'date' || kind === 'datetime' ? 'whitespace-nowrap' : ''}`}>
+                      {kind === 'text' || !kind ? (
+                        <span className={`block ${textClass[j]}`}>{text}</span>
+                      ) : kind === 'key' && text ? (
                         <span className="whitespace-nowrap rounded-md bg-ground px-1.5 py-0.5 font-mono text-xs text-ink-2">{text}</span>
                       ) : kind === 'days' && text ? (
                         <span className="font-semibold text-danger">{text}</span>
