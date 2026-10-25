@@ -149,8 +149,8 @@ describe('POST /users/welcome-emails — several people', () => {
     ]);
   });
 
-  it('at most 200 people a send, and at least one', async () => {
-    const tooMany = Array.from({ length: 201 }, (_, i) => `u${i}`);
+  it('at most 100 people a send, and at least one', async () => {
+    const tooMany = Array.from({ length: 101 }, (_, i) => `u${i}`);
     expect((await app.inject({ method: 'POST', url: '/api/v1/users/welcome-emails', headers: admin, payload: { userIds: tooMany } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/api/v1/users/welcome-emails', headers: admin, payload: { userIds: [] } })).statusCode).toBe(400);
   });

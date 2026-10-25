@@ -175,6 +175,16 @@ describe('User Management: welcome emails', () => {
     expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
   });
 
+  it('more than 100 picked: says to choose fewer, and Send can’t be used', async () => {
+    people = Array.from({ length: 101 }, (_, i) => ({ ...person(`p${i}`, `person${i}`), firstName: `person${i}`, lastName: 'T', roles: ['EMPLOYEE'], avatarUrl: null })) as Person[];
+    renderPage();
+    await screen.findByText('person0');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select everyone shown' }));
+    expect(screen.getByText('101 selected')).toBeInTheDocument();
+    expect(screen.getByText('You can send up to 100 welcome emails at a time. Choose fewer people.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send welcome emails' })).toBeDisabled();
+  });
+
   it('when email isn’t set up, says so plainly and the send buttons can’t be used', async () => {
     emailEnabled = false;
     renderPage();

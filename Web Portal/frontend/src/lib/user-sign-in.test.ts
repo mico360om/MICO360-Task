@@ -49,8 +49,8 @@ describe('the bulk send’s words', () => {
     expect(welcomeBatchSummary({ sent: 0, notSent: 3 })).toBe('Sent 0. 3 not sent:');
   });
 
-  it('sends to at most 200 people at a time (the server’s limit)', () => {
-    expect(MAX_WELCOME_BATCH).toBe(200);
+  it('sends to at most 100 people at a time (the server’s limit)', () => {
+    expect(MAX_WELCOME_BATCH).toBe(100);
   });
 });
 

@@ -30,7 +30,7 @@ const createSchema = z
     if (!b.sendWelcome && !b.password) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
   });
 /** Welcome emails to several people: at most this many a send. */
-const MAX_WELCOME_BATCH = 200;
+const MAX_WELCOME_BATCH = 100;
 const welcomeBatchSchema = z.object({ userIds: z.array(z.string().min(1).max(64)).min(1).max(MAX_WELCOME_BATCH) });
 /** One bulk send per administrator this often. */
 const WELCOME_BATCH_GAP_MS = 60_000;
@@ -185,7 +185,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     const lastBatch = new Map<string, number>();
 
     // "Send welcome emails": the chosen people (or everyone who has never signed in, chosen on the
-    // page), each told apart in the answer. One send a minute per administrator, 200 people at most.
+    // page), each told apart in the answer. One send a minute per administrator, 100 people at most (it runs inside one request).
     app.post('/users/welcome-emails', adminOnly, async (req, reply) => {
       const { userIds } = welcomeBatchSchema.parse(req.body);
       if (!welcome.isConfigured()) throw new WelcomeEmailUnavailableError();

@@ -4,7 +4,7 @@
  */
 
 /** The server's limit for one bulk send (backend user-routes MAX_WELCOME_BATCH). */
-export const MAX_WELCOME_BATCH = 200;
+export const MAX_WELCOME_BATCH = 100;
 
 // Fixed English month names: some browsers' en-GB writes September as "Sept".
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
