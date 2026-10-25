@@ -31,7 +31,8 @@ export type WelcomeRefusal =
   | 'NO_EMAIL'
   | 'EMAIL_BLOCKED'
   | 'TOO_SOON'
-  | 'DELIVERY_FAILED';
+  | 'DELIVERY_FAILED'
+  | 'SERVER_ERROR';
 
 /** Each reason as a clause that finishes "Not sent: …" (the website builds its sentences from these). */
 export const WELCOME_REFUSAL_WHY: Record<WelcomeRefusal, string> = {
@@ -43,7 +44,16 @@ export const WELCOME_REFUSAL_WHY: Record<WelcomeRefusal, string> = {
   EMAIL_BLOCKED: 'emails to this address are blocked (it bounced or was marked as spam)',
   TOO_SOON: 'a welcome email was sent to them less than a minute ago',
   DELIVERY_FAILED: 'the email couldn’t be delivered (try again later)',
+  SERVER_ERROR: 'something went wrong on the server (try again)',
 };
+
+export interface WelcomeSendOptions {
+  /**
+   * Called as soon as a person's email has gone (before the next person is tried), so the audit log
+   * is complete even if the rest of a batch never finishes. Its errors are logged, never thrown.
+   */
+  onSent?: (outcome: WelcomeOutcome) => void | Promise<void>;
+}
 
 /** What happened for one person. Never carries the link. */
 export interface WelcomeOutcome {
@@ -130,7 +140,11 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
     return null;
   }
 
-  async function deliver(user: UserSummary, at: Date): Promise<WelcomeOutcome> {
+  /** Log a problem that doesn't change the answer (only the error's words: never a link). */
+  const warn = (msg: string, userId: string, err: unknown) =>
+    deps.logger?.warn(msg, { userId, error: err instanceof Error ? err.message : String(err) });
+
+  async function deliver(user: UserSummary, at: Date, opts: WelcomeSendOptions): Promise<WelcomeOutcome> {
     const reason = refusalFor(user, at);
     if (reason) return refused(user.id, user, reason);
     const email = user.email.trim();
@@ -138,6 +152,13 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
 
     const { token, tokenHash } = generateResetToken();
     const linkId = await deps.tokens.create({ userId: user.id, tokenHash, expiresAt: new Date(at.getTime() + ttlSeconds * 1000) });
+    const discard = async () => {
+      try {
+        await deps.tokens.discard(linkId);
+      } catch (err) {
+        warn('could not cancel an unsent welcome link', user.id, err);
+      }
+    };
     const apps = deps.downloads?.() ?? { androidAppUrl: null, extensionUrl: null };
     let result: DeliveryResult;
     try {
@@ -150,40 +171,67 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
         extensionUrl: apps.extensionUrl,
       });
     } catch (err) {
-      await deps.tokens.discard(linkId);
+      await discard();
       // Only the provider's words: never the link.
-      deps.logger?.warn('welcome email could not be sent', { userId: user.id, error: err instanceof Error ? err.message : String(err) });
+      warn('welcome email could not be sent', user.id, err);
       return refused(user.id, user, 'DELIVERY_FAILED');
     }
     if (result === 'suppressed') {
-      await deps.tokens.discard(linkId);
+      await discard();
       return refused(user.id, user, 'EMAIL_BLOCKED');
     }
-    await deps.tokens.replaceEarlier(user.id, linkId);
-    await deps.users.markWelcomeSent(user.id, at);
-    return { userId: user.id, username: user.username, name: displayName(user), email, sent: true, sentAt: at.toISOString() };
+
+    // The email has gone: from here on it counts as sent, whatever the bookkeeping does. Calling it
+    // "not sent" would invite a second email a minute later that replaces this link.
+    const sent: WelcomeOutcome = { userId: user.id, username: user.username, name: displayName(user), email, sent: true, sentAt: at.toISOString() };
+    try {
+      await deps.tokens.replaceEarlier(user.id, linkId);
+    } catch (err) {
+      warn('could not end earlier welcome links', user.id, err);
+    }
+    try {
+      await deps.users.markWelcomeSent(user.id, at);
+    } catch (err) {
+      warn('could not record when the welcome email went', user.id, err);
+    }
+    try {
+      await opts.onSent?.(sent);
+    } catch (err) {
+      warn('could not record the welcome email in the audit log', user.id, err);
+    }
+    return sent;
   }
 
-  async function sendOne(userId: string): Promise<WelcomeOutcome> {
-    const user = await deps.users.findById(userId);
-    if (!user) return refused(userId, null, 'NOT_FOUND');
-    if (inFlight.has(userId)) return refused(userId, user, 'TOO_SOON');
+  async function sendOne(userId: string, opts: WelcomeSendOptions): Promise<WelcomeOutcome> {
+    // Claimed before anything is read: a second send that starts meanwhile is "too soon", however
+    // slowly its own read of the person comes back (the database can't see the first one yet).
+    if (inFlight.has(userId)) {
+      const user = await deps.users.findById(userId).catch(() => null);
+      return refused(userId, user, 'TOO_SOON');
+    }
     inFlight.add(userId);
+    let user: UserSummary | null = null;
     try {
-      return await deliver(user, now());
+      user = await deps.users.findById(userId);
+      if (!user) return refused(userId, null, 'NOT_FOUND');
+      return await deliver(user, now(), opts);
+    } catch (err) {
+      // Anything unexpected (the database, say) is this person's answer, not the whole request's.
+      warn('welcome email failed', userId, err);
+      return refused(userId, user, 'SERVER_ERROR');
     } finally {
       inFlight.delete(userId);
     }
   }
 
-  /** Email one person (an administrator asked). Refusals are answers, not errors. */
-  async function send(userId: string): Promise<WelcomeOutcome> {
+  /** Email one person (an administrator asked). Refusals and failures are answers, not errors. */
+  async function send(userId: string, opts: WelcomeSendOptions = {}): Promise<WelcomeOutcome> {
     if (!isConfigured()) throw new WelcomeEmailUnavailableError();
-    return sendOne(userId);
+    return sendOne(userId, opts);
   }
 
   /** Email several people (each once, a few at a time), in the order asked; each says if it went. */
-  async function sendMany(userIds: string[]): Promise<WelcomeOutcome[]> {
+  async function sendMany(userIds: string[], opts: WelcomeSendOptions = {}): Promise<WelcomeOutcome[]> {
     if (!isConfigured()) throw new WelcomeEmailUnavailableError();
     const ids = [...new Set(userIds)];
     const out: WelcomeOutcome[] = new Array(ids.length);
@@ -191,7 +239,7 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
     const worker = async () => {
       while (next < ids.length) {
         const i = next++;
-        out[i] = await sendOne(ids[i]!);
+        out[i] = await sendOne(ids[i]!, opts);
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));

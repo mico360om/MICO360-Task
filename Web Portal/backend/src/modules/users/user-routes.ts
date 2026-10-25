@@ -8,7 +8,7 @@ import { zonedDayKey } from '../../lib/due-date';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ValidationError } from '../../lib/http-errors';
-import { WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeRefusal, type WelcomeService } from './welcome-service';
+import { WELCOME_REFUSAL_WHY, WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeRefusal, type WelcomeService } from './welcome-service';
 
 // Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
 const password = z.string().min(1).max(200);
@@ -45,6 +45,7 @@ const REFUSAL_STATUS: Record<WelcomeRefusal, number> = {
   EMAIL_BLOCKED: 409,
   TOO_SOON: 429,
   DELIVERY_FAILED: 502,
+  SERVER_ERROR: 500,
 };
 const updateSchema = z.object({
   firstName: name.optional(),
@@ -145,14 +146,11 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
 
   /**
    * A welcome email went: who sent it (the entry's user), to whom (the entry and address), when. Never
-   * the link. The email has gone already, so a problem writing the entry doesn't turn that into an error.
+   * the link. Written by the welcome service as soon as each email has gone (so a batch cut short still
+   * leaves every entry); a problem writing it is logged there and doesn't turn the send into an error.
    */
-  const auditWelcome = async (req: FastifyRequest, out: WelcomeOutcome, bulk: boolean) => {
-    try {
-      await logAudit(req, 'user.welcome_email', out.userId, { to: out.email, username: out.username, bulk });
-    } catch {
-      /* the send itself stands */
-    }
+  const auditWelcome = (req: FastifyRequest, bulk: boolean) => async (out: WelcomeOutcome) => {
+    await logAudit(req, 'user.welcome_email', out.userId, { to: out.email, username: out.username, bulk });
   };
 
   app.post('/users', adminOnly, async (req, reply) => {
@@ -163,12 +161,22 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     // Never log the password — only non-secret identifying fields.
     await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles, ...(sendWelcome !== undefined ? { welcomeEmail: sendWelcome } : {}) });
     if (!sendWelcome || !deps.welcome) return reply.status(201).send({ data: created });
-    // The account stands whatever happens to the email; the answer says whether it went.
-    const welcome = await deps.welcome.send(created.id);
-    if (welcome.sent) {
-      await auditWelcome(req, welcome, false);
-      created = await userService.getUser(created.id);
+    // The account stands whatever happens to the email: the answer is always 201 and says whether it went.
+    let welcome: WelcomeOutcome;
+    try {
+      welcome = await deps.welcome.send(created.id, { onSent: auditWelcome(req, false) });
+    } catch {
+      welcome = {
+        userId: created.id,
+        username: created.username,
+        name: `${created.firstName} ${created.lastName}`.trim() || created.username,
+        email: created.email,
+        sent: false,
+        reason: 'SERVER_ERROR',
+        why: WELCOME_REFUSAL_WHY.SERVER_ERROR,
+      };
     }
+    if (welcome.sent && welcome.sentAt) created = { ...created, welcomeSentAt: new Date(welcome.sentAt) };
     return reply.status(201).send({ data: created, meta: { welcome } });
   });
 
@@ -187,8 +195,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
         return reply.status(429).send({ error: { code: 'TOO_SOON', message: 'Welcome emails were just sent. Wait a minute before sending more.' } });
       }
       lastBatch.set(adminId, at);
-      const results = await welcome.sendMany(userIds);
-      for (const out of results) if (out.sent) await auditWelcome(req, out, true);
+      const results = await welcome.sendMany(userIds, { onSent: auditWelcome(req, true) });
       const sent = results.filter((r) => r.sent).length;
       return { data: { sent, notSent: results.length - sent, results } };
     });
@@ -196,12 +203,11 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     // "Send welcome email" for one person.
     app.post('/users/:id/welcome-email', adminOnly, async (req, reply) => {
       const { id } = req.params as { id: string };
-      const out = await welcome.send(id);
+      const out = await welcome.send(id, { onSent: auditWelcome(req, false) });
       if (!out.sent) {
-        const reason = out.reason ?? 'DELIVERY_FAILED';
-        return reply.status(REFUSAL_STATUS[reason]).send({ error: { code: reason, message: `No welcome email was sent: ${out.why}.` } });
+        const reason = out.reason ?? 'SERVER_ERROR';
+        return reply.status(REFUSAL_STATUS[reason]).send({ error: { code: reason, message: `No welcome email was sent: ${out.why ?? WELCOME_REFUSAL_WHY[reason]}.` } });
       }
-      await auditWelcome(req, out, false);
       return { data: out };
     });
   }

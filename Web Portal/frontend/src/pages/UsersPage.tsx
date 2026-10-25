@@ -36,7 +36,7 @@ function reason(err: unknown, fallback: string): string {
 }
 
 /** The server's words for a welcome email it didn't send (refused, too soon, email not set up, not delivered). */
-const WELCOME_CODES = new Set(['NOT_FOUND', 'ACCOUNT_INACTIVE', 'ACCOUNT_SUSPENDED', 'ACCOUNT_LOCKED', 'NO_EMAIL', 'EMAIL_BLOCKED', 'TOO_SOON', 'DELIVERY_FAILED', 'EMAIL_NOT_CONFIGURED']);
+const WELCOME_CODES = new Set(['NOT_FOUND', 'ACCOUNT_INACTIVE', 'ACCOUNT_SUSPENDED', 'ACCOUNT_LOCKED', 'NO_EMAIL', 'EMAIL_BLOCKED', 'TOO_SOON', 'DELIVERY_FAILED', 'SERVER_ERROR', 'EMAIL_NOT_CONFIGURED']);
 function welcomeFailure(err: unknown): string {
   if (err instanceof ApiError && WELCOME_CODES.has(err.code ?? '') && err.message) return err.message;
   return reason(err, 'Couldn’t send the welcome email. Try again.');

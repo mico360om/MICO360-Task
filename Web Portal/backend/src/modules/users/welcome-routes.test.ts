@@ -28,7 +28,11 @@ let mem: ReturnType<typeof createMemoryUserRepository>;
 let audited: Audited[];
 let sent: { email: string; params: WelcomeEmailParams }[];
 
-async function makeApp(opts: { configured?: boolean; blocked?: string[]; auditFails?: boolean } = {}) {
+/** People the database can't read (a server error for them only). */
+let brokenIds: Set<string>;
+
+async function makeApp(opts: { configured?: boolean; blocked?: string[]; auditFails?: boolean; welcomeThrows?: boolean } = {}) {
+  brokenIds = new Set();
   mem = createMemoryUserRepository();
   audited = [];
   sent = [];
@@ -42,8 +46,11 @@ async function makeApp(opts: { configured?: boolean; blocked?: string[]; auditFa
       return [];
     },
   } as unknown as AuditService;
-  const welcomeService = createWelcomeService({
-    users: mem.repo,
+  const realWelcome = createWelcomeService({
+    users: {
+      findById: (id) => (brokenIds.has(id) ? Promise.reject(new Error('database away')) : mem.repo.findById(id)),
+      markWelcomeSent: (id, at) => mem.repo.markWelcomeSent(id, at),
+    },
     tokens: createMemoryWelcomeTokenStore().store,
     mailer: {
       isConfigured: () => opts.configured ?? true,
@@ -55,6 +62,10 @@ async function makeApp(opts: { configured?: boolean; blocked?: string[]; auditFa
     },
     appUrl: 'https://task.mico360.test',
   });
+  // A welcome service that fails outright (as if something below it threw).
+  const welcomeService: typeof realWelcome = opts.welcomeThrows
+    ? { ...realWelcome, send: async () => Promise.reject(new Error('database away')) }
+    : realWelcome;
   const userService = createUserService({ users: mem.repo });
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
@@ -228,5 +239,34 @@ describe('POST /users with "Send a welcome email"', () => {
     expect(res.statusCode).toBe(201);
     expect(res.json().meta.welcome).toMatchObject({ sent: false, reason: 'EMAIL_BLOCKED' });
     expect(audited.map((a) => a.action)).toEqual(['user.create']);
+  });
+});
+
+describe('A server error during a send never loses the account, the results or the audit entries', () => {
+  it('POST /users: the account is made and the answer is 201 with a failed welcome result, never a 500', async () => {
+    app = await makeApp({ welcomeThrows: true });
+    const res = await create({ ...newUser, sendWelcome: true });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().meta.welcome).toMatchObject({ userId: res.json().data.id, username: 'sara', sent: false, reason: 'SERVER_ERROR', why: 'something went wrong on the server (try again)' });
+    expect((await mem.repo.list()).map((u) => u.username)).toEqual(['sara']);
+  });
+
+  it('several people: the one the server failed on is “not sent”, the others go and are audited one by one', async () => {
+    const ada = (await create({ ...newUser, email: 'ada@x.co', username: 'ada' })).json().data;
+    const bo = (await create({ ...newUser, email: 'bo@x.co', username: 'bo' })).json().data;
+    brokenIds.add(bo.id);
+    const res = await app.inject({ method: 'POST', url: '/api/v1/users/welcome-emails', headers: admin, payload: { userIds: [ada.id, bo.id] } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ sent: 1, notSent: 1 });
+    expect(res.json().data.results[1]).toMatchObject({ userId: bo.id, sent: false, reason: 'SERVER_ERROR' });
+    expect(audited.filter((a) => a.action === 'user.welcome_email').map((a) => a.entityId)).toEqual([ada.id]);
+  });
+
+  it('one person: a server error answers 500 in plain words', async () => {
+    const bo = (await create(newUser)).json().data;
+    brokenIds.add(bo.id);
+    const res = await app.inject({ method: 'POST', url: `/api/v1/users/${bo.id}/welcome-email`, headers: admin });
+    expect(res.statusCode).toBe(500);
+    expect(res.json().error).toEqual({ code: 'SERVER_ERROR', message: 'No welcome email was sent: something went wrong on the server (try again).' });
   });
 });

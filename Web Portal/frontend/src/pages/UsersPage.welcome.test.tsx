@@ -111,6 +111,14 @@ describe('User Management: welcome emails', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('No welcome email was sent: the account is suspended.');
   });
 
+  it('a server error says so in the server’s plain words', async () => {
+    answers['/users/u2/welcome-email'] = () => json({ error: { code: 'SERVER_ERROR', message: 'No welcome email was sent: something went wrong on the server (try again).' } }, 500);
+    renderPage();
+    await screen.findByText('ada');
+    await userEvent.click(screen.getByRole('button', { name: 'Send welcome email to bo' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No welcome email was sent: something went wrong on the server (try again).');
+  });
+
   it('"Everyone who has never signed in": asks first with the count, then shows what happened per person', async () => {
     answers['/users/welcome-emails'] = () =>
       json({

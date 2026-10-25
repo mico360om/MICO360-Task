@@ -8,15 +8,38 @@ import type { WelcomeEmailParams } from '../email/email-templates';
 
 const DAY = 24 * 3600 * 1000;
 
-function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email: string) => boolean; suppressAtSend?: string[] } = {}) {
+function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email: string) => boolean; suppressAtSend?: string[]; concurrency?: number } = {}) {
   let clock = new Date('2026-10-25T06:00:00.000Z').getTime();
   const mem = createMemoryUserRepository();
   const tokens = createMemoryWelcomeTokenStore();
   const sent: { email: string; params: WelcomeEmailParams }[] = [];
   const warnings: { msg: string; ctx?: Record<string, unknown> }[] = [];
+  /** What the database does wrong: reading these people, recording a send, ending earlier links. */
+  const broken = { find: new Set<string>(), mark: false, replace: false };
+  /** Runs after a person is read and before the answer comes back (a slow database). */
+  let afterFind: ((id: string) => Promise<void>) | null = null;
+  /** Emails going out and audit callbacks, in order. */
+  const events: string[] = [];
   const service = createWelcomeService({
-    users: mem.repo,
-    tokens: tokens.store,
+    users: {
+      async findById(id) {
+        if (broken.find.has(id)) throw new Error('database away');
+        const snapshot = await mem.repo.findById(id);
+        if (afterFind) await afterFind(id);
+        return snapshot;
+      },
+      async markWelcomeSent(id, at) {
+        if (broken.mark) throw new Error('database away');
+        return mem.repo.markWelcomeSent(id, at);
+      },
+    },
+    tokens: {
+      ...tokens.store,
+      async replaceEarlier(userId, keepId) {
+        if (broken.replace) throw new Error('database away');
+        return tokens.store.replaceEarlier(userId, keepId);
+      },
+    },
     mailer: {
       isConfigured: () => opts.configured ?? true,
       isBlocked: async (email) => (opts.blocked ?? []).includes(email),
@@ -24,9 +47,11 @@ function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email
         if (opts.fail?.(email)) throw new EmailDeliveryError(email, 503, 'Email could not be delivered (HTTP 503).');
         if ((opts.suppressAtSend ?? []).includes(email)) return 'suppressed';
         sent.push({ email, params });
+        events.push(`email ${email}`);
         return 'sent';
       },
     },
+    ...(opts.concurrency ? { concurrency: opts.concurrency } : {}),
     appUrl: 'https://task.mico360.test/',
     downloads: () => ({ androidAppUrl: 'https://task.mico360.test/downloads/MICO360-Tasks.apk', extensionUrl: null }),
     logger: { warn: (msg, ctx) => void warnings.push({ msg, ctx }) },
@@ -35,7 +60,20 @@ function harness(opts: { configured?: boolean; blocked?: string[]; fail?: (email
   const add = (username: string, extra: Partial<{ email: string; firstName: string }> = {}) =>
     mem.repo.create({ email: extra.email ?? `${username}@x.co`, username, passwordHash: 'h', firstName: extra.firstName ?? username[0]!.toUpperCase() + username.slice(1), lastName: 'T', roleNames: ['EMPLOYEE'] });
   const tokenOf = (i = sent.length - 1) => new URL(sent[i]!.params.setPasswordLink).searchParams.get('token')!;
-  return { service, mem, tokens, sent, warnings, add, tokenOf, advance: (ms: number) => (clock += ms), now: () => new Date(clock) };
+  return {
+    service,
+    mem,
+    tokens,
+    sent,
+    warnings,
+    broken,
+    events,
+    add,
+    tokenOf,
+    setAfterFind: (fn: ((id: string) => Promise<void>) | null) => void (afterFind = fn),
+    advance: (ms: number) => (clock += ms),
+    now: () => new Date(clock),
+  };
 }
 
 describe('WelcomeService.send — one person', () => {
@@ -195,5 +233,76 @@ describe('WelcomeService.sendMany — several people', () => {
     const out = await h.service.sendMany(people.map((p) => p.id));
     expect(out.filter((o) => o.sent)).toHaveLength(5);
     expect(out.find((o) => !o.sent)).toMatchObject({ username: 'bo', reason: 'DELIVERY_FAILED' });
+  });
+});
+
+describe('WelcomeService — a database problem never loses a result', () => {
+  const SERVER_WHY = 'something went wrong on the server (try again)';
+
+  it('an error for one person is “not sent” for that person, in plain words, and the others still go', async () => {
+    const h = harness();
+    const ada = await h.add('ada');
+    const bo = await h.add('bo');
+    h.broken.find.add(bo.id);
+    const out = await h.service.sendMany([ada.id, bo.id]);
+    expect(out.map((o) => [o.userId, o.sent, o.reason ?? null, o.why ?? null])).toEqual([
+      [ada.id, true, null, null],
+      [bo.id, false, 'SERVER_ERROR', SERVER_WHY],
+    ]);
+    expect(h.warnings.map((w) => w.msg)).toContain('welcome email failed');
+    await expect(h.service.send(bo.id)).resolves.toMatchObject({ sent: false, reason: 'SERVER_ERROR', why: SERVER_WHY });
+  });
+
+  it('once the email has gone, a failure to record it is logged and it still counts as sent (no duplicate a minute later)', async () => {
+    const h = harness();
+    const ada = await h.add('ada');
+    h.broken.mark = true;
+    h.broken.replace = true;
+    expect(await h.service.send(ada.id)).toMatchObject({ sent: true });
+    expect(h.warnings.map((w) => w.msg)).toEqual(['could not end earlier welcome links', 'could not record when the welcome email went']);
+    expect(JSON.stringify(h.warnings)).not.toContain(h.tokenOf());
+  });
+
+  it('each email is reported (for the audit log) as soon as it has gone, before the next person is tried', async () => {
+    const h = harness({ concurrency: 1 });
+    const ada = await h.add('ada');
+    const bo = await h.add('bo');
+    const cy = await h.add('cy');
+    h.broken.find.add(cy.id);
+    const out = await h.service.sendMany([ada.id, bo.id, cy.id], { onSent: (o) => void h.events.push(`audit ${o.username}`) });
+    expect(h.events).toEqual(['email ada@x.co', 'audit ada', 'email bo@x.co', 'audit bo']);
+    expect(out.map((o) => o.sent)).toEqual([true, true, false]);
+    await h.service.send(cy.id, { onSent: () => void h.events.push('never') });
+    expect(h.events).not.toContain('never');
+  });
+
+  it('an audit entry that can’t be written is logged; the email still counts as sent', async () => {
+    const h = harness();
+    const ada = await h.add('ada');
+    const out = await h.service.send(ada.id, {
+      onSent: async () => {
+        throw new Error('audit table away');
+      },
+    });
+    expect(out.sent).toBe(true);
+    expect(h.warnings.map((w) => w.msg)).toEqual(['could not record the welcome email in the audit log']);
+  });
+
+  it('two sends to the same person at once: the second is refused before it reads the person (a slow read can’t let it through)', async () => {
+    const h = harness();
+    const ada = await h.add('ada');
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    let reads = 0;
+    // The second read is slow: it comes back only after the first send has finished.
+    h.setAfterFind(async () => {
+      if (++reads === 2) await gate;
+    });
+    const first = h.service.send(ada.id);
+    const second = h.service.send(ada.id);
+    expect(await first).toMatchObject({ sent: true });
+    open();
+    expect(await second).toMatchObject({ sent: false, reason: 'TOO_SOON', username: 'ada' });
+    expect(h.sent).toHaveLength(1);
   });
 });

@@ -40,7 +40,8 @@ export type WelcomeRefusal =
   | 'NO_EMAIL'
   | 'EMAIL_BLOCKED'
   | 'TOO_SOON'
-  | 'DELIVERY_FAILED';
+  | 'DELIVERY_FAILED'
+  | 'SERVER_ERROR';
 
 /** What happened for one person's welcome email. */
 export interface WelcomeOutcome {
