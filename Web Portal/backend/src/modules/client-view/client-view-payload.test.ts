@@ -34,6 +34,8 @@ function input(over: Partial<ClientViewInput> = {}): ClientViewInput {
         status: 'APPROVED',
         clientVisible: true,
         approvedAt: new Date('2026-10-06T06:00:00Z'),
+        showRisks: true,
+        people: ['Omar Ahmed', 'Omar'],
         content: { summary: 'Agreed the plan.', discussion: [{ topic: 'Scope', text: 'Three rigs.' }], decisions: ['Start 1 Oct'], risks: ['Weather'], nextSteps: ['Survey'] },
       },
     ],
@@ -92,6 +94,18 @@ describe('the client page payload: an explicit allow-list', () => {
     expect(v.tasks.map((t) => t.title)).toEqual(['Shown']);
     expect(v.milestones).toEqual([]);
     expect(JSON.stringify(v)).not.toContain('Hidden');
+  });
+
+  it('minutes: the owner is taken off each next step, and risks are left out unless ticked', () => {
+    const base = input().minutes[0]!;
+    const withOwners = { ...base, content: { ...base.content, risks: ['Internal: the margin is thin'], nextSteps: ['Survey the site — Omar Ahmed, by 20 Oct', 'Order parts — Omar'] } };
+    const hidden = buildClientView(input({ minutes: [{ ...withOwners, showRisks: false }] }));
+    expect(hidden.minutes[0]!.content.nextSteps).toEqual(['Survey the site — by 20 Oct', 'Order parts']);
+    expect(hidden.minutes[0]!.content.risks).toEqual([]);
+    const json = JSON.stringify(hidden);
+    expect(json).not.toContain('Omar');
+    expect(json).not.toContain('margin');
+    expect(buildClientView(input({ minutes: [{ ...withOwners, showRisks: true }] })).minutes[0]!.content.risks).toEqual(['Internal: the margin is thin']);
   });
 
   it('shows only approved final minutes that are marked', () => {

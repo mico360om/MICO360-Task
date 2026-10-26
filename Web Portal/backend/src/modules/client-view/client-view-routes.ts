@@ -8,6 +8,8 @@ import type { TaskRecord } from '../tasks/task-repository';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../lib/http-errors';
 import type { ClientAccessService } from './client-access-service';
 import { clearedSessionCookie, readCookie, sessionCookie, sessionCookieName } from './client-tokens';
+import { clientMinutesContent } from './client-minutes-content';
+import type { FinalMinutesContent } from '../meetings/final-minutes';
 
 /** "Show to client" on tasks (milestones are tasks). */
 export interface ClientTaskFlags {
@@ -21,10 +23,15 @@ export interface ClientTaskFlags {
 export interface ClientMinutesFlags {
   /** The meeting's project: null for a standalone meeting, undefined when the meeting is gone. */
   projectOf(meetingId: string): Promise<string | null | undefined>;
-  /** Its final minutes' state (null: none written). */
-  state(meetingId: string): Promise<{ approved: boolean; clientVisible: boolean } | null>;
-  /** Sets the flag; turning it on works only while the minutes are approved (false otherwise). */
-  set(meetingId: string, visible: boolean): Promise<boolean>;
+  /** Its final minutes' state (null: none written); includeRisks: shown with their risks and open issues. */
+  state(meetingId: string): Promise<{ approved: boolean; clientVisible: boolean; includeRisks: boolean } | null>;
+  /**
+   * Sets the flag (for the project the meeting is filed under now, with or without the risks); turning
+   * it on works only while the minutes are approved (false otherwise).
+   */
+  set(meetingId: string, visible: boolean, opts: { includeRisks: boolean }): Promise<boolean>;
+  /** The approved minutes and the names of the people they may mention (null: not approved). */
+  preview(meetingId: string): Promise<{ content: FinalMinutesContent; names: string[] } | null>;
 }
 
 export interface ClientViewRouteDeps {
@@ -56,6 +63,7 @@ const shareBody = z.object({
   email: z.string().trim().max(254, 'An email address has at most 254 characters.').email('Enter a valid email address.'),
 });
 const visibleBody = z.object({ visible: z.boolean() });
+const minutesVisibleBody = z.object({ visible: z.boolean(), includeRisks: z.boolean().optional() });
 const codeBody = z.object({ email: z.string().max(254) });
 const verifyBody = z.object({ email: z.string().max(254), code: z.string().max(12) });
 
@@ -185,6 +193,7 @@ export async function registerClientViewRoutes(app: FastifyInstance, deps: Clien
         projectMeeting: projectId !== null,
         approved: s?.approved ?? false,
         clientVisible: s?.clientVisible ?? false,
+        includeRisks: s?.includeRisks ?? false,
         canChange: projectId !== null && (await deps.canManageProject(user.id, user.roles, projectId)),
       };
     };
@@ -194,17 +203,34 @@ export async function registerClientViewRoutes(app: FastifyInstance, deps: Clien
       return { data: await stateOf(req, id, await meetingProject(req, id)) };
     });
 
-    app.put('/meetings/:id/client-visibility', { preHandler: guard.authenticate }, async (req) => {
-      const { id } = req.params as { id: string };
+    /** A project meeting whose minutes the person may show (409 standalone, 403 not theirs to run). */
+    const meetingToShow = async (req: FastifyRequest, id: string): Promise<string> => {
       const user = viewer(req);
       const projectId = await meetingProject(req, id);
       if (projectId === null) throw new ConflictError('Only a project’s meetings can be shown to its client.', 'NOT_A_PROJECT_MEETING');
       if (!(await deps.canManageProject(user.id, user.roles, projectId))) throw new ForbiddenError(MARK_REFUSED);
-      const { visible } = visibleBody.parse(req.body ?? {});
+      return projectId;
+    };
+    const notFinal = () => new ConflictError('Mark the minutes final before showing them to the client.', 'MINUTES_NOT_FINAL');
+
+    // Exactly what the client would see (owners off the next steps; the risks, which are shown only
+    // when ticked) and the names to highlight, so whoever shows them checks them first.
+    app.get('/meetings/:id/client-visibility/preview', { preHandler: guard.authenticate }, async (req) => {
+      const { id } = req.params as { id: string };
+      await meetingToShow(req, id);
+      const p = await minutes.preview(id);
+      if (!p) throw notFinal();
+      return { data: { content: clientMinutesContent(p.content, { names: p.names, includeRisks: true }), names: p.names } };
+    });
+
+    app.put('/meetings/:id/client-visibility', { preHandler: guard.authenticate }, async (req) => {
+      const { id } = req.params as { id: string };
+      const projectId = await meetingToShow(req, id);
+      const { visible, includeRisks = false } = minutesVisibleBody.parse(req.body ?? {});
       const before = await minutes.state(id);
-      if (!(await minutes.set(id, visible))) throw new ConflictError('Mark the minutes final before showing them to the client.', 'MINUTES_NOT_FINAL');
-      if ((before?.clientVisible ?? false) !== visible) {
-        await audit(req, visible ? 'client-view.minutes.shown' : 'client-view.minutes.hidden', id, { projectId });
+      if (!(await minutes.set(id, visible, { includeRisks }))) throw notFinal();
+      if ((before?.clientVisible ?? false) !== visible || (visible && before?.includeRisks !== includeRisks)) {
+        await audit(req, visible ? 'client-view.minutes.shown' : 'client-view.minutes.hidden', id, visible ? { projectId, includeRisks } : { projectId });
         deps.onMinutesChanged?.(id);
       }
       return { data: await stateOf(req, id, projectId) };

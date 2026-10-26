@@ -1004,8 +1004,13 @@ model MeetingMinutes {
   approvedById String?
   approvedAt   DateTime?
   sentAt       DateTime?
-  /// Approved minutes shown on the project's client page. Cleared whenever the minutes go back to a draft.
+  /// Approved minutes shown on the project's client page. Cleared whenever the minutes go back to a draft
+  /// or the meeting is re-filed under another project.
   clientVisible Boolean      @default(false)
+  /// The project the minutes were shown to the client of: shown only while the meeting is still that project's.
+  clientVisibleProjectId String?
+  /// The client copy includes "Risks & open issues" (ticked when the minutes were shown).
+  clientShowRisks Boolean    @default(false)
   meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@map("meeting_minutes")
@@ -1030,6 +1035,9 @@ model ClientShare {
   createdById  String?
   linkSentAt   DateTime?
   lastViewedAt DateTime?
+  /// When a lockout (too many wrong codes, too many code requests) was last written to the audit log:
+  /// at most once an hour per client.
+  lockoutNotedAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)

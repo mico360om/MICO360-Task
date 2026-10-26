@@ -7,6 +7,7 @@ import { ClientShareExistsError, type ClientShareRecord, type ClientShareStore }
 import type { ClientViewSource } from './client-view-source';
 import { buildClientView, type ClientProjectSource, type ClientView } from './client-view-payload';
 import { buildClientMinutesPdf } from './client-minutes-pdf';
+import { clientMinutesContent } from './client-minutes-content';
 import { hashToken, isWellFormedToken, newToken, normalizeEmail, sameText } from './client-tokens';
 import { ClientCodeInvalidError, ClientEmailUnavailableError, ClientLinkEndedError, ClientSignInRequiredError } from './client-view-errors';
 
@@ -339,7 +340,7 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         project: { name: project.name, code: project.code, number: project.number, clientName: project.clientName, color: project.color, icon: project.icon, image },
         meeting: { title: m.title, startAt: m.startAt.toISOString(), endAt: m.endAt ? m.endAt.toISOString() : null, timeZone: m.timeZone },
         approvedAt: m.approvedAt ? m.approvedAt.toISOString() : null,
-        content: m.content,
+        content: clientMinutesContent(m.content, { names: m.people ?? [], includeRisks: m.showRisks === true }),
         companyTimeZone: deps.timeZone,
         generatedAt: now().toISOString(),
       });

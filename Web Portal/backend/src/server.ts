@@ -96,6 +96,7 @@ import { createPrismaClientShareStore } from './modules/client-view/prisma-clien
 import { createPrismaClientViewSource } from './modules/client-view/client-view-source';
 import { createPrismaClientFlags } from './modules/client-view/prisma-client-flags';
 import { readProjectPicture } from './lib/pdf-image';
+import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
 
 /** Validate an IANA time zone; fall back to Asia/Muscat (Oman) if misconfigured. */
 function resolveTimeZone(tz: string): string {
@@ -467,7 +468,10 @@ async function main(): Promise<void> {
   });
 
   // Meetings & Meeting Notes module (project-linked and standalone).
-  const meetingRepository = createPrismaMeetingRepository(prisma);
+  // A meeting re-filed under another project takes its shown minutes off the old client page (in the
+  // same write); the audit line is late-bound to the audit service, created further down.
+  let onClientMinutesHidden: (hidden: import('./modules/meetings/prisma-meeting-repository').ClientMinutesHidden) => void = () => {};
+  const meetingRepository = createPrismaMeetingRepository(prisma, { onClientMinutesHidden: (h) => onClientMinutesHidden(h) });
   const agendaSourceStore = createPrismaAgendaSources(prisma);
   const isActiveUser = async (userId: string): Promise<boolean> =>
     (await prisma.user.count({ where: { id: userId, deletedAt: null, status: 'ACTIVE' } })) > 0;
@@ -788,6 +792,7 @@ async function main(): Promise<void> {
   };
 
   const auditService = createAuditService({ audit: createPrismaAuditRepository(prisma) });
+  onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).

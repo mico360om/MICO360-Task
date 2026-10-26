@@ -418,6 +418,31 @@ describe('the minutes PDF a client downloads', () => {
     expect(text).not.toMatch(/Approved by|Organizer|Attendees/);
   });
 
+  it('has the owners taken off the next steps and no risks unless they were ticked — like the page', async () => {
+    source.addMinutes('p1', {
+      meetingId: 'm-owners',
+      title: 'Review',
+      startAt: new Date('2026-10-12T06:00:00Z'),
+      timeZone: 'Asia/Muscat',
+      status: 'APPROVED',
+      clientVisible: true,
+      approvedAt: new Date('2026-10-12T08:00:00Z'),
+      showRisks: false,
+      people: ['Bilal Ahmed', 'Bilal'],
+      content: { summary: 'Reviewed.', discussion: [], decisions: [], risks: ['Internal: the margin is thin'], nextSteps: ['Send the form — Bilal Ahmed, by 18 Oct'] },
+    });
+    const link = await shareWithFatma();
+    const token = await signIn(link);
+    const text = inspectPdf((await svc.minutesPdf(link, sessionOf(token), 'm-owners')).pdf).pages.flat().join('\n');
+    expect(text).toContain('Send the form — by 18 Oct');
+    expect(text).not.toContain('Bilal');
+    expect(text).not.toContain('margin');
+    expect(text).not.toContain('Risks & Open Issues');
+    const page = (await svc.view(link, sessionOf(token))).minutes.find((m) => m.id === 'm-owners')!;
+    expect(page.content.nextSteps).toEqual(['Send the form — by 18 Oct']);
+    expect(page.content.risks).toEqual([]);
+  });
+
   it('isn’t there for minutes not shown, or of another project, and needs a session', async () => {
     const link = await shareWithFatma();
     const token = await signIn(link);

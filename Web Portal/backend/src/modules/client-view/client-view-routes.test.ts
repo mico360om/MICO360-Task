@@ -51,7 +51,7 @@ interface Fixture {
   activity: { taskId: string; userId: string; action: string; meta?: Record<string, unknown> }[];
   broadcasts: { projectId: string; event: string }[];
   tasks: Map<string, { projectId: string; clientVisible: boolean; title: string }>;
-  minutes: Map<string, { projectId: string | null; approved: boolean; clientVisible: boolean }>;
+  minutes: Map<string, { projectId: string | null; approved: boolean; clientVisible: boolean; includeRisks?: boolean }>;
   settle: () => Promise<void>;
 }
 
@@ -144,13 +144,22 @@ async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; sec
     projectOf: async (meetingId) => (minutes.has(meetingId) ? minutes.get(meetingId)!.projectId : undefined),
     state: async (meetingId) => {
       const m = minutes.get(meetingId);
-      return m ? { approved: m.approved, clientVisible: m.clientVisible } : null;
+      return m ? { approved: m.approved, clientVisible: m.clientVisible, includeRisks: m.clientVisible && m.includeRisks === true } : null;
     },
-    async set(meetingId, visible) {
+    async set(meetingId, visible, opts) {
       const m = minutes.get(meetingId)!;
       if (visible && !m.approved) return false;
       m.clientVisible = visible;
+      m.includeRisks = visible && opts.includeRisks;
       return true;
+    },
+    async preview(meetingId) {
+      const m = minutes.get(meetingId);
+      if (!m?.approved) return null;
+      return {
+        content: { summary: 'Agreed with Sara Al Balushi.', discussion: [], decisions: ['Go'], risks: ['Internal: margin'], nextSteps: ['Survey — Sara, by 20 Oct'] },
+        names: ['Sara Al Balushi', 'Sara'],
+      };
     },
   };
 
@@ -309,8 +318,8 @@ describe('marking items "Show to client"', () => {
   it('minutes: only approved minutes of a project meeting can be shown; the state says who may change it', async () => {
     const owner = await bearer(OWNER);
     const member = await bearer(MEMBER);
-    expect((await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m1/client-visibility', headers: owner })).json().data).toEqual({ projectMeeting: true, approved: true, clientVisible: false, canChange: true });
-    expect((await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m1/client-visibility', headers: member })).json().data).toEqual({ projectMeeting: true, approved: true, clientVisible: false, canChange: false });
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m1/client-visibility', headers: owner })).json().data).toEqual({ projectMeeting: true, approved: true, clientVisible: false, includeRisks: false, canChange: true });
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m1/client-visibility', headers: member })).json().data).toEqual({ projectMeeting: true, approved: true, clientVisible: false, includeRisks: false, canChange: false });
     const draft = await f.app.inject({ method: 'PUT', url: '/api/v1/meetings/m-draft/client-visibility', headers: owner, payload: { visible: true } });
     expect(draft.statusCode).toBe(409);
     expect(draft.json().error.code).toBe('MINUTES_NOT_FINAL');
@@ -318,8 +327,27 @@ describe('marking items "Show to client"', () => {
     expect(alone.statusCode).toBe(409);
     expect(alone.json().error.code).toBe('NOT_A_PROJECT_MEETING');
     const on = await f.app.inject({ method: 'PUT', url: '/api/v1/meetings/m1/client-visibility', headers: owner, payload: { visible: true } });
-    expect(on.json().data).toEqual({ projectMeeting: true, approved: true, clientVisible: true, canChange: true });
+    expect(on.json().data).toEqual({ projectMeeting: true, approved: true, clientVisible: true, includeRisks: false, canChange: true });
     expect(f.audited.at(-1)).toMatchObject({ action: 'client-view.minutes.shown', userId: OWNER, entityId: 'm1' });
+    // Shown again with the risks ticked.
+    await f.app.inject({ method: 'PUT', url: '/api/v1/meetings/m1/client-visibility', headers: owner, payload: { visible: false } });
+    const withRisks = await f.app.inject({ method: 'PUT', url: '/api/v1/meetings/m1/client-visibility', headers: owner, payload: { visible: true, includeRisks: true } });
+    expect(withRisks.json().data).toMatchObject({ clientVisible: true, includeRisks: true });
+  });
+
+  it('the preview before showing minutes: exactly the client copy (owners off, risks there to tick) and the names to highlight', async () => {
+    const owner = await bearer(OWNER);
+    const res = await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m1/client-visibility/preview', headers: owner });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual({
+      content: { summary: 'Agreed with Sara Al Balushi.', discussion: [], decisions: ['Go'], risks: ['Internal: margin'], nextSteps: ['Survey — by 20 Oct'] },
+      names: ['Sara Al Balushi', 'Sara'],
+    });
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m1/client-visibility/preview', headers: await bearer(MEMBER) })).statusCode).toBe(403);
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m1/client-visibility/preview', headers: await bearer(OUTSIDER) })).statusCode).toBe(404);
+    const draft = await f.app.inject({ method: 'GET', url: '/api/v1/meetings/m-draft/client-visibility/preview', headers: owner });
+    expect(draft.statusCode).toBe(409);
+    expect(draft.json().error.code).toBe('MINUTES_NOT_FINAL');
   });
 });
 

@@ -70,7 +70,31 @@ function updateData(patch: UpdateMeetingData): Prisma.MeetingUncheckedUpdateInpu
   };
 }
 
-export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepository & MeetingSeriesStore & EndedMeetingSweep & BusyMeetingsStore {
+/** Approved minutes taken off a project's client page because their meeting was re-filed under another project. */
+export interface ClientMinutesHidden {
+  meetingId: string;
+  fromProjectId: string | null;
+  toProjectId: string | null;
+}
+
+/**
+ * A meeting re-filed under another project (or none) takes its minutes off the client page they were
+ * shown on — in the same transaction as the move. Returns what was hidden, or null.
+ */
+async function hideMinutesMovedAway(tx: Prisma.TransactionClient, meetingId: string, projectId: string | null): Promise<ClientMinutesHidden | null> {
+  const shown = await tx.meetingMinutes.findFirst({ where: { meetingId, clientVisible: true }, select: { clientVisibleProjectId: true } });
+  if (!shown || (shown.clientVisibleProjectId !== null && shown.clientVisibleProjectId === projectId)) return null;
+  await tx.meetingMinutes.updateMany({ where: { meetingId }, data: { clientVisible: false, clientVisibleProjectId: null, clientShowRisks: false } });
+  return { meetingId, fromProjectId: shown.clientVisibleProjectId, toProjectId: projectId };
+}
+
+export function createPrismaMeetingRepository(
+  prisma: PrismaClient,
+  hooks: { onClientMinutesHidden?: (hidden: ClientMinutesHidden) => void } = {},
+): MeetingRepository & MeetingSeriesStore & EndedMeetingSweep & BusyMeetingsStore {
+  const reportHidden = (hidden: (ClientMinutesHidden | null)[]) => {
+    for (const h of hidden) if (h) hooks.onClientMinutesHidden?.(h);
+  };
   return {
     async create(data: CreateMeetingData) {
       const row = await prisma.meeting.create({
@@ -133,7 +157,15 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
     },
 
     async update(id, patch: UpdateMeetingData) {
-      const row = await prisma.meeting.update({ where: { id }, data: updateData(patch) });
+      if (patch.projectId === undefined) {
+        const row = await prisma.meeting.update({ where: { id }, data: updateData(patch) });
+        return toRecord(row);
+      }
+      const { row, hidden } = await prisma.$transaction(async (tx) => {
+        const row = await tx.meeting.update({ where: { id }, data: updateData(patch) });
+        return { row, hidden: await hideMinutesMovedAway(tx, id, patch.projectId ?? null) };
+      });
+      reportHidden([hidden]);
       return toRecord(row);
     },
 
@@ -264,7 +296,7 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
 
     async applySeriesChanges(changes, remove = []) {
       if (changes.length === 0 && remove.length === 0) return;
-      await prisma.$transaction(async (tx) => {
+      const hidden = await prisma.$transaction(async (tx) => {
         // Clear the places being changed or freed first: two meetings swapping places never share one.
         const clearing = [...changes.filter((c) => c.patch.recurrenceStart !== undefined).map((c) => c.id), ...remove];
         if (clearing.length) await tx.meeting.updateMany({ where: { id: { in: clearing } }, data: { recurrenceStart: null } });
@@ -275,7 +307,12 @@ export function createPrismaMeetingRepository(prisma: PrismaClient): MeetingRepo
           });
         }
         for (const c of changes) await tx.meeting.update({ where: { id: c.id }, data: updateData(c.patch) });
+        // Meetings re-filed under another project leave their old client page in the same write.
+        const moved: (ClientMinutesHidden | null)[] = [];
+        for (const c of changes) if (c.patch.projectId !== undefined) moved.push(await hideMinutesMovedAway(tx, c.id, c.patch.projectId ?? null));
+        return moved;
       });
+      reportHidden(hidden);
     },
 
     async removeMany(ids, opts) {
