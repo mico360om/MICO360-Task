@@ -55,6 +55,12 @@ export async function registerTaskMoveRoutes(app: FastifyInstance, deps: TaskMov
   async function announce(req: FastifyRequest, move: MoveResult): Promise<void> {
     deps.broadcast?.(move.from.projectId, 'task:updated', move.task);
     deps.broadcast?.(move.to.projectId, 'task:created', move.task);
+    if (move.clientHidden) {
+      // It was shown on the old project's client page: it no longer is (the history says so too).
+      await deps.audit
+        ?.record({ userId: req.user!.id, ip: req.ip ?? null, module: 'client-view', action: 'client-view.task.hidden', entityId: move.task.id, newValue: { projectId: move.from.projectId, reason: 'moved', toProjectId: move.to.projectId } })
+        .catch((err) => deps.logger?.error('moving a task: the audit log line for its client page failed', { err, taskId: move.task.id }));
+    }
     if (move.addedToTeam.length === 0) return;
     try {
       await deps.audit?.record({

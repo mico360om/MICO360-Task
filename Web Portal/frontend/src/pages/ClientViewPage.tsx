@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import logo from '../assets/logo.png';
+import logoW from '../assets/logo-w.png';
 import { clientViewApi, type ClientView, type ClientViewApi, type ClientViewItem, type ClientViewMinutes } from '../api/client-view';
 import { ApiError } from '../lib/api-client';
 import { downloadBlob } from '../lib/download';
@@ -28,7 +29,7 @@ type Stage =
   | { kind: 'email' }
   | { kind: 'code'; email: string }
   | { kind: 'ready'; view: ClientView }
-  | { kind: 'ended'; message: string }
+  | { kind: 'ended' }
   | { kind: 'failed' };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -58,7 +59,7 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
       setStage({ kind: 'ready', view: await api.view() });
     } catch (err) {
       if (err instanceof ApiError && err.code === 'CLIENT_SIGN_IN') setStage({ kind: 'email' });
-      else if (err instanceof ApiError && err.code === 'CLIENT_LINK_ENDED') setStage({ kind: 'ended', message: err.message });
+      else if (err instanceof ApiError && err.code === 'CLIENT_LINK_ENDED') setStage({ kind: 'ended' });
       else setStage({ kind: 'failed' });
     }
   }, [api]);
@@ -74,7 +75,9 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
       </a>
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <img src={logo} alt="MICO360 Tasks" width={409} height={192} className="h-9 w-auto object-contain" />
+          {/* The coloured wordmark on light; the white one in dark mode (as the staff app's sidebar and sign-in do). */}
+          <img src={logo} alt="MICO360 Tasks" width={409} height={192} className="h-9 w-auto object-contain dark:hidden" />
+          <img src={logoW} alt="MICO360 Tasks" width={409} height={192} className="hidden h-9 w-auto object-contain dark:block" />
           <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Shared project</span>
         </div>
       </header>
@@ -91,8 +94,9 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
             onSignedIn={() => void load()}
           />
         ) : stage.kind === 'ended' ? (
-          <Notice title="This project is no longer shared with you">
-            <p>{stage.message}</p>
+          // One message for every ended link: replaced, removed, or the project archived or deleted.
+          <Notice title="This link no longer works">
+            <p>If you still need access, ask the person who shared the project with you to send a new one.</p>
           </Notice>
         ) : stage.kind === 'failed' ? (
           <Notice title="Couldn’t load this page">
@@ -455,6 +459,8 @@ function Items({ items, empty, milestone = false }: { items: ClientViewItem[]; e
 }
 
 function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: boolean; api: ClientViewApi }) {
+  const [expanded, setExpanded] = useState(open);
+  const panelId = useId();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const c = m.content;
@@ -483,22 +489,32 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
     }
   };
 
+  // A heading holding the button that opens and closes the minutes (the disclosure pattern): the title
+  // stays a heading for screen-reader navigation, and the button says whether it is open.
   return (
     <article className="rounded-xl border border-line">
-      <details open={open} className="group">
-        <summary className="flex min-h-[2.75rem] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+      <h3 className="text-sm">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          onClick={() => setExpanded((v) => !v)}
+          className="flex min-h-[2.75rem] w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+        >
           <span className="min-w-0">
-            <h3 dir="auto" className="break-words text-sm font-semibold text-ink">{m.title}</h3>
-            <span className="text-xs text-ink-2">
+            <span dir="auto" className="block break-words font-semibold text-ink">{m.title}</span>
+            <span className="block text-xs font-normal text-ink-2">
               {dayText(m.date)}
               {m.approvedOn ? ` · Approved ${dayText(m.approvedOn)}` : ''}
             </span>
           </span>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none text-ink-2 transition-transform group-open:rotate-180">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-none text-ink-2 transition-transform ${expanded ? 'rotate-180' : ''}`}>
             <path d="m6 9 6 6 6-6" />
           </svg>
-        </summary>
-        <div className="flex flex-col gap-3 border-t border-line px-4 py-4">
+        </button>
+      </h3>
+      {expanded ? (
+        <div id={panelId} className="flex flex-col gap-3 border-t border-line px-4 py-4">
           {c.summary ? <p dir="auto" className="whitespace-pre-line text-sm text-ink">{c.summary}</p> : null}
           {c.discussion.length ? (
             <div>
@@ -523,7 +539,7 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
             </Button>
           </div>
         </div>
-      </details>
+      ) : null}
     </article>
   );
 }

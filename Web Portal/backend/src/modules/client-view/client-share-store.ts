@@ -71,6 +71,12 @@ export interface ClientShareStore {
   deleteSession(tokenHash: string): Promise<void>;
   /** Drops the share's expired sessions and all but its `keep` newest. */
   pruneSessions(shareId: string, now: Date, keep: number): Promise<void>;
+  /** Signs out every device of the share (Resend). */
+  deleteSessionsFor(shareId: string): Promise<void>;
+  /** True (and noted) when no lockout was noted for the share within windowMs before `at`: one audit line per window. */
+  noteLockout(shareId: string, at: Date, windowMs: number): Promise<boolean>;
+  /** Housekeeping: codes issued over a day before `now` (all used or expired by then) and expired sessions. */
+  prune(now: Date): Promise<void>;
 }
 
 /** In-memory store with the same rules as the Prisma one (unit tests; see client-share-store.contract). */
@@ -78,6 +84,7 @@ export function createMemoryClientShareStore(now: () => Date = () => new Date())
   const shares = new Map<string, ClientShareRecord>();
   const codes = new Map<string, ClientCodeRecord & { seq: number }>();
   const sessions = new Map<string, ClientSessionRecord & { tokenHash: string; createdAt: number; seq: number }>();
+  const lockouts = new Map<string, number>();
   let seq = 0;
   const copy = <T>(v: T | undefined | null): T | null => (v ? { ...v } : null);
 
@@ -164,6 +171,20 @@ export function createMemoryClientShareStore(now: () => Date = () => new Date())
       for (const [k, s] of sessions) if (s.shareId === shareId && s.expiresAt <= now) sessions.delete(k);
       const mine = [...sessions.values()].filter((s) => s.shareId === shareId).sort((a, b) => b.seq - a.seq);
       for (const s of mine.slice(keep)) sessions.delete(s.tokenHash);
+    },
+    async deleteSessionsFor(shareId) {
+      for (const [k, s] of sessions) if (s.shareId === shareId) sessions.delete(k);
+    },
+    async noteLockout(shareId, at, windowMs) {
+      const last = lockouts.get(shareId);
+      if (last !== undefined && last > at.getTime() - windowMs) return false;
+      lockouts.set(shareId, at.getTime());
+      return true;
+    },
+    async prune(at) {
+      const dayAgo = at.getTime() - 24 * 3600_000;
+      for (const [k, c] of codes) if (c.createdAt.getTime() < dayAgo) codes.delete(k);
+      for (const [k, s] of sessions) if (s.expiresAt.getTime() <= at.getTime()) sessions.delete(k);
     },
   };
 }

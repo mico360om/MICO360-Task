@@ -159,9 +159,9 @@ export function ProjectDetailPage() {
   const canEditProject = isAdmin || project?.canManage === true;
   const [detailsProblem, setDetailsProblem] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  // Share with client: whoever runs the project (the server checks too); an archived one can't be shared.
+  // Share with client: whoever runs the project (the server checks too). Archived: read-only, Remove still there.
   const [sharing, setSharing] = useState(false);
-  const canShare = canEditProject && !!project && project.status !== 'ARCHIVED';
+  const canShare = canEditProject && !!project;
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false, enabled: canShare });
 
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
@@ -320,7 +320,7 @@ export function ProjectDetailPage() {
       </div>
       {editing && project ? <ProjectFormDialog project={project} onClose={() => setEditing(false)} /> : null}
       {sharing && project ? (
-        <ClientSharePanel projectId={id} projectName={project.name} emailEnabled={configQ.data?.emailEnabled ?? true} onClose={() => setSharing(false)} />
+        <ClientSharePanel projectId={id} projectName={project.name} emailEnabled={configQ.data?.emailEnabled ?? true} archived={project.status === 'ARCHIVED'} onClose={() => setSharing(false)} />
       ) : null}
       {newTask ? <NewTaskModal projectId={id} onClose={() => setNewTask(false)} /> : null}
 

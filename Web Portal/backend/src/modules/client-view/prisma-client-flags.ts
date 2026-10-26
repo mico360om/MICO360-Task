@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { TaskRecord } from '../tasks/task-repository';
 import type { ClientMinutesFlags, ClientTaskFlags } from './client-view-routes';
+import { peopleNames, readMinutesContent } from './client-view-source';
 
 /** The "Show to client" switches on tasks and on approved final minutes, in the database. */
 export function createPrismaClientFlags(prisma: PrismaClient, getTask: (taskId: string) => Promise<TaskRecord>): { tasks: ClientTaskFlags; minutes: ClientMinutesFlags } {
@@ -23,13 +24,31 @@ export function createPrismaClientFlags(prisma: PrismaClient, getTask: (taskId: 
         return m ? m.projectId : undefined;
       },
       async state(meetingId) {
-        const r = await prisma.meetingMinutes.findUnique({ where: { meetingId }, select: { status: true, clientVisible: true } });
-        return r ? { approved: r.status === 'APPROVED', clientVisible: r.clientVisible } : null;
+        const r = await prisma.meetingMinutes.findUnique({ where: { meetingId }, select: { status: true, clientVisible: true, clientShowRisks: true } });
+        return r ? { approved: r.status === 'APPROVED', clientVisible: r.clientVisible, includeRisks: r.clientVisible && r.clientShowRisks } : null;
       },
-      async set(meetingId, visible) {
-        // Shown only while approved: the condition is part of the write, so a reopen can't slip between.
-        const { count } = await prisma.meetingMinutes.updateMany({ where: { meetingId, ...(visible ? { status: 'APPROVED' as const } : {}) }, data: { clientVisible: visible } });
-        return visible ? count === 1 : true;
+      async set(meetingId, visible, opts) {
+        if (!visible) {
+          await prisma.meetingMinutes.updateMany({ where: { meetingId }, data: { clientVisible: false, clientVisibleProjectId: null, clientShowRisks: false } });
+          return true;
+        }
+        // Shown only while approved and only for the project the meeting is filed under now: both are
+        // part of the write, so a reopen or a move can't slip between.
+        return prisma.$transaction(async (tx) => {
+          const m = await tx.meeting.findFirst({ where: { id: meetingId, deletedAt: null }, select: { projectId: true } });
+          if (!m?.projectId) return false;
+          const { count } = await tx.meetingMinutes.updateMany({
+            where: { meetingId, status: 'APPROVED', meeting: { projectId: m.projectId } },
+            data: { clientVisible: true, clientVisibleProjectId: m.projectId, clientShowRisks: opts.includeRisks },
+          });
+          return count === 1;
+        });
+      },
+      async preview(meetingId) {
+        const r = await prisma.meetingMinutes.findFirst({ where: { meetingId, status: 'APPROVED', meeting: { deletedAt: null } }, select: { content: true, meeting: { select: { projectId: true } } } });
+        if (!r) return null;
+        const names = (await peopleNames(prisma, r.meeting.projectId, [meetingId])).get(meetingId) ?? [];
+        return { content: readMinutesContent(r.content), names };
       },
     },
   };

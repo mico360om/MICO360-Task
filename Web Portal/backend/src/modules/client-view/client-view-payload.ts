@@ -2,6 +2,7 @@ import { dueDayKey, todayKey, zonedDayKey } from '../../lib/due-date';
 import { isTaskDone } from '../tasks/task-status';
 import { resolveMinutesTimeZone } from '../meetings/minutes';
 import type { FinalMinutesContent } from '../meetings/final-minutes';
+import { clientMinutesContent } from './client-minutes-content';
 
 /**
  * What a shared client's page shows, built from an explicit allow-list: every field below is copied
@@ -44,6 +45,10 @@ export interface ClientMinutesSource {
   clientVisible: boolean;
   approvedAt: Date | null;
   content: FinalMinutesContent;
+  /** "Risks & open issues" were ticked when the minutes were shown (otherwise they stay internal). */
+  showRisks?: boolean;
+  /** Names of the project's people and the meeting's attendees: taken off the next steps' owners. */
+  people?: string[];
 }
 
 export interface ClientViewInput {
@@ -180,7 +185,7 @@ export function buildClientView(input: ClientViewInput): ClientView {
           title: String(m.title),
           date: zonedDayKey(m.startAt, tz),
           approvedOn: m.approvedAt ? zonedDayKey(m.approvedAt, tz) : null,
-          content: minutesContent(m.content),
+          content: clientMinutesContent(minutesContent(m.content), { names: m.people ?? [], includeRisks: m.showRisks === true }),
         };
       }),
     generatedAt: now.toISOString(),

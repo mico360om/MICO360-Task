@@ -5,6 +5,7 @@ import { createPrismaClientShareStore } from '../../src/modules/client-view/pris
 import { createPrismaClientViewSource } from '../../src/modules/client-view/client-view-source';
 import { createPrismaFinalMinutesRepository } from '../../src/modules/meetings/final-minutes-repository';
 import { createPrismaClientFlags } from '../../src/modules/client-view/prisma-client-flags';
+import { createPrismaMeetingRepository } from '../../src/modules/meetings/prisma-meeting-repository';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. Only this file's projects
 // (codes CVA, CVB) and its person (cv-owner@mico360.test) are made and removed.
@@ -103,11 +104,11 @@ describe('client view in the database', () => {
     const other = await meeting(b.id, 'Other project');
     await prisma.meetingMinutes.createMany({
       data: [
-        { meetingId: shown.id, content, status: 'APPROVED', approvedAt: new Date('2026-10-06T06:00:00Z'), approvedById: ownerId, clientVisible: true },
-        { meetingId: draft.id, content, status: 'DRAFT', clientVisible: true },
+        { meetingId: shown.id, content, status: 'APPROVED', approvedAt: new Date('2026-10-06T06:00:00Z'), approvedById: ownerId, clientVisible: true, clientVisibleProjectId: a.id },
+        { meetingId: draft.id, content, status: 'DRAFT', clientVisible: true, clientVisibleProjectId: a.id },
         { meetingId: unmarked.id, content, status: 'APPROVED', clientVisible: false },
-        { meetingId: deleted.id, content, status: 'APPROVED', clientVisible: true },
-        { meetingId: other.id, content, status: 'APPROVED', clientVisible: true },
+        { meetingId: deleted.id, content, status: 'APPROVED', clientVisible: true, clientVisibleProjectId: a.id },
+        { meetingId: other.id, content, status: 'APPROVED', clientVisible: true, clientVisibleProjectId: b.id },
       ],
     });
     const minutes = await source.minutes(a.id);
@@ -165,14 +166,89 @@ describe('client view in the database', () => {
     expect(await flags.minutes.projectOf(alone.id)).toBeNull();
     expect(await flags.minutes.projectOf(deleted.id)).toBeUndefined();
     expect(await flags.minutes.state(none.id)).toBeNull();
-    expect(await flags.minutes.state(draft.id)).toEqual({ approved: false, clientVisible: false });
-    expect(await flags.minutes.set(draft.id, true)).toBe(false);
-    expect(await flags.minutes.state(draft.id)).toEqual({ approved: false, clientVisible: false });
-    expect(await flags.minutes.set(none.id, true)).toBe(false);
-    expect(await flags.minutes.set(approved.id, true)).toBe(true);
-    expect(await flags.minutes.state(approved.id)).toEqual({ approved: true, clientVisible: true });
-    expect(await flags.minutes.set(approved.id, false)).toBe(true);
-    expect(await flags.minutes.set(none.id, false)).toBe(true); // nothing to hide
+    expect(await flags.minutes.state(draft.id)).toEqual({ approved: false, clientVisible: false, includeRisks: false });
+    expect(await flags.minutes.set(draft.id, true, { includeRisks: false })).toBe(false);
+    expect(await flags.minutes.state(draft.id)).toEqual({ approved: false, clientVisible: false, includeRisks: false });
+    expect(await flags.minutes.set(none.id, true, { includeRisks: false })).toBe(false);
+    expect(await flags.minutes.set(approved.id, true, { includeRisks: true })).toBe(true);
+    expect(await flags.minutes.state(approved.id)).toEqual({ approved: true, clientVisible: true, includeRisks: true });
+    // Shown for the project the meeting is filed under at that moment.
+    expect(await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: approved.id } })).toMatchObject({ clientVisibleProjectId: a.id, clientShowRisks: true });
+    expect(await flags.minutes.set(approved.id, false, { includeRisks: false })).toBe(true);
+    expect(await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: approved.id } })).toMatchObject({ clientVisible: false, clientVisibleProjectId: null, clientShowRisks: false });
+    expect(await flags.minutes.set(none.id, false, { includeRisks: false })).toBe(true); // nothing to hide
+  });
+
+  it('the names minutes may mention: the project’s owner and team, the meeting’s organizer and attendees, guests too', async () => {
+    const flags = createPrismaClientFlags(prisma, async () => ({}) as never);
+    const mate = await prisma.user.create({ data: { email: 'cv-mate@mico360.test', username: 'cv-mate', passwordHash: 'x', firstName: 'Layla', lastName: 'Hassan' } });
+    try {
+      await prisma.projectMember.create({ data: { projectId: a.id, userId: mate.id } });
+      const m = await prisma.meeting.create({ data: { title: 'Review', projectId: a.id, organizerId: ownerId, createdById: ownerId, startAt: new Date() } });
+      await prisma.meetingAttendee.create({ data: { meetingId: m.id, externalName: 'Guest Visitor', externalEmail: 'guest@x.example' } });
+      const content = JSON.stringify({ summary: 'With Layla.', discussion: [], decisions: [], risks: ['Internal risk'], nextSteps: ['Send the form — Omar Ahmed, by 20 Oct'] });
+      await prisma.meetingMinutes.create({ data: { meetingId: m.id, content, status: 'APPROVED' } });
+      const preview = await flags.minutes.preview(m.id);
+      expect(preview!.names).toEqual(expect.arrayContaining(['Omar Ahmed', 'Omar', 'Layla Hassan', 'Layla', 'Guest Visitor']));
+      await flags.minutes.set(m.id, true, { includeRisks: false });
+      const [shown] = await source.minutes(a.id);
+      expect(shown).toMatchObject({ showRisks: false });
+      expect(shown!.people).toEqual(expect.arrayContaining(['Omar Ahmed', 'Layla Hassan', 'Guest Visitor']));
+    } finally {
+      await prisma.projectMember.deleteMany({ where: { userId: mate.id } });
+      await prisma.meeting.deleteMany({ where: { projectId: a.id } });
+      await prisma.user.delete({ where: { id: mate.id } });
+    }
+  });
+
+  describe('a meeting re-filed under another project takes its minutes off the old client page', () => {
+    const content = JSON.stringify({ summary: 'Shown on A', discussion: [], decisions: [], risks: [], nextSteps: [] });
+    async function shownOnA() {
+      const flags = createPrismaClientFlags(prisma, async () => ({}) as never);
+      const m = await prisma.meeting.create({ data: { title: 'Kick-off', projectId: a.id, organizerId: ownerId, createdById: ownerId, startAt: new Date() } });
+      await prisma.meetingMinutes.create({ data: { meetingId: m.id, content, status: 'APPROVED' } });
+      expect(await flags.minutes.set(m.id, true, { includeRisks: false })).toBe(true);
+      expect((await source.minutes(a.id)).map((x) => x.meetingId)).toEqual([m.id]);
+      return m;
+    }
+
+    it('a single edit: hidden in the same write, neither A’s client nor B’s sees them, and it is reported', async () => {
+      const moved: unknown[] = [];
+      const repo = createPrismaMeetingRepository(prisma, { onClientMinutesHidden: (e) => void moved.push(e) });
+      const m = await shownOnA();
+      await repo.update(m.id, { projectId: b.id });
+      expect(await source.minutes(a.id)).toEqual([]);
+      expect(await source.minutes(b.id)).toEqual([]);
+      expect(await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: m.id } })).toMatchObject({ clientVisible: false, clientVisibleProjectId: null });
+      expect(moved).toEqual([{ meetingId: m.id, fromProjectId: a.id, toProjectId: b.id }]);
+    });
+
+    it('an edit that keeps the project (the form sends it anyway) keeps them shown', async () => {
+      const moved: unknown[] = [];
+      const repo = createPrismaMeetingRepository(prisma, { onClientMinutesHidden: (e) => void moved.push(e) });
+      const m = await shownOnA();
+      await repo.update(m.id, { projectId: a.id, title: 'Kick-off (renamed)' });
+      expect((await source.minutes(a.id)).map((x) => x.meetingId)).toEqual([m.id]);
+      expect(moved).toEqual([]);
+    });
+
+    it('a series edit that re-files its meetings hides them too', async () => {
+      const moved: unknown[] = [];
+      const repo = createPrismaMeetingRepository(prisma, { onClientMinutesHidden: (e) => void moved.push(e) });
+      const m = await shownOnA();
+      await repo.applySeriesChanges([{ id: m.id, patch: { projectId: b.id } }]);
+      expect(await source.minutes(a.id)).toEqual([]);
+      expect(await source.minutes(b.id)).toEqual([]);
+      expect(moved).toEqual([{ meetingId: m.id, fromProjectId: a.id, toProjectId: b.id }]);
+    });
+
+    it('defence in depth: minutes still flagged but filed elsewhere (any other way) are never shown', async () => {
+      const m = await shownOnA();
+      await prisma.meeting.update({ where: { id: m.id }, data: { projectId: b.id } }); // around every service
+      expect(await source.minutes(b.id)).toEqual([]);
+      expect(await source.minutesOf(b.id, m.id)).toBeNull();
+      expect(await source.minutes(a.id)).toEqual([]);
+    });
   });
 
   it('a project marked deleted reads as gone', async () => {

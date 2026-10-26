@@ -7,6 +7,7 @@ import { ClientShareExistsError, type ClientShareRecord, type ClientShareStore }
 import type { ClientViewSource } from './client-view-source';
 import { buildClientView, type ClientProjectSource, type ClientView } from './client-view-payload';
 import { buildClientMinutesPdf } from './client-minutes-pdf';
+import { clientMinutesContent } from './client-minutes-content';
 import { hashToken, isWellFormedToken, newToken, normalizeEmail, sameText } from './client-tokens';
 import { ClientCodeInvalidError, ClientEmailUnavailableError, ClientLinkEndedError, ClientSignInRequiredError } from './client-view-errors';
 
@@ -186,7 +187,18 @@ export function createClientAccessService(deps: ClientAccessDeps) {
     return { ...opened, tokenHash };
   }
 
-  async function issueCode(share: ClientShareRecord, projectName: string): Promise<void> {
+  /** An abuse signal (too many wrong codes, too many code requests): one audit line per client an hour. */
+  async function noteLockout(share: ClientShareRecord, reason: 'too-many-wrong-codes' | 'too-many-code-requests', ip: string | null): Promise<void> {
+    try {
+      if (!(await store.noteLockout(share.id, now(), HOUR))) return;
+    } catch (err) {
+      deps.logger?.warn('client view: a lockout could not be noted', { err, shareId: share.id });
+      return;
+    }
+    await audit({ userId: null, ip, action: 'client-view.lockout', entityId: share.id, newValue: { projectId: share.projectId, reason } });
+  }
+
+  async function issueCode(share: ClientShareRecord, projectName: string, ip: string | null): Promise<void> {
     if (issuing.has(share.id)) return;
     issuing.add(share.id);
     try {
@@ -197,6 +209,7 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       ]);
       if (lastMinute >= limits.codesPerMinute || lastHour >= limits.codesPerHour) {
         deps.logger?.warn('client view: code request throttled', { shareId: share.id });
+        await noteLockout(share, 'too-many-code-requests', ip);
         return;
       }
       const code = generateOtpCode(limits.codeLength);
@@ -242,7 +255,10 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       return summary({ ...share, linkSentAt: sentAt });
     },
 
-    /** A new link by email; the old link and any code sent with it stop working (signed-in devices stay). */
+    /**
+     * A new link by email; the old link, any code sent with it and every signed-in device stop working
+     * (the client opens the new link with a new code). If the email can't be sent, nothing changes.
+     */
     async resend(input: { projectId: string; shareId: string; actorId: string; ip?: string | null }): Promise<ShareSummary> {
       requireEmail();
       const share = await store.findById(input.shareId);
@@ -257,6 +273,7 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         await store.replaceLink(share.id, hash, share.linkHash);
         throw err;
       }
+      await store.deleteSessionsFor(share.id);
       await audit({ userId: input.actorId, ip: input.ip ?? null, action: 'client-view.share.resend', entityId: share.id, newValue: { projectId: input.projectId, email: share.email } });
       return summary({ ...share, linkHash: hash, linkSentAt: sentAt });
     },
@@ -269,17 +286,22 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       await audit({ userId: input.actorId, ip: input.ip ?? null, action: 'client-view.share.remove', entityId: share.id, newValue: { projectId: input.projectId, name: share.name, email: share.email } });
     },
 
+    /** Housekeeping (the daily sweep): codes over a day old and expired sessions. */
+    async prune(): Promise<void> {
+      await store.prune(now());
+    },
+
     // ── Client side ─────────────────────────────────────────────────────────
 
     /**
      * Emails a code when the address is the one the link was shared with. The answer is the same,
      * and as fast, whatever address is typed: nobody learns who is on the list.
      */
-    async requestCode(link: unknown, email: unknown, _meta: Meta): Promise<{ sent: true }> {
+    async requestCode(link: unknown, email: unknown, meta: Meta): Promise<{ sent: true }> {
       const { share, project } = await openLink(link);
       if (!mailer.isConfigured()) throw new ClientEmailUnavailableError();
       if (typeof email === 'string' && sameText(normalizeEmail(email), share.email)) {
-        runInBackground(() => issueCode(share, project.name));
+        runInBackground(() => issueCode(share, project.name, meta.ip ?? null));
       }
       return { sent: true };
     },
@@ -297,7 +319,10 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       // Read the same things whatever address was typed, so the time taken doesn't tell either.
       const [failures, open] = await Promise.all([store.countFailuresSince(share.id, new Date(at.getTime() - HOUR)), store.latestOpenCode(share.id)]);
       if (!rightAddress || !/^\d{4,10}$/.test(entered)) return refuse();
-      if (failures >= limits.failuresPerHour) return refuse();
+      if (failures >= limits.failuresPerHour) {
+        await noteLockout(share, 'too-many-wrong-codes', meta.ip ?? null);
+        return refuse();
+      }
       if (!open || open.expiresAt.getTime() <= at.getTime()) return refuse();
       // Counted before the (slow) comparison, so parallel guesses can't all get past the limit.
       if (!(await store.claimAttempt(open.id, limits.triesPerCode))) return refuse();
@@ -339,7 +364,7 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         project: { name: project.name, code: project.code, number: project.number, clientName: project.clientName, color: project.color, icon: project.icon, image },
         meeting: { title: m.title, startAt: m.startAt.toISOString(), endAt: m.endAt ? m.endAt.toISOString() : null, timeZone: m.timeZone },
         approvedAt: m.approvedAt ? m.approvedAt.toISOString() : null,
-        content: m.content,
+        content: clientMinutesContent(m.content, { names: m.people ?? [], includeRisks: m.showRisks === true }),
         companyTimeZone: deps.timeZone,
         generatedAt: now().toISOString(),
       });

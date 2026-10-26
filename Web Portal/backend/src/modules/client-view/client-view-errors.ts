@@ -8,11 +8,7 @@ import { HttpError } from '../../lib/http-errors';
 /** The link is unknown, replaced by a newer one, removed, or its project is archived or deleted. */
 export class ClientLinkEndedError extends HttpError {
   constructor() {
-    super(
-      'This link isn’t active any more. It may have been replaced by a newer email, or the project is no longer shared. If you still need access, ask the person who shared it with you.',
-      'CLIENT_LINK_ENDED',
-      404,
-    );
+    super('This link no longer works. If you still need access, ask the person who shared the project with you to send a new one.', 'CLIENT_LINK_ENDED', 404);
   }
 }
 

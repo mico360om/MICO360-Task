@@ -246,7 +246,37 @@ describe('a client opens the link and enters the emailed code', () => {
     clock += MIN + 1;
     await svc.requestCode(link, 'fatma@client.example', {});
     await settle();
-    await expect(svc.verifyCode(link, 'fatma@client.example', lastCode(), {})).rejects.toBeInstanceOf(ClientCodeInvalidError);
+    await expect(svc.verifyCode(link, 'fatma@client.example', lastCode(), { ip: '6.6.6.6' })).rejects.toBeInstanceOf(ClientCodeInvalidError);
+    // The lockout is an abuse signal: written to the audit log (with the address that hit it), once an hour per client.
+    await expect(svc.verifyCode(link, 'fatma@client.example', lastCode(), { ip: '7.7.7.7' })).rejects.toBeInstanceOf(ClientCodeInvalidError);
+    const share = (await store.listForProject('p1'))[0]!;
+    expect(audited.filter((a) => a.action === 'client-view.lockout')).toEqual([
+      { userId: null, ip: '6.6.6.6', module: 'client-view', action: 'client-view.lockout', entityId: share.id, newValue: { projectId: 'p1', reason: 'too-many-wrong-codes' } },
+    ]);
+  });
+
+  it('too many code requests for a client are written to the audit log, once an hour', async () => {
+    const link = await shareWithFatma();
+    await svc.requestCode(link, 'fatma@client.example', { ip: '1.2.3.4' });
+    await settle();
+    for (let i = 0; i < 3; i++) {
+      await svc.requestCode(link, 'fatma@client.example', { ip: '1.2.3.4' });
+      await settle();
+    }
+    const share = (await store.listForProject('p1'))[0]!;
+    expect(audited.filter((a) => a.action === 'client-view.lockout')).toEqual([
+      { userId: null, ip: '1.2.3.4', module: 'client-view', action: 'client-view.lockout', entityId: share.id, newValue: { projectId: 'p1', reason: 'too-many-code-requests' } },
+    ]);
+  });
+
+  it('housekeeping prunes old codes and expired sessions', async () => {
+    const link = await shareWithFatma();
+    const token = await signIn(link);
+    clock += 31 * DAY;
+    await svc.prune();
+    expect(await store.findSession(hashToken(token))).toBeNull();
+    const share = (await store.listForProject('p1'))[0]!;
+    expect(await store.countCodesSince(share.id, new Date(0))).toBe(0);
   });
 
   it('a wrong address does the same lookups as a wrong code (no timing difference to learn the address from)', async () => {
@@ -352,7 +382,7 @@ describe('the page itself', () => {
     expect(await store.findById(share.id)).not.toBeNull();
   });
 
-  it('Resend: a new link works; the old link and its code stop working; a signed-in device stays signed in', async () => {
+  it('Resend: a new link works; the old link, its code and every signed-in device stop working', async () => {
     const oldLink = await shareWithFatma();
     const token = await signIn(oldLink);
     clock += 2 * MIN;
@@ -365,8 +395,12 @@ describe('the page itself', () => {
     expect(newLink).not.toBe(oldLink);
     await expect(svc.view(oldLink, sessionOf(token))).rejects.toBeInstanceOf(ClientLinkEndedError);
     await expect(svc.verifyCode(oldLink, 'fatma@client.example', oldCode, {})).rejects.toBeInstanceOf(ClientLinkEndedError);
-    await expect(svc.view(newLink, sessionOf(token))).resolves.toBeTruthy();
-    expect(audited.at(-1)).toMatchObject({ userId: 'u-omar', action: 'client-view.share.resend', entityId: share.id });
+    await expect(svc.view(newLink, sessionOf(token))).rejects.toBeInstanceOf(ClientSignInRequiredError);
+    expect(await store.findSession(hashToken(token))).toBeNull();
+    // The new link with a new code opens it again.
+    clock += 2 * MIN;
+    await expect(svc.view(newLink, sessionOf(await signIn(newLink)))).resolves.toBeTruthy();
+    expect(audited.find((a) => a.action === 'client-view.share.resend')).toMatchObject({ userId: 'u-omar', entityId: share.id });
   });
 
   it('a Resend whose email fails keeps the old link working', async () => {
@@ -416,6 +450,31 @@ describe('the minutes PDF a client downloads', () => {
     const text = inspectPdf(pdf).pages.flat().join('\n');
     expect(text).toContain('Agreed the plan.');
     expect(text).not.toMatch(/Approved by|Organizer|Attendees/);
+  });
+
+  it('has the owners taken off the next steps and no risks unless they were ticked — like the page', async () => {
+    source.addMinutes('p1', {
+      meetingId: 'm-owners',
+      title: 'Review',
+      startAt: new Date('2026-10-12T06:00:00Z'),
+      timeZone: 'Asia/Muscat',
+      status: 'APPROVED',
+      clientVisible: true,
+      approvedAt: new Date('2026-10-12T08:00:00Z'),
+      showRisks: false,
+      people: ['Bilal Ahmed', 'Bilal'],
+      content: { summary: 'Reviewed.', discussion: [], decisions: [], risks: ['Internal: the margin is thin'], nextSteps: ['Send the form — Bilal Ahmed, by 18 Oct'] },
+    });
+    const link = await shareWithFatma();
+    const token = await signIn(link);
+    const text = inspectPdf((await svc.minutesPdf(link, sessionOf(token), 'm-owners')).pdf).pages.flat().join('\n');
+    expect(text).toContain('Send the form — by 18 Oct');
+    expect(text).not.toContain('Bilal');
+    expect(text).not.toContain('margin');
+    expect(text).not.toContain('Risks & Open Issues');
+    const page = (await svc.view(link, sessionOf(token))).minutes.find((m) => m.id === 'm-owners')!;
+    expect(page.content.nextSteps).toEqual(['Send the form — by 18 Oct']);
+    expect(page.content.risks).toEqual([]);
   });
 
   it('isn’t there for minutes not shown, or of another project, and needs a session', async () => {

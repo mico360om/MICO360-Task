@@ -76,6 +76,11 @@ describe('buildTimeline: one readable line per event', () => {
       e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'clientVisible', from: false, to: true }] }),
     ]);
     expect(both).toEqual([]);
+    // Taken off by a move to another project: the line says why.
+    expect(one({ field: 'clientVisible', from: true, to: false, reason: 'moved' })).toBe('hid this from the client (moved to another project)');
+    expect(
+      buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'milestone', from: true, to: false }, { field: 'clientVisible', from: true, to: false, reason: 'moved' }] })])[0]!.text,
+    ).toBe('cleared its milestone and hid this from the client (moved to another project)');
   });
   it('says where a task moved to another project, with the keys it had there and has now', () => {
     const moved = { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' };

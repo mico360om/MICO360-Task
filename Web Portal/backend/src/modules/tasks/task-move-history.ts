@@ -21,6 +21,7 @@ export function moveHistory(w: ProjectMoveWrite, newKey: string): MoveHistoryLin
   const changes = [
     ...(w.dueDateSet ? [{ field: 'dueDate', from: null, to: w.dueDateSet }] : []),
     ...(w.patch.isMilestone === false ? [{ field: 'milestone', from: true, to: false }] : []),
+    ...(w.patch.clientVisible === false ? [{ field: 'clientVisible', from: true, to: false, reason: 'moved' }] : []),
   ];
   return [
     ...w.unassign.map((p) => onTask('UNASSIGNED', { assigneeId: p.id, assignee: p.name })),

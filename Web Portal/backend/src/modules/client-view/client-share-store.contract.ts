@@ -105,6 +105,49 @@ export function clientShareStoreContract(name: string, setup: () => Promise<{ st
       expect(await store.findSession(h('4'))).not.toBeNull();
     });
 
+    it('signs out every device of one client (and no other client’s)', async () => {
+      const s = await add(projectA, 'fatma@client.example', h('a'));
+      const other = await add(projectA, 'other@client.example', h('b'));
+      const soon = new Date(Date.now() + HOUR);
+      await store.createSession({ shareId: s.id, tokenHash: h('1'), expiresAt: soon });
+      await store.createSession({ shareId: s.id, tokenHash: h('2'), expiresAt: soon });
+      await store.createSession({ shareId: other.id, tokenHash: h('3'), expiresAt: soon });
+      await store.deleteSessionsFor(s.id);
+      expect(await store.findSession(h('1'))).toBeNull();
+      expect(await store.findSession(h('2'))).toBeNull();
+      expect(await store.findSession(h('3'))).not.toBeNull();
+    });
+
+    it('notes a lockout at most once per client per hour', async () => {
+      const s = await add(projectA, 'fatma@client.example', h('a'));
+      const t0 = new Date('2026-10-26T08:00:00Z');
+      expect(await store.noteLockout(s.id, t0, HOUR)).toBe(true);
+      expect(await store.noteLockout(s.id, new Date(t0.getTime() + HOUR - 1000), HOUR)).toBe(false);
+      expect(await store.noteLockout(s.id, new Date(t0.getTime() + HOUR + 1000), HOUR)).toBe(true);
+      const other = await add(projectA, 'other@client.example', h('b'));
+      expect(await store.noteLockout(other.id, t0, HOUR)).toBe(true);
+    });
+
+    it('prunes codes older than a day and expired sessions; keeps the rest', async () => {
+      const s = await add(projectA, 'fatma@client.example', h('a'));
+      await store.createCode({ shareId: s.id, codeHash: 'recent', expiresAt: new Date(Date.now() + 10 * 60_000) });
+      await store.createSession({ shareId: s.id, tokenHash: h('1'), expiresAt: new Date(Date.now() - 1000) });
+      await store.createSession({ shareId: s.id, tokenHash: h('2'), expiresAt: new Date(Date.now() + HOUR) });
+      // A day from now, the code is a day old and both sessions have expired.
+      await store.prune(new Date(Date.now() + 25 * HOUR));
+      expect(await store.countCodesSince(s.id, new Date(0))).toBe(0);
+      expect(await store.findSession(h('1'))).toBeNull();
+      expect(await store.findSession(h('2'))).toBeNull();
+      // Today: only the expired session goes; a fresh code stays (it still counts for the limits).
+      await store.createCode({ shareId: s.id, codeHash: 'fresh', expiresAt: new Date(Date.now() + 10 * 60_000) });
+      await store.createSession({ shareId: s.id, tokenHash: h('3'), expiresAt: new Date(Date.now() + HOUR) });
+      await store.createSession({ shareId: s.id, tokenHash: h('4'), expiresAt: new Date(Date.now() - 1000) });
+      await store.prune(new Date());
+      expect(await store.countCodesSince(s.id, new Date(0))).toBe(1);
+      expect(await store.findSession(h('3'))).not.toBeNull();
+      expect(await store.findSession(h('4'))).toBeNull();
+    });
+
     it('records when the link was sent and when the page was last viewed', async () => {
       const s = await add(projectA, 'fatma@client.example', h('a'));
       await store.markSent(s.id, at('2026-10-26T08:00:00Z'));

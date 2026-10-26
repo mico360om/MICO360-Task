@@ -96,6 +96,7 @@ import { createPrismaClientShareStore } from './modules/client-view/prisma-clien
 import { createPrismaClientViewSource } from './modules/client-view/client-view-source';
 import { createPrismaClientFlags } from './modules/client-view/prisma-client-flags';
 import { readProjectPicture } from './lib/pdf-image';
+import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
 
 /** Validate an IANA time zone; fall back to Asia/Muscat (Oman) if misconfigured. */
 function resolveTimeZone(tz: string): string {
@@ -471,7 +472,10 @@ async function main(): Promise<void> {
   });
 
   // Meetings & Meeting Notes module (project-linked and standalone).
-  const meetingRepository = createPrismaMeetingRepository(prisma);
+  // A meeting re-filed under another project takes its shown minutes off the old client page (in the
+  // same write); the audit line is late-bound to the audit service, created further down.
+  let onClientMinutesHidden: (hidden: import('./modules/meetings/prisma-meeting-repository').ClientMinutesHidden) => void = () => {};
+  const meetingRepository = createPrismaMeetingRepository(prisma, { onClientMinutesHidden: (h) => onClientMinutesHidden(h) });
   const agendaSourceStore = createPrismaAgendaSources(prisma);
   const isActiveUser = async (userId: string): Promise<boolean> =>
     (await prisma.user.count({ where: { id: userId, deletedAt: null, status: 'ACTIVE' } })) > 0;
@@ -661,6 +665,8 @@ async function main(): Promise<void> {
   // and periodically; a PERSISTED per-day marker (reminder_logs) avoids re-notifying the same
   // task — unlike an in-memory guard, it survives restarts and is shared across instances.
   const reminderLogStore = createPrismaReminderLogStore(prisma);
+  // Client view housekeeping, run with the sweep below (late-bound: its service is built further down).
+  let pruneClientAccess: () => Promise<void> = async () => {};
   // Active users and admins, for the sweeps' recipient filtering (one query per sweep).
   const sweepAudience = async () => {
     const users = await prisma.user.findMany({
@@ -678,6 +684,7 @@ async function main(): Promise<void> {
   async function runReminderSweep(): Promise<void> {
     const period = todayKey(companyTz); // company-local yyyy-mm-dd
     await pruneReminderLog(prisma).catch(() => {}); // keep the marker table bounded
+    await pruneClientAccess().catch(() => {}); // client view: old codes and expired sessions
     // Tasks of deleted projects are gone for everyone — no more reminders for them.
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
@@ -792,6 +799,7 @@ async function main(): Promise<void> {
   };
 
   const auditService = createAuditService({ audit: createPrismaAuditRepository(prisma) });
+  onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).
@@ -1219,6 +1227,7 @@ async function main(): Promise<void> {
     logger,
   });
   const clientFlags = createPrismaClientFlags(prisma, (taskId) => taskService.getTask(taskId));
+  pruneClientAccess = () => clientAccessService.prune();
 
   const app = await buildApp({
     about: { release },

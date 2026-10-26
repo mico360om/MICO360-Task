@@ -24,7 +24,20 @@ const reason = (err: unknown, fallback: string) =>
  * to that address. Each client shows when they last viewed it; Resend replaces their link, Remove
  * ends their access at once. The server checks who may do this; this panel is only offered to them.
  */
-export function ClientSharePanel({ projectId, projectName, emailEnabled = true, onClose }: { projectId: string; projectName: string; emailEnabled?: boolean; onClose: () => void }) {
+export function ClientSharePanel({
+  projectId,
+  projectName,
+  emailEnabled = true,
+  archived = false,
+  onClose,
+}: {
+  projectId: string;
+  projectName: string;
+  emailEnabled?: boolean;
+  /** An archived project's client page is closed: the panel is read-only, with Remove still offered. */
+  archived?: boolean;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const api = clientSharesApi(apiClient);
   const ids = { title: useId(), intro: useId(), name: useId(), email: useId() };
@@ -63,8 +76,8 @@ export function ClientSharePanel({ projectId, projectName, emailEnabled = true, 
       setProblem(null);
       setNotice(null);
     },
-    onSuccess: (share) => {
-      setNotice(`A new link was sent to ${share.email}. The old link no longer works.`);
+    onSuccess: () => {
+      setNotice('A new link was sent. The old link and any signed-in devices no longer work.');
       void refresh();
     },
     onError: (err) => setProblem(reason(err, 'Couldn’t send a new link. Please try again.')),
@@ -115,6 +128,12 @@ export function ClientSharePanel({ projectId, projectName, emailEnabled = true, 
               “Show to client”. They never see people, comments, files or internal notes. Their link opens only with a code we email to them.
             </p>
 
+            {archived ? (
+              <p className="rounded-lg bg-ground px-3 py-2 text-sm text-ink-2">
+                This project is archived, so its client page is closed and it can’t be shared. You can still remove clients; if the project is reopened,
+                the clients still listed here can view it again.
+              </p>
+            ) : (
             <form onSubmit={submit} noValidate className="flex flex-col gap-3 rounded-xl border border-line p-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1">
@@ -135,6 +154,7 @@ export function ClientSharePanel({ projectId, projectName, emailEnabled = true, 
                 <Button type="submit" size="sm" loading={addM.isPending} disabled={!emailEnabled}>Share</Button>
               </div>
             </form>
+            )}
 
             {problem ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
             {notice ? <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">{notice}</p> : null}
@@ -157,6 +177,7 @@ export function ClientSharePanel({ projectId, projectName, emailEnabled = true, 
                       share={s}
                       busy={busyAny()}
                       canResend={emailEnabled}
+                      showResend={!archived}
                       resending={resendM.isPending && resendM.variables?.id === s.id}
                       onResend={() => resendM.mutate(s)}
                       onRemove={() => {
@@ -188,7 +209,23 @@ export function ClientSharePanel({ projectId, projectName, emailEnabled = true, 
   );
 }
 
-function ShareRow({ share: s, busy, canResend, resending, onResend, onRemove }: { share: ClientShare; busy: boolean; canResend: boolean; resending: boolean; onResend: () => void; onRemove: () => void }) {
+function ShareRow({
+  share: s,
+  busy,
+  canResend,
+  showResend,
+  resending,
+  onResend,
+  onRemove,
+}: {
+  share: ClientShare;
+  busy: boolean;
+  canResend: boolean;
+  showResend: boolean;
+  resending: boolean;
+  onResend: () => void;
+  onRemove: () => void;
+}) {
   const nameId = useId();
   return (
     <li aria-labelledby={nameId} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
@@ -201,9 +238,11 @@ function ShareRow({ share: s, busy, canResend, resending, onResend, onRemove }: 
         </p>
       </div>
       <div className="flex flex-none gap-2">
-        <Button type="button" size="sm" variant="secondary" loading={resending} disabled={busy || !canResend} onClick={onResend} aria-label={`Resend the link to ${s.name}`}>
-          Resend
-        </Button>
+        {showResend ? (
+          <Button type="button" size="sm" variant="secondary" loading={resending} disabled={busy || !canResend} onClick={onResend} aria-label={`Resend the link to ${s.name}`}>
+            Resend
+          </Button>
+        ) : null}
         <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onRemove} aria-label={`Remove ${s.name}`} className="text-danger hover:bg-danger-soft hover:text-danger">
           Remove
         </Button>

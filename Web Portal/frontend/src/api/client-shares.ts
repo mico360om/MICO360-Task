@@ -1,5 +1,6 @@
 import type { ApiClient } from '../lib/api-client';
 import type { ApiTask } from './tasks';
+import type { FinalMinutesContent } from './meetings';
 
 /** A client a project is shared with (the Share with client panel). */
 export interface ClientShare {
@@ -17,8 +18,16 @@ export interface MinutesClientVisibility {
   projectMeeting: boolean;
   approved: boolean;
   clientVisible: boolean;
+  /** Shown with their Risks & open issues (they stay internal otherwise). */
+  includeRisks?: boolean;
   /** The person asking runs the project (or is an admin). */
   canChange: boolean;
+}
+
+/** Exactly what the client would see of approved minutes (owners off the next steps), and the names to highlight. */
+export interface MinutesClientPreview {
+  content: FinalMinutesContent;
+  names: string[];
 }
 
 const seg = encodeURIComponent;
@@ -34,7 +43,10 @@ export function clientSharesApi(client: ApiClient) {
     remove: (projectId: string, shareId: string) => client.del<void>(`/projects/${seg(projectId)}/client-shares/${seg(shareId)}`),
     setTaskVisible: (taskId: string, visible: boolean) => client.put<{ data: ApiTask }>(`/tasks/${seg(taskId)}/client-visible`, { visible }).then((r) => r.data),
     minutesVisibility: (meetingId: string) => client.get<{ data: MinutesClientVisibility }>(`/meetings/${seg(meetingId)}/client-visibility`).then((r) => r.data),
-    setMinutesVisible: (meetingId: string, visible: boolean) =>
-      client.put<{ data: MinutesClientVisibility }>(`/meetings/${seg(meetingId)}/client-visibility`, { visible }).then((r) => r.data),
+    minutesPreview: (meetingId: string) => client.get<{ data: MinutesClientPreview }>(`/meetings/${seg(meetingId)}/client-visibility/preview`).then((r) => r.data),
+    setMinutesVisible: (meetingId: string, visible: boolean, includeRisks?: boolean) =>
+      client
+        .put<{ data: MinutesClientVisibility }>(`/meetings/${seg(meetingId)}/client-visibility`, visible ? { visible, includeRisks: includeRisks === true } : { visible })
+        .then((r) => r.data),
   };
 }

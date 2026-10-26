@@ -3,7 +3,11 @@
 -- What the client page may show: only tasks (milestones are tasks) and approved final minutes that
 -- someone who runs the project marked. Nothing is shown by default.
 ALTER TABLE `tasks` ADD COLUMN `clientVisible` BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE `meeting_minutes` ADD COLUMN `clientVisible` BOOLEAN NOT NULL DEFAULT false;
+-- Approved minutes are shown for the project they were marked on (re-filing the meeting hides them),
+-- and their "Risks & open issues" only when that was ticked.
+ALTER TABLE `meeting_minutes` ADD COLUMN `clientVisible` BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN `clientVisibleProjectId` VARCHAR(191) NULL,
+    ADD COLUMN `clientShowRisks` BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable: the clients a project is shared with (one row per project and email address).
 CREATE TABLE `client_shares` (
@@ -15,6 +19,7 @@ CREATE TABLE `client_shares` (
     `createdById` VARCHAR(191) NULL,
     `linkSentAt` DATETIME(3) NULL,
     `lastViewedAt` DATETIME(3) NULL,
+    `lockoutNotedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 

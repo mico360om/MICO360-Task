@@ -97,5 +97,20 @@ export function createPrismaClientShareStore(prisma: PrismaClient): ClientShareS
       const extra = await prisma.clientSession.findMany({ where: { shareId }, select: { id: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: keep });
       if (extra.length) await prisma.clientSession.deleteMany({ where: { id: { in: extra.map((s) => s.id) } } });
     },
+    async deleteSessionsFor(shareId) {
+      await prisma.clientSession.deleteMany({ where: { shareId } });
+    },
+    async noteLockout(shareId, at, windowMs) {
+      // One conditional write: two requests at once can't both note it.
+      const { count } = await prisma.clientShare.updateMany({
+        where: { id: shareId, OR: [{ lockoutNotedAt: null }, { lockoutNotedAt: { lte: new Date(at.getTime() - windowMs) } }] },
+        data: { lockoutNotedAt: at },
+      });
+      return count === 1;
+    },
+    async prune(now) {
+      await prisma.clientAccessCode.deleteMany({ where: { createdAt: { lt: new Date(now.getTime() - 24 * 3600_000) } } });
+      await prisma.clientSession.deleteMany({ where: { expiresAt: { lte: now } } });
+    },
   };
 }

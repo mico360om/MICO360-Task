@@ -37,6 +37,8 @@ export interface MovableTask {
   columnId: string;
   columnCategory: string | null;
   isMilestone: boolean;
+  /** Shown on its project's client page: the move takes it off. */
+  clientVisible?: boolean;
   dueDate: Date | null;
   startDate: Date | null;
   boardDate: Date | null;
@@ -63,7 +65,7 @@ export interface ProjectMoveWrite {
   to: { projectId: string; name: string; code: string };
   columnId: string;
   /** Field changes that go with the move: milestone cleared, due date set, completion following the column. */
-  patch: { isMilestone?: boolean; dueDate?: Date; completedAt?: Date | null; progress?: number; boardDate?: Date };
+  patch: { isMilestone?: boolean; clientVisible?: boolean; dueDate?: Date; completedAt?: Date | null; progress?: number; boardDate?: Date };
   /** People added to the new project's team (as members). */
   addToTeam: string[];
   /** Assignees taken off the task (each gets an UNASSIGNED line). */

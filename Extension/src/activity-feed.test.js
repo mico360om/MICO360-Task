@@ -75,6 +75,7 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['CREATED', { title: 'X', via: 'mico-ai' }], ['ASSIGNED', { assignee: 'Omar Ahmed', via: 'mico-ai' }], ['MOVED', { from: 'To Do', to: 'Done', via: 'mico-ai' }],
     ['UPDATED', { changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }], via: 'mico-ai' }], ['COMPLETED', { from: 'Review', to: 'Done', via: 'mico-ai' }], ['UPDATED', { via: 'other' }],
     ['UPDATED', { changes: [{ field: 'clientVisible', from: false, to: true }] }], ['UPDATED', { changes: [{ field: 'clientVisible', from: true, to: false }] }],
+    ['UPDATED', { changes: [{ field: 'milestone', from: true, to: false }, { field: 'clientVisible', from: true, to: false, reason: 'moved' }] }],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];
