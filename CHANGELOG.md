@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-26
+
 ### New features
 - MICO AI can now act, not just answer. Ask it to create tasks ("make a task for each failed item"),
   change tasks (reschedule, reassign, change status or priority — one or many: "move my overdue Rig
