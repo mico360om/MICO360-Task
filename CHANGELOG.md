@@ -14,6 +14,35 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- MICO AI can now act, not just answer. Ask it to create tasks ("make a task for each failed item"),
+  change tasks (reschedule, reassign, change status or priority — one or many: "move my overdue Rig
+  tasks to next week"), draft a meeting's minutes, or schedule a meeting with people and an agenda.
+  It shows a review card first: every change with a tick box, fields you can edit, and nothing
+  happens until you press Confirm. Anything it couldn't read (an unknown name, an unclear date) must
+  be put right before it can be ticked. After confirming, Undo puts things back for 15 minutes,
+  unless someone has changed the same item since. Meeting cards have "Email the invitations"
+  ticked; minutes are saved as a draft you review on the meeting page, never approved or emailed.
+  Everything runs with your own permissions, the usual notifications go out, and the history says
+  "via MICO AI". It asks when a name is ambiguous ("Which Omar do you mean?") and never deletes.
+- Every employee can create projects: "+ New project" now shows for everyone, and the form picks
+  the owner (you, or someone else) and the team. You stay on the team as a manager. People you add
+  get an "Added to a project" notice (it can be turned off in Settings).
+
+### Improvements
+- A project is run by its owner, its project manager or a team member with the Manager role (and
+  administrators): they can edit its details, picture, status and owner, archive it, and manage its
+  team and board columns. Deleting a project stays with administrators. Handing a project over
+  keeps the previous owner or manager on the team as a manager, and a project always keeps someone
+  to run it. The project page shows who created it and who its project manager is.
+- Team changes that are refused (for example removing the last person running a project) now say
+  why, and only active people can be added to a team.
+
+### Security
+- Having created a project no longer gives access to it on its own: access comes from being on its
+  team (or an administrator), so someone removed from a team really loses access. Only
+  administrators can name a project's manager.
+
 ## [1.14.0] - 2026-10-25
 
 ### New features
