@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createProjectService } from './project-service';
+import { createProjectService, newProjectTeam } from './project-service';
 import type { ProjectRecord, ProjectRepository, CreateProjectData } from './project-repository';
 import { ConflictError, NotFoundError } from '../../lib/http-errors';
 
@@ -8,7 +8,7 @@ function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember
   const members = new Map<string, Set<string>>();
   let seq = 0;
   const canAccess = (p: ProjectRecord, userId: string) =>
-    p.ownerId === userId || p.managerId === userId || p.createdById === userId || (members.get(p.id)?.has(userId) ?? false);
+    p.ownerId === userId || p.managerId === userId || (members.get(p.id)?.has(userId) ?? false);
   return {
     all: () => [...rows.values()],
     addMember: (projectId, userId) => {
@@ -158,5 +158,28 @@ describe('ProjectService — membership-based visibility', () => {
     const a = await svc.createProject({ code: 'A', name: 'A', createdById: 'admin' });
     const got = await svc.getVisibleProject(a.id, { id: 'someone', roles: ['ADMIN'] });
     expect(got.code).toBe('A');
+  });
+});
+
+describe('newProjectTeam — who is on a new project’s team', () => {
+  it('puts an employee creator on as a MANAGER, the owner and the picked people as members, each once', () => {
+    expect(newProjectTeam({ creatorId: 'omar', creatorIsAdmin: false, ownerId: 'sara', memberIds: ['ali', 'sara', 'omar', 'ali'] })).toEqual([
+      { userId: 'omar', role: 'MANAGER' },
+      { userId: 'sara', role: 'MEMBER' },
+      { userId: 'ali', role: 'MEMBER' },
+    ]);
+  });
+
+  it('an employee who owns it themselves is on once, as a MANAGER', () => {
+    expect(newProjectTeam({ creatorId: 'omar', creatorIsAdmin: false, ownerId: 'omar', memberIds: [] })).toEqual([{ userId: 'omar', role: 'MANAGER' }]);
+  });
+
+  it('an administrator creator is not added (as before); a chosen owner and the picked people are', () => {
+    expect(newProjectTeam({ creatorId: 'boss', creatorIsAdmin: true, ownerId: null, memberIds: [] })).toEqual([]);
+    expect(newProjectTeam({ creatorId: 'boss', creatorIsAdmin: true, ownerId: 'boss', memberIds: ['ali'] })).toEqual([{ userId: 'ali', role: 'MEMBER' }]);
+    expect(newProjectTeam({ creatorId: 'boss', creatorIsAdmin: true, ownerId: 'sara', memberIds: ['boss'] })).toEqual([
+      { userId: 'sara', role: 'MEMBER' },
+      { userId: 'boss', role: 'MEMBER' },
+    ]);
   });
 });

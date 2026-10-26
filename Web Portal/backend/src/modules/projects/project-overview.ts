@@ -65,17 +65,20 @@ export type ProjectOverviewItem = Pick<
   teamCount: number;
   /** The person asking owns it, manages it or is on its team. */
   mine: boolean;
+  /** The person asking may change it: an admin, or its owner, named manager or a MANAGER member. */
+  canManage: boolean;
 };
 
 /**
  * The projects list with each project's figures, owner and team. "Done" is the shared rule (a DONE
  * column or a completion time — the source counts the open ones), and overdue / today are decided
  * by the shared due-date rules in the company time zone, exactly as the dashboard and reports do.
+ * `manageable`: the projects the viewer may change (ProjectAuthz decides); the rest can't be.
  */
 export function buildProjectOverview(
   projects: ProjectRecord[],
   rows: ProjectOverviewRows,
-  { timeZone, now = new Date(), viewerId }: { timeZone: string; now?: Date; viewerId: string },
+  { timeZone, now = new Date(), viewerId, manageable }: { timeZone: string; now?: Date; viewerId: string; manageable?: ReadonlySet<string> },
 ): ProjectOverviewItem[] {
   const today = todayKey(timeZone, now);
   const totals = new Map(rows.totals.map((t) => [t.projectId, t]));
@@ -122,6 +125,7 @@ export function buildProjectOverview(
       team: team.slice(0, TEAM_FACES),
       teamCount: team.length,
       mine: p.ownerId === viewerId || p.managerId === viewerId || team.some((m) => m.id === viewerId),
+      canManage: manageable?.has(p.id) ?? false,
     };
   });
 }

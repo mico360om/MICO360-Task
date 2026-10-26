@@ -47,15 +47,19 @@ describe('createPrismaMemberRepository', () => {
     expect(taskWatcher.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1', task: { projectId: 'p1' } } });
   });
 
-  it('sees implicit access for the owner/manager/creator or an admin', async () => {
-    const fake = (project: unknown, admin: unknown) =>
-      createPrismaMemberRepository({
-        project: { findFirst: vi.fn(async () => project) },
+  it('sees implicit access for the owner/manager or an admin — not the creator as such', async () => {
+    const findFirst = vi.fn(async (_a: unknown) => null as unknown);
+    const fake = (project: unknown, admin: unknown) => {
+      findFirst.mockImplementation(async () => project);
+      return createPrismaMemberRepository({
+        project: { findFirst },
         userRole: { findFirst: vi.fn(async () => admin) },
       } as unknown as PrismaClient);
+    };
     expect(await fake({ id: 'p1' }, null).hasImplicitAccess!('p1', 'u1')).toBe(true);
     expect(await fake(null, { userId: 'u1' }).hasImplicitAccess!('p1', 'u1')).toBe(true);
     expect(await fake(null, null).hasImplicitAccess!('p1', 'u1')).toBe(false);
+    expect((findFirst.mock.calls[0] as unknown as [{ where: unknown }])[0].where).toEqual({ id: 'p1', OR: [{ ownerId: 'u1' }, { managerId: 'u1' }] });
   });
 
   it('resolves a task of a deleted project to no project (so access checks fail)', async () => {

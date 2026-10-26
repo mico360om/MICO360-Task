@@ -13,7 +13,6 @@ import { useAuthStore } from '../stores/auth-store';
 import { ProjectMembers } from '../components/ProjectMembers';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
-import { Avatar } from '../components/ui/Avatar';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { MeetingFormModal } from '../components/MeetingFormModal';
 import { todayKey } from '../lib/due-date';
@@ -23,6 +22,7 @@ import { useProjectRealtime, type ProjectChange } from '../lib/useProjectRealtim
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
+import { ownerChoices } from '../components/project-form/owner-options';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
@@ -119,11 +119,29 @@ export function ProjectDetailPage() {
   }, []);
 
   const invalidateMembers = () => qc.invalidateQueries({ queryKey: ['members', id] });
-  const addM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).add(id, userId), onSuccess: invalidateMembers });
-  const removeM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).remove(id, userId), onSuccess: invalidateMembers });
+  // A team change can change who may run the project (someone stepping down loses its controls at
+  // once), so the project and the lists that say so are read again too.
+  const afterTeamChange = () => {
+    void invalidateMembers();
+    void qc.invalidateQueries({ queryKey: ['project', id] });
+    void qc.invalidateQueries({ queryKey: ['projects'] });
+  };
+  // A refused team change says why, in the server's words (the last manager, an inactive person…).
+  const [teamProblem, setTeamProblem] = useState<string | null>(null);
+  const teamRefused = (e: unknown) =>
+    setTeamProblem(
+      e instanceof ApiError && e.status === 403
+        ? 'Only this project’s owner, its managers or an administrator can change its team.'
+        : e instanceof ApiError && e.message && !/^Request failed/.test(e.message)
+          ? e.message
+          : 'Couldn’t change the team. Please try again.',
+    );
+  const teamChange = { onMutate: () => setTeamProblem(null), onError: teamRefused, onSuccess: afterTeamChange };
+  const addM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).add(id, userId), ...teamChange });
+  const removeM = useMutation({ mutationFn: (userId: string) => membersApi(apiClient).remove(id, userId), ...teamChange });
   const roleM = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: 'MEMBER' | 'MANAGER' }) => membersApi(apiClient).setRole(id, userId, role),
-    onSuccess: invalidateMembers,
+    ...teamChange,
   });
 
   const name = (u: { firstName: string; lastName: string; username: string }) =>
@@ -132,33 +150,40 @@ export function ProjectDetailPage() {
   const project = projectQ.data;
   usePageName(project?.name);
   const members = Array.isArray(membersQ.data) ? membersQ.data : [];
-  const canManage = isAdmin || members.some((m) => m.id === myId && m.role === 'MANAGER');
-  // The project's own details (name, look, owner…) are an admin's to change — the server refuses anyone
-  // else, so a manager is not shown controls that would fail. Managers run the team (see the Team tab).
-  const canEditProject = isAdmin;
+  // Who runs the project — an admin, or its owner, named manager or a manager on its team — changes
+  // its details, picture, status and owner, and runs its team. The server says (canManage); an
+  // older one that doesn't let MANAGER members run the team only.
+  const canManage = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
+  const canEditProject = isAdmin || project?.canManage === true;
   const [detailsProblem, setDetailsProblem] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
-  const ownerName = (ownerId: string | null) => {
-    if (!ownerId) return 'No owner';
-    const u = directory.find((d) => d.id === ownerId);
+  const personById = (userId: string) => {
+    const u = directory.find((d) => d.id === userId);
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Unknown';
   };
-  const ownerOptions = [
-    { value: '', label: 'No owner' },
-    ...directory.map((u) => {
-      const label = `${u.firstName} ${u.lastName}`.trim() || u.username;
-      return { value: u.id, label, hint: `@${u.username}`, icon: <Avatar name={label} size="sm" src={u.avatarUrl} /> };
-    }),
-  ];
+  const ownerName = (ownerId: string | null) => (ownerId ? personById(ownerId) : 'No owner');
+  // The named manager runs the project too: shown wherever the owner is.
+  const managerName = project?.managerId ? personById(project.managerId) : null;
+  // Everyone active (and the current owner, even after they've left).
+  const ownerOptions = ownerChoices(directory, project?.ownerId, { allowNone: true });
   const ownerMut = useMutation({
     mutationFn: (ownerId: string | null) => projectsApi(apiClient).update(id, { ownerId }),
     onMutate: () => setDetailsProblem(null),
-    onError: (e) => setDetailsProblem(e instanceof ApiError && e.status === 403 ? 'Only an administrator can change the project owner.' : 'Couldn’t change the owner. Please try again.'),
+    onError: (e) =>
+      setDetailsProblem(
+        e instanceof ApiError && e.status === 403
+          ? 'Only this project’s owner, its managers or an administrator can change its owner.'
+          : e instanceof ApiError && e.status === 400 && e.message
+            ? e.message
+            : 'Couldn’t change the owner. Please try again.',
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['project', id] });
       void qc.invalidateQueries({ queryKey: ['projects'] });
+      // Someone who hands over a project they own stays on its team as a manager.
+      void invalidateMembers();
     },
   });
 
@@ -248,6 +273,7 @@ export function ProjectDetailPage() {
               {project.clientName ? <><span aria-hidden>·</span><span dir="auto">{project.clientName}</span></> : null}
               <span aria-hidden>·</span>
               <span>Owner: {ownerName(project.ownerId)}</span>
+              {managerName ? <><span aria-hidden>·</span><span>Project manager: {managerName}</span></> : null}
             </p>
           ) : (
             // The details line's place, so nothing under it moves when the project arrives.
@@ -333,6 +359,8 @@ export function ProjectDetailPage() {
               statsReady={statsReady}
               members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
               ownerName={ownerName(project.ownerId)}
+              namedManager={project.managerId && managerName ? { id: project.managerId, name: managerName } : null}
+              createdByName={project.createdById ? personById(project.createdById) : null}
               ownerControl={
                 canEditProject ? (
                   <div className="w-60 max-w-full">
@@ -368,9 +396,21 @@ export function ProjectDetailPage() {
         {tab === 'team' ? (
           <section className="card p-5">
             <h2 className="eyebrow mb-3">Team members</h2>
+            {project ? (
+              <p className="mb-3 flex flex-wrap gap-x-2 text-sm text-ink-2">
+                <span>Owner: {ownerName(project.ownerId)}</span>
+                {managerName ? <><span aria-hidden>·</span><span>Project manager: {managerName}</span></> : null}
+              </p>
+            ) : null}
+            {teamProblem ? (
+              <p role="alert" className="mb-3 flex items-start justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+                <span>{teamProblem}</span>
+                <button type="button" onClick={() => setTeamProblem(null)} aria-label="Dismiss" className="shrink-0 rounded px-1 opacity-80 hover:opacity-100">✕</button>
+              </p>
+            ) : null}
             <ProjectMembers
               members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
-              addableUsers={canManage ? directory.map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const })) : []}
+              addableUsers={canManage ? directory.filter((u) => u.active !== false).map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const })) : []}
               canManage={canManage}
               onAdd={(userId) => addM.mutate(userId)}
               onRemove={(userId) => removeM.mutate(userId)}

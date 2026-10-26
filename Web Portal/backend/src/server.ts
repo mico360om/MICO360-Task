@@ -18,15 +18,16 @@ import { secretBoxFromEnv } from './modules/settings/secret-box';
 import { createPrismaUserRepository } from './modules/auth/prisma-user-repository';
 import { createPrismaRefreshTokenStore } from './modules/auth/prisma-refresh-token-store';
 import { createProjectService } from './modules/projects/project-service';
-import { createPrismaProjectRepository } from './modules/projects/prisma-project-repository';
+import { createPrismaPeopleLookup, createPrismaProjectRepository } from './modules/projects/prisma-project-repository';
 import { createPrismaProjectOverviewSource } from './modules/projects/prisma-project-overview-source';
 import { createPrismaTimelineSource } from './modules/planning/prisma-timeline-source';
 import { createPrismaWorkloadStore } from './modules/planning/prisma-workload-store';
 import { createColumnService } from './modules/projects/column-service';
 import { createPrismaColumnRepository } from './modules/projects/prisma-column-repository';
 import { createMemberService } from './modules/projects/member-service';
-import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup } from './modules/projects/prisma-member-repository';
+import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup, projectRunnerIds } from './modules/projects/prisma-member-repository';
 import { createProjectAuthz } from './modules/projects/project-authz';
+import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
@@ -34,7 +35,6 @@ import { createCarryForwardService } from './modules/tasks/carry-forward-service
 import { createTaskMoveService, type MoveResult } from './modules/tasks/task-move-service';
 import { createPrismaTaskMoveRepository } from './modules/tasks/prisma-task-move-repository';
 import { createMoveNotifier } from './modules/tasks/task-move-notices';
-import { managedProjectsWhere } from './modules/projects/project-managers';
 import { createStatusChangeEffects, type StatusChangeEffects } from './modules/tasks/task-status-effects';
 import { directMessageTitle } from './modules/chat/chat-notices';
 import { taskNoticeBody } from './modules/notifications/task-notice';
@@ -83,14 +83,14 @@ import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
-import { filterTaskRecipients, type TaskAudienceFacts } from './modules/notifications/recipient-access';
+import { filterTaskRecipients } from './modules/notifications/recipient-access';
+import { taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
 import { createDeviceTokenService } from './modules/device-tokens/device-token-service';
 import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prisma-device-token-repository';
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
 import { createFcmTransport, parseServiceAccount } from './modules/device-tokens/fcm-transport';
 import { createPrismaUserStateLookup } from './modules/auth/prisma-user-state-lookup';
 import { todayKey } from './lib/due-date';
-import type { Prisma } from '@prisma/client';
 
 /** Validate an IANA time zone; fall back to Asia/Muscat (Oman) if misconfigured. */
 function resolveTimeZone(tz: string): string {
@@ -125,25 +125,6 @@ function loadFcmServiceAccount(source: { json: string; file: string }, onProblem
   return account;
 }
 
-/** Project-visibility facts of a task, for filtering notification recipients (see recipient-access). */
-const taskAudienceSelect = {
-  assignees: { select: { userId: true } },
-  project: { select: { deletedAt: true, ownerId: true, managerId: true, createdById: true, members: { select: { userId: true } } } },
-} satisfies Prisma.TaskSelect;
-
-interface TaskAudienceRow {
-  assignees: { userId: string }[];
-  project: { deletedAt: Date | null; ownerId: string | null; managerId: string | null; createdById: string; members: { userId: string }[] } | null;
-}
-
-function toAudienceFacts(t: TaskAudienceRow): TaskAudienceFacts {
-  return {
-    assigneeIds: t.assignees.map((a) => a.userId),
-    project: t.project
-      ? { deletedAt: t.project.deletedAt, ownerId: t.project.ownerId, managerId: t.project.managerId, createdById: t.project.createdById, memberIds: t.project.members.map((m) => m.userId) }
-      : null,
-  };
-}
 import { createReportService } from './modules/reports/report-service';
 import { createPrismaTaskExportSource } from './modules/tasks/task-export';
 import { createPrismaReportDataSource } from './modules/reports/prisma-report-data-source';
@@ -218,7 +199,9 @@ async function main(): Promise<void> {
   });
 
   const projectRepository = createPrismaProjectRepository(prisma);
-  const projectService = createProjectService({ projects: projectRepository });
+  // Who may be picked as a project's owner, manager or team: active people only.
+  const peopleLookup = createPrismaPeopleLookup(prisma);
+  const projectService = createProjectService({ projects: projectRepository, people: peopleLookup });
 
   const columnService = createColumnService({ columns: createPrismaColumnRepository(prisma) });
 
@@ -228,6 +211,7 @@ async function main(): Promise<void> {
   const memberService = createMemberService({
     repo: createPrismaMemberRepository(prisma),
     projects: createPrismaProjectExistsLookup(prisma),
+    people: peopleLookup,
     onMemberRemoved: (projectId, userId) => onMemberRemoved(projectId, userId),
   });
 
@@ -493,11 +477,7 @@ async function main(): Promise<void> {
     projectAccess: {
       canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
       accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles),
-      async canManageProject(userId, roles, projectId) {
-        if (roles.includes('ADMIN')) return true;
-        const managed = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null, ...managedProjectsWhere(userId) }, select: { id: true } });
-        return managed !== null;
-      },
+      canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
     },
   });
   const canEditMeeting = (userId: string, roles: string[], meetingId: string) => meetingAccess.canEditMeeting(userId, roles, meetingId);
@@ -1094,10 +1074,8 @@ async function main(): Promise<void> {
       { timeZone: companyTz },
     );
     if (plans.length === 0) return;
-    // Recipients = each project's owner + managers.
-    const projectIds = Array.from(new Set(plans.map((p) => p.projectId)));
-    const projects = await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, ownerId: true, members: { where: { role: 'MANAGER' }, select: { userId: true } } } });
-    const recipientsByProject = new Map(projects.map((p) => [p.id, Array.from(new Set([...(p.ownerId ? [p.ownerId] : []), ...p.members.map((m) => m.userId)]))]));
+    // Recipients = whoever runs each project: its owner, its named manager and its MANAGER members.
+    const recipientsByProject = await projectRunnerIds(prisma, Array.from(new Set(plans.map((p) => p.projectId))));
     const planned = plans.flatMap((plan) =>
       (recipientsByProject.get(plan.projectId) ?? []).map((userId) => ({
         userId,
@@ -1235,6 +1213,15 @@ async function main(): Promise<void> {
     columnService,
     memberService,
     projectAuthz,
+    projectNotices: createProjectNotices({
+      notify: (n) => notificationService.notify(n),
+      nameOf: async (userId) => {
+        const u = await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, username: true } });
+        return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Someone';
+      },
+      projectName: async (projectId) => (await projectService.getProject(projectId)).name,
+      logger,
+    }),
     taskService,
     taskMoveService,
     carryForwardService,

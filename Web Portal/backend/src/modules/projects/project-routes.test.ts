@@ -65,11 +65,11 @@ function inMemoryRepo(): ProjectRepository {
       return [...rows.values()];
     },
     async listForUser(userId) {
-      return [...rows.values()].filter((p) => p.ownerId === userId || p.managerId === userId || p.createdById === userId);
+      return [...rows.values()].filter((p) => p.ownerId === userId || p.managerId === userId);
     },
     async isAccessibleTo(projectId, userId) {
       const p = rows.get(projectId);
-      return p ? p.ownerId === userId || p.managerId === userId || p.createdById === userId : false;
+      return p ? p.ownerId === userId || p.managerId === userId : false;
     },
     async update(id, patch) {
       const updated = { ...rows.get(id)!, ...patch, updatedAt: new Date() };
@@ -149,14 +149,15 @@ describe('Project routes', () => {
     expect(res.json().data.code).toBe('MICO');
   });
 
-  it('forbids an employee from creating a project (403)', async () => {
+  it('lets an employee create a project, which they own unless they pick someone else (201)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/projects',
-      headers: { authorization: `Bearer ${await token(['EMPLOYEE'])}` },
-      payload: { code: 'X', name: 'X' },
+      headers: { authorization: `Bearer ${await tokenFor('emp1', ['EMPLOYEE'])}` },
+      payload: { code: 'EMP', name: 'Employee project' },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ code: 'EMP', ownerId: 'emp1', createdById: 'emp1' });
   });
 
   it('rejects an unauthenticated create (401)', async () => {
@@ -215,8 +216,9 @@ describe('Project routes', () => {
     expect(res.json().data.status).toBe('ARCHIVED');
   });
 
-  it('exposes per-project progress to any authenticated user', async () => {
-    const id = await createProject();
+  it('exposes per-project progress to anyone who can see the project', async () => {
+    // The employee asking (token id "admin", roles EMPLOYEE) owns it.
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/projects', headers: { authorization: `Bearer ${await token(['ADMIN'])}` }, payload: { code: 'PROG', name: 'Progress', ownerId: 'admin' } })).json().data.id;
     projectTasks = [
       { columnCategory: 'DONE' },
       { columnCategory: 'IN_PROGRESS' },
@@ -323,8 +325,9 @@ describe('Project task settings (carry-forward, due today)', () => {
     expect((await post({ code: 'BAD', name: 'Bad', defaultDueToday: 'yes' })).statusCode).toBe(400);
   });
 
-  it('only those who may edit the project (admins) can change them', async () => {
-    const id = (await post({ code: 'GUARD', name: 'Guard' })).json().data.id;
+  it('only those who may edit the project can change them (here: admins — no one else runs it)', async () => {
+    // The employee asking owns it here, but no manager lookup is wired: only admins may change it.
+    const id = (await post({ code: 'GUARD', name: 'Guard', ownerId: 'admin' })).json().data.id;
     expect((await put(id, { carryForward: false }, ['EMPLOYEE'])).statusCode).toBe(403);
   });
 

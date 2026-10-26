@@ -116,6 +116,23 @@ describe('BoardPage', () => {
     expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('offers Manage columns to an employee who runs the project, and not to one who doesn’t', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let runs = true;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/projects')) return json({ data: PROJECTS.map((p) => ({ ...p, canManage: runs && p.id === 'p1' })) });
+      return base(url, init);
+    });
+    const first = renderPage();
+    expect(await screen.findByRole('button', { name: 'Manage columns' })).toBeInTheDocument();
+    first.unmount();
+    runs = false;
+    renderPage();
+    await screen.findByText('Prepare report');
+    expect(screen.queryByRole('button', { name: 'Manage columns' })).not.toBeInTheDocument();
+  });
+
   it('creates a task with its due date and assignees in ONE request, with an Idempotency-Key', async () => {
     renderPage();
     await screen.findByText('Prepare report');

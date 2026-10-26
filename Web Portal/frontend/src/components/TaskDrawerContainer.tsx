@@ -105,10 +105,12 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     enabled: !!projectId,
   });
   const members = Array.isArray(membersQ.data) ? membersQ.data : [];
-  const canDelete = isAdmin || members.some((m) => m.id === myId && m.role === 'MANAGER');
   // Its project, for the header (the list is cached for every page), and who may move it elsewhere.
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const project = (Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === projectId);
+  // Whoever runs the project (its owner, named manager or a manager on its team — the server says)
+  // and admins may delete its tasks; an older server that doesn't say: MANAGER members.
+  const canDelete = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
   const moveTargets = useMoveTargets(Boolean(projectId));
   const canMove = projectId ? moveAvailability(projectId, moveTargets, project?.name) : null;
 

@@ -26,10 +26,10 @@ const authService = createAuthService({
   maxAttempts: 5,
 });
 
-// "mgr" is a MANAGER of p1; "emp" is a plain employee.
+// "mgr" runs p1 (its owner, named manager or a MANAGER member); "emp" is a plain employee.
 const projectAuthz = createProjectAuthz({
   managers: {
-    async isManager(userId, projectId) { return userId === 'mgr' && projectId === 'p1'; },
+    async managesProject(userId, projectId) { return userId === 'mgr' && projectId === 'p1'; },
     async projectIdOfColumn() { return null; },
     async projectIdOfTask() { return null; },
   },

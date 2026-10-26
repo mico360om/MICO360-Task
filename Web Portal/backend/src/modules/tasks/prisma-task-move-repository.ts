@@ -71,12 +71,12 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
       const [project, admins] = await Promise.all([
         prisma.project.findFirst({
           where: { id: projectId },
-          select: { ownerId: true, managerId: true, createdById: true, members: { where: { userId: { in: userIds } }, select: { userId: true } } },
+          select: { ownerId: true, managerId: true, members: { where: { userId: { in: userIds } }, select: { userId: true } } },
         }),
         prisma.userRole.findMany({ where: { userId: { in: userIds }, role: { name: 'ADMIN' } }, select: { userId: true } }),
       ]);
       if (!project) return [];
-      const team = new Set([project.ownerId, project.managerId, project.createdById, ...project.members.map((m) => m.userId), ...admins.map((a) => a.userId)]);
+      const team = new Set([project.ownerId, project.managerId, ...project.members.map((m) => m.userId), ...admins.map((a) => a.userId)]);
       return userIds.filter((id) => team.has(id));
     },
 

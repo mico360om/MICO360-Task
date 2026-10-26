@@ -52,6 +52,11 @@ describe('SettingsPage — daily task emails', () => {
 });
 
 describe('SettingsPage — notification switches', () => {
+  it('lets people mute being told they were added to a project', async () => {
+    renderPage();
+    expect(await screen.findByRole('switch', { name: 'Notify me: Added to a project' })).toBeInTheDocument();
+  });
+
   it('says so when a switch could not be saved (it used to flip back without a word)', async () => {
     saveAnswer = () => json({ error: { code: 'INTERNAL', message: 'boom' } }, 500);
     renderPage();

@@ -176,6 +176,21 @@ describe('TaskDrawerContainer', () => {
     expect(screen.queryByRole('button', { name: /delete task/i })).not.toBeInTheDocument();
   });
 
+  it('offers Delete to someone who runs the project — its owner too — as the server says', async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/projects')) return json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO360 Platform', status: 'ACTIVE', color: '#8B1E1E', ownerId: 'u1', canManage: true }] });
+      return base(url, init);
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('button', { name: /delete task/i })).toBeInTheDocument();
+  });
+
   it('shows "not found" with a Close button (and closes on Escape) for a deleted task', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404)));
     const onClose = vi.fn();

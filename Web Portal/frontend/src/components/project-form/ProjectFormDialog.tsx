@@ -14,9 +14,10 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { Toggle } from '../ui/Toggle';
-import { Avatar } from '../ui/Avatar';
 import { ProjectAvatar } from '../ProjectAvatar';
+import { AssigneeSelect } from '../task-form/AssigneeSelect';
 import { IdentityEditor, type ImageChoice } from './IdentityEditor';
+import { activePeople, ownerChoices, personName } from './owner-options';
 import { priorityOptions } from '../priority-option';
 
 const NAME_MAX = 191;
@@ -42,7 +43,8 @@ interface Draft {
   defaultDueToday: boolean;
 }
 
-const draftOf = (p?: ApiProject | null): Draft => ({
+/** A project's draft; a new one is owned by the person creating it unless they pick someone else. */
+const draftOf = (p?: ApiProject | null, newOwner = ''): Draft => ({
   name: p?.name ?? '',
   code: p?.code ?? '',
   number: p?.number ?? '',
@@ -50,7 +52,7 @@ const draftOf = (p?: ApiProject | null): Draft => ({
   description: p?.description ?? '',
   status: p?.status ?? 'PLANNING',
   priority: p?.priority ?? 'NORMAL',
-  ownerId: p?.ownerId ?? '',
+  ownerId: p ? p.ownerId ?? '' : newOwner,
   color: p?.color ?? DEFAULT_COLOR,
   icon: p?.icon ?? null,
   // What every project does unless it is told otherwise (also a project saved before these existed).
@@ -110,16 +112,22 @@ const input = (bad: boolean) =>
 /**
  * Create or edit a project: its look (icon and colour, or a cropped picture), name and code,
  * client, description, status, priority and owner, and how its tasks behave (carry-forward, due
- * today). Saving shows progress and can't be sent twice;
- * what was typed stays after an error; closing with changes asks first.
+ * today). A new project also gets its team here: whoever creates it owns it unless they pick
+ * someone else, and an employee who creates one is on its team as a manager either way. Saving
+ * shows progress and can't be sent twice; what was typed stays after an error; closing with
+ * changes asks first.
  */
 export function ProjectFormDialog({ project, onClose, onSaved }: { project?: ApiProject | null; onClose: () => void; onSaved?: (p: ApiProject) => void }) {
   const qc = useQueryClient();
+  const me = useAuthStore((s) => s.user?.id ?? '');
+  const isAdmin = useAuthStore((s) => s.isAdmin());
   // After "create" succeeds but its picture doesn't, the dialog carries on editing the new project.
   const [saved, setSaved] = useState<ApiProject | null>(project ?? null);
   const editing = !!saved;
-  const [initial, setInitial] = useState<Draft>(() => draftOf(project));
-  const [draft, setDraft] = useState<Draft>(() => draftOf(project));
+  const [initial, setInitial] = useState<Draft>(() => draftOf(project, me));
+  const [draft, setDraft] = useState<Draft>(() => draftOf(project, me));
+  // New projects only: the people put on its team at once (the Team tab runs it afterwards).
+  const [teamIds, setTeamIds] = useState<string[]>([]);
   const [image, setImage] = useState<ImageChoice>({ kind: 'keep' });
   const [codeTouched, setCodeTouched] = useState(editing);
   const [errors, setErrors] = useState<{ name?: string; code?: string }>({});
@@ -131,9 +139,9 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
   const busy = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
-  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId() };
+  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId() };
 
-  const dirty = image.kind !== 'keep' || JSON.stringify(draft) !== JSON.stringify(initial);
+  const dirty = image.kind !== 'keep' || teamIds.length > 0 || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
     if (busy.current) return;
     if (dirty) setConfirmClose(true);
@@ -145,9 +153,8 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
-  // The company-wide carry-forward switch (System Settings, which only admins can read — as only
-  // admins edit projects). Off there, the project's own switch changes nothing for now: say so.
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // The company-wide carry-forward switch (System Settings, which only admins can read). Off there,
+  // the project's own switch changes nothing for now: say so (to admins; others aren't told).
   const settingsQ = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list(), enabled: isAdmin, staleTime: 60_000 });
   const carryOffForCompany = companyCarryForwardOff(settingsQ.data);
   const clients = useMemo(() => {
@@ -155,13 +162,20 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
     for (const p of Array.isArray(projectsQ.data) ? projectsQ.data : []) if (p.clientName?.trim()) names.add(p.clientName.trim());
     return [...names].sort((a, b) => a.localeCompare(b));
   }, [projectsQ.data]);
-  const ownerOptions = useMemo(() => [
-    { value: '', label: 'No owner' },
-    ...(Array.isArray(dirQ.data) ? dirQ.data : []).map((u) => {
-      const name = `${u.firstName} ${u.lastName}`.trim() || u.username;
-      return { value: u.id, label: name, hint: `@${u.username}`, icon: <Avatar name={name} size="sm" src={u.avatarUrl} /> };
-    }),
-  ], [dirQ.data]);
+  const directory = useMemo(() => (Array.isArray(dirQ.data) ? dirQ.data : []), [dirQ.data]);
+  // An employee's new project always has an owner (them, unless they pick someone else); an admin
+  // may leave one without, and anyone may clear an existing project's owner.
+  const ownerOptions = useMemo(() => ownerChoices(directory, initial.ownerId, { allowNone: isAdmin || editing }), [directory, initial.ownerId, isAdmin, editing]);
+  // The team picker: everyone active — except an employee themselves, who joins as a manager anyway.
+  const teamPeople = useMemo(
+    () => activePeople(directory).filter((u) => isAdmin || u.id !== me).map((u) => ({ id: u.id, name: personName(u), username: u.username, avatarUrl: u.avatarUrl })),
+    [directory, isAdmin, me],
+  );
+  // Whoever owned it stays on its team as a manager when the owner changes (the server does it, for
+  // anyone making the change): say so before saving.
+  const previousOwner = editing && initial.ownerId && draft.ownerId !== initial.ownerId ? initial.ownerId : null;
+  const previousOwnerName = previousOwner ? personName(directory.find((u) => u.id === previousOwner) ?? { firstName: '', lastName: '', username: 'The previous owner' }) : '';
+  const handingOver = previousOwner !== null;
   const statusOptions = (['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', ...(initial.status === 'ARCHIVED' ? ['ARCHIVED'] : [])] as ProjectStatus[]).map((s) => ({
     value: s,
     label: projectStatusLabel(s),
@@ -212,6 +226,8 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
   function finish(result: ApiProject) {
     void qc.invalidateQueries({ queryKey: ['projects'] });
     void qc.invalidateQueries({ queryKey: ['project', result.id] });
+    // Its team may have changed too (a new team; someone handing it over stays on as a manager).
+    void qc.invalidateQueries({ queryKey: ['members', result.id] });
     onSaved?.(result);
     onClose();
   }
@@ -246,6 +262,7 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
             status: draft.status,
             priority: draft.priority,
             ownerId: draft.ownerId || null,
+            ...(teamIds.length ? { memberIds: teamIds } : {}),
             icon: draft.icon,
             color: draft.color,
             // Only what differs from how every project starts (the server fills in the rest).
@@ -264,8 +281,9 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
         try {
           finish((await uploadPicture(created.id)) ?? created);
         } catch (err) {
-          // The project exists: keep editing it, with the picture still here to try again.
+          // The project exists (with its team): keep editing it, with the picture still here to try again.
           setSaved(created);
+          setTeamIds([]);
           setInitial(draftOf(created));
           setDraft(draftOf(created));
           void qc.invalidateQueries({ queryKey: ['projects'] });
@@ -467,12 +485,51 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
               </div>
 
               <div>
-                <span className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">Owner <span className="text-xs font-normal text-ink-2">(optional)</span></span>
-                <SearchableSelect ariaLabel="Owner" placeholder="No owner" options={ownerOptions} value={draft.ownerId} onChange={(v) => set({ ownerId: v })} describedBy={ids.owner} />
+                <span className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">
+                  Owner {isAdmin || editing ? <span className="text-xs font-normal text-ink-2">(optional)</span> : null}
+                </span>
+                <SearchableSelect
+                  ariaLabel="Owner"
+                  placeholder={isAdmin || editing ? 'No owner' : 'Choose the owner'}
+                  options={ownerOptions}
+                  value={draft.ownerId}
+                  onChange={(v) => set({ ownerId: v })}
+                  describedBy={handingOver ? `${ids.owner} ${ids.handover}` : ids.owner}
+                />
                 <p id={ids.owner} className="mt-1.5 text-xs text-ink-2">
                   New tasks in this project are assigned to the owner unless you pick someone else — and anyone can reassign a task later.
                 </p>
+                {handingOver ? (
+                  <p id={ids.handover} className="mt-1 text-xs font-medium text-ink">
+                    {previousOwner === me ? 'You’ll stay on the team as a manager, so you can still run it.' : `${previousOwnerName} stays on the team as a manager.`}
+                  </p>
+                ) : null}
               </div>
+
+              {!editing ? (
+                <div>
+                  <span id={ids.team} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">
+                    Team <span className="text-xs font-normal text-ink-2">(optional)</span>
+                  </span>
+                  <div role="group" aria-labelledby={ids.team} aria-describedby={ids.teamNote}>
+                    <AssigneeSelect
+                      people={teamPeople}
+                      value={teamIds}
+                      onChange={setTeamIds}
+                      listLabel="Team"
+                      addLabel="Add people to the team"
+                      noPeopleText="There’s no one else to add yet"
+                      allChosenText="Everyone is on the team."
+                      noteId={ids.teamNote}
+                      note={
+                        isAdmin
+                          ? 'The owner joins the team too. You can add or remove people later on the Team tab.'
+                          : 'You’ll be on the team as a manager, so you can keep running it. The owner joins the team too.'
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
 
               {/* How the project's tasks behave: carry-forward and a default due date. */}
               <fieldset className="rounded-2xl border border-line px-4 pb-1 pt-1">

@@ -1,5 +1,7 @@
 import { NotFoundError } from '../../lib/http-errors';
 import type { MemberRepository, MemberUser, ProjectExistsLookup, ProjectMemberRole } from './member-repository';
+import type { PeopleLookup } from './project-repository';
+import { requireActiveTeam } from './active-people';
 
 export interface MemberServiceDeps {
   repo: MemberRepository;
@@ -9,9 +11,11 @@ export interface MemberServiceDeps {
    * chat participation, live socket rooms). Task watchers/assignments are handled here.
    */
   onMemberRemoved?: (projectId: string, userId: string) => void | Promise<void>;
+  /** Only active people may be added (deactivated, suspended, deleted or unknown ones are refused). */
+  people?: PeopleLookup;
 }
 
-export function createMemberService({ repo, projects, onMemberRemoved }: MemberServiceDeps) {
+export function createMemberService({ repo, projects, onMemberRemoved, people }: MemberServiceDeps) {
   async function ensureProject(projectId: string): Promise<void> {
     if (!(await projects.exists(projectId))) throw new NotFoundError('Project not found.');
   }
@@ -23,26 +27,31 @@ export function createMemberService({ repo, projects, onMemberRemoved }: MemberS
 
   async function addMembers(projectId: string, userIds: string[]): Promise<MemberUser[]> {
     await ensureProject(projectId);
+    await requireActiveTeam(people, userIds);
     for (const userId of userIds) await repo.add(projectId, userId);
     return repo.list(projectId);
   }
 
   /**
-   * Remove a member. Someone who thereby loses access to the project (not its owner, manager,
-   * creator or an admin) is also taken off its tasks — assignments and watches — so they stop
-   * seeing and hearing about its work. Then `onMemberRemoved` cuts access held elsewhere.
+   * Remove a member (not the last one running the project, unless an admin asks). Someone who
+   * thereby loses access to the project (not its owner, named manager or an admin) is also
+   * taken off its tasks — assignments and watches — so they stop seeing and hearing about its
+   * work. Then `onMemberRemoved` cuts access held elsewhere.
    */
-  async function removeMember(projectId: string, userId: string): Promise<void> {
+  async function removeMember(projectId: string, userId: string, opts: { byAdmin?: boolean } = {}): Promise<void> {
     await ensureProject(projectId);
-    await repo.remove(projectId, userId);
+    // Someone other than an admin can't take the last person running it off (only an admin could run it then).
+    if (!opts.byAdmin && repo.changeGuarded) await repo.changeGuarded(projectId, userId, { remove: true });
+    else await repo.remove(projectId, userId);
     const keepsAccess = repo.hasImplicitAccess ? await repo.hasImplicitAccess(projectId, userId) : false;
     if (!keepsAccess) await repo.removeTaskLinks?.(projectId, userId);
     await onMemberRemoved?.(projectId, userId);
   }
 
-  async function setMemberRole(projectId: string, userId: string, role: ProjectMemberRole): Promise<MemberUser[]> {
+  async function setMemberRole(projectId: string, userId: string, role: ProjectMemberRole, opts: { byAdmin?: boolean } = {}): Promise<MemberUser[]> {
     await ensureProject(projectId);
-    await repo.setRole(projectId, userId, role);
+    if (!opts.byAdmin && repo.changeGuarded) await repo.changeGuarded(projectId, userId, { role });
+    else await repo.setRole(projectId, userId, role);
     return repo.list(projectId);
   }
 

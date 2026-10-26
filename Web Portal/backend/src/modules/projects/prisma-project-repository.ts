@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient, type Project } from '@prisma/client';
 import { ConflictError } from '../../lib/http-errors';
-import { DEFAULT_COLUMNS, type CreateProjectData, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
+import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
 
 function toRecord(p: Project): ProjectRecord {
   return {
@@ -32,7 +32,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
   return {
     async create(data: CreateProjectData) {
       try {
-        // The project and its default board columns are one nested write (one transaction).
+        // The project, its default board columns and its first team are one nested write (one transaction).
         const p = await prisma.project.create({
           data: {
             code: data.code,
@@ -53,6 +53,8 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
             carryForward: data.carryForward ?? undefined,
             defaultDueToday: data.defaultDueToday ?? undefined,
             columns: { create: DEFAULT_COLUMNS.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
+            // Its team in the same write: a project never exists without the people it was made with.
+            ...(data.members?.length ? { members: { create: data.members.map((m) => ({ userId: m.userId, role: m.role })) } } : {}),
           },
         });
         return toRecord(p);
@@ -79,11 +81,13 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
       const ps = await prisma.project.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } });
       return ps.map(toRecord);
     },
+    // Who sees a project: its owner, its named manager and its team. Having created it is not a way
+    // in (the creator is on its team from the start, so leaving the team means leaving the project).
     async listForUser(userId) {
       const ps = await prisma.project.findMany({
         where: {
           deletedAt: null,
-          OR: [{ ownerId: userId }, { managerId: userId }, { createdById: userId }, { members: { some: { userId } } }],
+          OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }],
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -94,18 +98,43 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
         where: {
           id: projectId,
           deletedAt: null,
-          OR: [{ ownerId: userId }, { managerId: userId }, { createdById: userId }, { members: { some: { userId } } }],
+          OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }],
         },
         select: { id: true },
       });
       return p !== null;
     },
-    async update(id, patch: UpdateProjectData) {
-      const p = await prisma.project.update({ where: { id }, data: patch });
-      return toRecord(p);
+    async update(id, patch: UpdateProjectData, opts) {
+      const keep = [...new Set(opts?.keepManagers ?? [])];
+      if (keep.length === 0) return toRecord(await prisma.project.update({ where: { id }, data: patch }));
+      return prisma.$transaction(async (tx) => {
+        const p = await tx.project.update({ where: { id }, data: patch });
+        const people = await tx.user.findMany({ where: { id: { in: keep }, deletedAt: null }, select: { id: true } });
+        for (const { id: userId } of people) {
+          await tx.projectMember.upsert({
+            where: { projectId_userId: { projectId: id, userId } },
+            update: { role: 'MANAGER' },
+            create: { projectId: id, userId, role: 'MANAGER' },
+          });
+        }
+        return toRecord(p);
+      });
     },
     async softDelete(id) {
       await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });
+    },
+  };
+}
+
+/** Which of these people may be picked for a project — owner, manager or team: active, not deleted. */
+export function createPrismaPeopleLookup(prisma: PrismaClient): PeopleLookup {
+  return {
+    async activeIds(ids) {
+      const wanted = [...new Set(ids)];
+      if (wanted.length === 0) return [];
+      const rows = await prisma.user.findMany({ where: { id: { in: wanted }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
+      const active = new Set(rows.map((r) => r.id));
+      return wanted.filter((id) => active.has(id));
     },
   };
 }

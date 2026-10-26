@@ -445,12 +445,43 @@ describe('ProjectsPage for an administrator', () => {
 describe('ProjectsPage for someone who is not an administrator', () => {
   beforeEach(() => signIn(['EMPLOYEE']));
 
-  it('shows statuses as labels and no New project or “Only my projects”', async () => {
+  it('offers New project to everyone — the button and the N shortcut — but not “Only my projects”', async () => {
     renderPage();
     await loaded();
-    expect(screen.queryByRole('button', { name: /new project/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /change the status/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Only my projects' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /new project/i }));
+    expect(await screen.findByRole('dialog', { name: 'New project' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', code: 'KeyN', bubbles: true, cancelable: true }));
+    });
+    expect(await screen.findByRole('dialog', { name: 'New project' })).toBeInTheDocument();
+  });
+
+  it('invites them to create the first project when they are on none', async () => {
+    overview = [];
+    renderPage();
+    expect(await screen.findByText('No projects yet', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByText(/create one with “new project”/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /new project/i })).toHaveLength(2);
+  });
+
+  it('lets them change only the projects they run (as the server says): status, Edit and Archive', async () => {
+    overview = LIST.map((p) => ({ ...p, canManage: p.id === 'p1' }));
+    renderPage();
+    await loaded();
+    // Rig Inspection Portal is theirs to run: its status is a menu and "⋯" offers Edit and Archive.
+    expect(screen.getByRole('button', { name: /change the status of rig inspection portal/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Rig Inspection Portal' }));
+    expect(screen.getByRole('menuitem', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Archive…' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    // The others are only theirs to see: a plain status label and no Edit or Archive.
+    expect(screen.queryByRole('button', { name: /change the status of falcon crm/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Falcon CRM' }));
+    expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Archive…' })).not.toBeInTheDocument();
   });
 });
 

@@ -47,6 +47,14 @@ export interface CreateProjectData {
   carryForward?: boolean;
   defaultDueToday?: boolean;
   createdById: string;
+  /** Its team from the start, written with the project in one go (one row per person). */
+  members?: NewProjectMember[];
+}
+
+/** A person put on a new project's team. */
+export interface NewProjectMember {
+  userId: string;
+  role: 'MEMBER' | 'MANAGER';
 }
 
 export interface UpdateProjectData {
@@ -86,10 +94,21 @@ export interface ProjectRepository {
   /** Whether any project — deleted ones too — has this code (the database keeps codes unique). */
   codeInUse?(code: string): Promise<boolean>;
   list(): Promise<ProjectRecord[]>;
-  /** Projects a non-admin user may see: those they own, manage, created, or are a member of. */
+  /** Projects a non-admin user may see: those they own, manage or are on the team of (not ones they merely created). */
   listForUser(userId: string): Promise<ProjectRecord[]>;
-  /** True if the user owns, manages, created, or is a member of the project. */
+  /** True if the user owns, manages or is on the team of the project. */
   isAccessibleTo(projectId: string, userId: string): Promise<boolean>;
-  update(id: string, patch: UpdateProjectData): Promise<ProjectRecord>;
+  /**
+   * Change a project. `keepManagers`: in the same write, make sure these people are MANAGER members
+   * (added, or promoted from MEMBER) — whoever held the owner or manager place keeps running it.
+   * Someone deleted since is not put back on the team.
+   */
+  update(id: string, patch: UpdateProjectData, opts?: { keepManagers?: string[] }): Promise<ProjectRecord>;
   softDelete(id: string): Promise<void>;
+}
+
+/** Who may be picked for a project (owner, manager, team): people who are active and not deleted. */
+export interface PeopleLookup {
+  /** Those of `ids` who are active users, each once. */
+  activeIds(ids: string[]): Promise<string[]>;
 }

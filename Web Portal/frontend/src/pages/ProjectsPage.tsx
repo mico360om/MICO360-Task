@@ -52,7 +52,9 @@ const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 tex
 /**
  * Projects: find a project fast, see how each is doing, and manage them. Status tabs with counts,
  * one search box, owner and sort (all kept in the address, so Back and shared links work), and a
- * compact card per project with its figures — the whole list from one request.
+ * compact card per project with its figures — the whole list from one request. Anyone may create a
+ * project; a card offers its status menu, Edit and Archive to those who may change it (an admin,
+ * or its owner, named manager or a manager on its team — the server says which).
  */
 export function ProjectsPage() {
   const qc = useQueryClient();
@@ -69,7 +71,7 @@ export function ProjectsPage() {
   const panelRef = useRef<HTMLDivElement>(null);
   // Set when a card is about to leave the current tab, so focus can land on the list instead of nowhere.
   const refocusList = useRef(false);
-  useShortcut('new', () => setForm('new'), { enabled: admin });
+  useShortcut('new', () => setForm('new'));
 
   const query = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => projectsApi(apiClient).overview() });
   const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
@@ -177,11 +179,9 @@ export function ProjectsPage() {
           <PageTitle eyebrow="Workspace" title="Projects" />
           {summary ? <p className="text-sm text-ink-2">{summary}</p> : loading ? <span className="skeleton inline-block h-4 w-40 self-center" aria-hidden="true" /> : null}
         </div>
-        {admin ? (
-          <Button onClick={() => setForm('new')} title="New project" shortcut="new">
-            + New project
-          </Button>
-        ) : null}
+        <Button onClick={() => setForm('new')} title="New project" shortcut="new">
+          + New project
+        </Button>
       </div>
 
       {/* Status at a glance — also the main filter. */}
@@ -286,24 +286,27 @@ export function ProjectsPage() {
           <LoadError what="projects" onRetry={() => void query.refetch()} />
         ) : visible.length > 0 ? (
           <div className="grid project-grid gap-4 animate-fade-in">
-            {visible.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                today={today}
-                now={now}
-                timeZone={timeZone}
-                onChangeStatus={admin ? changeStatus : undefined}
-                onEdit={admin ? (project) => void openEdit(project) : undefined}
-                onArchive={admin ? (project) => changeStatus(project, 'ARCHIVED') : undefined}
-              />
-            ))}
+            {visible.map((p) => {
+              const can = admin || p.canManage === true;
+              return (
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  today={today}
+                  now={now}
+                  timeZone={timeZone}
+                  onChangeStatus={can ? changeStatus : undefined}
+                  onEdit={can ? (project) => void openEdit(project) : undefined}
+                  onArchive={can ? (project) => changeStatus(project, 'ARCHIVED') : undefined}
+                />
+              );
+            })}
           </div>
         ) : all.length === 0 ? (
           <EmptyState
             title="No projects yet"
-            description={admin ? 'Create your first project with “New project”.' : 'Projects you’re part of will appear here.'}
-            action={admin ? <Button onClick={() => setForm('new')}>+ New project</Button> : undefined}
+            description={admin ? 'Create your first project with “New project”.' : 'Projects you’re part of will appear here — or create one with “New project”.'}
+            action={<Button onClick={() => setForm('new')}>+ New project</Button>}
           />
         ) : filtersOn ? (
           <EmptyState

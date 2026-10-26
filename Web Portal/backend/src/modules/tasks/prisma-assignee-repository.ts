@@ -5,15 +5,15 @@ type Db = Pick<PrismaClient, 'project' | 'user'>;
 
 /**
  * Active users among `userIds` (or everyone, when omitted) who can see the project: its owner,
- * manager, creator, members, and admins. Empty when the project is missing or deleted.
+ * named manager, team and admins. Empty when the project is missing or deleted.
  */
 export async function projectAudienceIds(db: Db, projectId: string, userIds?: string[]): Promise<string[]> {
   const project = await db.project.findFirst({
     where: { id: projectId, deletedAt: null },
-    select: { ownerId: true, managerId: true, createdById: true, members: { select: { userId: true } } },
+    select: { ownerId: true, managerId: true, members: { select: { userId: true } } },
   });
   if (!project) return [];
-  const direct = [project.ownerId, project.managerId, project.createdById, ...project.members.map((m) => m.userId)].filter(
+  const direct = [project.ownerId, project.managerId, ...project.members.map((m) => m.userId)].filter(
     (id): id is string => Boolean(id),
   );
   const users = await db.user.findMany({
