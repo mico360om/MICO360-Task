@@ -35,13 +35,14 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
     status: true,
     clientVisible: true,
     approvedAt: true,
-    meeting: { select: { id: true, title: true, startAt: true, timeZone: true } },
+    meeting: { select: { id: true, title: true, startAt: true, endAt: true, timeZone: true } },
   } as const;
-  type MinutesRow = { content: string; status: string; clientVisible: boolean; approvedAt: Date | null; meeting: { id: string; title: string; startAt: Date; timeZone: string | null } };
+  type MinutesRow = { content: string; status: string; clientVisible: boolean; approvedAt: Date | null; meeting: { id: string; title: string; startAt: Date; endAt: Date | null; timeZone: string | null } };
   const toMinutes = (r: MinutesRow): ClientMinutesSource => ({
     meetingId: r.meeting.id,
     title: r.meeting.title,
     startAt: r.meeting.startAt,
+    endAt: r.meeting.endAt,
     timeZone: r.meeting.timeZone,
     status: r.status === 'APPROVED' ? 'APPROVED' : 'DRAFT',
     clientVisible: r.clientVisible,

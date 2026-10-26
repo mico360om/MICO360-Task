@@ -37,6 +37,8 @@ export interface ClientMinutesSource {
   meetingId: string;
   title: string;
   startAt: Date;
+  /** When it ended (the PDF's time line; the page doesn't show it). */
+  endAt?: Date | null;
   timeZone: string | null;
   status: 'APPROVED' | 'DRAFT';
   clientVisible: boolean;

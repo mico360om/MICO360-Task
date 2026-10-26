@@ -74,9 +74,9 @@ export interface ClientShareStore {
 }
 
 /** In-memory store with the same rules as the Prisma one (unit tests; see client-share-store.contract). */
-export function createMemoryClientShareStore(): ClientShareStore {
+export function createMemoryClientShareStore(now: () => Date = () => new Date()): ClientShareStore {
   const shares = new Map<string, ClientShareRecord>();
-  const codes = new Map<string, ClientCodeRecord>();
+  const codes = new Map<string, ClientCodeRecord & { seq: number }>();
   const sessions = new Map<string, ClientSessionRecord & { tokenHash: string; createdAt: number; seq: number }>();
   let seq = 0;
   const copy = <T>(v: T | undefined | null): T | null => (v ? { ...v } : null);
@@ -96,7 +96,7 @@ export function createMemoryClientShareStore(): ClientShareStore {
     },
     async create(data) {
       if ([...shares.values()].some((s) => s.projectId === data.projectId && s.email === data.email)) throw new ClientShareExistsError();
-      const share: ClientShareRecord = { id: `cs-${randomUUID()}`, ...data, linkSentAt: null, lastViewedAt: null, createdAt: new Date(Date.now() + seq++) };
+      const share: ClientShareRecord = { id: `cs-${randomUUID()}`, ...data, linkSentAt: null, lastViewedAt: null, createdAt: now() };
       shares.set(share.id, share);
       return { ...share };
     },
@@ -110,7 +110,7 @@ export function createMemoryClientShareStore(): ClientShareStore {
       const s = shares.get(id);
       if (!s || s.linkHash !== fromHash) return false;
       s.linkHash = toHash;
-      for (const c of codes.values()) if (c.shareId === id && !c.consumedAt) c.consumedAt = new Date();
+      for (const c of codes.values()) if (c.shareId === id && !c.consumedAt) c.consumedAt = now();
       return true;
     },
     async markSent(id, at) {
@@ -122,13 +122,15 @@ export function createMemoryClientShareStore(): ClientShareStore {
       if (s) s.lastViewedAt = at;
     },
     async createCode(data) {
-      for (const c of codes.values()) if (c.shareId === data.shareId && !c.consumedAt) c.consumedAt = new Date();
+      for (const c of codes.values()) if (c.shareId === data.shareId && !c.consumedAt) c.consumedAt = now();
       const id = `cc-${randomUUID()}`;
-      codes.set(id, { id, ...data, attempts: 0, consumedAt: null, createdAt: new Date(Date.now() + seq++ / 1000) });
+      codes.set(id, { id, ...data, attempts: 0, consumedAt: null, createdAt: now(), seq: seq++ });
     },
     async latestOpenCode(shareId) {
-      const open = [...codes.values()].filter((c) => c.shareId === shareId && !c.consumedAt).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      return copy(open[0]);
+      const open = [...codes.values()].filter((c) => c.shareId === shareId && !c.consumedAt).sort((a, b) => b.seq - a.seq);
+      if (!open[0]) return null;
+      const { seq: _seq, ...code } = open[0];
+      return code;
     },
     async countCodesSince(shareId, since) {
       return [...codes.values()].filter((c) => c.shareId === shareId && c.createdAt >= since).length;
@@ -145,12 +147,12 @@ export function createMemoryClientShareStore(): ClientShareStore {
     async consumeCode(codeId) {
       const c = codes.get(codeId);
       if (!c || c.consumedAt) return false;
-      c.consumedAt = new Date();
+      c.consumedAt = now();
       c.attempts -= 1;
       return true;
     },
     async createSession(data) {
-      sessions.set(data.tokenHash, { ...data, createdAt: Date.now(), seq: seq++ });
+      sessions.set(data.tokenHash, { ...data, createdAt: now().getTime(), seq: seq++ });
     },
     async findSession(tokenHash) {
       const s = sessions.get(tokenHash);
