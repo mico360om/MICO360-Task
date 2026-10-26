@@ -249,6 +249,23 @@ describe('a client opens the link and enters the emailed code', () => {
     await expect(svc.verifyCode(link, 'fatma@client.example', lastCode(), {})).rejects.toBeInstanceOf(ClientCodeInvalidError);
   });
 
+  it('a wrong address does the same lookups as a wrong code (no timing difference to learn the address from)', async () => {
+    const link = await shareWithFatma();
+    await svc.requestCode(link, 'fatma@client.example', {});
+    await settle();
+    const reads: string[] = [];
+    for (const m of ['countFailuresSince', 'latestOpenCode'] as const) {
+      const real = store[m].bind(store) as (...a: unknown[]) => Promise<unknown>;
+      (store as unknown as Record<string, unknown>)[m] = (...a: unknown[]) => (reads.push(m), real(...a));
+    }
+    const wrong = lastCode() === '000000' ? '111111' : '000000';
+    await svc.verifyCode(link, 'nobody@client.example', wrong, {}).catch(() => {});
+    const forWrongAddress = reads.splice(0);
+    await svc.verifyCode(link, 'fatma@client.example', wrong, {}).catch(() => {});
+    expect(forWrongAddress).toEqual(['countFailuresSince', 'latestOpenCode']);
+    expect(reads).toEqual(forWrongAddress);
+  });
+
   it('every refusal reads the same, so nobody learns whether an address is on the list', async () => {
     const link = await shareWithFatma();
     await svc.requestCode(link, 'fatma@client.example', {});

@@ -293,9 +293,11 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       };
       const at = now();
       const entered = typeof code === 'string' ? code.trim() : '';
-      if (typeof email !== 'string' || !sameText(normalizeEmail(email), share.email) || !/^\d{4,10}$/.test(entered)) return refuse();
-      if ((await store.countFailuresSince(share.id, new Date(at.getTime() - HOUR))) >= limits.failuresPerHour) return refuse();
-      const open = await store.latestOpenCode(share.id);
+      const rightAddress = typeof email === 'string' && sameText(normalizeEmail(email), share.email);
+      // Read the same things whatever address was typed, so the time taken doesn't tell either.
+      const [failures, open] = await Promise.all([store.countFailuresSince(share.id, new Date(at.getTime() - HOUR)), store.latestOpenCode(share.id)]);
+      if (!rightAddress || !/^\d{4,10}$/.test(entered)) return refuse();
+      if (failures >= limits.failuresPerHour) return refuse();
       if (!open || open.expiresAt.getTime() <= at.getTime()) return refuse();
       // Counted before the (slow) comparison, so parallel guesses can't all get past the limit.
       if (!(await store.claimAttempt(open.id, limits.triesPerCode))) return refuse();
