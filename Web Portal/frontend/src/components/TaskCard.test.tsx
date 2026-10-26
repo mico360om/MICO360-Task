@@ -42,6 +42,14 @@ describe('TaskCard', () => {
     expect(screen.queryByLabelText('Milestone')).not.toBeInTheDocument();
   });
 
+  it('marks a task shown on the project’s client page (for staff)', () => {
+    const { unmount } = render(<TaskCard task={{ ...task, clientVisible: true }} />);
+    expect(screen.getByRole('img', { name: 'Visible to client' })).toHaveAttribute('title', 'Visible to client');
+    unmount();
+    render(<TaskCard task={task} />);
+    expect(screen.queryByLabelText('Visible to client')).not.toBeInTheDocument();
+  });
+
   it('shows an avatar for each assignee', () => {
     render(<TaskCard task={task} />);
     expect(screen.getByTitle('Ada Lovelace')).toBeInTheDocument();

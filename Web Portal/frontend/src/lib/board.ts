@@ -107,6 +107,7 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           blocked: col.category === 'BLOCKED',
           recurring: Boolean(t.recurrenceRule),
           milestone: !!t.isMilestone,
+          clientVisible: !!t.clientVisible,
           // A finished task (DONE column, or completed) is never shown as overdue.
           done: col.category === 'DONE' || !!t.completedAt,
         })),
@@ -165,6 +166,7 @@ export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[]
           blocked: status === 'BLOCKED',
           recurring: Boolean(t.recurrenceRule),
           milestone: !!t.isMilestone,
+          clientVisible: !!t.clientVisible,
           done: status === 'DONE' || !!t.completedAt,
           project: { name: p.name, code: p.code, color: p.color, icon: p.icon ?? null, imageUrl: p.imageUrl },
         };

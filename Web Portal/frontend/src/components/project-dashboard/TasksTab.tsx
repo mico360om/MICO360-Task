@@ -5,6 +5,7 @@ import { Avatar } from '../ui/Avatar';
 import { taskPhase, type TaskPhase } from '../../lib/project-dashboard';
 import { formatDueDay } from '../../lib/due-display';
 import { EmptyNote, FlagIcon } from './parts';
+import { ClientEyeIcon } from '../TaskCard';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -33,6 +34,7 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="w-16 flex-none font-mono text-xs text-ink-3">{task.key}</span>
         {task.isMilestone ? <span className="text-brand" role="img" aria-label="Milestone" title="Milestone"><FlagIcon /></span> : null}
+        {task.clientVisible ? <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client"><ClientEyeIcon size={13} /></span> : null}
         <span dir="auto" className={`min-w-0 flex-1 truncate text-start text-sm font-medium ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
       </span>
       <span className="flex flex-wrap items-center gap-2 ps-[4.5rem] sm:flex-nowrap sm:ps-0">

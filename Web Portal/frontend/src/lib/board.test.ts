@@ -42,6 +42,15 @@ describe('composeBoard', () => {
     expect(composeBoard(legacy as typeof columns, tasks)).toHaveLength(columns.length);
   });
 
+  it('carries the Show to client mark onto the cards (the combined board too)', () => {
+    const marked = tasks.map((t, i) => ({ ...t, clientVisible: i === 0 }));
+    expect(composeBoard(columns, marked)[0]!.tasks[0]!.clientVisible).toBe(true);
+    expect(composeBoard(columns, marked)[1]!.tasks[0]!.clientVisible).toBe(false);
+    const project = { id: 'p1', code: 'MICO', name: 'MICO', status: 'ACTIVE', color: '#8B1E1E', imageUrl: null } as unknown as ApiProject;
+    const all = composeAllProjectsBoard(marked.map((t) => ({ ...t, columnCategory: t.columnId === 'c1' ? 'TODO' : 'DONE' })), [project]);
+    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.clientVisible).toBe(true);
+  });
+
   it('produces empty task lists for columns with no tasks', () => {
     const board = composeBoard(columns, []);
     expect(board[0]!.tasks).toHaveLength(0);

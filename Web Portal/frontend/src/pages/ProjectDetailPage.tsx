@@ -32,6 +32,8 @@ import { TasksTab, type TaskFilter, type TaskGroup } from '../components/project
 import { MeetingsTab } from '../components/project-dashboard/MeetingsTab';
 import { usePageName } from '../lib/page-meta';
 import { ApiError } from '../lib/api-client';
+import { ClientSharePanel } from '../components/client-share/ClientSharePanel';
+import { configApi } from '../api/config';
 
 type Tab = 'overview' | 'tasks' | 'meetings' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
@@ -157,6 +159,10 @@ export function ProjectDetailPage() {
   const canEditProject = isAdmin || project?.canManage === true;
   const [detailsProblem, setDetailsProblem] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // Share with client: whoever runs the project (the server checks too); an archived one can't be shared.
+  const [sharing, setSharing] = useState(false);
+  const canShare = canEditProject && !!project && project.status !== 'ARCHIVED';
+  const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false, enabled: canShare });
 
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
   const personById = (userId: string) => {
@@ -283,6 +289,19 @@ export function ProjectDetailPage() {
           )}
           {detailsProblem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{detailsProblem}</p> : null}
         </div>
+        {canShare ? (
+          <button
+            type="button"
+            onClick={() => setSharing(true)}
+            title="Share this project with a client (read-only)"
+            className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+            <span className="max-sm:sr-only">Share with client</span>
+          </button>
+        ) : null}
         {canEditProject && project ? (
           <button
             type="button"
@@ -300,6 +319,9 @@ export function ProjectDetailPage() {
         ) : null}
       </div>
       {editing && project ? <ProjectFormDialog project={project} onClose={() => setEditing(false)} /> : null}
+      {sharing && project ? (
+        <ClientSharePanel projectId={id} projectName={project.name} emailEnabled={configQ.data?.emailEnabled ?? true} onClose={() => setSharing(false)} />
+      ) : null}
       {newTask ? <NewTaskModal projectId={id} onClose={() => setNewTask(false)} /> : null}
 
       {/* Stat tiles — a snapshot of every task by where it stands */}
