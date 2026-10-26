@@ -132,6 +132,8 @@ function changeText(c) {
     }
     case 'milestone':
       return c.to ? 'made it a milestone' : 'cleared its milestone';
+    case 'clientVisible':
+      return c.to ? 'made this visible to the client' : 'hid this from the client';
     default:
       return null;
   }

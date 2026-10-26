@@ -66,6 +66,17 @@ describe('buildTimeline: one readable line per event', () => {
       'set the due date to 24 Oct 2026 and cleared its milestone',
     );
   });
+  it('shown to or hidden from the project’s client', () => {
+    const one = (change: Record<string, unknown>) => buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [change] })])[0]!.text;
+    expect(one({ field: 'clientVisible', from: false, to: true })).toBe('made this visible to the client');
+    expect(one({ field: 'clientVisible', from: true, to: false })).toBe('hid this from the client');
+    // Switched on and off again within a few minutes: nothing changed, nothing to say.
+    const both = buildTimeline([
+      e('a2', 'UPDATED', 'A', 2, { changes: [{ field: 'clientVisible', from: true, to: false }] }),
+      e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'clientVisible', from: false, to: true }] }),
+    ]);
+    expect(both).toEqual([]);
+  });
   it('says where a task moved to another project, with the keys it had there and has now', () => {
     const moved = { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' };
     expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'Aisha Khan', 1, moved)])[0]).toMatchObject({
