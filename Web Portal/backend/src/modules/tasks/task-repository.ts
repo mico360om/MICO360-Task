@@ -24,6 +24,8 @@ export interface TaskRecord {
   progress: number;
   /** A milestone: a key date or deliverable of its project (the project dashboard lists them). */
   isMilestone?: boolean;
+  /** Shown on its project's client page (title, status, due date only) — staff see a "Visible to client" mark. */
+  clientVisible?: boolean;
   createdById: string;
   completedAt: Date | null;
   recurrenceRule: RecurrenceRule | null;
