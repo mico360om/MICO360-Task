@@ -141,21 +141,65 @@ describe('Final minutes: for attendees', () => {
 describe('Final minutes: shown to the project’s client', () => {
   const visibility = (over: Record<string, unknown> = {}) => ({ projectMeeting: true, approved: true, clientVisible: false, canChange: true, ...over });
 
-  it('someone who runs the project can show approved minutes to the client, warned that they are shown as written', async () => {
+  const preview = {
+    content: { summary: 'Agreed with Bilal Ahmed and the client.', discussion: [{ topic: 'Scope', text: 'Sara will check the rigs.' }], decisions: ['Go-live moves to 1 November.'], risks: ['Internal: the margin is thin.'], nextSteps: ['Send the form — by Oct 18'] },
+    names: ['Bilal Ahmed', 'Bilal', 'Sara'],
+  };
+
+  it('showing minutes opens a preview of exactly what the client sees, names highlighted, risks only when ticked', async () => {
     current = final;
     let shown = visibility();
     answer['GET /meetings/m1/client-visibility'] = () => json({ data: shown });
+    answer['GET /meetings/m1/client-visibility/preview'] = () => json({ data: preview });
     answer['PUT /meetings/m1/client-visibility'] = () => {
-      shown = visibility({ clientVisible: true });
+      shown = visibility({ clientVisible: true, includeRisks: true });
       return json({ data: shown });
     };
     renderSection();
     const toggle = await within(await screen.findByRole('region', { name: /final mom/i })).findByRole('switch', { name: 'Show to client' });
     expect(toggle).toHaveAttribute('aria-checked', 'false');
-    expect(section()).toHaveTextContent(/as written/);
     await userEvent.click(toggle);
-    expect(calls.find((c) => c.method === 'PUT' && c.path === '/meetings/m1/client-visibility')!.body).toEqual({ visible: true });
+    const dialog = await screen.findByRole('dialog', { name: 'Show these minutes to the client?' });
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false); // nothing changes until it is confirmed
+    expect(dialog).toHaveTextContent('The PDF the client can download has the same.');
+    expect(await within(dialog).findByText('Send the form — by Oct 18')).toBeInTheDocument();
+    // Names of people on the project or at the meeting are highlighted.
+    const marks = [...dialog.querySelectorAll('mark')].map((m) => m.textContent);
+    expect(marks).toEqual(['Bilal Ahmed', 'Sara']);
+    // Risks stay internal unless ticked.
+    expect(within(dialog).queryByText('Internal: the margin is thin.')).toBeNull();
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Include risks and open issues' }));
+    expect(within(dialog).getByText('Internal: the margin is thin.')).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Show to client' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.path === '/meetings/m1/client-visibility')!.body).toEqual({ visible: true, includeRisks: true }));
     await waitFor(() => expect(within(section()).getByRole('switch', { name: 'Show to client' })).toHaveAttribute('aria-checked', 'true'));
+    expect(section()).toHaveTextContent(/Risks and open issues are included/);
+  });
+
+  it('cancelling the preview shows nothing', async () => {
+    current = final;
+    answer['GET /meetings/m1/client-visibility'] = () => json({ data: visibility() });
+    answer['GET /meetings/m1/client-visibility/preview'] = () => json({ data: preview });
+    renderSection();
+    await userEvent.click(await within(await screen.findByRole('region', { name: /final mom/i })).findByRole('switch', { name: 'Show to client' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Show these minutes to the client?' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Show these minutes to the client?' })).toBeNull());
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+  });
+
+  it('switching shown minutes off asks nothing', async () => {
+    current = final;
+    let shown = visibility({ clientVisible: true });
+    answer['GET /meetings/m1/client-visibility'] = () => json({ data: shown });
+    answer['PUT /meetings/m1/client-visibility'] = () => {
+      shown = visibility({ clientVisible: false });
+      return json({ data: shown });
+    };
+    renderSection();
+    await userEvent.click(await within(await screen.findByRole('region', { name: /final mom/i })).findByRole('switch', { name: 'Show to client' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ visible: false }));
+    expect(screen.queryByRole('dialog', { name: 'Show these minutes to the client?' })).toBeNull();
   });
 
   it('others see only that the minutes are visible to the client', async () => {
