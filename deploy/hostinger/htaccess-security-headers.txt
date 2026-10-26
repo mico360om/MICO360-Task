@@ -7,7 +7,12 @@
   Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
   Header always set X-Frame-Options "DENY"
   Header always set X-Content-Type-Options "nosniff"
-  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  # A client page's address (/client/<link>) is its private link: it is never sent on as a referrer
+  # (as the backend's own web server does). The second line keeps the mark after the SPA rewrite.
+  SetEnvIf Request_URI "^/client/" MICO360_CLIENT_PAGE
+  SetEnvIf REDIRECT_MICO360_CLIENT_PAGE .+ MICO360_CLIENT_PAGE
+  Header always set Referrer-Policy "strict-origin-when-cross-origin" env=!MICO360_CLIENT_PAGE
+  Header always set Referrer-Policy "no-referrer" env=MICO360_CLIENT_PAGE
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' wss://task.mico360.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
 

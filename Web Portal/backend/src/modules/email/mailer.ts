@@ -15,6 +15,11 @@ export interface SendEmailInput {
   text?: string;
   /** File attachments (e.g. a calendar .ics invite or a minutes PDF). */
   attachments?: EmailAttachment[];
+  /**
+   * It carries a secret link or code (sign-in, password, a client's private page): the provider must
+   * not rewrite its links through a click tracker, which would log the secret and hand it on.
+   */
+  secretLinks?: boolean;
 }
 
 export interface SendResult {
@@ -75,6 +80,7 @@ export function createMailjetTransport(config: MailjetConfig): Transport {
               Subject: input.subject,
               HTMLPart: input.html,
               ...(input.text ? { TextPart: input.text } : {}),
+              ...(input.secretLinks ? { TrackClicks: 'disabled' } : {}),
               ...(input.attachments && input.attachments.length
                 ? {
                     Attachments: input.attachments.map((a) => ({

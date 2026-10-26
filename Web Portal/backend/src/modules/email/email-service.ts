@@ -67,6 +67,8 @@ interface DeliverOptions {
   attachments?: EmailAttachment[];
   /** Sign-in and recovery mail: never silently dropped because of an old bounce. */
   essential?: boolean;
+  /** It carries a secret link or code: the provider must not click-track it (see SendEmailInput). */
+  secretLinks?: boolean;
 }
 
 /**
@@ -109,6 +111,7 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
         html: content.html,
         text: content.text,
         ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+        ...(opts.secretLinks ? { secretLinks: true } : {}),
       });
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
@@ -139,17 +142,18 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     isBlocked: async (email: string): Promise<boolean> => (isSuppressed ? isSuppressed(email) : false),
 
     // Auth & account
-    sendLoginCode: (email: string, code: string, opts?: LoginCodeOptions) => deliver('otp', email, otpCodeEmail(code, opts), { essential: true }),
+    // Secret links and codes are never click-tracked (secretLinks).
+    sendLoginCode: (email: string, code: string, opts?: LoginCodeOptions) => deliver('otp', email, otpCodeEmail(code, opts), { essential: true, secretLinks: true }),
     sendPasswordReset: (email: string, link: string, opts?: TemplateOptions) =>
-      deliver('password-reset', email, passwordResetEmail(link, opts), { essential: true }),
+      deliver('password-reset', email, passwordResetEmail(link, opts), { essential: true, secretLinks: true }),
     sendActivation: (email: string, username: string, link: string, opts?: TemplateOptions) =>
-      deliver('activation', email, accountActivationEmail(username, link, opts), { essential: true }),
+      deliver('activation', email, accountActivationEmail(username, link, opts), { essential: true, secretLinks: true }),
     /**
      * An administrator's welcome email with its "Set your password" link: 'sent', or 'suppressed' when
      * the address is blocked (never sent to it). The email log records the subject, never the link.
      */
     sendWelcome: (email: string, params: WelcomeEmailParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
-      deliverResult('welcome', email, welcomeEmail(params, opts)),
+      deliverResult('welcome', email, welcomeEmail(params, opts), { secretLinks: true }),
     sendPasswordChanged: (email: string, username: string, opts?: TemplateOptions) =>
       deliver('password-changed', email, passwordChangedEmail(username, opts)),
     sendAccountLocked: (email: string, username: string, resetLink: string, opts?: TemplateOptions) =>
@@ -197,9 +201,9 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     // Client view — a client following one project. The invitation is skipped for a blocked address
     // ('suppressed'); the code is sign-in mail, never dropped because of an old bounce.
     sendClientInvitation: (email: string, params: ClientInvitationParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
-      deliverResult('client-invitation', email, clientInvitationEmail(params, opts)),
+      deliverResult('client-invitation', email, clientInvitationEmail(params, opts), { secretLinks: true }),
     sendClientCode: (email: string, params: ClientCodeParams, opts?: TemplateOptions) =>
-      deliver('client-code', email, clientCodeEmail(params, opts), { essential: true }),
+      deliver('client-code', email, clientCodeEmail(params, opts), { essential: true, secretLinks: true }),
   };
 }
 
