@@ -66,6 +66,9 @@ export function createPrismaFinalMinutesRepository(prisma: PrismaClient, now: ()
         approvedById: minutes.approvedById,
         approvedAt: minutes.approvedAt,
         generatedAt: now(),
+        // Minutes going back to a draft (reopened) leave the client page; marking them final again
+        // doesn't bring them back on its own: someone who runs the project shows them again.
+        ...(minutes.status === 'DRAFT' ? { clientVisible: false } : {}),
       };
       const row = await prisma.meetingMinutes.upsert({ where: { meetingId }, create: { meetingId, ...data }, update: data });
       return toRecord(row);

@@ -100,7 +100,8 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
           // win, and a task completed (or edited) meanwhile isn't moved on what was read before.
           const { count } = await tx.task.updateMany({
             where: { id: w.taskId, projectId: w.from.projectId, key: w.from.key, version: w.version, deletedAt: null },
-            data: { ...w.patch, key, projectId: w.to.projectId, columnId: w.columnId, position: (last._max.position ?? -1) + 1, version: { increment: 1 } },
+            // "Show to client" belongs to the old project's client page: the task leaves it.
+            data: { ...w.patch, key, projectId: w.to.projectId, columnId: w.columnId, position: (last._max.position ?? -1) + 1, clientVisible: false, version: { increment: 1 } },
           });
           if (count === 0) {
             const now = await tx.task.findFirst({ where: { id: w.taskId, deletedAt: null }, select: { projectId: true, key: true } });
