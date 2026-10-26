@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { fieldClass } from '../ui/Field';
 import { LoadError, Section } from './kit';
 import { exportMinutes, meetingFailure } from './meeting-actions';
+import { MinutesClientSwitch, minutesClientKey } from './MinutesClientSwitch';
 
 /** The editor's copy: list sections are kept as typed text (one item per line) until saved. */
 interface Editing {
@@ -58,6 +59,8 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
 
   const settle = (next: FinalMinutes, message: string | null) => {
     qc.setQueryData(key, next);
+    // Approved or reopened: whether the client sees them may have changed (reopening hides them).
+    void qc.invalidateQueries({ queryKey: minutesClientKey(meetingId) });
     setChanged(false);
     setEditing(next.status === 'DRAFT' && next.content ? toEditing(next.content) : null);
     setProblem(null);
@@ -129,7 +132,10 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
       {notice ? <p role="status" className="mb-3 rounded-lg bg-ground px-3 py-2 text-sm text-ink-2">{notice}</p> : null}
 
       {fm && status === 'FINAL' && fm.content ? (
-        <FinalView minutes={fm} content={fm.content} timeZone={timeZone} canEdit={canEdit} busy={busy} downloading={pdfMut.isPending} onDownload={() => pdfMut.mutate()} onReopen={() => reopenMut.mutate()} />
+        <div className="flex flex-col gap-4">
+          <FinalView minutes={fm} content={fm.content} timeZone={timeZone} canEdit={canEdit} busy={busy} downloading={pdfMut.isPending} onDownload={() => pdfMut.mutate()} onReopen={() => reopenMut.mutate()} />
+          <MinutesClientSwitch meetingId={meetingId} />
+        </div>
       ) : editing && canEdit ? (
         <Editor
           value={editing}

@@ -7,3 +7,5 @@ Disallow: /socket.io/
 Disallow: /downloads/
 Disallow: /reset
 Disallow: /forgot
+# A client page's address is its private link.
+Disallow: /client/

@@ -159,6 +159,18 @@ describe('registerWebApp', () => {
     }
   });
 
+  it('a client page (its link carries a token) is never indexed and never sent as a referrer', async () => {
+    const url = '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde';
+    const res = await app.inject({ method: 'GET', url, headers: { host: 'localhost:4000' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('<div id="root">');
+    expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    // Other pages keep the usual policy.
+    expect((await app.inject({ method: 'GET', url: '/dashboard' })).headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+  });
+
   it('marks private pages noindex and leaves the public pages indexable', async () => {
     for (const url of ['/dashboard', '/projects/p1/board', '/reset?token=abc']) {
       expect((await app.inject({ method: 'GET', url })).headers['x-robots-tag'], url).toBe('noindex, nofollow');

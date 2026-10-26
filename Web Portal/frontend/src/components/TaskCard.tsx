@@ -22,6 +22,8 @@ export interface TaskCardTask {
   recurring?: boolean;
   /** True for a milestone (a key date or deliverable of the project). */
   milestone?: boolean;
+  /** Shown on the project's client page (staff see a small mark). */
+  clientVisible?: boolean;
   /** True when the task is finished (DONE column or completed) — a finished task is never overdue. */
   done?: boolean;
   /** Its project, on a board showing several projects (the All projects board). */
@@ -48,6 +50,16 @@ export function MilestoneIcon({ size = 14 }: { size?: number }) {
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M5 21V4" />
       <path d="M5 4h11l-2 4 2 4H5" fill="currentColor" fillOpacity="0.18" />
+    </svg>
+  );
+}
+
+/** The "Visible to client" mark: an eye (the project's client page shows this task). */
+export function ClientEyeIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
@@ -119,6 +131,11 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
           {task.milestone ? (
             <span className="text-brand" role="img" aria-label="Milestone" title="Milestone">
               <MilestoneIcon size={13} />
+            </span>
+          ) : null}
+          {task.clientVisible ? (
+            <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client">
+              <ClientEyeIcon size={13} />
             </span>
           ) : null}
           {task.recurring ? (

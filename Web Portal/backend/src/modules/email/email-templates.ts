@@ -22,8 +22,9 @@ function build(
   blocks: Block[],
   opts: TemplateOptions = {},
   identity?: EmailIdentity,
+  reason?: string,
 ): EmailContent {
-  const { html, text } = renderEmail({ preheader, heading, blocks, brand: opts.brand, locale: opts.locale, identity });
+  const { html, text } = renderEmail({ preheader, heading, blocks, brand: opts.brand, locale: opts.locale, identity, reason });
   return { subject, html, text };
 }
 
@@ -385,4 +386,76 @@ export function meetingMinutesEmail(params: MeetingEmailParams, opts?: TemplateO
   // A project's minutes carry the project's own picture and name at the top (not the product logo).
   const identity = params.project ? { ...params.project, caption: 'Minutes of Meeting' } : undefined;
   return build(`Minutes: ${params.title}`, `Minutes of ${params.title}`, `Minutes of meeting: ${params.title}`, blocks, opts, identity);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client view — a client follows one project on a private page, without an account
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ClientInvitationParams {
+  /** The client's name, as the person sharing typed it. */
+  clientName: string;
+  /** Who shared the project (a staff member's name). */
+  sharedByName: string;
+  projectName: string;
+  /** Short facts about the project (code, client name), joined with " · ". */
+  projectDetails?: string[];
+  /** The project's picture as a full http(s) address; else its initials on its colour. */
+  projectImageUrl?: string | null;
+  projectColor?: string | null;
+  /** The private link (it opens the page only with a code emailed to `email`). */
+  link: string;
+  /** The address the project is shared with. */
+  email: string;
+}
+
+/** "{who} shared the project {name} with you": the private link, and why a code will be asked for. */
+export function clientInvitationEmail(params: ClientInvitationParams, opts?: TemplateOptions): EmailContent {
+  const product = productName(opts);
+  const title = `${params.sharedByName} shared the project ${params.projectName} with you`;
+  const blocks: Block[] = [
+    {
+      kind: 'text',
+      text: `Hi ${params.clientName}, ${params.sharedByName} shared the project “${params.projectName}” with you on ${product}. You can follow its progress, milestones and approved meeting minutes on a private page. You don’t need an account.`,
+    },
+    {
+      kind: 'project',
+      project: { name: params.projectName, color: params.projectColor ?? null, imageUrl: params.projectImageUrl ?? null, details: params.projectDetails ?? [], chips: [], href: params.link },
+      items: [],
+    },
+    { kind: 'button', label: 'View the project', href: params.link },
+    {
+      kind: 'text',
+      text: `To keep the page private, we’ll email a one-time code to ${params.email} when you open it on a new device. That device then stays signed in for 30 days. Forwarding this email doesn’t give anyone else access.`,
+    },
+    linkFallback(params.link),
+    { kind: 'callout', text: 'Didn’t expect this email? You can ignore it.', tone: 'info' },
+  ];
+  return build(title, `Follow ${params.projectName} on a private page.`, title, blocks, opts, undefined, `You’re receiving this email because ${params.sharedByName} shared a project with you on ${product}.`);
+}
+
+export interface ClientCodeParams {
+  code: string;
+  projectName: string;
+  /** How long the code lasts, in minutes. */
+  expiresInMinutes: number;
+}
+
+/** The one-time code that opens a shared project's page (the subject never carries it: the email log keeps subjects). */
+export function clientCodeEmail(params: ClientCodeParams, opts?: TemplateOptions): EmailContent {
+  const product = productName(opts);
+  const minutes = Math.max(1, Math.round(params.expiresInMinutes));
+  return build(
+    `Your code to view ${params.projectName}`,
+    `Your one-time code is ${params.code}`,
+    'Your code',
+    [
+      { kind: 'text', text: `Use this code to open the page for “${params.projectName}”. It expires in ${minutes} minute${minutes === 1 ? '' : 's'}.` },
+      { kind: 'code', code: params.code, note: 'Never share this code with anyone.' },
+      { kind: 'callout', text: 'If you didn’t ask for this code, you can ignore this email. Nobody can open the page without it.', tone: 'info' },
+    ],
+    opts,
+    undefined,
+    `You’re receiving this email because a code was asked for to view a project shared with you on ${product}.`,
+  );
 }

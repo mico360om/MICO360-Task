@@ -69,6 +69,7 @@ beforeEach(() => {
     const method = init?.method ?? 'GET';
     calls.push(method === 'GET' ? u : `${method} ${u}`);
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+    if (u.includes('/client-shares')) return json({ data: [] });
     if (u.includes('/members') && method !== 'GET' && memberChange) return memberChange(method);
     if (u.includes('/members')) return json({ data: [{ id: 'u1', username: 'manager', email: '', firstName: 'Mona', lastName: 'M', role: memberRole }] });
     if (u.endsWith('/users/directory')) return json({ data: [
@@ -136,6 +137,15 @@ describe('ProjectDetailPage: the dashboard', () => {
     expect(screen.queryByText('Task t2')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^completed/i }));
     expect(screen.getByText('Task t3')).toBeInTheDocument();
+  });
+
+  it('marks the tasks shown to the project’s client in the task list', async () => {
+    extraTasks = [task('t9', { title: 'Shown to the client', clientVisible: true })];
+    renderPage();
+    await userEvent.click(await screen.findByRole('tab', { name: /tasks/i }));
+    const row = (await screen.findByText('Shown to the client')).closest('button')!;
+    expect(within(row).getByRole('img', { name: 'Visible to client' })).toBeInTheDocument();
+    expect(within(screen.getByText('Task t1').closest('button')!).queryByRole('img', { name: 'Visible to client' })).toBeNull();
   });
 
   it('shows the project’s meetings with their minutes, decisions and action items', async () => {
@@ -240,6 +250,24 @@ describe('ProjectDetailPage', () => {
     expect(screen.getAllByText('No owner').length).toBeGreaterThan(0); // the owner is still shown, as text
     await userEvent.click(screen.getByRole('tab', { name: /team/i }));
     expect(screen.queryByLabelText(/add a member/i)).not.toBeInTheDocument();
+  });
+
+  it('offers Share with client to someone who runs the project, and opens the panel', async () => {
+    projectExtra = { canManage: true };
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    await userEvent.click(screen.getByRole('button', { name: /share with client/i }));
+    const panel = await screen.findByRole('dialog', { name: 'Share with client' });
+    expect(within(panel).getByText('MICO Platform')).toBeInTheDocument();
+    expect(await within(panel).findByText('Not shared with anyone yet.')).toBeInTheDocument();
+  });
+
+  it('doesn’t offer Share with client to a member who doesn’t run the project', async () => {
+    projectExtra = { canManage: false };
+    memberRole = 'MEMBER';
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    expect(screen.queryByRole('button', { name: /share with client/i })).not.toBeInTheDocument();
   });
 
   it('shows the named project manager beside the owner, and who created the project', async () => {

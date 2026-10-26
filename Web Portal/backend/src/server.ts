@@ -91,6 +91,11 @@ import { createPushSender, type PushSender } from './modules/device-tokens/push-
 import { createFcmTransport, parseServiceAccount } from './modules/device-tokens/fcm-transport';
 import { createPrismaUserStateLookup } from './modules/auth/prisma-user-state-lookup';
 import { todayKey } from './lib/due-date';
+import { createClientAccessService } from './modules/client-view/client-access-service';
+import { createPrismaClientShareStore } from './modules/client-view/prisma-client-share-store';
+import { createPrismaClientViewSource } from './modules/client-view/client-view-source';
+import { createPrismaClientFlags } from './modules/client-view/prisma-client-flags';
+import { readProjectPicture } from './lib/pdf-image';
 
 /** Validate an IANA time zone; fall back to Asia/Muscat (Oman) if misconfigured. */
 function resolveTimeZone(tz: string): string {
@@ -1190,6 +1195,31 @@ async function main(): Promise<void> {
     logger,
   });
 
+  // Client view: a client follows one project on a read-only page — a private link that opens only
+  // with a code emailed to them; nothing in it is a staff account or session.
+  const readStoredProjectImage = async (url: string) =>
+    url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null;
+  const clientAccessService = createClientAccessService({
+    store: createPrismaClientShareStore(prisma),
+    source: createPrismaClientViewSource(prisma),
+    mailer: {
+      isConfigured: () => emailService.isConfigured(),
+      sendClientInvitation: (email, params) => emailService.sendClientInvitation(email, params),
+      sendClientCode: (email, params) => emailService.sendClientCode(email, params),
+    },
+    userName: async (id) => {
+      const u = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true, username: true } });
+      return u ? [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username : null;
+    },
+    appUrl: env.APP_URL,
+    assetUrl: env.API_BASE_URL,
+    timeZone: companyTz,
+    audit: auditService,
+    projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
+    logger,
+  });
+  const clientFlags = createPrismaClientFlags(prisma, (taskId) => taskService.getTask(taskId));
+
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
@@ -1334,6 +1364,7 @@ async function main(): Promise<void> {
     authRateLimitMax: env.AUTH_RATE_LIMIT_MAX,
     idempotencyStore: createPrismaIdempotencyStore(prisma),
     dataExporter: createPrismaDataExporter(prisma),
+    clientView: { service: clientAccessService, secureCookies: env.NODE_ENV === 'production', tasks: clientFlags.tasks, minutes: clientFlags.minutes },
   });
 
   // Serve uploaded attachment files from disk at /uploads/<key> (matches the stored url).

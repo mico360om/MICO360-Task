@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
-import { MilestoneIcon } from './TaskCard';
+import { ClientEyeIcon, MilestoneIcon } from './TaskCard';
+import { Toggle } from './ui/Toggle';
 import { ProjectAvatar, type ProjectLook } from './ProjectAvatar';
 import { recurrenceSummary } from '../lib/recurrence-summary';
 import { statusMeta } from '../lib/taskStatus';
@@ -95,6 +96,11 @@ export interface TaskDrawerProps {
   onMoveToProject?: () => void;
   /** Why it can't be moved now: the item is shown, unavailable, saying so. */
   moveUnavailable?: string | null;
+  /**
+   * Show the task on (or take it off) the project's client page — offered to whoever runs the
+   * project. Rejects with the reason to show when it couldn't be changed.
+   */
+  onSetClientVisible?: (visible: boolean) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -121,6 +127,35 @@ const CalendarIcon = () => (
     <path d="M16 2v4M8 2v4M3 10h18" />
   </svg>
 );
+
+/** "Show to client": whether the project's client page lists this task (its title, status and due date only). */
+function ClientViewSwitch({ on, onChange }: { on: boolean; onChange: (visible: boolean) => Promise<void> | void }) {
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const change = async () => {
+    setSaving(true);
+    setProblem(null);
+    try {
+      await onChange(!on);
+    } catch (err) {
+      setProblem(err instanceof Error && err.message && !/^Request failed/.test(err.message) ? err.message : 'Couldn’t change it. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section aria-labelledby="task-client-heading" className="rounded-xl border border-line p-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 id="task-client-heading" className="eyebrow">Client view</h3>
+        <Toggle on={on} onChange={() => void change()} label="Show to client" describedBy="task-client-hint" disabled={saving} />
+      </div>
+      <p id="task-client-hint" className="mt-1 text-xs leading-relaxed text-ink-2">
+        Show to client: its title, status and due date appear on the project’s client page. Never people, comments, files or the description.
+      </p>
+      {problem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{problem}</p> : null}
+    </section>
+  );
+}
 
 /** The meeting the task was created from: a link to it, or — for someone not part of it — just a mention. */
 function MeetingLink({ meeting, timeZone }: { meeting: NonNullable<ApiTask['meeting']>; timeZone: string }) {
@@ -190,6 +225,7 @@ export function TaskDrawer({
   project,
   onMoveToProject,
   moveUnavailable,
+  onSetClientVisible,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -242,6 +278,12 @@ export function TaskDrawer({
               <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-1.5 py-0.5 text-xs font-semibold text-brand">
                 <MilestoneIcon size={12} />
                 Milestone
+              </span>
+            ) : null}
+            {task.clientVisible ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-info-soft px-1.5 py-0.5 text-xs font-semibold text-info" title="Shown on the project’s client page">
+                <ClientEyeIcon size={12} />
+                Visible to client
               </span>
             ) : null}
             {dueText ? (
@@ -351,6 +393,7 @@ export function TaskDrawer({
               scope={scope}
               onScope={setScope}
             />
+            {onSetClientVisible ? <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} /> : null}
             <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
             {dependencies ? (
               <DependenciesSection taskId={task.id} dependencies={dependencies} availableTasks={availableTasks} onAdd={onAddDependency} onRemove={onRemoveDependency} />

@@ -206,6 +206,7 @@ model Project {
   tasks     Task[]
   activities Activity[]
   taskKeyAliases TaskKeyAlias[]
+  clientShares   ClientShare[]
 
   @@index([status])
   @@index([managerId])
@@ -266,6 +267,9 @@ model Task {
   progress       Int       @default(0)
   /// A milestone: a key date or deliverable of its project (shown on the project dashboard).
   isMilestone    Boolean   @default(false)
+  /// Shown on its project's client page (title, status and due date only). Off unless someone who runs
+  /// the project turns it on; moving the task to another project turns it off.
+  clientVisible  Boolean   @default(false)
   createdById    String
   completedAt    DateTime?
   boardDate       DateTime?  // per-date boards: the calendar day this task appears on (noon-UTC anchor)
@@ -1000,9 +1004,70 @@ model MeetingMinutes {
   approvedById String?
   approvedAt   DateTime?
   sentAt       DateTime?
+  /// Approved minutes shown on the project's client page. Cleared whenever the minutes go back to a draft.
+  clientVisible Boolean      @default(false)
   meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@map("meeting_minutes")
+}
+
+// ---------------------------------------------------------------------------
+// Client view: a read-only page where a client follows one project without an account
+// ---------------------------------------------------------------------------
+
+/// A client a project is shared with: one email address per project. The link in their invitation
+/// opens the page, and only with a code emailed to this address. Removing the row ends their access
+/// (codes and sessions go with it).
+model ClientShare {
+  id           String    @id @default(cuid())
+  projectId    String
+  name         String    @db.VarChar(120)
+  /// Lower-case, trimmed.
+  email        String    @db.VarChar(254)
+  /// SHA-256 (hex) of the current link's token; the token itself is only in the email. Resend replaces it.
+  linkHash     String    @unique @db.Char(64)
+  /// Who shared it (a staff user id; kept when that person is gone).
+  createdById  String?
+  linkSentAt   DateTime?
+  lastViewedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  codes        ClientAccessCode[]
+  sessions     ClientSession[]
+
+  @@unique([projectId, email])
+  @@map("client_shares")
+}
+
+/// A one-time code emailed to a shared client (bcrypt hash; 10 minutes, 5 tries). Separate from staff
+/// sign-in codes (login_otps), so a client code can never start a staff session.
+model ClientAccessCode {
+  id         String      @id @default(cuid())
+  shareId    String
+  codeHash   String      @db.VarChar(100)
+  attempts   Int         @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime    @default(now())
+  share      ClientShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+
+  @@index([shareId, createdAt])
+  @@map("client_access_codes")
+}
+
+/// A device signed in to a client page (30 days): SHA-256 (hex) of the token in its cookie. It opens
+/// only that client's page of that one project, never anything else.
+model ClientSession {
+  id         String      @id @default(cuid())
+  shareId    String
+  tokenHash  String      @unique @db.Char(64)
+  expiresAt  DateTime
+  createdAt  DateTime    @default(now())
+  share      ClientShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+
+  @@index([shareId])
+  @@map("client_sessions")
 }
 
 model MeetingTemplate {

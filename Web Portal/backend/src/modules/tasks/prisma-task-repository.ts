@@ -49,6 +49,7 @@ function toRecord(t: EnrichedTask): TaskRecord {
     actualHours: t.actualHours,
     progress: t.progress,
     isMilestone: t.isMilestone ?? false,
+    clientVisible: t.clientVisible ?? false,
     createdById: t.createdById,
     completedAt: t.completedAt,
     boardDate: t.boardDate ?? null,
@@ -125,7 +126,7 @@ export function isRecurrenceCopyConflict(err: unknown): boolean {
 const listScalars = {
   id: true, key: true, title: true, description: true, projectId: true, columnId: true, position: true,
   priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true,
-  createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
+  clientVisible: true, createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
   meetingId: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
 } as const;
 

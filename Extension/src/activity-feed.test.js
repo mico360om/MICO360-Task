@@ -20,6 +20,7 @@ describe('the task timeline (activity, read-only), worded as on the web', () => 
     expect(buildTimeline([e('a1', 'PROJECT_MOVED_OUT', 'A', 1, { key: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' })])[0].text).toBe('moved RIG-4 to Operations (OPS-17)');
     expect(buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'milestone', from: true, to: false }] })])[0].text).toBe('cleared its milestone');
     expect(buildTimeline([e('a1', 'ASSIGNED', 'Sara Ahmed', 1, { assignee: 'Omar Ahmed', via: 'mico-ai' })])[0].text).toBe('assigned Omar Ahmed via MICO AI');
+    expect(buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'clientVisible', from: false, to: true }] })])[0].text).toBe('made this visible to the client');
   });
 
   it('folds a quick run by one person into one line, newest first', () => {
@@ -73,6 +74,7 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     // Made through MICO AI: "… via MICO AI", never folded into a line made by hand.
     ['CREATED', { title: 'X', via: 'mico-ai' }], ['ASSIGNED', { assignee: 'Omar Ahmed', via: 'mico-ai' }], ['MOVED', { from: 'To Do', to: 'Done', via: 'mico-ai' }],
     ['UPDATED', { changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }], via: 'mico-ai' }], ['COMPLETED', { from: 'Review', to: 'Done', via: 'mico-ai' }], ['UPDATED', { via: 'other' }],
+    ['UPDATED', { changes: [{ field: 'clientVisible', from: false, to: true }] }], ['UPDATED', { changes: [{ field: 'clientVisible', from: true, to: false }] }],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];

@@ -137,3 +137,50 @@ describe('Final minutes: for attendees', () => {
     expect(within(section()).queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
   });
 });
+
+describe('Final minutes: shown to the project’s client', () => {
+  const visibility = (over: Record<string, unknown> = {}) => ({ projectMeeting: true, approved: true, clientVisible: false, canChange: true, ...over });
+
+  it('someone who runs the project can show approved minutes to the client, warned that they are shown as written', async () => {
+    current = final;
+    let shown = visibility();
+    answer['GET /meetings/m1/client-visibility'] = () => json({ data: shown });
+    answer['PUT /meetings/m1/client-visibility'] = () => {
+      shown = visibility({ clientVisible: true });
+      return json({ data: shown });
+    };
+    renderSection();
+    const toggle = await within(await screen.findByRole('region', { name: /final mom/i })).findByRole('switch', { name: 'Show to client' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(section()).toHaveTextContent(/as written/);
+    await userEvent.click(toggle);
+    expect(calls.find((c) => c.method === 'PUT' && c.path === '/meetings/m1/client-visibility')!.body).toEqual({ visible: true });
+    await waitFor(() => expect(within(section()).getByRole('switch', { name: 'Show to client' })).toHaveAttribute('aria-checked', 'true'));
+  });
+
+  it('others see only that the minutes are visible to the client', async () => {
+    current = { ...final, canEdit: false };
+    answer['GET /meetings/m1/client-visibility'] = () => json({ data: visibility({ clientVisible: true, canChange: false }) });
+    renderSection(false);
+    expect(await within(await screen.findByRole('region', { name: /final mom/i })).findByText('Visible to client')).toBeInTheDocument();
+    expect(within(section()).queryByRole('switch', { name: 'Show to client' })).toBeNull();
+  });
+
+  it('a standalone meeting has no client to show them to', async () => {
+    current = final;
+    answer['GET /meetings/m1/client-visibility'] = () => json({ data: visibility({ projectMeeting: false, canChange: false }) });
+    renderSection();
+    await within(await screen.findByRole('region', { name: /final mom/i })).findByText('Go-live moves to 1 November.');
+    await waitFor(() => expect(calls.some((c) => c.path === '/meetings/m1/client-visibility')).toBe(true));
+    expect(within(section()).queryByRole('switch', { name: 'Show to client' })).toBeNull();
+  });
+
+  it('reopening the minutes asks the server again (reopened minutes leave the client page)', async () => {
+    current = final;
+    answer['GET /meetings/m1/client-visibility'] = () => json({ data: visibility({ clientVisible: true }) });
+    answer['POST /meetings/m1/final-minutes/reopen'] = () => json({ data: draft });
+    renderSection();
+    await userEvent.click(await within(await screen.findByRole('region', { name: /final mom/i })).findByRole('button', { name: 'Reopen' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.path === '/meetings/m1/client-visibility').length).toBeGreaterThanOrEqual(2));
+  });
+});

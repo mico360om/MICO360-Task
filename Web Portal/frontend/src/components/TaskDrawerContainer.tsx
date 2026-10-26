@@ -24,6 +24,7 @@ import { TaskDrawer, type DrawerTaskRef } from './TaskDrawer';
 import { TaskFormDialog } from './task-form/TaskFormDialog';
 import { MoveTaskDialog, useMoveTargets } from './MoveTaskDialog';
 import { projectsApi } from '../api/projects';
+import { clientSharesApi } from '../api/client-shares';
 import { moveAvailability, movedText } from '../lib/task-move';
 
 export interface TaskDrawerContainerProps {
@@ -389,6 +390,16 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
             project={project ? { id: project.id, name: project.name, color: project.color, icon: project.icon, imageUrl: project.imageUrl } : undefined}
             onMoveToProject={canMove ? () => setMoving(true) : undefined}
             moveUnavailable={canMove?.reason}
+            // Show to client: whoever runs the project (the server checks too).
+            onSetClientVisible={
+              canDelete
+                ? async (visible) => {
+                    const updated = await clientSharesApi(apiClient).setTaskVisible(taskId, visible);
+                    queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, clientVisible: updated.clientVisible ?? visible } : old));
+                    refreshTaskViews();
+                  }
+                : undefined
+            }
             onClose={onClose}
           />
         ) : taskQ.isError ? (

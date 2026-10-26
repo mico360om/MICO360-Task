@@ -69,6 +69,34 @@ describe('TaskDrawerContainer', () => {
     expect(screen.getByText('MICO-2')).toBeInTheDocument();
   });
 
+  it('Show to client: offered to whoever runs the project, and saved on the server', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole('switch', { name: 'Show to client' }));
+    const fetchMock = vi.mocked(fetch);
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith('/tasks/t1/client-visible') && (init as RequestInit | undefined)?.method === 'PUT');
+      expect(put).toBeTruthy();
+      expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({ visible: true });
+    });
+  });
+
+  it('Show to client isn’t offered to a team member who doesn’t run the project', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    expect(screen.queryByRole('switch', { name: 'Show to client' })).toBeNull();
+  });
+
   it('opens the full edit form from the panel, filled in with the task', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

@@ -41,6 +41,8 @@ export interface ApiTask {
   version?: number;
   /** A milestone: a key date or deliverable of its project (older servers leave it out). */
   isMilestone?: boolean;
+  /** Shown on the project's client page (its title, status and due date only). */
+  clientVisible?: boolean;
   /** The repeat rule — only the newest copy of a recurring series carries it. */
   recurrenceRule?: RecurrenceRule | null;
   /** Set on every copy of a recurring series: the first task's id. */

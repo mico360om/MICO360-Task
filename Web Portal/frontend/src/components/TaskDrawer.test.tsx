@@ -33,6 +33,26 @@ describe('TaskDrawer', () => {
     expect(pill().getAttribute('style')).toContain('--c-cat-blocked');
   });
 
+  it('offers Show to client to whoever runs the project; marks a task shown to the client', async () => {
+    const onSetClientVisible = vi.fn(async () => {});
+    const { rerender } = render(<TaskDrawer task={task} checklist={[]} comments={[]} onSetClientVisible={onSetClientVisible} onClose={vi.fn()} />);
+    const toggle = screen.getByRole('switch', { name: 'Show to client' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(/title, status and due date/)).toBeInTheDocument();
+    expect(within(screen.getByTestId('task-header')).queryByText('Visible to client')).toBeNull();
+    await userEvent.click(toggle);
+    expect(onSetClientVisible).toHaveBeenCalledWith(true);
+    rerender(<TaskDrawer task={{ ...task, clientVisible: true }} checklist={[]} comments={[]} onSetClientVisible={onSetClientVisible} onClose={vi.fn()} />);
+    expect(screen.getByRole('switch', { name: 'Show to client' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(screen.getByTestId('task-header')).getByText('Visible to client')).toBeInTheDocument();
+  });
+
+  it('without the right to change it, only the mark shows (no switch)', () => {
+    render(<TaskDrawer task={{ ...task, clientVisible: true }} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    expect(screen.queryByRole('switch', { name: 'Show to client' })).toBeNull();
+    expect(within(screen.getByTestId('task-header')).getByText('Visible to client')).toBeInTheDocument();
+  });
+
   it('renders the task, checklist and comments', () => {
     render(
       <TaskDrawer

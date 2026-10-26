@@ -41,6 +41,8 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/admin\/ai$/, 'AI Management'],
   [/^\/admin\/audit$/, 'Audit Logs'],
   [/^\/admin\/users$/, 'User Management'],
+  // A client's page: its address is a private link, so it is never listed.
+  [/^\/client\/[^/]+$/, 'Shared project'],
 ];
 
 /** The title and search-engine rule for an address (a trailing slash is ignored). */

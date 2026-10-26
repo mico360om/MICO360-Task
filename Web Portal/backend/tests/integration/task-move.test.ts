@@ -128,6 +128,14 @@ describe('Moving a task to another project (integration)', () => {
     expect(left[0]!.createdAt.getTime()).toBeGreaterThan(line.createdAt.getTime());
   });
 
+  it('a task shown to the old project’s client leaves that client page (it isn’t shown to the new one’s)', async () => {
+    const task = await newTask('Inspect the rig');
+    await prisma.task.update({ where: { id: task.id }, data: { clientVisible: true } });
+    const moved = await moves.moveTask(manager, task.id, { projectId: ops.id });
+    expect(moved.task.clientVisible).toBe(false);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).clientVisible).toBe(false);
+  });
+
   it('can take people who aren’t on the new team off the task instead', async () => {
     const task = await newTask('Inspect the rig', { assigneeIds: [mateId, outsiderId] });
     const moved = await moves.moveTask(manager, task.id, { projectId: ops.id, assignees: 'UNASSIGN' });
