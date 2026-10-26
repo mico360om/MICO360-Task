@@ -7,7 +7,7 @@ import { noteActivity } from '../activity/task-activity';
 import type { TaskRecord } from '../tasks/task-repository';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../lib/http-errors';
 import type { ClientAccessService } from './client-access-service';
-import { clearedSessionCookie, readCookie, sessionCookie, sessionCookieName } from './client-tokens';
+import { clearedSessionCookie, hashToken, readCookie, sessionCookie, sessionCookieName } from './client-tokens';
 import { clientMinutesContent } from './client-minutes-content';
 import type { FinalMinutesContent } from '../meetings/final-minutes';
 
@@ -54,8 +54,8 @@ export interface ClientViewRouteDeps {
   broadcast?: (projectId: string, event: string, payload: unknown) => void;
   /** Tells open meeting pages the minutes changed. */
   onMinutesChanged?: (meetingId: string) => void;
-  /** Per IP address, a minute: code requests (default 5) and code tries (default 10). */
-  rateLimits?: { codesPerMinute?: number; verifiesPerMinute?: number };
+  /** Per IP address, a minute: code requests (default 5) and code tries (default 10); minutes PDFs per signed-in device (default 10). */
+  rateLimits?: { codesPerMinute?: number; verifiesPerMinute?: number; pdfsPerMinute?: number };
 }
 
 const shareBody = z.object({
@@ -111,7 +111,17 @@ export async function registerClientViewRoutes(app: FastifyInstance, deps: Clien
     return reply.status(204).send();
   });
 
-  app.get('/client/minutes/:meetingId/pdf', async (req: FastifyRequest, reply: FastifyReply) => {
+  // A PDF takes real work to make: each signed-in device (its link and session cookie) gets 10 a minute.
+  const perSession = {
+    config: {
+      rateLimit: {
+        max: deps.rateLimits?.pdfsPerMinute ?? 10,
+        timeWindow: '1 minute',
+        keyGenerator: (req: FastifyRequest) => `client-pdf:${hashToken(`${linkOf(req) ?? ''}|${req.headers.cookie ?? req.ip}`)}`,
+      },
+    },
+  };
+  app.get('/client/minutes/:meetingId/pdf', perSession, async (req: FastifyRequest, reply: FastifyReply) => {
     const { meetingId } = req.params as { meetingId: string };
     const { pdf, fileName } = await service.minutesPdf(linkOf(req), sessionFrom(req), meetingId);
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${fileName}"`).send(pdf);

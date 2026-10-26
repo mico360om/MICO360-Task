@@ -661,6 +661,8 @@ async function main(): Promise<void> {
   // and periodically; a PERSISTED per-day marker (reminder_logs) avoids re-notifying the same
   // task — unlike an in-memory guard, it survives restarts and is shared across instances.
   const reminderLogStore = createPrismaReminderLogStore(prisma);
+  // Client view housekeeping, run with the sweep below (late-bound: its service is built further down).
+  let pruneClientAccess: () => Promise<void> = async () => {};
   // Active users and admins, for the sweeps' recipient filtering (one query per sweep).
   const sweepAudience = async () => {
     const users = await prisma.user.findMany({
@@ -678,6 +680,7 @@ async function main(): Promise<void> {
   async function runReminderSweep(): Promise<void> {
     const period = todayKey(companyTz); // company-local yyyy-mm-dd
     await pruneReminderLog(prisma).catch(() => {}); // keep the marker table bounded
+    await pruneClientAccess().catch(() => {}); // client view: old codes and expired sessions
     // Tasks of deleted projects are gone for everyone — no more reminders for them.
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
@@ -1190,6 +1193,7 @@ async function main(): Promise<void> {
     logger,
   });
   const clientFlags = createPrismaClientFlags(prisma, (taskId) => taskService.getTask(taskId));
+  pruneClientAccess = () => clientAccessService.prune();
 
   const app = await buildApp({
     about: { release },

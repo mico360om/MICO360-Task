@@ -246,7 +246,37 @@ describe('a client opens the link and enters the emailed code', () => {
     clock += MIN + 1;
     await svc.requestCode(link, 'fatma@client.example', {});
     await settle();
-    await expect(svc.verifyCode(link, 'fatma@client.example', lastCode(), {})).rejects.toBeInstanceOf(ClientCodeInvalidError);
+    await expect(svc.verifyCode(link, 'fatma@client.example', lastCode(), { ip: '6.6.6.6' })).rejects.toBeInstanceOf(ClientCodeInvalidError);
+    // The lockout is an abuse signal: written to the audit log (with the address that hit it), once an hour per client.
+    await expect(svc.verifyCode(link, 'fatma@client.example', lastCode(), { ip: '7.7.7.7' })).rejects.toBeInstanceOf(ClientCodeInvalidError);
+    const share = (await store.listForProject('p1'))[0]!;
+    expect(audited.filter((a) => a.action === 'client-view.lockout')).toEqual([
+      { userId: null, ip: '6.6.6.6', module: 'client-view', action: 'client-view.lockout', entityId: share.id, newValue: { projectId: 'p1', reason: 'too-many-wrong-codes' } },
+    ]);
+  });
+
+  it('too many code requests for a client are written to the audit log, once an hour', async () => {
+    const link = await shareWithFatma();
+    await svc.requestCode(link, 'fatma@client.example', { ip: '1.2.3.4' });
+    await settle();
+    for (let i = 0; i < 3; i++) {
+      await svc.requestCode(link, 'fatma@client.example', { ip: '1.2.3.4' });
+      await settle();
+    }
+    const share = (await store.listForProject('p1'))[0]!;
+    expect(audited.filter((a) => a.action === 'client-view.lockout')).toEqual([
+      { userId: null, ip: '1.2.3.4', module: 'client-view', action: 'client-view.lockout', entityId: share.id, newValue: { projectId: 'p1', reason: 'too-many-code-requests' } },
+    ]);
+  });
+
+  it('housekeeping prunes old codes and expired sessions', async () => {
+    const link = await shareWithFatma();
+    const token = await signIn(link);
+    clock += 31 * DAY;
+    await svc.prune();
+    expect(await store.findSession(hashToken(token))).toBeNull();
+    const share = (await store.listForProject('p1'))[0]!;
+    expect(await store.countCodesSince(share.id, new Date(0))).toBe(0);
   });
 
   it('a wrong address does the same lookups as a wrong code (no timing difference to learn the address from)', async () => {
@@ -352,7 +382,7 @@ describe('the page itself', () => {
     expect(await store.findById(share.id)).not.toBeNull();
   });
 
-  it('Resend: a new link works; the old link and its code stop working; a signed-in device stays signed in', async () => {
+  it('Resend: a new link works; the old link, its code and every signed-in device stop working', async () => {
     const oldLink = await shareWithFatma();
     const token = await signIn(oldLink);
     clock += 2 * MIN;
@@ -365,8 +395,12 @@ describe('the page itself', () => {
     expect(newLink).not.toBe(oldLink);
     await expect(svc.view(oldLink, sessionOf(token))).rejects.toBeInstanceOf(ClientLinkEndedError);
     await expect(svc.verifyCode(oldLink, 'fatma@client.example', oldCode, {})).rejects.toBeInstanceOf(ClientLinkEndedError);
-    await expect(svc.view(newLink, sessionOf(token))).resolves.toBeTruthy();
-    expect(audited.at(-1)).toMatchObject({ userId: 'u-omar', action: 'client-view.share.resend', entityId: share.id });
+    await expect(svc.view(newLink, sessionOf(token))).rejects.toBeInstanceOf(ClientSignInRequiredError);
+    expect(await store.findSession(hashToken(token))).toBeNull();
+    // The new link with a new code opens it again.
+    clock += 2 * MIN;
+    await expect(svc.view(newLink, sessionOf(await signIn(newLink)))).resolves.toBeTruthy();
+    expect(audited.find((a) => a.action === 'client-view.share.resend')).toMatchObject({ userId: 'u-omar', entityId: share.id });
   });
 
   it('a Resend whose email fails keeps the old link working', async () => {

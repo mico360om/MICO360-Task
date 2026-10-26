@@ -55,7 +55,7 @@ interface Fixture {
   settle: () => Promise<void>;
 }
 
-async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; secureCookies?: boolean } = {}): Promise<Fixture> {
+async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; pdfLimit?: number; secureCookies?: boolean } = {}): Promise<Fixture> {
   const invitations: Fixture['invitations'] = [];
   const codes: Fixture['codes'] = [];
   const audited: Fixture['audited'] = [];
@@ -185,7 +185,7 @@ async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; sec
       secureCookies: opts.secureCookies ?? true,
       tasks: taskFlags,
       minutes: minutesFlags,
-      rateLimits: { codesPerMinute: opts.codeLimit ?? 1000, verifiesPerMinute: opts.verifyLimit ?? 1000 },
+      rateLimits: { codesPerMinute: opts.codeLimit ?? 1000, verifiesPerMinute: opts.verifyLimit ?? 1000, pdfsPerMinute: opts.pdfLimit ?? 1000 },
     },
   };
   const app = await buildApp(deps);
@@ -404,13 +404,13 @@ describe('the client’s own routes', () => {
     expect(res.json().error.code).toBe('CLIENT_LINK_ENDED');
   });
 
-  it('Resend: the old link stops working, the new one opens with the device’s session', async () => {
+  it('Resend: the old link stops working and the device is signed out; the new link opens with a new code', async () => {
     const { share, link } = await shareP1(f);
     const { cookie } = await signInOverHttp(f, link);
     await f.app.inject({ method: 'POST', url: `/api/v1/projects/p1/client-shares/${share.id}/resend`, headers: await bearer(OWNER) });
     const fresh = linkOf(f);
     expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/view', headers: { 'x-client-link': link, cookie } })).statusCode).toBe(404);
-    expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/view', headers: { 'x-client-link': fresh, cookie } })).statusCode).toBe(200);
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/view', headers: { 'x-client-link': fresh, cookie } })).statusCode).toBe(401);
   });
 
   it('signing out clears the cookie and ends the session', async () => {
@@ -448,6 +448,18 @@ describe('the client’s own routes', () => {
     const tryCode = () => limited.app.inject({ method: 'POST', url: '/api/v1/client/verify', headers: { 'x-client-link': link }, payload: { email: 'x@y.example', code: '123456' } });
     for (let i = 0; i < 10; i++) expect((await tryCode()).statusCode).toBe(401);
     expect((await tryCode()).statusCode).toBe(429);
+  });
+
+  it('limits minutes PDFs per signed-in device (10 a minute)', async () => {
+    const limited = await makeFixture({ pdfLimit: 10 });
+    const { link } = await shareP1(limited);
+    const { cookie } = await signInOverHttp(limited, link);
+    const pdf = () => limited.app.inject({ method: 'GET', url: '/api/v1/client/minutes/m1/pdf', headers: { 'x-client-link': link, cookie } });
+    for (let i = 0; i < 10; i++) expect((await pdf()).statusCode).toBe(404);
+    expect((await pdf()).statusCode).toBe(429);
+    // Another device (another session cookie) has its own allowance: it gets its own answer, not 429.
+    const other = `${cookie.split('=')[0]}=${'B'.repeat(43)}`;
+    expect((await limited.app.inject({ method: 'GET', url: '/api/v1/client/minutes/m1/pdf', headers: { 'x-client-link': link, cookie: other } })).statusCode).toBe(401);
   });
 
   it('without the Secure flag only when the server is told so (plain http on a development machine)', async () => {
