@@ -40,6 +40,8 @@ const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'M
 const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
 const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
+// A client's read-only page for one shared project (no staff sign-in, no app shell).
+const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientViewPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
@@ -85,6 +87,8 @@ export function App() {
         {/* Public: linked from sign-in and the phone app (store listing needs a privacy policy address). */}
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
+        {/* A shared client follows one project: outside the staff sign-in and the app shell. */}
+        <Route path="/client/:token" element={<ClientViewPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
             <Route path="/dashboard" element={<DashboardPage />} />
