@@ -22,6 +22,10 @@ import {
   passwordChangedEmail,
   accountLockedEmail,
   genericNotificationEmail,
+  clientInvitationEmail,
+  clientCodeEmail,
+  type ClientInvitationParams,
+  type ClientCodeParams,
   type EmailContent,
   type TemplateOptions,
   type LoginCodeOptions,
@@ -189,6 +193,13 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
       deliver('meeting-cancelled', email, meetingCancelledEmail(params, opts), { attachments: [ics] }),
     sendMeetingMinutes: (email: string, params: MeetingEmailParams, pdf: EmailAttachment, opts?: TemplateOptions) =>
       deliver('meeting-minutes', email, meetingMinutesEmail(params, opts), { attachments: [pdf] }),
+
+    // Client view — a client following one project. The invitation is skipped for a blocked address
+    // ('suppressed'); the code is sign-in mail, never dropped because of an old bounce.
+    sendClientInvitation: (email: string, params: ClientInvitationParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
+      deliverResult('client-invitation', email, clientInvitationEmail(params, opts)),
+    sendClientCode: (email: string, params: ClientCodeParams, opts?: TemplateOptions) =>
+      deliver('client-code', email, clientCodeEmail(params, opts), { essential: true }),
   };
 }
 

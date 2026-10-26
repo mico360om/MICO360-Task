@@ -67,6 +67,8 @@ export interface EmailModel {
   identity?: EmailIdentity;
   /** A short note at the right of the header (today's date); hidden on phones. */
   headerNote?: string;
+  /** Why the email was sent, in the footer, when it isn't "you have an account" (a shared client). */
+  reason?: string;
 }
 
 /** Up to two initials: "Falcon CRM" → "FC", "Falcon" → "FA". */
@@ -294,6 +296,8 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
 
   const blocksHtml = model.blocks.map((b) => renderBlockHtml(b, brand, locale)).join('\n');
   const year = new Date().getFullYear();
+  const reasonText = model.reason ?? t(locale, 'reasonAccount', { product: brand.productName });
+  const reasonHtml = model.reason !== undefined ? escapeHtml(model.reason) : reasonText;
 
   const html = `<!DOCTYPE html>
 <html lang="${locale}" dir="${dir}" xmlns="http://www.w3.org/1999/xhtml">
@@ -363,7 +367,7 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
           &nbsp;·&nbsp; <a href="mailto:${escapeHtml(brand.supportEmail)}" style="color:${c.footerInk};text-decoration:underline">${t(locale, 'contactSupport')}</a>
           &nbsp;·&nbsp; <a href="${safeHref(brand.websiteUrl)}" style="color:${c.footerInk};text-decoration:underline">${t(locale, 'visitWebsite')}</a>
         </p>
-        <p class="email-footer-ink" style="margin:0 0 6px;font-size:12px;line-height:1.5;color:${c.footerInk}">${brand.companyAddress.trim() ? `${escapeHtml(brand.companyAddress.trim().replace(/\.\s*$/, ''))}. ` : ''}${t(locale, 'reasonAccount', { product: brand.productName })} ${t(locale, 'automatedNotice')}</p>
+        <p class="email-footer-ink" style="margin:0 0 6px;font-size:12px;line-height:1.5;color:${c.footerInk}">${brand.companyAddress.trim() ? `${escapeHtml(brand.companyAddress.trim().replace(/\.\s*$/, ''))}. ` : ''}${reasonHtml} ${t(locale, 'automatedNotice')}</p>
         <p class="email-footer-ink" style="margin:0;font-size:11px;line-height:1.5;color:${c.footerInk}">${t(locale, 'disclaimer')} © ${year} ${escapeHtml(brand.companyName)}. ${t(locale, 'rightsReserved')}</p>
       </td></tr>
     </table>
@@ -388,7 +392,7 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
     `${brand.productName} — ${brand.appUrl}`,
     `${t(locale, 'contactSupport')}: ${brand.supportEmail}`,
     brand.companyAddress,
-    t(locale, 'reasonAccount', { product: brand.productName }),
+    reasonText,
     t(locale, 'automatedNotice'),
     `© ${year} ${brand.companyName}. ${t(locale, 'rightsReserved')}`,
   ].join('\n');
