@@ -14,6 +14,28 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Client view: share a read-only page of a project with a client — no account needed. On the
+  project page, its owner, managers and administrators open "Share with client" and add the
+  client's name and email; the client gets a link, and opens it with a one-time code sent to that
+  email (a forwarded link alone doesn't work). Their device stays signed in for 30 days, and access
+  lasts until it's removed; the panel shows when each client last looked, with Resend and Remove.
+- The client sees the project's progress (status, % done, target date and a timeline) and only the
+  tasks, milestones and approved meeting minutes someone has marked "Show to client" — tasks with
+  their status and due date, never who has them, comments, files or chat. Minutes open on the page
+  or as a PDF without anyone's name in it. Before minutes are shown, a preview shows exactly what
+  the client will see, with staff names highlighted; people's names are taken out of next steps,
+  and risks and open issues stay hidden unless you tick them. Tasks you show get a "Visible to
+  client" mark, and the history says when something was shown or hidden.
+
+### Security
+- Client access is separate from staff sign-in: client codes are single-use, expire after 10
+  minutes and allow five tries, requests are rate-limited, and every share, removal, resend,
+  client sign-in and lockout is in the Audit Log. Resend signs the client's devices out and Remove
+  ends access at once. Minutes moved to another project, and tasks moved to another project, stop
+  showing to the first project's client. Emails that carry a private link no longer have their
+  links tracked.
+
 ## [1.15.0] - 2026-10-26
 
 ### New features
