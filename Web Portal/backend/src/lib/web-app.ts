@@ -136,7 +136,8 @@ function applyPageHeaders(req: FastifyRequest, reply: FastifyReply): void {
   reply.header('Content-Security-Policy', webAppCsp(req.headers.host));
   reply.header('X-Frame-Options', 'DENY');
   reply.header('X-Content-Type-Options', 'nosniff');
-  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // A client page's address carries its private link: never send it on as a referrer.
+  reply.header('Referrer-Policy', req.url.startsWith('/client/') ? 'no-referrer' : 'strict-origin-when-cross-origin');
   reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
 }
 

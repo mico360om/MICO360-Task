@@ -4,6 +4,7 @@ import { clientShareStoreContract } from '../../src/modules/client-view/client-s
 import { createPrismaClientShareStore } from '../../src/modules/client-view/prisma-client-share-store';
 import { createPrismaClientViewSource } from '../../src/modules/client-view/client-view-source';
 import { createPrismaFinalMinutesRepository } from '../../src/modules/meetings/final-minutes-repository';
+import { createPrismaClientFlags } from '../../src/modules/client-view/prisma-client-flags';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. Only this file's projects
 // (codes CVA, CVB) and its person (cv-owner@mico360.test) are made and removed.
@@ -133,6 +134,45 @@ describe('client view in the database', () => {
     expect((await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: m.id } })).clientVisible).toBe(false);
     await repo.save(m.id, { content, status: 'APPROVED', approvedById: ownerId, approvedAt: new Date() });
     expect((await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: m.id } })).clientVisible).toBe(false);
+  });
+
+  it('the task switch: only live tasks of live projects, and it says what the flag was', async () => {
+    const flags = createPrismaClientFlags(prisma, async (id) => ({ id }) as never);
+    const t = await task(a.id, a.todo, 'Pour the foundation');
+    const gone = await task(a.id, a.todo, 'Deleted', { deletedAt: new Date() });
+    expect(await flags.tasks.projectOf(t.id)).toBe(a.id);
+    expect(await flags.tasks.projectOf(gone.id)).toBeNull();
+    expect(await flags.tasks.projectOf('nope')).toBeNull();
+    expect(await flags.tasks.setClientVisible(t.id, true)).toEqual({ before: false, task: { id: t.id } });
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).clientVisible).toBe(true);
+    expect((await flags.tasks.setClientVisible(t.id, true)).before).toBe(true);
+    await prisma.project.update({ where: { id: a.id }, data: { deletedAt: new Date() } });
+    expect(await flags.tasks.projectOf(t.id)).toBeNull();
+  });
+
+  it('the minutes switch: on only while approved; a standalone meeting has no project; a deleted one is gone', async () => {
+    const flags = createPrismaClientFlags(prisma, async () => ({}) as never);
+    const content = JSON.stringify({ summary: 'S', discussion: [], decisions: [], risks: [], nextSteps: [] });
+    const mk = (projectId: string | null, extra: Record<string, unknown> = {}) =>
+      prisma.meeting.create({ data: { title: 'M', projectId, organizerId: ownerId, createdById: ownerId, startAt: new Date(), ...extra } });
+    const approved = await mk(a.id);
+    const draft = await mk(a.id);
+    const none = await mk(a.id);
+    const alone = await mk(null);
+    const deleted = await mk(a.id, { deletedAt: new Date() });
+    await prisma.meetingMinutes.createMany({ data: [{ meetingId: approved.id, content, status: 'APPROVED' }, { meetingId: draft.id, content, status: 'DRAFT' }] });
+    expect(await flags.minutes.projectOf(approved.id)).toBe(a.id);
+    expect(await flags.minutes.projectOf(alone.id)).toBeNull();
+    expect(await flags.minutes.projectOf(deleted.id)).toBeUndefined();
+    expect(await flags.minutes.state(none.id)).toBeNull();
+    expect(await flags.minutes.state(draft.id)).toEqual({ approved: false, clientVisible: false });
+    expect(await flags.minutes.set(draft.id, true)).toBe(false);
+    expect(await flags.minutes.state(draft.id)).toEqual({ approved: false, clientVisible: false });
+    expect(await flags.minutes.set(none.id, true)).toBe(false);
+    expect(await flags.minutes.set(approved.id, true)).toBe(true);
+    expect(await flags.minutes.state(approved.id)).toEqual({ approved: true, clientVisible: true });
+    expect(await flags.minutes.set(approved.id, false)).toBe(true);
+    expect(await flags.minutes.set(none.id, false)).toBe(true); // nothing to hide
   });
 
   it('a project marked deleted reads as gone', async () => {
