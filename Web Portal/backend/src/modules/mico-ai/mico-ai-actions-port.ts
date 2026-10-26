@@ -1,4 +1,5 @@
-import type { PrismaClient } from '@prisma/client';
+import { createHash } from 'node:crypto';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { ForbiddenError } from '../../lib/http-errors';
 import { dueDayKey } from '../../lib/due-date';
 import { actingVia } from '../../lib/acting-via';
@@ -20,14 +21,17 @@ import type { Priority } from './mico-ai-actions-types';
  * services, checks, notifications and live updates as the website's own routes (POST /tasks, PUT
  * /tasks/:id, the assignee routes, POST /meetings with its people and agenda, the invitations, the
  * final minutes). Every write checks again that the person may make it, so MICO AI can never do
- * what they couldn't do in the app. One exception, for Undo only: a task MICO AI created on this
- * card may be removed by the person who created it (nobody else has touched it — the engine checks
- * that first), although removing tasks is otherwise for admins and project managers.
+ * what they couldn't do in the app.
+ *
+ * There is no plain delete here. The one removal is Undo's: a task MICO AI created on the person's
+ * own card, by its creator, in one guarded write that only goes through while nothing about it —
+ * version, history, tags, watchers, blockers, people — has changed since (removing tasks is
+ * otherwise for admins and project managers).
  */
 export interface MicoAiActionsPortDeps {
   prisma: PrismaClient;
   timeZone: string;
-  taskService: Pick<TaskService, 'createTask' | 'updateTask' | 'deleteTask'>;
+  taskService: Pick<TaskService, 'createTask' | 'updateTask' | 'getTask'>;
   assigneeService: Pick<AssigneeService, 'assertAssignable' | 'eligibleAssignees' | 'assignUsers' | 'unassignUser' | 'notifyAssigned' | 'listAssignees'>;
   projectAccess: {
     canViewTask(userId: string, roles: string[], taskId: string): Promise<boolean>;
@@ -40,7 +44,7 @@ export interface MicoAiActionsPortDeps {
   finalMinutes: FinalMinutesRepository;
   /** The meeting's facts for the final minutes' AI draft (as the meeting page's "Draft with AI" reads them). */
   minutesFacts: (viewer: Viewer, meetingId: string) => Promise<string>;
-  draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }) => Promise<unknown>;
+  draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }, opts?: { signal?: AbortSignal }) => Promise<unknown>;
   onFinalMinutesChanged?: (meetingId: string) => void;
   workingDays: () => Promise<number[]>;
   isActiveUser: (userId: string) => Promise<boolean>;
@@ -54,6 +58,8 @@ const NO_PROJECT = 'You do not have access to this project.';
 const NO_TASK = 'You do not have permission to do that.';
 const NO_MEETING = 'Only the organizer, the project manager or an admin can change this meeting.';
 const day = (key: string | null | undefined) => (key ? new Date(`${key}T00:00:00.000Z`) : null);
+const nameOf = (u: { firstName: string; lastName: string; username: string } | null | undefined) => (u ? [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username : 'Someone');
+const isConflict = (err: unknown) => (err as { status?: unknown })?.status === 409 || (err as { code?: unknown })?.code === 'VERSION_CONFLICT';
 
 export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWritePort {
   const { prisma, timeZone, taskService, assigneeService, projectAccess, meetingService, meetingNotify, finalMinutes } = deps;
@@ -62,6 +68,14 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
       deps.logger?.error(msg, { err, ...meta });
     } catch {
       // Logging must never be what fails.
+    }
+  };
+  /** A live update is best effort: it never undoes or fails the change it follows. */
+  const announce = (projectId: string, event: string, payload: unknown) => {
+    try {
+      deps.broadcast(projectId, event, payload);
+    } catch (err) {
+      log('MICO AI: a live update failed', err, { event });
     }
   };
 
@@ -88,17 +102,16 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
         priority: true,
         dueDate: true,
         version: true,
+        createdById: true,
         project: { select: { name: true } },
         column: { select: { name: true, category: true } },
         assignees: { select: { userId: true } },
+        _count: { select: { activities: true, tags: true, watchers: true, dependencies: true, dependedOnBy: true } },
       },
     });
     if (!t) return null;
-    const [activity, last] = await Promise.all([
-      prisma.activity.count({ where: { taskId } }),
-      prisma.activity.findFirst({ where: { taskId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { user: { select: { firstName: true, lastName: true, username: true } } } }),
-    ]);
-    const who = last?.user ? [last.user.firstName, last.user.lastName].filter(Boolean).join(' ').trim() || last.user.username : null;
+    // A repeating task's next copy points back at it (deleted copies count: the copy was made).
+    const next = await prisma.task.findFirst({ where: { recurrenceSourceId: taskId }, select: { key: true } });
     return {
       id: t.id,
       key: t.key,
@@ -112,20 +125,40 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
       due: dueDayKey(t.dueDate, timeZone),
       assigneeIds: t.assignees.map((a) => a.userId).sort(),
       version: t.version,
-      activity,
-      lastActor: who,
+      activity: t._count.activities,
+      tags: t._count.tags,
+      watchers: t._count.watchers,
+      links: t._count.dependencies + t._count.dependedOnBy,
+      createdById: t.createdById,
+      nextCopyKey: next?.key ?? null,
     };
   }
 
   async function meetingStamp(meetingId: string): Promise<ActionMeetingStamp | null> {
     const m = await prisma.meeting.findFirst({
       where: { id: meetingId, deletedAt: null },
-      select: { id: true, title: true, startAt: true, status: true, invitesSentAt: true, updatedAt: true, attendees: { select: { id: true } }, agendaItems: { select: { id: true } } },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        location: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        invitesSentAt: true,
+        updatedAt: true,
+        attendees: { select: { id: true, userId: true, externalEmail: true, role: true }, orderBy: { id: 'asc' } },
+        agendaItems: { select: { id: true, title: true, ownerId: true, expectedMinutes: true, position: true, completed: true }, orderBy: { id: 'asc' } },
+        notes: { select: { id: true, body: true, type: true, highlighted: true, editedAt: true, deletedAt: true }, orderBy: { id: 'asc' } },
+        actionItems: { select: { id: true, description: true, status: true, assigneeId: true, dueDate: true, updatedAt: true }, orderBy: { id: 'asc' } },
+        decisions: { select: { id: true, title: true, status: true, updatedAt: true }, orderBy: { id: 'asc' } },
+      },
     });
     if (!m) return null;
-    // Anything about the meeting, its people or its agenda changing changes the stamp.
-    const ids = (rows: Array<{ id: string }>) => rows.map((r) => r.id).sort().join(',');
-    return { id: m.id, title: m.title, startAt: m.startAt, status: m.status, invitesSentAt: m.invitesSentAt, stamp: `${m.updatedAt.toISOString()}|${ids(m.attendees)}|${ids(m.agendaItems)}` };
+    // Anything about the meeting, its people, agenda, notes, action items or decisions changing changes the stamp.
+    const { id, title, startAt, status, invitesSentAt, ...rest } = m;
+    const stamp = createHash('sha1').update(JSON.stringify({ title, startAt, status, ...rest })).digest('hex');
+    return { id, title, startAt, status, invitesSentAt, stamp };
   }
 
   const changedMinutes = (meetingId: string) => {
@@ -138,6 +171,16 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
 
   return {
     taskState,
+    async changedBy(taskId, after) {
+      const rows = await prisma.activity.findMany({
+        where: { taskId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        skip: Math.max(0, after),
+        take: 200,
+        select: { userId: true, meta: true, user: { select: { firstName: true, lastName: true, username: true } } },
+      });
+      return rows.reverse().map((r) => ({ userId: r.userId, name: nameOf(r.user), via: (r.meta as { via?: unknown } | null)?.via === 'mico-ai' }));
+    },
     async columns(projectId) {
       return prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, name: true, category: true, position: true, enabled: true }, orderBy: { position: 'asc' } });
     },
@@ -152,13 +195,14 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
     minutes: (meetingId) => finalMinutes.get(meetingId),
     workingDays: () => deps.workingDays(),
 
-    async draftMinutes(viewer, meetingId) {
+    async draftMinutes(viewer, meetingId, signal) {
       await mayChangeMeeting(viewer, meetingId);
       const facts = await deps.minutesFacts(viewer, meetingId);
-      return normalizeFinalMinutes(await deps.draftMinutesWithAi(facts, { userId: viewer.userId, roles: viewer.roles }));
+      return normalizeFinalMinutes(await deps.draftMinutesWithAi(facts, { userId: viewer.userId, roles: viewer.roles }, { signal }));
     },
 
     // As POST /tasks: the project must be one of the person's; the people must be its active members.
+    // The task and its people are one write; telling them (announceTask) comes after.
     async createTask(viewer, input) {
       if (!(await canUseProject(viewer, input.projectId))) throw new ForbiddenError(NO_PROJECT);
       const assignees = await assigneeService.assertAssignable(input.projectId, input.assigneeIds);
@@ -173,21 +217,33 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
         tagNames: [],
         assigneeIds: assignees,
       });
-      if (assignees.length) await assigneeService.notifyAssigned(created.id, assignees, viewer.userId);
-      deps.broadcast(created.projectId, 'task:created', created);
       return (await taskState(created.id))!;
     },
+    async announceTask(viewer, taskId, assigneeIds) {
+      if (assigneeIds.length) await assigneeService.notifyAssigned(taskId, assigneeIds, viewer.userId);
+      const task = await taskService.getTask(taskId);
+      announce(task.projectId, 'task:created', task);
+    },
 
-    // As PUT /tasks/:id: someone who can see the task, from the version they saw.
+    // As PUT /tasks/:id: someone who can see the task, from the version they saw. Once the edit is
+    // saved, a step after it that fails (a notice, the next copy of a repeating task) is a warning.
     async updateTask(viewer, taskId, change, expectedVersion) {
       await mayChangeTask(viewer, taskId);
       const patch: Parameters<TaskService['updateTask']>[1] = {};
       if (change.due !== undefined) patch.dueDate = day(change.due);
       if (change.priority !== undefined) patch.priority = change.priority;
       if (change.columnId !== undefined) patch.columnId = change.columnId;
-      const task = await taskService.updateTask(taskId, patch, expectedVersion, 'one', viewer.userId);
-      deps.broadcast(task.projectId, 'task:updated', task);
-      return (await taskState(taskId))!;
+      let warning: string | null = null;
+      try {
+        const task = await taskService.updateTask(taskId, patch, expectedVersion, 'one', viewer.userId);
+        announce(task.projectId, 'task:updated', task);
+      } catch (err) {
+        const now0 = isConflict(err) ? null : await taskState(taskId);
+        if (!now0 || now0.version !== expectedVersion + 1) throw err;
+        log('MICO AI: a step after a task change failed', err, { taskId });
+        warning = 'The change was saved, but a follow-up step (such as the usual notices) failed.';
+      }
+      return { state: (await taskState(taskId))!, warning };
     },
 
     // As the assignee routes: the people added must be the project's active members.
@@ -196,15 +252,27 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
       if (add.length) await assigneeService.assignUsers(taskId, add, viewer.userId);
       for (const userId of remove) await assigneeService.unassignUser(taskId, userId, viewer.userId);
       const t = await prisma.task.findFirst({ where: { id: taskId }, select: { projectId: true } });
-      if (t) deps.broadcast(t.projectId, 'task:assignees', { taskId, assignees: await assigneeService.listAssignees(taskId) });
+      if (t) announce(t.projectId, 'task:assignees', { taskId, assignees: await assigneeService.listAssignees(taskId) });
     },
 
-    // Undo only (see above): the task this card created, untouched since.
-    async deleteTask(viewer, taskId) {
-      await mayChangeTask(viewer, taskId);
-      const t = await prisma.task.findFirst({ where: { id: taskId }, select: { projectId: true } });
-      await taskService.deleteTask(taskId, 'one');
-      if (t) deps.broadcast(t.projectId, 'task:deleted', { id: taskId });
+    // Undo only: its creator, the person; one statement that removes it only while it is exactly as
+    // Undo last saw it — a tag, a watcher, a blocker, a history line or an edit since keeps it.
+    async deleteCreatedTask(viewer, taskId, touch) {
+      if (!(await projectAccess.canViewTask(viewer.userId, viewer.roles, taskId))) return false;
+      const people = touch.assigneeIds.length ? touch.assigneeIds : ['\u0000'];
+      const removed = await prisma.$executeRaw`
+        UPDATE tasks SET deletedAt = ${new Date()}
+        WHERE id = ${taskId} AND createdById = ${viewer.userId} AND deletedAt IS NULL AND version = ${touch.version}
+          AND (SELECT COUNT(*) FROM task_activity WHERE taskId = ${taskId}) = ${touch.activity}
+          AND (SELECT COUNT(*) FROM task_tags WHERE taskId = ${taskId}) = ${touch.tags}
+          AND (SELECT COUNT(*) FROM task_watchers WHERE taskId = ${taskId}) = ${touch.watchers}
+          AND (SELECT COUNT(*) FROM task_dependencies WHERE taskId = ${taskId} OR dependsOnTaskId = ${taskId}) = ${touch.links}
+          AND (SELECT COUNT(*) FROM task_assignees WHERE taskId = ${taskId}) = ${touch.assigneeIds.length}
+          AND (SELECT COUNT(*) FROM task_assignees WHERE taskId = ${taskId} AND userId IN (${Prisma.join(people)})) = ${touch.assigneeIds.length}`;
+      if (removed !== 1) return false;
+      const t = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
+      if (t) announce(t.projectId, 'task:deleted', { id: taskId });
+      return true;
     },
 
     // As POST /meetings: the person organizes it; a project meeting needs the project; everyone

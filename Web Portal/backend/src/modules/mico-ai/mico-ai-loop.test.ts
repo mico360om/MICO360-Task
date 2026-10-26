@@ -456,6 +456,26 @@ describe('MICO AI tool loop: proposing changes (they happen only once the person
     expect(out.proposal).toBeUndefined();
   });
 
+  it('the stop signal reaches the checks (a minutes draft in them can be stopped)', async () => {
+    const { d } = deps([proposeReply]);
+    let got: AbortSignal | undefined;
+    d.propose = (async (_c, opts) => {
+      got = opts.signal;
+      return { kind: 'card', card };
+    }) as Propose;
+    const signal = new AbortController().signal;
+    await runTurn(d, input('Make a task', { signal }));
+    expect(got).toBe(signal);
+  });
+
+  it('a malformed reply is asked for again with "propose" among the replies it may give (when it can propose)', async () => {
+    const { d, model } = deps(['{"action":"propose","text":"x","changes":"oops"}', proposeReply]);
+    d.propose = (async () => ({ kind: 'card', card })) as Propose;
+    const out = await runTurn(d, input('Make a task'));
+    expect(out.kind).toBe('proposal');
+    expect(model.prompts[1]!.prompt).toMatch(/a tool, a clarify, an answer or a propose/);
+  });
+
   it('a propose reply with no changes in it is malformed', async () => {
     const { d, model } = deps([{ action: 'propose', text: 'x', changes: [] }, answer({ text: 'ok' })]);
     d.propose = (async () => ({ kind: 'card', card })) as Propose;

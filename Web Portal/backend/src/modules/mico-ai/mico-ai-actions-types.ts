@@ -15,6 +15,8 @@ export const PRIORITIES: readonly Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT
 
 /** At most this many changes on one card. */
 export const MAX_CHANGES = 50;
+/** At most this many minutes drafts on one card (each is an AI call); more are asked for separately. */
+export const MAX_MINUTES_DRAFTS = 3;
 /** How long Undo stays available after Confirm. */
 export const UNDO_WINDOW_MS = 15 * 60_000;
 
@@ -23,11 +25,24 @@ export interface Named {
   name: string;
 }
 
+/**
+ * Something to put right before a change can go ahead: a part MICO AI's suggestion that couldn't be
+ * read ("no one matches Bilaal") or that the checks refused ("Layla isn't on Rig Inspection"). An edit
+ * to any of `fields` (the edit's own names) clears it — the server then checks the change again;
+ * until then Confirm refuses the change rather than make part of it. No fields: editing can't fix it.
+ */
+export interface ItemNeed {
+  fields: string[];
+  message: string;
+}
+
 interface ItemBase {
   /** c1, c2 … within the card. */
   id: string;
   type: ChangeType;
-  /** Something to put right first (by editing it): the change starts unticked. */
+  /** What has to be put right first (the change can't be ticked until each is edited). */
+  needs: ItemNeed[];
+  /** In words: the needs' messages, or why a locked change can't go ahead. */
   problem: string | null;
   /** It can't go ahead at all (no permission, nothing to change): no tick box. */
   locked: boolean;
@@ -67,8 +82,8 @@ export interface TaskChangeFields {
 export interface UpdateTaskItem extends ItemBase {
   type: 'update_task';
   task: { id: string; key: string; title: string; projectId: string; project: string; url: string };
-  /** The task as it was when proposed: Confirm refuses if it changed since. */
-  base: { version: number; assigneeIds: string[] };
+  /** The task as it was when proposed: Confirm refuses if it changed since (its version, people or history). */
+  base: { version: number; assigneeIds: string[]; activity: number };
   /** Its fields before the change (each changed field, shown "before → after"). */
   before: { due: string | null; priority: Priority; columnId: string; column: string; assignees: Named[] };
   /** Only the fields that change. */
@@ -113,18 +128,31 @@ export interface ProposalDraft {
   note: string | null;
 }
 
+/**
+ * Everything about a task that says whether anyone touched it: its version (any edit), its history
+ * lines (moves, comments, files, checklist, people), its tags, watchers and blockers, and its people.
+ */
+export interface TaskTouch {
+  version: number;
+  activity: number;
+  tags: number;
+  watchers: number;
+  links: number;
+  assigneeIds: string[];
+}
+
 /** What Undo needs to put a change back (kept on the server only). */
 export type UndoData =
-  | { kind: 'task-created'; taskId: string; projectId: string; version: number; activity: number; assigneeIds: string[] }
+  | { kind: 'task-created'; taskId: string; projectId: string; touch: TaskTouch }
   | {
       kind: 'task-updated';
       taskId: string;
       projectId: string;
-      version: number;
-      activity: number;
-      assigneeIds: string[];
+      touch: TaskTouch;
       /** The changed fields as they were before. */
       before: TaskChangeFields;
+      /** The next copy a repeating task made when this change completed it (it stays on Undo). */
+      nextCopy?: string | null;
     }
   | { kind: 'meeting-created'; meetingId: string; stamp: string; invited: boolean }
   | {
@@ -134,7 +162,8 @@ export type UndoData =
       previous: { content: FinalMinutesContent; status: 'DRAFT' | 'APPROVED'; approvedById: string | null; approvedAt: string | null } | null;
     };
 
-export type ResultStatus = 'done' | 'refused' | 'failed' | 'skipped';
+/** 'started': being made right now (a confirm cut off part-way reads "may have been made — check it"). */
+export type ResultStatus = 'done' | 'refused' | 'failed' | 'skipped' | 'started';
 export interface ItemResult {
   status: ResultStatus;
   message: string | null;
@@ -144,11 +173,15 @@ export interface ItemResult {
 }
 
 export interface ItemUndo {
-  status: 'undone' | 'refused' | 'failed';
+  /** 'started': being put back right now. */
+  status: 'undone' | 'refused' | 'failed' | 'started';
   message: string | null;
+  /** What the change made no longer exists (a new task or meeting Undo deleted): nothing to open. */
+  gone?: boolean;
 }
 
-export type ProposalStatus = 'PROPOSED' | 'CONFIRMING' | 'DONE' | 'CANCELLED' | 'UNDOING' | 'UNDONE';
+/** SUPERSEDED: the person asked the same again (Retry), so this unconfirmed card was replaced. */
+export type ProposalStatus = 'PROPOSED' | 'CONFIRMING' | 'DONE' | 'CANCELLED' | 'UNDOING' | 'UNDONE' | 'SUPERSEDED';
 
 /** A card as stored with its answer. */
 export interface ProposalRecord {
@@ -181,7 +214,7 @@ export interface ItemChoice {
 /** A card as the page shows it. */
 export interface ProposalView {
   id: string;
-  status: 'proposed' | 'confirming' | 'done' | 'cancelled' | 'undoing' | 'undone';
+  status: 'proposed' | 'confirming' | 'done' | 'cancelled' | 'undoing' | 'undone' | 'superseded';
   note: string | null;
   sendInvites: boolean;
   /** The card schedules a meeting (so "Email the invitations" applies). */
@@ -191,6 +224,8 @@ export interface ProposalView {
   undoUntil: string | null;
   /** Undo is open: confirmed, within 15 minutes, and something was done. */
   canUndo: boolean;
+  /** The server's clock when this was read (ISO), so a countdown isn't thrown off by the device's clock. */
+  serverNow: string;
 }
 
 /** What the checks made of a "propose" reply. */

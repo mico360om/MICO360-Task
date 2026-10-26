@@ -20,14 +20,25 @@ export interface FakeWorld {
   calls: string[];
   audits: Array<Record<string, unknown>>;
   invites: string[];
-  /** A colleague changes a task (its version and history move on). */
-  touchTask(taskId: string, by?: string, change?: Partial<{ due: string | null; priority: Priority }>): void;
+  /** Someone changes a task (its version and history move on); `via`: through MICO AI. */
+  touchTask(taskId: string, by?: string, change?: Partial<{ due: string | null; priority: Priority }>, via?: boolean): void;
+  /** Someone tags a task (no history line, no new version). */
+  tagTask(taskId: string): void;
+  /** A task is deleted by someone (an admin, by hand). */
+  deleteTask(taskId: string): void;
+  /** Make a task repeat: completing it makes its next copy. */
+  repeating(taskId: string): void;
   touchMeeting(meetingId: string): void;
   minutes: Map<string, FinalMinutesRecord>;
-  /** The next write of this kind throws (a database hiccup). */
-  failNext(what: 'createTask' | 'updateTask' | 'createMeeting' | 'sendInvites'): void;
+  /** The next write of this kind throws (a database hiccup); `updateTaskEffects`: after the write landed. */
+  failNext(what: 'createTask' | 'announceTask' | 'updateTask' | 'updateTaskEffects' | 'setAssignees' | 'createMeeting' | 'sendInvites'): void;
   /** The AI's draft of the final minutes (default: a short draft from the meeting's notes). */
   draft: (meetingId: string) => FinalMinutesContent;
+  /** How long each minutes draft takes (ms), and the most drafts at once seen so far. */
+  draftDelayMs: number;
+  maxDraftsAtOnce: number;
+  /** The stop signals the drafts were given. */
+  draftSignals: Array<AbortSignal | undefined>;
 }
 
 const DAY = (key: string) => new Date(`${key}T00:00:00.000Z`);
@@ -50,11 +61,35 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
   let via = false;
   let failing: string | null = null;
   let counter = 100;
-  const meta = new Map<string, { version: number; activity: number; lastActor: string | null; deleted: boolean }>();
-  const metaOf = (id: string) => {
-    if (!meta.has(id)) meta.set(id, { version: 3, activity: 2, lastActor: 'u-admin', deleted: false });
+  interface Meta {
+    version: number;
+    /** The task's history lines (who, and whether through MICO AI). */
+    history: Array<{ userId: string; via: boolean }>;
+    deleted: boolean;
+    createdById: string;
+    tags: number;
+    watchers: number;
+    links: number;
+    repeats: boolean;
+    nextCopyKey: string | null;
+  }
+  const meta = new Map<string, Meta>();
+  const metaOf = (id: string): Meta => {
+    if (!meta.has(id))
+      meta.set(id, {
+        version: 3,
+        history: [{ userId: 'u-admin', via: false }, { userId: 'u-admin', via: false }],
+        deleted: false,
+        createdById: 'u-admin',
+        tags: 0,
+        watchers: 0,
+        links: 0,
+        repeats: false,
+        nextCopyKey: null,
+      });
     return meta.get(id)!;
   };
+  let draftsInFlight = 0;
   const stamps = new Map<string, number>();
   const minutes = new Map<string, FinalMinutesRecord>();
   for (const m of data.meetings ?? []) {
@@ -99,8 +134,12 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
       due: dayOf(t.dueDate),
       assigneeIds: [...t.assigneeIds],
       version: m.version,
-      activity: m.activity,
-      lastActor: nameOf(m.lastActor),
+      activity: m.history.length,
+      tags: m.tags,
+      watchers: m.watchers,
+      links: m.links,
+      createdById: m.createdById,
+      nextCopyKey: m.nextCopyKey,
     };
   };
   const meetingOf = (id: string) => (data.meetings ?? []).find((m) => m.id === id && m.status !== 'DELETED') ?? null;
@@ -112,13 +151,18 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
   const bump = (id: string, actor: string, rows = 1) => {
     const m = metaOf(id);
     m.version++;
-    m.activity += rows;
-    m.lastActor = actor;
+    for (let i = 0; i < rows; i++) m.history.push({ userId: actor, via });
   };
 
   const port: MicoAiWritePort = {
     async taskState(id) {
       return state(id);
+    },
+    async changedBy(taskId, after) {
+      return metaOf(taskId)
+        .history.slice(after)
+        .reverse()
+        .map((h) => ({ userId: h.userId, name: nameOf(h.userId) ?? 'Someone', via: h.via }));
     },
     async columns(projectId) {
       return columnsOf(projectId);
@@ -152,9 +196,23 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
     async workingDays() {
       return [0, 1, 2, 3, 4];
     },
-    async draftMinutes(v, meetingId) {
+    async draftMinutes(v, meetingId, signal) {
       record(`draftMinutes ${meetingId}`);
+      world.draftSignals.push(signal);
       if (!(await read.canEditMeeting(v, meetingId))) throw new Error('not allowed');
+      draftsInFlight++;
+      world.maxDraftsAtOnce = Math.max(world.maxDraftsAtOnce, draftsInFlight);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const t = setTimeout(resolve, world.draftDelayMs);
+          signal?.addEventListener('abort', () => {
+            clearTimeout(t);
+            reject(Object.assign(new Error('The AI call was stopped.'), { name: 'AbortError' }));
+          });
+        });
+      } finally {
+        draftsInFlight--;
+      }
       return world.draft(meetingId);
     },
     async createTask(v, input) {
@@ -169,9 +227,15 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
         priority: input.priority, startDate: null, dueDate: input.due ? DAY(input.due) : null, completedAt: null, createdAt: NOW, updatedAt: NOW,
         progress: 0, isMilestone: false, assigneeIds: [...input.assigneeIds],
       });
-      meta.set(id, { version: 1, activity: 1 + input.assigneeIds.length, lastActor: v.userId, deleted: false });
+      meta.set(id, { version: 1, history: [{ userId: v.userId, via }], deleted: false, createdById: v.userId, tags: 0, watchers: 0, links: 0, repeats: false, nextCopyKey: null });
       record(`createTask ${p.code}-${n}`);
       return state(id)!;
+    },
+    async announceTask(v, taskId, assigneeIds) {
+      const t = live(taskId)!;
+      record(`announceTask ${t.key}`);
+      fail('announceTask');
+      for (let i = 0; i < assigneeIds.length; i++) metaOf(taskId).history.push({ userId: v.userId, via });
     },
     async updateTask(v, taskId, change, expectedVersion) {
       fail('updateTask');
@@ -183,25 +247,49 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
       if (change.priority) t.priority = change.priority;
       if (change.columnId) {
         const c = columnsOf(t.projectId).find((x) => x.id === change.columnId)!;
+        const wasDone = t.category === 'DONE';
         t.category = c.category;
         t.columnName = c.name;
         t.completedAt = c.category === 'DONE' ? NOW : null;
+        // A repeating task completed makes its next copy (once).
+        const m = metaOf(taskId);
+        if (m.repeats && c.category === 'DONE' && !wasDone && !m.nextCopyKey) {
+          const copy = await port.createTask(v, { projectId: t.projectId, columnId: `${t.projectId}:todo`, title: t.title, description: '', priority: t.priority as Priority, due: null, assigneeIds: [] });
+          m.nextCopyKey = copy.key;
+        }
       }
       bump(taskId, v.userId);
       record(`updateTask ${t.key}`);
-      return state(taskId)!;
+      if (failing === 'updateTaskEffects') {
+        failing = null;
+        return { state: state(taskId)!, warning: 'The change was saved, but a follow-up step (the usual notices) failed.' };
+      }
+      return { state: state(taskId)!, warning: null };
     },
     async setAssignees(v, taskId, add, remove) {
+      fail('setAssignees');
       const t = live(taskId)!;
       t.assigneeIds = [...t.assigneeIds.filter((id) => !remove.includes(id)), ...add.filter((id) => !t.assigneeIds.includes(id))];
-      const m = metaOf(taskId);
-      m.activity += add.length + remove.length;
-      m.lastActor = v.userId;
+      for (let i = 0; i < add.length + remove.length; i++) metaOf(taskId).history.push({ userId: v.userId, via });
       record(`setAssignees ${t.key} +${add.join(',')} -${remove.join(',')}`);
     },
-    async deleteTask(_v, taskId) {
-      metaOf(taskId).deleted = true;
-      record(`deleteTask ${data.tasks.find((t) => t.id === taskId)?.key}`);
+    // One guarded write: only its creator, only while it is exactly as Undo last saw it.
+    async deleteCreatedTask(v, taskId, touch) {
+      const now0 = state(taskId);
+      const m = metaOf(taskId);
+      const same =
+        !!now0 &&
+        m.createdById === v.userId &&
+        now0.version === touch.version &&
+        now0.activity === touch.activity &&
+        now0.tags === touch.tags &&
+        now0.watchers === touch.watchers &&
+        now0.links === touch.links &&
+        [...now0.assigneeIds].sort().join() === [...touch.assigneeIds].sort().join();
+      if (!same) return false;
+      m.deleted = true;
+      record(`deleteCreatedTask ${data.tasks.find((t) => t.id === taskId)?.key}`);
+      return true;
     },
     async createMeeting(v, input) {
       fail('createMeeting');
@@ -262,11 +350,22 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
     audits,
     invites,
     minutes,
-    touchTask(taskId, by = 'u-omar', change = {}) {
+    touchTask(taskId, by = 'u-omar', change = {}, throughMicoAi = false) {
       const t = data.tasks.find((x) => x.id === taskId)!;
       if (change.due !== undefined) t.dueDate = change.due ? DAY(change.due) : null;
       if (change.priority) t.priority = change.priority;
-      bump(taskId, by);
+      const m = metaOf(taskId);
+      m.version++;
+      m.history.push({ userId: by, via: throughMicoAi });
+    },
+    tagTask(taskId) {
+      metaOf(taskId).tags++;
+    },
+    deleteTask(taskId) {
+      metaOf(taskId).deleted = true;
+    },
+    repeating(taskId) {
+      metaOf(taskId).repeats = true;
     },
     touchMeeting(meetingId) {
       stamps.set(meetingId, (stamps.get(meetingId) ?? 0) + 1);
@@ -274,6 +373,9 @@ export function createFakeWorld(data: MemoryData = company()): FakeWorld {
     failNext(what) {
       failing = what;
     },
+    draftDelayMs: 0,
+    maxDraftsAtOnce: 0,
+    draftSignals: [],
     draft: (meetingId) => ({
       summary: `Draft for ${meetingOf(meetingId)?.title}.`,
       discussion: [{ topic: 'RIG-14', text: 'The pressure test moves to rig 3.' }],

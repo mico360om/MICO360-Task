@@ -370,7 +370,7 @@ export function createAiFeatureService({
    * Draft a meeting's final minutes from its facts (see meetings/final-minutes minutesFacts). The
    * model is told to write only what the facts support. Returns its JSON; the caller checks it.
    */
-  async function draftMinutes(facts: string, requester?: AiRequester): Promise<Record<string, unknown>> {
+  async function draftMinutes(facts: string, requester?: AiRequester, opts: { signal?: AbortSignal } = {}): Promise<Record<string, unknown>> {
     const text = await run(
       [
         'You write the final minutes of a business meeting. Use only the facts given: never invent names, dates, numbers or decisions.',
@@ -384,7 +384,7 @@ export function createAiFeatureService({
       2500,
       requester,
       // A long answer: ~2,500 tokens at ~35 a second, after a cold load, is well over 2 minutes.
-      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS) },
+      { json: true, wait: Math.max(timeoutMs, MINUTES_TIMEOUT_MS), signal: opts.signal },
     );
     const obj = parseJsonObject(text);
     if (Object.keys(obj).length === 0) throw new ValidationError('The AI’s draft couldn’t be read. Try again, or start from the notes.');

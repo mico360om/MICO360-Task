@@ -250,6 +250,20 @@ describe('AiFeatureService: drafting final minutes', () => {
     expect(sent[0]!.max).toBeGreaterThanOrEqual(2000);
   });
 
+  it('a stop signal ends the drafting call (MICO AI’s Stop and time limit reach it)', async () => {
+    let seen: AbortSignal | null | undefined;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      seen = init?.signal;
+      return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+    }) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl });
+    const stop = new AbortController();
+    const out = svc.draftMinutes('Meeting: X', { userId: 'u1' }, { signal: stop.signal });
+    setTimeout(() => stop.abort(), 5);
+    await expect(out).rejects.toBeTruthy();
+    expect(seen?.aborted).toBe(true);
+  });
+
   it('says so when the model’s answer can’t be read as minutes', async () => {
     const svc = serviceWith('Sorry, I cannot help with that.');
     await expect(svc.draftMinutes('Meeting: X', { userId: 'u1' })).rejects.toThrow(/couldn’t be read/i);

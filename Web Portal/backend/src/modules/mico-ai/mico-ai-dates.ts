@@ -47,6 +47,22 @@ export function isCalendarDay(day: string): boolean {
   return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
 }
 
+/**
+ * The company's working week: the day it starts and the day it ends, also when it wraps round the
+ * calendar week (Saturday to Wednesday starts on Saturday). The start is a working day whose day
+ * before isn't one; the end, a working day whose next day isn't one.
+ */
+export function workingWeek(days: number[]): { first: number; last: number } {
+  const on = new Set(days.map((d) => ((d % 7) + 7) % 7));
+  if (on.size === 0 || on.size === 7) return { first: 0, last: 6 };
+  const order = [0, 1, 2, 3, 4, 5, 6];
+  const first = order.find((d) => on.has(d) && !on.has((d + 6) % 7))!;
+  // The end of the run that starts at `first`.
+  let last = first;
+  while (on.has((last + 1) % 7) && (last + 1) % 7 !== first) last = (last + 1) % 7;
+  return { first, last };
+}
+
 /** The next `weekday` strictly after `from` (1 to 7 days on). */
 const nextWeekday = (from: string, weekday: number) => shiftDayKey(from, ((weekday - weekdayOf(from) + 6) % 7) + 1);
 
@@ -59,7 +75,7 @@ export function resolveDay(said: string, ctx: DayContext): DayResolution {
   const unreadable: DayResolution = { problem: raw ? `Couldn’t tell which day “${raw.slice(0, 60)}” is. Pick the date.` : 'Pick the date.' };
   if (!words) return unreadable;
   const { today } = ctx;
-  const working = ctx.workingDays?.length ? [...new Set(ctx.workingDays)].sort((a, b) => a - b) : DEFAULT_WORKING_DAYS;
+  const { first, last } = workingWeek(ctx.workingDays?.length ? ctx.workingDays : DEFAULT_WORKING_DAYS);
 
   let day: string | null = null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(words)) {
@@ -68,12 +84,11 @@ export function resolveDay(said: string, ctx: DayContext): DayResolution {
   } else if (words === 'today') day = today;
   else if (words === 'tomorrow') day = shiftDayKey(today, 1);
   else if (/^(the )?day after tomorrow$/.test(words)) day = shiftDayKey(today, 2);
-  else if (/^(the )?next week$/.test(words)) day = nextWeekday(today, working[0]!);
-  else if (/^(the )?end of (the |this )?week$/.test(words)) {
-    const last = working[working.length - 1]!;
-    day = weekdayOf(today) === last ? today : nextWeekday(today, last);
-  } else {
-    const weekday = /^(this |next |coming )?(sun|mon|tue|wed|thu|fri|sat)[a-z]*$/.exec(words);
+  else if (/^(the )?next week$/.test(words)) day = nextWeekday(today, first);
+  else if (/^(the )?end of (the |this )?week$/.test(words)) day = weekdayOf(today) === last ? today : nextWeekday(today, last);
+  else {
+    // Whole weekday names and their usual short forms only ("monthly" is not Monday).
+    const weekday = /^(this |next |coming )?(sun|mon|tue|wed|thu|fri|sat)(?:day|s|sday|nesday|rs|rsday|urday)?$/.exec(words);
     const ahead = /^(?:in (\w+) (day|week)s?|(\w+) (day|week)s? from (?:now|today))$/.exec(words);
     const plus = /^\+(\d{1,4})\s*(d|w|days?|weeks?)?$/.exec(words);
     if (weekday) {

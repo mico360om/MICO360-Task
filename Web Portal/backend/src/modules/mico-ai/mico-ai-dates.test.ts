@@ -85,4 +85,23 @@ describe('MICO AI dates: the words people use, worked out by the server in compa
   it('labels a day with its weekday, so the card shows which Tuesday it is', () => {
     expect(dayLabel('2026-10-27')).toBe('Tue 27 Oct 2026');
   });
+
+  it('a working week that wraps round (Saturday to Wednesday): next week starts on Saturday, ends on Wednesday', () => {
+    const satWed = [6, 0, 1, 2, 3];
+    expect(resolveDay('next week', { today: '2026-10-29', workingDays: satWed })).toEqual({ day: '2026-10-31' }); // Thu → Sat 31 Oct
+    expect(resolveDay('next week', { today: '2026-10-24', workingDays: satWed })).toEqual({ day: '2026-10-31' }); // a Saturday → the next one
+    expect(resolveDay('end of the week', { today: '2026-10-25', workingDays: satWed })).toEqual({ day: '2026-10-28' }); // Sun → Wed 28 Oct
+    expect(resolveDay('end of week', { today: '2026-10-24', workingDays: satWed })).toEqual({ day: '2026-10-28' }); // Sat → Wed 28 Oct
+    expect(resolveDay('end of week', { today: '2026-10-28', workingDays: satWed })).toEqual({ day: '2026-10-28' }); // Wed itself
+  });
+
+  it('weekday names are whole words: "monthly" is not Monday', () => {
+    expect(resolveDay('monthly', ctx)).toHaveProperty('problem');
+    expect(resolveDay('mondays', ctx)).toHaveProperty('problem');
+    expect(resolveDay('saturn', ctx)).toHaveProperty('problem');
+    expect(resolveDay('monday', ctx)).toEqual({ day: '2026-10-26' });
+    expect(resolveDay('tues', ctx)).toEqual({ day: '2026-10-27' });
+    expect(resolveDay('next thurs', ctx)).toEqual({ day: '2026-10-29' });
+    expect(resolveDay('Wednesday', ctx)).toEqual({ day: '2026-10-28' });
+  });
 });

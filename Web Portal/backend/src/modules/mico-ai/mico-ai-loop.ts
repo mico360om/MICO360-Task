@@ -68,7 +68,7 @@ export interface LoopDeps {
    * Checks proposed changes for the person asking (never carries them out). Absent: MICO AI stays
    * read-only. `final`: the last try, so problems go on the card instead of back to the model.
    */
-  propose?: (changes: Array<Record<string, unknown>>, opts: { final: boolean }) => Promise<ProposeOutcome>;
+  propose?: (changes: Array<Record<string, unknown>>, opts: { final: boolean; signal: AbortSignal }) => Promise<ProposeOutcome>;
 }
 
 /** One earlier message, as the model is shown it. */
@@ -355,6 +355,7 @@ const NOTE_CUT_OFF = 'Your last reply was cut off before it ended. Reply again, 
 const NOTE_MALFORMED = 'Your last reply was not valid JSON in the required format. Reply again with ONLY one JSON object: a tool, a clarify or an answer.';
 const READ_ONLY = 'MICO AI can’t make changes here. It can answer questions about your tasks, projects, meetings, reports and chat.';
 const NOTE_READ_ONLY = 'You can’t make changes here: MICO AI is read-only. Reply with an answer saying so, and offer what you can show instead.';
+const NOTE_MALFORMED_PROPOSE = 'Your last reply was not valid JSON in the required format. Reply again with ONLY one JSON object: a tool, a clarify, an answer or a propose (with "changes" as a list of change objects).';
 const NOTE_UNGROUNDED =
   'Your answer has figures, but no tool has given you any data yet. Run a tool to get the data first, or say clearly that it isn’t available. Never estimate.';
 
@@ -439,7 +440,7 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
     if (!action || (action.action === 'tool' && finalOnly)) {
       if (corrected) throw new MicoAiError(action ? UNFINISHED : MALFORMED);
       corrected = true;
-      note = action ? 'No more tools: reply now with an answer from what you have.' : looksCutOff(raw) ? NOTE_CUT_OFF : NOTE_MALFORMED;
+      note = action ? 'No more tools: reply now with an answer from what you have.' : looksCutOff(raw) ? NOTE_CUT_OFF : deps.propose ? NOTE_MALFORMED_PROPOSE : NOTE_MALFORMED;
       continue;
     }
     corrected = false;
@@ -468,7 +469,7 @@ export async function runTurn(deps: LoopDeps, input: TurnInput): Promise<Assista
       }
       await deps.onStep?.('Checking the changes…');
       stopped();
-      const outcome = await deps.propose(action.changes, { final: proposeRetried || finalOnly });
+      const outcome = await deps.propose(action.changes, { final: proposeRetried || finalOnly, signal: input.signal });
       stopped();
       if (outcome.kind === 'retry') {
         proposeRetried = true;

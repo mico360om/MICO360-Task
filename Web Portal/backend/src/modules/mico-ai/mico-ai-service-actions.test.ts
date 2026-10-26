@@ -177,7 +177,97 @@ describe('MICO AI service: Confirm', () => {
     expect(view.items.map((x) => x.result?.status)).toEqual(['done', 'failed']);
     expect(view.items[1]!.result!.message).toMatch(/interrupted/);
   });
+
+  it('a change cut off part-way (started, not known to be done) reads “may have been made — check it”, with its link', async () => {
+    const s = setup([twoTasks]);
+    const { chatId, messageId } = await asked(s);
+    const p = s.repo.proposals[0]!;
+    await s.repo.moveProposal(p.id, ['PROPOSED'], 'CONFIRMING');
+    await s.repo.updateProposal(p.id, { results: { c1: { status: 'started', message: null, link: { label: 'RIG-9', url: '?task=t9' } } } });
+    s.repo.proposals[0]!.updatedAt = new Date(NOW.getTime() - 10 * 60_000);
+    const view = card(await s.svc.getMessage(OMAR, chatId, messageId));
+    expect(view.items[0]!.result).toEqual({ status: 'failed', message: 'This may have been made — check it.', link: { label: 'RIG-9', url: '?task=t9' } });
+    expect(view.items[1]!.result).toEqual({ status: 'failed', message: 'This wasn’t made: the confirm was interrupted before it got here.', link: null });
+  });
+
+  it('the card carries the server’s clock, so the page’s Undo countdown doesn’t depend on the device’s', async () => {
+    const s = setup([twoTasks]);
+    const { message } = await asked(s);
+    expect(card(message).serverNow).toBe(NOW.toISOString());
+  });
 });
+
+describe('MICO AI service: asking again (Retry) never leaves two live cards', () => {
+  it('Retry supersedes the unconfirmed card it replaces: only the new one can be confirmed', async () => {
+    const s = setup([twoTasks, twoTasks]);
+    const { chatId, messageId: first } = await asked(s);
+    const { answer } = await s.svc.ask(OMAR, chatId, 'Make tasks for the failed items', { ip: null, retryOf: first });
+    await s.svc.whenDone(answer.id);
+    expect(card(await s.svc.getMessage(OMAR, chatId, first)).status).toBe('superseded');
+    expect(card(await s.svc.confirm(OMAR, chatId, first, { items: [{ id: 'c1', include: true }, { id: 'c2', include: true }] }, { ip: null })).status).toBe('superseded');
+    expect(s.world.calls).toEqual([]);
+    expect(card(await s.svc.confirm(OMAR, chatId, answer.id, { items: [{ id: 'c1', include: true }, { id: 'c2', include: true }] }, { ip: null })).status).toBe('done');
+    expect(s.world.calls.filter((c) => c.startsWith('createTask'))).toHaveLength(2);
+  });
+
+  it('the same question asked again (without Retry) supersedes the unconfirmed card too; a confirmed card is left alone', async () => {
+    const s = setup([twoTasks, twoTasks, twoTasks]);
+    const { chatId, messageId: first } = await asked(s);
+    const second = (await s.svc.ask(OMAR, chatId, 'Make tasks for the failed items')).answer.id;
+    await s.svc.whenDone(second);
+    expect(card(await s.svc.getMessage(OMAR, chatId, first)).status).toBe('superseded');
+    await s.svc.confirm(OMAR, chatId, second, { items: [{ id: 'c1', include: true }, { id: 'c2', include: false }] }, { ip: null });
+    const third = (await s.svc.ask(OMAR, chatId, 'Make tasks for the failed items')).answer.id;
+    await s.svc.whenDone(third);
+    expect(card(await s.svc.getMessage(OMAR, chatId, second)).status).toBe('done');
+  });
+
+  it('a superseded card has nothing to undo, and the model is told it was replaced', async () => {
+    const s = setup([twoTasks, twoTasks, { action: 'answer', text: 'ok' }]);
+    const { chatId, messageId: first } = await asked(s);
+    const second = (await s.svc.ask(OMAR, chatId, 'Make tasks for the failed items', { ip: null, retryOf: first })).answer.id;
+    await s.svc.whenDone(second);
+    await expect(s.svc.undo(OMAR, chatId, first, { ip: null })).rejects.toMatchObject({ code: 'NOTHING_TO_UNDO' });
+    const { answer } = await s.svc.ask(OMAR, chatId, 'What now?');
+    await s.svc.whenDone(answer.id);
+    expect(s.requests.at(-1)!.prompt).toMatch(/replaced by a newer answer/);
+  });
+});
+
+describe('MICO AI service: an Undo cut off part-way', () => {
+  it('says “not undone” for every change it didn’t reach, and “may have been put back” for one it was on', async () => {
+    const s = setup([twoTasks]);
+    const { chatId, messageId } = await asked(s);
+    await s.svc.confirm(OMAR, chatId, messageId, { items: [{ id: 'c1', include: true }, { id: 'c2', include: true }] }, { ip: null });
+    const p = s.repo.proposals[0]!;
+    await s.repo.moveProposal(p.id, ['DONE'], 'UNDOING');
+    await s.repo.updateProposal(p.id, { undo: { c2: { status: 'started', message: null } } });
+    s.repo.proposals[0]!.updatedAt = new Date(NOW.getTime() - 10 * 60_000);
+    const view = card(await s.svc.getMessage(OMAR, chatId, messageId));
+    expect(view.status).toBe('undone');
+    expect(view.items.map((x) => x.undo)).toEqual([
+      { status: 'failed', message: 'Undo was interrupted before it got to this, so it was left as it is.' },
+      { status: 'failed', message: 'This may have been put back — check it.' },
+    ]);
+  });
+
+  it('an Undo that fails in this process still gives each change it didn’t reach a line', async () => {
+    const s = setup([twoTasks]);
+    const { chatId, messageId } = await asked(s);
+    await s.svc.confirm(OMAR, chatId, messageId, { items: [{ id: 'c1', include: true }, { id: 'c2', include: true }] }, { ip: null });
+    const realUpdate = s.repo.updateProposal.bind(s.repo);
+    let n = 0;
+    s.repo.updateProposal = async (id, patch, onlyIf) => {
+      if (patch.undo && ++n === 2) throw new Error('database went away');
+      return realUpdate(id, patch, onlyIf);
+    };
+    const view = card(await s.svc.undo(OMAR, chatId, messageId, { ip: null }));
+    expect(view.status).toBe('undone');
+    expect(view.items.every((x) => x.undo && x.undo.status !== 'started')).toBe(true);
+    expect(view.items.some((x) => x.undo?.message === 'Undo was interrupted before it got to this, so it was left as it is.' || x.undo?.message === 'This may have been put back — check it.')).toBe(true);
+  });
+});
+
 
 describe('MICO AI service: Undo', () => {
   it('puts the changes back within 15 minutes; a second Undo changes nothing more', async () => {
@@ -189,10 +279,10 @@ describe('MICO AI service: Undo', () => {
     expect(undone.status).toBe('undone');
     expect(undone.items.map((x) => x.undo?.status)).toEqual(['undone', 'undone']);
     expect(undone.canUndo).toBe(false);
-    const deletes = s.world.calls.filter((c) => c.startsWith('deleteTask'));
+    const deletes = s.world.calls.filter((c) => c.startsWith('deleteCreatedTask'));
     expect(deletes).toHaveLength(2);
     await s.svc.undo(OMAR, chatId, messageId, { ip: null });
-    expect(s.world.calls.filter((c) => c.startsWith('deleteTask'))).toHaveLength(2);
+    expect(s.world.calls.filter((c) => c.startsWith('deleteCreatedTask'))).toHaveLength(2);
   });
 
   it('after 15 minutes Undo is closed', async () => {
@@ -202,7 +292,7 @@ describe('MICO AI service: Undo', () => {
     s.setNow(() => new Date(NOW.getTime() + 15 * 60_000 + 1000));
     expect(card(await s.svc.getMessage(OMAR, chatId, messageId)).canUndo).toBe(false);
     await expect(s.svc.undo(OMAR, chatId, messageId, { ip: null })).rejects.toMatchObject({ status: 409, code: 'UNDO_EXPIRED' });
-    expect(s.world.calls.filter((c) => c.startsWith('deleteTask'))).toHaveLength(0);
+    expect(s.world.calls.filter((c) => c.startsWith('deleteCreatedTask'))).toHaveLength(0);
   });
 
   it('nothing to undo before Confirm, or when nothing was made', async () => {
@@ -223,7 +313,7 @@ describe('MICO AI service: Undo', () => {
     const undone = card(await s.svc.undo(OMAR, chatId, messageId, { ip: null }));
     expect(undone.items.map((x) => x.undo)).toEqual([
       { status: 'refused', message: `Sara Ahmed changed ${done.items[0]!.result!.link!.label} since, so it was left as it is.` },
-      { status: 'undone', message: `${done.items[1]!.result!.link!.label} was deleted.` },
+      { status: 'undone', message: `${done.items[1]!.result!.link!.label} was deleted.`, gone: true },
     ]);
   });
 });

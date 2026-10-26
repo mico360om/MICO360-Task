@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createMicoAiActions } from './mico-ai-actions';
 import { createFakeWorld } from './mico-ai-actions.fixture';
 import { company, NOW, OMAR, SARA, LAYLA, ADMIN, type MemoryData } from './mico-ai-data.fixture';
-import type { CreateTaskItem, ItemResult, MinutesItem, ProposalDraft, ProposalItem, UpdateTaskItem } from './mico-ai-actions-types';
+import type { CreateTaskItem, ItemResult, MeetingItem, MinutesItem, ProposalDraft, ProposalItem, UpdateTaskItem } from './mico-ai-actions-types';
+import { AiCallStoppedError } from '../ai/ai-network';
 
 // Sat 24 Oct 2026, 12:00 in Muscat. Omar owns Rig Inspection (Sara is a member); Layla runs Falcon CRM.
 function setup(tweak: (d: MemoryData) => void = () => {}, now = () => NOW) {
@@ -199,7 +200,7 @@ describe('MICO AI actions: carrying out a confirmed card', () => {
       { type: 'create_task', title: 'Check the valve', project: 'RIG' },
     ]);
     const out = await confirmAll(actions, SARA, c.items);
-    expect(world.calls).toEqual(['createTask RIG-35 via', 'createTask RIG-36 via']);
+    expect(world.calls).toEqual(['createTask RIG-35 via', 'announceTask RIG-35 via', 'createTask RIG-36 via', 'announceTask RIG-36 via']);
     expect(out.results.c1).toMatchObject({ status: 'done', link: { label: 'RIG-35', url: '?task=t-new-101' } });
     expect(out.results.c2).toMatchObject({ status: 'done', link: { label: 'RIG-36' } });
     expect(world.audits).toEqual([
@@ -238,14 +239,14 @@ describe('MICO AI actions: carrying out a confirmed card', () => {
     const { actions, world } = setup();
     const c = await card(actions, SARA, [
       { type: 'update_task', task: 'RIG-9', priority: 'HIGH' },
-      { type: 'update_task', task: 'RIG-9', priority: 'NORMAL' },
+      { type: 'update_task', task: 'RIG-21', priority: 'NORMAL' },
       { type: 'create_task', title: 'B', project: 'RIG' },
     ]);
     const out = await confirmAll(actions, SARA, c.items, { include: { c1: false, c2: true, c3: true } });
     expect(out.results.c1).toMatchObject({ status: 'skipped' });
     expect(out.results.c2).toMatchObject({ status: 'refused', message: 'Nothing to change: it’s already like this.' });
     expect(out.results.c3).toMatchObject({ status: 'done' });
-    expect(world.calls).toEqual(['createTask RIG-35 via']);
+    expect(world.calls).toEqual(['createTask RIG-35 via', 'announceTask RIG-35 via']);
   });
 
   it('a task changed since it was proposed is refused (saying who); the rest go ahead', async () => {
@@ -264,7 +265,7 @@ describe('MICO AI actions: carrying out a confirmed card', () => {
   it('a task deleted since it was proposed is refused', async () => {
     const { actions, world } = setup();
     const c = await card(actions, SARA, [{ type: 'update_task', task: 'RIG-9', priority: 'HIGH' }]);
-    await world.port.deleteTask(ADMIN, 't9');
+    world.deleteTask('t9');
     expect((await confirmAll(actions, SARA, c.items)).results.c1).toMatchObject({ status: 'refused', message: 'RIG-9 was deleted, so nothing was changed.' });
   });
 
@@ -347,7 +348,12 @@ describe('MICO AI actions: carrying out a confirmed card', () => {
     ]);
     const seen: Array<Record<string, ItemResult>> = [];
     await confirmAll(actions, SARA, c.items, { onResult: async (r) => void seen.push(structuredClone(r)) });
-    expect(seen.map((r) => Object.keys(r))).toEqual([['c1'], ['c1', 'c2']]);
+    const statuses = seen.map((r) => Object.entries(r).map(([k, v]) => `${k}:${v.status}`).join(' '));
+    // c1 is started, then recorded done (with what Undo needs) before its notices go; then c2.
+    expect(statuses.slice(0, 2)).toEqual(['c1:started', 'c1:done']);
+    expect(seen[1]!.c1!.undo).toMatchObject({ kind: 'task-created' });
+    expect(statuses).toContain('c1:done c2:started');
+    expect(statuses.at(-1)).toBe('c1:done c2:done');
   });
 });
 
@@ -371,13 +377,13 @@ describe('MICO AI actions: undo', () => {
     const { actions, world, out } = await confirmed();
     const undo = await actions.revert(OMAR, out.items, out.results, { ip: null });
     expect(undo).toEqual({
-      c1: { status: 'undone', message: 'RIG-35 was deleted.' },
+      c1: { status: 'undone', message: 'RIG-35 was deleted.', gone: true },
       c2: { status: 'undone', message: 'RIG-9 is back as it was.' },
       c3: { status: 'undone', message: 'The meeting was cancelled, and the people invited were told.' },
       c4: { status: 'undone', message: 'The draft was removed.' },
     });
     // Newest first, as the person would undo them by hand.
-    expect(world.calls).toEqual(['clearMinutes m-site via', 'cancelMeeting Review via', 'updateTask RIG-9 via', 'setAssignees RIG-9 +u-sara -u-omar via', 'deleteTask RIG-35 via']);
+    expect(world.calls).toEqual(['clearMinutes m-site via', 'cancelMeeting Review via', 'updateTask RIG-9 via', 'setAssignees RIG-9 +u-sara -u-omar via', 'deleteCreatedTask RIG-35 via']);
     expect(world.data.tasks.find((t) => t.id === 't9')).toMatchObject({ priority: 'NORMAL', assigneeIds: ['u-sara'] });
     expect(world.data.tasks.find((t) => t.id === 't9')!.dueDate!.toISOString().slice(0, 10)).toBe('2026-10-20');
     expect(world.audits.map((a) => a.action)).toEqual(['mico-ai.undo', 'mico-ai.undo', 'mico-ai.undo', 'mico-ai.undo']);
@@ -392,7 +398,7 @@ describe('MICO AI actions: undo', () => {
     ]);
     const out = await confirmAll(s.actions, OMAR, c.items, { sendInvites: false });
     const undo = await s.actions.revert(OMAR, out.items, out.results, { ip: null });
-    expect(undo.c1).toEqual({ status: 'undone', message: 'The meeting was deleted.' });
+    expect(undo.c1).toEqual({ status: 'undone', message: 'The meeting was deleted.', gone: true });
     expect(undo.c2).toEqual({ status: 'undone', message: 'The earlier draft is back.' });
     expect(s.world.minutes.get('m-site')!.content.summary).toBe('Mine');
   });
@@ -412,7 +418,7 @@ describe('MICO AI actions: undo', () => {
 
   it('something already deleted, or minutes saved again since, is refused too', async () => {
     const { actions, world, out } = await confirmed();
-    await world.port.deleteTask(ADMIN, 't-new-101');
+    world.deleteTask('t-new-101');
     await world.port.saveMinutes(ADMIN, 'm-site', { content: { summary: 'Changed', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'DRAFT', approvedById: null, approvedAt: null });
     const undo = await actions.revert(OMAR, out.items, out.results, { ip: null });
     expect(undo.c1).toEqual({ status: 'refused', message: 'RIG-35 was already deleted.' });
@@ -429,7 +435,7 @@ describe('MICO AI actions: undo', () => {
     s.world.calls.length = 0;
     const undo = await s.actions.revert(SARA, out.items, out.results, { ip: null });
     expect(Object.keys(undo)).toEqual(['c2']);
-    expect(s.world.calls).toEqual(['deleteTask RIG-35 via']);
+    expect(s.world.calls).toEqual(['deleteCreatedTask RIG-35 via']);
   });
 
   it('someone who lost access to the project since can’t undo its change', async () => {
@@ -447,3 +453,159 @@ describe('MICO AI actions: undo', () => {
     expect(out.kind).toBe('answer');
   });
 });
+
+describe('MICO AI actions: review fixes', () => {
+  it('a name nothing matches is a need on its field: Confirm refuses the change until that field is edited (never part of it)', async () => {
+    const { actions, world } = setup();
+    const { items } = await card(actions, OMAR, [{ type: 'create_task', title: 'Valve', project: 'RIG', assignees: ['Sara', 'Zed'] }]);
+    expect(items[0]!.needs).toEqual([{ fields: ['assigneeIds'], message: 'No one matches “Zed”.' }]);
+    expect(items[0]!.problem).toBe('No one matches “Zed”.');
+    const refused = await confirmAll(actions, OMAR, actions.applyEdits(items, [{ id: 'c1', include: true, edits: { title: 'Valve 3' } }]));
+    expect(refused.results.c1).toEqual({ status: 'refused', message: 'Put this right first: No one matches “Zed”.', link: null });
+    expect(world.calls).toEqual([]);
+    const fixed = await confirmAll(actions, OMAR, actions.applyEdits(items, [{ id: 'c1', include: true, edits: { assigneeIds: ['u-sara'] } }]));
+    expect(fixed.results.c1!.status).toBe('done');
+  });
+
+  it('“Book a review with Bilaal”: no match, the person edits only the title — the meeting is not made without Bilal', async () => {
+    const { actions, world } = setup();
+    const { items } = await card(actions, OMAR, [{ type: 'schedule_meeting', title: 'Review', date: 'tuesday', time: '10:00', people: ['Bilaal', 'Sara'] }]);
+    const m = items[0] as MeetingItem;
+    expect(m.needs).toEqual([{ fields: ['attendeeIds'], message: 'No one matches “Bilaal”.' }]);
+    expect(m.fields.attendeeIds).toEqual(['u-sara']);
+    const out = await confirmAll(actions, OMAR, actions.applyEdits(items, [{ id: 'c1', include: true, edits: { title: 'Review with Bilal' } }]));
+    expect(out.results.c1!.status).toBe('refused');
+    expect(out.results.c1!.message).toMatch(/No one matches “Bilaal”/);
+    expect(world.calls.some((x) => x.startsWith('createMeeting'))).toBe(false);
+  });
+
+  it('every part that couldn’t be read is a need on its own field: a day, a time, a status, a priority, a project', async () => {
+    const { actions } = setup();
+    const { items } = await card(actions, SARA, [
+      { type: 'update_task', task: 'RIG-9', due: 'sometime', status: 'QA desk', priority: 'criticalish' },
+      { type: 'create_task', title: 'X', project: 'Nowhere', due: 'whenever' },
+      { type: 'schedule_meeting', title: 'Sync', date: 'yesterday-ish', time: 'later' },
+      { type: 'schedule_meeting', title: 'Past', date: 'today', time: '08:00' },
+    ]);
+    const fields = (i: number) => items[i]!.needs.flatMap((n) => n.fields).sort();
+    expect(fields(0)).toEqual(['columnId', 'due', 'priority']);
+    expect(fields(1)).toEqual(['due', 'projectId']);
+    expect(fields(2)).toEqual(['date', 'time']);
+    expect(items[3]!.needs).toEqual([{ fields: ['date', 'time'], message: 'That time has passed. Pick a later one.' }]);
+    // A priority it couldn't read is no longer quietly left as it was.
+    expect((items[0] as UpdateTaskItem).fields.priority).toBeUndefined();
+  });
+
+  it('a problem the checks found (someone not on the project) is a need too: edited, the change is checked again', async () => {
+    const { actions } = setup();
+    const { items } = await card(actions, ADMIN, [{ type: 'create_task', title: 'X', project: 'RIG', assignees: ['Layla'] }]);
+    expect(items[0]!.needs).toEqual([{ fields: ['assigneeIds'], message: 'Layla Hassan isn’t on Rig Inspection Portal, so they can’t be assigned.' }]);
+    const stillWrong = await confirmAll(actions, ADMIN, actions.applyEdits(items, [{ id: 'c1', include: true, edits: { assigneeIds: ['u-layla'] } }]));
+    expect(stillWrong.results.c1).toMatchObject({ status: 'refused', message: 'Layla Hassan isn’t on Rig Inspection Portal, so they can’t be assigned.' });
+  });
+
+  it('at most 3 sets of minutes are drafted on a card, at the same time, the rest asked for separately', async () => {
+    const { actions, world } = setup((d) => {
+      for (const n of [1, 2, 3, 4, 5]) d.meetings!.push({ ...d.meetings![0]!, id: `m-${n}`, title: `Review ${n}`, organizerId: 'u-omar', createdById: 'u-omar', finalMinutes: null });
+    });
+    world.draftDelayMs = 20;
+    const c = await card(actions, OMAR, [1, 2, 3, 4, 5].map((n) => ({ type: 'draft_minutes', meeting: `meeting:m-${n}` })));
+    expect(c.items.map((i) => (i as MinutesItem).meeting.id)).toEqual(['m-1', 'm-2', 'm-3']);
+    expect(c.note).toMatch(/at most 3 sets of minutes at a time/);
+    expect(world.maxDraftsAtOnce).toBe(3);
+  });
+
+  it('Stop (or the time limit) stops the minutes drafts: no card, the AI calls are cancelled', async () => {
+    const { actions, world } = setup();
+    world.draftDelayMs = 5000;
+    const stop = new AbortController();
+    const out = actions.prepare(OMAR, [{ type: 'draft_minutes', meeting: 'Site visit' }], { final: true, signal: stop.signal });
+    setTimeout(() => stop.abort(), 10);
+    await expect(out).rejects.toBeInstanceOf(AiCallStoppedError);
+    expect(world.draftSignals[0]).toBe(stop.signal);
+    expect(world.draftSignals[0]!.aborted).toBe(true);
+  });
+
+  it('a change is done once its main write lands: notices that fail after it are a warning, not a failure', async () => {
+    const { actions, world } = setup();
+    const c = await card(actions, SARA, [{ type: 'create_task', title: 'A', project: 'RIG', assignees: ['Sara'] }]);
+    world.failNext('announceTask');
+    const out = await confirmAll(actions, SARA, c.items);
+    expect(out.results.c1).toMatchObject({ status: 'done', link: { label: 'RIG-35' } });
+    expect(out.results.c1!.message).toMatch(/the usual notices couldn’t be sent/i);
+    expect(out.results.c1!.undo).toMatchObject({ kind: 'task-created' });
+  });
+
+  it('a task change whose follow-up steps fail is done with a warning; people that couldn’t be changed are said so, and Undo still puts the fields back', async () => {
+    const { actions, world } = setup();
+    const c = await card(actions, SARA, [{ type: 'update_task', task: 'RIG-9', priority: 'HIGH', assignees: ['Omar'] }]);
+    world.failNext('setAssignees');
+    const out = await confirmAll(actions, SARA, c.items);
+    expect(out.results.c1!.status).toBe('done');
+    expect(out.results.c1!.message).toMatch(/people couldn’t be changed/i);
+    expect(world.data.tasks.find((t) => t.id === 't9')).toMatchObject({ priority: 'HIGH', assigneeIds: ['u-sara'] });
+    const undo = await actions.revert(SARA, out.items, out.results, { ip: null });
+    expect(undo.c1!.status).toBe('undone');
+    expect(world.data.tasks.find((t) => t.id === 't9')!.priority).toBe('NORMAL');
+
+    const s2 = setup();
+    const c2 = await card(s2.actions, SARA, [{ type: 'update_task', task: 'RIG-9', priority: 'HIGH' }]);
+    s2.world.failNext('updateTaskEffects');
+    const out2 = await confirmAll(s2.actions, SARA, c2.items);
+    expect(out2.results.c1).toMatchObject({ status: 'done' });
+    expect(out2.results.c1!.message).toMatch(/follow-up step/);
+  });
+
+  it('Undo leaves a new task someone tagged (no new version, no history line) — the delete is one guarded write', async () => {
+    const { actions, world } = setup();
+    const c = await card(actions, SARA, [{ type: 'create_task', title: 'A', project: 'RIG' }]);
+    const out = await confirmAll(actions, SARA, c.items);
+    world.tagTask('t-new-101');
+    const undo = await actions.revert(SARA, out.items, out.results, { ip: null });
+    expect(undo.c1).toEqual({ status: 'refused', message: 'Someone changed RIG-35 since, so it was left as it is.' });
+    expect(world.calls.filter((x) => x.startsWith('deleteCreatedTask'))).toEqual([]);
+  });
+
+  it('the same task twice on one card is one change: the field changes combined, the later one kept where they differ', async () => {
+    const { actions } = setup((d) => d.meetings!.push({ ...d.meetings![0]!, id: 'm-2', title: 'Site visit 2', organizerId: 'u-omar', createdById: 'u-omar', finalMinutes: null }));
+    const c = await card(actions, OMAR, [
+      { type: 'update_task', task: 'RIG-9', priority: 'HIGH', due: 'tomorrow' },
+      { type: 'update_task', task: 'RIG-21', priority: 'LOW' },
+      { type: 'update_task', task: 'rig-9', priority: 'URGENT', status: 'review' },
+      { type: 'draft_minutes', meeting: 'meeting:m-site' },
+      { type: 'draft_minutes', meeting: 'Site visit' },
+    ]);
+    expect(c.items.map((i) => (i.type === 'update_task' ? i.task.key : i.type))).toEqual(['RIG-9', 'RIG-21', 'draft_minutes']);
+    expect((c.items[0] as UpdateTaskItem).fields).toEqual({ priority: 'URGENT', due: '2026-10-25', columnId: 'p-rig:review' });
+    expect(c.note).toMatch(/RIG-9 was asked for twice/);
+    expect(c.note).toMatch(/Site visit/);
+  });
+
+  it('“changed it” names who really changed the task — and never names the person for their own change', async () => {
+    const { actions, world } = setup();
+    const c = await card(actions, SARA, [
+      { type: 'update_task', task: 'RIG-14', priority: 'HIGH' },
+      { type: 'update_task', task: 'RIG-9', priority: 'HIGH' },
+      { type: 'update_task', task: 'RIG-21', priority: 'HIGH' },
+    ]);
+    world.touchTask('t14', 'u-sara');
+    world.touchTask('t9', 'u-sara', {}, true);
+    world.touchTask('t21', 'u-omar');
+    world.touchTask('t21', 'u-admin');
+    const out = await confirmAll(actions, SARA, c.items);
+    expect(out.results.c1!.message).toBe('RIG-14 changed after MICO AI suggested this (you changed it), so it was left as it is. Ask again to see it as it is now.');
+    expect(out.results.c2!.message).toBe('RIG-9 changed after MICO AI suggested this (another of your MICO AI changes changed it), so it was left as it is. Ask again to see it as it is now.');
+    expect(out.results.c3!.message).toBe('RIG-21 changed after MICO AI suggested this (Khurram Shahzad and Omar Said changed it), so it was left as it is. Ask again to see it as it is now.');
+  });
+
+  it('undoing "done" on a repeating task says the next copy made when it was completed stays', async () => {
+    const { actions, world } = setup();
+    world.repeating('t9');
+    const c = await card(actions, SARA, [{ type: 'update_task', task: 'RIG-9', status: 'done' }]);
+    const out = await confirmAll(actions, SARA, c.items);
+    expect(out.results.c1!.status).toBe('done');
+    const undo = await actions.revert(SARA, out.items, out.results, { ip: null });
+    expect(undo.c1).toEqual({ status: 'undone', message: 'RIG-9 has its changes put back. The next copy made when it was completed, RIG-35, stays.' });
+  });
+});
+

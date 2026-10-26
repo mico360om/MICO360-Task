@@ -876,7 +876,7 @@ async function main(): Promise<void> {
       },
       finalMinutes: createPrismaFinalMinutesRepository(prisma),
       minutesFacts: async (viewer, meetingId) => minutesFacts((await gatherMinutes(viewer.userId, meetingId)).data),
-      draftMinutesWithAi: (facts, requester) => aiFeatureService.draftMinutes(facts, requester),
+      draftMinutesWithAi: (facts, requester, opts) => aiFeatureService.draftMinutes(facts, requester, opts),
       onFinalMinutesChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:updated'),
       workingDays: async () => (await settingsService.workingHours()).days,
       isActiveUser,

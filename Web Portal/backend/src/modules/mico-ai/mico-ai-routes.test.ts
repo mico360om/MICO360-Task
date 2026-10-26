@@ -233,6 +233,17 @@ describe('MICO AI routes: confirming, cancelling and undoing a card', () => {
     await app.close();
   });
 
+  it('asking again with retryOf (Retry) replaces the unconfirmed card: the old one can no longer be confirmed', async () => {
+    const { app, omar, base, world } = await withCard();
+    const [chatId, messageId] = /chats\/([^/]+)\/messages\/([^/]+)/.exec(base)!.slice(1) as [string, string];
+    const again = await app.inject({ method: 'POST', url: `/api/v1/mico-ai/chats/${chatId}/messages`, headers: omar, payload: { text: 'Make two tasks', retryOf: messageId } });
+    expect(again.statusCode).toBe(202);
+    const old = await app.inject({ method: 'POST', url: `${base}/confirm`, headers: omar, payload: { items: [{ id: 'c1', include: true }] } });
+    expect(old.json().data.answer.proposal.status).toBe('superseded');
+    expect(world.calls).toEqual([]);
+    await app.close();
+  });
+
   it('a bad body is a 400; Undo before Confirm is a 409 NOTHING_TO_UNDO; Cancel closes the card', async () => {
     const { app, omar, base } = await withCard();
     expect((await app.inject({ method: 'POST', url: `${base}/confirm`, headers: omar, payload: { items: [{ id: 'c1', include: 'yes' }] } })).statusCode).toBe(400);

@@ -13,6 +13,7 @@ const STATUS: Record<ProposalRecord['status'], ProposalView['status']> = {
   CANCELLED: 'cancelled',
   UNDOING: 'undoing',
   UNDONE: 'undone',
+  SUPERSEDED: 'superseded',
 };
 
 const shown = (r: ItemResult | undefined): Omit<ItemResult, 'undo'> | null => (r ? { status: r.status, message: r.message, link: r.link } : null);
@@ -30,6 +31,7 @@ export function proposalView(p: ProposalRecord, now: Date): ProposalView {
     confirmedAt: p.confirmedAt ? p.confirmedAt.toISOString() : null,
     undoUntil: p.undoUntil ? p.undoUntil.toISOString() : null,
     canUndo: p.status === 'DONE' && undoable && !!p.undoUntil && now.getTime() <= p.undoUntil.getTime(),
+    serverNow: now.toISOString(),
   };
 }
 
@@ -67,6 +69,7 @@ const count = (results: Record<string, ItemResult>, status: ResultStatus) => Obj
 function outcome(p: ProposalRecord): string {
   if (p.status === 'PROPOSED') return 'not confirmed yet';
   if (p.status === 'CANCELLED') return 'cancelled by the user: nothing was changed';
+  if (p.status === 'SUPERSEDED') return 'replaced by a newer answer (the user asked again): nothing was changed';
   const r = p.results ?? {};
   const parts = (['done', 'refused', 'failed', 'skipped'] as const).map((s) => [s, count(r, s)] as const).filter(([, n]) => n > 0).map(([s, n]) => `${n} ${s}`);
   const confirmed = `confirmed: ${parts.join(', ') || 'nothing made'}`;

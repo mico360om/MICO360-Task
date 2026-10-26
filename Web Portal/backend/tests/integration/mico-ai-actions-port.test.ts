@@ -46,7 +46,7 @@ const broadcasts: string[] = [];
 const port = createMicoAiActionsPort({
   prisma,
   timeZone: TZ,
-  taskService,
+  taskService: { ...taskService, getTask: taskService.getTask },
   assigneeService,
   projectAccess,
   meetingService: { canEditMeeting: async (userId: string) => userId === ids.owner } as never,
@@ -67,7 +67,10 @@ const as = (userId: string): Viewer => ({ userId, roles: ['EMPLOYEE'] });
 
 async function cleanup() {
   const projects = (await prisma.project.findMany({ where: { code: CODE }, select: { id: true } })).map((p) => p.id);
+  await prisma.actionItem.deleteMany({ where: { description: 'Book the calibration' } });
+  await prisma.decision.deleteMany({ where: { title: 'Re-test on rig 3' } });
   await prisma.meeting.deleteMany({ where: { title: 'MAIP meeting' } });
+  await prisma.tag.deleteMany({ where: { name: 'maip-tag' } });
   await prisma.activity.deleteMany({ where: { task: { projectId: { in: projects } } } });
   await prisma.taskAssignee.deleteMany({ where: { task: { projectId: { in: projects } } } });
   await prisma.task.deleteMany({ where: { projectId: { in: projects } } });
@@ -98,18 +101,26 @@ beforeEach(async () => {
 });
 
 describe('MICO AI’s changes through the app’s services (integration)', () => {
-  it('a task made as Sara, assigned, its history lines marked via MICO AI; its state says who and how far', async () => {
+  it('a task made as Sara (the main write: the task with its people), then announced; history lines marked via MICO AI', async () => {
     const made = await port.asMicoAi(() =>
-      port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Replace the gauge', description: '', priority: 'HIGH', due: '2026-10-27', assigneeIds: [ids.sara] }),
+      port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Replace the gauge', description: '', priority: 'HIGH', due: '2026-10-27', assigneeIds: [ids.sara, ids.owner] }),
     );
-    expect(made).toMatchObject({ key: `${CODE}-1`, title: 'Replace the gauge', priority: 'HIGH', due: '2026-10-27', assigneeIds: [ids.sara], columnId: ids.todo, columnName: 'To do', lastActor: 'Sara Test' });
-    const lines = await prisma.activity.findMany({ where: { taskId: made.id }, orderBy: { createdAt: 'asc' } });
+    expect(made).toMatchObject({ key: `${CODE}-1`, title: 'Replace the gauge', priority: 'HIGH', due: '2026-10-27', columnId: ids.todo, columnName: 'To do', activity: 1, tags: 0, watchers: 0, links: 0, createdById: ids.sara, nextCopyKey: null });
+    expect([...made.assigneeIds].sort()).toEqual([ids.sara, ids.owner].sort());
+    expect(broadcasts).toEqual([]);
+    await port.asMicoAi(() => port.announceTask(as(ids.sara), made.id, [ids.sara, ids.owner]));
+    const lines = await prisma.activity.findMany({ where: { taskId: made.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
     expect(lines.map((l) => [l.action, (l.meta as { via?: string }).via])).toEqual([
       ['CREATED', 'mico-ai'],
       ['ASSIGNED', 'mico-ai'],
+      ['ASSIGNED', 'mico-ai'],
     ]);
-    expect(made.activity).toBe(2);
     expect(broadcasts).toEqual(['task:created']);
+    // Who wrote the lines after the first one, newest first.
+    expect(await port.changedBy(made.id, 1)).toEqual([
+      { userId: ids.sara, name: 'Sara Test', via: true },
+      { userId: ids.sara, name: 'Sara Test', via: true },
+    ]);
   });
 
   it('someone outside the project can’t make, change or remove its tasks; nor assign someone outside it', async () => {
@@ -117,7 +128,7 @@ describe('MICO AI’s changes through the app’s services (integration)', () =>
     const t = await port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Y', description: '', priority: 'NORMAL', due: null, assigneeIds: [] });
     await expect(port.updateTask(as(ids.outsider), t.id, { priority: 'HIGH' }, t.version)).rejects.toMatchObject({ status: 403 });
     await expect(port.setAssignees(as(ids.outsider), t.id, [ids.sara], [])).rejects.toMatchObject({ status: 403 });
-    await expect(port.deleteTask(as(ids.outsider), t.id)).rejects.toMatchObject({ status: 403 });
+    expect(await port.deleteCreatedTask(as(ids.outsider), t.id, { version: t.version, activity: t.activity, tags: 0, watchers: 0, links: 0, assigneeIds: t.assigneeIds })).toBe(false);
     await expect(port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Z', description: '', priority: 'NORMAL', due: null, assigneeIds: [ids.outsider] })).rejects.toMatchObject({ status: 400 });
     expect(await port.eligibleAssignees(ids.project, [ids.owner, ids.sara, ids.outsider])).toEqual(expect.arrayContaining([ids.owner, ids.sara]));
     expect(await port.eligibleAssignees(ids.project, [ids.outsider])).toEqual([]);
@@ -127,12 +138,14 @@ describe('MICO AI’s changes through the app’s services (integration)', () =>
     const t = await port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Valve', description: '', priority: 'NORMAL', due: '2026-10-20', assigneeIds: [ids.owner] });
     await expect(port.updateTask(as(ids.sara), t.id, { priority: 'HIGH' }, t.version - 1)).rejects.toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
     const after = await port.asMicoAi(async () => {
-      await port.updateTask(as(ids.sara), t.id, { due: '2026-10-25', columnId: ids.done, priority: 'URGENT' }, t.version);
+      const r = await port.updateTask(as(ids.sara), t.id, { due: '2026-10-25', columnId: ids.done, priority: 'URGENT' }, t.version);
+      expect(r.warning).toBeNull();
       await port.setAssignees(as(ids.sara), t.id, [ids.sara], [ids.owner]);
       return (await port.taskState(t.id))!;
     });
     expect(after).toMatchObject({ due: '2026-10-25', priority: 'URGENT', columnId: ids.done, category: 'DONE', assigneeIds: [ids.sara], version: t.version + 1 });
     expect(after.activity).toBe(t.activity + 3);
+    expect((await port.changedBy(t.id, t.activity)).map((r) => r.via)).toEqual([true, true, true]);
     const latest = await prisma.activity.findMany({ where: { taskId: t.id }, orderBy: { createdAt: 'asc' }, select: { action: true, meta: true } });
     expect(latest.slice(-3).map((l) => [l.action, (l.meta as { via?: string }).via])).toEqual([
       ['UPDATED', 'mico-ai'],
@@ -141,18 +154,73 @@ describe('MICO AI’s changes through the app’s services (integration)', () =>
     ]);
   });
 
-  it('Undo can take back the task this card made (soft-deleted, gone for everyone)', async () => {
-    const t = await port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Undo me', description: '', priority: 'NORMAL', due: null, assigneeIds: [] });
-    await port.deleteTask(as(ids.sara), t.id);
-    expect(await port.taskState(t.id)).toBeNull();
-    expect((await prisma.task.findUnique({ where: { id: t.id } }))!.deletedAt).not.toBeNull();
+  it('Undo takes back the task its card made in one guarded write: only its creator, only untouched', async () => {
+    const make = (title: string) => port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title, description: '', priority: 'NORMAL', due: null, assigneeIds: [ids.sara] });
+    const touch = (t: Awaited<ReturnType<typeof make>>) => ({ version: t.version, activity: t.activity, tags: t.tags, watchers: t.watchers, links: t.links, assigneeIds: t.assigneeIds });
+    // Untouched: gone for everyone.
+    const a = await make('Undo me');
+    expect(await port.deleteCreatedTask(as(ids.owner), a.id, touch(a))).toBe(false); // not its creator
+    expect(await port.deleteCreatedTask(as(ids.sara), a.id, touch(a))).toBe(true);
+    expect(await port.taskState(a.id)).toBeNull();
+    expect((await prisma.task.findUnique({ where: { id: a.id } }))!.deletedAt).not.toBeNull();
+    expect(broadcasts).toContain('task:deleted');
+    // Tagged, watched, blocked, commented on (a history line) or edited since: it stays.
+    const b = await make('Tagged');
+    const tag = await prisma.tag.create({ data: { name: 'maip-tag' } });
+    await prisma.taskTag.create({ data: { taskId: b.id, tagId: tag.id } });
+    expect(await port.deleteCreatedTask(as(ids.sara), b.id, touch(b))).toBe(false);
+    const c = await make('Watched');
+    await prisma.taskWatcher.create({ data: { taskId: c.id, userId: ids.owner } });
+    expect(await port.deleteCreatedTask(as(ids.sara), c.id, touch(c))).toBe(false);
+    const d = await make('Blocked');
+    await prisma.taskDependency.create({ data: { taskId: d.id, dependsOnTaskId: b.id } });
+    expect(await port.deleteCreatedTask(as(ids.sara), d.id, touch(d))).toBe(false);
+    const e = await make('Commented');
+    await activityService.record({ taskId: e.id, userId: ids.owner, action: 'COMMENTED', meta: { commentId: 'x' } });
+    expect(await port.deleteCreatedTask(as(ids.sara), e.id, touch(e))).toBe(false);
+    const f = await make('Edited');
+    await prisma.task.update({ where: { id: f.id }, data: { version: { increment: 1 } } });
+    expect(await port.deleteCreatedTask(as(ids.sara), f.id, touch(f))).toBe(false);
+    const g = await make('Reassigned');
+    await prisma.taskAssignee.deleteMany({ where: { taskId: g.id } });
+    await prisma.taskAssignee.create({ data: { taskId: g.id, userId: ids.owner } });
+    expect(await port.deleteCreatedTask(as(ids.sara), g.id, touch(g))).toBe(false);
+    for (const x of [b, c, d, e, f, g]) expect(await port.taskState(x.id)).not.toBeNull();
+    // The port has no plain delete: nothing else can remove a task through it.
+    expect((port as unknown as Record<string, unknown>).deleteTask).toBeUndefined();
   });
 
-  it('a meeting’s stamp changes when its people or agenda do; final minutes saved and taken back out', async () => {
+  it('a repeating task’s next copy is known (Undo says it stays)', async () => {
+    const t = await port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Weekly check', description: '', priority: 'NORMAL', due: null, assigneeIds: [] });
+    expect((await port.taskState(t.id))!.nextCopyKey).toBeNull();
+    await prisma.task.create({ data: { key: `${CODE}-99`, title: 'Weekly check', projectId: ids.project, columnId: ids.todo, createdById: ids.owner, recurrenceSourceId: t.id } });
+    expect((await port.taskState(t.id))!.nextCopyKey).toBe(`${CODE}-99`);
+  });
+
+  it('a meeting’s stamp changes when its people, agenda items, notes, action items or decisions do; final minutes saved and taken back out', async () => {
     const m = await prisma.meeting.create({ data: { title: 'MAIP meeting', organizerId: ids.owner, createdById: ids.owner, startAt: new Date('2026-10-27T06:00:00Z'), status: 'SCHEDULED' } });
-    const before = (await port.meetingStamp(m.id))!.stamp;
+    const stamps: string[] = [(await port.meetingStamp(m.id))!.stamp];
+    const changed = async () => {
+      const now0 = (await port.meetingStamp(m.id))!.stamp;
+      expect(stamps).not.toContain(now0);
+      stamps.push(now0);
+    };
     await prisma.meetingAttendee.create({ data: { meetingId: m.id, userId: ids.sara } });
-    expect((await port.meetingStamp(m.id))!.stamp).not.toBe(before);
+    await changed();
+    const agenda = await prisma.agendaItem.create({ data: { meetingId: m.id, title: 'Pressure test' } });
+    await changed();
+    await prisma.agendaItem.update({ where: { id: agenda.id }, data: { title: 'Pressure test (rig 3)' } });
+    await changed();
+    const note = await prisma.meetingNote.create({ data: { meetingId: m.id, authorId: ids.owner, body: 'Re-test on rig 3.' } });
+    await changed();
+    await prisma.meetingNote.update({ where: { id: note.id }, data: { body: 'Re-test on rig 3 next week.', editedAt: new Date() } });
+    await changed();
+    const action = await prisma.actionItem.create({ data: { meetingId: m.id, description: 'Book the calibration', createdById: ids.owner } });
+    await changed();
+    await prisma.actionItem.update({ where: { id: action.id }, data: { status: 'COMPLETED' } });
+    await changed();
+    await prisma.decision.create({ data: { meetingId: m.id, title: 'Re-test on rig 3', createdById: ids.owner } });
+    await changed();
     await expect(port.saveMinutes(as(ids.sara), m.id, { content: { summary: 'x', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'DRAFT', approvedById: null, approvedAt: null })).rejects.toMatchObject({ status: 403 });
     const saved = await port.saveMinutes(as(ids.owner), m.id, { content: { summary: 'Draft', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'DRAFT', approvedById: null, approvedAt: null });
     expect((await port.minutes(m.id))!.savedAt).toEqual(saved.savedAt);

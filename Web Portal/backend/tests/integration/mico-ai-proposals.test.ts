@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaMicoAiRepository } from '../../src/modules/mico-ai/prisma-mico-ai-repository';
-import type { ProposalItem } from '../../src/modules/mico-ai/mico-ai-actions-types';
+import type { CreateTaskItem } from '../../src/modules/mico-ai/mico-ai-actions-types';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. A card of proposed changes is
 // stored with its answer; Confirm and Undo move it from one state to the next in one statement, so a
@@ -10,9 +10,10 @@ const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DAT
 const repo = createPrismaMicoAiRepository(prisma);
 const OMAR = 'mico-ai-proposal-test-omar';
 
-const item: ProposalItem = {
+const item: CreateTaskItem = {
   id: 'c1',
   type: 'create_task',
+  needs: [],
   problem: null,
   locked: false,
   warning: null,
@@ -63,14 +64,14 @@ describe('MICO AI proposals in the database (integration)', () => {
     const { m } = await answer();
     const p = await repo.createProposal({ messageId: m.id, userId: OMAR, items: [item], note: null });
     await repo.moveProposal(p.id, ['PROPOSED'], 'CONFIRMING', { items: [{ ...item, fields: { ...item.fields, title: 'Edited' } }] });
-    const results = { c1: { status: 'done' as const, message: null, link: { label: 'RIG-31', url: '?task=t31' }, undo: { kind: 'task-created' as const, taskId: 't31', projectId: 'p-rig', version: 1, activity: 2, assigneeIds: ['u-sara'] } } };
+    const results = { c1: { status: 'done' as const, message: null, link: { label: 'RIG-31', url: '?task=t31' }, undo: { kind: 'task-created' as const, taskId: 't31', projectId: 'p-rig', touch: { version: 1, activity: 2, tags: 0, watchers: 0, links: 0, assigneeIds: ['u-sara'] } } } };
     expect(await repo.updateProposal(p.id, { results }, 'CONFIRMING')).toBe(true);
     const at = new Date('2026-10-24T08:00:00.000Z');
     const until = new Date('2026-10-24T08:15:00.000Z');
     expect(await repo.moveProposal(p.id, ['CONFIRMING'], 'DONE', { confirmedAt: at, undoUntil: until })).toBe(true);
     const done = (await repo.getProposal(m.id))!;
     expect(done).toMatchObject({ status: 'DONE', results, confirmedAt: at, undoUntil: until });
-    expect((done.items[0] as typeof item).fields.title).toBe('Edited');
+    expect((done.items[0] as CreateTaskItem).fields.title).toBe('Edited');
     // Not while it is in another state.
     expect(await repo.updateProposal(p.id, { results: {} }, 'CONFIRMING')).toBe(false);
     expect(await repo.moveProposal(p.id, ['DONE'], 'UNDOING')).toBe(true);

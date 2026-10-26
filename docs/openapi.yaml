@@ -788,7 +788,7 @@ paths:
         makes against their daily limit (both shared with the other AI features); an answer may take at
         most 3 minutes. One answer at a time per chat. The audit
         log records only that MICO AI was used (action mico-ai.ask, no question or answer).
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [text], properties: { text: { type: string, minLength: 1, maxLength: 4000 } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [text], properties: { text: { type: string, minLength: 1, maxLength: 4000 }, retryOf: { type: string, description: 'Retry: the answer this asks again. Its unconfirmed card (and any unconfirmed card for the same question) is superseded, so two cards are never live.' } } } } } }
       responses:
         '202': { description: '{ question: MicoAiMessage, answer: MicoAiMessage (pending) }' }
         '400': { description: 'Empty or too long, or AI_NOT_CONFIGURED (no chat model in AI Management)' }
@@ -821,8 +821,11 @@ paths:
         proposed). Each change is made through the app's own services as the person, marked "via MICO AI"
         in its history, with an audit entry (mico-ai.task.create, mico-ai.task.update,
         mico-ai.meeting.create, mico-ai.minutes.draft) and the usual notifications. A refused or failed
-        change never stops the others. Only the first confirm moves the card on: a repeat (a double click,
-        a retry) returns the card as it is and changes nothing. Undo then stays open for 15 minutes.
+        change never stops the others. A change with needs (a part that couldn't be read, or that the checks
+        refused, each tagged with the fields that fix it) is refused until an edit to one of those fields
+        comes with Confirm — never made in part. Only the first confirm moves the card on: a repeat (a
+        double click, a retry) returns the card as it is and changes nothing. Undo then stays open for 15
+        minutes.
       requestBody:
         content:
           application/json:
