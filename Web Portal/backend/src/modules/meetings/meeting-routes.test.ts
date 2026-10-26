@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildApp } from '../../app';
 import { createMeetingService } from './meeting-service';
 import { createMeetingAccess } from './meeting-access';
@@ -347,6 +347,15 @@ describe('Meeting routes — who may change a meeting (SEC-06)', () => {
 
 describe('Meeting free times', () => {
   const at = (local: string) => new Date(`${local.replace(' ', 'T')}:00+04:00`);
+  // These ask about Monday 26 Oct 2026: run them as of the week before, so times that day are still
+  // ahead (free times never suggests a time that has passed).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(at('2026-10-19 09:00'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   async function setup() {
     let visibleId = '';
     const busy = {
