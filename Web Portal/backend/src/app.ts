@@ -92,6 +92,7 @@ import { registerMicoAiRoutes } from './modules/mico-ai/mico-ai-routes';
 import type { MicoAiService } from './modules/mico-ai/mico-ai-service';
 import type { CorsOriginMatcher } from './lib/cors-origins';
 import type { DataExporter } from './modules/users/data-export';
+import { registerClientViewRoutes, type ClientViewRouteDeps } from './modules/client-view/client-view-routes';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -248,6 +249,11 @@ export interface AppDeps extends AuthRouteDeps {
   idempotencyStore?: IdempotencyStore;
   /** "Download my data" (GET /users/me/export). */
   dataExporter?: DataExporter;
+  /**
+   * Client view: the read-only page a client follows one project on (/client/…, no staff sign-in),
+   * and the staff routes that share a project and mark its items "Show to client".
+   */
+  clientView?: Pick<ClientViewRouteDeps, 'service' | 'secureCookies' | 'tasks' | 'minutes' | 'rateLimits'>;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -698,6 +704,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.emailWebhookService) {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });
+      }
+      if (deps.clientView) {
+        await registerClientViewRoutes(api, {
+          ...deps.clientView,
+          guard,
+          // Without object-level access wired, only administrators can see (and so share) a project.
+          canViewProject: canViewProject ?? (async (_u, roles) => roles.includes('ADMIN')),
+          canManageProject: (u, r, p) => projectAuthz.canManageProject(u, r, p),
+          canViewTask,
+          canViewMeeting,
+          recordActivity: deps.recordTaskActivity,
+          audit: deps.auditService,
+          broadcast: deps.onTaskEvent,
+          onMinutesChanged: deps.onFinalMinutesChanged,
+        });
       }
     },
     { prefix: '/api/v1' },

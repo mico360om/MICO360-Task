@@ -128,9 +128,8 @@ export function createMemoryClientShareStore(now: () => Date = () => new Date())
     },
     async latestOpenCode(shareId) {
       const open = [...codes.values()].filter((c) => c.shareId === shareId && !c.consumedAt).sort((a, b) => b.seq - a.seq);
-      if (!open[0]) return null;
-      const { seq: _seq, ...code } = open[0];
-      return code;
+      const c = open[0];
+      return c ? { id: c.id, shareId: c.shareId, codeHash: c.codeHash, attempts: c.attempts, expiresAt: c.expiresAt, consumedAt: c.consumedAt, createdAt: c.createdAt } : null;
     },
     async countCodesSince(shareId, since) {
       return [...codes.values()].filter((c) => c.shareId === shareId && c.createdAt >= since).length;
