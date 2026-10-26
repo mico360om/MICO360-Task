@@ -46,6 +46,7 @@ async function makeApp() {
     tasks: [
       task({ id: 't1', key: 'RIG-1', title: 'Inspect the rig', projectId: 'rig', columnId: 'r-todo' }),
       task({ id: 't2', key: 'RIG-2', projectId: 'rig', columnId: 'r-todo', assigneeList: [SARA] }),
+      task({ id: 't3', key: 'RIG-3', title: 'Shown to the client', projectId: 'rig', columnId: 'r-todo', clientVisible: true }),
       task({ id: 'secret', key: 'ADM-1', title: 'Pay rises', projectId: 'adm', columnId: 'a-todo' }),
     ],
     aliases: new Map(),
@@ -175,6 +176,15 @@ describe('POST /tasks/:id/move-to-project', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().data.addedToTeam).toEqual([SARA]);
     expect(audits).toEqual([expect.objectContaining({ userId: 'aisha', module: 'members', action: 'member.add', entityId: 'ops', newValue: { userIds: ['sara'], taskId: 't2', reason: 'task moved from Rig Inspection' } })]);
+  });
+
+  it('a task shown to the old project’s client: the move takes it off that page, in the audit log too', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/t3/move-to-project', headers: await bearer('aisha'), payload: { projectId: 'ops' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.task.clientVisible).toBe(false);
+    expect(audits).toEqual([
+      expect.objectContaining({ userId: 'aisha', module: 'client-view', action: 'client-view.task.hidden', entityId: 't3', newValue: { projectId: 'rig', reason: 'moved', toProjectId: 'ops' } }),
+    ]);
   });
 
   it('a task the person can’t see is not found; one they can’t move is refused, saying why', async () => {

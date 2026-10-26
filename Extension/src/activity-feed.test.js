@@ -71,6 +71,7 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['UPDATED', { changes: [{ field: 'milestone', from: true, to: false }] }], ['UPDATED', { changes: [{ field: 'milestone', from: false, to: true }] }],
     ['UPDATED', { changes: [{ field: 'dueDate', from: null, to: '2026-10-24' }, { field: 'milestone', from: true, to: false }] }],
     ['UPDATED', { changes: [{ field: 'clientVisible', from: false, to: true }] }], ['UPDATED', { changes: [{ field: 'clientVisible', from: true, to: false }] }],
+    ['UPDATED', { changes: [{ field: 'milestone', from: true, to: false }, { field: 'clientVisible', from: true, to: false, reason: 'moved' }] }],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];

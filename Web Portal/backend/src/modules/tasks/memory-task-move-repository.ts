@@ -48,6 +48,7 @@ export function createMemoryTaskMoveRepository(state: MemoryMoveState): TaskMove
           columnId: t.columnId,
           columnCategory: state.columns.find((c) => c.id === t.columnId)?.category ?? null,
           isMilestone: t.isMilestone ?? false,
+          clientVisible: t.clientVisible ?? false,
           dueDate: t.dueDate,
           startDate: t.startDate,
           boardDate: t.boardDate,

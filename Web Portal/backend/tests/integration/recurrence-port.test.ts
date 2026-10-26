@@ -96,6 +96,13 @@ describe('Recurring tasks on MySQL (integration)', () => {
     expect((await port.listSeriesHeads()).map((h) => h.id).filter((id) => id === source.id || id === copy.id)).toEqual([copy.id]);
   });
 
+  it('the next copy of a task shown to the client is shown too (same project)', async () => {
+    const source = await recurringTask({ freq: 'WEEKLY', interval: 1 }, '2026-09-28');
+    await prisma.task.update({ where: { id: source.id }, data: { clientVisible: true } });
+    const made = await service.onTaskCompleted({ id: source.id, dueDate: source.dueDate, recurrenceRule: { freq: 'WEEKLY', interval: 1 }, recurrenceParentId: null });
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: made!.id } })).clientVisible).toBe(true);
+  });
+
   it('completing it again later makes nothing more', async () => {
     const source = await recurringTask({ freq: 'DAILY', interval: 1 }, '2026-10-01');
     const task = { id: source.id, dueDate: source.dueDate, recurrenceRule: { freq: 'DAILY', interval: 1 } as RecurrenceRule, recurrenceParentId: null };

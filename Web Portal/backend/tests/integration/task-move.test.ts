@@ -133,7 +133,10 @@ describe('Moving a task to another project (integration)', () => {
     await prisma.task.update({ where: { id: task.id }, data: { clientVisible: true } });
     const moved = await moves.moveTask(manager, task.id, { projectId: ops.id });
     expect(moved.task.clientVisible).toBe(false);
+    expect(moved.clientHidden).toBe(true);
     expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).clientVisible).toBe(false);
+    const line = await prisma.activity.findFirstOrThrow({ where: { taskId: task.id, action: 'UPDATED' } });
+    expect(line.meta).toEqual({ changes: [{ field: 'clientVisible', from: true, to: false, reason: 'moved' }] });
   });
 
   it('can take people who aren’t on the new team off the task instead', async () => {

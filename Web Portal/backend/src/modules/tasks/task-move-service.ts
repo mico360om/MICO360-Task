@@ -82,6 +82,8 @@ export interface MoveResult {
   addedToTeam: MovePerson[];
   unassigned: MovePerson[];
   milestoneCleared: boolean;
+  /** It was shown on the old project's client page, and no longer is. */
+  clientHidden?: boolean;
   /** The due day the move gave it ('YYYY-MM-DD'), or null. */
   dueDateSet: string | null;
   /** The move completed it (into a Done column) or re-opened it (out of one); null when neither. */
@@ -284,6 +286,8 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     const dueDateSet = due ? dayOf(due) : null;
     const patch: ProjectMoveWrite['patch'] = {
       ...(task.isMilestone ? { isMilestone: false } : {}),
+      // "Show to client" belongs to the old project's client page.
+      ...(task.clientVisible ? { clientVisible: false } : {}),
       ...(due ? { dueDate: due } : {}),
       // Completion follows the column, as when a card is moved between columns.
       ...(await columnEntryChange(task, column.category, { at, todayAnchor: boardDateFromKey(boardDateKey(at, timeZone)), reopenedProgress: deps.checklistPercent })),
@@ -322,6 +326,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
       addedToTeam,
       unassigned,
       milestoneCleared: task.isMilestone,
+      clientHidden: task.clientVisible === true,
       dueDateSet,
       statusChange: task.completedAt === null && moved.completedAt !== null ? 'COMPLETED' : task.completedAt !== null && moved.completedAt === null ? 'REOPENED' : null,
     };

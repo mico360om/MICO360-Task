@@ -139,6 +139,8 @@ interface Change {
   field: string;
   from?: unknown;
   to?: unknown;
+  /** Why it changed, when it wasn't edited directly ('moved': the task moved to another project). */
+  reason?: unknown;
 }
 
 function changeText(c: Change): string | null {
@@ -165,7 +167,8 @@ function changeText(c: Change): string | null {
     case 'milestone':
       return c.to ? 'made it a milestone' : 'cleared its milestone';
     case 'clientVisible':
-      return c.to ? 'made this visible to the client' : 'hid this from the client';
+      if (c.to) return 'made this visible to the client';
+      return c.reason === 'moved' ? 'hid this from the client (moved to another project)' : 'hid this from the client';
     default:
       return null;
   }
@@ -179,7 +182,7 @@ function foldChanges(chronological: FeedEntry[]): Change[] {
   for (const entry of chronological) {
     for (const c of changesOf(entry)) {
       const seen = byField.get(c.field);
-      byField.set(c.field, seen ? { field: c.field, from: seen.from, to: c.to } : { ...c });
+      byField.set(c.field, seen ? { field: c.field, from: seen.from, to: c.to, ...(c.reason !== undefined ? { reason: c.reason } : {}) } : { ...c });
     }
   }
   // A value changed and changed back again is no change at all (descriptions carry no values).

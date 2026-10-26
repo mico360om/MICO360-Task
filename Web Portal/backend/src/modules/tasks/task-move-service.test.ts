@@ -284,6 +284,16 @@ describe('Moving one task', () => {
     expect(await w.repo.nextKeyNumber('rig')).toBe(9);
   });
 
+  it('a task shown to the old project’s client leaves that client page, and its history says why', async () => {
+    const w = world();
+    Object.assign(w.find('RIG-4'), { clientVisible: true });
+    const r = await w.service.moveTask(aisha, 't4', { projectId: 'ops', assignees: 'ADD_TO_TEAM' });
+    expect(r.clientHidden).toBe(true);
+    expect(r.task.clientVisible).toBe(false);
+    const updated = w.state.activity.find((l) => l.taskId === 't4' && l.action === 'UPDATED')!;
+    expect((updated.meta as { changes: unknown[] }).changes).toContainEqual({ field: 'clientVisible', from: true, to: false, reason: 'moved' });
+  });
+
   it('goes to the column chosen in the new project; a column of another project is refused', async () => {
     const w = world();
     expect((await w.service.moveTask(aisha, 't1', { projectId: 'ops', columnId: 'o-todo' })).task.columnId).toBe('o-todo');

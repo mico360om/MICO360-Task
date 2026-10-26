@@ -23,7 +23,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
       const rows = await prisma.task.findMany({
         where: { id: { in: ids }, ...liveTaskWhere },
         select: {
-          id: true, key: true, title: true, projectId: true, columnId: true, isMilestone: true, dueDate: true, startDate: true, boardDate: true,
+          id: true, key: true, title: true, projectId: true, columnId: true, isMilestone: true, clientVisible: true, dueDate: true, startDate: true, boardDate: true,
           completedAt: true, recurrenceRule: true, recurrenceParentId: true, version: true,
           column: { select: { category: true } },
           assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } }, orderBy: { assignedAt: 'asc' } },
@@ -37,6 +37,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         columnId: t.columnId,
         columnCategory: t.column?.category ?? null,
         isMilestone: t.isMilestone,
+        clientVisible: t.clientVisible,
         dueDate: t.dueDate,
         startDate: t.startDate,
         boardDate: t.boardDate,
