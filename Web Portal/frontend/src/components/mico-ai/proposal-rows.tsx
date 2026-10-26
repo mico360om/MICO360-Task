@@ -10,7 +10,7 @@ import type { Priority } from '../../api/tasks';
 import type { CreateTaskChange, MeetingChange, MicoAiNamed, MinutesChange, ProposalChange, UpdateTaskChange } from '../../api/mico-ai';
 import type { FinalMinutesContent } from '../../api/meetings';
 import { lengthLabel, linesOf, meetingWhen, shortDay, textOf } from '../../lib/mico-ai-proposal';
-import { zonedDayKey } from '../../lib/due-date';
+import { todayKey, zonedDayKey } from '../../lib/due-date';
 import { useAuthStore } from '../../stores/auth-store';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { AssigneeSelect, type PersonOption } from '../task-form/AssigneeSelect';
@@ -20,10 +20,21 @@ import { useSourceTarget } from './AnswerParts';
 
 /**
  * One change on MICO AI's card: what it will do (a new task's details; a task change as
- * before → after; a meeting's day, time, people and agenda; a draft of final minutes), and its
- * inline editor, built from the app's own controls. Editors report the values the person chose
- * (ids, days, times) and the names to show for them; the server checks every value again.
+ * before → after; a meeting's day, time, people, agenda and description; a draft of final
+ * minutes), and its inline editor, built from the app's own controls. Everything Confirm will
+ * write is shown — nothing is hidden or silently cut (text MICO AI wrote may come from the data it
+ * read). Editors report the values the person chose (ids, days, times) and the names to show for
+ * them; the server checks every value again.
  */
+
+/** How the card's days and times read: in the company's zone, named when the person's own differs. */
+export interface When {
+  /** The company's time zone (meeting times are in it). */
+  timeZone: string;
+  /** The person's own zone is a different one: the company's is named after meeting times. */
+  otherZone: boolean;
+}
+const yearOf = (when: When) => todayKey(when.timeZone).slice(0, 4);
 
 /** Names to show for edited values (the card's labels are for what was proposed). */
 export interface Shown {
@@ -73,13 +84,45 @@ function Change({ label, from, to }: { label: string; from: ReactNode; to: React
   );
 }
 
+/** A long text in full behind "Show all" (never cut off without saying so); a short one as it is. */
+function LongText({ text, what }: { text: string; what: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 160 || text.split('\n').length > 3;
+  return (
+    <div className="space-y-0.5">
+      <p dir="auto" className={`whitespace-pre-wrap text-sm text-ink-2 [overflow-wrap:anywhere] ${long && !open ? 'line-clamp-3' : ''}`}>{text}</p>
+      {long ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`${open ? 'Show less' : 'Show all'} of the ${what}`}
+          onClick={() => setOpen((o) => !o)}
+          className="inline-flex min-h-7 items-center text-xs font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-[44px]"
+        >
+          {open ? 'Show less' : 'Show all'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** A section shown open (it has content): the person sees all of it, and may fold it away. */
+function Disclosure({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <details open className="rounded-lg border border-line bg-ground/40 px-2.5 py-1.5">
+      <summary className="flex min-h-7 cursor-pointer items-center text-xs font-semibold text-ink-2 [@media(pointer:coarse)]:!min-h-[44px]">{title}</summary>
+      <div className="mt-1.5 space-y-2 pb-1">{children}</div>
+    </details>
+  );
+}
+
 function Detail({ children }: { children: ReactNode }) {
   return <span className="inline-flex min-w-0 items-center gap-1 [overflow-wrap:anywhere]">{children}</span>;
 }
 const Dot = () => <span aria-hidden="true" className="text-ink-3">·</span>;
 
 // ── What each change will do ───────────────────────────────────────────────────
-function CreateSummary({ item }: { item: CreateTaskChange }) {
+function CreateSummary({ item, when }: { item: CreateTaskChange; when: When }) {
   const f = item.fields;
   return (
     <div className="space-y-1.5">
@@ -87,7 +130,7 @@ function CreateSummary({ item }: { item: CreateTaskChange }) {
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
         <Detail>{item.labels.project ?? 'No project'}</Detail>
         <Dot />
-        <Detail>{f.due ? `Due ${shortDay(f.due)}` : 'No due date'}</Detail>
+        <Detail>{f.due ? `Due ${shortDay(f.due, yearOf(when))}` : 'No due date'}</Detail>
         <Dot />
         <Detail>
           <PriorityBars priority={f.priority} />
@@ -99,14 +142,15 @@ function CreateSummary({ item }: { item: CreateTaskChange }) {
         <Chips people={item.labels.assignees} label="Assigned people" />
       </div>
       {item.ownerDefault ? <p className="text-xs text-ink-3">No one was named, so it goes to the project’s owner, as any new task does.</p> : null}
-      {f.description.trim() ? <p dir="auto" className="line-clamp-2 text-sm text-ink-2 [overflow-wrap:anywhere]">{f.description}</p> : null}
+      {f.description.trim() ? <LongText text={f.description} what="description" /> : null}
     </div>
   );
 }
 
-function UpdateSummary({ item }: { item: UpdateTaskChange }) {
+function UpdateSummary({ item, when }: { item: UpdateTaskChange; when: When }) {
   const target = useSourceTarget();
   const f = item.fields;
+  const day = (d: string | null | undefined) => (d ? shortDay(d, yearOf(when)) : 'No due date');
   return (
     <div className="space-y-2">
       <p className="min-w-0 [overflow-wrap:anywhere]">
@@ -117,7 +161,7 @@ function UpdateSummary({ item }: { item: UpdateTaskChange }) {
         <span className="ms-1.5 text-xs text-ink-3">{item.task.project}</span>
       </p>
       <dl className="space-y-1">
-        {f.due !== undefined ? <Change label="Due" from={item.before.due ? shortDay(item.before.due) : 'No due date'} to={f.due ? shortDay(f.due) : 'No due date'} /> : null}
+        {f.due !== undefined ? <Change label="Due" from={day(item.before.due)} to={day(f.due)} /> : null}
         {f.columnId !== undefined ? <Change label="Status" from={item.before.column} to={item.labels.column ?? '—'} /> : null}
         {f.priority !== undefined ? <Change label="Priority" from={priorityLabel(item.before.priority)} to={priorityLabel(f.priority)} /> : null}
         {f.assigneeIds !== undefined ? <Change label="Assigned" from={names(item.before.assignees)} to={names(item.labels.assignees ?? [])} /> : null}
@@ -126,29 +170,67 @@ function UpdateSummary({ item }: { item: UpdateTaskChange }) {
   );
 }
 
-function MinutesSummary({ item, timeZone }: { item: MinutesChange; timeZone: string }) {
+/** A titled list of the minutes (decisions, risks, next steps), when it has anything. */
+function MinutesList({ title, list }: { title: string; list: string[] }) {
+  if (!list.length) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold text-ink-2">{title}</p>
+      <ul className="mt-0.5 list-disc space-y-0.5 ps-5 text-sm text-ink marker:text-ink-3">
+        {list.map((x, i) => (
+          <li key={i} dir="auto" className="[overflow-wrap:anywhere]">{x}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MinutesSummary({ item, when }: { item: MinutesChange; when: When }) {
   const c = item.fields.content;
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
   return (
     <div className="space-y-1.5">
       <p className="font-medium text-ink [overflow-wrap:anywhere]">
         <span dir="auto">{item.meeting.title}</span>
-        <span className="ms-1.5 text-xs font-normal text-ink-3">{shortDay(zonedDayKey(new Date(item.meeting.startAt), timeZone))}</span>
+        <span className="ms-1.5 text-xs font-normal text-ink-3">{shortDay(zonedDayKey(new Date(item.meeting.startAt), when.timeZone), yearOf(when))}</span>
       </p>
-      {c.summary ? <p dir="auto" className="line-clamp-3 text-sm text-ink-2 [overflow-wrap:anywhere]">{c.summary}</p> : null}
-      <p className="text-xs text-ink-2">{`${plural(c.decisions.length, 'decision')} · ${plural(c.nextSteps.length, 'next step')}${c.risks.length ? ` · ${plural(c.risks.length, 'risk')}` : ''}`}</p>
       <p className="text-xs text-ink-3">Saved as a draft for review on the meeting page — never final or emailed.</p>
+      {/* The whole draft, as the meeting page will get it. */}
+      <Disclosure title={`The draft · ${plural(c.decisions.length, 'decision')} · ${plural(c.nextSteps.length, 'next step')}${c.risks.length ? ` · ${plural(c.risks.length, 'risk')}` : ''}`}>
+        {c.summary ? (
+          <div>
+            <p className="text-xs font-semibold text-ink-2">Summary</p>
+            <p dir="auto" className="whitespace-pre-wrap text-sm text-ink [overflow-wrap:anywhere]">{c.summary}</p>
+          </div>
+        ) : null}
+        {c.discussion.length ? (
+          <div>
+            <p className="text-xs font-semibold text-ink-2">Discussion</p>
+            <dl className="mt-0.5 space-y-1">
+              {c.discussion.map((d, i) => (
+                <div key={i}>
+                  <dt dir="auto" className="text-sm font-medium text-ink [overflow-wrap:anywhere]">{d.topic}</dt>
+                  <dd dir="auto" className="whitespace-pre-wrap text-sm text-ink-2 [overflow-wrap:anywhere]">{d.text}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
+        <MinutesList title="Decisions" list={c.decisions} />
+        <MinutesList title="Risks and open questions" list={c.risks} />
+        <MinutesList title="Next steps" list={c.nextSteps} />
+      </Disclosure>
     </div>
   );
 }
 
-function MeetingSummary({ item }: { item: MeetingChange }) {
+function MeetingSummary({ item, when }: { item: MeetingChange; when: When }) {
   const f = item.fields;
   return (
     <div className="space-y-1.5">
       <p dir="auto" className="font-medium text-ink [overflow-wrap:anywhere]">{f.title.trim() || 'Untitled meeting'}</p>
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
-        <Detail>{meetingWhen(f)}</Detail>
+        <Detail>{meetingWhen(f, { thisYear: yearOf(when), ...(when.otherZone ? { zone: when.timeZone } : {}) })}</Detail>
         <Dot />
         <Detail>{lengthLabel(f.minutes)}</Detail>
         {item.labels.project ? (
@@ -172,20 +254,26 @@ function MeetingSummary({ item }: { item: MeetingChange }) {
           </ol>
         </div>
       ) : null}
+      {/* The invitations carry the description: it is shown, open, before anything is sent. */}
+      {f.description.trim() ? (
+        <Disclosure title="Description">
+          <p dir="auto" className="whitespace-pre-wrap text-sm text-ink [overflow-wrap:anywhere]">{f.description}</p>
+        </Disclosure>
+      ) : null}
     </div>
   );
 }
 
-export function RowSummary({ item, timeZone }: { item: ProposalChange; timeZone: string }) {
+export function RowSummary({ item, when }: { item: ProposalChange; when: When }) {
   switch (item.type) {
     case 'create_task':
-      return <CreateSummary item={item} />;
+      return <CreateSummary item={item} when={when} />;
     case 'update_task':
-      return <UpdateSummary item={item} />;
+      return <UpdateSummary item={item} when={when} />;
     case 'draft_minutes':
-      return <MinutesSummary item={item} timeZone={timeZone} />;
+      return <MinutesSummary item={item} when={when} />;
     case 'schedule_meeting':
-      return <MeetingSummary item={item} />;
+      return <MeetingSummary item={item} when={when} />;
   }
 }
 

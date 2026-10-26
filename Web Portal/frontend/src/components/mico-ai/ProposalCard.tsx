@@ -1,7 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ConfirmBody, MicoAiProposal, ProposalChange } from '../../api/mico-ai';
-import { cardHeading, changeLabel, confirmBody, countdown, initialTicks, resultSummary, undoSummary } from '../../lib/mico-ai-proposal';
+import { cardHeading, changeLabel, confirmBody, countdown, initialTicks, remainingNeeds, resultSummary, undoLeft, undoSummary } from '../../lib/mico-ai-proposal';
 import { useDateSettings } from '../../lib/useDatePrefs';
 import { useSourceTarget } from './AnswerParts';
 import { KindBadge, RowEditor, RowSummary, type Shown } from './proposal-rows';
@@ -58,11 +58,12 @@ const CheckIcon = () => (
 );
 
 /**
- * What happened to one change: done (with where to see it), refused or failed (with why), or
- * skipped. `gone`: Undo deleted what it made, so there is nothing left to open.
+ * What happened to one change: done (with where to see it), being made, refused or failed (with
+ * why), or skipped. `gone`: Undo deleted what it made, so there is nothing left to open.
  */
 function ResultLine({ result, gone = false }: { result: NonNullable<ProposalChange['result']>; gone?: boolean }) {
   const target = useSourceTarget();
+  if (result.status === 'started') return <p className="text-sm text-ink-2">Being made…</p>;
   if (result.status === 'done') {
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
@@ -88,12 +89,15 @@ function ResultLine({ result, gone = false }: { result: NonNullable<ProposalChan
 }
 
 function UndoLine({ undo }: { undo: NonNullable<ProposalChange['undo']> }) {
+  if (undo.status === 'started') return <p className="text-sm text-ink-2">Being put back…</p>;
   return undo.status === 'undone' ? (
     <p dir="auto" className="text-sm text-ink-2">{`Undone: ${undo.message ?? 'put back as it was.'}`}</p>
   ) : (
     <p dir="auto" className="rounded-lg bg-warning-soft px-2.5 py-1.5 text-sm text-ink [overflow-wrap:anywhere]">{`Not undone: ${undo.message ?? 'it couldn’t be put back.'}`}</p>
   );
 }
+
+const CANCELLED = 'Cancelled — nothing was changed.';
 
 const primary =
   'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:!min-h-[44px]';
@@ -109,7 +113,8 @@ const quiet = 'inline-flex min-h-8 items-center rounded-lg px-2.5 text-xs font-s
  */
 export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; actions?: ProposalActions }) {
   const headingId = useId();
-  const { companyTimeZone } = useDateSettings();
+  const { companyTimeZone, timeZone } = useDateSettings();
+  const when = { timeZone: companyTimeZone, otherZone: timeZone !== companyTimeZone };
   const [ticks, setTicks] = useState(() => initialTicks(proposal.items));
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
   const [shown, setShown] = useState<Record<string, Shown>>({});
@@ -119,7 +124,7 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
   /** What this card asked for, so its outcome can take the focus and be announced once. */
-  const acted = useRef<null | 'confirm' | 'undo'>(null);
+  const acted = useRef<null | 'confirm' | 'undo' | 'cancel'>(null);
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const latest = useRef({ proposal, actions });
   latest.current = { proposal, actions };
@@ -128,7 +133,13 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
   const status = proposal.status;
   const proposed = status === 'proposed';
   const items = proposed ? proposal.items.map((i) => effective(i, edits[i.id], shown[i.id])) : proposal.items;
-  const eligible = items.filter((i) => !i.locked);
+  /** What each change still needs putting right (an edit to the field concerned clears it). */
+  const needsOf = (id: string) => {
+    const item = proposal.items.find((x) => x.id === id);
+    return item ? remainingNeeds(item, edits[id]) : [];
+  };
+  // Only a change with nothing left to put right can be ticked (Select all and editing included).
+  const eligible = items.filter((i) => !i.locked && needsOf(i.id).length === 0);
   const ticked = eligible.filter((i) => ticks[i.id]).length;
 
   // The card's state moved on (the page has the server's answer): the outcome takes the focus and is announced, once.
@@ -142,6 +153,10 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
       acted.current = null;
       summaryRef.current?.focus();
       a?.announce(`Undo: ${undoSummary(p.items)}.`);
+    } else if (p.status === 'cancelled' && acted.current === 'cancel') {
+      acted.current = null;
+      summaryRef.current?.focus();
+      a?.announce(CANCELLED);
     }
     if (p.status !== 'proposed') {
       busyRef.current = false;
@@ -162,14 +177,16 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
 
   const canUndoNow = status === 'done' && proposal.canUndo && !!proposal.undoUntil;
   const now = useNow(canUndoNow);
-  const left = proposal.undoUntil ? Date.parse(proposal.undoUntil) - now : 0;
+  // The countdown follows the server's clock: the device's may be off (taken when this card arrived).
+  const receivedAt = useMemo(() => Date.now(), [proposal]);
+  const left = undoLeft(proposal.undoUntil, proposal.serverNow, receivedAt, now);
 
   async function run(kind: 'confirm' | 'cancel' | 'undo', call: (a: ProposalActions) => Promise<string | null>) {
     if (busyRef.current || !actions) return;
     busyRef.current = true;
     setBusy(kind);
     setError(null);
-    acted.current = kind === 'cancel' ? null : kind;
+    acted.current = kind;
     const problem = await call(actions);
     busyRef.current = false;
     setBusy(null);
@@ -180,10 +197,11 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
   }
 
   const edit = (item: ProposalChange) => (patch: Record<string, unknown>, show?: Shown) => {
+    const next = { ...edits[item.id], ...patch };
     setEdits((e) => ({ ...e, [item.id]: { ...e[item.id], ...patch } }));
     if (show) setShown((s) => ({ ...s, [item.id]: { ...s[item.id], ...show } }));
-    // Editing a change means it is wanted.
-    setTicks((t) => ({ ...t, [item.id]: true }));
+    // Editing a change means it is wanted — once nothing on it is left to put right.
+    setTicks((t) => ({ ...t, [item.id]: remainingNeeds(item, next).length === 0 }));
   };
   const toggleOpen = (id: string) =>
     setOpen((o) => {
@@ -231,6 +249,7 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
         {items.map((item) => {
           const label = changeLabel(item);
           const editing = proposed && open.has(item.id) && !item.locked;
+          const needs = proposed && !item.locked ? needsOf(item.id) : [];
           return (
             <li key={item.id} className={`px-3.5 py-3 sm:px-4 ${proposed && !item.locked && !ticks[item.id] ? 'bg-ground/30' : ''}`}>
               {/* The group is inside the list item, so the list stays a list for screen readers. */}
@@ -243,10 +262,10 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
                       <input
                         type="checkbox"
                         aria-label={label}
-                        className="mt-0.5 h-4 w-4 accent-brand"
-                        checked={!!ticks[item.id]}
+                        className="mt-0.5 h-4 w-4 accent-brand disabled:cursor-not-allowed"
+                        checked={!!ticks[item.id] && needs.length === 0}
                         onChange={(e) => setTicks((t) => ({ ...t, [item.id]: e.target.checked }))}
-                        disabled={!!busy}
+                        disabled={!!busy || needs.length > 0}
                       />
                     </label>
                   )
@@ -260,16 +279,16 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
                       </button>
                     ) : null}
                   </div>
-                  <RowSummary item={item} timeZone={companyTimeZone} />
+                  <RowSummary item={item} when={when} />
                   {proposed && item.locked ? <p dir="auto" className="text-sm text-danger">{`Can’t do: ${item.problem ?? 'this change can’t be made.'}`}</p> : null}
-                  {proposed && !item.locked && item.problem ? <p dir="auto" className="text-sm text-danger">{item.problem}</p> : null}
+                  {needs.length ? <p dir="auto" className="text-sm text-danger">{`Put right first: ${needs.map((n) => n.message).join(' ')}`}</p> : null}
                   {proposed && item.warning ? <p dir="auto" className="text-xs text-warning">{item.warning}</p> : null}
                   {editing ? (
                     <div className="rounded-xl border border-line bg-ground/50 p-3">
                       <RowEditor item={item} onEdit={edit(proposal.items.find((x) => x.id === item.id)!)} />
                     </div>
                   ) : null}
-                  {!proposed && item.result ? <ResultLine result={item.result} gone={item.type === 'create_task' && item.undo?.status === 'undone'} /> : null}
+                  {!proposed && item.result ? <ResultLine result={item.result} gone={!!item.undo?.gone} /> : null}
                   {item.undo ? <UndoLine undo={item.undo} /> : null}
                 </div>
               </div>
@@ -307,8 +326,10 @@ export function ProposalCard({ proposal, actions }: { proposal: MicoAiProposal; 
           <p className="text-sm text-ink-2">Making these changes…</p>
         ) : status === 'undoing' ? (
           <p className="text-sm text-ink-2">Putting these changes back…</p>
-        ) : status === 'cancelled' ? (
-          <p className="text-sm text-ink-2">Cancelled — nothing was changed.</p>
+        ) : status === 'cancelled' || status === 'superseded' ? (
+          <p ref={summaryRef} tabIndex={-1} className="rounded text-sm text-ink-2 outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+            {status === 'cancelled' ? CANCELLED : 'Replaced by a newer answer — nothing was changed.'}
+          </p>
         ) : (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <p ref={summaryRef} tabIndex={-1} className="rounded text-sm font-semibold text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/40">

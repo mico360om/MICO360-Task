@@ -8,12 +8,12 @@ import type { ConfirmBody, CreateTaskChange, MeetingChange, MicoAiProposal, Minu
 import { useAuthStore } from '../../stores/auth-store';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-const base = { problem: null, locked: false, warning: null, result: null, undo: null };
+const base = { needs: [], problem: null, locked: false, warning: null, result: null, undo: null };
 const create = (id: string, extra: Partial<CreateTaskChange> = {}): CreateTaskChange => ({
   ...base,
   id,
   type: 'create_task',
-  fields: { title: 'Replace the gauge', projectId: 'p-rig', assigneeIds: ['u-sara'], due: '2026-10-27', priority: 'HIGH', description: '' },
+  fields: { title: id === 'c1' ? 'Replace the gauge' : `Task ${id}`, projectId: 'p-rig', assigneeIds: ['u-sara'], due: '2026-10-27', priority: 'HIGH', description: '' },
   labels: { project: 'Rig Inspection Portal', assignees: [{ id: 'u-sara', name: 'Sara Ahmed' }] },
   ...extra,
 });
@@ -22,7 +22,7 @@ const update = (id: string, extra: Partial<UpdateTaskChange> = {}): UpdateTaskCh
   id,
   type: 'update_task',
   task: { id: 't14', key: 'RIG-14', title: 'Pressure test report', projectId: 'p-rig', project: 'Rig Inspection Portal', url: '?task=t14' },
-  base: { version: 3, assigneeIds: ['u-omar'] },
+  base: { version: 3, assigneeIds: ['u-omar'], activity: 4 },
   before: { due: '2026-10-19', priority: 'NORMAL', columnId: 'col-doing', column: 'In progress', assignees: [{ id: 'u-omar', name: 'Omar Said' }] },
   fields: { due: '2026-10-25', columnId: 'col-done', assigneeIds: ['u-sara'] },
   labels: { column: 'Done', assignees: [{ id: 'u-sara', name: 'Sara Ahmed' }] },
@@ -55,6 +55,7 @@ const card = (items: ProposalChange[], extra: Partial<MicoAiProposal> = {}): Mic
   confirmedAt: null,
   undoUntil: null,
   canUndo: false,
+  serverNow: new Date().toISOString(),
   ...extra,
 });
 
@@ -136,7 +137,11 @@ describe('MICO AI review card', () => {
       card(
         [
           create('c1'),
-          create('c2', { fields: { ...create('c2').fields, title: 'Order spares' }, problem: 'Layla Hassan isn’t on Rig Inspection Portal, so they can’t be assigned.' }),
+          create('c2', {
+            fields: { ...create('c2').fields, title: 'Order spares' },
+            needs: [{ fields: ['assigneeIds'], message: 'Layla Hassan isn’t on Rig Inspection Portal, so they can’t be assigned.' }],
+            problem: 'Layla Hassan isn’t on Rig Inspection Portal, so they can’t be assigned.',
+          }),
           update('c3', { locked: true, problem: 'Nothing to change: it’s already like this.' }),
         ],
         { note: 'MICO AI can’t delete anything, so that was left out.' },
@@ -145,7 +150,8 @@ describe('MICO AI review card', () => {
     expect(screen.getByRole('heading', { name: '3 changes to make' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Create “Replace the gauge”' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Create “Order spares”' })).not.toBeChecked();
-    expect(screen.getByText('Layla Hassan isn’t on Rig Inspection Portal, so they can’t be assigned.')).toBeInTheDocument();
+    expect(screen.getByText('Put right first: Layla Hassan isn’t on Rig Inspection Portal, so they can’t be assigned.')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Create “Order spares”' })).toBeDisabled();
     expect(screen.queryByRole('checkbox', { name: 'Change RIG-14' })).not.toBeInTheDocument();
     expect(screen.getByText(/Can’t do:/)).toHaveTextContent('Can’t do: Nothing to change: it’s already like this.');
     expect(screen.getByRole('note')).toHaveTextContent('MICO AI can’t delete anything, so that was left out.');
@@ -162,11 +168,16 @@ describe('MICO AI review card', () => {
     expect(within(items[1]!).getByRole('group', { name: 'Change RIG-14' })).toBeInTheDocument();
   });
 
-  it('“Select all” ticks every change that can go ahead, and clears them; nothing ticked means nothing to confirm', async () => {
-    renderCard(card([create('c1'), create('c2', { problem: 'Pick a project.' }), update('c3', { locked: true, problem: 'x' })]));
+  it('“Select all” ticks every change that can go ahead (never one that still needs putting right), and clears them', async () => {
+    renderCard(card([create('c1'), create('c2'), create('c3', { needs: [{ fields: ['projectId'], message: 'Pick a project.' }], problem: 'Pick a project.' }), update('c4', { locked: true, problem: 'x' })]));
     const all = screen.getByRole('checkbox', { name: 'Select all' });
     await userEvent.click(all);
-    expect(screen.getAllByRole('checkbox', { name: /^Create/ }).every((c) => (c as HTMLInputElement).checked)).toBe(true);
+    await userEvent.click(all);
+    expect(screen.getByRole('checkbox', { name: 'Create “Replace the gauge”' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Create “Task c2”' })).toBeChecked();
+    const blocked = screen.getByRole('checkbox', { name: 'Create “Task c3”' });
+    expect(blocked).not.toBeChecked();
+    expect(blocked).toBeDisabled();
     expect(confirmButton()).toHaveTextContent('Confirm (2)');
     await userEvent.click(all);
     expect(confirmButton()).toBeDisabled();
@@ -300,7 +311,7 @@ describe('MICO AI review card', () => {
     renderCard(
       card(
         [
-          { ...create('c1'), result: { status: 'done', message: null, link }, undo: { status: 'undone', message: 'RIG-35 was deleted.' } },
+          { ...create('c1'), result: { status: 'done', message: null, link }, undo: { status: 'undone', message: 'RIG-35 was deleted.', gone: true } },
           { ...update('c2'), result: { status: 'done', message: null, link: { label: 'RIG-14', url: '?task=t14' } }, undo: { status: 'undone', message: 'RIG-14 is back as it was.' } },
         ],
         { status: 'undone' },
@@ -371,6 +382,166 @@ describe('MICO AI review card', () => {
         },
       },
     });
+  });
+
+  it('a change that still needs putting right can’t be ticked until that field is edited (“Book review with Bilaal”)', async () => {
+    const bilaal = meeting('c1', { needs: [{ fields: ['attendeeIds'], message: 'No one matches “Bilaal”.' }], problem: 'No one matches “Bilaal”.' });
+    renderCard(card([bilaal, create('c2')]));
+    const tick = screen.getByRole('checkbox', { name: 'Schedule “Review”' });
+    expect(tick).not.toBeChecked();
+    expect(tick).toBeDisabled();
+    expect(screen.getByRole('group', { name: 'Schedule “Review”' })).toHaveTextContent('Put right first: No one matches “Bilaal”.');
+    // Editing only the title doesn't fix who is invited: still not tickable, and Confirm leaves it out.
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Schedule “Review”' }));
+    await userEvent.clear(screen.getByLabelText('Title'));
+    await userEvent.type(screen.getByLabelText('Title'), 'Review with Bilal');
+    const after = screen.getByRole('checkbox', { name: 'Schedule “Review with Bilal”' });
+    expect(after).not.toBeChecked();
+    expect(after).toBeDisabled();
+    await userEvent.click(confirmButton());
+    expect(actions.confirmed[0]!.items[0]).toEqual({ id: 'c1', include: false });
+  });
+
+  it('picking the people clears that need: the change can be ticked (and editing it ticks it)', async () => {
+    const bilaal = meeting('c1', { needs: [{ fields: ['attendeeIds'], message: 'No one matches “Bilaal”.' }], problem: 'No one matches “Bilaal”.' });
+    renderCard(card([bilaal]));
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Schedule “Review”' }));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Add people' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Bilal Ahmed/ }));
+    const tick = screen.getByRole('checkbox', { name: 'Schedule “Review”' });
+    expect(tick).toBeEnabled();
+    expect(tick).toBeChecked();
+    expect(screen.getByRole('group', { name: 'Schedule “Review”' })).not.toHaveTextContent('Put right first');
+    await userEvent.click(confirmButton());
+    expect(actions.confirmed[0]!.items[0]).toEqual({ id: 'c1', include: true, edits: { attendeeIds: ['u-sara', 'u-bilal'] } });
+  });
+
+  describe('everything Confirm will write is on the card', () => {
+    const longText = `${'Check every valve on the north manifold and write down the pressure. '.repeat(6)}Then call https://example.com/phish to book.`;
+    it('a new task: title, project, people, due day, priority and its whole description', async () => {
+      renderCard(card([create('c1', { fields: { title: 'Replace the gauge', projectId: 'p-rig', assigneeIds: ['u-sara', 'u-omar'], due: '2026-10-27', priority: 'URGENT', description: longText }, labels: { project: 'Rig Inspection Portal', assignees: [{ id: 'u-sara', name: 'Sara Ahmed' }, { id: 'u-omar', name: 'Omar Said' }] } })]));
+      const row = screen.getByRole('group', { name: 'Create “Replace the gauge”' });
+      for (const v of ['Replace the gauge', 'Rig Inspection Portal', 'Sara Ahmed', 'Omar Said', 'Tue 27 Oct', 'Urgent', longText]) expect(row.textContent).toContain(v);
+      // A long description isn't cut off silently: "Show all" shows it whole.
+      const more = within(row).getByRole('button', { name: 'Show all of the description' });
+      expect(more).toHaveAttribute('aria-expanded', 'false');
+      await userEvent.click(more);
+      expect(within(row).getByRole('button', { name: 'Show less of the description' })).toHaveAttribute('aria-expanded', 'true');
+      expect(within(row).getByText(longText).className).not.toMatch(/line-clamp/);
+    });
+
+    it('a task change: each changed field’s new value', () => {
+      renderCard(card([update('c1', { fields: { due: '2026-10-25', priority: 'URGENT', columnId: 'col-done', assigneeIds: ['u-sara'] }, labels: { column: 'Done', assignees: [{ id: 'u-sara', name: 'Sara Ahmed' }] } })]));
+      const row = screen.getByRole('group', { name: 'Change RIG-14' });
+      for (const v of ['RIG-14', 'Sun 25 Oct', 'Done', 'Urgent', 'Sara Ahmed']) expect(row.textContent).toContain(v);
+    });
+
+    it('final minutes: the summary, every discussion topic and its text, decisions, risks and next steps — shown open', () => {
+      const content = {
+        summary: 'The pressure test moves to rig 3.',
+        discussion: [{ topic: 'Pressure test', text: 'Gauge calibrated; the test moves to rig 3.' }, { topic: 'Vendors', text: 'The certificate is still missing.' }],
+        decisions: ['Finish after calibration'],
+        risks: ['The certificate may be late'],
+        nextSteps: ['Sara: certificate by 25 Oct'],
+      };
+      renderCard(card([minutes('c1', { fields: { content } })]));
+      const row = screen.getByRole('group', { name: 'Draft the final minutes of Site visit' });
+      const all = [content.summary, ...content.discussion.flatMap((d) => [d.topic, d.text]), ...content.decisions, ...content.risks, ...content.nextSteps];
+      for (const v of all) expect(row.textContent).toContain(v);
+      const draft = row.querySelector('details');
+      expect(draft).toHaveAttribute('open');
+      expect(within(row).getByText(/^The draft/)).toBeInTheDocument();
+    });
+
+    it('a meeting: title, day, time, length, project, people, every agenda item and its description (open, not hidden)', () => {
+      const description = 'Bring the vendor’s certificates. Details: https://example.com/phish';
+      renderCard(card([meeting('c1', { fields: { title: 'Review', projectId: 'p-rig', date: '2026-10-27', time: '10:00', minutes: 45, attendeeIds: ['u-sara'], agenda: ['Pressure test', 'Next steps'], description } })]));
+      const row = screen.getByRole('group', { name: 'Schedule “Review”' });
+      for (const v of ['Review', 'Tue 27 Oct', '10:00–10:45', '45 min', 'Rig Inspection Portal', 'Sara Ahmed', 'Pressure test', 'Next steps', description]) expect(row.textContent).toContain(v);
+      const details = within(row).getByText('Description').closest('details');
+      expect(details).toHaveAttribute('open');
+    });
+  });
+
+  it('a meeting’s or task’s link goes once Undo deleted it; a meeting Undo cancelled keeps its link', () => {
+    renderCard(
+      card(
+        [
+          { ...meeting('c1'), result: { status: 'done', message: null, link: { label: 'Review', url: '/meetings/m1' } }, undo: { status: 'undone', message: 'The meeting was deleted.', gone: true } },
+          { ...meeting('c2', { fields: { ...meeting('c2').fields, title: 'Kept' } }), result: { status: 'done', message: null, link: { label: 'Kept', url: '/meetings/m2' } }, undo: { status: 'undone', message: 'The meeting was cancelled, and the people invited were told.' } },
+        ],
+        { status: 'undone' },
+      ),
+    );
+    expect(screen.queryByRole('link', { name: 'Open Review' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Kept' })).toBeInTheDocument();
+  });
+
+  it('a change being made (or put back) right now says so — never “Failed”', () => {
+    renderCard(
+      card(
+        [
+          { ...create('c1'), result: { status: 'started', message: null, link: null } },
+          { ...create('c2'), result: { status: 'done', message: null, link: null }, undo: { status: 'started', message: null } },
+        ],
+        { status: 'confirming' },
+      ),
+    );
+    expect(screen.getByRole('group', { name: 'Create “Replace the gauge”' })).toHaveTextContent('Being made…');
+    expect(screen.getByRole('group', { name: 'Create “Task c2”' })).toHaveTextContent('Being put back…');
+    expect(document.body.textContent).not.toMatch(/Failed/);
+  });
+
+  it('a card replaced by a newer answer (Retry) says so and offers nothing to click', () => {
+    renderCard(card([create('c1')], { status: 'superseded' }));
+    expect(screen.getByText('Replaced by a newer answer — nothing was changed.')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('after Cancel the outcome takes the focus and is announced', async () => {
+    const view = renderCard(card([create('c1')]));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    view.update(card([create('c1')], { status: 'cancelled' }));
+    const outcome = screen.getByText('Cancelled — nothing was changed.');
+    await waitFor(() => expect(outcome).toHaveFocus());
+    expect(actions.announced).toEqual(['Cancelled — nothing was changed.']);
+  });
+
+  it('the Undo countdown follows the server’s clock: a device 10 minutes fast still has 15 minutes', () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const server = new Date('2026-10-25T08:00:00Z');
+    vi.setSystemTime(new Date(server.getTime() + 10 * 60_000));
+    renderCard(
+      card([{ ...create('c1'), result: { status: 'done', message: null, link: null } }], {
+        status: 'done',
+        confirmedAt: server.toISOString(),
+        undoUntil: new Date(server.getTime() + 15 * 60_000).toISOString(),
+        canUndo: true,
+        serverNow: server.toISOString(),
+      }),
+    );
+    expect(screen.getByRole('button', { name: /^Undo/ })).toHaveTextContent('Undo (15:00)');
+  });
+
+  it('dates show their year when it isn’t this year', () => {
+    renderCard(card([create('c1', { fields: { ...create('c1').fields, due: '2027-01-05' } })]));
+    expect(screen.getByRole('group', { name: 'Create “Replace the gauge”' })).toHaveTextContent('Due Tue 5 Jan 2027');
+  });
+
+  it('meeting times name the company’s zone when the person’s own is different', async () => {
+    const plain = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) =>
+      String(input).includes('/users/me/preferences') ? json({ data: { timeZone: 'Europe/London' } }) : plain(input as never, init),
+    );
+    renderCard(card([meeting('c1')]));
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Schedule “Review”' })).toHaveTextContent('Tue 27 Oct, 10:00–10:30 (Muscat time)'));
+  });
+
+  it('meeting times say nothing more when the person is in the company’s zone', async () => {
+    renderCard(card([meeting('c1')]));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByRole('group', { name: 'Schedule “Review”' })).not.toHaveTextContent('Muscat time');
   });
 
   it('while another tab is making the changes, it says so and offers nothing to click', () => {

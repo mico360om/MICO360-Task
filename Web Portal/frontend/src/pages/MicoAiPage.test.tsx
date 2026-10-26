@@ -302,7 +302,8 @@ describe('MICO AI page', () => {
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
     const retries = screen.getAllByRole('button', { name: 'Retry' });
     await userEvent.click(retries[retries.length - 1]!);
-    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'And blocked?' }));
+    // Retry names the answer it asks again (the server replaces that answer's unconfirmed card).
+    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'And blocked?', retryOf: 'a2' }));
   });
 
   it('the chat list: groups, search, open, rename and delete (after asking)', async () => {
@@ -812,10 +813,12 @@ describe('MICO AI page: a card of proposed changes', () => {
         confirmedAt: status === 'done' ? new Date().toISOString() : null,
         undoUntil: status === 'done' ? new Date(Date.now() + 15 * 60_000).toISOString() : null,
         canUndo: status === 'done',
+        serverNow: new Date().toISOString(),
         items: [
           {
             id: 'c1',
             type: 'create_task',
+            needs: [],
             problem: null,
             locked: false,
             warning: null,
@@ -866,7 +869,9 @@ describe('MICO AI page: a card of proposed changes', () => {
     };
     renderPage('/mico-ai?chat=c9');
     await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
-    expect(await screen.findByText('Cancelled — nothing was changed.')).toBeInTheDocument();
+    // On the card, and said once in the page's live region.
+    const said = await screen.findAllByText('Cancelled — nothing was changed.');
+    expect(said.map((el) => (el.closest('[data-proposal-card]') ? 'card' : el.getAttribute('role')))).toEqual(['card', 'status']);
     expect(posted('/messages/a1/cancel')).toHaveLength(1);
   });
 });

@@ -29,10 +29,12 @@ const proposalMessage: MicoAiMessage = {
       confirmedAt: null,
       undoUntil: null,
       canUndo: false,
+      serverNow: new Date().toISOString(),
       items: [
         {
           id: 'c1',
           type: 'create_task',
+          needs: [],
           problem: null,
           locked: false,
           warning: null,

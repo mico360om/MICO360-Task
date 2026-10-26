@@ -32,24 +32,38 @@ export interface MicoAiNamed {
   name: string;
 }
 
-/** What happened to one change once the card was confirmed. */
+/** What happened to one change once the card was confirmed ('started': being made right now). */
 export interface ProposalResult {
-  status: 'done' | 'refused' | 'failed' | 'skipped';
+  status: 'done' | 'refused' | 'failed' | 'skipped' | 'started';
   message: string | null;
   /** Where to see it ("RIG-31"): '?task=<id>' opens the task panel on this page. */
   link: { label: string; url: string } | null;
 }
 
-/** What Undo did to one change. */
+/** What Undo did to one change ('started': being put back right now). */
 export interface ProposalUndo {
-  status: 'undone' | 'refused' | 'failed';
+  status: 'undone' | 'refused' | 'failed' | 'started';
   message: string | null;
+  /** What the change made no longer exists (a new task or meeting Undo deleted): nothing to open. */
+  gone?: boolean;
+}
+
+/**
+ * Something to put right before a change can go ahead. An edit to any of `fields` (the edit's own
+ * names) clears it on the page; the server checks the change again on Confirm. No fields: editing
+ * can't fix it.
+ */
+export interface ProposalNeed {
+  fields: string[];
+  message: string;
 }
 
 interface ChangeBase {
   /** c1, c2 … within the card. */
   id: string;
-  /** Something to put right first (by editing): the change starts unticked. */
+  /** What has to be put right first: the change can't be ticked until each is edited. */
+  needs: ProposalNeed[];
+  /** In words: the needs' messages, or why a locked change can't go ahead. */
   problem: string | null;
   /** It can't go ahead at all: no tick box. */
   locked: boolean;
@@ -85,7 +99,7 @@ export interface TaskChangeFields {
 export interface UpdateTaskChange extends ChangeBase {
   type: 'update_task';
   task: { id: string; key: string; title: string; projectId: string; project: string; url: string };
-  base: { version: number; assigneeIds: string[] };
+  base: { version: number; assigneeIds: string[]; activity: number };
   before: { due: string | null; priority: Priority; columnId: string; column: string; assignees: MicoAiNamed[] };
   /** Only the fields that change. */
   fields: TaskChangeFields;
@@ -117,7 +131,8 @@ export interface MeetingChange extends ChangeBase {
 }
 
 export type ProposalChange = CreateTaskChange | UpdateTaskChange | MinutesChange | MeetingChange;
-export type ProposalStatus = 'proposed' | 'confirming' | 'done' | 'cancelled' | 'undoing' | 'undone';
+/** 'superseded': the person asked the same again (Retry), so this unconfirmed card was replaced. */
+export type ProposalStatus = 'proposed' | 'confirming' | 'done' | 'cancelled' | 'undoing' | 'undone' | 'superseded';
 
 /** MICO AI's card of proposed changes: nothing happens until the person confirms it. */
 export interface MicoAiProposal {
@@ -133,6 +148,8 @@ export interface MicoAiProposal {
   /** Until when Undo is open (ISO). */
   undoUntil: string | null;
   canUndo: boolean;
+  /** The server's clock when this was read (ISO): the Undo countdown follows it, not the device's clock. */
+  serverNow: string;
 }
 
 /** What Confirm sends: which changes are ticked, and the person's own edits (checked again on the server). */
@@ -193,7 +210,9 @@ export function micoAiApi(client: ApiClient) {
       client.get<{ data: { messages: MicoAiMessage[]; hasMore: boolean } }>(`${chat(id)}/messages?before=${encodeURIComponent(before)}`).then((r) => r.data),
     rename: (id: string, title: string) => client.patch<{ data: MicoAiChat }>(chat(id), { title }).then((r) => r.data),
     remove: (id: string) => client.del(chat(id)),
-    ask: (id: string, text: string) => client.post<{ data: { question: MicoAiMessage; answer: MicoAiMessage } }>(`${chat(id)}/messages`, { text }).then((r) => r.data),
+    /** Ask a question; `retryOf`: the answer being asked again (its unconfirmed card is replaced). */
+    ask: (id: string, text: string, opts: { retryOf?: string } = {}) =>
+      client.post<{ data: { question: MicoAiMessage; answer: MicoAiMessage } }>(`${chat(id)}/messages`, opts.retryOf ? { text, retryOf: opts.retryOf } : { text }).then((r) => r.data),
     message: (chatId: string, messageId: string) => client.get<{ data: MicoAiMessage }>(message(chatId, messageId)).then((r) => r.data),
     stop: (chatId: string, messageId: string) => client.post<{ data: MicoAiMessage }>(`${message(chatId, messageId)}/stop`).then((r) => r.data),
     /** Table n (1 = the first) of an answer, as Excel or PDF. */

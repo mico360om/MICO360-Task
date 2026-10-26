@@ -3,17 +3,45 @@
  * label, which changes start ticked, what Confirm sends (the ticks and only the edits the person
  * made, which the server checks again), the results and Undo summed up, and the Undo countdown.
  */
-import type { ConfirmBody, MeetingFields, ProposalChange } from '../api/mico-ai';
+import type { ConfirmBody, MeetingFields, ProposalChange, ProposalNeed } from '../api/mico-ai';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** 'YYYY-MM-DD' → 'Tue 27 Oct' (a calendar day, read as it is, never shifted). */
-export function shortDay(key: string | null | undefined): string {
+/**
+ * 'YYYY-MM-DD' → 'Tue 27 Oct' (a calendar day, read as it is, never shifted), with the year when
+ * it isn't `thisYear` ('Tue 5 Jan 2027').
+ */
+export function shortDay(key: string | null | undefined, thisYear?: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(key ?? '');
   if (!m) return 'No date';
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  return `${DAYS[d.getUTCDay()]} ${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}`;
+  const year = thisYear && m[1] !== thisYear ? ` ${m[1]}` : '';
+  return `${DAYS[d.getUTCDay()]} ${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}${year}`;
+}
+
+/** A time zone by its city: 'Asia/Muscat' → 'Muscat time', 'America/New_York' → 'New York time'. */
+export function zoneLabel(timeZone: string): string {
+  return `${(timeZone.split('/').pop() ?? timeZone).replace(/_/g, ' ')} time`;
+}
+
+/**
+ * What a change still needs putting right, given the person's edits so far: an edit to any of a
+ * need's fields clears it (the server checks the change again on Confirm).
+ */
+export function remainingNeeds(item: ProposalChange, edits: Record<string, unknown> | undefined): ProposalNeed[] {
+  const edited = new Set(Object.keys(edits ?? {}));
+  return (item.needs ?? []).filter((n) => !n.fields.some((f) => edited.has(f)));
+}
+
+/**
+ * Time left on Undo by the server's clock: the device's clock may be off, so the gap between the two
+ * when the card arrived (`serverNow` against `receivedAt`) is taken off.
+ */
+export function undoLeft(undoUntil: string | null, serverNow: string, receivedAt: number, now: number): number {
+  if (!undoUntil) return 0;
+  const skew = Date.parse(serverNow) - receivedAt;
+  return Date.parse(undoUntil) - (now + (Number.isFinite(skew) ? skew : 0));
 }
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -53,7 +81,7 @@ export function changeLabel(item: ProposalChange): string {
 
 /** Ticked to begin with: every change, except one with something to put right first and one that can't go ahead. */
 export function initialTicks(items: ProposalChange[]): Record<string, boolean> {
-  return Object.fromEntries(items.map((i) => [i.id, !i.locked && !i.problem]));
+  return Object.fromEntries(items.map((i) => [i.id, !i.locked && (i.needs ?? []).length === 0]));
 }
 
 /**
@@ -65,7 +93,8 @@ export function confirmBody(items: ProposalChange[], ticks: Record<string, boole
     items: items.map((item) => {
       let e = edits[item.id] ?? {};
       if (item.type === 'update_task') e = Object.fromEntries(Object.entries(e).filter(([k]) => k in item.fields));
-      const include = !item.locked && !!ticks[item.id];
+      // A change that still needs putting right never goes, whatever its tick box said.
+      const include = !item.locked && !!ticks[item.id] && remainingNeeds(item, edits[item.id]).length === 0;
       return Object.keys(e).length && include ? { id: item.id, include, edits: e } : { id: item.id, include };
     }),
   };
@@ -116,12 +145,15 @@ export function lengthLabel(minutes: number): string {
   return [h ? `${h} h` : '', m ? `${m} min` : ''].filter(Boolean).join(' ') || '0 min';
 }
 
-/** When a meeting is: "Tue 27 Oct, 10:00–10:30" (in the company's time, as the card gives it). */
-export function meetingWhen(f: Pick<MeetingFields, 'date' | 'time' | 'minutes'>): string {
-  const day = shortDay(f.date);
+/**
+ * When a meeting is: "Tue 27 Oct, 10:00–10:30" in the company's time, as the card gives it — with
+ * the zone named ("(Muscat time)") when the person's own differs, and the year when it isn't this year.
+ */
+export function meetingWhen(f: Pick<MeetingFields, 'date' | 'time' | 'minutes'>, opts: { zone?: string; thisYear?: string } = {}): string {
+  const day = shortDay(f.date, opts.thisYear);
   const t = /^(\d{2}):(\d{2})$/.exec(f.time ?? '');
   if (!t) return `${day}, time to pick`;
   const end = (Number(t[1]) * 60 + Number(t[2]) + f.minutes) % (24 * 60);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${day}, ${f.time}–${pad(Math.floor(end / 60))}:${pad(end % 60)}`;
+  return `${day}, ${f.time}–${pad(Math.floor(end / 60))}:${pad(end % 60)}${opts.zone ? ` (${zoneLabel(opts.zone)})` : ''}`;
 }

@@ -389,7 +389,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   };
 
   const send = useCallback(
-    async (raw: string, opts: { newChat?: boolean } = {}) => {
+    async (raw: string, opts: { newChat?: boolean; retryOf?: string } = {}) => {
       const text = raw.trim().slice(0, MAX_QUESTION);
       if (!text || sending) return;
       setSending(true);
@@ -405,7 +405,8 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
           qc.setQueryData(micoAiChatKey(id), { chat: c, messages: [] });
           goTo(id);
         }
-        const r = await api.ask(id, text);
+        // Retry names the answer it asks again, so the server replaces that answer's unconfirmed card.
+        const r = await api.ask(id, text, !created && opts.retryOf ? { retryOf: opts.retryOf } : {});
         await qc.cancelQueries({ queryKey: micoAiChatKey(id) });
         qc.setQueryData<{ chat: MicoAiChat; messages: MicoAiMessage[] }>(micoAiChatKey(id), (old) => ({
           chat: old?.chat ?? (chats.find((c) => c.id === id) as MicoAiChat),
@@ -651,7 +652,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
                   latest={m === lastAssistant}
                   actions={{
                     ask: (t) => void send(t),
-                    retry: () => void send(questionBefore(i)),
+                    retry: () => void send(questionBefore(i), { retryOf: m.id }),
                     download: (n, f) => void download(m.id, n, f),
                     report: () => void report(m.id),
                     canAsk,

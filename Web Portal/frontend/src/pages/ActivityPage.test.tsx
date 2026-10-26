@@ -108,5 +108,15 @@ describe('ActivityPage', () => {
     expect(screen.getByText('OPS-17')).toBeInTheDocument();
     expect(screen.getByText(/from Rig Inspection \(RIG-4\) to Operations/)).toBeInTheDocument();
   });
-});
 
+  it('a change made through MICO AI says so', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [
+      { ...activity[0], id: 'a10', meta: { from: 'To Do', to: 'Done', via: 'mico-ai' } },
+      { ...activity[1], id: 'a11' },
+    ] })));
+    renderPage();
+    const via = await screen.findAllByText('via MICO AI');
+    expect(via).toHaveLength(1);
+    expect(via[0]!.closest('li')).toHaveTextContent('Omar Ahmed');
+  });
+});

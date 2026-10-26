@@ -161,6 +161,13 @@ export function ActivityPage() {
                           ) : (
                             <span className="text-ink-2">a task</span>
                           )}
+                          {/* A change the person confirmed in MICO AI says so, as in the task's own history. */}
+                          {a.meta?.via === 'mico-ai' ? (
+                            <>
+                              {' '}
+                              <span className="text-xs text-ink-2">via MICO AI</span>
+                            </>
+                          ) : null}
                         </p>
                         <p dir="auto" title={[titleOf(a), detailOf(a), a.project?.name].filter(Boolean).join(' · ')} className="line-clamp-2 text-start text-xs text-ink-2 sm:line-clamp-1">
                           {titleOf(a)}
