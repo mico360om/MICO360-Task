@@ -61,7 +61,12 @@ describe('the client page', () => {
     expect(screen.getByLabelText('Email address')).toBeInTheDocument();
     expect(screen.queryByText(/Rig 7/)).toBeNull();
     for (const staff of ['Dashboard', 'Kanban Board', 'Projects', 'My Tasks', 'Chat']) expect(screen.queryByRole('link', { name: staff })).toBeNull();
-    expect(screen.getByAltText('MICO360 Tasks')).toBeInTheDocument();
+    // The MICO360 wordmark: the coloured one on light, the white one in dark mode (as the staff app does).
+    const logos = screen.getAllByAltText('MICO360 Tasks') as HTMLImageElement[];
+    expect(logos.map((l) => [l.getAttribute('src')!.includes('logo-w'), l.className.includes('dark:hidden') || l.className.includes('dark:block')])).toEqual([
+      [false, true],
+      [true, true],
+    ]);
   });
 
   it('emails a code, then opens the page with it', async () => {
@@ -102,9 +107,10 @@ describe('the client page', () => {
     expect(box).toHaveAttribute('aria-invalid', 'true');
   });
 
-  it('a link that has ended (removed, replaced, archived) gets a friendly page and no form', async () => {
-    show(fakeApi({ view: vi.fn(async () => Promise.reject(new ApiError(404, 'CLIENT_LINK_ENDED', 'This link isn’t active any more.'))) }));
-    expect(await screen.findByRole('heading', { name: 'This project is no longer shared with you' })).toBeInTheDocument();
+  it('a link that has ended (removed, replaced, archived) gets one friendly message and no form', async () => {
+    show(fakeApi({ view: vi.fn(async () => Promise.reject(new ApiError(404, 'CLIENT_LINK_ENDED', 'anything the server says'))) }));
+    expect(await screen.findByRole('heading', { name: 'This link no longer works' })).toBeInTheDocument();
+    expect(screen.getByText('If you still need access, ask the person who shared the project with you to send a new one.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Email address')).toBeNull();
   });
 
@@ -125,9 +131,24 @@ describe('the client page', () => {
     expect(within(tasks).getByText('Due 2 Nov 2026')).toBeInTheDocument();
     expect(within(tasks).getByText('No due date')).toBeInTheDocument();
     const minutes = screen.getByRole('region', { name: 'Meeting minutes' });
-    expect(within(minutes).getByText('Kick-off')).toBeInTheDocument();
+    // Each meeting's title is a heading holding the button that opens or closes it (no <summary>).
+    const heading = within(minutes).getByRole('heading', { level: 3, name: /Kick-off/ });
+    const toggle = within(heading).getByRole('button', { name: /Kick-off/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(minutes.querySelector('summary, details')).toBeNull();
     expect(within(minutes).getByText('Agreed the plan.')).toBeInTheDocument();
     expect(within(minutes).getByRole('button', { name: 'Download the minutes of Kick-off (PDF)' })).toBeInTheDocument();
+  });
+
+  it('opens and closes a meeting’s minutes with its heading button', async () => {
+    const user = userEvent.setup();
+    show(fakeApi());
+    const toggle = await screen.findByRole('button', { name: /Kick-off/, expanded: true });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Agreed the plan.')).toBeNull();
+    await user.click(toggle);
+    expect(screen.getByText('Agreed the plan.')).toBeInTheDocument();
   });
 
   it('downloads the client copy of the minutes', async () => {

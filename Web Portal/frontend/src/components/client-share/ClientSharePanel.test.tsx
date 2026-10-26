@@ -69,14 +69,29 @@ describe('Share with client', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('already shared with that address');
   });
 
-  it('Resend sends a new link and says the old one stops working', async () => {
+  it('Resend sends a new link and says the old one and the signed-in devices stop working', async () => {
     const user = userEvent.setup();
     api.resend.mockResolvedValue(FATMA);
     show();
     const fatma = await screen.findByRole('listitem', { name: 'Fatma Al Harthy' });
     await user.click(within(fatma).getByRole('button', { name: 'Resend the link to Fatma Al Harthy' }));
     expect(api.resend).toHaveBeenCalledWith('p1', 's1');
-    expect(await screen.findByRole('status')).toHaveTextContent('A new link was sent to fatma@client.example. The old link no longer works.');
+    expect(await screen.findByRole('status')).toHaveTextContent('A new link was sent. The old link and any signed-in devices no longer work.');
+  });
+
+  it('an archived project: read-only, with Remove still there (no sharing, no Resend)', async () => {
+    const user = userEvent.setup();
+    api.remove.mockResolvedValue(undefined);
+    show({ archived: true });
+    const dialog = screen.getByRole('dialog', { name: 'Share with client' });
+    expect(dialog).toHaveTextContent(/archived/i);
+    expect(screen.queryByLabelText('Client’s name')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+    const fatma = await screen.findByRole('listitem', { name: 'Fatma Al Harthy' });
+    expect(within(fatma).queryByRole('button', { name: /Resend/ })).toBeNull();
+    await user.click(within(fatma).getByRole('button', { name: 'Remove Fatma Al Harthy' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Remove access' }));
+    expect(api.remove).toHaveBeenCalledWith('p1', 's1');
   });
 
   it('Remove asks first, then ends their access at once', async () => {
