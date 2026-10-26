@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-10-26
+
 ### New features
 - Client view: share a read-only page of a project with a client — no account needed. On the
   project page, its owner, managers and administrators open "Share with client" and add the
