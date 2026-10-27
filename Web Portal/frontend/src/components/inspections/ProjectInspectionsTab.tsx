@@ -21,6 +21,17 @@ export interface InspectionTaskOption {
 /** Where a form is made (the Templates page's "Inspection forms" tab, once it is there). */
 export const INSPECTION_FORMS_PATH = '/inspection-forms';
 
+/** To the forms, for whoever can make them (administrators, and whoever runs a project). */
+function ManageFormsLink({ className = '' }: { className?: string }) {
+  return (
+    <Link to={INSPECTION_FORMS_PATH} className={`inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-brand hover:underline sm:min-h-0 ${className}`}>
+      Manage forms
+    </Link>
+  );
+}
+
+const useForms = () => useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms() });
+
 function Row({ x, timeZone }: { x: InspectionListItem; timeZone: string }) {
   const finished = x.status === 'FINISHED';
   return (
@@ -93,7 +104,7 @@ function Group({ title, items, timeZone, empty }: { title: string; items: Inspec
 export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectId: string; tasks: InspectionTaskOption[]; fixedTask?: InspectionTaskOption; onClose: () => void }) {
   const ids = { title: useId(), forms: useId(), task: useId(), place: useId() };
   const navigate = useNavigate();
-  const formsQ = useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms() });
+  const formsQ = useForms();
   const [formId, setFormId] = useState('');
   const [taskId, setTaskId] = useState(fixedTask?.id ?? '');
   const [place, setPlace] = useState('');
@@ -112,9 +123,12 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
         <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={startM.isPending ? undefined : onClose} aria-hidden="true" />
         <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={ids.title} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden">
           <div className="border-b border-line px-5 pb-3 pt-4">
-            <h2 id={ids.title} className="font-display text-lg font-semibold text-ink">
-              Start an inspection
-            </h2>
+            <div className="flex items-start justify-between gap-2">
+              <h2 id={ids.title} className="font-display text-lg font-semibold text-ink">
+                Start an inspection
+              </h2>
+              {formsQ.data?.canCreate && forms.length ? <ManageFormsLink className="-me-2 -mt-1" /> : null}
+            </div>
             <p className="mt-1 text-sm text-ink-2">You become its inspector. It keeps working without signal, even if the page reloads, once you’ve opened it here.</p>
           </div>
           <form
@@ -219,6 +233,7 @@ export function ProjectInspectionsTab({ projectId, tasks }: { projectId: string;
   const timeZone = useCompanyTimeZone();
   const [starting, setStarting] = useState(false);
   const q = useQuery({ queryKey: ['project-inspections', projectId], queryFn: () => inspectionsApi(apiClient).listForProject(projectId) });
+  const formsQ = useForms();
   const waiting = useWaitingInspections().filter((w) => w.projectId === projectId);
   const all = useMemo(() => q.data?.inspections ?? [], [q.data]);
   const inProgress = all.filter((x) => x.status === 'IN_PROGRESS');
@@ -231,7 +246,10 @@ export function ProjectInspectionsTab({ projectId, tasks }: { projectId: string;
           {InspectIcon.clipboard}
           Checklists carried out on this project, with their reports.
         </p>
-        {q.data?.canStart ? <Button onClick={() => setStarting(true)}>Start an inspection</Button> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {formsQ.data?.canCreate ? <ManageFormsLink /> : null}
+          {q.data?.canStart ? <Button onClick={() => setStarting(true)}>Start an inspection</Button> : null}
+        </div>
       </div>
       {waiting.length ? (
         <p role="status" className="flex items-start gap-2 rounded-xl border border-info/30 bg-info-soft px-3 py-2 text-sm text-info">

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { ProjectInspectionsTab } from './ProjectInspectionsTab';
+import { INSPECTION_FORMS_PATH, ProjectInspectionsTab } from './ProjectInspectionsTab';
 import { useAuthStore } from '../../stores/auth-store';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -100,7 +100,25 @@ describe('a project’s Inspections tab', () => {
     show();
     await userEvent.click(await screen.findByRole('button', { name: 'Start an inspection' }));
     expect(await screen.findByText(/No inspection forms yet/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Make a form' })).toHaveAttribute('href', '/inspection-forms');
+    expect(screen.getByRole('link', { name: 'Make a form' })).toHaveAttribute('href', INSPECTION_FORMS_PATH);
+  });
+
+  it('offers “Manage forms” to whoever can make forms: in the tab and when starting one', async () => {
+    forms = { ...forms, canCreate: true };
+    show();
+    await screen.findByRole('region', { name: 'In progress (1)' });
+    expect(await screen.findByRole('link', { name: 'Manage forms' })).toHaveAttribute('href', INSPECTION_FORMS_PATH);
+    await userEvent.click(screen.getByRole('button', { name: 'Start an inspection' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Start an inspection' });
+    expect(await within(dialog).findByRole('link', { name: 'Manage forms' })).toHaveAttribute('href', INSPECTION_FORMS_PATH);
+  });
+
+  it('no “Manage forms” for someone who can’t make forms', async () => {
+    show();
+    await screen.findByRole('region', { name: 'In progress (1)' });
+    await userEvent.click(screen.getByRole('button', { name: 'Start an inspection' }));
+    await within(await screen.findByRole('dialog', { name: 'Start an inspection' })).findByRole('radio', { name: /Rig daily check/ });
+    expect(screen.queryByRole('link', { name: 'Manage forms' })).toBeNull();
   });
 
   it('can’t start one on an archived project', async () => {
