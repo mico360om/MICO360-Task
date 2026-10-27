@@ -375,6 +375,8 @@ export function TaskDrawer({
           </div>
         ) : null}
 
+        {/* A check (a task that carries a form) is done by carrying out its inspection: that comes first. */}
+        {task.inspectionFormId && inspections ? <div className="mb-6">{inspections}</div> : null}
         <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:grid-rows-[auto_auto_auto_auto_1fr] lg:items-start lg:gap-x-8 lg:gap-y-7">
           <section aria-labelledby="task-desc-heading" className="lg:col-start-1 lg:row-start-1">
             <h3 id="task-desc-heading" className="eyebrow mb-1.5">
@@ -403,7 +405,7 @@ export function TaskDrawer({
               onScope={setScope}
             />
             {onSetClientVisible ? <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} /> : null}
-            {inspections}
+            {task.inspectionFormId ? null : inspections}
             <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
             {dependencies ? (
               <DependenciesSection taskId={task.id} dependencies={dependencies} availableTasks={availableTasks} onAdd={onAddDependency} onRemove={onRemoveDependency} />

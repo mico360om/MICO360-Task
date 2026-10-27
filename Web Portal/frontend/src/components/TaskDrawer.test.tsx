@@ -677,4 +677,14 @@ describe('TaskDrawer — the meeting a task was created from', () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[]} onClose={vi.fn()} />);
     expect(within(screen.getByTestId('task-header')).queryByText('Inspection')).toBeNull();
   });
+
+  it('a check’s inspection panel comes first (Start inspection is the first thing on a phone); other tasks keep it beside the details', () => {
+    const panel = <section aria-label="Inspections panel">Start inspection</section>;
+    const { unmount } = render(<TaskDrawer task={{ ...task, inspectionFormId: 'f1' }} checklist={[]} comments={[]} inspections={panel} onClose={vi.fn()} />);
+    const description = screen.getByRole('heading', { name: 'Description' });
+    expect(screen.getByLabelText('Inspections panel').compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    unmount();
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} inspections={panel} onClose={vi.fn()} />);
+    expect(screen.getByLabelText('Inspections panel').compareDocumentPosition(screen.getByRole('heading', { name: 'Description' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
 });
