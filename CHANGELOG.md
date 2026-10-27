@@ -40,7 +40,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - The company's first day of the week is now a setting (System Settings, Sunday unless changed).
   The Calendar, Workload, Timeline and reports use it for everyone who hasn't chosen their own.
 - A task's history says when its inspection form or place changed.
-- On-off switches are easier to tap on phones and tablets.
+- On-off switches, and a few small links on the inspection pages, are easier to tap on phones and
+  tablets; the sidebar keeps the page you're on in view on short screens.
+
+### Bug fixes
+- On a tablet, a project with a long name no longer shows its name one letter per line at the top
+  of the project page — the buttons move under the name when there isn't room.
 
 ### Security
 - The Management page, its lists, its PDF and the weekly summary show each person only the projects
