@@ -89,7 +89,10 @@ export function WorkloadPage() {
   const today = todayKey(timeZone, now);
   const thisWeek = weekDays(today, weekStart)[0]!;
   const asked = params.get('week');
-  const week = isDay(asked) ? weekDays(asked, weekStart)[0]! : thisWeek;
+  // The seven days from the day the address names (as the API reads `week`): a link from elsewhere —
+  // the Management page counts company weeks — shows exactly the days it counted, whatever this
+  // person's own week start. The page's own arrows always name a first day of the person's week.
+  const week = isDay(asked) ? asked : thisWeek;
   const projectId = params.get('project') ?? '';
   const [q, setQ] = useState('');
   const setParam = (key: string, value: string) =>

@@ -17,6 +17,7 @@ describe('pageMetaFor', () => {
       '/calendar': 'Calendar',
       '/timeline': 'Timeline',
       '/workload': 'Workload',
+      '/management': 'Management',
       '/meetings': 'Meetings',
       '/meetings/abc123': 'Meeting',
       '/my-action-items': 'My Action Items',

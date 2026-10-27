@@ -4,8 +4,9 @@ import type { PrismaClient } from '@prisma/client';
 import type { AuthGuard } from '../auth/auth-guard';
 
 /**
- * A person's own date settings. `null` means the default: the company time zone (set by an
- * administrator) and weeks that start on Sunday.
+ * A person's own date settings. `null` means the company's: its time zone and its week start (both
+ * set by an administrator — the week start is the system setting `company.weekStart`, Sunday until
+ * changed, shown to the apps in /config).
  */
 export interface UserPreferences {
   timeZone: string | null;

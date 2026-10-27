@@ -158,3 +158,26 @@ describe('signing out with inspection changes still on this device', () => {
     expect(localStorage.getItem('mico360.inspection.u1.i1')).toBeNull();
   });
 });
+
+describe('SettingsPage — a notification switch saves only what it changes (M-4)', () => {
+  it('never sends the weekly summary or the daily email settings back (an older tab can’t turn them on again)', async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (u.includes('/notifications/preferences') && method === 'PUT') {
+        bodies.push(JSON.parse(String(init!.body)));
+        return json({ data: { muted: ['TASK_ASSIGNED'], reminderLeadMinutes: 120, weeklySummary: false, dailyEmails: { pending: false, completed: true, time: '07:00' } } });
+      }
+      if (u.includes('/notifications/preferences')) return json({ data: { muted: [], reminderLeadMinutes: 120, weeklySummary: false, dailyEmails: { pending: false, completed: true, time: '07:00' } } });
+      return json({ data: [] });
+    }));
+    renderPage();
+    const first = (await screen.findAllByRole('switch', { name: /^Notify me:/ }))[0]!;
+    await waitFor(() => expect(first).toHaveAttribute('aria-checked', 'true'));
+    fireEvent.click(first);
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(Object.keys(bodies[0] as object).sort()).toEqual(['muted', 'reminderLeadMinutes']);
+    expect(bodies[0]).toMatchObject({ reminderLeadMinutes: 120 });
+  });
+});

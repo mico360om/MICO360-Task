@@ -134,6 +134,7 @@ model User {
   loginOtps        LoginOtp[]
   deviceTokens     DeviceToken[]
   dailyTaskEmails  DailyTaskEmail[]
+  weeklySummaryEmails WeeklySummaryEmail[]
   settings         UserSetting?
 
   @@index([status])
@@ -1140,6 +1141,29 @@ model DailyTaskEmail {
   @@index([status, nextAttemptAt])
   @@index([day])
   @@map("daily_task_emails")
+}
+
+/// The weekly management summary: one row per person and company week, so it goes out once. It is the
+/// delivery log too (the same statuses and retries as the daily task emails).
+model WeeklySummaryEmail {
+  id            String           @id @default(cuid())
+  userId        String
+  /// The company week's first day ('YYYY-MM-DD').
+  week          String           @db.VarChar(10)
+  status        DailyEmailStatus @default(SENDING)
+  attempts      Int              @default(1)
+  /// Projects in the summary when it went (0 when skipped).
+  projectCount  Int              @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?          @db.Text
+  sentAt        DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, week])
+  @@index([status, nextAttemptAt])
+  @@map("weekly_summary_emails")
 }
 
 // ─────────────────────────────── MICO AI ───────────────────────────────

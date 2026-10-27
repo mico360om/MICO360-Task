@@ -60,6 +60,28 @@ describe('buildTimeSeries', () => {
     expect(result.velocityPerWeek).toBe(1);
   });
 
+  it('with the company week start, velocity is counted in company weeks (partial at the ends) and averaged per 7 days', () => {
+    // Saturday 1 January 2000 … Monday 17 January; completions on the 3rd (Mon), 9th (Sun) and 10th (Mon).
+    const done = (id: string, at: string): ReportTask => ({ id, projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: d('1999-12-01T09:00:00Z'), dueDate: null, completedAt: d(at), assigneeIds: [] });
+    const three = [done('a', '2000-01-03T08:00:00Z'), done('b', '2000-01-09T08:00:00Z'), done('c', '2000-01-10T08:00:00Z')];
+    const sunday = buildTimeSeries(three, '2000-01-01', '2000-01-17', 'Asia/Muscat', 0);
+    expect(sunday.velocity).toEqual([
+      { weekStart: '1999-12-26', completed: 0 },
+      { weekStart: '2000-01-02', completed: 1 },
+      { weekStart: '2000-01-09', completed: 2 },
+      { weekStart: '2000-01-16', completed: 0 },
+    ]);
+    const monday = buildTimeSeries(three, '2000-01-01', '2000-01-17', 'Asia/Muscat', 1);
+    expect(monday.velocity.map((v) => [v.weekStart, v.completed])).toEqual([
+      ['1999-12-27', 0],
+      ['2000-01-03', 2],
+      ['2000-01-10', 1],
+      ['2000-01-17', 0],
+    ]);
+    // 3 done over 17 days: 1.2 a week.
+    expect(sunday.velocityPerWeek).toBe(1.2);
+  });
+
   it('echoes the requested range', () => {
     expect(result.from).toBe('2000-01-01');
     expect(result.to).toBe('2000-01-05');

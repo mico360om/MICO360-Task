@@ -11,6 +11,10 @@ export interface AppConfig {
   emailEnabled?: boolean;
   /** Configured "Download for Android" link, or null (see lib/android-app-link). */
   androidAppUrl?: string | null;
+  /** The company's week start (0 Sunday, 1 Monday, 6 Saturday): everyone's until they choose their own. */
+  weekStart?: 0 | 1 | 6;
+  /** The weekly management summary is on for the company (an administrator can turn it off for everyone). */
+  weeklySummaryEnabled?: boolean;
 }
 
 export function configApi(client: ApiClient) {

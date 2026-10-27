@@ -96,6 +96,7 @@ import { registerClientViewRoutes, type ClientViewRouteDeps } from './modules/cl
 import { registerTemplateRoutes } from './modules/templates/template-routes';
 import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
+import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -118,6 +119,8 @@ export interface AppDeps extends AuthRouteDeps {
     androidAppUrl?: string | null;
     /** The version of the app file the site offers (read from the file; null: none or unknown). */
     androidAppVersion?: () => string | null;
+    /** The company week start (everyone's default) and whether the weekly management summary is on. */
+    company?: () => Promise<{ weekStart: 0 | 1 | 6; weeklySummaryEnabled: boolean }>;
   };
   /**
    * Live account state for the auth guard (token version, status, current roles). When set, a
@@ -263,6 +266,8 @@ export interface AppDeps extends AuthRouteDeps {
   templateService?: TemplateService;
   /** Inspection checklists: forms, a project's inspections, answers, signing, follow-up tasks, reports. */
   inspections?: Omit<InspectionRouteDeps, 'guard' | 'broadcast'>;
+  /** The Management page: every project's health, inspections, people and trends; its lists and its PDF. */
+  management?: Omit<ManagementRouteDeps, 'guard'>;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -412,6 +417,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // (readable by every role) plus the current server time to anchor the clock.
   app.get('/api/v1/config', async () => ({
     data: {
+      // The company's week start — everyone's default week start until they choose their own — and
+      // whether the weekly management summary is on. Read each time (an administrator can change them);
+      // Sunday and on when they can't be read.
+      ...(await (deps.appConfig?.company?.() ?? Promise.resolve({ weekStart: 0, weeklySummaryEnabled: true })).catch(() => ({ weekStart: 0, weeklySummaryEnabled: true }))),
       timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
       productName: deps.appConfig?.productName ?? 'MICO360 Tasks',
       companyName: deps.appConfig?.companyName ?? 'MICO360',
@@ -732,6 +741,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           broadcast: deps.onTaskEvent,
           onMinutesChanged: deps.onFinalMinutesChanged,
         });
+      }
+      if (deps.management) {
+        await registerManagementRoutes(api, { ...deps.management, guard });
       }
       if (deps.inspections) {
         await registerInspectionRoutes(api, { ...deps.inspections, guard, broadcast: deps.onTaskEvent });

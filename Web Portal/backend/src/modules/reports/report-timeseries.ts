@@ -1,5 +1,6 @@
 import type { ReportTask } from './report-service';
 import { dueDayKey, shiftDayKey, zonedStartOfDay } from '../../lib/due-date';
+import { weekOf, type WeekStart } from '../planning/timeline';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
 
 /** A single day's snapshot in a report time series. */
@@ -57,7 +58,7 @@ const doneAtMs = (t: ReportTask): number | null =>
  * work done just after local midnight lands on the right day. Pure and deterministic — pass a
  * filtered list for a per-project (or per-person) burndown.
  */
-export function buildTimeSeries(tasks: ReportTask[], from: string, to: string, timeZone: string = defaultCompanyTimeZone()): TimeSeriesResult {
+export function buildTimeSeries(tasks: ReportTask[], from: string, to: string, timeZone: string = defaultCompanyTimeZone(), weekStart?: WeekStart): TimeSeriesResult {
   const days = enumerateDays(from, to);
   const dueKeys = new Map(tasks.map((t) => [t.id, dueDayKey(t.dueDate, timeZone)] as const));
 
@@ -89,6 +90,20 @@ export function buildTimeSeries(tasks: ReportTask[], from: string, to: string, t
   points.forEach((p, i) => {
     p.ideal = n <= 1 ? 0 : Math.round((start * (n - 1 - i)) / (n - 1));
   });
+
+  // With the company week start: completed per company week (the first and last may be partial),
+  // averaged per seven days of the window.
+  if (weekStart !== undefined) {
+    const weeks = new Map<string, number>();
+    for (const p of points) {
+      const w = weekOf(p.date, weekStart);
+      weeks.set(w, (weeks.get(w) ?? 0) + p.completed);
+    }
+    const velocity = [...weeks].map(([start, completed]) => ({ weekStart: start, completed }));
+    const total = points.reduce((s, p) => s + p.completed, 0);
+    const velocityPerWeek = points.length ? Math.round(((total * 7) / points.length) * 10) / 10 : 0;
+    return { from, to, points, velocity, velocityPerWeek };
+  }
 
   // Weekly velocity — sum completed over consecutive 7-day buckets aligned to `from`.
   const velocity: VelocityPoint[] = [];

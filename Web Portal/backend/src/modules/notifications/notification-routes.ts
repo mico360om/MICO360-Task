@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { NotificationService } from './notification-service';
 import type { AuthGuard } from '../auth/auth-guard';
-import { dailyEmailPrefs, normalizePreferences, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type NotificationPreferences } from './notification-preferences';
+import { dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type NotificationPreferences } from './notification-preferences';
 
 const prefsSchema = z.object({
   muted: z.array(z.string()).optional(),
@@ -14,12 +14,13 @@ const prefsSchema = z.object({
       time: z.string().regex(DAILY_EMAIL_TIME, 'Choose a time as HH:MM.').optional(),
     })
     .optional(),
+  weeklySummary: z.boolean().optional(),
 });
 
 const readAllSchema = z.object({ upTo: z.string().datetime({ offset: true }).optional() });
 
-/** Preferences as the apps read them: the daily email settings always filled in. */
-const withDailyEmails = (p: NotificationPreferences): NotificationPreferences => ({ ...p, dailyEmails: dailyEmailPrefs(p) });
+/** Preferences as the apps read them: the daily email settings and the weekly summary switch always filled in. */
+const withDailyEmails = (p: NotificationPreferences): NotificationPreferences => ({ ...p, dailyEmails: dailyEmailPrefs(p), weeklySummary: weeklySummaryOn(p) });
 
 export interface NotificationRouteDeps {
   notificationService: NotificationService;
@@ -39,8 +40,8 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
   });
 
   // The muted types and the reminder time are saved together, as the apps always have (the time left
-  // out means the default). The daily email settings are kept unless they are sent, so an app that
-  // doesn't know them (an older phone app) never wipes them.
+  // out means the default). The daily email settings and the weekly summary switch are kept unless
+  // they are sent, so an app that doesn't know them (an older phone app) never wipes them.
   app.put('/notifications/preferences', { preHandler: guard.authenticate }, async (req) => {
     const body = prefsSchema.parse(req.body);
     const current = await notificationService.getPreferences(req.user!.id);
@@ -48,6 +49,7 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
     const merged = {
       ...pair,
       ...(body.dailyEmails !== undefined ? { dailyEmails: { ...dailyEmailPrefs(current), ...body.dailyEmails } } : current.dailyEmails ? { dailyEmails: current.dailyEmails } : {}),
+      ...(body.weeklySummary !== undefined ? { weeklySummary: body.weeklySummary } : current.weeklySummary !== undefined ? { weeklySummary: current.weeklySummary } : {}),
     };
     return { data: withDailyEmails(await notificationService.setPreferences(req.user!.id, normalizePreferences(merged))) };
   });

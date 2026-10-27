@@ -30,6 +30,7 @@ export const PAGES = [
   { id: 'mico-ai', label: 'MICO AI', web: '/mico-ai', keywords: ['ai', 'ask', 'assistant', 'question', 'chatbot'] },
   { id: 'activity', label: 'Activity', web: '/activity', keywords: ['feed', 'history'] },
   { id: 'notifications', label: 'Notifications', hash: '#/notifications', keywords: ['alerts', 'bell'] },
+  { id: 'management', label: 'Management', web: '/management', keywords: ['health', 'red amber green', 'leadership', 'overview', 'inspections', 'overloaded'], leads: true },
   { id: 'reports', label: 'Reports', hash: '#/reports', keywords: ['analytics', 'stats', 'charts', 'trends'], admin: true },
   { id: 'settings', label: 'Settings', hash: '#/settings', keywords: ['preferences'] },
   { id: 'profile', label: 'Profile', web: '/profile', keywords: ['account', 'me'] },
@@ -43,11 +44,12 @@ export const PAGES = [
 /**
  * Pages matching what was typed, best first: an exact name or word, then one that starts with it,
  * then one that contains it (so "board" finds "Kanban Board" before "Dashboard"). Nothing typed:
- * all of them. Admin pages only for admins. The web's `matchNavCommands`, over any list.
+ * all of them. Admin pages only for admins; the Management page only for `leads` (an admin, or someone
+ * who runs a project — the extension knows admins only). The web's `matchNavCommands`, over any list.
  */
-export function rankPages(pages, query, isAdmin) {
+export function rankPages(pages, query, isAdmin, leads = isAdmin) {
   const q = String(query || '').trim().toLowerCase();
-  const visible = pages.filter((c) => !(c.admin && !isAdmin));
+  const visible = pages.filter((c) => !(c.admin && !isAdmin) && !(c.leads && !leads));
   if (!q) return visible;
   const score = (c) => {
     const label = c.label.toLowerCase();

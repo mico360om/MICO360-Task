@@ -43,7 +43,14 @@ describe('search: the pages to go to', () => {
   it('ranks pages as the web does: an exact name or keyword, then a start, then anywhere in it', () => {
     expect(matchPages('board', true).map((p) => p.id)[0]).toBe('board'); // "Kanban Board" before "Dashboard"
     expect(matchPages('meet', false).map((p) => p.id)).toEqual(['meetings']);
-    expect(matchPages('', false).length).toBe(PAGES.filter((p) => !p.admin).length);
+    expect(matchPages('', false).length).toBe(PAGES.filter((p) => !p.admin && !p.leads).length);
+  });
+
+  it('offers the Management page (on the website) to administrators: the extension doesn’t know who runs a project', () => {
+    expect(matchPages('management', false)).toEqual([]);
+    const forAdmin = matchPages('management', true);
+    expect([forAdmin[0].id, forAdmin[0].web]).toEqual(['management', '/management']);
+    expect(matchPages('health', false)).toEqual([]);
   });
 
   it('hides admin pages from people who aren’t admins', () => {
@@ -159,14 +166,17 @@ describe.skipIf(!web)('search: the same pages and ranking as the web’s command
       expect(mine.label, c.id).toBe(c.label);
       expect(mine.keywords, c.id).toEqual(c.keywords);
       expect(Boolean(mine.admin), c.id).toBe(Boolean(c.admin));
+      expect(Boolean(mine.leads), c.id).toBe(Boolean(c.leads));
     }
   });
 
   it('ranks them the same way for anything typed', () => {
-    const terms = ['', 'b', 'board', 'Board ', 'da', 'tasks', 'my', 'set', 'admin', 'ai', 'version', 'whats new', 'xyz', 'cal', 'report', 'p'];
+    const terms = ['', 'b', 'board', 'Board ', 'da', 'tasks', 'my', 'set', 'admin', 'ai', 'version', 'whats new', 'xyz', 'cal', 'report', 'p', 'management', 'health'];
     for (const term of terms) {
       for (const admin of [true, false]) {
         expect(rankPages(web.NAV_COMMANDS, term, admin).map((c) => c.id), `${term} ${admin}`).toEqual(web.matchNavCommands(term, admin).map((c) => c.id));
+        // Someone who runs a project (not an admin) finds the Management page too.
+        expect(rankPages(web.NAV_COMMANDS, term, admin, true).map((c) => c.id), `${term} ${admin} leads`).toEqual(web.matchNavCommands(term, admin, true).map((c) => c.id));
       }
     }
   });

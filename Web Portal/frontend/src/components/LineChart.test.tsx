@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { LineChart } from './LineChart';
 
@@ -43,5 +43,57 @@ describe('LineChart', () => {
     const dashed = [...chart.querySelectorAll('polyline')].some((p) => p.getAttribute('stroke-dasharray'));
     expect(dashed).toBe(true);
     expect(screen.getByText('Ideal')).toBeInTheDocument();
+  });
+});
+
+describe('LineChart: edges and gaps', () => {
+  it('keeps the first and last axis labels inside the chart (anchored to their edge, not centred past it)', () => {
+    render(<LineChart ariaLabel="Weeks" labels={['4 Oct', '11 Oct', '18 Oct', '25 Oct']} series={[{ name: 'Late', color: 'rgb(1,1,1)', values: [1, 2, 3, 4] }]} maxTicks={4} />);
+    const ticks = [...screen.getByRole('img', { name: 'Weeks' }).querySelectorAll('text')].filter((t) => /Oct/.test(t.textContent ?? ''));
+    expect(ticks.map((t) => [t.textContent, t.getAttribute('text-anchor')])).toEqual([
+      ['4 Oct', 'start'],
+      ['11 Oct', 'middle'],
+      ['18 Oct', 'middle'],
+      ['25 Oct', 'end'],
+    ]);
+  });
+
+  it('leaves a gap (no line, no point) where a value is missing, so charts of the same weeks line up', () => {
+    render(<LineChart ariaLabel="Pass rate" labels={['a', 'b', 'c', 'd', 'e']} series={[{ name: 'Pass rate', color: 'rgb(1,1,1)', values: [null, 100, null, 80, 90] }]} unit="%" />);
+    const chart = screen.getByRole('img', { name: 'Pass rate' });
+    const lines = [...chart.querySelectorAll('polyline')].map((p) => p.getAttribute('points')!.trim().split(' ').length);
+    // 100 stands alone (a dot), then 80–90 is one line.
+    expect(lines).toEqual([2]);
+    expect(chart.querySelectorAll('circle[data-point]').length).toBe(3);
+  });
+
+  describe('on a narrow chart', () => {
+    // jsdom measures nothing (clientWidth comes from Element and is 0): a narrow chart is faked on
+    // HTMLElement for one test and taken away after it.
+    afterEach(() => {
+      delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    });
+
+    it('drops an axis label that would run into the last one (the last week always shows)', () => {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 200 });
+      const weeks = ['9 Aug', '16 Aug', '23 Aug', '30 Aug', '6 Sept', '13 Sept', '20 Sept', '27 Sept', '4 Oct', '11 Oct', '18 Oct', '25 Oct'];
+      render(<LineChart ariaLabel="Narrow" labels={weeks} series={[{ name: 'Late', color: 'rgb(1,1,1)', values: weeks.map((_, i) => i) }]} maxTicks={4} />);
+      const shown = [...screen.getByRole('img', { name: 'Narrow' }).querySelectorAll('text')].map((t) => t.textContent).filter((t) => weeks.includes(t ?? ''));
+      // Every third week would be 9 Aug, 30 Aug, 20 Sept, 11 Oct and 25 Oct; at 200px 30 Aug would touch
+      // 9 Aug and 11 Oct would run into 25 Oct, so those two are left out.
+      expect(shown).toEqual(['9 Aug', '20 Sept', '25 Oct']);
+    });
+
+    it('keeps every third label where there is room', () => {
+      const weeks = ['9 Aug', '16 Aug', '23 Aug', '30 Aug', '6 Sept', '13 Sept', '20 Sept', '27 Sept', '4 Oct', '11 Oct', '18 Oct', '25 Oct'];
+      render(<LineChart ariaLabel="Wide" labels={weeks} series={[{ name: 'Late', color: 'rgb(1,1,1)', values: weeks.map((_, i) => i) }]} maxTicks={4} />);
+      const shown = [...screen.getByRole('img', { name: 'Wide' }).querySelectorAll('text')].map((t) => t.textContent).filter((t) => weeks.includes(t ?? ''));
+      expect(shown).toEqual(['9 Aug', '30 Aug', '20 Sept', '11 Oct', '25 Oct']);
+    });
+  });
+
+  it('shows the empty note when every value is missing', () => {
+    render(<LineChart ariaLabel="None" labels={['a', 'b']} series={[{ name: 'x', color: 'rgb(1,1,1)', values: [null, null] }]} />);
+    expect(screen.getByText(/no data/i)).toBeInTheDocument();
   });
 });

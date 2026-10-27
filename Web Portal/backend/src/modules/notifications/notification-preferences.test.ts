@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dailyEmailPrefs, emptyPreferences, isMuted, normalizePreferences, DEFAULT_DAILY_EMAILS } from './notification-preferences';
+import { dailyEmailPrefs, emptyPreferences, isMuted, normalizePreferences, weeklySummaryOn, DEFAULT_DAILY_EMAILS } from './notification-preferences';
 
 describe('notification-preferences', () => {
   it('defaults to nothing muted', () => {
@@ -46,5 +46,20 @@ describe('daily task email settings', () => {
 
   it('are left out when they were never saved (older stored settings stay as they are)', () => {
     expect(normalizePreferences({ muted: ['TASK_COMMENT'] })).toEqual({ muted: ['TASK_COMMENT'] });
+  });
+});
+
+describe('weekly management summary setting', () => {
+  it('is on unless it was turned off (only a real false turns it off)', () => {
+    expect(weeklySummaryOn(emptyPreferences())).toBe(true);
+    expect(weeklySummaryOn(null)).toBe(true);
+    expect(weeklySummaryOn(normalizePreferences({ weeklySummary: false }))).toBe(false);
+    expect(weeklySummaryOn(normalizePreferences({ weeklySummary: true }))).toBe(true);
+    expect(weeklySummaryOn(normalizePreferences({ weeklySummary: 'no' }))).toBe(true);
+  });
+
+  it('is kept when saved and left out when never saved', () => {
+    expect(normalizePreferences({ muted: [], weeklySummary: false })).toEqual({ muted: [], weeklySummary: false });
+    expect(normalizePreferences({ muted: [], weeklySummary: 0 })).toEqual({ muted: [] });
   });
 });

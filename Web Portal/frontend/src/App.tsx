@@ -33,6 +33,8 @@ const ActivityPage = lazyPage(() => import('./pages/ActivityPage'), 'ActivityPag
 const CalendarPage = lazyPage(() => import('./pages/CalendarPage'), 'CalendarPage');
 const TimelinePage = lazyPage(() => import('./pages/TimelinePage'), 'TimelinePage');
 const WorkloadPage = lazyPage(() => import('./pages/WorkloadPage'), 'WorkloadPage');
+// Administrators and the people who run a project (it sends anyone else to the dashboard).
+const ManagementRoute = lazyPage(() => import('./pages/ManagementPage'), 'ManagementRoute');
 const MeetingsPage = lazyPage(() => import('./pages/MeetingsPage'), 'MeetingsPage');
 const MeetingDetailPage = lazyPage(() => import('./pages/MeetingDetailPage'), 'MeetingDetailPage');
 const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'MyActionItemsPage');
@@ -103,6 +105,7 @@ export function App() {
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/timeline" element={<TimelinePage />} />
             <Route path="/workload" element={<WorkloadPage />} />
+            <Route path="/management" element={<ManagementRoute />} />
             <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />

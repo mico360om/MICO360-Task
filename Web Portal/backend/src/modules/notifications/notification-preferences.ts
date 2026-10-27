@@ -5,6 +5,8 @@ export interface NotificationPreferences {
   reminderLeadMinutes?: number;
   /** The two morning emails (pending tasks, completed yesterday); omitted = the defaults. */
   dailyEmails?: DailyEmailPrefs;
+  /** The weekly management summary (for people who can see the Management page); omitted = on. */
+  weeklySummary?: boolean;
 }
 
 /** Which morning emails someone gets, and when (HH:MM in their own time zone). */
@@ -29,7 +31,7 @@ export function emptyPreferences(): NotificationPreferences {
 /** Coerce arbitrary stored/request JSON into a valid preferences object. */
 export function normalizePreferences(input: unknown): NotificationPreferences {
   if (!input || typeof input !== 'object') return emptyPreferences();
-  const raw = input as { muted?: unknown; reminderLeadMinutes?: unknown; dailyEmails?: unknown };
+  const raw = input as { muted?: unknown; reminderLeadMinutes?: unknown; dailyEmails?: unknown; weeklySummary?: unknown };
   const muted = Array.isArray(raw.muted)
     ? [...new Set(raw.muted.filter((m): m is string => typeof m === 'string' && m.trim().length > 0))]
     : [];
@@ -46,7 +48,13 @@ export function normalizePreferences(input: unknown): NotificationPreferences {
       time: typeof d.time === 'string' && DAILY_EMAIL_TIME.test(d.time) ? d.time : DEFAULT_DAILY_EMAILS.time,
     };
   }
+  if (typeof raw.weeklySummary === 'boolean') out.weeklySummary = raw.weeklySummary;
   return out;
+}
+
+/** Whether the person gets the weekly management summary: yes unless they turned it off. */
+export function weeklySummaryOn(prefs: NotificationPreferences | null | undefined): boolean {
+  return prefs?.weeklySummary !== false;
 }
 
 /** The daily email settings in force: the saved ones, else the defaults. */

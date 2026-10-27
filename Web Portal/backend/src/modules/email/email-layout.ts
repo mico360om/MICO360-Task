@@ -196,11 +196,11 @@ function renderBlockHtml(block: Block, brand: Brand, locale: Locale): string {
       </table>`;
     case 'callout': {
       const tone = TONE_COLORS[block.tone ?? 'info'];
-      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px"><tr><td style="background:${tone.bg};border-left:4px solid ${tone.border};border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.5;color:${tone.ink}">${escapeHtml(block.text)}</td></tr></table>`;
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px"><tr><td dir="auto" style="background:${tone.bg};border-left:4px solid ${tone.border};border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.5;color:${tone.ink}">${escapeHtml(block.text)}</td></tr></table>`;
     }
     case 'list':
       return `<ul class="email-text" style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:${c.ink}">${block.items
-        .map((item) => `<li style="margin:0 0 4px">${escapeHtml(item)}</li>`)
+        .map((item) => `<li dir="auto" style="margin:0 0 4px">${escapeHtml(item)}</li>`)
         .join('')}</ul>`;
     case 'links':
       return `<ul class="email-text" style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:${c.ink}">${block.items

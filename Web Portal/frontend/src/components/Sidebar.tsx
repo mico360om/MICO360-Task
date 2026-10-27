@@ -11,6 +11,8 @@ interface NavItem {
   icon: ReactNode;
   /** Only shown to admins (the page's API is admin-only). */
   adminOnly?: boolean;
+  /** Only shown to admins and the people who run a project (the Management page). */
+  leadsOnly?: boolean;
 }
 
 // Compact 24x24 stroke icons (no external dependency).
@@ -64,6 +66,13 @@ const I = {
     <>
       <path d="M3 21h18" />
       <path d="M6 21v-6M11 21V8M16 21v-9" />
+    </>
+  ),
+  management: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 12l4.5-4.5" />
+      <path d="M12 3.5V6M20.5 12H18M3.5 12H6" />
     </>
   ),
   notifications: (
@@ -134,6 +143,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'Meetings', to: '/meetings', icon: I.meetings },
   { label: 'My Action Items', to: '/my-action-items', icon: I.tasks },
   { label: 'Templates', to: '/templates', icon: I.templates },
+  { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
 ];
 const COMMUNICATION: NavItem[] = [
@@ -151,6 +161,8 @@ const ADMIN: NavItem[] = [
 
 export interface SidebarProps {
   isAdmin: boolean;
+  /** Runs a project (or is an admin): the Management page is theirs to see. */
+  canLead?: boolean;
   /** Unread chat messages, shown on the Chat icon (none at 0). */
   chatUnread?: number;
 }
@@ -236,19 +248,19 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0 }: { label: string;
   );
 }
 
-export function Sidebar({ isAdmin, chatUnread = 0 }: SidebarProps) {
+export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
   return (
     <nav
       aria-label="Main"
       className="sticky top-0 hidden h-screen w-60 flex-none flex-col border-r border-line bg-surface/95 md:flex supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} />
+      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} />
     </nav>
   );
 }
 
 /** The sidebar's inner content — reused by the desktop rail and the mobile drawer. */
-export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0 }: SidebarProps & { onNavigate?: () => void }) {
+export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = false }: SidebarProps & { onNavigate?: () => void }) {
   const { pathname } = useLocation();
   const list = useRef<HTMLDivElement>(null);
   // On a short window the list scrolls: never leave the link of the current page below the fold.
@@ -275,7 +287,7 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0 }: SidebarProp
       </div>
 
       <div ref={list} className="scroll-shadows flex-1 overflow-y-auto px-3 py-3">
-        <NavGroup label="Workspace" items={WORKSPACE.filter((i) => isAdmin || !i.adminOnly)} onNavigate={onNavigate} />
+        <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} />
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} />
         {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} /> : null}
       </div>

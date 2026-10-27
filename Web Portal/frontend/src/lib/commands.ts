@@ -5,6 +5,8 @@ export interface NavCommand {
   to: string;
   keywords: string[];
   admin?: boolean;
+  /** Only for administrators and the people who run a project (the Management page). */
+  leads?: boolean;
 }
 
 export const NAV_COMMANDS: NavCommand[] = [
@@ -20,6 +22,7 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'mico-ai', label: 'MICO AI', to: '/mico-ai', keywords: ['ai', 'ask', 'assistant', 'question', 'chatbot'] },
   { id: 'activity', label: 'Activity', to: '/activity', keywords: ['feed', 'history'] },
   { id: 'notifications', label: 'Notifications', to: '/notifications', keywords: ['alerts', 'bell'] },
+  { id: 'management', label: 'Management', to: '/management', keywords: ['health', 'red amber green', 'leadership', 'overview', 'inspections', 'overloaded'], leads: true },
   { id: 'reports', label: 'Reports', to: '/reports', keywords: ['analytics', 'stats', 'charts', 'trends'], admin: true },
   { id: 'settings', label: 'Settings', to: '/settings', keywords: ['preferences'] },
   { id: 'profile', label: 'Profile', to: '/profile', keywords: ['account', 'me'] },
@@ -40,17 +43,18 @@ export type ParsedCommand =
   | { type: 'navigate'; to: string; label: string };
 
 /** Find a single nav destination whose label/keywords match the query, best-effort. */
-export function findNav(query: string, isAdmin: boolean): NavCommand | undefined {
-  return matchNavCommands(query, isAdmin)[0];
+export function findNav(query: string, isAdmin: boolean, leads = isAdmin): NavCommand | undefined {
+  return matchNavCommands(query, isAdmin, leads)[0];
 }
 
 /**
  * Filter nav destinations by a free-text query (matches the label or any keyword). An empty
- * query returns them all. Admin-only destinations are hidden unless `isAdmin`.
+ * query returns them all. Admin-only destinations are hidden unless `isAdmin`; the Management page
+ * unless `leads` (an administrator, or someone who runs a project).
  */
-export function matchNavCommands(query: string, isAdmin: boolean): NavCommand[] {
+export function matchNavCommands(query: string, isAdmin: boolean, leads = isAdmin): NavCommand[] {
   const q = query.trim().toLowerCase();
-  const visible = NAV_COMMANDS.filter((c) => !(c.admin && !isAdmin));
+  const visible = NAV_COMMANDS.filter((c) => !(c.admin && !isAdmin) && !(c.leads && !leads));
   if (!q) return visible;
   // Rank by match quality so e.g. "board" prefers "Kanban Board" over "Dashboard" (contains "board").
   const score = (c: NavCommand): number => {
@@ -71,7 +75,7 @@ export function matchNavCommands(query: string, isAdmin: boolean): NavCommand[] 
  * Parse an imperative command string into an executable action. Returns null when the input is
  * plain search text. Recognises: assign/move/complete/open <KEY>, a bare task key, and "go to <page>".
  */
-export function parseCommand(input: string, isAdmin = true): ParsedCommand | null {
+export function parseCommand(input: string, isAdmin = true, leads = isAdmin): ParsedCommand | null {
   const text = input.trim().replace(/\s+/g, ' ');
   if (!text) return null;
 
@@ -92,7 +96,7 @@ export function parseCommand(input: string, isAdmin = true): ParsedCommand | nul
 
   m = /^(?:go ?to|open|navigate to)\s+(.+)$/i.exec(text);
   if (m) {
-    const nav = findNav(m[1]!.trim(), isAdmin);
+    const nav = findNav(m[1]!.trim(), isAdmin, leads);
     return nav ? { type: 'navigate', to: nav.to, label: nav.label } : null;
   }
 
