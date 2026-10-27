@@ -43,6 +43,8 @@ const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
 // A client's read-only page for one shared project (no staff sign-in, no app shell).
 const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientViewPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
+// Temporary: the forms manager moves to the Templates page's "Inspection forms" tab (not in the menu).
+const InspectionFormsPage = lazyPage(() => import('./pages/InspectionFormsPage'), 'InspectionFormsPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
 function RouteFallback() {
@@ -109,6 +111,7 @@ export function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/inspection-forms" element={<InspectionFormsPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />
