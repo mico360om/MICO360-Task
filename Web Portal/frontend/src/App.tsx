@@ -40,6 +40,7 @@ const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'M
 const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
 const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
+const TemplatesPage = lazyPage(() => import('./pages/TemplatesPage'), 'TemplatesPage');
 // A client's read-only page for one shared project (no staff sign-in, no app shell).
 const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientViewPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
@@ -102,6 +103,7 @@ export function App() {
             <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
             <Route path="/chat" element={<ChatRoute />} />
             <Route path="/mico-ai" element={<MicoAiPage />} />
             <Route path="/activity" element={<ActivityPage />} />

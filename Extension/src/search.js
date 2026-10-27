@@ -24,6 +24,7 @@ export const PAGES = [
   { id: 'calendar', label: 'Calendar', hash: '#/calendar', keywords: ['schedule', 'due dates'] },
   { id: 'timeline', label: 'Timeline', web: '/timeline', keywords: ['gantt', 'roadmap', 'milestones', 'targets', 'late projects'] },
   { id: 'workload', label: 'Workload', web: '/workload', keywords: ['capacity', 'load', 'busy', 'daily limit', 'rebalance'] },
+  { id: 'templates', label: 'Templates', web: '/templates', keywords: ['template', 'standard tasks', 'project template', 'task template'] },
   { id: 'meetings', label: 'Meetings', hash: '#/meetings', keywords: ['meeting', 'invitations', 'minutes'] },
   { id: 'chat', label: 'Chat', hash: '#/chat', keywords: ['messages', 'talk'] },
   { id: 'mico-ai', label: 'MICO AI', web: '/mico-ai', keywords: ['ai', 'ask', 'assistant', 'question', 'chatbot'] },

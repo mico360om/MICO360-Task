@@ -33,6 +33,8 @@ import { attachmentsApi } from '../../api/attachments';
 import { pastedFiles } from '../../lib/clipboard-files';
 import { isTypingTarget } from '../../lib/shortcuts';
 import { MilestoneIcon } from '../TaskCard';
+import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/templates';
+import { ChecklistField } from './ChecklistField';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -54,6 +56,8 @@ export interface TaskFormDialogProps {
   boardDate?: string;
   /** Offline: the new task was kept to send later, and the form closed. */
   onQueued?: () => void;
+  /** Start filled in from this task template (the Templates page's "Use template"). */
+  taskTemplateId?: string;
 }
 
 interface Draft {
@@ -66,6 +70,8 @@ interface Draft {
   rule: RecurrenceRule | null;
   assigneeIds: string[];
   milestone: boolean;
+  /** A new task's checklist (a task template fills it in); an existing task's is edited in its panel. */
+  checklist: string[];
 }
 
 export const TITLE_MAX = 191;
@@ -124,7 +130,7 @@ function Label({ htmlFor, required, optional, children }: { htmlFor?: string; re
  * can be started from a plain-English description. Saving shows progress and is never sent twice;
  * what was entered stays after a failure, and closing with changes asks first.
  */
-export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultProjectId, defaultColumnId, defaultColumnCategory, defaultDueDate, boardDate, onQueued }: TaskFormDialogProps) {
+export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: fixedProjectId, defaultProjectId, defaultColumnId, defaultColumnCategory, defaultDueDate, boardDate, onQueued, taskTemplateId }: TaskFormDialogProps) {
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
@@ -142,8 +148,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           rule: task.recurrenceRule ?? null,
           assigneeIds: [],
           milestone: !!task.isMilestone,
+          checklist: [],
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [] };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -190,6 +197,29 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   };
   const patchFile = (key: string, patch: Partial<PendingFile>) => setFiles((f) => f.map((p) => (p.key === key ? { ...p, ...patch } : p)));
   const dialogRef = useDialog(requestClose);
+
+  // ── Start from a task template (new tasks): it fills in the title, description, priority and checklist ──
+  const templatesQ = useQuery({ queryKey: TASK_TEMPLATES_KEY, queryFn: () => templatesApi(apiClient).listTasks(), enabled: !editing, staleTime: 30_000 });
+  const taskTemplates = useMemo(() => (Array.isArray(templatesQ.data) ? templatesQ.data : []), [templatesQ.data]);
+  const [usedTemplate, setUsedTemplate] = useState<TaskTemplate | null>(null);
+  const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklist: [...t.checklist] });
+  function applyTemplate(id: string) {
+    const t = taskTemplates.find((x) => x.id === id);
+    if (!t) return;
+    set(filledFrom(t));
+    setUsedTemplate(t);
+    setTitleError(null);
+  }
+  // Opened for one template: filled in from it once it has loaded (as how the form opened, not a change).
+  const askedTemplate = useRef(taskTemplateId ?? null);
+  useEffect(() => {
+    if (!askedTemplate.current) return;
+    const t = taskTemplates.find((x) => x.id === askedTemplate.current);
+    if (!t) return;
+    askedTemplate.current = null;
+    settle(filledFrom(t));
+    setUsedTemplate(t);
+  }, [taskTemplates]);
 
   // ── Where the task goes ──
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
@@ -328,6 +358,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
       ...(draft.milestone ? { isMilestone: true } : {}),
+      ...(draft.checklist.some((c) => c.trim()) ? { checklist: draft.checklist.map((c) => c.trim()).filter(Boolean) } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
       ...(boardDate ? { boardDate } : {}),
@@ -484,6 +515,21 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
               {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
               {noProjects ? <p className="rounded-xl bg-ground px-3.5 py-3 text-sm text-ink-2">Create a project first, then you can add tasks to it.</p> : null}
 
+              {!editing && !noProjects && taskTemplates.length ? (
+                <div>
+                  <Label>Start from a template</Label>
+                  <SearchableSelect
+                    size="lg"
+                    ariaLabel="Task template"
+                    placeholder="Choose a task template"
+                    options={taskTemplates.map((t) => ({ value: t.id, label: t.name, hint: t.checklist.length ? `${t.checklist.length} checklist item${t.checklist.length === 1 ? '' : 's'}` : undefined }))}
+                    value={usedTemplate?.id ?? ''}
+                    onChange={applyTemplate}
+                  />
+                  {usedTemplate ? <p role="status" className="mt-1 text-xs text-ink-2">Filled in from “{usedTemplate.name}” — change anything before saving.</p> : null}
+                </div>
+              ) : null}
+
               {!editing && !noProjects ? (
                 <DescribeTask
                   onParse={(text) => aiApi(apiClient).parseTask(text, todayKey(timeZone))}
@@ -558,6 +604,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   className={`${fieldClass()} min-h-[8rem] resize-y py-2.5 leading-relaxed`}
                 />
               </div>
+
+              {!editing ? (
+                <div>
+                  <Label optional>Checklist</Label>
+                  <ChecklistField items={draft.checklist} onChange={(checklist) => set({ checklist })} disabled={saving || !!created} />
+                </div>
+              ) : null}
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="min-w-0">

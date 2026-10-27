@@ -47,6 +47,13 @@ describe('matchNavCommands', () => {
     expect(parseCommand('go to workload', false)).toEqual({ type: 'navigate', to: '/workload', label: 'Workload' });
   });
 
+  it('finds Templates for everyone, by name or by "template"', () => {
+    for (const q of ['templates', 'template', 'standard tasks']) expect(matchNavCommands(q, false)[0]?.to, q).toBe('/templates');
+    expect(parseCommand('go to templates', false)).toEqual({ type: 'navigate', to: '/templates', label: 'Templates' });
+    // "project" still finds Projects first.
+    expect(matchNavCommands('project', false)[0]?.to).toBe('/projects');
+  });
+
   it('finds MICO AI by its name and by "ask" or "assistant"', () => {
     for (const q of ['mico ai', 'ask', 'assistant']) expect(matchNavCommands(q, false)[0]?.to, q).toBe('/mico-ai');
   });
