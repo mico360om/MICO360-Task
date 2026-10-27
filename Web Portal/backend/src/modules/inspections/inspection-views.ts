@@ -43,7 +43,11 @@ export interface InspectionListItem {
   /** "Passed", "2 failed", "All N/A"; while in progress "12 of 40 answered". */
   result: string;
   clientVisible: boolean;
-  task: { id: string; key: string; title: string; done: boolean } | null;
+  /**
+   * The task it was carried out for. `lateDays` (a check — a task that carries a form — only): how many
+   * days after its due day the task was finished (0 on time); null when it isn't a finished check.
+   */
+  task: { id: string; key: string; title: string; done: boolean; lateDays?: number | null } | null;
 }
 
 export interface AnswerView {
@@ -124,6 +128,11 @@ export interface InspectionDetail extends InspectionListItem {
   earlierRevisions: EarlierRevision[];
   /** After finishing: the attached task, offered to be marked done (null when there is none, or it is done). */
   taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
+  /**
+   * After a finish (or a repeat of it): the check this inspection was for, completed by finishing it
+   * (a task that carries a form is completed automatically). Null otherwise.
+   */
+  taskCompleted?: { id: string; key: string; title: string } | null;
 }
 
 export const personOf = (id: string, names: Map<string, string>): Person => ({ id, name: names.get(id) ?? 'Former staff member' });

@@ -20,6 +20,13 @@ export interface FakeTask {
   createdById: string;
   done: boolean;
   deleted: boolean;
+  /** A scheduled check (or a one-off task that carries a form): the form, and where. */
+  inspectionFormId: string | null;
+  inspectionPlace: string | null;
+  dueDate: Date | null;
+  completedAt: Date | null;
+  /** Carries the repeat (the newest copy of a series): a schedule when it carries a form. */
+  repeats: boolean;
 }
 
 export interface Fixture {
@@ -40,6 +47,12 @@ export interface Fixture {
   /** How the picture library treats a drawn signature: re-draws it, can't read it, or isn't there. */
   cleanMode: { value: 'ok' | 'unreadable' | 'unavailable' };
   addTask(projectId: string, title?: string): FakeTask;
+  /** Tasks completed through the normal status path (as `completeTask` is asked to). */
+  completions: Array<{ taskId: string; actorId: string }>;
+  /** Projects with no Done column. */
+  noDoneColumn: Set<string>;
+  /** Schedules stopped by deleting their form, and the form deletions that went through the task port. */
+  stopped: Array<{ formId: string; taskIds: string[]; actorId: string }>;
 }
 
 export const as = (id: string) => ({ id, roles: id === PEOPLE.admin ? ['ADMIN'] : ['EMPLOYEE'] });
@@ -70,10 +83,13 @@ export function makeFixture(): Fixture {
   const cleanMode: Fixture['cleanMode'] = { value: 'ok' };
   let n = 0;
   const addTask = (projectId: string, title = 'Inspect rig 3'): FakeTask => {
-    const t: FakeTask = { id: `t${++n}`, key: `RIG-${n}`, title, projectId, description: null, assigneeIds: [], createdById: PEOPLE.owner, done: false, deleted: false };
+    const t: FakeTask = { id: `t${++n}`, key: `RIG-${n}`, title, projectId, description: null, assigneeIds: [], createdById: PEOPLE.owner, done: false, deleted: false, inspectionFormId: null, inspectionPlace: null, dueDate: null, completedAt: null, repeats: false };
     tasks.set(t.id, t);
     return t;
   };
+  const completions: Fixture['completions'] = [];
+  const noDoneColumn = new Set<string>();
+  const stopped: Fixture['stopped'] = [];
   const isAdmin = (roles: string[]) => roles.includes('ADMIN');
   const runs = (userId: string, projectId: string) => projects.get(projectId)?.ownerId === userId || (team[projectId] ?? []).some((m) => m.userId === userId && m.role === 'MANAGER');
   const onTeam = (userId: string, projectId: string) => runs(userId, projectId) || (team[projectId] ?? []).some((m) => m.userId === userId);
@@ -88,15 +104,34 @@ export function makeFixture(): Fixture {
     },
     task: async (taskId) => {
       const t = tasks.get(taskId);
-      return t && !t.deleted ? { id: t.id, key: t.key, title: t.title, projectId: t.projectId, done: t.done } : null;
+      return t && !t.deleted ? { id: t.id, key: t.key, title: t.title, projectId: t.projectId, done: t.done, inspectionFormId: t.inspectionFormId, inspectionPlace: t.inspectionPlace } : null;
     },
     taskSummaries: async (ids) =>
-      new Map(ids.flatMap((id) => (tasks.has(id) ? [[id, { key: tasks.get(id)!.key, title: tasks.get(id)!.title, projectId: tasks.get(id)!.projectId, deleted: tasks.get(id)!.deleted, done: tasks.get(id)!.done }] as const] : []))),
+      new Map(
+        ids.flatMap((id) => {
+          const t = tasks.get(id);
+          return t ? [[id, { key: t.key, title: t.title, projectId: t.projectId, deleted: t.deleted, done: t.done, dueDate: t.dueDate, completedAt: t.completedAt, inspectionFormId: t.inspectionFormId }] as const] : [];
+        }),
+      ),
     canViewTask: async (userId, roles, taskId) => {
       const t = tasks.get(taskId);
       return !!t && !t.deleted && (isAdmin(roles) || onTeam(userId, t.projectId));
     },
-    doneColumnOf: async (projectId) => (projects.has(projectId) ? `${projectId}-done` : null),
+    doneColumnOf: async (projectId) => (projects.has(projectId) && !noDoneColumn.has(projectId) ? `${projectId}-done` : null),
+    completeTask: async (taskId, actorId) => {
+      const t = tasks.get(taskId);
+      if (!t || t.deleted || t.done || noDoneColumn.has(t.projectId)) return false;
+      completions.push({ taskId, actorId });
+      Object.assign(t, { done: true, completedAt: now.at });
+      return true;
+    },
+    deleteFormStoppingSchedules: async (formId, actorId) => {
+      if (!(await store.deleteForm(formId))) return { deleted: false, schedulesStopped: 0 };
+      const heads = [...tasks.values()].filter((t) => !t.deleted && t.repeats && t.inspectionFormId === formId);
+      for (const t of heads) t.repeats = false;
+      stopped.push({ formId, taskIds: heads.map((t) => t.id), actorId });
+      return { deleted: true, schedulesStopped: heads.length };
+    },
     defaultAssignees: async (projectId) => {
       const owner = projects.get(projectId)?.ownerId;
       return owner && onTeam(owner, projectId) ? [owner] : [];
@@ -128,8 +163,8 @@ export function makeFixture(): Fixture {
       return cleanMode.value === 'unavailable' ? null : png;
     },
   };
-  const service = createInspectionService({ store, ports, now: () => now.at, newId: (() => { let k = 0; return () => `id${++k}`; })() });
-  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, failTaskNumber, cleaned, cleanMode, addTask };
+  const service = createInspectionService({ store, ports, now: () => now.at, timeZone: 'Asia/Muscat', newId: (() => { let k = 0; return () => `id${++k}`; })() });
+  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, failTaskNumber, cleaned, cleanMode, addTask, completions, noDoneColumn, stopped };
 }
 
 /** A form body: a reading with limits and two checks over two sections. */

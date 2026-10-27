@@ -134,6 +134,8 @@ export interface InspectionStore {
   createForm(data: { title: string; description: string | null; structure: FormStructure; createdById: string }): Promise<FormRecord>;
   /** A form that isn't deleted. */
   findForm(id: string): Promise<FormRecord | null>;
+  /** A form, deleted or not (a check made before its form was deleted can still be done). */
+  findFormAny(id: string): Promise<(FormRecord & { deleted: boolean }) | null>;
   /** Every form that isn't deleted, by title. */
   listForms(): Promise<FormRecord[]>;
   /** Saves an edit made from version `expectedVersion` (the version then goes up); 'stale' when it has moved on, null when gone. */
@@ -251,6 +253,10 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
     async findForm(id) {
       const f = forms.get(id);
       return f && !f.deleted ? strip(f) : null;
+    },
+    async findFormAny(id) {
+      const f = forms.get(id);
+      return f ? { ...strip(f), deleted: f.deleted } : null;
     },
     async listForms() {
       return [...forms.values()].filter((f) => !f.deleted).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).map(strip);

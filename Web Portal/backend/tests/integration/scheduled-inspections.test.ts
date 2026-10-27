@@ -5,6 +5,22 @@ import { createRecurrenceService } from '../../src/modules/tasks/recurrence-serv
 import type { RecurrenceRule } from '../../src/modules/tasks/recurrence';
 import { createPrismaTaskMoveRepository } from '../../src/modules/tasks/prisma-task-move-repository';
 import { createTaskMoveService } from '../../src/modules/tasks/task-move-service';
+import { createPrismaTaskRepository, createPrismaProjectLookup } from '../../src/modules/tasks/prisma-task-repository';
+import { createTaskService } from '../../src/modules/tasks/task-service';
+import { createStatusChangeEffects } from '../../src/modules/tasks/task-status-effects';
+import { updateActivity } from '../../src/modules/tasks/task-changes';
+import type { TaskRecord } from '../../src/modules/tasks/task-repository';
+import { createInspectionService } from '../../src/modules/inspections/inspection-service';
+import { createPrismaInspectionStore } from '../../src/modules/inspections/prisma-inspection-store';
+import { createInspectionPorts } from '../../src/modules/inspections/prisma-inspection-ports';
+import { createInspectionScheduleService } from '../../src/modules/inspections/inspection-schedules';
+import { createPrismaInspectionScheduleSource } from '../../src/modules/inspections/prisma-inspection-schedule-source';
+import { createProjectAccess } from '../../src/modules/projects/project-access';
+import { createPrismaProjectRepository } from '../../src/modules/projects/prisma-project-repository';
+import { createPrismaProjectManagerLookup } from '../../src/modules/projects/prisma-member-repository';
+import { createProjectAuthz } from '../../src/modules/projects/project-authz';
+import { createColumnService } from '../../src/modules/projects/column-service';
+import { createPrismaColumnRepository } from '../../src/modules/projects/prisma-column-repository';
 
 // Scheduled inspections on MySQL (TEST_DATABASE_URL, migrations applied). Only this file's project
 // (code SCHED), its forms and its people (*@sched.mico360.test) are made and removed.
@@ -115,5 +131,195 @@ describe('repeat copies of a scheduled check (MySQL)', () => {
     const moves = createTaskMoveService({ repo: createPrismaTaskMoveRepository(prisma), timeZone: TZ, now: () => NOW });
     const moved = await moves.moveTask({ id: ownerId, roles: ['ADMIN'] }, t.id, { projectId: other.id, assignees: 'ADD_TO_TEAM' });
     expect(moved.task).toMatchObject({ id: t.id, projectId: other.id, inspectionFormId: form.id, inspectionPlace: 'Rig 3 – الحفار ٣' });
+  });
+});
+
+// ── The whole server side: tasks, inspections, schedules, with the app's real access rules ──────────
+
+function world(clock: { at: Date }) {
+  const notices: Array<{ userId: string; title: string; entityId: string }> = [];
+  const lines: Array<{ taskId: string; userId: string; action: string; meta: Record<string, unknown> }> = [];
+  const events: Array<{ event: string; id: string }> = [];
+  const nowFn = () => clock.at;
+  const recurrenceSvc = createRecurrenceService({ tasks: createPrismaRecurrencePort(prisma, { timeZone: TZ, now: nowFn }), timeZone: TZ, now: nowFn });
+  const effects = createStatusChangeEffects({
+    column: (id) => prisma.kanbanColumn.findUnique({ where: { id }, select: { name: true, category: true } }),
+    nextCopy: (task) => recurrenceSvc.onTaskCompleted({ id: task.id, dueDate: task.dueDate, recurrenceRule: task.recurrenceRule, recurrenceParentId: task.recurrenceParentId }),
+    announceCopy: async () => {},
+    followActionItems: async () => {},
+    recipients: async (taskId, actorId) => (await prisma.taskAssignee.findMany({ where: { taskId } })).map((a) => a.userId).filter((u) => u !== actorId),
+    notify: async (x) => void notices.push({ userId: x.userId, title: x.title, entityId: x.entityId }),
+    record: async (e) => void lines.push({ taskId: e.taskId, userId: e.userId, action: e.action, meta: e.meta }),
+  });
+  const onUpdated = async (before: TaskRecord, after: TaskRecord, actorId?: string) => {
+    const meta = updateActivity(before, after, TZ);
+    if (meta && actorId) lines.push({ taskId: after.id, userId: actorId, action: 'UPDATED', meta: { ...meta } });
+  };
+  const taskService = createTaskService({ tasks: createPrismaTaskRepository(prisma), projects: createPrismaProjectLookup(prisma), timeZone: TZ, now: nowFn, onMoved: (t, prev, actor) => effects(t, prev, actor), onUpdated });
+  const managers = createPrismaProjectManagerLookup(prisma);
+  const access = createProjectAccess({ projects: createPrismaProjectRepository(prisma), managers });
+  const inspections = createInspectionService({
+    store: createPrismaInspectionStore(prisma),
+    timeZone: TZ,
+    now: nowFn,
+    ports: createInspectionPorts({
+      prisma,
+      access,
+      authz: createProjectAuthz({ managers }),
+      tasks: taskService,
+      onTaskUpdated: onUpdated,
+      columns: createColumnService({ columns: createPrismaColumnRepository(prisma) }),
+      assignees: { eligibleAssignees: async (_p, ids) => ids, assertAssignable: async (_p, ids) => ids, notifyAssigned: async () => {} },
+      broadcast: (_p, event, payload) => void events.push({ event, id: (payload as { id: string }).id }),
+      userNames: async (ids) => new Map(ids.map((id) => [id, id])),
+    }),
+  });
+  const schedules = createInspectionScheduleService({
+    source: createPrismaInspectionScheduleSource(prisma, { workingDays: async () => [0, 1, 2, 3, 4] }),
+    canViewProject: (u, r, p) => access.canViewProject(u, r, p),
+    userNames: async () => new Map(),
+    timeZone: TZ,
+    now: nowFn,
+  });
+  return { taskService, inspections, schedules, access, notices, lines, events };
+}
+
+const member = () => ({ id: mateId, roles: ['EMPLOYEE'] });
+
+async function checkFor(w: ReturnType<typeof world>, formId: string, over: Record<string, unknown> = {}) {
+  return w.taskService.createTask({
+    title: 'Daily rig check – Rig 3',
+    projectId,
+    columnId: todoId,
+    createdById: mateId,
+    dueDate: new Date('2026-10-01T00:00:00.000Z'),
+    inspectionFormId: formId,
+    inspectionPlace: 'Rig 3',
+    assigneeIds: [mateId, ownerId],
+    ...over,
+  });
+}
+async function finishCheck(w: ReturnType<typeof world>, clock: { at: Date }, taskId: string, formId: string, finishId = 'fin-1') {
+  const insp = await w.inspections.start(member(), projectId, { formId, taskId });
+  await w.inspections.answer(member(), insp.id, [{ itemId: 'c1', result: 'PASS', reading: null, note: null, editedAt: new Date(clock.at.getTime() - 1000).toISOString() }]);
+  const detail = await w.inspections.get(member(), insp.id);
+  const body = { finishId, revision: detail.revision, seen: detail.answers.map((a) => ({ itemId: a.itemId, editedAt: a.editedAt })), signatures: [{ role: 'INSPECTOR', name: 'Mate Tester', method: 'TYPED', signedAt: clock.at.toISOString() }] };
+  return { insp, body, done: await w.inspections.finish(member(), insp.id, body) };
+}
+
+describe('finishing a check’s inspection completes the task (MySQL)', () => {
+  it('through the normal status path: Done column, completion time, one history line, the people told — once, however often the finish is sent', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const task = await checkFor(w, form.id);
+    const { insp, body, done } = await finishCheck(w, clock, task.id, form.id);
+    expect(done.taskCompleted).toEqual({ id: task.id, key: task.key, title: task.title });
+    expect(done.taskOffer).toBeNull();
+    const row = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(row.columnId).toBe(doneId);
+    expect(row.completedAt?.toISOString()).toBe(clock.at.toISOString());
+    // A replay (its reply was lost) and two more at once (the offline outbox and a retry): still once.
+    const again = await w.inspections.finish(member(), insp.id, body);
+    await Promise.all([w.inspections.finish(member(), insp.id, body), w.inspections.finish(member(), insp.id, body)]);
+    expect(again.taskCompleted?.id).toBe(task.id);
+    expect(w.lines.filter((l) => l.taskId === task.id && l.action === 'COMPLETED')).toEqual([{ taskId: task.id, userId: mateId, action: 'COMPLETED', meta: { from: 'To do', to: 'Done' } }]);
+    expect(w.notices.filter((x) => x.entityId === task.id)).toEqual([{ userId: ownerId, title: 'Task moved to Done', entityId: task.id }]);
+    expect(w.events.filter((e) => e.event === 'task:moved' && e.id === task.id)).toHaveLength(1);
+  });
+
+  it('a check that repeats when done makes its next copy (ON_COMPLETE), carrying the form', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const task = await checkFor(w, form.id, { recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
+    await finishCheck(w, clock, task.id, form.id);
+    const next = await prisma.task.findFirstOrThrow({ where: { recurrenceSourceId: task.id } });
+    expect(next).toMatchObject({ inspectionFormId: form.id, inspectionPlace: 'Rig 3', dueDate: new Date('2026-10-08T00:00:00.000Z') });
+  });
+
+  it('done late is decided in the company time zone at the day boundary (23:59 vs 00:01 in Muscat)', async () => {
+    const form = await newForm();
+    const lateBy = async (finishAt: string, finishId: string) => {
+      const clock = { at: new Date(finishAt) };
+      const w = world(clock);
+      const task = await checkFor(w, form.id);
+      await finishCheck(w, clock, task.id, form.id, finishId);
+      const rows = (await w.inspections.listForProject(member(), projectId)).inspections;
+      return rows.find((r) => r.task?.id === task.id)!.task!.lateDays;
+    };
+    expect(await lateBy('2026-10-01T19:59:00Z', 'f-a')).toBe(0); // 23:59 on the 1st in Muscat
+    expect(await lateBy('2026-10-01T20:01:00Z', 'f-b')).toBe(1); // 00:01 on the 2nd
+  });
+
+  it('a check whose form was deleted can still be started and finished', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const task = await checkFor(w, form.id);
+    await w.inspections.deleteForm({ id: ownerId, roles: ['ADMIN'] }, form.id);
+    const { done } = await finishCheck(w, clock, task.id, form.id);
+    expect(done).toMatchObject({ status: 'FINISHED', taskCompleted: { id: task.id } });
+  });
+});
+
+describe('deleting a form stops the schedules that use it (MySQL)', () => {
+  it('in one step with the delete: every schedule’s repeat cleared, with the history line a person stopping it gets; other tasks untouched', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const other = await newForm('Weekly extinguisher check');
+    // Due two days ago: the sweep would make today's check if they weren't stopped.
+    const a = await checkFor(w, form.id, { recurrenceRule: DAILY, dueDate: new Date('2026-09-29T00:00:00.000Z') });
+    const b = await checkFor(w, form.id, { recurrenceRule: DAILY, title: 'Daily rig check – Rig 4', dueDate: new Date('2026-09-29T00:00:00.000Z') });
+    const oneOff = await checkFor(w, form.id, { title: 'One-off check' });
+    const keeps = await checkFor(w, other.id, { recurrenceRule: DAILY });
+    expect(await w.schedules.formUsage(form.id)).toEqual({ schedules: 2, openChecks: 3 });
+    await w.inspections.deleteForm({ id: ownerId, roles: ['ADMIN'] }, form.id);
+    expect((await prisma.inspectionForm.findUniqueOrThrow({ where: { id: form.id } })).deletedAt).not.toBeNull();
+    for (const t of [a, b]) {
+      const row = await prisma.task.findUniqueOrThrow({ where: { id: t.id } });
+      expect(row.recurrenceRule).toBeNull();
+      expect(row.version).toBe(t.version + 1);
+      // The form stays on the task: the checks already made can still be done.
+      expect(row.inspectionFormId).toBe(form.id);
+      expect(w.lines.find((l) => l.taskId === t.id && l.action === 'UPDATED')).toEqual({
+        taskId: t.id,
+        userId: ownerId,
+        action: 'UPDATED',
+        meta: { changes: [{ field: 'repeat', from: 'Repeats every day · new copy on each date', to: null }] },
+      });
+    }
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: keeps.id } })).recurrenceRule).not.toBeNull();
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: oneOff.id } })).version).toBe(oneOff.version);
+    expect(w.events.filter((e) => e.event === 'task:updated').map((e) => e.id).sort()).toEqual([a.id, b.id].sort());
+    // Nothing more is made for them, and their open checks are still listed.
+    await recurrence.runSchedule();
+    expect(await prisma.task.count({ where: { recurrenceSourceId: { in: [a.id, b.id] } } })).toBe(0);
+    expect((await w.schedules.dueChecks(member(), projectId)).checks.map((c) => c.taskId)).toEqual(expect.arrayContaining([a.id, b.id, oneOff.id]));
+  });
+});
+
+describe('who may see and set up schedules (MySQL, the app’s access rules)', () => {
+  it('the project team (and administrators) set up, change and stop a schedule and read the lists; anyone else is refused', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const outsider = await person('outsider');
+    const form = await newForm();
+    // The task routes allow a create in a project the person can see, and an edit of a task they can see.
+    expect(await w.access.accessibleProjectIds(mateId, ['EMPLOYEE'])).toContain(projectId);
+    expect(await w.access.accessibleProjectIds(outsider.id, ['EMPLOYEE'])).not.toContain(projectId);
+    const s = await checkFor(w, form.id, { recurrenceRule: DAILY });
+    expect(await w.access.canViewTask(mateId, ['EMPLOYEE'], s.id)).toBe(true);
+    expect(await w.access.canViewTask(outsider.id, ['EMPLOYEE'], s.id)).toBe(false);
+    const edited = await w.taskService.updateTask(s.id, { inspectionPlace: 'Rig 4', recurrenceRule: { ...DAILY, interval: 2 } }, undefined, 'one', mateId);
+    expect(edited).toMatchObject({ inspectionPlace: 'Rig 4', recurrenceRule: { interval: 2 } });
+    expect((await w.schedules.schedules(member(), projectId)).schedules.map((x) => x.taskId)).toEqual([s.id]);
+    expect((await w.schedules.schedules({ id: ownerId, roles: ['ADMIN'] }, projectId)).schedules).toHaveLength(1);
+    const refused = async (p: Promise<unknown>) => ((await p.then(() => null, (e: unknown) => e)) as { status?: number } | null)?.status;
+    expect(await refused(w.schedules.schedules({ id: outsider.id, roles: ['EMPLOYEE'] }, projectId))).toBe(404);
+    expect(await refused(w.schedules.dueChecks({ id: outsider.id, roles: ['EMPLOYEE'] }, projectId))).toBe(404);
+    await w.taskService.updateTask(s.id, { recurrenceRule: null }, undefined, 'one', mateId);
+    expect((await w.schedules.schedules(member(), projectId)).schedules).toEqual([]);
   });
 });

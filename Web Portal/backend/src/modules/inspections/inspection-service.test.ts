@@ -120,7 +120,7 @@ describe('starting an inspection', () => {
   it('attaches it to a task of the same project, and says so in the task’s history', async () => {
     const task = f.addTask('P1');
     const { insp } = await started({ taskId: task.id });
-    expect(insp.task).toEqual({ id: task.id, key: task.key, title: 'Inspect rig 3', done: false });
+    expect(insp.task).toEqual({ id: task.id, key: task.key, title: 'Inspect rig 3', done: false, lateDays: null });
     expect(f.activity).toEqual([{ taskId: task.id, userId: inspector, action: 'INSPECTION_ATTACHED', meta: { inspectionId: insp.id, inspection: 'Rig daily check' } }]);
     const other = f.addTask('P2');
     const form = await f.service.createForm(as(owner), FORM_BODY);
@@ -611,5 +611,114 @@ describe('Show to client on an archived project', () => {
     f.projects.get('P1')!.status = 'ARCHIVED';
     expect((await f.service.get(as(owner), s.insp.id)).permissions.canShowToClient).toBe(true);
     await expect(f.service.setClientVisible(as(owner), s.insp.id, false)).resolves.toEqual({ clientVisible: false });
+  });
+});
+
+describe('scheduled checks: a task that carries a form', () => {
+  /** A check on P1 carrying a form made by the owner, due 27 Oct, for Ivan. */
+  async function aCheck(over: Partial<import('./inspection-service.fixture').FakeTask> = {}) {
+    const form = await f.service.createForm(as(owner), FORM_BODY);
+    const task = f.addTask('P1', 'Daily rig check – Rig 3');
+    Object.assign(task, { inspectionFormId: form.id, inspectionPlace: 'Rig 3 – الحفار ٣', dueDate: new Date('2026-10-27T00:00:00.000Z'), assigneeIds: [inspector] }, over);
+    return { form, task };
+  }
+  async function finishFor(taskId: string, formId: string, finishId = 'fin-1') {
+    const insp = await f.service.start(as(inspector), 'P1', { formId, taskId });
+    f.now.at = new Date('2026-10-27T09:00:00Z');
+    const ids = insp.structure.sections.flatMap((s) => s.items.map((i) => i.id));
+    await f.service.answer(as(inspector), insp.id, [edit(ids[0]!, { reading: '120' }), edit(ids[1]!, { result: 'PASS' }), edit(ids[2]!, { result: 'PASS' })]);
+    return { insp, done: await f.service.finish(as(inspector), insp.id, await finishBody(insp.id, { finishId })) };
+  }
+
+  it('starting it for the task takes the task’s place when none is given', async () => {
+    const { form, task } = await aCheck();
+    const insp = await f.service.start(as(inspector), 'P1', { formId: form.id, taskId: task.id });
+    expect(insp).toMatchObject({ place: 'Rig 3 – الحفار ٣', task: { id: task.id } });
+    // A place typed in (or cleared on purpose) wins.
+    expect((await f.service.start(as(inspector), 'P1', { formId: form.id, taskId: task.id, place: 'North deck' })).place).toBe('North deck');
+    expect((await f.service.start(as(inspector), 'P1', { formId: form.id, taskId: task.id, place: null })).place).toBeNull();
+  });
+
+  it('a check whose form was deleted can still be done; a fresh start from that form is refused', async () => {
+    const { form, task } = await aCheck();
+    await f.service.deleteForm(as(owner), form.id);
+    const insp = await f.service.start(as(inspector), 'P1', { formId: form.id, taskId: task.id });
+    expect(insp).toMatchObject({ title: 'Rig daily check', task: { id: task.id } });
+    await rejects(f.service.start(as(inspector), 'P1', { formId: form.id }), 404);
+    const other = f.addTask('P1', 'Something else');
+    await rejects(f.service.start(as(inspector), 'P1', { formId: form.id, taskId: other.id }), 404);
+  });
+
+  it('finishing its inspection completes the task, as the finisher, and says so (no offer)', async () => {
+    const { form, task } = await aCheck();
+    const { done } = await finishFor(task.id, form.id);
+    expect(done.taskCompleted).toEqual({ id: task.id, key: task.key, title: task.title });
+    expect(done.taskOffer).toBeNull();
+    expect(f.completions).toEqual([{ taskId: task.id, actorId: inspector }]);
+  });
+
+  it('a finish sent again (a lost reply, the offline outbox) completes it once, and says so again', async () => {
+    const { form, task } = await aCheck();
+    const { insp } = await finishFor(task.id, form.id);
+    const again = await f.service.finish(as(inspector), insp.id, await finishBody(insp.id));
+    expect(again.taskCompleted).toEqual({ id: task.id, key: task.key, title: task.title });
+    expect(f.completions).toHaveLength(1);
+  });
+
+  it('two copies of the same finish at once still complete it once', async () => {
+    const { form, task } = await aCheck();
+    const insp = await f.service.start(as(inspector), 'P1', { formId: form.id, taskId: task.id });
+    const ids = insp.structure.sections.flatMap((s) => s.items.map((i) => i.id));
+    await f.service.answer(as(inspector), insp.id, [edit(ids[0]!, { reading: '120' }), edit(ids[1]!, { result: 'PASS' }), edit(ids[2]!, { result: 'PASS' })]);
+    const body = await finishBody(insp.id);
+    const [a, b] = await Promise.all([f.service.finish(as(inspector), insp.id, body), f.service.finish(as(inspector), insp.id, body)]);
+    expect([a.taskCompleted?.id, b.taskCompleted?.id]).toEqual([task.id, task.id]);
+    expect(f.completions).toHaveLength(1);
+  });
+
+  it('a task without a form keeps today’s "mark it done too?" offer', async () => {
+    const task = f.addTask('P1');
+    const form = await f.service.createForm(as(owner), FORM_BODY);
+    const { done } = await finishFor(task.id, form.id);
+    expect(done.taskCompleted).toBeNull();
+    expect(done.taskOffer).toMatchObject({ id: task.id, doneColumnId: 'P1-done' });
+    expect(f.completions).toEqual([]);
+  });
+
+  it('a project without a Done column leaves the check open (nothing to move it to)', async () => {
+    const { form, task } = await aCheck();
+    f.noDoneColumn.add('P1');
+    const { done } = await finishFor(task.id, form.id);
+    expect(done.taskCompleted).toBeNull();
+    expect(task.done).toBe(false);
+  });
+
+  it('reopening the inspection leaves the task done; finishing it again changes nothing more', async () => {
+    const { form, task } = await aCheck();
+    const { insp } = await finishFor(task.id, form.id);
+    const back = await f.service.reopen(as(owner), insp.id);
+    expect(task.done).toBe(true);
+    const again = await f.service.finish(as(inspector), insp.id, await finishBody(insp.id, { finishId: 'fin-2', revision: back.revision }));
+    expect(again.status).toBe('FINISHED');
+    expect(f.completions).toHaveLength(1);
+  });
+
+  it('a finished check done after its day shows how late in the lists (company time zone)', async () => {
+    const { form, task } = await aCheck({ dueDate: new Date('2026-10-25T00:00:00.000Z') });
+    await finishFor(task.id, form.id); // finished 27 Oct, 13:00 in Muscat: 2 days late
+    const [item] = (await f.service.listForProject(as(member), 'P1')).inspections;
+    expect(item!.task).toMatchObject({ id: task.id, lateDays: 2 });
+    const onTime = await aCheck();
+    await finishFor(onTime.task.id, onTime.form.id, 'fin-9');
+    const rows = (await f.service.listForProject(as(member), 'P1')).inspections;
+    expect(rows.find((r) => r.task?.id === onTime.task.id)!.task).toMatchObject({ lateDays: 0 });
+  });
+
+  it('deleting a form stops the schedules that use it (through the task side), and the audit line says how many', async () => {
+    const { form, task } = await aCheck({ repeats: true });
+    await f.service.deleteForm(as(owner), form.id);
+    expect(f.stopped).toEqual([{ formId: form.id, taskIds: [task.id], actorId: owner }]);
+    expect(task.repeats).toBe(false);
+    expect(f.audit.find((a) => a.action === 'inspection-form.deleted')!.newValue).toEqual({ title: 'Rig daily check', schedulesStopped: 1 });
   });
 });

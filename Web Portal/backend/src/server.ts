@@ -100,6 +100,8 @@ import { createPrismaClientFlags } from './modules/client-view/prisma-client-fla
 import { createInspectionService } from './modules/inspections/inspection-service';
 import { createPrismaInspectionStore } from './modules/inspections/prisma-inspection-store';
 import { createInspectionPorts } from './modules/inspections/prisma-inspection-ports';
+import { createInspectionScheduleService } from './modules/inspections/inspection-schedules';
+import { createPrismaInspectionScheduleSource } from './modules/inspections/prisma-inspection-schedule-source';
 import { readProjectPicture } from './lib/pdf-image';
 import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
 
@@ -1218,11 +1220,16 @@ async function main(): Promise<void> {
   // Inspection checklists: forms, inspections on a project's team, follow-up tasks, reports.
   const inspectionService = createInspectionService({
     store: createPrismaInspectionStore(prisma),
+    // "Done late" is finished after the end of the check's due day in the company time zone.
+    timeZone: companyTz,
     ports: createInspectionPorts({
       prisma,
       access: projectAccess,
       authz: projectAuthz,
+      // Finishing a check's inspection completes it through the task service's move (the normal status path).
       tasks: taskService,
+      // A schedule stopped by deleting its form gets the history line a person stopping it would.
+      onTaskUpdated: (before, after, actorId) => onTaskUpdated(before, after, actorId),
       columns: columnService,
       assignees: assigneeService,
       broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
@@ -1428,6 +1435,13 @@ async function main(): Promise<void> {
     }),
     inspections: {
       service: inspectionService,
+      // Scheduled inspections: a project's schedules and due checks; "Every working day" is the Meeting hours' days.
+      schedules: createInspectionScheduleService({
+        source: createPrismaInspectionScheduleSource(prisma, { workingDays: async () => (await settingsService.workingHours()).days }),
+        canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+        userNames: resolveUserNames,
+        timeZone: companyTz,
+      }),
       timeZone: companyTz,
       projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,

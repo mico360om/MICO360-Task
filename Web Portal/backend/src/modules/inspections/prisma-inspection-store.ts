@@ -153,6 +153,10 @@ export function createPrismaInspectionStore(prisma: PrismaClient): InspectionSto
       const r = await prisma.inspectionForm.findFirst({ where: { id, ...live } });
       return r ? toForm(r) : null;
     },
+    async findFormAny(id) {
+      const r = await prisma.inspectionForm.findUnique({ where: { id } });
+      return r ? { ...toForm(r), deleted: r.deletedAt !== null } : null;
+    },
     async listForms() {
       return (await prisma.inspectionForm.findMany({ where: live, orderBy: [{ title: 'asc' }, { id: 'asc' }] })).map(toForm);
     },

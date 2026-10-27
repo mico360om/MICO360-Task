@@ -208,3 +208,64 @@ describe('inspection routes', () => {
     }
   });
 });
+
+describe('scheduled inspection routes', () => {
+  const checkRow = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    key: `RIG-${id}`,
+    title: 'Daily rig check – Rig 3',
+    projectId: 'P1',
+    dueDate: new Date('2026-10-26T00:00:00.000Z'),
+    startDate: null,
+    completedAt: null,
+    columnCategory: 'TODO',
+    recurrenceRule: null,
+    recurrenceParentId: null,
+    inspectionPlace: 'Rig 3',
+    form: { id: 'f1', title: 'Rig daily check', deleted: false },
+    assignees: [{ id: inspector, name: 'Ivan Inspector' }],
+    ...over,
+  });
+  async function withSchedules() {
+    const { createInspectionScheduleService } = await import('./inspection-schedules');
+    const rows = [checkRow('1'), checkRow('2', { recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } })];
+    const schedules = createInspectionScheduleService({
+      source: {
+        checks: async (_p, o) => rows.filter((r) => (!o.schedulesOnly || r.recurrenceRule) && (!o.seriesIds || o.seriesIds.includes(r.id))) as never,
+        seriesSizes: async (ids) => new Map(ids.map((id) => [id, 1])),
+        inProgress: async () => [],
+        formUsage: async (id) => (id === 'f1' ? { schedules: 1, openChecks: 2 } : null),
+        workingDays: async () => [0, 1, 2, 3, 4],
+      },
+      canViewProject: async (userId, _r, projectId) => projectId === 'P1' && userId !== outsider,
+      userNames: async () => new Map(),
+      timeZone: 'Asia/Muscat',
+      now: () => new Date('2026-10-28T06:00:00Z'),
+    });
+    app = await buildApp({ tokenService, authService, rateLimitMax: 100_000, inspections: { service: f.service, schedules, timeZone: 'Asia/Muscat' } });
+  }
+
+  it('need a staff sign-in', async () => {
+    await withSchedules();
+    for (const url of ['/projects/P1/inspection-schedules', '/projects/P1/inspection-checks?state=open', '/inspection-forms/f1/usage']) expect((await call('GET', url, null)).statusCode, url).toBe(401);
+  });
+
+  it('give the team the project’s schedules and due checks; anyone else hears "not found"', async () => {
+    await withSchedules();
+    const s = await call('GET', '/projects/P1/inspection-schedules', member);
+    expect(s.statusCode).toBe(200);
+    expect(s.json().data).toMatchObject({ workingDays: [0, 1, 2, 3, 4], schedules: [{ taskId: '2', repeat: 'Repeats every day' }] });
+    const c = await call('GET', '/projects/P1/inspection-checks?state=open', member);
+    expect(c.json().data).toMatchObject({ total: 2, checks: [{ taskId: '1', state: 'LATE', daysLate: 2 }, { taskId: '2' }] });
+    expect((await call('GET', '/projects/P1/inspection-checks', member)).statusCode).toBe(200);
+    expect((await call('GET', '/projects/P1/inspection-checks?state=done', member)).statusCode).toBe(400);
+    expect((await call('GET', '/projects/P1/inspection-schedules', outsider)).statusCode).toBe(404);
+    expect((await call('GET', '/projects/P1/inspection-checks?state=open', outsider)).statusCode).toBe(404);
+  });
+
+  it('say how much a form is used, for the delete confirm', async () => {
+    await withSchedules();
+    expect((await call('GET', '/inspection-forms/f1/usage', member)).json().data).toEqual({ schedules: 1, openChecks: 2 });
+    expect((await call('GET', '/inspection-forms/nope/usage', member)).statusCode).toBe(404);
+  });
+});

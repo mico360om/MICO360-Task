@@ -4,6 +4,7 @@ import { HttpError } from '../../lib/http-errors';
 import type { AuthGuard } from '../auth/auth-guard';
 import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from './inspection-report-pdf';
 import type { Actor, InspectionService } from './inspection-service';
+import type { InspectionScheduleService } from './inspection-schedules';
 
 export interface InspectionRouteDeps {
   service: InspectionService;
@@ -18,9 +19,13 @@ export interface InspectionRouteDeps {
   userName?: (userId: string) => Promise<string | null>;
   /** Reports per signed-in person a minute (default 20): a PDF takes real work to make. */
   pdfsPerMinute?: number;
+  /** Scheduled inspections: a project's schedules and due checks, and how much a form is used. */
+  schedules?: InspectionScheduleService;
 }
 
 const visibleBody = z.object({ visible: z.boolean() });
+/** Due checks are the open ones (the only list there is). */
+const checksQuery = z.object({ state: z.literal('open').optional() });
 const answersBody = z.object({ answers: z.unknown() });
 /** A finish carries up to three drawn signatures; a phone sending a whole inspection's answers at once carries long notes. */
 const BIG_BODY_LIMIT = 4 * 1024 * 1024;
@@ -49,6 +54,17 @@ export async function registerInspectionRoutes(app: FastifyInstance, deps: Inspe
     await service.deleteForm(actor(req), params(req).id);
     return reply.status(204).send();
   });
+
+  // ── Scheduled inspections (checks are tasks that carry a form) ─────────────────────────────
+  const schedules = deps.schedules;
+  if (schedules) {
+    app.get('/inspection-forms/:id/usage', auth, async (req) => ({ data: await schedules.formUsage(params(req).id) }));
+    app.get('/projects/:id/inspection-schedules', auth, async (req) => ({ data: await schedules.schedules(actor(req), params(req).id) }));
+    app.get('/projects/:id/inspection-checks', auth, async (req) => {
+      checksQuery.parse(req.query ?? {});
+      return { data: await schedules.dueChecks(actor(req), params(req).id) };
+    });
+  }
 
   // ── A project's inspections ────────────────────────────────────────────────────────────────
   app.get('/projects/:id/inspections', auth, async (req) => ({ data: await service.listForProject(actor(req), params(req).id) }));

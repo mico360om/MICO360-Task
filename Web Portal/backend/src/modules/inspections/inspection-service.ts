@@ -2,6 +2,8 @@ import { z, ZodError, type ZodTypeAny } from 'zod';
 import { ConflictError, ForbiddenError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { imageDimensions } from '../../lib/image-dimensions';
 import type { CreateAuditData } from '../audit/audit-repository';
+import { defaultCompanyTimeZone } from '../tasks/task-status';
+import { daysLate } from './inspection-checks';
 import type { RecordTaskActivity } from '../activity/task-activity';
 import { idsOf, parseFormInput } from './inspection-form-input';
 import { clientInspection, clientInspectionSummary, type ClientInspection, type ClientInspectionSummary } from './inspection-client-copy';
@@ -82,13 +84,24 @@ export interface InspectionPorts {
   runsAnyProject(userId: string): Promise<boolean>;
   /** The project; null when it is gone. */
   project(projectId: string): Promise<ProjectInfo | null>;
-  /** A live task. */
-  task(taskId: string): Promise<{ id: string; key: string; title: string; projectId: string; done: boolean } | null>;
+  /** A live task (with the inspection form it carries, and where, for a check). */
+  task(taskId: string): Promise<{ id: string; key: string; title: string; projectId: string; done: boolean; inspectionFormId?: string | null; inspectionPlace?: string | null } | null>;
   /** Tasks by id, deleted ones too (marked), with the project each is in now. */
   taskSummaries(ids: string[]): Promise<Map<string, TaskSummary>>;
   canViewTask(userId: string, roles: string[], taskId: string): Promise<boolean>;
   /** The project's first Done column (where "mark the task done" moves it); null when it has none. */
   doneColumnOf(projectId: string): Promise<string | null>;
+  /**
+   * Completes a task as `actorId` through the normal status path (moved to its project's first Done
+   * column: history, notices, watchers, the next repeat copy, open boards). False when it wasn't
+   * (already done, gone, or the project has no Done column).
+   */
+  completeTask?(taskId: string, actorId: string): Promise<boolean>;
+  /**
+   * Deletes the form and stops every schedule that uses it (their repeat cleared as a person stopping
+   * it would, with the same history line), in one transaction. Without it, only the form is deleted.
+   */
+  deleteFormStoppingSchedules?(formId: string, actorId: string): Promise<{ deleted: boolean; schedulesStopped: number }>;
   /** Who a new task gets when nobody is picked: the project's owner, if they can be assigned (as the app does). */
   defaultAssignees(projectId: string): Promise<string[]>;
   /** The people, if each may be given a task of the project (else it throws a 400). */
@@ -115,12 +128,18 @@ export interface TaskSummary {
   projectId: string;
   deleted: boolean;
   done: boolean;
+  /** For "done late": a check's due day and when it was finished, and the form it carries. */
+  dueDate?: Date | null;
+  completedAt?: Date | null;
+  inspectionFormId?: string | null;
 }
 
 export interface InspectionServiceDeps {
   store: InspectionStore;
   ports: InspectionPorts;
   now?: () => Date;
+  /** The company time zone ("done late" is finished after the end of its due day there). */
+  timeZone?: string;
   /** Ids for new form sections and items (tests pin them). */
   newId?: () => string;
 }
@@ -230,7 +249,10 @@ function followUpDescription(r: InspectionRecord, sectionTitle: string, item: Fo
 export function createInspectionService(deps: InspectionServiceDeps) {
   const { store, ports } = deps;
   const now = deps.now ?? (() => new Date());
+  const timeZone = deps.timeZone ?? defaultCompanyTimeZone();
   const isAdmin = (a: Actor) => a.roles.includes('ADMIN');
+  /** Completions in flight, by task: two copies of one finish at once complete the task once. */
+  const completing = new Map<string, Promise<unknown>>();
 
   async function audit(actor: Actor, module: 'inspections' | 'client-view', action: string, entityId: string, newValue: unknown): Promise<void> {
     try {
@@ -299,8 +321,47 @@ export function createInspectionService(deps: InspectionServiceDeps) {
     for (const [projectId, ids] of byProject) for (const [id, t] of await tasksFor(actor, projectId, ids)) tasks.set(id, t);
     return records.map((r) => {
       const t = r.taskId ? tasks.get(r.taskId) : undefined;
-      return listItem(r, names, t && !t.deleted && !t.hidden ? { id: r.taskId!, key: t.key, title: t.title, done: t.done } : null);
+      return listItem(r, names, t && !t.deleted && !t.hidden ? taskRef(r.taskId!, t) : null);
     });
+  }
+
+  /** The task an inspection was for, as lists show it: a finished check says how late it was done. */
+  function taskRef(id: string, t: TaskSummary): NonNullable<InspectionListItem['task']> {
+    const check = !!t.inspectionFormId && t.done;
+    return { id, key: t.key, title: t.title, done: t.done, lateDays: check ? daysLate({ dueDate: t.dueDate, completedAt: t.completedAt ?? null, columnCategory: 'DONE' }, timeZone, now()) : null };
+  }
+
+  /**
+   * A check (a task that carries a form) is completed by finishing an inspection for it: moved to its
+   * project's first Done column, as the finisher, through the normal status path — once, however
+   * often the finish is sent. Returns the task when it is done now (null: not a check, can't be seen,
+   * or its project has no Done column). Reopening the inspection never reopens the task.
+   */
+  async function completeCheck(actor: Actor, r: InspectionRecord): Promise<InspectionDetail['taskCompleted']> {
+    if (!r.taskId) return null;
+    const before = completing.get(r.taskId);
+    const run = (async () => {
+      if (before) await before.catch(() => undefined);
+      const t = await ports.task(r.taskId!);
+      if (!t || !t.inspectionFormId || !(await ports.canViewTask(actor.id, actor.roles, t.id))) return null;
+      if (!t.done) {
+        let completed = false;
+        try {
+          completed = (await ports.completeTask?.(t.id, actor.id)) ?? false;
+        } catch (err) {
+          // The inspection is finished either way; the task can still be completed by hand.
+          ports.logger?.warn('inspections: the check could not be completed', { err, taskId: t.id });
+        }
+        if (!completed) return null;
+      }
+      return { id: t.id, key: t.key, title: t.title };
+    })();
+    completing.set(r.taskId, run);
+    try {
+      return await run;
+    } finally {
+      if (completing.get(r.taskId) === run) completing.delete(r.taskId);
+    }
   }
 
   async function taskOffer(actor: Actor, r: InspectionRecord): Promise<InspectionDetail['taskOffer']> {
@@ -311,7 +372,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
     return doneColumnId ? { id: t.id, key: t.key, title: t.title, doneColumnId } : null;
   }
 
-  async function detail(actor: Actor, r: InspectionRecord, extra: { offer?: boolean } = {}): Promise<InspectionDetail> {
+  async function detail(actor: Actor, r: InspectionRecord, extra: { offer?: boolean; completed?: InspectionDetail['taskCompleted'] } = {}): Promise<InspectionDetail> {
     const [answers, signatures, earlier, followUps, project, manage] = await Promise.all([
       store.answers(r.id),
       store.signatures(r.id),
@@ -338,7 +399,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       canShowToClient: !inProgress && manage && (!readOnly || r.clientVisible),
       canMakeFollowUps: !readOnly,
     };
-    const base = listItem(r, names, attached && !attached.deleted && !attached.hidden ? { id: r.taskId!, key: attached.key, title: attached.title, done: attached.done } : null, answers);
+    const base = listItem(r, names, attached && !attached.deleted && !attached.hidden ? taskRef(r.taskId!, attached) : null, answers);
     return {
       ...base,
       description: r.description,
@@ -359,8 +420,14 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       earlierRevisions: earlierRevisionsOf(earlier),
       permissions,
       signatureRoles: signatureRolesOf(r.structure, requiredSignatures(r.structure)),
-      ...(extra.offer ? { taskOffer: await taskOffer(actor, r) } : {}),
+      ...(extra.offer ? { taskCompleted: extra.completed ?? null, taskOffer: extra.completed ? null : await taskOffer(actor, r) } : {}),
     };
+  }
+
+  /** A finished inspection as its finish (or a repeat of it) answers: its check completed, or the offer. */
+  async function finished(actor: Actor, r: InspectionRecord): Promise<InspectionDetail> {
+    const completed = await completeCheck(actor, r);
+    return detail(actor, r, { offer: true, completed });
   }
 
   // ── Forms ───────────────────────────────────────────────────────────────────────────────────
@@ -412,9 +479,11 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       return formView(saved, await formNames([saved]), true);
     },
 
+    /** Deletes it, and stops the schedules that use it (checks already made can still be done). */
     async deleteForm(actor: Actor, id: string): Promise<void> {
       const f = await editableForm(actor, id);
-      if (await store.deleteForm(id)) await audit(actor, 'inspections', 'inspection-form.deleted', id, { title: f.title });
+      const out = ports.deleteFormStoppingSchedules ? await ports.deleteFormStoppingSchedules(id, actor.id) : { deleted: await store.deleteForm(id), schedulesStopped: 0 };
+      if (out.deleted) await audit(actor, 'inspections', 'inspection-form.deleted', id, { title: f.title, schedulesStopped: out.schedulesStopped });
     },
 
     // ── Inspections ─────────────────────────────────────────────────────────────────────────
@@ -430,14 +499,20 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       const input = parse(startBody, body);
       if (!(await ports.canViewProject(actor.id, actor.roles, projectId))) throw new NotFoundError('Project not found.');
       await writableProject(projectId);
-      const form = await store.findForm(input.formId);
-      if (!form) throw new NotFoundError('That form isn’t there any more.');
       let taskId: string | null = null;
+      let task: Awaited<ReturnType<InspectionPorts['task']>> = null;
       if (input.taskId) {
-        const t = await ports.task(input.taskId);
-        if (!t || t.projectId !== projectId || !(await ports.canViewTask(actor.id, actor.roles, t.id))) throw new ValidationError('That task isn’t one of this project’s.');
-        taskId = t.id;
+        task = await ports.task(input.taskId);
+        if (!task || task.projectId !== projectId || !(await ports.canViewTask(actor.id, actor.roles, task.id))) throw new ValidationError('That task isn’t one of this project’s.');
+        taskId = task.id;
       }
+      // A deleted form starts nothing new — except for a check that carries it (made before it was
+      // deleted, so it can still be done).
+      const any = await store.findFormAny(input.formId);
+      const form = any && (!any.deleted || task?.inspectionFormId === any.id) ? any : null;
+      if (!form) throw new NotFoundError('That form isn’t there any more.');
+      // Started for a check without a place given: the check's own place.
+      const place = input.place === undefined ? (task?.inspectionPlace ?? null) : input.place?.trim() || null;
       const r = await store.createInspection({
         projectId,
         formId: form.id,
@@ -445,7 +520,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         title: form.title,
         description: form.description,
         structure: form.structure,
-        place: input.place?.trim() || null,
+        place,
         taskId,
         inspectorId: actor.id,
         itemCount: itemsOf(form.structure).length,
@@ -501,7 +576,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       const r = await viewable(actor, id);
       const input = parse(finishBody, body);
       // A repeat of the finish that was applied (its reply was lost): it is finished, whatever happened since.
-      if (r.status === 'FINISHED' && r.finishId === input.finishId) return detail(actor, r, { offer: true });
+      if (r.status === 'FINISHED' && r.finishId === input.finishId) return finished(actor, r);
       await writableProject(r.projectId);
       // Refused before any picture is looked at (the locked step below decides again).
       if (r.status === 'FINISHED') throw alreadyFinished();
@@ -546,7 +621,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         return unanswered.length || missingSignatures.length ? { code: 'INCOMPLETE', unanswered, missingSignatures } : null;
       };
       const out = await store.finish(r.id, actor.id, { finishId: input.finishId, revision: input.revision, at, signatures, check, count: counter(r.structure) });
-      if (out.kind === 'already') return detail(actor, out.inspection, { offer: true });
+      if (out.kind === 'already') return finished(actor, out.inspection);
       if (out.kind === 'finished-other') throw alreadyFinished();
       if (out.kind === 'stale-revision') throw reopenedSince();
       if (out.kind === 'problem') {
@@ -567,7 +642,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         signedBy: [...signatures].sort(byRole).map((s) => ({ role: s.role, name: s.name })),
       });
       if (r.taskId) await activity(r.taskId, actor.id, 'INSPECTION_FINISHED', { inspectionId: r.id, inspection: r.title, failed: c.failed });
-      return detail(actor, out.inspection, { offer: true });
+      return finished(actor, out.inspection);
     },
 
     async reopen(actor: Actor, id: string): Promise<InspectionDetail> {

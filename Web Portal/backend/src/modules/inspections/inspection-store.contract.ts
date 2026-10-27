@@ -78,6 +78,10 @@ export function inspectionStoreContract(name: string, setup: () => Promise<Inspe
         expect(await store.deleteForm(a.id)).toBe(false);
         expect(await store.findForm(a.id)).toBeNull();
         expect((await store.listForms()).map((x) => x.id)).toEqual([b.id]);
+        // A deleted form is still found when asked for any (a check made from it can still be done).
+        expect(await store.findFormAny(a.id)).toMatchObject({ id: a.id, title: 'A form', structure, deleted: true });
+        expect(await store.findFormAny(b.id)).toMatchObject({ id: b.id, deleted: false });
+        expect(await store.findFormAny('no-such-form')).toBeNull();
       });
 
       it('saves an edit only from the current version, and moves the version on', async () => {
