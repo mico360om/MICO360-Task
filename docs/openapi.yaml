@@ -322,7 +322,7 @@ paths:
   /config:
     get:
       security: []
-      summary: Public client settings — company time zone, product name, whether email is set up, the Android app download link (androidAppUrl, may be null) and the server time
+      summary: Public client settings — company time zone, product name, whether email is set up, the Android app download link (androidAppUrl, may be null), the company week start (weekStart 0/1/6, everyone's default until they choose their own), whether the weekly management summary is on (weeklySummaryEnabled) and the server time
       responses:
         '200': { description: OK }
 
@@ -715,14 +715,16 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: 'Not an administrator and runs no project' }
         '404': { description: 'A chosen project outside the caller''s scope' }
+        '429': { description: 'RATE_LIMITED: more than 120 overviews and lists a minute' }
   /management/items:
     get:
       summary: The list behind a number on the Management page (at most 200 rows, with the full count), inside the caller's scope and filters
       parameters:
-        - { name: metric, in: query, required: true, schema: { type: string, enum: [late-tasks, late-milestones, missing-checks, checks-due, checks-done, checks-done-late, checks-no-report, follow-ups, inspections, failed-item, person-overloaded, person-actions, projects, people-overloaded] } }
+        - { name: metric, in: query, required: true, schema: { type: string, enum: [late-tasks, late-milestones, missing-checks, checks-due, checks-done, checks-done-late, checks-no-report, follow-ups, inspections, failed-item, failed-form, person-overloaded, person-actions, overdue-actions, projects, people-overloaded] } }
         - { name: projectId, in: query, schema: { type: string }, description: 'One project (404 outside the caller''s scope)' }
         - { name: personId, in: query, schema: { type: string }, description: 'One person''s rows (only inside the caller''s projects); required for person-overloaded' }
-        - { name: formId, in: query, schema: { type: string }, description: 'failed-item: the form (none: inspections whose form is gone)' }
+        - { name: formId, in: query, schema: { type: string }, description: 'failed-item, failed-form, inspections: the form (none: inspections whose form is gone)' }
+        - { name: failed, in: query, schema: { type: string, enum: ['1', 'true'] }, description: 'inspections: only those with a failed item' }
         - { name: itemId, in: query, schema: { type: string }, description: 'failed-item: the item (required)' }
         - { name: rag, in: query, schema: { type: string, enum: [RED, AMBER, GREEN] }, description: 'projects: one mark' }
         - { name: projectIds, in: query, schema: { type: string } }
@@ -730,11 +732,12 @@ paths:
         - { name: status, in: query, schema: { type: string } }
         - { name: weeks, in: query, schema: { type: integer, enum: [4, 12, 26] } }
       responses:
-        '200': { description: '`{ data: { metric, title, total, limit, rows: [{ kind: task|inspection|action|project|person, id, title, key, project, due, daysLate, people, detail, tone, meetingId, taskId, at }] } }`' }
+        '200': { description: '`{ data: { metric, title, total, limit, rows: [{ kind: task|inspection|action|project|person|day, id, title, key, project, due, daysLate, people, detail, tone, meetingId, taskId, at, inspectionId, tasks }] } }` — person-overloaded has one day row per overloaded day (with its tasks)' }
         '400': { description: 'VALIDATION: an unknown list, or a person / item missing' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: 'Not an administrator and runs no project' }
         '404': { description: 'A project outside the caller''s scope' }
+        '429': { description: 'RATE_LIMITED: more than 120 overviews and lists a minute' }
   /management/overview.pdf:
     get:
       summary: The Management overview as a branded PDF (the same filters; logo, the filters in words, generated at in company time, page numbers)
