@@ -81,6 +81,7 @@ import { buildDigests } from './modules/notifications/notification-digest';
 import { createDailyEmailService } from './modules/daily-emails/daily-email-service';
 import { createPrismaDailyEmailCheckStore, createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
 import { createPrismaDailyEmailSources } from './modules/daily-emails/prisma-daily-email-sources';
+import { createManagementFromPrisma, createWeeklySummaryFromPrisma } from './modules/management/management-wiring';
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
@@ -1149,6 +1150,32 @@ async function main(): Promise<void> {
   const dailyEmailTimer = setInterval(() => void runDailyEmails(), 60 * 1000);
   dailyEmailTimer.unref?.();
 
+  // ── The Management page, and its weekly summary email ──────────────────────
+  // Admins see every project; the people who run a project see the projects they run. The summary
+  // goes on the first working morning of the company week, at each person's daily-email time, to
+  // everyone who can see the page (their own projects only), once a week — the same lease-locked,
+  // every-minute sweep and retries as the daily task emails, with a company-wide switch.
+  const managementService = createManagementFromPrisma(prisma, { settings: settingsService, timeZone: companyTz });
+  const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
+    management: managementService,
+    settings: settingsService,
+    send: (to, content, template) => emailService.sendPrepared(template, to, content),
+    isConfigured: () => emailService.isConfigured(),
+    companyTimeZone: companyTz,
+    appUrl: env.APP_URL,
+    logger,
+  });
+  const runWeeklySummary = () =>
+    runExclusive(jobLock, 'weekly-management-summary', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
+      await weeklySummaryService.runSweep();
+    }).catch((err) => {
+      logger.error('weekly management summary sweep failed', { err });
+      return false;
+    });
+  void runWeeklySummary();
+  const weeklySummaryTimer = setInterval(() => void runWeeklySummary(), 60 * 1000);
+  weeklySummaryTimer.unref?.();
+
   const otpService = createOtpService({
     users: createPrismaOtpUserLookup(prisma),
     otps: createPrismaOtpStore(prisma),
@@ -1423,6 +1450,11 @@ async function main(): Promise<void> {
       service: inspectionService,
       timeZone: companyTz,
       projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
+      userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
+    },
+    management: {
+      service: managementService,
+      timeZone: companyTz,
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
     },
   });
