@@ -65,6 +65,7 @@ describe('a project’s schedules', () => {
         assignees: [IVAN, SARA],
         rule: WORKING,
         repeat: 'Every working day',
+        onSchedule: true,
         paused: false,
         nextDue: '2026-10-28',
         lastDone: '2026-10-25T07:00:00.000Z',
@@ -100,6 +101,14 @@ describe('a project’s schedules', () => {
     rows.push(row({ recurrenceRule: WORKING }));
     expect(await status(service().schedules(outsider, 'P1'))).toBe(404);
     expect((await service().schedules({ id: 'u-admin', roles: ['ADMIN'] }, 'P1')).schedules).toHaveLength(1);
+  });
+
+  it('a series that waits for each check to be done (made before every schedule was on schedule) says so, and has no next day while one is open', async () => {
+    rows.push(row({ id: 'oc', dueDate: day('2026-10-26'), recurrenceRule: { freq: 'DAILY', interval: 1 } }));
+    const [s] = (await service().schedules(ivan, 'P1')).schedules;
+    expect(s).toMatchObject({ repeat: 'Repeats every day · the next one when this one is done', onSchedule: false, nextDue: null, lateChecks: 1 });
+    rows[0] = { ...rows[0]!, recurrenceRule: WORKING };
+    expect((await service().schedules(ivan, 'P1')).schedules[0]).toMatchObject({ repeat: 'Every working day', onSchedule: true });
   });
 });
 

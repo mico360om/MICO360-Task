@@ -68,6 +68,11 @@ export interface ScheduleView {
   rule: RecurrenceRule;
   /** In words: "Every working day", "Repeats every week on Mon". */
   repeat: string;
+  /**
+   * Its checks are made on their dates, done or not (every schedule since 1.18.0). False: an older
+   * series that makes the next one only when this one is done — said so in `repeat`.
+   */
+  onSchedule: boolean;
   paused: boolean;
   /** The next day a check is due ('YYYY-MM-DD'); null when paused or ended. */
   nextDue: string | null;
@@ -104,10 +109,14 @@ export interface InspectionScheduleDeps {
 const DUE_CHECKS_LIMIT = 200;
 const sameDays = (a: number[], b: number[]) => a.length === b.length && [...a].sort().every((d, i) => d === [...b].sort()[i]);
 
-/** The repeat in words, without "new copy on each date" (every schedule makes its checks on schedule). */
+/**
+ * The repeat in words. On schedule (every schedule since 1.18.0) it leaves out "new copy on each
+ * date"; a series that waits for each check to be done says so.
+ */
 export function scheduleRepeatText(rule: RecurrenceRule, workingDays: number[]): string {
   const plain: RecurrenceRule = { ...rule };
   delete plain.createNext;
+  if (rule.createNext !== 'ON_SCHEDULE') return `${recurrenceSummary(plain)} · the next one when this one is done`;
   if (rule.freq === 'WEEKLY' && rule.interval === 1 && rule.weekdays?.length && sameDays(rule.weekdays, workingDays) && rule.count == null && !rule.until && !rule.paused) {
     return 'Every working day';
   }
@@ -129,6 +138,8 @@ export function createInspectionScheduleService(deps: InspectionScheduleDeps) {
     if (!rule || !isValidRule(rule) || rule.paused) return null;
     const headDay = dueDayKey(head.dueDate, timeZone);
     if (headDay && headDay >= today && !isCheckDone(head)) return headDay;
+    // A series that waits for each check: nothing is due next until the open one is done.
+    if (rule.createNext !== 'ON_SCHEDULE' && !isCheckDone(head)) return null;
     if (rule.count != null && size >= rule.count) return null;
     const base = rule.resumeFrom ? new Date(`${rule.resumeFrom}T00:00:00.000Z`) : headDay ? new Date(`${headDay}T00:00:00.000Z`) : null;
     if (!base) return null;
@@ -161,6 +172,7 @@ export function createInspectionScheduleService(deps: InspectionScheduleDeps) {
             assignees: head.assignees,
             rule,
             repeat: scheduleRepeatText(rule, workingDays),
+            onSchedule: rule.createNext === 'ON_SCHEDULE',
             paused: !!rule.paused,
             nextDue: nextDueOf(head, sizes.get(seriesOf(head)) ?? series.length, today),
             lastDone: done.length ? new Date(Math.max(...done)).toISOString() : null,

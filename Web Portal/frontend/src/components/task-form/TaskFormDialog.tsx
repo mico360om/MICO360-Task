@@ -86,6 +86,8 @@ const DESCRIPTION_MAX = 20_000;
 const LAST_PROJECT = 'mico360.newTask.project';
 
 const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/** A repeating task with an inspection form is a schedule: its checks are made on each date (the server does the same). */
+const asCheck = (d: Draft): Draft => (d.formId && d.rule && d.rule.createNext !== 'ON_SCHEDULE' ? { ...d, rule: { ...d.rule, createNext: 'ON_SCHEDULE' } } : d);
 const fullName = (u: { firstName?: string | null; lastName?: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 const listNames = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
@@ -164,10 +166,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
-  const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
+  const set = (patch: Partial<Draft>) => setDraft((d) => asCheck({ ...d, ...patch }));
   /** A value the form fills in itself (a default, data that loaded) — not a change of yours. */
   const settle = (patch: Partial<Draft>) => {
-    setSaved((s) => ({ ...s, ...patch }));
+    setSaved((s) => asCheck({ ...s, ...patch }));
     set(patch);
   };
   const [placeChosen, setPlaceChosen] = useState(false);
@@ -699,11 +701,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                       ariaLabel="Repeat"
                       options={repeatOptions}
                       value={draft.rule?.freq ?? 'NONE'}
-                      onChange={(v) => {
-                        const rule = withFrequency(draft.rule, v);
-                        // A check that starts repeating is made on its days, done or not (it can still be changed).
-                        set({ rule: rule && !draft.rule && draft.formId ? { ...rule, createNext: 'ON_SCHEDULE' } : rule });
-                      }}
+                      onChange={(v) => set({ rule: withFrequency(draft.rule, v) })}
                     />
                   ) : (
                     <p className="flex min-h-[44px] items-center rounded-xl bg-ground px-3.5 text-xs text-ink-2">
@@ -722,7 +720,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                     <span>{scheduleText(draft.rule, dueWhen)}</span>
                   </p>
                   <div ref={untilRef}>
-                    <RecurrenceEditor hideFrequency value={draft.rule} onChange={(rule) => set({ rule })} dueDate={dueWhen || null} />
+                    <RecurrenceEditor hideFrequency kind={draft.formId ? 'check' : 'task'} value={draft.rule} onChange={(rule) => set({ rule })} dueDate={dueWhen || null} />
                   </div>
                   {untilProblem ? <p id={ids.untilErr} role="alert" className="mt-2 text-xs font-medium text-danger">{untilProblem}</p> : null}
                   {!dueWhen ? <p className="mt-2 text-xs text-ink-2">Set a due date to see the next dates.</p> : null}

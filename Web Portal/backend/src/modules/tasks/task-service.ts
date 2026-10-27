@@ -74,6 +74,13 @@ const KEY_ATTEMPTS = 5;
 /** Fields an "entire series" edit copies to the other occurrences — never dates, column or position. */
 const SERIES_FIELDS = ['title', 'description', 'priority', 'estimatedHours'] as const;
 
+/**
+ * A repeating task that carries an inspection form is a schedule: its checks are made on their
+ * dates, done or not (owner decision) — whatever the client sent.
+ */
+const asCheckRule = (rule: RecurrenceRule, formId: string | null | undefined): RecurrenceRule =>
+  formId && rule.createNext !== 'ON_SCHEDULE' ? { ...rule, createNext: 'ON_SCHEDULE' } : rule;
+
 const sameInstant = (a: Date | null | undefined, b: Date | null | undefined): boolean =>
   (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
 
@@ -138,7 +145,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     if (input.startDate) assertDateOrder(input.startDate, dueDate);
     // The start date is automatic: the creation time, or the due day when that is already past.
     const startDate = input.startDate ?? (dueDate && dayOf(at) > dayOf(dueDate) ? dueDate : at);
-    const recurrenceRule = input.recurrenceRule ? withAnchorDay(input.recurrenceRule, dueDate) : input.recurrenceRule;
+    const recurrenceRule = input.recurrenceRule ? withAnchorDay(asCheckRule(input.recurrenceRule, input.inspectionFormId), dueDate) : input.recurrenceRule;
     // A task created straight into a DONE column is complete from the start.
     const completion = column.category === 'DONE' ? { completedAt: at, progress: 100 } : {};
     const data = { ...input, dueDate, startDate, boardDate, recurrenceRule, ...completion };
@@ -205,6 +212,10 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     const due = next.dueDate !== undefined ? next.dueDate : current.dueDate;
     // Re-check the range only when this edit changes a date, so older rows stay editable.
     if (!sameInstant(start, current.startDate) || !sameInstant(due, current.dueDate)) assertDateOrder(start, due);
+    // After this edit, a repeat on a task with a form is made on schedule (set here when it isn't).
+    const formAfter = next.inspectionFormId !== undefined ? next.inspectionFormId : (current.inspectionFormId ?? null);
+    const ruleAfter = next.recurrenceRule !== undefined ? next.recurrenceRule : current.recurrenceRule;
+    if (ruleAfter && formAfter && ruleAfter.createNext !== 'ON_SCHEDULE') next.recurrenceRule = asCheckRule(ruleAfter, formAfter);
     if (next.recurrenceRule) next.recurrenceRule = withAnchorDay(next.recurrenceRule, due);
 
     // A column change is a move: it must stay in the project and it drives completion status.

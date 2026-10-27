@@ -307,7 +307,14 @@ function RepeatField({ task, timeZone, onSet }: { task: ApiTask; timeZone: strin
   return (
     <Row label="Repeat">
       {!task.recurrenceNextId ? (
-        <RecurrenceEditor compact value={task.recurrenceRule ?? null} onChange={(rule) => void save.run(() => onSet(rule))} dueDate={dueInputValue(task.dueDate, timeZone)} />
+        <RecurrenceEditor
+          compact
+          // A check (a task with an inspection form) is made on each date, done or not.
+          kind={task.inspectionFormId ? 'check' : 'task'}
+          value={task.recurrenceRule ?? null}
+          onChange={(rule) => void save.run(() => onSet(rule))}
+          dueDate={dueInputValue(task.dueDate, timeZone)}
+        />
       ) : (
         // Repeating an earlier copy would start a second, parallel series.
         <p className="pt-2 text-xs text-ink-2">An earlier copy of a repeating series — change the repeat on its newest copy.</p>

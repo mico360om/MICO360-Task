@@ -41,6 +41,7 @@ const SCHEDULE = {
   assignees: [ALI, SARA],
   rule: { freq: 'WEEKLY', interval: 1, weekdays: [0, 1, 2, 3, 4], createNext: 'ON_SCHEDULE' },
   repeat: 'Every working day',
+  onSchedule: true,
   paused: false,
   nextDue: '2026-10-29',
   lastDone: '2026-10-27T05:00:00.000Z',
@@ -237,6 +238,15 @@ describe('scheduled inspections on the Inspections tab', () => {
     expect(row).toHaveTextContent('Last done 27 Oct 2026');
     expect(within(row!).getByText('1 late').className).toMatch(/text-danger/);
     expect(within(row!).getByLabelText('Inspectors: Ali Hassan and Sara Al Balushi')).toBeInTheDocument();
+  });
+
+  it('an older schedule that waits for each check says so (no next day while one is open)', async () => {
+    schedules = { ...schedules, schedules: [{ ...SCHEDULE, rule: { freq: 'DAILY', interval: 1 }, onSchedule: false, repeat: 'Repeats every day · the next one when this one is done', nextDue: null }] };
+    show();
+    const region = await screen.findByRole('region', { name: 'Schedules (1)' });
+    const [row] = within(region).getAllByRole('listitem');
+    expect(row).toHaveTextContent('Repeats every day · the next one when this one is done');
+    expect(row).not.toHaveTextContent('No more checks');
   });
 
   it('Stop asks first, then stops the repeat (the checks already made stay)', async () => {

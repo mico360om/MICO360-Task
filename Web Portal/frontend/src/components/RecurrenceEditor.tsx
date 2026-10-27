@@ -272,6 +272,8 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </div>
       ) : null}
 
+      {rule && kind === 'check' ? <p className="text-xs text-ink-2">Each check is made on its date, done or not.</p> : null}
+
       {rule && !fixedCopies ? (
         <label className="flex flex-wrap items-center gap-2">
           <span className="text-ink-2">Create the next copy</span>

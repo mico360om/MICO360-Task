@@ -687,4 +687,10 @@ describe('TaskDrawer — the meeting a task was created from', () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[]} inspections={panel} onClose={vi.fn()} />);
     expect(screen.getByLabelText('Inspections panel').compareDocumentPosition(screen.getByRole('heading', { name: 'Description' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
+
+  it('a check’s repeat in the panel is always made on each date: no "next copy" choice, and it says so', () => {
+    render(<TaskDrawer task={{ ...task, inspectionFormId: 'f1', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } }} checklist={[]} comments={[]} onSetRecurrence={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.queryByLabelText('Create the next copy')).toBeNull();
+    expect(screen.getByText('Each check is made on its date, done or not.')).toBeInTheDocument();
+  });
 });

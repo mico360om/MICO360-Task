@@ -140,6 +140,8 @@ export interface InspectionSchedule {
   rule: RecurrenceRule;
   /** "Every working day", "Repeats every week on Mon". */
   repeat: string;
+  /** Made on each date, done or not (false: an older series that waits for each check, said in `repeat`). */
+  onSchedule: boolean;
   paused: boolean;
   /** 'YYYY-MM-DD'; null when paused or ended. */
   nextDue: string | null;

@@ -869,4 +869,20 @@ describe('Task routes — a task that carries an inspection form (scheduled chec
     expect(made.json().data).toMatchObject({ inspectionFormId: 'f-live', recurrenceRule: rule });
     expect((await put(made.json().data.id, { recurrenceRule: null })).json().data.recurrenceRule).toBeNull();
   });
+
+  it('a repeating task with a form is always made on schedule: create and edit are set to on-schedule, whatever was sent', async () => {
+    const { post, put } = await build();
+    for (const createNext of [undefined, 'ON_COMPLETE']) {
+      const made = await post({ ...base, inspectionFormId: 'f-live', dueDate: '2026-10-28', recurrenceRule: { freq: 'DAILY', interval: 1, ...(createNext ? { createNext } : {}) } });
+      expect(made.json().data.recurrenceRule).toEqual({ freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' });
+    }
+    // A form given to a repeating task, and a repeat changed on a check.
+    const plain = (await post({ ...base, dueDate: '2026-10-28', recurrenceRule: { freq: 'WEEKLY', interval: 1 } })).json().data;
+    expect(plain.recurrenceRule).toEqual({ freq: 'WEEKLY', interval: 1 });
+    expect((await put(plain.id, { inspectionFormId: 'f-live' })).json().data.recurrenceRule).toEqual({ freq: 'WEEKLY', interval: 1, createNext: 'ON_SCHEDULE' });
+    expect((await put(plain.id, { recurrenceRule: { freq: 'DAILY', interval: 2, createNext: 'ON_COMPLETE' } })).json().data.recurrenceRule).toEqual({ freq: 'DAILY', interval: 2, createNext: 'ON_SCHEDULE' });
+    // Without a form nothing changes.
+    const other = (await post({ ...base, dueDate: '2026-10-28', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_COMPLETE' } })).json().data;
+    expect(other.recurrenceRule.createNext).toBe('ON_COMPLETE');
+  });
 });

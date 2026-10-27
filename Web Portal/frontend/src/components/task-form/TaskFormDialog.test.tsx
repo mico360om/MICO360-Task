@@ -789,10 +789,25 @@ describe('Task form — an inspection form (a check)', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Place (optional)' }), 'Rig 3 – الحفار');
     expect(screen.getByRole('textbox', { name: 'Place (optional)' })).toHaveAttribute('dir', 'auto');
     await pick('Repeat', 'Daily');
-    expect(screen.getByLabelText('Create the next copy')).toHaveValue('ON_SCHEDULE');
+    expect(screen.queryByLabelText('Create the next copy')).toBeNull();
+    expect(screen.getByText('Each check is made on its date, done or not.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(posts()[0]!.body).toMatchObject({ title: 'Daily rig check', inspectionFormId: 'f1', inspectionPlace: 'Rig 3 – الحفار', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } });
+  });
+
+  it('Repeat first, then the form: still made on each date (the order doesn’t matter)', async () => {
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Daily rig check');
+    await pick('Repeat', 'Daily');
+    expect(screen.getByLabelText('Create the next copy')).toHaveValue('ON_COMPLETE');
+    await pick('Inspection form', /Rig daily check/);
+    expect(screen.queryByLabelText('Create the next copy')).toBeNull();
+    expect(screen.getByText('Each check is made on its date, done or not.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ inspectionFormId: 'f1', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } });
   });
 
   it('without a form nothing changes: no form sent, and a repeat still waits for the task to be done', async () => {

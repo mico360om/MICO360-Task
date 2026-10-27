@@ -138,7 +138,8 @@ export function ScheduleDialog({
         if (title !== schedule.title) patch.title = title;
         if (formId !== schedule.form.id) patch.inspectionFormId = formId;
         if ((place.trim() || null) !== (schedule.place ?? null)) patch.inspectionPlace = place.trim() || null;
-        if (JSON.stringify(recurrenceRule) !== JSON.stringify(onSchedule(schedule.rule))) patch.recurrenceRule = recurrenceRule;
+        // Compared with the rule as stored: one that waits for each check is put on schedule by saving.
+        if (JSON.stringify(recurrenceRule) !== JSON.stringify(schedule.rule)) patch.recurrenceRule = recurrenceRule;
         if (Object.keys(patch).length) await tasksApi(apiClient).update(schedule.taskId, patch);
         const before = schedule.assignees.map((a) => a.id);
         const add = inspectorIds.filter((id) => !before.includes(id));

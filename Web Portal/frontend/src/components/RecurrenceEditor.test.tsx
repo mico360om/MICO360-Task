@@ -113,6 +113,7 @@ describe('RecurrenceEditor', () => {
     const onChange = vi.fn();
     render(<RecurrenceEditor kind="check" value={{ freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE', count: 5 }} onChange={onChange} />);
     expect(screen.queryByLabelText('Create the next copy')).toBeNull();
+    expect(screen.getByText('Each check is made on its date, done or not.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Pause series/ })).toBeNull();
     expect(screen.getByText('check(s)')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Number of occurrences'), { target: { value: '8' } });

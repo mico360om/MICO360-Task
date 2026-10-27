@@ -193,7 +193,7 @@ function ScheduleRow({ s, timeZone, canChange, onEdit, onStop }: { s: Inspection
           <Facts>{[<FormName form={s.form} />, s.place ? <span dir="auto">{s.place}</span> : null, <span className="text-ink-2"><Inspectors people={s.assignees} /></span>]}</Facts>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-2">
             <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 font-medium text-brand">{s.repeat}</span>
-            <span>{s.nextDue ? `Next due ${shortDay(s.nextDue)}` : s.paused ? 'Paused' : 'No more checks'}</span>
+            {s.nextDue ? <span>Next due {shortDay(s.nextDue)}</span> : s.paused ? <span>Paused</span> : s.onSchedule !== false ? <span>No more checks</span> : null}
             <span>{s.lastDone ? `Last done ${dayText(s.lastDone, timeZone)}` : 'Not done yet'}</span>
             {s.lateChecks > 0 ? <span className="rounded-md bg-danger-soft px-1.5 py-0.5 font-semibold text-danger">{s.lateChecks} late</span> : null}
           </div>

@@ -164,6 +164,14 @@ describe('the schedule dialog (new)', () => {
 });
 
 describe('the schedule dialog (edit)', () => {
+  it('Save puts a schedule that waits for each check on schedule, even with nothing else changed', async () => {
+    const { onSaved } = show({ schedule: { ...schedule, rule: { freq: 'DAILY', interval: 1 }, onSchedule: false, repeat: 'Repeats every day · the next one when this one is done' } });
+    await screen.findByRole('list', { name: 'Inspectors' });
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } });
+  });
+
   const schedule: InspectionSchedule = {
     taskId: 't-head',
     key: 'RIG-31',
@@ -173,6 +181,7 @@ describe('the schedule dialog (edit)', () => {
     assignees: [{ id: 'u-ali', name: 'Ali Hassan' }],
     rule: { freq: 'WEEKLY', interval: 1, weekdays: SUN_THU, createNext: 'ON_SCHEDULE' },
     repeat: 'Every working day',
+    onSchedule: true,
     paused: false,
     nextDue: '2026-10-29',
     lastDone: null,
