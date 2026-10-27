@@ -159,6 +159,8 @@ describe('New project from a template', () => {
         ? json({ error: { code: 'TEMPLATE_CHANGED', message: 'This template was changed while you were looking at it — check the preview again.' } }, 409)
         : undefined;
     };
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element) { scrolled.push(this); });
     const { onClose } = renderForm({ templateId: 'pt1' });
     const dialog = screen.getByRole('dialog', { name: 'New project' });
     await within(dialog).findByRole('list', { name: 'Tasks it will create' });
@@ -166,6 +168,8 @@ describe('New project from a template', () => {
     await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig 10');
     await userEvent.click(within(dialog).getByRole('button', { name: /Create project/ }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('This template was changed while you were looking at it — check the preview again.');
+    // The message is brought into view (Create is at the bottom of a long form).
+    expect(scrolled).toContain(within(dialog).getByRole('alert'));
     await waitFor(() => expect(planCalls).toBeGreaterThan(before));
     expect(within(dialog).getByLabelText(/^name/i)).toHaveValue('Rig 10');
     expect(onClose).not.toHaveBeenCalled();

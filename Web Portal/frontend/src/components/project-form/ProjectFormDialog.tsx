@@ -151,6 +151,11 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const busy = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
+  const bannerRef = useRef<HTMLParagraphElement>(null);
+  // A message above a long form (Create is at its foot): brought into view when it appears.
+  useEffect(() => {
+    if (banner) bannerRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [banner]);
   const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId() };
 
   const dirty = image.kind !== 'keep' || teamIds.length > 0 || JSON.stringify(template) !== openedWith.current || JSON.stringify(draft) !== JSON.stringify(initial);
@@ -373,7 +378,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
 
           <form onSubmit={(e) => void submit(e)} noValidate className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
             <div className="keyboard-flow-body min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-              {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
+              {banner ? <p ref={bannerRef} role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
 
               {!editing ? (
                 <TemplateStart
