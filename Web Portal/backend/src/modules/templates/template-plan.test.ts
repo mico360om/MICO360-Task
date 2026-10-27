@@ -27,6 +27,15 @@ describe('due offsets: calendar days from the start, moved off days off', () => 
     expect(dueDayFor('2026-11-01', 0, MON_FRI)).toEqual({ day: '2026-11-02', movedFrom: '2026-11-01' });
   });
 
+  it('follows a Saturday–Wednesday week (Thursday and Friday off)', () => {
+    const SAT_WED = [6, 0, 1, 2, 3];
+    // Sunday 1 Nov: + 4 = Thursday → Saturday 7 Nov; + 5 = Friday → Saturday; + 6 = Saturday, a working day.
+    expect(dueDayFor('2026-11-01', 4, SAT_WED)).toEqual({ day: '2026-11-07', movedFrom: '2026-11-05' });
+    expect(dueDayFor('2026-11-01', 5, SAT_WED)).toEqual({ day: '2026-11-07', movedFrom: '2026-11-06' });
+    expect(dueDayFor('2026-11-01', 6, SAT_WED)).toEqual({ day: '2026-11-07', movedFrom: null });
+    expect(dueDayFor('2026-11-01', 3, SAT_WED)).toEqual({ day: '2026-11-04', movedFrom: null });
+  });
+
   it('a start on a day off still counts from that day', () => {
     // Saturday 7 Nov + 1 = Sunday 8 Nov (a working day).
     expect(dueDayFor('2026-11-07', 1, SUN_THU)).toEqual({ day: '2026-11-08', movedFrom: null });

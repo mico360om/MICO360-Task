@@ -23,7 +23,7 @@ const service = createTemplateService({
   now: () => NOW,
 });
 
-const CODES = ['TPLA', 'TPLB', 'TPLC', 'TPLBIG'];
+const CODES = ['TPLA', 'TPLB', 'TPLC', 'TPLBIG', 'TPLRB', 'TPLD', 'TPLMAX', 'TPLX'];
 const NAMES = ['creator', 'owner', 'omar', 'sara', 'inactive'] as const;
 const EMAIL = (n: string) => `templates-${n}@mico360.test`;
 const id: Record<(typeof NAMES)[number], string> = {} as never;
@@ -33,6 +33,7 @@ async function cleanup() {
   const ps = await prisma.project.findMany({ where: { code: { in: CODES } }, select: { id: true } });
   const ids = ps.map((p) => p.id);
   await prisma.activity.deleteMany({ where: { projectId: { in: ids } } });
+  await prisma.taskKeyAlias.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.task.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.kanbanColumn.deleteMany({ where: { projectId: { in: ids } } });
   await prisma.projectMember.deleteMany({ where: { projectId: { in: ids } } });
@@ -163,6 +164,71 @@ describe('Templates (integration)', () => {
     await expect(projects.create({ code: 'TPLB', name: 'Clash', createdById: id.creator, members: [{ userId: id.sara, role: 'MEMBER' }], startWith: prep.startWith })).rejects.toMatchObject({ status: 409 });
     expect(await prisma.task.count()).toBe(before);
     expect(await prisma.projectMember.count({ where: { userId: id.sara } })).toBe(0);
+  });
+
+  it('gives each person a task is assigned to an "assigned" line in its history, as creating it by hand does', async () => {
+    const t = await saved();
+    const roles = Object.fromEntries(t.roles.map((r) => [r.name, r.id]));
+    const prep = await service.prepareProject(t.id, { startKey: '2026-11-01', fillers: { [roles.Inspector!]: id.sara }, defaultDueToday: false });
+    const p = await projectService.createProject({ code: 'TPLA', name: 'History', ownerId: id.owner, createdById: id.creator, memberIds: prep.fillerIds, startWith: prep.startWith }, { id: id.creator, roles: ['EMPLOYEE'] });
+    const lines = await prisma.activity.findMany({ where: { projectId: p.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { task: { select: { title: true } } } });
+    const of = (title: string) => lines.filter((l) => l.task?.title === title).map((l) => [l.action, (l.meta as { assignee?: string } | null)?.assignee ?? null, (l.meta as { assigneeId?: string } | null)?.assigneeId ?? null]);
+    // Kick-off: its role nobody fills → the owner; Inspect: Sara; Report: no role → the owner.
+    expect(of('Kick-off')).toEqual([['CREATED', null, null], ['ASSIGNED', 'owner Test', id.owner]]);
+    expect(of('Inspect')).toEqual([['CREATED', null, null], ['ASSIGNED', 'sara Test', id.sara]]);
+    expect(lines.every((l) => l.userId === id.creator)).toBe(true);
+  });
+
+  it('rolls everything back when a write fails after the tasks are in: no project, columns, tasks, checklists, people or team', async () => {
+    const t = await saved();
+    const prep = await service.prepareProject(t.id, { startKey: '2026-11-01', fillers: {}, defaultDueToday: false });
+    // The tasks and their checklists are written, then assigning someone who doesn't exist fails.
+    prep.startWith.tasks[2]!.assigneeIds = ['no-such-user'];
+    const before = { tasks: await prisma.task.count(), items: await prisma.checklistItem.count(), assignees: await prisma.taskAssignee.count(), activity: await prisma.activity.count() };
+    await expect(
+      projects.create({ code: 'TPLRB', name: 'Rolled back', createdById: id.creator, ownerId: id.owner, members: [{ userId: id.creator, role: 'MANAGER' }, { userId: id.owner, role: 'MEMBER' }], startWith: prep.startWith }),
+    ).rejects.toBeTruthy();
+    expect(await prisma.project.count({ where: { code: 'TPLRB' } })).toBe(0);
+    expect(await prisma.kanbanColumn.count({ where: { project: { code: 'TPLRB' } } })).toBe(0);
+    expect(await prisma.projectMember.count({ where: { project: { code: 'TPLRB' } } })).toBe(0);
+    expect({ tasks: await prisma.task.count(), items: await prisma.checklistItem.count(), assignees: await prisma.taskAssignee.count(), activity: await prisma.activity.count() }).toEqual(before);
+  });
+
+  it('a clash on another unique index is not reported as “that code is taken”', async () => {
+    // A task in another project already holds the key TPLD-1 (data from before keys were checked).
+    const other = await prisma.project.create({ data: { code: 'TPLX', name: 'Other', createdById: id.creator } });
+    const col = await prisma.kanbanColumn.create({ data: { projectId: other.id, name: 'To Do', category: 'TODO', position: 0 } });
+    await prisma.task.create({ data: { key: 'TPLD-1', title: 'Squatter', projectId: other.id, columnId: col.id, createdById: id.creator } });
+    const t = await saved();
+    const prep = await service.prepareProject(t.id, { startKey: '2026-11-01', fillers: {}, defaultDueToday: false });
+    const err = await projects.create({ code: 'TPLD', name: 'Clash', createdById: id.creator, startWith: prep.startWith }).catch((e) => e);
+    expect(err).toBeTruthy();
+    expect(err.code).not.toBe('DUPLICATE_PROJECT_CODE');
+    expect(await prisma.project.count({ where: { code: 'TPLD' } })).toBe(0);
+  });
+
+  it('at the limits: 500 tasks and 5,000 checklist items, with long descriptions, in one transaction', async () => {
+    const tasks = Array.from({ length: 500 }, (_, i) => ({
+      title: `Step ${i + 1}`,
+      description: 'ع'.repeat(32000) + ` ${i}`,
+      priority: 'NORMAL' as const,
+      dueOffsetDays: i % 120,
+      roleKey: i % 2 ? 'insp' : null,
+      checklist: Array.from({ length: 10 }, (_, j) => `Check ${j + 1} of step ${i + 1}`),
+    }));
+    const t = await saved({ tasks });
+    expect(t.taskCount).toBe(500);
+    const roles = Object.fromEntries(t.roles.map((r) => [r.name, r.id]));
+    const prep = await service.prepareProject(t.id, { startKey: '2026-11-01', fillers: { [roles.Inspector!]: id.sara }, defaultDueToday: false });
+    const t0 = Date.now();
+    const p = await projectService.createProject({ code: 'TPLMAX', name: 'At the limits', ownerId: id.owner, createdById: id.creator, memberIds: prep.fillerIds, startWith: prep.startWith }, { id: id.creator, roles: ['EMPLOYEE'] });
+    const took = Date.now() - t0;
+    expect(await prisma.task.count({ where: { projectId: p.id } })).toBe(500);
+    expect(await prisma.checklistItem.count({ where: { task: { projectId: p.id } } })).toBe(5000);
+    expect(await prisma.taskAssignee.count({ where: { task: { projectId: p.id } } })).toBe(500);
+    expect(await prisma.activity.count({ where: { projectId: p.id } })).toBe(1000);
+    expect((await prisma.task.findFirst({ where: { projectId: p.id, key: 'TPLMAX-500' }, select: { description: true } }))!.description!.length).toBe(32004);
+    expect(took).toBeLessThan(15_000);
   });
 
   it('a 200-task template becomes a project fast', async () => {

@@ -42,13 +42,17 @@ const fromProjectSchema = z.object({
   description: optionalText,
   // A role name for some of the people on its tasks (empty: their tasks are left unassigned).
   roles: z.array(z.object({ userId: idString, name: z.string().max(TEMPLATE_LIMITS.roleName * 2) })).max(500).default([]),
+  // Everyone can see a template: the saver may leave the tasks' descriptions out.
+  includeDescriptions: z.boolean().default(true),
 });
-const fromTaskSchema = z.object({ name: z.string().max(191).optional() });
+const fromTaskSchema = z.object({ name: z.string().max(191).optional(), includeDescription: z.boolean().default(true) });
 
 /** A project from a template: the New project form's fields, its start day and who fills each role. */
 const useSchema = projectCreateSchema.extend({
   startDate: calendarDay,
   roles: z.record(idString, idString.nullable()).optional(),
+  /** When the template the preview showed was last changed (its plan's `template.updatedAt`): a later change is refused. */
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 });
 
 /** A template of 500 tasks with long descriptions is more than the usual 1 MB request. */
@@ -82,7 +86,8 @@ export async function registerTemplateRoutes(app: FastifyInstance, deps: Templat
   const projectInput = (body: z.infer<typeof projectTemplateSchema>): ProjectTemplateInput => body;
   const taskInput = (body: z.infer<typeof taskTemplateSchema>): TaskTemplateInput => body;
   const auth = { preHandler: guard.authenticate };
-  const big = { preHandler: guard.authenticate, bodyLimit: TEMPLATE_BODY_LIMIT };
+  // A large body is only read for someone signed in: the check runs before the body is parsed.
+  const big = { onRequest: guard.authenticate, bodyLimit: TEMPLATE_BODY_LIMIT };
 
   // ── Project templates: everyone uses them ──
   app.get('/templates/projects', auth, async (req) => ({ data: await service.listProjectTemplates(actor(req)) }));
@@ -133,8 +138,8 @@ export async function registerTemplateRoutes(app: FastifyInstance, deps: Templat
     app.post('/templates/projects/:id/projects', auth, async (req, reply) => {
       const id = param(req, 'id');
       const user = actor(req);
-      const { startDate, roles = {}, memberIds = [], ...project } = useSchema.parse(req.body);
-      const prepared = await service.prepareProject(id, { startKey: startDate, fillers: roles, defaultDueToday: project.defaultDueToday ?? false });
+      const { startDate, roles = {}, memberIds = [], expectedUpdatedAt, ...project } = useSchema.parse(req.body);
+      const prepared = await service.prepareProject(id, { startKey: startDate, fillers: roles, defaultDueToday: project.defaultDueToday ?? false, expectedUpdatedAt });
       const { team, ...created } = await projects.createProject(
         {
           ...project,

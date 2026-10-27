@@ -1,4 +1,4 @@
-import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { dueDayKey, todayKey, zonedDayKey } from '../../lib/due-date';
 import { boardDateFromKey } from '../tasks/board-date';
 import { dueDateOnEntry } from '../projects/project-task-settings';
@@ -20,6 +20,8 @@ export const TEMPLATE_LIMITS = {
   roles: 30,
   tasks: 500,
   checklistItems: 100,
+  /** Checklist items in all, across every task of a template. */
+  checklistTotal: 5000,
   roleName: 80,
   /** Due offsets: up to a year before the start, ten years after. */
   minOffset: -365,
@@ -79,7 +81,17 @@ export function checkProjectTemplate(input: ProjectTemplateInput): void {
   input.tasks.forEach((t, i) => {
     if (t.roleKey && !keys.has(t.roleKey)) throw new ValidationError(`Task ${i + 1} (“${t.title}”) names a role this template doesn’t have.`, { field: 'tasks', index: i });
   });
+  const items = checklistTotal(input.tasks);
+  if (items > TEMPLATE_LIMITS.checklistTotal) {
+    throw new ValidationError(`A template can hold at most ${TEMPLATE_LIMITS.checklistTotal.toLocaleString('en-US')} checklist items in all; this one has ${items.toLocaleString('en-US')}.`, { field: 'tasks' });
+  }
 }
+
+/** Checklist items across a template's tasks. */
+const checklistTotal = (tasks: { checklist: unknown[] }[]) => tasks.reduce((n, t) => n + t.checklist.length, 0);
+
+/** The message when a template changed after its preview was shown. */
+export const TEMPLATE_CHANGED_MESSAGE = 'This template was changed while you were looking at it — check the preview again.';
 
 /** The day a stored project start (or creation) falls on. */
 function baseDayOf(project: { startDate: Date | null; createdAt: Date }, timeZone: string): { day: string; from: 'start' | 'created' } {
@@ -176,8 +188,16 @@ export function createTemplateService(deps: TemplateServiceDeps) {
       project: { id: snap.id, name: snap.name },
       base: baseDayOf(snap, timeZone),
       taskCount: snap.tasks.length,
+      // What is kept of its board (the first 20 of its switched-on columns), out of how many.
       columnCount: usableColumns(snap.columns).length,
+      columnsTotal: snap.columns.length,
       maxTasks: TEMPLATE_LIMITS.tasks,
+      // Checklist items kept (the first 100 of each task's), and how many tasks have more than that.
+      checklistItems: checklistTotal(snap.tasks.map((t) => ({ checklist: t.checklist.slice(0, TEMPLATE_LIMITS.checklistItems) }))),
+      maxChecklistItems: TEMPLATE_LIMITS.checklistTotal,
+      checklistTrimmed: snap.tasks.filter((t) => t.checklist.length > TEMPLATE_LIMITS.checklistItems).length,
+      // Each task's people in the order they were assigned: what each role gets follows from it (see saveProjectAsTemplate).
+      assignments: snap.tasks.map((t) => [...new Set(t.assigneeIds)]),
       people: [...counts].map(([id, taskCount]) => ({ id, name: names.get(id) ?? null, taskCount })).sort((a, b) => b.taskCount - a.taskCount || (a.name ?? '').localeCompare(b.name ?? '')),
     };
   }
@@ -190,7 +210,7 @@ export function createTemplateService(deps: TemplateServiceDeps) {
    */
   async function saveProjectAsTemplate(
     projectId: string,
-    input: { name: string; description: string | null; roles: { userId: string; name: string }[] },
+    input: { name: string; description: string | null; roles: { userId: string; name: string }[]; includeDescriptions?: boolean },
     actor: TemplateActor,
   ): Promise<ProjectTemplateRecord> {
     await requireRunner(projectId, actor, SAVE_REFUSED);
@@ -224,7 +244,8 @@ export function createTemplateService(deps: TemplateServiceDeps) {
         const offset = offsetBetween(base, dueDayKey(t.dueDate, timeZone));
         return {
           title: t.title,
-          description: t.description,
+          // Left out when the saver chose not to publish them (everyone can see a template).
+          description: input.includeDescriptions === false ? null : t.description,
           priority: t.priority,
           dueOffsetDays: offset === null ? null : Math.max(TEMPLATE_LIMITS.minOffset, Math.min(TEMPLATE_LIMITS.maxOffset, offset)),
           // The first of its people (in the order they were assigned) who was given a role.
@@ -277,9 +298,23 @@ export function createTemplateService(deps: TemplateServiceDeps) {
    */
   async function prepareProject(
     id: string,
-    { startKey, fillers, defaultDueToday }: { startKey: string; fillers: Record<string, string | null | undefined>; defaultDueToday: boolean },
+    {
+      startKey,
+      fillers,
+      defaultDueToday,
+      expectedUpdatedAt,
+    }: {
+      startKey: string;
+      fillers: Record<string, string | null | undefined>;
+      defaultDueToday: boolean;
+      /** When the template the preview showed was last changed: a later change is refused (the preview is out of date). */
+      expectedUpdatedAt?: string | Date;
+    },
   ): Promise<{ template: ProjectTemplateRecord; startWith: StartingContent; fillerIds: string[]; filledRoles: { roleId: string; role: string; userId: string }[] }> {
     const template = await projectTemplateOrThrow(id);
+    if (expectedUpdatedAt !== undefined && new Date(expectedUpdatedAt).getTime() !== template.updatedAt.getTime()) {
+      throw new ConflictError(TEMPLATE_CHANGED_MESSAGE, 'TEMPLATE_CHANGED');
+    }
     const roleById = new Map(template.roles.map((r) => [r.id, r]));
     const filled: { roleId: string; role: string; userId: string }[] = [];
     for (const [roleId, userId] of Object.entries(fillers)) {
@@ -345,7 +380,7 @@ export function createTemplateService(deps: TemplateServiceDeps) {
   }
 
   /** Save a task as a template (whoever runs its project, or an administrator): its title, description, checklist and priority. */
-  async function saveTaskAsTemplate(taskId: string, input: { name?: string }, actor: TemplateActor): Promise<TaskTemplateRecord> {
+  async function saveTaskAsTemplate(taskId: string, input: { name?: string; includeDescription?: boolean }, actor: TemplateActor): Promise<TaskTemplateRecord> {
     const task = await repo.taskSnapshot(taskId);
     if (!task || !(await deps.canViewProject(actor.id, actor.roles, task.projectId))) throw new NotFoundError('Task not found.');
     if (!(await deps.canManageProject(actor.id, actor.roles, task.projectId))) throw new ForbiddenError(SAVE_TASK_REFUSED);
@@ -353,7 +388,7 @@ export function createTemplateService(deps: TemplateServiceDeps) {
       {
         name: input.name?.trim() || task.title,
         title: task.title,
-        description: task.description,
+        description: input.includeDescription === false ? null : task.description,
         priority: task.priority,
         checklist: task.checklist.slice(0, TEMPLATE_LIMITS.checklistItems),
       },

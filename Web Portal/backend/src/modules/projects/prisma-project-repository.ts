@@ -29,6 +29,17 @@ function toRecord(p: Project): ProjectRecord {
   };
 }
 
+/**
+ * True only for the project code's unique index (`projects_code_key`): another unique index hit while
+ * writing a project's board, tasks or team is a different problem, never "that code is taken".
+ */
+export function isProjectCodeConflict(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const target = (err.meta as { target?: unknown } | undefined)?.target;
+  if (Array.isArray(target)) return target.length === 1 && target[0] === 'code';
+  return typeof target === 'string' && /^projects_code_key$/i.test(target);
+}
+
 /** A new project's own fields (left out ones take the database's defaults). */
 function projectFields(data: CreateProjectData) {
   return {
@@ -89,7 +100,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
         return toRecord(p);
       } catch (err) {
         // Codes stay unique across deleted projects too, so a deleted project's code can't be reused.
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        if (isProjectCodeConflict(err)) {
           throw new ConflictError('A project with this code already exists (it may belong to a deleted project).', 'DUPLICATE_PROJECT_CODE');
         }
         throw err;

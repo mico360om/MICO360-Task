@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { newRowId } from '../../lib/row-id';
+import { inChunks } from '../../lib/chunks';
 import { liveTaskWhere } from '../tasks/prisma-task-repository';
 import type { Priority } from '../tasks/task-repository';
 import type {
@@ -15,8 +16,6 @@ import type {
 type Tx = Prisma.TransactionClient;
 
 const CATEGORIES = new Set<ColumnCategory>(['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE']);
-/** Rows per bulk insert: well inside MySQL's limit on placeholders in one statement. */
-const CHUNK = 500;
 /** Writing a 500-task template is a few statements; this leaves room on a slow database. */
 const TX = { timeout: 60_000, maxWait: 10_000 };
 
@@ -33,10 +32,6 @@ function columnsOf(value: Prisma.JsonValue): TemplateColumn[] {
 
 function checklistOf(value: Prisma.JsonValue): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-}
-
-async function inChunks<T>(rows: T[], write: (chunk: T[]) => Promise<unknown>): Promise<void> {
-  for (let i = 0; i < rows.length; i += CHUNK) await write(rows.slice(i, i + CHUNK));
 }
 
 const withContents = {

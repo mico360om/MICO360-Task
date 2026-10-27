@@ -171,13 +171,48 @@ describe('saving a project as a template', () => {
       base: { day: '2026-11-01', from: 'start' },
       taskCount: 4,
       columnCount: 3,
+      columnsTotal: 3,
       maxTasks: TEMPLATE_LIMITS.tasks,
+      checklistItems: 1,
+      maxChecklistItems: TEMPLATE_LIMITS.checklistTotal,
+      checklistTrimmed: 0,
+      // Each task's people in the order they were assigned: the dialog works out what each role gets from them.
+      assignments: [['omar', 'sara'], ['sara', 'omar'], ['layla'], []],
       people: [
         { id: 'omar', name: 'OMAR', taskCount: 2 },
         { id: 'sara', name: 'SARA', taskCount: 2 },
         { id: 'layla', name: 'LAYLA', taskCount: 1 },
       ],
     });
+  });
+});
+
+describe('saving: what is dropped, and what is published', () => {
+  it('says beforehand when it keeps only the first 100 checklist items of a task, or the first 20 columns', async () => {
+    const snap = repo.projects.get('p-rig')!;
+    snap.tasks[0]!.checklist = Array.from({ length: 130 }, (_, i) => `Item ${i + 1}`);
+    snap.columns = Array.from({ length: 24 }, (_, i) => ({ name: `Col ${i + 1}`, category: 'TODO' as const, color: '#3A6EA5' }));
+    const draft = await service.projectDraft('p-rig', lead);
+    expect(draft).toMatchObject({ columnsTotal: 24, columnCount: 20, checklistTrimmed: 1, checklistItems: 100 });
+    const t = await service.saveProjectAsTemplate('p-rig', { name: 'x', description: null, roles: [] }, lead);
+    expect(t.columns).toHaveLength(20);
+    expect(t.tasks[0]!.checklist).toHaveLength(100);
+  });
+
+  it('leaves the task descriptions out when asked', async () => {
+    const t = await service.saveProjectAsTemplate('p-rig', { name: 'x', description: 'Kept: the template’s own', roles: [], includeDescriptions: false }, lead);
+    expect(t.description).toBe('Kept: the template’s own');
+    expect(t.tasks.map((x) => x.description)).toEqual([null, null, null, null]);
+    const task = await service.saveTaskAsTemplate('t1', { includeDescription: false }, lead);
+    expect(task.description).toBeNull();
+    expect((await service.saveTaskAsTemplate('t1', {}, lead)).description).toBe('Meet on site');
+  });
+
+  it('refuses a project whose checklists add up to more than a template holds in all', async () => {
+    const snap = repo.projects.get('p-rig')!;
+    snap.tasks = Array.from({ length: 60 }, (_, i) => ({ id: `c${i}`, title: `T${i}`, description: null, priority: 'NORMAL' as const, dueDate: null, assigneeIds: [], checklist: Array.from({ length: 90 }, (_, j) => `i${j}`) }));
+    expect((await service.projectDraft('p-rig', lead)).checklistItems).toBe(5400);
+    await expect(service.saveProjectAsTemplate('p-rig', { name: 'x', description: null, roles: [] }, lead)).rejects.toThrow(`at most ${TEMPLATE_LIMITS.checklistTotal.toLocaleString('en-US')} checklist items`);
   });
 });
 
@@ -198,6 +233,12 @@ describe('the rules a template keeps', () => {
   it('gives each role its own name', () => {
     expect(() => checkProjectTemplate(simple({ roles: [{ key: 'a', name: 'Inspector' }, { key: 'b', name: ' inspector ' }] }))).toThrow(/Two roles are called/);
   });
+  it('holds at most 5,000 checklist items in all (100 per task)', () => {
+    const tasks = Array.from({ length: 51 }, (_, i) => ({ title: `T${i}`, description: null, priority: 'NORMAL' as const, dueOffsetDays: null, roleKey: null, checklist: Array.from({ length: 99 }, (_, j) => `i${j}`) }));
+    expect(() => checkProjectTemplate(simple({ roles: [], tasks }))).toThrow('A template can hold at most 5,000 checklist items in all; this one has 5,049.');
+    expect(() => checkProjectTemplate(simple({ roles: [], tasks: tasks.slice(0, 50) }))).not.toThrow();
+  });
+
   it('tasks only name its roles', () => {
     expect(() => checkProjectTemplate(simple({ roles: [] }))).toThrow(/names a role this template doesn’t have/);
   });
@@ -290,6 +331,20 @@ describe('making a project from a template', () => {
     expect(soon.startWith.tasks[2]!.dueDate?.toISOString().slice(0, 10)).toBe('2026-10-27');
     const later = await service.prepareProject(templateId, { startKey: '2026-11-15', fillers: {}, defaultDueToday: true });
     expect(later.startWith.tasks[2]!.dueDate).toBeNull();
+  });
+
+  it('refuses when the template changed after its preview was shown (409, in plain words)', async () => {
+    const plan = await service.planProject(templateId, '2026-11-01');
+    const shownAt = new Date(plan.template.updatedAt).toISOString();
+    // As shown: fine.
+    await expect(service.prepareProject(templateId, { startKey: '2026-11-01', fillers: {}, defaultDueToday: false, expectedUpdatedAt: shownAt })).resolves.toBeTruthy();
+    await new Promise((r) => setTimeout(r, 5));
+    await service.updateProjectTemplate(templateId, simple({ name: 'Changed meanwhile' }), admin);
+    await expect(service.prepareProject(templateId, { startKey: '2026-11-01', fillers: {}, defaultDueToday: false, expectedUpdatedAt: shownAt })).rejects.toMatchObject({
+      status: 409,
+      code: 'TEMPLATE_CHANGED',
+      message: 'This template was changed while you were looking at it — check the preview again.',
+    });
   });
 
   it('a template that is gone answers “not found”', async () => {

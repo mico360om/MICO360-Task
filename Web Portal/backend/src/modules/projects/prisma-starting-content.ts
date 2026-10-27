@@ -1,21 +1,19 @@
 import type { Prisma } from '@prisma/client';
 import { newRowId } from '../../lib/row-id';
+import { inChunks } from '../../lib/chunks';
 import { highestKeyNumber } from '../tasks/prisma-task-repository';
 import type { StartingContent } from './project-repository';
 
-/** Rows per bulk insert: well inside MySQL's limit on placeholders in one statement. */
-const CHUNK = 500;
-
-async function inChunks<T>(rows: T[], write: (chunk: T[]) => Promise<unknown>): Promise<void> {
-  for (let i = 0; i < rows.length; i += CHUNK) await write(rows.slice(i, i + CHUNK));
-}
+const displayName = (u: { firstName: string; lastName: string; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
 /**
  * A new project's tasks from a template, written inside the transaction that creates the project
  * (and its board): the tasks — keyed CODE-1, CODE-2… in order, the same numbering every new task
  * gets (the highest number the project has used, skipping any old key) — their checklists, their
- * people and the "created" line of each task's history, in a handful of bulk statements. A task
- * nobody was picked for goes to the project's owner, as any new task does.
+ * people and each task's history (its "created" line, then an "assigned" line per person, as creating
+ * a task by hand writes), in a handful of bulk statements cut to stay well under MySQL's packet size.
+ * A task nobody was picked for goes to the project's owner, as any new task does. Every insert is a
+ * plain INSERT — never INSERT IGNORE, which would let a broken reference pass instead of undoing it all.
  */
 export async function writeStartingTasks(
   tx: Prisma.TransactionClient,
@@ -52,12 +50,18 @@ export async function writeStartingTasks(
     tasks.flatMap((t) => t.plan.checklist.map((text, position) => ({ id: newRowId(), taskId: t.id, text, position }))),
     (data) => tx.checklistItem.createMany({ data }),
   );
-  await inChunks(
-    tasks.flatMap((t) => [...new Set(t.plan.assigneeIds ?? (project.ownerId ? [project.ownerId] : []))].map((userId) => ({ taskId: t.id, userId }))),
-    (data) => tx.taskAssignee.createMany({ data, skipDuplicates: true }),
+  const assignments = tasks.flatMap((t) => [...new Set(t.plan.assigneeIds ?? (project.ownerId ? [project.ownerId] : []))].map((userId) => ({ taskId: t.id, userId })));
+  await inChunks(assignments, (data) => tx.taskAssignee.createMany({ data }));
+  const people = new Map(
+    (await tx.user.findMany({ where: { id: { in: [...new Set(assignments.map((a) => a.userId))] } }, select: { id: true, username: true, firstName: true, lastName: true } })).map((u) => [u.id, displayName(u)]),
   );
+  // "Created", then "assigned" a moment later, so each task's history reads in that order.
+  const assignedAt = new Date(at.getTime() + 1);
   await inChunks(
-    tasks.map((t) => ({ taskId: t.id, projectId: project.id, userId: project.createdById, action: 'CREATED', meta: { title: t.row.title, template: start.templateName } })),
+    [
+      ...tasks.map((t) => ({ taskId: t.id, projectId: project.id, userId: project.createdById, action: 'CREATED', meta: { title: t.row.title, template: start.templateName }, createdAt: at })),
+      ...assignments.map((a) => ({ taskId: a.taskId, projectId: project.id, userId: project.createdById, action: 'ASSIGNED', meta: { assigneeId: a.userId, assignee: people.get(a.userId) ?? a.userId }, createdAt: assignedAt })),
+    ],
     (data) => tx.activity.createMany({ data }),
   );
   return tasks.length;

@@ -62,10 +62,10 @@ async function makeApp() {
       {
         id: 'p-rig', name: 'Rig 7', startDate: day('2026-11-01'), createdAt: new Date('2026-10-20T08:00:00Z'),
         columns: [{ name: 'To Do', category: 'TODO', color: '#3A6EA5' }, { name: 'Done', category: 'DONE', color: '#2E7D53' }],
-        tasks: [{ id: 't1', title: 'Kick-off', description: null, priority: 'HIGH', dueDate: day('2026-11-03'), assigneeIds: ['sara'], checklist: ['Agenda'] }],
+        tasks: [{ id: 't1', title: 'Kick-off', description: 'Meet on site', priority: 'HIGH', dueDate: day('2026-11-03'), assigneeIds: ['sara'], checklist: ['Agenda'] }],
       },
     ],
-    tasks: [{ id: 't1', projectId: 'p-rig', title: 'Kick-off', description: null, priority: 'HIGH', checklist: ['Agenda'] }],
+    tasks: [{ id: 't1', projectId: 'p-rig', title: 'Kick-off', description: 'Bring the plans', priority: 'HIGH', checklist: ['Agenda'] }],
   });
   const people = { activeIds: async (ids: string[]) => ids.filter((id) => ACTIVE.has(id)) };
   const templateService = createTemplateService({
@@ -199,6 +199,8 @@ describe('Template routes: who may do what', () => {
     expect(draft.json().data).toMatchObject({ taskCount: 1, base: { day: '2026-11-01', from: 'start' }, people: [{ id: 'sara', taskCount: 1 }] });
     const res = await app.inject({ method: 'POST', url: '/api/v1/templates/projects/from-project/p-rig', headers: await auth('lead'), payload });
     expect(res.statusCode).toBe(201);
+    const without = await app.inject({ method: 'POST', url: '/api/v1/templates/projects/from-project/p-rig', headers: await auth('lead'), payload: { ...payload, includeDescriptions: false } });
+    expect(without.json().data.tasks.map((x: { description: string | null }) => x.description)).toEqual([null]);
     expect(res.json().data).toMatchObject({ name: 'Rig standard', createdById: 'lead', canManage: true, roles: [{ name: 'Inspector' }], tasks: [{ title: 'Kick-off', dueOffsetDays: 2, checklist: ['Agenda'] }] });
     expect((await app.inject({ method: 'POST', url: '/api/v1/templates/projects/from-project/p-rig', headers: await asAdmin(), payload })).statusCode).toBe(201);
   });
@@ -206,6 +208,9 @@ describe('Template routes: who may do what', () => {
   it('saving a task as a template: whoever runs its project', async () => {
     expect((await app.inject({ method: 'POST', url: '/api/v1/templates/tasks/from-task/t1', headers: await auth('member'), payload: {} })).statusCode).toBe(403);
     expect((await app.inject({ method: 'POST', url: '/api/v1/templates/tasks/from-task/t1', headers: await auth('outsider'), payload: {} })).statusCode).toBe(404);
+    const bare = await app.inject({ method: 'POST', url: '/api/v1/templates/tasks/from-task/t1', headers: await auth('lead'), payload: { name: 'No description', includeDescription: false } });
+    expect(bare.json().data.description).toBeNull();
+    await app.inject({ method: 'DELETE', url: `/api/v1/templates/tasks/${bare.json().data.id}`, headers: await asAdmin() });
     const res = await app.inject({ method: 'POST', url: '/api/v1/templates/tasks/from-task/t1', headers: await auth('lead'), payload: { name: 'Kick-off meeting' } });
     expect(res.statusCode).toBe(201);
     expect(res.json().data).toMatchObject({ name: 'Kick-off meeting', title: 'Kick-off', priority: 'HIGH', checklist: ['Agenda'], canManage: true });
@@ -216,6 +221,27 @@ describe('Template routes: who may do what', () => {
     expect(list.json().data).toMatchObject([{ id, name: 'Weekly site check', checklist: ['Gate', 'Fence'], canManage: false }]);
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/templates/tasks/${id}`, headers: await auth('outsider') })).statusCode).toBe(403);
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/templates/tasks/${id}`, headers: await asAdmin() })).statusCode).toBe(204);
+  });
+});
+
+describe('Template routes: hardening', () => {
+  it('a large template request is refused before its body is read when nobody is signed in', async () => {
+    for (const [method, url] of [['POST', '/api/v1/templates/projects'], ['PUT', '/api/v1/templates/projects/x']] as const) {
+      const res = await app.inject({ method, url, headers: { 'content-type': 'application/json' }, payload: '{ not json' });
+      expect(res.statusCode, `${method} ${url}`).toBe(401);
+    }
+  });
+
+  it('a startWith sent in a request body is never used: POST /projects ignores it, and a template’s own plan is what is created', async () => {
+    const forged = { columns: [{ name: 'Forged', category: 'TODO', color: '#000000' }], startColumn: 0, tasks: [{ title: 'Forged task', description: null, priority: 'URGENT', startDate: null, dueDate: null, assigneeIds: ['outsider'], checklist: [] }], boardDate: '2026-10-27T12:00:00.000Z', templateName: 'Forged' };
+    const plain = await app.inject({ method: 'POST', url: '/api/v1/projects', headers: await auth('lead'), payload: { code: 'PLAIN', name: 'Plain', startWith: forged } });
+    expect(plain.statusCode).toBe(201);
+    expect(created.at(-1)!.startWith).toBeUndefined();
+    const t = await adminTemplate();
+    const res = await app.inject({ method: 'POST', url: `/api/v1/templates/projects/${t.id}/projects`, headers: await auth('lead'), payload: { code: 'FROMT', name: 'From template', startDate: '2026-11-01', startWith: forged } });
+    expect(res.statusCode).toBe(201);
+    expect(created.at(-1)!.startWith!.tasks.map((x) => x.title)).toEqual(['Kick-off', 'Inspect', 'Report']);
+    expect(created.at(-1)!.startWith!.templateName).toBe('Rig inspection');
   });
 });
 
@@ -259,6 +285,17 @@ describe('Template routes: making a project from a template', () => {
     expect(gone.statusCode).toBe(404);
     const noDate = await app.inject({ method: 'POST', url: `/api/v1/templates/projects/${t.id}/projects`, headers: await auth('lead'), payload: { code: 'RIG9', name: 'Rig 9' } });
     expect(noDate.statusCode).toBe(400);
+  });
+
+  it('refuses with 409 when the template changed after the preview was shown', async () => {
+    const t = await adminTemplate();
+    const plan = (await app.inject({ method: 'GET', url: `/api/v1/templates/projects/${t.id}/plan?start=2026-11-01`, headers: await auth('lead') })).json().data;
+    await new Promise((r) => setTimeout(r, 5));
+    await app.inject({ method: 'PUT', url: `/api/v1/templates/projects/${t.id}`, headers: await asAdmin(), payload: { ...projectTemplate, name: 'Changed' } });
+    const res = await app.inject({ method: 'POST', url: `/api/v1/templates/projects/${t.id}/projects`, headers: await auth('lead'), payload: { code: 'STALE', name: 'Stale', startDate: '2026-11-01', expectedUpdatedAt: plan.template.updatedAt } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatchObject({ code: 'TEMPLATE_CHANGED', message: 'This template was changed while you were looking at it — check the preview again.' });
+    expect(created).toHaveLength(0);
   });
 
   it('deleting the template afterwards leaves the project as it is', async () => {
