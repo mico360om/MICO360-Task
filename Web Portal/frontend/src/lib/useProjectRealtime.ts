@@ -3,8 +3,8 @@ import { useAuthStore } from '../stores/auth-store';
 import { openAuthedSocket } from './authedSocket';
 import { TASK_EVENTS } from './useBoardRealtime';
 
-/** What changed in a project: its tasks, its meetings, everything (after a reconnect), or your access. */
-export type ProjectChange = 'tasks' | 'meetings' | 'all' | 'removed';
+/** What changed in a project: its tasks, its meetings, its inspections, everything (after a reconnect), or your access. */
+export type ProjectChange = 'tasks' | 'meetings' | 'inspections' | 'all' | 'removed';
 
 /** Every meeting event the server sends to a project's room. */
 export const PROJECT_MEETING_EVENTS = [
@@ -45,6 +45,7 @@ export function useProjectRealtime(projectId: string | undefined, onChange: (cha
       socket.on(ev, () => cb.current(ev === 'project:removed' ? 'removed' : 'tasks'));
     }
     for (const ev of PROJECT_MEETING_EVENTS) socket.on(ev, () => cb.current('meetings'));
+    socket.on('inspection:changed', () => cb.current('inspections'));
     return () => {
       setLive(false);
       close();

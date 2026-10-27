@@ -108,6 +108,7 @@ export function ProjectDetailPage() {
       void qc.invalidateQueries({ queryKey: ['columns', id] });
     }
     if (any('meetings', 'all')) void qc.invalidateQueries({ queryKey: ['meetings', 'project', id] });
+    if (any('inspections', 'all')) void qc.invalidateQueries({ queryKey: ['project-inspections', id] });
     if (any('all', 'removed')) {
       void qc.invalidateQueries({ queryKey: ['project', id] });
       void qc.invalidateQueries({ queryKey: ['members', id] });
