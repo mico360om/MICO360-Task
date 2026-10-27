@@ -32,7 +32,7 @@ describe('weeklySummaryEmail', () => {
 
   it('lists the worst projects with their mark in words and their reasons, the numbers, the people with the most late work, and a button to the dashboard', () => {
     for (const s of [
-      'Good morning, Sara Ahmed',
+      'Hello, Sara Ahmed',
       'the projects you run (3 projects)',
       'Red: Rig Inspection Portal (RIG): Milestone “Handover” is 3 days late; 3 missing checks',
       'Amber: مشروع الحفر (ARB): 1 late task',
@@ -51,6 +51,8 @@ describe('weeklySummaryEmail', () => {
     }
     expect(mail.html).toContain('href="https://task.mico360.com/management"');
     expect(mail.html).toContain('Week of Sunday 25 October');
+    // It goes at the person's daily email time, which may be any hour: no "morning" in it.
+    expect(mail.text).not.toMatch(/morning/i);
     expect(mail.html).toContain('class="email-container"'); // the daily emails' centred card
   });
 

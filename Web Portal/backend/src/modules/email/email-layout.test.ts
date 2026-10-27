@@ -121,6 +121,19 @@ describe('renderEmail — layout', () => {
     expect(text).toContain('482913');
   });
 
+  it('lets Arabic in a callout or a list item read in its own direction (dir="auto")', () => {
+    const { html } = renderEmail({
+      preheader: 'x',
+      heading: 'Directions',
+      blocks: [
+        { kind: 'callout', text: 'مشروع الحفر: 1 late task', tone: 'warning' },
+        { kind: 'list', items: ['زارا: 3 late tasks'] },
+      ],
+    });
+    expect(html).toMatch(/<td dir="auto" style="background:[^"]*">مشروع الحفر: 1 late task<\/td>/);
+    expect(html).toContain('<li dir="auto" style="margin:0 0 4px">زارا: 3 late tasks</li>');
+  });
+
   it('renders a list of links (the apps in a welcome email), escaped, with unsafe addresses neutralised', () => {
     const { html, text } = renderEmail({
       preheader: 'x',

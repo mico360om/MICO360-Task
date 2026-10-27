@@ -25,7 +25,7 @@ export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week
     ...(d.green ? [{ text: `${d.green} green`, tone: 'success' as const }] : []),
   ];
   const blocks: Block[] = [
-    { kind: 'text', text: `Here is how ${d.scope === 'ALL' ? 'all projects' : 'the projects you run'} (${plural(d.projects, 'project')}) are doing this morning.` },
+    { kind: 'text', text: `Here is how ${d.scope === 'ALL' ? 'all projects' : 'the projects you run'} (${plural(d.projects, 'project')}) are doing.` },
     ...(chips.length ? [{ kind: 'chips' as const, items: chips }] : []),
     ...(d.worst.length
       ? d.worst.map((w): Block => ({ kind: 'callout', tone: w.rag === 'RED' ? 'danger' : 'warning', text: `${WORD[w.rag]}: ${w.name} (${w.code}): ${w.reasons.map((r) => r.text).join('; ')}` }))
@@ -46,10 +46,10 @@ export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week
         ]
       : []),
     { kind: 'button', label: 'Open the dashboard', href: `${app}/management` },
-    { kind: 'text', text: `You get this summary on the first working morning of each week. To turn it off, open Settings → Weekly management summary: ${app}/settings` },
+    { kind: 'text', text: `You get this summary on the first working day of each week, at your daily email time. To turn it off, open Settings → Weekly management summary: ${app}/settings` },
   ];
   const subject = d.red || d.amber ? `Weekly summary: ${d.red} red, ${d.amber} amber · ${plural(d.lateTasks, 'late task')}` : `Weekly summary: all ${plural(d.projects, 'project')} on track`;
   const preheader = `${d.red} red, ${d.amber} amber · ${plural(d.lateTasks, 'late task')} · ${plural(d.missingChecks, 'missing check')}`;
-  const { html, text } = renderEmail({ preheader, heading: `Good morning, ${p.name}`, headerNote: `Week of ${longDay(p.week)}`, blocks, brand: opts.brand, locale: opts.locale });
+  const { html, text } = renderEmail({ preheader, heading: `Hello, ${p.name}`, headerNote: `Week of ${longDay(p.week)}`, blocks, brand: opts.brand, locale: opts.locale });
   return { subject, html, text };
 }
