@@ -20,6 +20,10 @@ import { SearchableSelect } from '../ui/SearchableSelect';
 import { RecurrenceEditor } from '../RecurrenceEditor';
 import { AssigneeSelect, type PersonOption } from '../task-form/AssigneeSelect';
 import { problemText } from './inspection-ui';
+import { ApiError } from '../../lib/api-client';
+
+/** The schedule changed since the list was read (the repeat moved on to a newer copy, or an edit). */
+export const isStaleSchedule = (e: unknown) => e instanceof ApiError && e.status === 409 && (e.code === 'VERSION_CONFLICT' || e.code === 'RECURRENCE_NOT_NEWEST');
 
 const TITLE_MAX = 191;
 const fullName = (u: { firstName?: string | null; lastName?: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
@@ -39,6 +43,7 @@ export function ScheduleDialog({
   schedule,
   onClose,
   onSaved,
+  onStale,
 }: {
   projectId: string;
   /** The company's working days (0 = Sunday), for "Every working day". */
@@ -47,6 +52,8 @@ export function ScheduleDialog({
   schedule?: InspectionSchedule | null;
   onClose: () => void;
   onSaved?: () => void;
+  /** Saving found the schedule changed meanwhile: nothing was saved (the list is read again). */
+  onStale?: () => void;
 }) {
   const editing = !!schedule;
   const qc = useQueryClient();
@@ -140,7 +147,9 @@ export function ScheduleDialog({
         if ((place.trim() || null) !== (schedule.place ?? null)) patch.inspectionPlace = place.trim() || null;
         // Compared with the rule as stored: one that waits for each check is put on schedule by saving.
         if (JSON.stringify(recurrenceRule) !== JSON.stringify(schedule.rule)) patch.recurrenceRule = recurrenceRule;
-        if (Object.keys(patch).length) await tasksApi(apiClient).update(schedule.taskId, patch);
+        // Always sent, with the version the list showed: on a schedule that changed meanwhile (the repeat
+        // moved on to a newer copy) nothing is saved — not even the inspectors below.
+        await tasksApi(apiClient).update(schedule.taskId, { ...patch, expectedVersion: schedule.version });
         const before = schedule.assignees.map((a) => a.id);
         const add = inspectorIds.filter((id) => !before.includes(id));
         if (add.length) await assigneesApi(apiClient).assignMany(schedule.taskId, add);
@@ -151,6 +160,12 @@ export function ScheduleDialog({
       onSaved?.();
       onClose();
     } catch (e) {
+      if (editing && isStaleSchedule(e) && onStale) {
+        void qc.invalidateQueries({ queryKey: ['project-inspections', projectId] });
+        onStale();
+        onClose();
+        return;
+      }
       setProblem(problemText(e, editing ? 'Couldn’t save the changes. Check your connection and try again.' : 'Couldn’t schedule it. Check your connection and try again.'));
     } finally {
       busy.current = false;

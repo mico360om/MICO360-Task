@@ -12,7 +12,7 @@ import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { dayText, InspectIcon, problemText } from './inspection-ui';
-import { ScheduleDialog } from './ScheduleDialog';
+import { isStaleSchedule, ScheduleDialog } from './ScheduleDialog';
 
 /** The query keys of a project's scheduled inspections (under the tab's own key, so they refresh with it). */
 export const scheduleKeys = {
@@ -221,12 +221,20 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
   const [editing, setEditing] = useState<{ schedule: InspectionSchedule | null } | null>(null);
   const [stopping, setStopping] = useState<InspectionSchedule | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const STALE = 'This schedule changed — check it again.';
   const stopM = useMutation({
-    mutationFn: (s: InspectionSchedule) => tasksApi(apiClient).update(s.taskId, { recurrenceRule: null }),
+    // With the version the list showed: a row that is out of date (the repeat moved on) is refused.
+    mutationFn: (s: InspectionSchedule) => tasksApi(apiClient).update(s.taskId, { recurrenceRule: null, expectedVersion: s.version }),
     onSuccess: (_r, s) => {
       setStopping(null);
       setNotice(`Stopped “${s.title}”. Checks already made stay.`);
       void invalidateTaskQueries(qc);
+      void qc.invalidateQueries({ queryKey: ['project-inspections', projectId] });
+    },
+    onError: (e) => {
+      if (!isStaleSchedule(e)) return;
+      setStopping(null);
+      setNotice(STALE);
       void qc.invalidateQueries({ queryKey: ['project-inspections', projectId] });
     },
   });
@@ -277,6 +285,7 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
           schedule={editing.schedule}
           onClose={() => setEditing(null)}
           onSaved={() => setNotice(editing.schedule ? 'Saved. The checks made from now on follow the new schedule.' : 'Scheduled. The first check is on its way to the inspectors.')}
+          onStale={() => setNotice(STALE)}
         />
       ) : null}
       {stopping ? (
@@ -285,7 +294,7 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
           confirmLabel="Stop scheduling"
           keepLabel="Keep it"
           busy={stopM.isPending}
-          error={stopM.isError ? problemText(stopM.error, 'Couldn’t stop it. Check your connection and try again.') : null}
+          error={stopM.isError && !isStaleSchedule(stopM.error) ? problemText(stopM.error, 'Couldn’t stop it. Check your connection and try again.') : null}
           onConfirm={() => stopM.mutate(stopping)}
           onClose={() => setStopping(null)}
         >

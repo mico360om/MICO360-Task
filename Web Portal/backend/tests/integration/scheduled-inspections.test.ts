@@ -235,12 +235,16 @@ describe('finishing a check’s inspection completes the task (MySQL)', () => {
     expect(w.events.filter((e) => e.event === 'task:moved' && e.id === task.id)).toHaveLength(1);
   });
 
-  it('a check that repeats when done makes its next copy (ON_COMPLETE), carrying the form', async () => {
+  it('a repeating check is always on schedule: finishing it makes no early copy; the next one comes on its date', async () => {
     const clock = { at: new Date('2026-10-01T08:00:00Z') };
     const w = world(clock);
     const form = await newForm();
     const task = await checkFor(w, form.id, { recurrenceRule: { freq: 'WEEKLY', interval: 1 } });
+    expect(task.recurrenceRule).toMatchObject({ createNext: 'ON_SCHEDULE' });
     await finishCheck(w, clock, task.id, form.id);
+    expect(await prisma.task.count({ where: { recurrenceSourceId: task.id } })).toBe(0);
+    const later = createRecurrenceService({ tasks: createPrismaRecurrencePort(prisma, { timeZone: TZ, now: () => new Date('2026-10-08T06:00:00Z') }), timeZone: TZ, now: () => new Date('2026-10-08T06:00:00Z') });
+    await later.runSchedule();
     const next = await prisma.task.findFirstOrThrow({ where: { recurrenceSourceId: task.id } });
     expect(next).toMatchObject({ inspectionFormId: form.id, inspectionPlace: 'Rig 3', dueDate: new Date('2026-10-08T00:00:00.000Z') });
   });
@@ -386,5 +390,22 @@ describe('completing a check: repeats, two at once, and failures after the move 
     expect(w.events.filter((e) => e.event === 'task:moved' && e.id === task.id)).toHaveLength(1);
     expect(await prisma.activity.count({ where: { taskId: task.id, action: 'COMPLETED' } })).toBe(1);
     expect(w.warnings.some((x) => /after the move/.test(x.msg))).toBe(true);
+  });
+});
+
+describe('a schedule row that is out of date (MySQL)', () => {
+  it('when the repeat moves on to the next copy, the old copy’s version goes up: a Stop or Edit sent for it is refused (409), not applied to the wrong copy', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const head = await checkFor(w, form.id, { recurrenceRule: DAILY, dueDate: new Date('2026-09-30T00:00:00.000Z') });
+    const row = (await w.schedules.schedules(member(), projectId)).schedules[0]!;
+    expect(row).toMatchObject({ taskId: head.id, version: head.version });
+    await recurrence.runSchedule(); // the next check is made: the repeat moves to it
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: head.id } })).version).toBe(head.version + 1);
+    const refused = await w.taskService.updateTask(head.id, { recurrenceRule: null }, row.version, 'one', mateId).then(() => null, (e: { status?: number; code?: string }) => e);
+    expect(refused).toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
+    const fresh = (await w.schedules.schedules(member(), projectId)).schedules[0]!;
+    expect(fresh.taskId).not.toBe(head.id);
   });
 });

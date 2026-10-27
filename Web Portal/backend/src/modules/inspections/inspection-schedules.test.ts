@@ -16,7 +16,7 @@ let now: Date;
 let n = 0;
 const row = (over: Partial<CheckRow> = {}): CheckRow => {
   const id = over.id ?? `t${++n}`;
-  return { id, key: `RIG-${n}`, title: 'Daily rig check – Rig 3', projectId: 'P1', dueDate: day('2026-10-28'), startDate: null, completedAt: null, columnCategory: 'TODO', recurrenceRule: null, recurrenceParentId: null, inspectionPlace: 'Rig 3', form: FORM, assignees: [IVAN], ...over };
+  return { id, key: `RIG-${n}`, version: 3, title: 'Daily rig check – Rig 3', projectId: 'P1', dueDate: day('2026-10-28'), startDate: null, completedAt: null, columnCategory: 'TODO', recurrenceRule: null, recurrenceParentId: null, inspectionPlace: 'Rig 3', form: FORM, assignees: [IVAN], ...over };
 };
 
 const source: InspectionScheduleSource = {
@@ -59,6 +59,7 @@ describe('a project’s schedules', () => {
       {
         taskId: 's3',
         key: head.key,
+        version: 3,
         title: 'Daily rig check – Rig 3',
         form: FORM,
         place: 'Rig 3',

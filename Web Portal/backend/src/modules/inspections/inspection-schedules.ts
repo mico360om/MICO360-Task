@@ -28,6 +28,8 @@ export interface FormRef {
 export interface CheckRow {
   id: string;
   key: string;
+  /** Goes up with every change (an edit, a move, the repeat moving on to the next copy). */
+  version: number;
   title: string;
   projectId: string;
   dueDate: Date | null;
@@ -61,6 +63,8 @@ export interface ScheduleView {
   /** The newest copy, which carries the repeat: edit and stop it through the task routes. */
   taskId: string;
   key: string;
+  /** Its version: an edit or stop sends it, so one made from an out-of-date list is refused (409). */
+  version: number;
   title: string;
   form: FormRef;
   place: string | null;
@@ -166,6 +170,7 @@ export function createInspectionScheduleService(deps: InspectionScheduleDeps) {
           return {
             taskId: head.id,
             key: head.key,
+            version: head.version,
             title: head.title,
             form: head.form,
             place: head.inspectionPlace,

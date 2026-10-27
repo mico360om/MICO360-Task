@@ -7,6 +7,7 @@ const displayName = (u: { username: string; firstName: string | null; lastName: 
 const checkSelect = {
   id: true,
   key: true,
+  version: true,
   title: true,
   projectId: true,
   dueDate: true,
@@ -25,6 +26,7 @@ type Row = Prisma.TaskGetPayload<{ select: typeof checkSelect }>;
 const toCheck = (t: Row): CheckRow => ({
   id: t.id,
   key: t.key,
+  version: t.version,
   title: t.title,
   projectId: t.projectId,
   dueDate: t.dueDate,

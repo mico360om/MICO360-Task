@@ -213,6 +213,7 @@ describe('scheduled inspection routes', () => {
   const checkRow = (id: string, over: Record<string, unknown> = {}) => ({
     id,
     key: `RIG-${id}`,
+    version: 1,
     title: 'Daily rig check – Rig 3',
     projectId: 'P1',
     dueDate: new Date('2026-10-26T00:00:00.000Z'),

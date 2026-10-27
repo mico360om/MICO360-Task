@@ -133,6 +133,8 @@ export interface FormRef {
 export interface InspectionSchedule {
   taskId: string;
   key: string;
+  /** The newest copy's version: an edit or stop sends it (a list that is out of date is refused, 409). */
+  version: number;
   title: string;
   form: FormRef;
   place: string | null;

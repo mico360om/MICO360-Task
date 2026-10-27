@@ -241,8 +241,9 @@ describe('createPrismaRecurrencePort', () => {
     expect(data.checklist.create).toEqual([{ text: 'Prepare slides', position: 0 }]);
     // A task made from a meeting: its next copy links to the same meeting.
     expect(data.meetingId).toBe('m1');
-    // The rule moves on; the first task stays marked as part of its series (it starts it).
-    expect(fake.task.update).toHaveBeenCalledWith({ where: { id: 's1' }, data: { recurrenceRule: Prisma.DbNull, recurrenceParentId: 's1' } });
+    // The rule moves on; the first task stays marked as part of its series (it starts it), and its
+    // version goes up (an edit made from an older copy of it is refused).
+    expect(fake.task.update).toHaveBeenCalledWith({ where: { id: 's1' }, data: { recurrenceRule: Prisma.DbNull, recurrenceParentId: 's1', version: { increment: 1 } } });
     expect(fake.activity.create).toHaveBeenCalledWith({ data: expect.objectContaining({ taskId: 'next', projectId: 'p1', action: 'CREATED' }) });
   });
 

@@ -15,8 +15,10 @@ const FORMS = [
 
 type Call = { url: string; method: string; body: Record<string, unknown> | null };
 let calls: Call[];
+let putReply: (body: Record<string, unknown> | null) => Response;
 beforeEach(() => {
   calls = [];
+  putReply = (body) => json({ data: { id: 't-head', key: 'RIG-31', ...body } });
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-28T06:00:00Z')); // Wednesday 28 Oct, 10:00 in Muscat
   vi.stubGlobal(
@@ -36,7 +38,7 @@ beforeEach(() => {
       if (u === '/users/directory') return json({ data: [] });
       if (u === '/config') return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: '' } });
       if (u === '/tasks' && method === 'POST') return json({ data: { id: 't-new', key: 'RIG-40', title: body?.title } }, 201);
-      if (u === '/tasks/t-head' && method === 'PUT') return json({ data: { id: 't-head', key: 'RIG-31', ...body } });
+      if (u === '/tasks/t-head' && method === 'PUT') return putReply(body);
       if (u === '/tasks/t-head/assignees' && method === 'GET') return json({ data: [person('u-ali', 'Ali', 'Hassan', 'ali')] });
       if (u.startsWith('/tasks/t-head/assignees')) return json({ data: {} });
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
@@ -183,6 +185,7 @@ describe('the schedule dialog (edit)', () => {
     repeat: 'Every working day',
     onSchedule: true,
     paused: false,
+    version: 4,
     nextDue: '2026-10-29',
     lastDone: null,
     openChecks: 1,
@@ -204,8 +207,21 @@ describe('the schedule dialog (edit)', () => {
     expect(within(dialog()).getByText('A check is created every day, due that day, for Sara Al Balushi.')).toBeInTheDocument();
     await userEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ title: 'Rig daily check – Rig 4', inspectionPlace: 'Rig 4', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } });
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ title: 'Rig daily check – Rig 4', inspectionPlace: 'Rig 4', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' }, expectedVersion: 4 });
     expect(calls.find((c) => c.method === 'POST' && c.url === '/tasks/t-head/assignees')!.body).toEqual({ userIds: ['u-sara'] });
     expect(calls.some((c) => c.method === 'DELETE' && c.url === '/tasks/t-head/assignees/u-ali')).toBe(true);
+  });
+
+  it('only the inspectors changed: the schedule’s version is still checked first, so an out-of-date one changes nothing', async () => {
+    putReply = () => json({ error: { code: 'VERSION_CONFLICT', message: 'This task was changed by someone else. Reload and try again.' } }, 409);
+    const onStale = vi.fn();
+    const { onSaved } = show({ schedule, onStale });
+    await screen.findByRole('list', { name: 'Inspectors' });
+    await addInspector('Sara Al Balushi');
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onStale).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ expectedVersion: 4 });
+    expect(calls.some((c) => c.url.startsWith('/tasks/t-head/assignees') && c.method !== 'GET')).toBe(false);
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

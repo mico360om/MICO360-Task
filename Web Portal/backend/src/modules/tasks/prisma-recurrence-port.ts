@@ -99,7 +99,9 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
             });
             // The rule now lives on the new instance only. The first task of a series marks itself as
             // its start, so every app keeps showing it as part of the series once the rule moves on.
-            await tx.task.update({ where: { id: sourceTaskId }, data: { recurrenceRule: Prisma.DbNull, recurrenceParentId: parentId } });
+            // Its version goes up: an edit or stop made from a copy of it read before now is refused
+            // (it would land on this copy, not the series' newest).
+            await tx.task.update({ where: { id: sourceTaskId }, data: { recurrenceRule: Prisma.DbNull, recurrenceParentId: parentId, version: { increment: 1 } } });
             await tx.activity.create({
               data: { taskId: task.id, projectId: task.projectId, userId: source.createdById, action: 'CREATED', meta: { title: task.title, recurring: true } },
             });

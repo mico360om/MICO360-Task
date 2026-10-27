@@ -32,9 +32,11 @@ const FORM_REF = { id: 'f1', title: 'Rig daily check', deleted: false };
 const ALI = { id: 'u-ali', name: 'Ali Hassan' };
 const SARA = { id: 'u-sara', name: 'Sara Al Balushi' };
 const check = (taskId: string, over: Record<string, unknown> = {}) => ({ taskId, key: `RIG-${taskId}`, title: 'Daily rig check – Rig 3', dueDate: '2026-10-28', state: 'DUE', daysLate: 0, scheduled: true, form: FORM_REF, place: 'Rig 3', assignees: [ALI], inProgress: null, ...over });
+let stopReply: () => Response;
 const SCHEDULE = {
   taskId: 't-head',
   key: 'RIG-31',
+  version: 4,
   title: 'Daily rig check – Rig 3',
   form: FORM_REF,
   place: 'Rig 3',
@@ -60,6 +62,7 @@ beforeEach(() => {
     canStart: true,
   };
   schedules = { schedules: [], workingDays: [0, 1, 2, 3, 4] };
+  stopReply = () => json({ data: { id: 't-head' } });
   checks = { checks: [], total: 0 };
   forms = { forms: [{ id: 'f1', title: 'Rig daily check', description: null, structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, version: 1, sectionCount: 2, itemCount: 3, createdBy: null, updatedAt: '', canEdit: false }], canCreate: false };
   useAuthStore.getState().setSession({ user: { id: 'u-ivan', email: 'i@x', username: 'ivan', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
@@ -73,7 +76,7 @@ beforeEach(() => {
       if (u === '/inspection-forms') return json({ data: forms });
       if (u === '/projects/p1/inspection-schedules') return json({ data: schedules });
       if (u === '/projects/p1/inspection-checks?state=open') return json({ data: checks });
-      if (u === '/tasks/t-head' && method === 'PUT') return json({ data: { id: 't-head' } });
+      if (u === '/tasks/t-head' && method === 'PUT') return stopReply();
       if (u === '/config') return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: '' } });
       if (u === '/projects/p1/inspections' && method === 'POST') return json({ data: { ...item('new'), structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, answers: [] } }, 201);
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
@@ -258,7 +261,19 @@ describe('scheduled inspections on the Inspections tab', () => {
     expect(confirm).toHaveTextContent('Checks already created stay.');
     await userEvent.click(within(confirm).getByRole('button', { name: 'Stop scheduling' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'PUT')).toBeTruthy());
-    expect(calls.find((c) => c.method === 'PUT')).toMatchObject({ url: '/tasks/t-head', body: { recurrenceRule: null } });
+    expect(calls.find((c) => c.method === 'PUT')).toMatchObject({ url: '/tasks/t-head', body: { recurrenceRule: null, expectedVersion: 4 } });
+  });
+
+  it('Stop on a row that is out of date (the repeat moved on meanwhile): says so and reads the schedules again', async () => {
+    schedules = { ...schedules, schedules: [SCHEDULE] };
+    stopReply = () => json({ error: { code: 'VERSION_CONFLICT', message: 'This task was changed by someone else. Reload and try again.' } }, 409);
+    show();
+    const region = await screen.findByRole('region', { name: 'Schedules (1)' });
+    await userEvent.click(within(region).getByRole('button', { name: /^Stop/ }));
+    await userEvent.click(within(await screen.findByRole('alertdialog', { name: 'Stop scheduling?' })).getByRole('button', { name: 'Stop scheduling' }));
+    expect(await within(region).findByText('This schedule changed — check it again.')).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    await waitFor(() => expect(calls.filter((c) => c.url === '/projects/p1/inspection-schedules').length).toBeGreaterThan(1));
   });
 
   it('Schedule an inspection and Edit open the schedule dialog', async () => {
