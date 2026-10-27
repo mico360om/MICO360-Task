@@ -450,6 +450,33 @@ describe('ManagementPage: the fixes from review', () => {
   });
 });
 
+describe('ManagementRoute: losing access while on the page (M-5)', () => {
+  it('says so in plain words and stays — it doesn’t whisk them off to the dashboard', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/management']}>
+          <Where />
+          <Routes>
+            <Route path="/management" element={<ManagementRoute />} />
+            <Route path="/dashboard" element={<p>Dashboard page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('region', { name: 'Project health' });
+    allowed = false;
+    fail = 403;
+    await userEvent.setup().click(screen.getByRole('radio', { name: '26 weeks' }));
+    await waitFor(() => expect(screen.getByText(/You no longer run any projects/)).toBeInTheDocument());
+    // The access was asked again (the sidebar link goes), and the page still says why.
+    await waitFor(() => expect(calls.filter((c) => c.endsWith('/management/access')).length).toBeGreaterThan(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText(/You no longer run any projects/)).toBeInTheDocument();
+    expect(where.startsWith('/management')).toBe(true);
+  });
+});
+
 describe('ManagementRoute: when access can’t be checked (M-5)', () => {
   it('a network problem says so and offers to try again — it never sends anyone to the dashboard', async () => {
     allowed = 'error';

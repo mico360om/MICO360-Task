@@ -39,6 +39,17 @@ function Skeleton() {
   );
 }
 
+/** Someone who had the page and no longer runs a project: said plainly, with the way out. */
+function NoLongerRuns() {
+  return (
+    <div role="alert" className="card p-5 text-sm text-ink">
+      <p className="font-semibold">You no longer run any projects, so the Management page isn’t open to you.</p>
+      <p className="mt-1 text-ink-2">It shows the projects you own or manage. An administrator can name you as a project’s manager.</p>
+      <Link to="/dashboard" className="tap mt-2 font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">Go to the dashboard</Link>
+    </div>
+  );
+}
+
 /** "updated 10:00" in the company time zone. */
 const clock = (at: string, timeZone: string) => new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(at));
 
@@ -130,7 +141,7 @@ export function ManagementPage() {
   }
 
   return (
-    <div>
+    <div data-page="management">
       <PageHeader
         eyebrow="Workspace"
         title="Management"
@@ -155,11 +166,7 @@ export function ManagementPage() {
       <ManagementFilters filters={filters} projects={data?.options.projects ?? []} owners={data?.options.owners ?? []} onChange={setFilters} />
 
       {refused ? (
-        <div role="alert" className="card p-5 text-sm text-ink">
-          <p className="font-semibold">You no longer run any projects, so the Management page isn’t open to you.</p>
-          <p className="mt-1 text-ink-2">It shows the projects you own or manage. An administrator can name you as a project’s manager.</p>
-          <Link to="/dashboard" className="tap mt-2 font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">Go to the dashboard</Link>
-        </div>
+        <NoLongerRuns />
       ) : q.isError && !data ? (
         <LoadError what="the management overview" onRetry={() => void q.refetch()} />
       ) : !data || !t ? (
@@ -209,6 +216,9 @@ export function ManagementPage() {
 /** /management: the page for administrators and the people who run a project; anyone else goes to the dashboard. */
 export function ManagementRoute() {
   const { allowed, ready, failed, retry } = useManagementAccess();
+  // Someone who had the page here and lost it (no longer runs a project) is told why, not moved away.
+  const hadIt = useRef(false);
+  if (allowed) hadIt.current = true;
   if (failed) {
     // A network problem is not a "no": say so, and offer to try again.
     return (
@@ -228,5 +238,14 @@ export function ManagementRoute() {
       </div>
     );
   }
-  return allowed ? <ManagementPage /> : <Navigate to="/dashboard" replace />;
+  if (allowed) return <ManagementPage />;
+  if (hadIt.current) {
+    return (
+      <div>
+        <PageHeader eyebrow="Workspace" title="Management" />
+        <NoLongerRuns />
+      </div>
+    );
+  }
+  return <Navigate to="/dashboard" replace />;
 }
