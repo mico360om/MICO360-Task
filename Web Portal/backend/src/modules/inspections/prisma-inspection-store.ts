@@ -47,6 +47,8 @@ const toInspection = (r: InspectionRow): InspectionRecord => ({
   finishedAt: r.finishedAt,
   finishId: r.finishId,
   revision: r.revision,
+  reopenedAt: r.reopenedAt,
+  reopenedById: r.reopenedById,
   counts: { itemCount: r.itemCount, passed: r.passedCount, failed: r.failedCount, na: r.naCount },
   clientVisible: r.clientVisible,
   clientVisibleProjectId: r.clientVisibleProjectId,
@@ -70,6 +72,7 @@ const toSignature = (r: Prisma.InspectionSignatureGetPayload<object>): Signature
   image: r.image ? Buffer.from(r.image) : null,
   signedAt: r.signedAt,
   capturedById: r.capturedById,
+  revision: r.revision,
 });
 
 const toFollowUp = (r: { itemId: string; taskId: string | null; createdById: string; createdAt: Date }): FollowUpRecord => ({
@@ -207,7 +210,11 @@ export function createPrismaInspectionStore(prisma: PrismaClient): InspectionSto
       return (await prisma.inspectionAnswer.findMany({ where: { inspectionId }, orderBy: { id: 'asc' } })).map(toAnswer);
     },
     async signatures(inspectionId) {
-      return (await prisma.inspectionSignature.findMany({ where: { inspectionId }, orderBy: { createdAt: 'asc' } })).map(toSignature);
+      return (await prisma.inspectionSignature.findMany({ where: { inspectionId, supersededAt: null }, orderBy: { createdAt: 'asc' } })).map(toSignature);
+    },
+    async earlierSignatures(inspectionId) {
+      const rows = await prisma.inspectionSignature.findMany({ where: { inspectionId, supersededAt: { not: null } }, orderBy: [{ revision: 'asc' }, { createdAt: 'asc' }] });
+      return rows.map((r) => ({ ...toSignature(r), revision: r.revision, supersededAt: r.supersededAt! }));
     },
     async followUps(inspectionId) {
       return (await prisma.inspectionFollowUp.findMany({ where: { inspectionId }, orderBy: { createdAt: 'asc' } })).map(toFollowUp);
@@ -258,11 +265,11 @@ export function createPrismaInspectionStore(prisma: PrismaClient): InspectionSto
         const all = (await tx.inspectionAnswer.findMany({ where: { inspectionId: id }, orderBy: { id: 'asc' } })).map(toAnswer);
         const problem = input.check(all);
         if (problem !== null) return { kind: 'problem' as const, problem };
-        // Nothing can be left from before (a reopen removes them), but never let two sets mix.
-        await tx.inspectionSignature.deleteMany({ where: { inspectionId: id } });
+        // A reopen keeps earlier revisions' signatures (superseded); this revision's are written once.
+        await tx.inspectionSignature.deleteMany({ where: { inspectionId: id, revision: r!.revision, supersededAt: null } });
         for (const s of input.signatures) {
           await tx.inspectionSignature.create({
-            data: { inspectionId: id, role: s.role, name: s.name, method: s.method, image: s.image ?? null, signedAt: s.signedAt, capturedById: s.capturedById },
+            data: { inspectionId: id, revision: r!.revision, role: s.role, name: s.name, method: s.method, image: s.image ?? null, signedAt: s.signedAt, capturedById: s.capturedById },
           });
         }
         const row = await tx.inspection.update({
@@ -273,12 +280,16 @@ export function createPrismaInspectionStore(prisma: PrismaClient): InspectionSto
       }, TX);
     },
 
-    async reopen(id) {
+    async reopen(id, byUserId, at) {
       return prisma.$transaction(async (tx) => {
         const r = await lockLive(tx, id);
         if (!r || r.status !== 'FINISHED') return false;
-        await tx.inspectionSignature.deleteMany({ where: { inspectionId: id } });
-        await tx.inspection.update({ where: { id }, data: { status: 'IN_PROGRESS', finishedAt: null, finishId: null, revision: { increment: 1 }, clientVisible: false, clientVisibleProjectId: null } });
+        // Kept (they no longer count): the staff report lists them as an earlier signed revision.
+        await tx.inspectionSignature.updateMany({ where: { inspectionId: id, supersededAt: null }, data: { supersededAt: at } });
+        await tx.inspection.update({
+          where: { id },
+          data: { status: 'IN_PROGRESS', finishedAt: null, finishId: null, revision: { increment: 1 }, reopenedAt: at, reopenedById: byUserId, clientVisible: false, clientVisibleProjectId: null },
+        });
         return true;
       }, TX);
     },

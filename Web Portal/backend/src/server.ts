@@ -1255,7 +1255,7 @@ async function main(): Promise<void> {
     logger,
     // Finished inspection reports marked "Show to client".
     inspections: {
-      list: (projectId) => inspectionService.clientInspections(projectId, companyTz),
+      list: (projectId) => inspectionService.clientInspectionSummaries(projectId, companyTz),
       one: (projectId, id) => inspectionService.clientInspectionOf(projectId, id, companyTz),
     },
   });

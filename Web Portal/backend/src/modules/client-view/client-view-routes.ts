@@ -5,7 +5,7 @@ import type { AuditService } from '../audit/audit-service';
 import type { RecordTaskActivity } from '../activity/task-activity';
 import { noteActivity } from '../activity/task-activity';
 import type { TaskRecord } from '../tasks/task-repository';
-import { ConflictError, ForbiddenError, NotFoundError } from '../../lib/http-errors';
+import { ConflictError, ForbiddenError, HttpError, NotFoundError } from '../../lib/http-errors';
 import type { ClientAccessService } from './client-access-service';
 import { clearedSessionCookie, hashToken, readCookie, sessionCookie, sessionCookieName } from './client-tokens';
 import { clientMinutesContent } from './client-minutes-content';
@@ -111,24 +111,41 @@ export async function registerClientViewRoutes(app: FastifyInstance, deps: Clien
     return reply.status(204).send();
   });
 
-  // A PDF takes real work to make: each signed-in device (its link and session cookie) gets 10 a minute.
-  const perSession = {
-    config: {
-      rateLimit: {
-        max: deps.rateLimits?.pdfsPerMinute ?? 10,
-        timeWindow: '1 minute',
-        keyGenerator: (req: FastifyRequest) => `client-pdf:${hashToken(`${linkOf(req) ?? ''}|${req.headers.cookie ?? req.ip}`)}`,
-      },
-    },
-  };
-  app.get('/client/minutes/:meetingId/pdf', perSession, async (req: FastifyRequest, reply: FastifyReply) => {
+  // A PDF takes real work to make: each signed-in device gets 10 a minute, minutes and inspection
+  // reports together. Counted on the share the link opens and that share's own session cookie, so
+  // other cookies sent with it don't make a new allowance (and a made-up session only gets "sign in").
+  const pdfLimit = deps.rateLimits?.pdfsPerMinute ?? 10;
+  const pdfsMade = new Map<string, number[]>();
+  async function countPdf(req: FastifyRequest): Promise<void> {
+    const shareId = await service.shareIdOf(linkOf(req));
+    const session = shareId ? readCookie(req.headers.cookie, sessionCookieName(shareId)) : null;
+    const key = hashToken(`${shareId ?? 'no-share'}|${session ?? req.ip}`);
+    const at = Date.now();
+    const recent = (pdfsMade.get(key) ?? []).filter((t) => at - t < 60_000);
+    if (recent.length >= pdfLimit) {
+      pdfsMade.set(key, recent);
+      throw new HttpError('Too many requests. Please wait a moment and try again.', 'RATE_LIMITED', 429);
+    }
+    recent.push(at);
+    pdfsMade.set(key, recent);
+    if (pdfsMade.size > 5000) for (const [k, v] of pdfsMade) if (!v.some((t) => at - t < 60_000)) pdfsMade.delete(k);
+  }
+  app.get('/client/minutes/:meetingId/pdf', async (req: FastifyRequest, reply: FastifyReply) => {
+    await countPdf(req);
     const { meetingId } = req.params as { meetingId: string };
     const { pdf, fileName } = await service.minutesPdf(linkOf(req), sessionFrom(req), meetingId);
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${fileName}"`).send(pdf);
   });
 
+  // One shown inspection report's details and signatures (the page lists summaries; this opens one).
+  app.get('/client/inspections/:inspectionId', async (req: FastifyRequest) => {
+    const { inspectionId } = req.params as { inspectionId: string };
+    return { data: await service.inspection(linkOf(req), sessionFrom(req), inspectionId) };
+  });
+
   // A shown inspection report’s client copy (as many a minute as the minutes PDFs).
-  app.get('/client/inspections/:inspectionId/pdf', perSession, async (req: FastifyRequest, reply: FastifyReply) => {
+  app.get('/client/inspections/:inspectionId/pdf', async (req: FastifyRequest, reply: FastifyReply) => {
+    await countPdf(req);
     const { inspectionId } = req.params as { inspectionId: string };
     const { pdf, fileName } = await service.inspectionPdf(linkOf(req), sessionFrom(req), inspectionId);
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${fileName}"`).send(pdf);

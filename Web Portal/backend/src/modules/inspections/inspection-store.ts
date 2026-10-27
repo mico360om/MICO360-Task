@@ -45,6 +45,9 @@ export interface InspectionRecord {
   finishId: string | null;
   /** Goes up with each reopen (a finish says which revision it signed). */
   revision: number;
+  /** The last reopen. */
+  reopenedAt: Date | null;
+  reopenedById: string | null;
   counts: Counts;
   clientVisible: boolean;
   clientVisibleProjectId: string | null;
@@ -71,6 +74,14 @@ export interface SignatureRecord {
   image: Buffer | null;
   signedAt: Date;
   capturedById: string;
+  /** The revision it signed (set by the store when it is written). */
+  revision?: number;
+}
+
+/** A signature a reopen took off: kept, for the staff report's earlier signed revisions. */
+export interface EarlierSignature extends SignatureRecord {
+  revision: number;
+  supersededAt: Date;
 }
 
 export interface FollowUpRecord {
@@ -138,7 +149,10 @@ export interface InspectionStore {
   /** The inspections carried out for a task, newest first. */
   listForTask(taskId: string): Promise<InspectionRecord[]>;
   answers(inspectionId: string): Promise<AnswerRecord[]>;
+  /** The signatures of its current revision (none while it is in progress). */
   signatures(inspectionId: string): Promise<SignatureRecord[]>;
+  /** Signatures of earlier revisions (taken off by a reopen), oldest first. */
+  earlierSignatures(inspectionId: string): Promise<EarlierSignature[]>;
   followUps(inspectionId: string): Promise<FollowUpRecord[]>;
 
   /**
@@ -156,8 +170,11 @@ export interface InspectionStore {
     actorId: string,
     input: { finishId: string; revision: number; at: Date; signatures: SignatureRecord[]; check: (answers: AnswerRecord[]) => P | null; count: (answers: AnswerRecord[]) => Counts },
   ): Promise<FinishResult<P>>;
-  /** Back in progress (a new revision), without its signatures and off the client page. False unless it was finished. */
-  reopen(inspectionId: string): Promise<boolean>;
+  /**
+   * Back in progress (a new revision), off the client page; its signatures are kept as superseded
+   * (they no longer count). False unless it was finished.
+   */
+  reopen(inspectionId: string, byUserId: string, at: Date): Promise<boolean>;
   /** A new inspector, while in progress (false otherwise). */
   takeOver(inspectionId: string, userId: string): Promise<boolean>;
   /** False when it was already gone. */
@@ -199,6 +216,7 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
   const inspections = new Map<string, InspectionRecord & { deleted: boolean }>();
   const answers = new Map<string, Map<string, AnswerRecord>>();
   const signatures = new Map<string, SignatureRecord[]>();
+  const earlier = new Map<string, EarlierSignature[]>();
   const followUps = new Map<string, Map<string, FollowUpRecord>>();
   const deletedTasks = new Set<string>();
 
@@ -269,6 +287,8 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
         finishedAt: null,
         finishId: null,
         revision: 0,
+        reopenedAt: null,
+        reopenedById: null,
         counts: { itemCount: d.itemCount, passed: 0, failed: 0, na: 0 },
         clientVisible: false,
         clientVisibleProjectId: null,
@@ -293,6 +313,9 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
     },
     async signatures(id) {
       return (signatures.get(id) ?? []).map(copySignature);
+    },
+    async earlierSignatures(id) {
+      return (earlier.get(id) ?? []).map((e) => ({ ...copySignature(e), revision: e.revision, supersededAt: new Date(e.supersededAt) }));
     },
     async followUps(id) {
       return [...(followUps.get(id)?.values() ?? [])].map(copy);
@@ -327,15 +350,16 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
       const all = [...answersOf(id).values()].map(copy);
       const problem = input.check(all);
       if (problem !== null) return { kind: 'problem', problem };
-      signatures.set(id, input.signatures.map(copySignature));
+      signatures.set(id, input.signatures.map((x) => ({ ...copySignature(x), revision: r!.revision })));
       Object.assign(r!, { status: 'FINISHED', finishedAt: input.at, finishId: input.finishId, counts: input.count(all), updatedAt: now() });
       return { kind: 'ok', inspection: strip(r!) };
     },
-    async reopen(id) {
+    async reopen(id, byUserId, at) {
       const r = live(id);
       if (!r || r.status !== 'FINISHED') return false;
+      earlier.set(id, [...(earlier.get(id) ?? []), ...(signatures.get(id) ?? []).map((x) => ({ ...copySignature(x), revision: x.revision ?? r.revision, supersededAt: at }))]);
       signatures.delete(id);
-      Object.assign(r, { status: 'IN_PROGRESS', finishedAt: null, finishId: null, revision: r.revision + 1, clientVisible: false, clientVisibleProjectId: null, updatedAt: now() });
+      Object.assign(r, { status: 'IN_PROGRESS', finishedAt: null, finishId: null, revision: r.revision + 1, reopenedAt: at, reopenedById: byUserId, clientVisible: false, clientVisibleProjectId: null, updatedAt: now() });
       return true;
     },
     async takeOver(id, userId) {

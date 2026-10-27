@@ -192,7 +192,7 @@ export function inspectionStoreContract(name: string, setup: () => Promise<Inspe
         expect(i.revision).toBe(0);
         await write(i.id, 'c', '2026-10-27T08:10:00Z');
         await finish(i.id, 'fin-1');
-        expect(await store.reopen(i.id)).toBe(true);
+        expect(await store.reopen(i.id, 'u-boss', t('2026-10-27T10:00:00Z'))).toBe(true);
         expect((await store.findInspection(i.id))!.revision).toBe(1);
         // The same finish again (its reply was lost before the reopen): refused, nothing changes.
         const replay = await finish(i.id, 'fin-1');
@@ -204,6 +204,27 @@ export function inspectionStoreContract(name: string, setup: () => Promise<Inspe
         expect(again).toMatchObject({ kind: 'ok', inspection: { status: 'FINISHED', revision: 1 } });
       });
 
+      it('keeps the signatures a reopen took off, by revision, with when it was reopened and by whom', async () => {
+        const i = await start();
+        await write(i.id, 'c', '2026-10-27T08:10:00Z');
+        await finish(i.id, 'fin-1');
+        expect(await store.reopen(i.id, 'u-boss', t('2026-10-27T10:00:00Z'))).toBe(true);
+        expect(await store.signatures(i.id)).toEqual([]);
+        const earlier = await store.earlierSignatures(i.id);
+        expect(earlier.map((x) => [x.revision, x.role, x.name, x.supersededAt.toISOString()])).toEqual(
+          expect.arrayContaining([
+            [0, 'INSPECTOR', 'Omar Ahmed', '2026-10-27T10:00:00.000Z'],
+            [0, 'CLIENT', 'Fatma Al Balushi', '2026-10-27T10:00:00.000Z'],
+          ]),
+        );
+        expect(await store.findInspection(i.id)).toMatchObject({ revision: 1, reopenedById: 'u-boss' });
+        expect((await store.findInspection(i.id))!.reopenedAt!.toISOString()).toBe('2026-10-27T10:00:00.000Z');
+        // Signed again: the new ones are current; the earlier ones stay as they were.
+        await store.finish(i.id, 'u-insp', { finishId: 'fin-2', revision: 1, at: t('2026-10-27T10:30:00Z'), signatures: [sig('INSPECTOR', 'Omar Ahmed (again)')], check: () => null, count: countAll });
+        expect((await store.signatures(i.id)).map((x) => [x.revision, x.name])).toEqual([[1, 'Omar Ahmed (again)']]);
+        expect(await store.earlierSignatures(i.id)).toHaveLength(2);
+      });
+
       it('lets only its inspector finish it', async () => {
         const i = await start();
         expect(await finish(i.id, 'fin-1', () => null, 'u-other')).toEqual({ kind: 'not-inspector', inspectorId: 'u-insp' });
@@ -213,7 +234,7 @@ export function inspectionStoreContract(name: string, setup: () => Promise<Inspe
 
       it('reopens a finished one without its signatures and off the client page; hands one in progress to a new inspector', async () => {
         const i = await start();
-        expect(await store.reopen(i.id)).toBe(false);
+        expect(await store.reopen(i.id, 'u-boss', t('2026-10-27T09:59:00Z'))).toBe(false);
         expect(await store.takeOver(i.id, 'u-boss')).toBe(true);
         expect((await store.findInspection(i.id))!.inspectorId).toBe('u-boss');
         expect(await write(i.id, 'c', '2026-10-27T08:10:00Z')).toMatchObject({ kind: 'not-inspector' });
@@ -222,7 +243,7 @@ export function inspectionStoreContract(name: string, setup: () => Promise<Inspe
         expect(await store.takeOver(i.id, 'u-insp')).toBe(false);
         expect(await store.setClientVisible(i.id, true)).toBe(true);
 
-        expect(await store.reopen(i.id)).toBe(true);
+        expect(await store.reopen(i.id, 'u-boss', t('2026-10-27T10:00:00Z'))).toBe(true);
         const back = (await store.findInspection(i.id))!;
         expect(back).toMatchObject({ status: 'IN_PROGRESS', finishedAt: null, finishId: null, clientVisible: false, clientVisibleProjectId: null });
         expect(await store.signatures(i.id)).toEqual([]);

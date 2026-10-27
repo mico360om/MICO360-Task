@@ -4,7 +4,7 @@ import { imageDimensions } from '../../lib/image-dimensions';
 import type { CreateAuditData } from '../audit/audit-repository';
 import type { RecordTaskActivity } from '../activity/task-activity';
 import { idsOf, parseFormInput } from './inspection-form-input';
-import { clientInspection, type ClientInspection } from './inspection-client-copy';
+import { clientInspection, clientInspectionSummary, type ClientInspection, type ClientInspectionSummary } from './inspection-client-copy';
 import {
   allowedSignatures,
   effectiveResult,
@@ -14,6 +14,7 @@ import {
   parseReading,
   readingText,
   requiredSignatures,
+  SIGNATURE_LABEL,
   summarize,
   type FormItem,
   type FormStructure,
@@ -24,6 +25,7 @@ import type { AnswerRecord, AnswerWrite, Counts, InspectionRecord, InspectionSto
 import {
   answerView,
   byRole,
+  earlierRevisionsOf,
   countsOf,
   formView,
   listItem,
@@ -310,14 +312,15 @@ export function createInspectionService(deps: InspectionServiceDeps) {
   }
 
   async function detail(actor: Actor, r: InspectionRecord, extra: { offer?: boolean } = {}): Promise<InspectionDetail> {
-    const [answers, signatures, followUps, project, manage] = await Promise.all([
+    const [answers, signatures, earlier, followUps, project, manage] = await Promise.all([
       store.answers(r.id),
       store.signatures(r.id),
+      store.earlierSignatures(r.id),
       store.followUps(r.id),
       ports.project(r.projectId),
       ports.canManageProject(actor.id, actor.roles, r.projectId),
     ]);
-    const names = await ports.userNames([...new Set([r.inspectorId, r.startedById])]);
+    const names = await ports.userNames([...new Set([r.inspectorId, r.startedById, ...(r.reopenedById ? [r.reopenedById] : [])])]);
     const followTaskIds = followUps.map((x) => x.taskId).filter((t): t is string => !!t);
     const taskIds = [...new Set([...followTaskIds, ...(r.taskId ? [r.taskId] : [])])];
     const tasks = await tasksFor(actor, r.projectId, taskIds);
@@ -331,7 +334,8 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       canReopen: !inProgress && manage && !readOnly,
       canTakeOver: inProgress && manage && !mine && !readOnly,
       canDelete: (manage || (inProgress && mine)) && !readOnly,
-      canShowToClient: !inProgress && manage,
+      // On an archived project a report can only be taken off the client page, not put on it.
+      canShowToClient: !inProgress && manage && (!readOnly || r.clientVisible),
       canMakeFollowUps: !readOnly,
     };
     const base = listItem(r, names, attached && !attached.deleted && !attached.hidden ? { id: r.taskId!, key: attached.key, title: attached.title, done: attached.done } : null, answers);
@@ -350,6 +354,9 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         return { itemId: x.itemId, task: x.taskId && t ? { id: x.taskId, key: t.key, title: t.title, deleted: t.deleted, done: t.done } : null, pending: x.taskId === null };
       }),
       revision: r.revision,
+      projectArchived: project?.status === 'ARCHIVED',
+      reopened: r.reopenedAt && r.reopenedById ? { at: r.reopenedAt.toISOString(), by: personOf(r.reopenedById, names) } : null,
+      earlierRevisions: earlierRevisionsOf(earlier),
       permissions,
       signatureRoles: signatureRolesOf(r.structure, requiredSignatures(r.structure)),
       ...(extra.offer ? { taskOffer: await taskOffer(actor, r) } : {}),
@@ -568,7 +575,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       await mustManage(actor, r.projectId);
       await writableProject(r.projectId);
       const signatures = await store.signatures(r.id);
-      if (!(await store.reopen(r.id))) throw new ConflictError('Only a finished inspection can be reopened.', 'INSPECTION_NOT_FINISHED');
+      if (!(await store.reopen(r.id, actor.id, now()))) throw new ConflictError('Only a finished inspection can be reopened.', 'INSPECTION_NOT_FINISHED');
       await audit(actor, 'inspections', 'inspection.reopened', r.id, {
         projectId: r.projectId,
         wasShownToClient: r.clientVisible,
@@ -689,10 +696,9 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       return { clientVisible: visible };
     },
 
-    /** The client page's inspections: finished, marked, still this project's. */
-    async clientInspections(projectId: string, timeZone = 'Asia/Muscat'): Promise<ClientInspection[]> {
-      const rows = await store.clientInspections(projectId);
-      return Promise.all(rows.map(async (r) => clientInspection(r, await store.answers(r.id), await store.signatures(r.id), timeZone)));
+    /** The client page's list: finished, marked, still this project's — one read, from the stored counts. */
+    async clientInspectionSummaries(projectId: string, timeZone = 'Asia/Muscat'): Promise<ClientInspectionSummary[]> {
+      return (await store.clientInspections(projectId)).map((r) => clientInspectionSummary(r, timeZone));
     },
 
     async clientInspectionOf(projectId: string, id: string, timeZone = 'Asia/Muscat'): Promise<ClientInspection | null> {
@@ -704,9 +710,15 @@ export function createInspectionService(deps: InspectionServiceDeps) {
     async reportOf(actor: Actor, id: string, timeZone = 'Asia/Muscat') {
       const r = await viewable(actor, id);
       if (r.status !== 'FINISHED') throw notFinished();
-      const [answers, signatures, followUps, project] = await Promise.all([store.answers(r.id), store.signatures(r.id), store.followUps(r.id), ports.project(r.projectId)]);
+      const [answers, signatures, earlier, followUps, project] = await Promise.all([
+        store.answers(r.id),
+        store.signatures(r.id),
+        store.earlierSignatures(r.id),
+        store.followUps(r.id),
+        ports.project(r.projectId),
+      ]);
       if (!project) throw new NotFoundError('Project not found.');
-      const names = await ports.userNames([r.inspectorId]);
+      const names = await ports.userNames([r.inspectorId, ...(r.reopenedById ? [r.reopenedById] : [])]);
       const taskIds = [...new Set([...followUps.map((x) => x.taskId).filter((t): t is string => !!t), ...(r.taskId ? [r.taskId] : [])])];
       const tasks = await tasksFor(actor, r.projectId, taskIds);
       const shown = (taskId: string | null) => {
@@ -724,6 +736,8 @@ export function createInspectionService(deps: InspectionServiceDeps) {
           finishedAt: r.finishedAt?.toISOString() ?? null,
           task: attached ? `${attached.key} · ${attached.title}` : null,
           followUps: r.structure.sections.map((s) => s.items.map((i) => followUpKeys.get(i.id) ?? null)),
+          reopenedBy: r.reopenedById ? personOf(r.reopenedById, names).name : null,
+          earlierRevisions: earlierRevisionsOf(earlier).map((e) => ({ number: e.number, reopenedAt: e.reopenedAt, signatures: e.signatures.map((x) => ({ role: SIGNATURE_LABEL[x.role], name: x.name, signedAt: x.signedAt })) })),
         },
         counts: countsOf(r, answers),
       };

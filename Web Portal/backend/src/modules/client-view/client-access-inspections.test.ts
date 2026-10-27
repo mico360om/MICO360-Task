@@ -18,9 +18,12 @@ const report = (id: string, title: string): ClientInspection => ({
   counts: { total: 2, passed: 1, failed: 1, na: 0 },
   result: '1 failed',
   sections: [{ title: 'Deck', items: [{ label: 'Guard rails fitted', kind: 'CHECK', result: 'Fail', reading: null, limits: null, note: 'One rail loose' }, { label: 'Pressure', kind: 'READING', result: 'Pass', reading: '120.5 psi', limits: '0–150 psi', note: null }] }],
-  signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: null, typed: true }],
+  signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 12:30', image: null, typed: true }],
   unsigned: ['Client'],
+  revisionNumber: 1,
+  reopenedOn: null,
 });
+const summary = (x: ClientInspection) => ({ id: x.id, title: x.title, date: x.date, place: x.place, result: x.result, counts: x.counts, revisionNumber: x.revisionNumber, reopenedOn: x.reopenedOn });
 
 let svc: ClientAccessService;
 let invitations: { params: ClientInvitationParams }[];
@@ -51,7 +54,7 @@ beforeEach(() => {
     timeZone: 'Asia/Muscat',
     runInBackground: (task) => void pending.push(task()),
     inspections: {
-      list: async (projectId) => shown[projectId] ?? [],
+      list: async (projectId) => (shown[projectId] ?? []).map(summary),
       one: async (projectId, id) => (shown[projectId] ?? []).find((x) => x.id === id) ?? null,
     },
   });
@@ -67,11 +70,19 @@ async function signedIn() {
 }
 
 describe('inspections on the client page', () => {
-  it('lists the project’s shown reports, with their signatures, and nothing of another project', async () => {
+  it('lists the project’s shown reports as summaries, and nothing of another project', async () => {
     const { link, session } = await signedIn();
     const view = await svc.view(link, session);
-    expect(view.inspections).toEqual([report('i-shown', 'Rig daily check')]);
+    expect(view.inspections).toEqual([summary(report('i-shown', 'Rig daily check'))]);
     expect(JSON.stringify(view)).not.toContain('Other project');
+    expect(JSON.stringify(view)).not.toContain('Ivan Inspector');
+  });
+
+  it('gives one report’s details and signatures when it is opened, only a shown one of this project', async () => {
+    const { link, session } = await signedIn();
+    expect(await svc.inspection(link, session, 'i-shown')).toEqual(report('i-shown', 'Rig daily check'));
+    for (const id of ['i-other', 'nope', '']) await expect(svc.inspection(link, session, id)).rejects.toMatchObject({ status: 404 });
+    await expect(svc.inspection(link, () => null, 'i-shown')).rejects.toBeInstanceOf(ClientSignInRequiredError);
   });
 
   it('gives the PDF of a shown report: the client copy, no staff extras', async () => {

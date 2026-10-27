@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { as, FORM_BODY, makeFixture, PEOPLE, pngDataUrl, type Fixture } from './inspection-service.fixture';
 
 const { admin, owner, manager, inspector, member, outsider } = PEOPLE;
@@ -413,7 +413,7 @@ describe('Show to client: finished inspections only, by those who run the projec
     const s = await finished();
     const p = await f.service.clientPreview(as(owner), s.insp.id);
     expect(p.inspection).toMatchObject({ id: s.insp.id, title: 'Rig daily check', place: 'Rig 3, north deck', counts: { passed: 1, failed: 2, na: 0, total: 3 }, result: '2 failed' });
-    expect(p.inspection.signatures).toEqual([{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: expect.stringMatching(/^data:image\/png/), typed: false }]);
+    expect(p.inspection.signatures).toEqual([{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 12:30', image: expect.stringMatching(/^data:image\/png/), typed: false }]);
     expect(p.inspection.unsigned).toEqual(['Client']);
     const text = JSON.stringify(p.inspection);
     for (const internal of ['Olivia', 'u-ivan', 'u-olivia', 'formId', 'inspectorId', 'followUp', 'RIG-']) expect(text, internal).not.toContain(internal);
@@ -439,9 +439,9 @@ describe('Show to client: finished inspections only, by those who run the projec
     const shown = await finished();
     await finished();
     await f.service.setClientVisible(as(owner), shown.insp.id, true);
-    const list = await f.service.clientInspections('P1');
+    const list = await f.service.clientInspectionSummaries('P1');
     expect(list.map((x) => x.id)).toEqual([shown.insp.id]);
-    expect(await f.service.clientInspections('P2')).toEqual([]);
+    expect(await f.service.clientInspectionSummaries('P2')).toEqual([]);
     expect(await f.service.clientInspectionOf('P2', shown.insp.id)).toBeNull();
     expect(await f.service.clientInspectionOf('P1', shown.insp.id)).toMatchObject({ id: shown.insp.id });
   });
@@ -547,5 +547,69 @@ describe('drawn signatures the picture library can’t read', () => {
     expect((await f.service.get(as(inspector), s.insp.id)).status).toBe('IN_PROGRESS');
     f.cleanMode.value = 'unavailable';
     await expect(f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id))).resolves.toMatchObject({ status: 'FINISHED', signatures: [{ method: 'DRAWN' }] });
+  });
+});
+
+describe('revisions: a reopened report says so', () => {
+  it('shows the revision, when and by whom it was reopened, and the earlier signed revision (staff); the client copy says only which revision and when', async () => {
+    const s = await started();
+    await answeredAll(s);
+    await f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id));
+    f.now.at = new Date('2026-10-27T10:00:00Z');
+    await f.service.reopen(as(manager), s.insp.id);
+    f.now.at = new Date('2026-10-27T10:30:00Z');
+    const done = await f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id, { finishId: 'fin-2', signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'TYPED', signedAt: '2026-10-27T10:20:00Z' }] }));
+    expect(done).toMatchObject({ revision: 1, reopened: { at: '2026-10-27T10:00:00.000Z', by: { id: manager, name: 'Mona Manager' } } });
+    expect(done.earlierRevisions).toEqual([
+      { number: 1, reopenedAt: '2026-10-27T10:00:00.000Z', signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'DRAWN', signedAt: '2026-10-27T08:30:00.000Z' }] },
+    ]);
+    const client = await f.service.clientPreview(as(owner), s.insp.id, 'Asia/Muscat');
+    expect(client.inspection).toMatchObject({ revisionNumber: 2, reopenedOn: '2026-10-27' });
+    expect(JSON.stringify(client.inspection)).not.toContain('Mona');
+    const report = await f.service.reportOf(as(member), s.insp.id, 'Asia/Muscat');
+    expect(report.report).toMatchObject({ revisionNumber: 2, reopenedOn: '2026-10-27' });
+    expect(report.staff).toMatchObject({ reopenedBy: 'Mona Manager', earlierRevisions: [{ number: 1, reopenedAt: '2026-10-27T10:00:00.000Z', signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z' }] }] });
+  });
+
+  it('a report never reopened says nothing about revisions', async () => {
+    const s = await started();
+    await answeredAll(s);
+    const done = await f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id));
+    expect(done).toMatchObject({ revision: 0, reopened: null, earlierRevisions: [] });
+    expect((await f.service.clientPreview(as(owner), s.insp.id)).inspection).toMatchObject({ revisionNumber: 1, reopenedOn: null });
+  });
+});
+
+describe('the client page lists summaries', () => {
+  it('from the stored counts alone (one read, whatever the number of reports), the details one by one', async () => {
+    const s = await started();
+    await answeredAll(s);
+    await f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id));
+    await f.service.setClientVisible(as(owner), s.insp.id, true);
+    const answers = vi.spyOn(f.store, 'answers');
+    const signatures = vi.spyOn(f.store, 'signatures');
+    const list = await f.service.clientInspectionSummaries('P1', 'Asia/Muscat');
+    expect(list).toEqual([{ id: s.insp.id, title: 'Rig daily check', date: '2026-10-27', place: 'Rig 3, north deck', result: '1 failed', counts: { total: 3, passed: 2, failed: 1, na: 0 }, revisionNumber: 1, reopenedOn: null }]);
+    expect(answers).not.toHaveBeenCalled();
+    expect(signatures).not.toHaveBeenCalled();
+    expect(await f.service.clientInspectionOf('P1', s.insp.id)).toMatchObject({ id: s.insp.id, signatures: [{ name: 'Ivan Inspector' }] });
+    expect(await f.service.clientInspectionSummaries('P2')).toEqual([]);
+  });
+});
+
+describe('Show to client on an archived project', () => {
+  it('can no longer be turned on (the reason is known), only off', async () => {
+    const s = await started();
+    await answeredAll(s);
+    await f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id));
+    f.projects.get('P1')!.status = 'ARCHIVED';
+    const d = await f.service.get(as(owner), s.insp.id);
+    expect(d).toMatchObject({ projectArchived: true, permissions: { canShowToClient: false } });
+    await rejects(f.service.setClientVisible(as(owner), s.insp.id, true), 409, 'PROJECT_ARCHIVED');
+    f.projects.get('P1')!.status = 'ACTIVE';
+    await f.service.setClientVisible(as(owner), s.insp.id, true);
+    f.projects.get('P1')!.status = 'ARCHIVED';
+    expect((await f.service.get(as(owner), s.insp.id)).permissions.canShowToClient).toBe(true);
+    await expect(f.service.setClientVisible(as(owner), s.insp.id, false)).resolves.toEqual({ clientVisible: false });
   });
 });

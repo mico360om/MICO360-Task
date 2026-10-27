@@ -73,6 +73,25 @@ export interface FollowUpView {
   moved?: boolean;
 }
 
+export interface EarlierRevision {
+  /** The revision as people count them (the first signing is 1). */
+  number: number;
+  /** When a reopen took these signatures off. */
+  reopenedAt: string;
+  signatures: Array<{ role: SignatureRole; name: string; method: 'DRAWN' | 'TYPED'; signedAt: string }>;
+}
+
+/** Earlier revisions' signatures grouped by revision, oldest first. */
+export function earlierRevisionsOf(rows: Array<{ revision: number; role: SignatureRole; name: string; method: 'DRAWN' | 'TYPED'; signedAt: Date; supersededAt: Date }>): EarlierRevision[] {
+  const by = new Map<number, EarlierRevision>();
+  for (const r of rows) {
+    const e = by.get(r.revision) ?? { number: r.revision + 1, reopenedAt: r.supersededAt.toISOString(), signatures: [] };
+    e.signatures.push({ role: r.role, name: r.name, method: r.method, signedAt: r.signedAt.toISOString() });
+    by.set(r.revision, e);
+  }
+  return [...by.values()].sort((a, b) => a.number - b.number).map((e) => ({ ...e, signatures: [...e.signatures].sort(byRole) }));
+}
+
 export interface InspectionPermissions {
   canAnswer: boolean;
   canFinish: boolean;
@@ -97,6 +116,12 @@ export interface InspectionDetail extends InspectionListItem {
   signatureRoles: { allowed: SignatureRole[]; required: SignatureRole[] };
   /** Goes up with each reopen: a finish sends the revision its signers saw. */
   revision: number;
+  /** Its project is archived: read-only (a report shown to the client can still be taken off). */
+  projectArchived: boolean;
+  /** The last reopen (null: never reopened). */
+  reopened: { at: string; by: Person } | null;
+  /** Earlier signed revisions (a reopen took their signatures off), oldest first; numbered from 1. */
+  earlierRevisions: EarlierRevision[];
   /** After finishing: the attached task, offered to be marked done (null when there is none, or it is done). */
   taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
 }
