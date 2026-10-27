@@ -39,6 +39,8 @@ const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => stri
         ? [...(v as string[])].sort(byChipOrder).map((x) => STATUS_LABEL.get(x) ?? x).join(', ') || 'None'
         : null,
   },
+  { key: 'weeklySummary.enabled', label: 'Weekly management summary', format: (v) => (typeof v === 'boolean' ? (v ? 'On' : 'Off') : null) },
+  { key: 'company.weekStart', label: 'Company week starts on', format: (v) => WEEK_START_LABEL[v as number] ?? null },
   {
     key: 'meetings.workingHours',
     label: 'Meeting hours',
@@ -50,6 +52,14 @@ const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => stri
     },
   },
 ];
+/** The company week (the Management page's weeks and the weekly summary's day). */
+const WEEK_STARTS: { value: 0 | 1 | 6; label: string }[] = [
+  { value: 6, label: 'Saturday' },
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+];
+const WEEK_START_LABEL: Record<number, string> = { 0: 'Sunday', 1: 'Monday', 6: 'Saturday' };
+
 /** Belt and braces: never show a key that looks secret, even if it were ever added above. */
 const SECRET_KEY = /(^ai\.)|secret|token|password|api[-_.]?key|credential|private/i;
 
@@ -89,6 +99,10 @@ export function SystemSettingsPage() {
 
   const enabled = byKey.has('carryForward.enabled') ? Boolean(byKey.get('carryForward.enabled')) : true;
   const statuses = Array.isArray(byKey.get('carryForward.statuses')) ? (byKey.get('carryForward.statuses') as string[]) : DEFAULT_STATUSES;
+  // The weekly management summary is on, and the company week starts on Sunday, until an administrator changes them.
+  const weeklyOn = byKey.get('weeklySummary.enabled') !== false;
+  const storedWeekStart = byKey.get('company.weekStart');
+  const weekStart = storedWeekStart === 1 || storedWeekStart === 6 ? storedWeekStart : 0;
 
   const [ranMsg, setRanMsg] = useState<string | null>(null);
 
@@ -98,8 +112,9 @@ export function SystemSettingsPage() {
     onSuccess: () => {
       setSaveError(null);
       void qc.invalidateQueries({ queryKey: ['system-settings'] });
-      // The Workload page reads the daily limit and the working hours.
+      // The Workload page reads the daily limit and the working hours; the Management page the week start too.
       void qc.invalidateQueries({ queryKey: ['workload'] });
+      void qc.invalidateQueries({ queryKey: ['management'] });
     },
     onError: () => setSaveError('Couldn’t save the setting. Please try again.'),
   });
@@ -197,6 +212,39 @@ export function SystemSettingsPage() {
               {shown.hidden} other setting{shown.hidden === 1 ? ' is' : 's are'} managed on {shown.hidden === 1 ? 'its' : 'their'} own page (for example AI Management) and {shown.hidden === 1 ? 'isn’t' : 'aren’t'} shown here.
             </p>
           ) : null}
+        </section>
+
+        {/* The weekly management summary email, and the company week it follows. */}
+        <section className="card p-5" aria-labelledby="weekly-summary-admin-heading">
+          <h2 id="weekly-summary-admin-heading" className="eyebrow mb-1">Weekly management summary</h2>
+          <p className="mb-4 text-sm text-ink-2">
+            On the first working morning of each week, everyone who can see the Management page gets a short summary of their projects. Each
+            person can also turn theirs off in Settings.
+          </p>
+          <div className="flex items-center justify-between border-t border-line py-3">
+            <div>
+              <div className="text-sm font-medium text-ink">Send the weekly summary</div>
+              <div className="text-xs text-ink-2">For everyone, at each person’s daily email time.</div>
+            </div>
+            <Toggle on={weeklyOn} onChange={() => setMut.mutate({ key: 'weeklySummary.enabled', value: !weeklyOn })} label="Weekly management summary" />
+          </div>
+          <fieldset className="border-t border-line pt-3">
+            <legend className="mb-2 text-sm font-medium text-ink">The company week starts on</legend>
+            <div className="flex flex-wrap gap-2">
+              {WEEK_STARTS.map((w) => (
+                <label
+                  key={w.value}
+                  className={`flex cursor-pointer select-none items-center rounded-full border px-3 py-1.5 text-sm transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] ${
+                    weekStart === w.value ? 'border-brand bg-brand/10 text-brand' : 'border-line bg-surface text-ink-2 hover:border-brand/30'
+                  }`}
+                >
+                  <input type="radio" name="company-week-start" className="sr-only" checked={weekStart === w.value} onChange={() => setMut.mutate({ key: 'company.weekStart', value: w.value })} />
+                  {w.label}
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-ink-2">The Management page’s weeks and the weekly summary’s day follow it.</p>
+          </fieldset>
         </section>
 
         {/* The working hours meeting free times are suggested in. */}

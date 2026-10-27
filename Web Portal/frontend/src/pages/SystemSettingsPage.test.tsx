@@ -114,3 +114,24 @@ describe('SystemSettingsPage', () => {
     expect(chip.className).toMatch(/has-\[:focus-visible\]:outline/);
   });
 });
+
+describe('SystemSettingsPage — weekly management summary', () => {
+  it('turns the weekly summary off for everyone and sets the company week start', async () => {
+    renderPage();
+    const toggle = await screen.findByRole('switch', { name: 'Weekly management summary' });
+    expect(screen.getByRole('heading', { name: 'Weekly management summary' })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-checked', 'true'); // on until an administrator turns it off
+    await userEvent.click(toggle);
+    await waitFor(() => expect(calls).toContainEqual({ url: expect.stringContaining('/system-settings/weeklySummary.enabled'), method: 'PUT' }));
+    expect(screen.getByRole('radio', { name: 'Sunday' })).toBeChecked();
+    await userEvent.click(screen.getByRole('radio', { name: 'Monday' }));
+    await waitFor(() => expect(calls).toContainEqual({ url: expect.stringContaining('/system-settings/company.weekStart'), method: 'PUT' }));
+  });
+
+  it('lists them among the current settings, in words', () => {
+    expect(displayableSettings([{ key: 'weeklySummary.enabled', value: false }, { key: 'company.weekStart', value: 1 }]).rows).toEqual([
+      { key: 'weeklySummary.enabled', label: 'Weekly management summary', value: 'Off' },
+      { key: 'company.weekStart', label: 'Company week starts on', value: 'Monday' },
+    ]);
+  });
+});

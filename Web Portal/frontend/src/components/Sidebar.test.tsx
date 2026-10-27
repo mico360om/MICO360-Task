@@ -3,10 +3,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import { Sidebar } from './Sidebar';
 
-function renderSidebar(isAdmin: boolean, path = '/', chatUnread = 0) {
+function renderSidebar(isAdmin: boolean, path = '/', chatUnread = 0, canLead = false) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Sidebar isAdmin={isAdmin} chatUnread={chatUnread} />
+      <Sidebar isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} />
     </MemoryRouter>,
   );
 }
@@ -55,6 +55,26 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /system settings/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /audit logs/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /reports/i })).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar: the Management page', () => {
+  it('is shown to administrators and to the people who run a project, before Reports', () => {
+    renderSidebar(true);
+    const names = screen.getAllByRole('link').map((l) => l.textContent);
+    expect(names[names.indexOf('Management') + 1]).toBe('Reports');
+    expect(screen.getByRole('link', { name: 'Management' })).toHaveAttribute('href', '/management');
+  });
+
+  it('a project runner (not an admin) sees it, without Reports', () => {
+    renderSidebar(false, '/', 0, true);
+    expect(screen.getByRole('link', { name: 'Management' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /reports/i })).not.toBeInTheDocument();
+  });
+
+  it('anyone else has no link', () => {
+    renderSidebar(false);
+    expect(screen.queryByRole('link', { name: 'Management' })).not.toBeInTheDocument();
   });
 });
 

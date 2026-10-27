@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { Sidebar, SidebarBody } from './Sidebar';
+import { useManagementAccess } from '../lib/useManagementAccess';
 import { ChatSoundNotifier } from './ChatSoundNotifier';
 import { GlobalSearch } from './GlobalSearch';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
@@ -26,7 +27,7 @@ import { menuButtonLabel } from '../lib/chat-badge';
  * and the Close button dismiss it, and focus then returns to the menu button. (It used to be a
  * plain panel: Escape did nothing and Tab went to the page hidden behind it.)
  */
-function MobileMenu({ isAdmin, chatUnread, onClose }: { isAdmin: boolean; chatUnread: number; onClose: () => void }) {
+function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolean; canLead: boolean; chatUnread: number; onClose: () => void }) {
   const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
   return (
     <div className="fixed inset-0 z-50 md:hidden">
@@ -50,7 +51,7 @@ function MobileMenu({ isAdmin, chatUnread, onClose }: { isAdmin: boolean; chatUn
           </svg>
         </button>
         <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
-          <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} onNavigate={onClose} />
+          <SidebarBody isAdmin={isAdmin} canLead={canLead} chatUnread={chatUnread} onNavigate={onClose} />
         </nav>
       </div>
     </div>
@@ -65,6 +66,8 @@ export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Unread chat messages, live: on the sidebar's Chat icon and, on a phone, the menu button.
   const chatUnread = useChatBadge();
+  // The Management page's link: administrators and the people who run a project.
+  const { allowed: canLead } = useManagementAccess();
   // Global task drawer: any page/command can open a task by putting ?task=<id> in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const openTaskId = searchParams.get('task');
@@ -116,10 +119,10 @@ export function AppShell() {
         Skip to content
       </a>
 
-      <Sidebar isAdmin={isAdmin()} chatUnread={chatUnread} />
+      <Sidebar isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} />
 
       {/* Mobile drawer */}
-      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} chatUnread={chatUnread} onClose={() => setDrawerOpen(false)} /> : null}
+      {drawerOpen ? <MobileMenu isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} onClose={() => setDrawerOpen(false)} /> : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="keyboard-unstick glass sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 sm:px-6">

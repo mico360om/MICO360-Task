@@ -9,6 +9,7 @@ import { columnsApi } from '../api/columns';
 import { tasksApi } from '../api/tasks';
 import { assigneesApi } from '../api/assignees';
 import { matchNavCommands, parseCommand } from '../lib/commands';
+import { useManagementAccess } from '../lib/useManagementAccess';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
 import { useShortcut, useShortcutSettings } from './shortcuts/ShortcutProvider';
@@ -36,6 +37,8 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const [, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  // The Management page is offered to administrators and the people who run a project.
+  const { allowed: canLead } = useManagementAccess();
   const myId = useAuthStore((s) => s.user?.id);
   // Where a person in the results leads: yourself → your profile; an admin → the user list; anyone
   // else → a conversation with that person (the user list is admin-only, so it was a dead end).
@@ -155,7 +158,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // ── Assemble the flat item list (command → navigation → search results) ──
   const items = useMemo<PaletteItem[]>(() => {
     const out: PaletteItem[] = [];
-    const parsed = raw ? parseCommand(raw, isAdmin) : null;
+    const parsed = raw ? parseCommand(raw, isAdmin, canLead) : null;
     if (parsed) {
       if (parsed.type === 'navigate') out.push({ id: 'cmd-nav', group: 'Command', primary: `Go to ${parsed.label}`, run: () => { navigate(parsed.to); reset(); } });
       else if (parsed.type === 'open') out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${parsed.taskKey}`, run: async () => { const t = await resolveTask(parsed.taskKey); if (t) openTask(t.id); else setStatus(`No task ${parsed.taskKey}.`); } });
@@ -164,7 +167,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       else if (parsed.type === 'move') out.push({ id: 'cmd-move', group: 'Command', primary: `Move ${parsed.taskKey} to ${parsed.status}`, run: () => moveCmd(parsed.taskKey, parsed.status) });
     }
 
-    for (const nav of matchNavCommands(raw, isAdmin).slice(0, raw ? 6 : 5)) {
+    for (const nav of matchNavCommands(raw, isAdmin, canLead).slice(0, raw ? 6 : 5)) {
       out.push({ id: `nav-${nav.id}`, group: 'Go to', primary: nav.label, run: () => { navigate(nav.to); reset(); } });
     }
 
@@ -188,7 +191,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       out.push({ id: 'ask-mico-ai', group: 'MICO AI', primary: <>Ask MICO AI: “<span dir="auto">{raw}</span>”</>, run: () => { navigate('/mico-ai', { state: { ask: raw } }); reset(); } });
     }
     return out;
-  }, [raw, isAdmin, myId, q.data, searchEnabled, projectsQ.data]);
+  }, [raw, isAdmin, canLead, myId, q.data, searchEnabled, projectsQ.data]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 

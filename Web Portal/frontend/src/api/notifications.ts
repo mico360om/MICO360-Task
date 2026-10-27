@@ -23,6 +23,8 @@ export interface NotificationPreferences {
   reminderLeadMinutes?: number;
   /** The two morning emails and when they go (HH:MM, the person's time zone); the server fills in the defaults. */
   dailyEmails?: DailyEmailPrefs;
+  /** The weekly management summary (for the people who can see the Management page); the server says true unless turned off. */
+  weeklySummary?: boolean;
 }
 
 export interface DailyEmailPrefs {
