@@ -188,7 +188,8 @@ export function TemplateStart({
                               {filler && role ? <span className="text-ink-3"> · {role.name}</span> : null}
                             </>
                           ) : (
-                            <span title={ownerName ? `The project’s owner, ${ownerName}` : 'The project’s owner'}>Owner{ownerName ? ` (${ownerName})` : ''}</span>
+                            // The usual default: the project's owner — or nobody, for a project without one.
+                            ownerId ? <span title="The project’s owner">Owner{ownerName ? ` (${ownerName})` : ''}</span> : <span>Unassigned</span>
                           )}
                         </span>
                         {t.checklistCount ? <span className="flex-none text-xs text-ink-3">{count(t.checklistCount, 'checklist item')}</span> : null}

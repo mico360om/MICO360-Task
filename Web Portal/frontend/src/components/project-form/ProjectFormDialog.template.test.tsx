@@ -172,6 +172,16 @@ describe('New project from a template', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('a project without an owner leaves the unfilled tasks unassigned, and the preview says so', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'admin', email: 'a@x', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    renderForm({ templateId: 'pt1' });
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    const list = await within(dialog).findByRole('list', { name: 'Tasks it will create' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
+    await userEvent.click(screen.getByRole('option', { name: 'No owner' }));
+    await waitFor(() => expect(within(list).getAllByRole('listitem')[2]).toHaveTextContent('Unassigned'));
+  });
+
   it('editing a project offers no template', async () => {
     renderForm({ project: { id: 'p1', code: 'MICO', name: 'MICO', description: null, clientName: null, status: 'ACTIVE', priority: 'NORMAL', color: '#8B1E1E', imageUrl: null, ownerId: null, startDate: null, targetDate: null, createdAt: '', updatedAt: '' } });
     const dialog = screen.getByRole('dialog', { name: 'Edit project' });
