@@ -197,7 +197,12 @@ describe('scheduled inspections on the Inspections tab', () => {
     show();
     const due = await screen.findByRole('region', { name: 'Due checks (3)' });
     const rows = within(due).getAllByRole('listitem');
-    expect(rows.map((r) => r.textContent)).toEqual([expect.stringMatching(/2 days late/), expect.stringMatching(/Due today/), expect.stringMatching(/Due Mon 2 Nov/)]);
+    expect(rows.map((r) => r.textContent)).toEqual([expect.stringMatching(/2 days late/), expect.stringMatching(/Due today/), expect.stringMatching(/Mon 2 Nov/)]);
+    // Grouped: late, due today, and upcoming (a check made ahead of its day isn't due yet).
+    expect(within(within(due).getByRole('list', { name: 'Late' })).getAllByRole('listitem')).toEqual([rows[0]]);
+    expect(within(within(due).getByRole('list', { name: 'Due today' })).getAllByRole('listitem')).toEqual([rows[1]]);
+    expect(within(within(due).getByRole('list', { name: 'Upcoming' })).getAllByRole('listitem')).toEqual([rows[2]]);
+    expect(rows[2]).not.toHaveTextContent(/Due Mon/);
     expect(within(rows[0]!).getByText('2 days late').className).toMatch(/text-danger/);
     expect(within(rows[1]!).getByText('الحفار ٣')).toHaveAttribute('dir', 'auto');
     expect(rows[1]).toHaveTextContent('Sara Al Balushi is doing it');

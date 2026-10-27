@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultScheduleName, dueText, firstCheckDay, lateText, presetOf, presetRule, scheduleSentence } from './inspection-schedule';
+import { defaultScheduleName, dueText, upcomingText, firstCheckDay, lateText, presetOf, presetRule, scheduleSentence } from './inspection-schedule';
 
 const SUN_THU = [0, 1, 2, 3, 4];
 
@@ -71,5 +71,10 @@ describe('how a due check’s day reads', () => {
     expect(dueText('2026-10-29', '2026-10-28')).toBe('Due tomorrow');
     expect(dueText('2026-11-02', '2026-10-28')).toBe('Due Mon 2 Nov');
     expect(dueText(null, '2026-10-28')).toBe('No due date');
+  });
+  it('an upcoming check (not due yet) reads as its day', () => {
+    expect(upcomingText('2026-10-29', '2026-10-28')).toBe('Tomorrow');
+    expect(upcomingText('2026-11-02', '2026-10-28')).toBe('Mon 2 Nov');
+    expect(upcomingText(null, '2026-10-28')).toBe('No due date');
   });
 });

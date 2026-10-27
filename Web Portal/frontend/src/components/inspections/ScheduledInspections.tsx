@@ -7,7 +7,7 @@ import { tasksApi } from '../../api/tasks';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { todayKey } from '../../lib/due-date';
 import { invalidateTaskQueries } from '../../lib/task-cache';
-import { dueText, lateText, shortDay } from '../../lib/inspection-schedule';
+import { dueText, lateText, shortDay, upcomingText } from '../../lib/inspection-schedule';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -106,7 +106,7 @@ function CheckRow({ c, today, canStart, onOpenTask, onStart, starting }: { c: Du
             {late ? (
               <span className="inline-flex items-center gap-1 rounded-md bg-danger-soft px-1.5 py-0.5 font-semibold text-danger">{lateText(c.daysLate)}</span>
             ) : (
-              <span className={c.dueDate === today ? 'font-semibold text-ink' : 'text-ink-2'}>{dueText(c.dueDate, today)}</span>
+              <span className={c.dueDate === today ? 'font-semibold text-ink' : 'text-ink-2'}>{c.dueDate === today ? dueText(c.dueDate, today) : upcomingText(c.dueDate, today)}</span>
             )}
             <span className="text-ink-2">
               <Inspectors people={c.assignees} />
@@ -136,6 +136,21 @@ function CheckRow({ c, today, canStart, onOpenTask, onStart, starting }: { c: Du
         </div>
       </div>
     </li>
+  );
+}
+
+/** A group of the due checks list, named for a screen reader and on screen. */
+function CheckGroup({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <div className="mt-3 first:mt-0">
+      <h3 id={id} className="mb-1.5 text-xs font-semibold text-ink-2">
+        {label}
+      </h3>
+      <ul aria-labelledby={id} className="flex flex-col gap-2">
+        {children}
+      </ul>
+    </div>
   );
 }
 
@@ -170,13 +185,22 @@ export function DueChecksSection({ projectId, canStart, onOpenTask }: { projectI
         </p>
       ) : null}
       {q.data && !checks.length ? <p className="text-sm text-ink-2">No checks are due. Scheduled checks appear here on their day.</p> : null}
-      {checks.length ? (
-        <ul className="flex flex-col gap-2">
-          {checks.map((c) => (
-            <CheckRow key={c.taskId} c={c} today={today} canStart={canStart} onOpenTask={onOpenTask} onStart={(x) => startM.mutate(x)} starting={startM.isPending && startM.variables?.taskId === c.taskId} />
-          ))}
-        </ul>
-      ) : null}
+      {/* Late, due today, then upcoming: a check made ahead of its day (a schedule starting later) isn't due yet. */}
+      {(
+        [
+          ['Late', checks.filter((c) => c.state === 'LATE')],
+          ['Due today', checks.filter((c) => c.state !== 'LATE' && c.dueDate === today)],
+          ['Upcoming', checks.filter((c) => c.state !== 'LATE' && c.dueDate !== today)],
+        ] as const
+      ).map(([label, group]) =>
+        group.length ? (
+          <CheckGroup key={label} label={label}>
+            {group.map((c) => (
+              <CheckRow key={c.taskId} c={c} today={today} canStart={canStart} onOpenTask={onOpenTask} onStart={(x) => startM.mutate(x)} starting={startM.isPending && startM.variables?.taskId === c.taskId} />
+            ))}
+          </CheckGroup>
+        ) : null,
+      )}
       {q.data && q.data.total > checks.length ? <p className="mt-2 text-xs text-ink-2">Showing the first {checks.length} of {q.data.total}.</p> : null}
     </Section>
   );

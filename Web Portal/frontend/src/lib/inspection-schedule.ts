@@ -134,3 +134,9 @@ export function dueText(dueDate: string | null, today: string): string {
   if (dueDate === shift(today, 1)) return 'Due tomorrow';
   return `Due ${shortDay(dueDate)}`;
 }
+
+/** An upcoming check (not due yet): "Tomorrow", "Mon 2 Nov", or "No due date". */
+export function upcomingText(dueDate: string | null, today: string): string {
+  if (!dueDate) return 'No due date';
+  return dueDate === shift(today, 1) ? 'Tomorrow' : shortDay(dueDate);
+}
