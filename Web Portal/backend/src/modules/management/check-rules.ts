@@ -9,27 +9,19 @@
  * - **missing** (late, open): not done and `isOverdue(due, tz, now)`;
  * - **closed without a report**: done, with no finished inspection linked to the task.
  *
- * At integration with the scheduled-inspections branch this is the one place to point at its
- * shared module (inspections/inspection-checks.ts) instead.
+ * The state rules themselves live in inspections/inspection-checks.ts (the scheduled-inspections
+ * module); this file only adds the Management page's period counting on top of them.
  */
-import { completedOnTime, dueDayKey, isOverdue } from '../../lib/due-date';
-import { isTaskDone } from '../tasks/task-status';
+import { dueDayKey, completedOnTime } from '../../lib/due-date';
+import { checkState, type CheckState, type CheckTask } from '../inspections/inspection-checks';
 
-export type CheckState = 'DUE' | 'LATE' | 'DONE' | 'DONE_LATE';
+export { checkState, type CheckState, type CheckTask };
 
-export interface CheckTask {
+/** A check as the Management page reads it: the task's dates and whether a finished inspection is linked. */
+export interface CheckRow {
   dueDate: Date | null;
   completedAt: Date | null;
   columnCategory: string | null;
-}
-
-export function checkState(t: CheckTask, timeZone: string, now: Date): CheckState {
-  if (isTaskDone(t)) return completedOnTime(t.dueDate, t.completedAt, timeZone) === false ? 'DONE_LATE' : 'DONE';
-  return isOverdue(t.dueDate, timeZone, now) ? 'LATE' : 'DUE';
-}
-
-/** A check as the Management page reads it: the task's dates and whether a finished inspection is linked. */
-export interface CheckRow extends CheckTask {
   id: string;
   projectId: string;
   /** A finished (not deleted) inspection is linked to the task. */
