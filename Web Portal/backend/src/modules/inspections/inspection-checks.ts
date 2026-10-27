@@ -24,8 +24,8 @@ import { isTaskDone } from '../tasks/task-status';
  * - daysLate(task, timeZone, now?) → whole days: an open check's days past its due day, a done
  *   check's days from its due day to the day it was finished (0 when on time or undated)
  * - closedWithoutReport(task, hasFinishedInspection) → boolean
- * - compareOpenChecks(timeZone) → a sort comparator: late first (latest-overdue first), then
- *   due today, then upcoming by due day, then undated
+ * - compareOpenChecks(timeZone) → a sort comparator by due day, earliest first: the late ones come first
+ *   (the most overdue first), then due today, then upcoming by due day, then undated
  */
 
 export type CheckState = 'DUE' | 'LATE' | 'DONE' | 'DONE_LATE';
