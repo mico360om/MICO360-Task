@@ -90,8 +90,9 @@ function DoneBar({ pct }: { pct: number }) {
 
 /**
  * Project health: every project's mark (a word and a dot) with its reasons, % done, late tasks, the
- * next milestone, missing checks and the last activity — worst first. A table on wide screens, cards
- * below them (a phone, a tablet, a narrow window beside the menu). Every count opens the list behind it.
+ * next milestone, missing checks and the last activity — worst first. A table on wide screens (1280 and
+ * up, where all eight columns fit beside the menu), cards below that (a phone, a tablet, a laptop, a
+ * narrow window). Every count opens the list behind it.
  */
 export function HealthSection({
   rows,
@@ -162,7 +163,7 @@ export function HealthSection({
         />
       ) : (
         <>
-          <div className="hidden overflow-x-auto lg:block">
+          <div className="hidden overflow-x-auto xl:block">
             <table className="w-full text-sm">
               <caption className="sr-only">Project health, {SORTS.find((s) => s.value === sort)!.label.toLowerCase()}</caption>
               <thead>
@@ -187,13 +188,13 @@ export function HealthSection({
                     <td className="max-w-[12rem] px-2 py-2"><Milestone row={r} onOpen={onOpen} onOpenTask={onOpenTask} /></td>
                     <td className="px-2 py-1.5 text-center">{missing(r)}</td>
                     <td className="whitespace-nowrap px-2 py-2.5 text-ink-2">{idleText(r.lastActivityAt, today, timeZone)}</td>
-                    <td className="min-w-[12rem] px-2 py-2.5"><Reasons row={r} onOpen={onOpen} /></td>
+                    <td className="min-w-[10rem] px-2 py-2.5"><Reasons row={r} onOpen={onOpen} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:hidden" aria-label="Projects">
+          <ul className="grid gap-3 sm:grid-cols-2 xl:hidden" aria-label="Projects">
             {shown.map((r) => (
               <li key={r.id} className="min-w-0 rounded-xl border border-line p-3">
                 <div className="flex items-start justify-between gap-2">
