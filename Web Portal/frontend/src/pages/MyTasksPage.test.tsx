@@ -253,4 +253,23 @@ describe('MyTasksPage: moving the selected tasks to another project', () => {
     expect(screen.queryByRole('dialog', { name: 'Move 2 tasks to another project' })).not.toBeInTheDocument();
     expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
   });
+
+  it('marks a check (a task that carries an inspection form) in the list and on cards', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/tasks/mine')
+      ? json({ data: [
+        { id: 't1', key: 'RIG-1', title: 'Daily rig check', description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', inspectionFormId: 'f1' },
+        { id: 't2', key: 'RIG-2', title: 'Order parts', description: null, projectId: 'p1', columnId: 'c1', position: 1, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' },
+      ] })
+      : json({ data: [] }))));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findAllByText('Daily rig check');
+    expect(screen.getAllByText('Inspection').length).toBeGreaterThan(0);
+    for (const chip of screen.getAllByText('Inspection')) expect(chip.closest('[data-task-key]')?.getAttribute('data-task-key')).toBe('RIG-1');
+  });
 });

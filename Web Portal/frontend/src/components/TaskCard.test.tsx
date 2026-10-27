@@ -119,4 +119,12 @@ describe('TaskCard on a board of several projects', () => {
     render(<TaskCard task={task} />);
     expect(screen.queryByTestId('card-project')).not.toBeInTheDocument();
   });
+
+  it('marks a task that carries an inspection form, in words (not an icon alone)', () => {
+    const { unmount } = render(<TaskCard task={{ ...task, inspection: true }} />);
+    expect(screen.getByText('Inspection')).toBeInTheDocument();
+    unmount();
+    render(<TaskCard task={task} />);
+    expect(screen.queryByText('Inspection')).not.toBeInTheDocument();
+  });
 });

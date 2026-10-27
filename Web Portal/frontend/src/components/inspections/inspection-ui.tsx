@@ -140,3 +140,22 @@ export function followUpNotice(report: Array<{ itemId: string; status: 'created'
           : 'not made, it no longer fails';
   return `Follow-up tasks: ${sorted.map((r) => `${label(r.itemId)}: ${what(r)}.`).join(' ')}`;
 }
+
+/**
+ * The "Inspection" mark on a task that carries an inspection form (a check), wherever task cards and
+ * rows show their marks: a word with a small clipboard, never the icon alone.
+ */
+export function InspectionChip({ size = 'xs' }: { size?: 'xs' | 'sm' }) {
+  return (
+    <span
+      title="Carried out with an inspection form"
+      className={`inline-flex flex-none items-center gap-1 rounded-md bg-brand/10 font-semibold text-brand ${size === 'xs' ? 'px-1 py-0.5 text-[11px]' : 'px-1.5 py-0.5 text-xs'}`}
+    >
+      <svg viewBox="0 0 24 24" width={size === 'xs' ? 11 : 12} height={size === 'xs' ? 11 : 12} fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <path d="M9 4V3h6v1M9 12l2 2 4-4" />
+      </svg>
+      Inspection
+    </span>
+  );
+}

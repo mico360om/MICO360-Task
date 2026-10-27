@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { TaskInspections } from './TaskInspections';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -22,13 +22,19 @@ const item = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 let data: unknown;
+let posts: Array<{ url: string; body: unknown }>;
 
 beforeEach(() => {
   data = { attached: [item('a')], followUpOf: null };
+  posts = [];
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string) => {
+    vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url).replace(/^.*\/api\/v1/, '');
+      if (init?.method === 'POST') {
+        posts.push({ url: u, body: JSON.parse(String(init.body)) });
+        return json({ data: { ...item('new', { status: 'IN_PROGRESS' }), structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, answers: [] } }, 201);
+      }
       if (u === '/tasks/t1/inspections') return json({ data });
       if (u === '/inspection-forms') return json({ data: { forms: [], canCreate: false } });
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
@@ -77,5 +83,58 @@ describe('inspections on a task’s panel', () => {
     const { container } = show({ canStart: false });
     await new Promise((r) => setTimeout(r, 30));
     expect(container).toBeEmptyDOMElement();
+  });
+
+  describe('a task that carries a form (a check)', () => {
+    const form = { id: 'f1', title: 'Rig daily check', deleted: false };
+    const showCheck = (props: Partial<Parameters<typeof TaskInspections>[0]> = {}) =>
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter initialEntries={['/tasks']}>
+            <Routes>
+              <Route path="/tasks" element={<TaskInspections taskId="t1" projectId="p1" task={{ id: 't1', key: 'RIG-1', title: 'Daily rig check' }} canStart form={form} place="Rig 3" {...props} />} />
+              <Route path="/inspections/:id" element={<p>Opened inspection</p>} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    it('names its form, and Start inspection starts it with the form, place and task filled in', async () => {
+      data = { attached: [], followUpOf: null };
+      showCheck();
+      const section = await screen.findByRole('region', { name: 'Inspections' });
+      expect(within(section).getByText('Rig daily check')).toBeInTheDocument();
+      expect(within(section).queryByRole('button', { name: 'Start an inspection for this task' })).toBeNull();
+      await userEvent.click(within(section).getByRole('button', { name: 'Start inspection' }));
+      await screen.findByText('Opened inspection');
+      expect(posts).toEqual([{ url: '/projects/p1/inspections', body: { formId: 'f1', taskId: 't1', place: 'Rig 3' } }]);
+    });
+
+    it('Continue inspection while one is in progress', async () => {
+      data = { attached: [item('i2', { status: 'IN_PROGRESS', finishedAt: null, result: '1 of 3 answered' })], followUpOf: null };
+      showCheck();
+      expect(await screen.findByRole('link', { name: 'Continue inspection' })).toHaveAttribute('href', '/inspections/i2');
+      expect(screen.queryByRole('button', { name: 'Start inspection' })).toBeNull();
+    });
+
+    it('View report once it is finished', async () => {
+      data = { attached: [item('i3')], followUpOf: null };
+      showCheck();
+      expect(await screen.findByRole('link', { name: 'View report' })).toHaveAttribute('href', '/inspections/i3');
+    });
+
+    it('a deleted form: says the check can still be done', async () => {
+      data = { attached: [], followUpOf: null };
+      showCheck({ form: { ...form, deleted: true } });
+      expect(await screen.findByText('Form deleted — this check can still be done.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Start inspection' })).toBeInTheDocument();
+    });
+
+    it('on an archived project nothing can be started', async () => {
+      data = { attached: [], followUpOf: null };
+      showCheck({ canStart: false });
+      await screen.findByRole('region', { name: 'Inspections' });
+      expect(screen.queryByRole('button', { name: 'Start inspection' })).toBeNull();
+    });
   });
 });

@@ -5,6 +5,7 @@ import { PriorityBadge, type Priority } from './ui/PriorityBadge';
 import { isOverdue } from '../lib/due-date';
 import { formatDueDay } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
+import { InspectionChip } from './inspections/inspection-ui';
 
 export interface TaskCardTask {
   key: string;
@@ -24,6 +25,8 @@ export interface TaskCardTask {
   milestone?: boolean;
   /** Shown on the project's client page (staff see a small mark). */
   clientVisible?: boolean;
+  /** Carries an inspection form (a check): opening it starts the checklist. */
+  inspection?: boolean;
   /** True when the task is finished (DONE column or completed) — a finished task is never overdue. */
   done?: boolean;
   /** Its project, on a board showing several projects (the All projects board). */
@@ -120,7 +123,10 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
       ) : null}
 
       <div className={`flex items-center justify-between gap-2 ${menuSpace && !task.project ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
-        <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
+          {task.inspection ? <InspectionChip /> : null}
+        </span>
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (
             <span className="inline-flex items-center gap-1 rounded bg-danger-soft px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-danger">

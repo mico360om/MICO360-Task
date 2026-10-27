@@ -669,4 +669,12 @@ describe('TaskDrawer — the meeting a task was created from', () => {
     show({ ...task, meetingId: 'm1', meeting: null });
     expect(screen.queryByText(/meeting/i)).toBeNull();
   });
+
+  it('marks a task that carries an inspection form in its header', () => {
+    const { unmount } = render(<TaskDrawer task={{ ...task, inspectionFormId: 'f1' }} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    expect(within(screen.getByTestId('task-header')).getByText('Inspection')).toBeInTheDocument();
+    unmount();
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    expect(within(screen.getByTestId('task-header')).queryByText('Inspection')).toBeNull();
+  });
 });

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
 import { ClientEyeIcon, MilestoneIcon } from './TaskCard';
+import { InspectionChip } from './inspections/inspection-ui';
 import { Toggle } from './ui/Toggle';
 import { ProjectAvatar, type ProjectLook } from './ProjectAvatar';
 import { recurrenceSummary } from '../lib/recurrence-summary';
@@ -286,6 +287,7 @@ export function TaskDrawer({
                 Milestone
               </span>
             ) : null}
+            {task.inspectionFormId ? <InspectionChip size="sm" /> : null}
             {task.clientVisible ? (
               <span className="inline-flex items-center gap-1 rounded-md bg-info-soft px-1.5 py-0.5 text-xs font-semibold text-info" title="Shown on the project’s client page">
                 <ClientEyeIcon size={12} />

@@ -28,6 +28,7 @@ import { bulkMoveAvailability, bulkMovedText, movedText } from '../lib/task-move
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
+import { InspectionChip } from '../components/inspections/inspection-ui';
 import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
 import { projectOption } from '../components/project-option';
 import { useCurrentProject } from '../components/CurrentProject';
@@ -478,6 +479,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
     // The title button opens the task; its ::after covers the card, so a click anywhere works, while
     // the select checkbox sits above it as a separate control (never one control inside another).
     <div
+      data-task-key={t.key}
       className={`card card-hover group relative flex flex-col gap-2.5 p-3.5 focus-within:border-brand/40 ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : ''}`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -495,6 +497,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
       <div className="flex items-center gap-2">
         <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
         <StatusPill category={e.cat} />
+        {t.inspectionFormId ? <InspectionChip /> : null}
       </div>
       <button
         type="button"
@@ -527,6 +530,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
   const m = statusMeta(e.cat);
   return (
     <div
+      data-task-key={t.key}
       className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
     >
       {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
@@ -545,10 +549,16 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
         {/* Phones have no room for the columns: the same facts go on a second line. */}
         <div data-phone-meta className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
           <span className="font-mono text-[11px] text-ink-3">{t.key}</span>
+          {t.inspectionFormId ? <InspectionChip /> : null}
           <PriorityBadge priority={t.priority} />
           <DueLabel e={e} className="text-xs tabular-nums" />
         </div>
       </div>
+      {t.inspectionFormId ? (
+        <span className="hidden flex-none sm:inline-flex">
+          <InspectionChip />
+        </span>
+      ) : null}
       {e.project ? (
         <span className="hidden w-36 flex-none items-center gap-1.5 xl:flex">
           <ProjectAvatar project={e.project} size="xs" />

@@ -203,4 +203,13 @@ describe('targetColumnFor (where a card dropped on a status lands in its own pro
     expect(targetColumnFor(cols, 'BLOCKED')).toBeNull(); // switched off
     expect(targetColumnFor(cols, 'DONE')).toBeNull();
   });
+
+  it('marks the cards of tasks that carry an inspection form (the combined board too)', () => {
+    const marked = tasks.map((t, i) => ({ ...t, inspectionFormId: i === 0 ? 'f1' : null }));
+    expect(composeBoard(columns, marked)[0]!.tasks[0]!.inspection).toBe(true);
+    expect(composeBoard(columns, marked)[1]!.tasks[0]!.inspection).toBe(false);
+    const project = { id: 'p1', code: 'MICO', name: 'MICO', status: 'ACTIVE', color: '#8B1E1E', imageUrl: null } as unknown as ApiProject;
+    const all = composeAllProjectsBoard(marked.map((t) => ({ ...t, columnCategory: t.columnId === 'c1' ? 'TODO' : 'DONE' })), [project]);
+    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.inspection).toBe(true);
+  });
 });

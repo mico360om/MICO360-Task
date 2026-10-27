@@ -407,7 +407,14 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
             }
             inspections={
               projectId ? (
-                <TaskInspections taskId={taskId} projectId={projectId} task={{ id: taskId, key: taskQ.data!.key, title: taskQ.data!.title }} canStart={project?.status !== 'ARCHIVED'} />
+                <TaskInspections
+                  taskId={taskId}
+                  projectId={projectId}
+                  task={{ id: taskId, key: taskQ.data!.key, title: taskQ.data!.title }}
+                  canStart={project?.status !== 'ARCHIVED'}
+                  form={taskQ.data!.inspectionFormId ? (taskQ.data!.inspectionForm ?? null) : null}
+                  place={taskQ.data!.inspectionPlace ?? null}
+                />
               ) : undefined
             }
             onClose={onClose}
