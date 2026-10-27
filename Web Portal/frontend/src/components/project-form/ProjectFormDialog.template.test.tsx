@@ -12,7 +12,7 @@ const templates = [
 ];
 const plan = (start: string) => ({
   template: {
-    id: 'pt1', name: 'Rig inspection', description: null, updatedAt: '',
+    id: 'pt1', name: 'Rig inspection', description: null, updatedAt: '2026-10-20T08:00:00.000Z',
     columns: [{ name: 'Backlog', category: 'BACKLOG', color: '#948985' }, { name: 'To Do', category: 'TODO', color: '#3A6EA5' }, { name: 'Done', category: 'DONE', color: '#2E7D53' }],
     roles: [{ id: 'r-insp', name: 'Inspector' }, { id: 'r-lead', name: 'Site lead' }],
   },
@@ -100,7 +100,8 @@ describe('New project from a template', () => {
     // A long list scrolls in its box: it can be reached from the keyboard to scroll it.
     expect(list).toHaveAttribute('tabindex', '0');
     expect(rows[0]).toHaveTextContent('Kick-off');
-    expect(rows[0]).toHaveTextContent('Site lead');
+    // Its role nobody fills yet: it goes to the owner, as any new task.
+    expect(rows[0]).toHaveTextContent('Owner (Sara Said) · Site lead');
     expect(rows[2]).toHaveTextContent('No due date');
     expect(rows[2]).toHaveTextContent('Owner');
     expect(within(dialog).getByText(/3 tasks on a board of 3 columns/)).toBeInTheDocument();
@@ -127,7 +128,7 @@ describe('New project from a template', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const post = requests.find((r) => r.method === 'POST')!;
     expect(post.url).toMatch(/\/templates\/projects\/pt1\/projects$/);
-    expect(post.body).toMatchObject({ name: 'Rig 8', code: 'R8I', startDate: '2026-11-01', roles: { 'r-insp': 'u2' } });
+    expect(post.body).toMatchObject({ name: 'Rig 8', code: 'R8I', startDate: '2026-11-01', roles: { 'r-insp': 'u2' }, expectedUpdatedAt: '2026-10-20T08:00:00.000Z' });
     expect(requests.some((r) => r.method === 'POST' && /\/api\/v1\/projects$/.test(r.url))).toBe(false);
   });
 
@@ -147,6 +148,26 @@ describe('New project from a template', () => {
     await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig 9');
     await userEvent.click(within(dialog).getByRole('button', { name: /Create project/ }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('This template was changed while you were filling in the form');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a template changed after its preview was shown: says so, shows it as it is now, and keeps the form', async () => {
+    let planCalls = 0;
+    override = (u, method) => {
+      if (u.includes('/templates/projects/pt1/plan')) planCalls++;
+      return u.endsWith('/templates/projects/pt1/projects') && method === 'POST'
+        ? json({ error: { code: 'TEMPLATE_CHANGED', message: 'This template was changed while you were looking at it — check the preview again.' } }, 409)
+        : undefined;
+    };
+    const { onClose } = renderForm({ templateId: 'pt1' });
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    await within(dialog).findByRole('list', { name: 'Tasks it will create' });
+    const before = planCalls;
+    await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig 10');
+    await userEvent.click(within(dialog).getByRole('button', { name: /Create project/ }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('This template was changed while you were looking at it — check the preview again.');
+    await waitFor(() => expect(planCalls).toBeGreaterThan(before));
+    expect(within(dialog).getByLabelText(/^name/i)).toHaveValue('Rig 10');
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -180,6 +201,8 @@ describe('New project from a template', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
     await userEvent.click(screen.getByRole('option', { name: 'No owner' }));
     await waitFor(() => expect(within(list).getAllByRole('listitem')[2]).toHaveTextContent('Unassigned'));
+    // A role nobody fills, in a project without an owner: unassigned too.
+    expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent('Unassigned · Site lead');
   });
 
   it('editing a project offers no template', async () => {

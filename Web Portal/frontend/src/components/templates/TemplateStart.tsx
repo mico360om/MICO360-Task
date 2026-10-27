@@ -164,7 +164,6 @@ export function TemplateStart({
                   {current.tasks.map((t) => {
                     const role = t.roleId ? roles.find((r) => r.id === t.roleId) : undefined;
                     const filler = role ? nameOf(choice.roles[role.id]) : null;
-                    const who = filler ?? (role ? role.name : null);
                     return (
                       <li key={t.position} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line px-3 py-2 text-sm last:border-b-0 [content-visibility:auto] [contain-intrinsic-size:auto_44px]">
                         <span className="w-6 flex-none text-end text-xs tabular-nums text-ink-3">{t.position + 1}</span>
@@ -181,16 +180,16 @@ export function TemplateStart({
                           )}
                         </span>
                         <span className="flex-none text-xs text-ink-2">
-                          {who ? (
-                            <>
-                              <span className="sr-only">Done by </span>
-                              {filler ? <bdi className="font-medium text-ink">{filler}</bdi> : <span>{who}</span>}
-                              {filler && role ? <span className="text-ink-3"> · {role.name}</span> : null}
-                            </>
+                          <span className="sr-only">Done by </span>
+                          {filler ? (
+                            <bdi className="font-medium text-ink">{filler}</bdi>
+                          ) : ownerId ? (
+                            // Nobody picked (or no role): the usual default, the project's owner.
+                            <span title="The project’s owner">Owner{ownerName ? ` (${ownerName})` : ''}</span>
                           ) : (
-                            // The usual default: the project's owner — or nobody, for a project without one.
-                            ownerId ? <span title="The project’s owner">Owner{ownerName ? ` (${ownerName})` : ''}</span> : <span>Unassigned</span>
+                            <span>Unassigned</span>
                           )}
+                          {role ? <span className="text-ink-3"> · {role.name}</span> : null}
                         </span>
                         {t.checklistCount ? <span className="flex-none text-xs text-ink-3">{count(t.checklistCount, 'checklist item')}</span> : null}
                       </li>

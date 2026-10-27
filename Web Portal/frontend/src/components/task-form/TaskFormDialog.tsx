@@ -34,7 +34,7 @@ import { pastedFiles } from '../../lib/clipboard-files';
 import { isTypingTarget } from '../../lib/shortcuts';
 import { MilestoneIcon } from '../TaskCard';
 import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/templates';
-import { ChecklistField } from './ChecklistField';
+import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from './ChecklistField';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -71,7 +71,9 @@ interface Draft {
   assigneeIds: string[];
   milestone: boolean;
   /** A new task's checklist (a task template fills it in); an existing task's is edited in its panel. */
-  checklist: string[];
+  checklist: ChecklistRow[];
+  /** Checklist text typed in "Add an item" and not added yet: saved with the rest, and a change. */
+  checklistPending: string;
 }
 
 export const TITLE_MAX = 191;
@@ -149,8 +151,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           assigneeIds: [],
           milestone: !!task.isMilestone,
           checklist: [],
+          checklistPending: '',
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [] };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '' };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -206,7 +209,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     [templatesQ.data],
   );
   const [usedTemplate, setUsedTemplate] = useState<TaskTemplate | null>(null);
-  const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklist: [...t.checklist] });
+  const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklist: checklistRows(t.checklist), checklistPending: '' });
   function applyTemplate(id: string) {
     const t = taskTemplates.find((x) => x.id === id);
     if (!t) return;
@@ -362,7 +365,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
       ...(draft.milestone ? { isMilestone: true } : {}),
-      ...(draft.checklist.some((c) => c.trim()) ? { checklist: draft.checklist.map((c) => c.trim()).filter(Boolean) } : {}),
+      // With anything typed in "Add an item" and not added yet.
+      ...(checklistTexts(draft.checklist, draft.checklistPending).length ? { checklist: checklistTexts(draft.checklist, draft.checklistPending) } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
       ...(boardDate ? { boardDate } : {}),
@@ -612,7 +616,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
               {!editing ? (
                 <div>
                   <Label optional>Checklist</Label>
-                  <ChecklistField items={draft.checklist} onChange={(checklist) => set({ checklist })} disabled={saving || !!created} />
+                  <ChecklistField
+                    rows={draft.checklist}
+                    onChange={(checklist) => set({ checklist })}
+                    pending={draft.checklistPending}
+                    onPendingChange={(checklistPending) => set({ checklistPending })}
+                    disabled={saving || !!created}
+                  />
                 </div>
               ) : null}
 

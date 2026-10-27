@@ -452,7 +452,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
       ) : null}
       {savingTemplate && taskQ.data ? (
         <div onClick={(e) => e.stopPropagation()}>
-          <SaveTaskTemplateDialog taskId={taskQ.data.id} taskTitle={taskQ.data.title} checklistCount={checklistQ.data?.items?.length} onClose={() => setSavingTemplate(false)} />
+          <SaveTaskTemplateDialog taskId={taskQ.data.id} taskTitle={taskQ.data.title} checklistCount={checklistQ.data?.items?.length} hasDescription={!!taskQ.data.description?.trim()} onClose={() => setSavingTemplate(false)} />
         </div>
       ) : null}
       {toast ? (

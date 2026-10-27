@@ -14,17 +14,18 @@ import {
 } from '../../api/templates';
 import { ApiError } from '../../lib/api-client';
 import { STATUS_META, STATUS_ORDER } from '../../lib/taskStatus';
+import { stayOnEnter } from '../../lib/enter-key';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { PriorityBadge } from '../ui/PriorityBadge';
-import { ChecklistField } from '../task-form/ChecklistField';
+import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from '../task-form/ChecklistField';
 import { PRIORITIES, priorityLabel } from '../priority-option';
 import { count, TemplateGlyph } from './TemplateCard';
 
 /** What the server keeps (see the backend's TEMPLATE_LIMITS). */
-export const LIMITS = { columns: 20, roles: 30, tasks: 500, roleName: 80, title: 191, description: 20_000, minOffset: -365, maxOffset: 3650 };
+export const LIMITS = { columns: 20, roles: 30, tasks: 500, roleName: 80, title: 191, description: 20_000, minOffset: -365, maxOffset: 3650, checklistTotal: 5000 };
 
 /** The board a new project gets when nothing else is chosen (the backend's DEFAULT_COLUMNS). */
 export const DEFAULT_BOARD: TemplateColumn[] = [
@@ -36,20 +37,26 @@ export const DEFAULT_BOARD: TemplateColumn[] = [
 ];
 
 interface DraftTask {
-  /** This editor's own key for the row (React's list key). */
+  /** This editor's own key for the row (stable while it moves). */
   id: string;
   title: string;
   description: string;
   priority: Priority;
+  /** Kept as typed, even out of range (the form says so rather than changing it). */
   dueOffsetDays: number | null;
   roleKey: string | null;
-  checklist: string[];
+  checklist: ChecklistRow[];
+  /** Checklist text typed and not added yet: saved with the rest. */
+  checklistPending: string;
 }
 
-interface Draft {
+/** A board column with this editor's own (stable) key. */
+type DraftColumn = TemplateColumn & { key: string };
+
+export interface Draft {
   name: string;
   description: string;
-  columns: TemplateColumn[];
+  columns: DraftColumn[];
   /** `key`: an existing role's id (kept as it is), or a new one's own key. */
   roles: { key: string; name: string }[];
   tasks: DraftTask[];
@@ -57,23 +64,29 @@ interface Draft {
 
 let seq = 0;
 const newKey = (prefix: string) => `${prefix}-${++seq}-${Date.now().toString(36)}`;
+const columnsOf = (columns: TemplateColumn[]): DraftColumn[] => columns.map((c) => ({ ...c, key: newKey('col') }));
 
 const draftOf = (t?: ProjectTemplate | null): Draft =>
   t
     ? {
         name: t.name,
         description: t.description ?? '',
-        columns: t.columns.map((c) => ({ ...c })),
+        columns: columnsOf(t.columns),
         roles: t.roles.map((r) => ({ key: r.id, name: r.name })),
-        tasks: t.tasks.map((x) => ({ id: x.id, title: x.title, description: x.description ?? '', priority: x.priority, dueOffsetDays: x.dueOffsetDays, roleKey: x.roleId, checklist: [...x.checklist] })),
+        tasks: t.tasks.map((x) => ({ id: x.id, title: x.title, description: x.description ?? '', priority: x.priority, dueOffsetDays: x.dueOffsetDays, roleKey: x.roleId, checklist: checklistRows(x.checklist), checklistPending: '' })),
       }
-    : { name: '', description: '', columns: DEFAULT_BOARD.map((c) => ({ ...c })), roles: [], tasks: [] };
+    : { name: '', description: '', columns: columnsOf(DEFAULT_BOARD), roles: [], tasks: [] };
+
+const inRange = (n: number) => n >= LIMITS.minOffset && n <= LIMITS.maxOffset;
+const RANGE_HINT = `Use a number from −${Math.abs(LIMITS.minOffset)} to ${LIMITS.maxOffset}.`;
 
 /** Everything wrong with a draft, in plain words (empty when it can be saved). */
 export function draftProblems(d: Draft): string[] {
   const out: string[] = [];
   if (!d.name.trim()) out.push('Give the template a name.');
-  d.columns.forEach((c, i) => { if (!c.name.trim()) out.push(`Column ${i + 1} needs a name.`); });
+  d.columns.forEach((c, i) => {
+    if (!c.name.trim()) out.push(`Column ${i + 1} needs a name.`);
+  });
   if (!d.columns.some((c) => c.category !== 'DONE')) out.push('The board needs at least one column that isn’t Done, for the tasks to start in.');
   const seen = new Set<string>();
   d.roles.forEach((r, i) => {
@@ -82,11 +95,18 @@ export function draftProblems(d: Draft): string[] {
     else if (seen.has(n)) out.push(`Two roles are called “${r.name.trim()}”. Give each role its own name.`);
     seen.add(n);
   });
-  d.tasks.forEach((t, i) => { if (!t.title.trim()) out.push(`Task ${i + 1} needs a title.`); });
+  d.tasks.forEach((t, i) => {
+    if (!t.title.trim()) out.push(`Task ${i + 1} needs a title.`);
+    if (t.dueOffsetDays !== null && !inRange(t.dueOffsetDays)) {
+      out.push(`Task ${i + 1}: the due day must be from ${Math.abs(LIMITS.minOffset)} days before the start to ${LIMITS.maxOffset} days after it.`);
+    }
+  });
+  const items = d.tasks.reduce((n, t) => n + checklistTexts(t.checklist, t.checklistPending).length, 0);
+  if (items > LIMITS.checklistTotal) {
+    out.push(`A template holds at most ${LIMITS.checklistTotal.toLocaleString('en-US')} checklist items in all; this one has ${items.toLocaleString('en-US')}.`);
+  }
   return out;
 }
-
-const clampOffset = (n: number) => Math.max(LIMITS.minOffset, Math.min(LIMITS.maxOffset, Math.trunc(n)));
 
 function toInput(d: Draft): ProjectTemplateInput {
   const roleKeys = new Set(d.roles.map((r) => r.key));
@@ -99,9 +119,10 @@ function toInput(d: Draft): ProjectTemplateInput {
       title: t.title.trim(),
       description: t.description.trim() || null,
       priority: t.priority,
-      dueOffsetDays: t.dueOffsetDays === null ? null : clampOffset(t.dueOffsetDays),
+      dueOffsetDays: t.dueOffsetDays,
       roleKey: t.roleKey && roleKeys.has(t.roleKey) ? t.roleKey : null,
-      checklist: t.checklist.map((c) => c.trim()).filter(Boolean),
+      // With anything typed in "Add an item" and not added yet.
+      checklist: checklistTexts(t.checklist, t.checklistPending),
     })),
   };
 }
@@ -109,10 +130,11 @@ function toInput(d: Draft): ProjectTemplateInput {
 const reason = (err: unknown) => (err instanceof ApiError && err.message && !/^Request failed/.test(err.message) ? err.message : err instanceof TypeError ? 'The server couldn’t be reached.' : 'Please try again.');
 
 const field = 'w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20';
+// 36px: above the site's 32px touch rule (index.css, coarse pointers), as the meeting kit's buttons.
 const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent';
 const ARROW = {
-  up: <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6" /></svg>,
-  down: <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>,
+  up: <svg data-arrow="up" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6" /></svg>,
+  down: <svg data-arrow="down" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>,
   close: <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>,
 };
 
@@ -138,41 +160,57 @@ function Section({ title, aside, help, children, label }: { title: string; aside
   );
 }
 
+type Dir = 'up' | 'down';
+
 /**
  * Create or edit a project template: its name and description, its board, the roles its tasks can
  * name instead of a person, and its standard tasks — each with a title, priority, a due date in days
  * from the project's start (or none), who does it (a role, or the project's owner), a description and
  * a checklist. Tasks show as one line each and open to be edited, so a long template stays easy to
- * read. Saving replaces the template whole; a role kept here keeps its place in projects being made.
+ * read. Columns and tasks move with ↑/↓: focus stays on the moved row's button and the move is
+ * announced. Enter in a one-line box doesn't save (Ctrl+Enter does). Saving replaces the template
+ * whole; a role kept here keeps its place in projects being made.
  */
 export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templateId: string | null; onClose: () => void; onSaved?: (t: ProjectTemplate) => void }) {
   const qc = useQueryClient();
   const editing = templateId !== null;
   const loadQ = useQuery({ queryKey: ['templates', 'projects', templateId], queryFn: () => templatesApi(apiClient).getProject(templateId!), enabled: editing });
   const [initial, setInitial] = useState<Draft>(() => draftOf(null));
-  const [draft, setDraft] = useState<Draft>(() => draftOf(null));
+  const [draft, setDraft] = useState<Draft>(() => initial);
   const [loaded, setLoaded] = useState(!editing);
   const [open, setOpen] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [moved, setMoved] = useState('');
   const busy = useRef(false);
   const titleRefs = useRef(new Map<string, HTMLInputElement>());
   const focusTask = useRef<string | null>(null);
+  const moveButtons = useRef(new Map<string, HTMLButtonElement>());
+  const refocus = useRef<{ key: string; dir: Dir } | null>(null);
   const ids = { title: useId(), name: useId(), desc: useId() };
 
   useEffect(() => {
     if (!editing || loaded || !loadQ.data) return;
-    setInitial(draftOf(loadQ.data));
-    setDraft(draftOf(loadQ.data));
+    const d = draftOf(loadQ.data);
+    setInitial(d);
+    setDraft(d);
     setLoaded(true);
   }, [editing, loaded, loadQ.data]);
 
   useEffect(() => {
-    if (!focusTask.current) return;
-    titleRefs.current.get(focusTask.current)?.focus();
-    focusTask.current = null;
+    if (focusTask.current) {
+      titleRefs.current.get(focusTask.current)?.focus();
+      focusTask.current = null;
+    }
+    // After a move: the moved row's same button — or, now that it can't move further that way, the other one.
+    if (refocus.current) {
+      const { key, dir } = refocus.current;
+      refocus.current = null;
+      const same = moveButtons.current.get(`${key}:${dir}`);
+      (same && !same.disabled ? same : moveButtons.current.get(`${key}:${dir === 'up' ? 'down' : 'up'}`))?.focus();
+    }
   });
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
@@ -184,12 +222,35 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
   const dialogRef = useDialog(requestClose);
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
   const setTask = (id: string, patch: Partial<DraftTask>) => setDraft((d) => ({ ...d, tasks: d.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
-  const setColumn = (i: number, patch: Partial<TemplateColumn>) => setDraft((d) => ({ ...d, columns: d.columns.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
+  const setColumn = (key: string, patch: Partial<TemplateColumn>) => setDraft((d) => ({ ...d, columns: d.columns.map((c) => (c.key === key ? { ...c, ...patch } : c)) }));
   const roleName = (key: string | null) => (key ? draft.roles.find((r) => r.key === key)?.name.trim() || null : null);
+  const moveRef = (key: string, dir: Dir) => (el: HTMLButtonElement | null) => {
+    if (el) moveButtons.current.set(`${key}:${dir}`, el);
+    else moveButtons.current.delete(`${key}:${dir}`);
+  };
+  /** Say where it went (a polite live region; the same words twice still get said). */
+  const announce = (text: string) => setMoved((was) => (was === text ? `${text}\u00a0` : text));
+
+  function moveTask(i: number, dir: Dir) {
+    const to = dir === 'up' ? i - 1 : i + 1;
+    const t = draft.tasks[i]!;
+    if (to < 0 || to >= draft.tasks.length) return;
+    set({ tasks: move(draft.tasks, i, to) });
+    refocus.current = { key: t.id, dir };
+    announce(`Moved “${t.title.trim() || 'Untitled'}” to position ${to + 1} of ${draft.tasks.length}.`);
+  }
+  function moveColumn(i: number, dir: Dir) {
+    const to = dir === 'up' ? i - 1 : i + 1;
+    const c = draft.columns[i]!;
+    if (to < 0 || to >= draft.columns.length) return;
+    set({ columns: move(draft.columns, i, to) });
+    refocus.current = { key: c.key, dir };
+    announce(`Moved column “${c.name.trim() || 'Untitled'}” to position ${to + 1} of ${draft.columns.length}.`);
+  }
 
   function addTask() {
     const id = newKey('task');
-    setDraft((d) => ({ ...d, tasks: [...d.tasks, { id, title: '', description: '', priority: 'NORMAL', dueOffsetDays: null, roleKey: null, checklist: [] }] }));
+    setDraft((d) => ({ ...d, tasks: [...d.tasks, { id, title: '', description: '', priority: 'NORMAL', dueOffsetDays: null, roleKey: null, checklist: [], checklistPending: '' }] }));
     setOpen(id);
     focusTask.current = id;
   }
@@ -236,6 +297,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
             <h2 id={ids.title} className="flex-1 font-display text-xl font-bold text-ink">{heading}</h2>
             <button type="button" onClick={requestClose} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink">{ARROW.close}</button>
           </div>
+          <p data-testid="move-status" aria-live="polite" className="sr-only">{moved}</p>
 
           <form onSubmit={(e) => void submit(e)} noValidate className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
             <div className="keyboard-flow-body min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
@@ -257,7 +319,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                   <div className="grid gap-4">
                     <div>
                       <label htmlFor={ids.name} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">Name<span aria-hidden="true" className="text-danger">*</span></label>
-                      <input id={ids.name} value={draft.name} onChange={(e) => set({ name: e.target.value })} dir="auto" maxLength={LIMITS.title} aria-required="true" placeholder="e.g. Rig inspection" className={`${field} h-11`} />
+                      <input id={ids.name} value={draft.name} onChange={(e) => set({ name: e.target.value })} onKeyDown={stayOnEnter} dir="auto" maxLength={LIMITS.title} aria-required="true" placeholder="e.g. Rig inspection" className={`${field} h-11`} />
                     </div>
                     <div>
                       <label htmlFor={ids.desc} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">Description <span className="text-xs font-normal text-ink-2">(optional)</span></label>
@@ -268,29 +330,29 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                   <Section
                     title="Board"
                     label="Board columns"
-                    help="The columns a project made from this template starts with. Its tasks start in the first To Do column."
+                    help="The columns a project made from this template starts with, first to last. Its tasks start in the first To Do column."
                     aside={<span className="text-xs text-ink-3">{count(draft.columns.length, 'column')}</span>}
                   >
                     <ol className="flex flex-col gap-2">
                       {draft.columns.map((c, i) => (
-                        <li key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-line p-2 sm:flex-nowrap">
+                        <li key={c.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-line p-2 sm:flex-nowrap">
                           <label className="relative h-8 w-8 flex-none cursor-pointer overflow-hidden rounded-lg border border-line" style={{ background: c.color }} title="Colour">
-                            <input type="color" aria-label={`Column ${i + 1} colour`} value={/^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#948985'} onChange={(e) => setColumn(i, { color: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" />
+                            <input type="color" aria-label={`Column ${i + 1} colour`} value={/^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#948985'} onChange={(e) => setColumn(c.key, { color: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" />
                           </label>
-                          <input aria-label={`Column ${i + 1} name`} value={c.name} onChange={(e) => setColumn(i, { name: e.target.value })} dir="auto" maxLength={LIMITS.title} className={`${field} min-w-0 flex-1 basis-40`} />
-                          <select aria-label={`Column ${i + 1} stage`} value={c.category} onChange={(e) => setColumn(i, { category: e.target.value as ColumnCategory })} className={`${field} w-auto flex-none basis-36`}>
+                          <input aria-label={`Column ${i + 1} name`} value={c.name} onChange={(e) => setColumn(c.key, { name: e.target.value })} onKeyDown={stayOnEnter} dir="auto" maxLength={LIMITS.title} className={`${field} min-w-0 flex-1 basis-40`} />
+                          <select aria-label={`Column ${i + 1} stage`} value={c.category} onChange={(e) => setColumn(c.key, { category: e.target.value as ColumnCategory })} className={`${field} w-auto flex-none basis-36`}>
                             {STATUS_ORDER.map((cat) => <option key={cat} value={cat}>{STATUS_META[cat]!.label}</option>)}
                           </select>
                           <div className="ms-auto flex flex-none items-center">
-                            <button type="button" className={iconButton} disabled={i === 0} onClick={() => set({ columns: move(draft.columns, i, i - 1) })} aria-label={`Move column ${i + 1} left`}>{ARROW.up}</button>
-                            <button type="button" className={iconButton} disabled={i === draft.columns.length - 1} onClick={() => set({ columns: move(draft.columns, i, i + 1) })} aria-label={`Move column ${i + 1} right`}>{ARROW.down}</button>
-                            <button type="button" className={`${iconButton} hover:!bg-danger-soft hover:!text-danger`} disabled={draft.columns.length <= 1} onClick={() => set({ columns: draft.columns.filter((_, j) => j !== i) })} aria-label={`Remove column ${i + 1}: ${c.name}`}>{ARROW.close}</button>
+                            <button type="button" ref={moveRef(c.key, 'up')} className={iconButton} disabled={i === 0} onClick={() => moveColumn(i, 'up')} aria-label={`Move column ${i + 1} up`}>{ARROW.up}</button>
+                            <button type="button" ref={moveRef(c.key, 'down')} className={iconButton} disabled={i === draft.columns.length - 1} onClick={() => moveColumn(i, 'down')} aria-label={`Move column ${i + 1} down`}>{ARROW.down}</button>
+                            <button type="button" className={`${iconButton} hover:!bg-danger-soft hover:!text-danger`} disabled={draft.columns.length <= 1} onClick={() => set({ columns: draft.columns.filter((x) => x.key !== c.key) })} aria-label={`Remove column ${i + 1}: ${c.name}`}>{ARROW.close}</button>
                           </div>
                         </li>
                       ))}
                     </ol>
                     {draft.columns.length < LIMITS.columns ? (
-                      <button type="button" onClick={() => set({ columns: [...draft.columns, { name: '', category: 'TODO', color: '#3A6EA5' }] })} className="mt-2 inline-flex !min-h-[40px] items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-brand hover:bg-brand/10">
+                      <button type="button" onClick={() => set({ columns: [...draft.columns, { key: newKey('col'), name: '', category: 'TODO', color: '#3A6EA5' }] })} className="mt-2 inline-flex !min-h-[40px] items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-brand hover:bg-brand/10">
                         {TemplateGlyph.plus}Add a column
                       </button>
                     ) : null}
@@ -306,7 +368,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                       <ol className="grid gap-2 sm:grid-cols-2">
                         {draft.roles.map((r, i) => (
                           <li key={r.key} className="flex items-center gap-2">
-                            <input aria-label={`Role ${i + 1} name`} value={r.name} onChange={(e) => set({ roles: draft.roles.map((x) => (x.key === r.key ? { ...x, name: e.target.value } : x)) })} dir="auto" maxLength={LIMITS.roleName} placeholder="e.g. Inspector" className={`${field} min-w-0 flex-1`} />
+                            <input aria-label={`Role ${i + 1} name`} value={r.name} onChange={(e) => set({ roles: draft.roles.map((x) => (x.key === r.key ? { ...x, name: e.target.value } : x)) })} onKeyDown={stayOnEnter} dir="auto" maxLength={LIMITS.roleName} placeholder="e.g. Inspector" className={`${field} min-w-0 flex-1`} />
                             <button
                               type="button"
                               className={`${iconButton} hover:!bg-danger-soft hover:!text-danger`}
@@ -340,7 +402,8 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                           const n = i + 1;
                           const label = t.title.trim() || 'Untitled';
                           const expanded = open === t.id;
-                          const summary = [offsetShort(t.dueOffsetDays), roleName(t.roleKey), t.checklist.length ? count(t.checklist.length, 'checklist item') : null].filter(Boolean).join(' · ');
+                          const items = checklistTexts(t.checklist, t.checklistPending).length;
+                          const summary = [offsetShort(t.dueOffsetDays), roleName(t.roleKey), items ? count(items, 'checklist item') : null].filter(Boolean).join(' · ');
                           return (
                             <li key={t.id} className="p-2">
                               <div className="flex items-center gap-2">
@@ -357,12 +420,12 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                                   onClick={() => setOpen(expanded ? null : t.id)}
                                   aria-expanded={expanded}
                                   aria-label={`${expanded ? 'Close' : 'Edit'} task ${n}: ${label}`}
-                                  className="!min-h-[36px] flex-none rounded-lg border border-line px-2.5 text-xs font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+                                  className="h-9 flex-none rounded-lg border border-line px-2.5 text-xs font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
                                 >
                                   {expanded ? 'Done' : 'Edit'}
                                 </button>
-                                <button type="button" className={iconButton} disabled={i === 0} onClick={() => set({ tasks: move(draft.tasks, i, i - 1) })} aria-label={`Move task ${n} up`}>{ARROW.up}</button>
-                                <button type="button" className={iconButton} disabled={i === draft.tasks.length - 1} onClick={() => set({ tasks: move(draft.tasks, i, i + 1) })} aria-label={`Move task ${n} down`}>{ARROW.down}</button>
+                                <button type="button" ref={moveRef(t.id, 'up')} className={iconButton} disabled={i === 0} onClick={() => moveTask(i, 'up')} aria-label={`Move task ${n} up`}>{ARROW.up}</button>
+                                <button type="button" ref={moveRef(t.id, 'down')} className={iconButton} disabled={i === draft.tasks.length - 1} onClick={() => moveTask(i, 'down')} aria-label={`Move task ${n} down`}>{ARROW.down}</button>
                                 <button type="button" className={`${iconButton} hover:!bg-danger-soft hover:!text-danger`} onClick={() => set({ tasks: draft.tasks.filter((x) => x.id !== t.id) })} aria-label={`Remove task ${n}: ${label}`}>{ARROW.close}</button>
                               </div>
                               {expanded ? (
@@ -371,7 +434,10 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                                   task={t}
                                   roles={draft.roles}
                                   onChange={(patch) => setTask(t.id, patch)}
-                                  titleRef={(el) => { if (el) titleRefs.current.set(t.id, el); else titleRefs.current.delete(t.id); }}
+                                  titleRef={(el) => {
+                                    if (el) titleRefs.current.set(t.id, el);
+                                    else titleRefs.current.delete(t.id);
+                                  }}
                                 />
                               ) : null}
                             </li>
@@ -413,33 +479,53 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
   );
 }
 
+/** "−2" as typed (the minus sign too), else null. */
+const parseOffset = (raw: string): number | null => {
+  const t = raw.trim().replace(/^[−–]/, '-');
+  return /^-?\d{1,6}$/.test(t) ? Number(t) : null;
+};
+
 /** One template task opened for editing. */
 function TaskFields({ n, task, roles, onChange, titleRef }: { n: number; task: DraftTask; roles: { key: string; name: string }[]; onChange: (patch: Partial<DraftTask>) => void; titleRef: (el: HTMLInputElement | null) => void }) {
-  const ids = { title: useId(), priority: useId(), offset: useId(), offsetNote: useId(), role: useId(), desc: useId() };
+  const ids = { title: useId(), priority: useId(), offset: useId(), offsetNote: useId(), offsetErr: useId(), role: useId(), desc: useId() };
   const noDate = task.dueOffsetDays === null;
+  // The box keeps what is typed: "-" on its way to "-2" changes nothing yet (and never ticks "No due date").
+  const [raw, setRaw] = useState(noDate ? '' : String(task.dueOffsetDays));
+  // A change from outside the box (the "No due date" tick) shows the offset it now has.
+  useEffect(() => {
+    setRaw((r) => (parseOffset(r) === task.dueOffsetDays ? r : task.dueOffsetDays === null ? '' : String(task.dueOffsetDays)));
+  }, [task.dueOffsetDays]);
+  const outOfRange = task.dueOffsetDays !== null && !inRange(task.dueOffsetDays);
+
+  function typed(value: string) {
+    setRaw(value);
+    if (!value.trim()) return onChange({ dueOffsetDays: null });
+    const parsed = parseOffset(value);
+    if (parsed !== null) onChange({ dueOffsetDays: parsed });
+  }
+
   return (
     <fieldset role="group" aria-label={`Task ${n}`} className="mt-2 grid gap-3 rounded-xl bg-ground/60 p-3 sm:grid-cols-2">
       <div className="sm:col-span-2">
         <label htmlFor={ids.title} className="mb-1 block text-xs font-semibold text-ink">Title</label>
-        <input id={ids.title} ref={titleRef} value={task.title} onChange={(e) => onChange({ title: e.target.value })} dir="auto" maxLength={LIMITS.title} placeholder="What needs to be done?" className={field} />
+        <input id={ids.title} ref={titleRef} value={task.title} onChange={(e) => onChange({ title: e.target.value })} onKeyDown={stayOnEnter} dir="auto" maxLength={LIMITS.title} placeholder="What needs to be done?" className={field} />
       </div>
       <div>
         <span className="mb-1 block text-xs font-semibold text-ink">Due</span>
         <div className="flex flex-wrap items-center gap-2">
           <input
             id={ids.offset}
-            type="number"
+            type="text"
             inputMode="numeric"
-            min={LIMITS.minOffset}
-            max={LIMITS.maxOffset}
-            step={1}
+            autoComplete="off"
             aria-label="Days after the start"
-            aria-describedby={ids.offsetNote}
+            aria-invalid={outOfRange ? true : undefined}
+            aria-describedby={outOfRange ? `${ids.offsetErr} ${ids.offsetNote}` : ids.offsetNote}
             placeholder="—"
-            value={noDate ? '' : task.dueOffsetDays!}
-            // Typing a number gives the task a due date; emptying the box takes it away.
-            onChange={(e) => onChange({ dueOffsetDays: e.target.value === '' ? null : Math.trunc(Number(e.target.value)) || 0 })}
-            className={`${field} !w-24 flex-none tabular-nums`}
+            value={raw}
+            onChange={(e) => typed(e.target.value)}
+            onKeyDown={stayOnEnter}
+            className={`${field} !w-24 flex-none tabular-nums ${outOfRange ? '!border-danger focus:!ring-danger/20' : ''}`}
           />
           <span className="text-xs text-ink-2">days after the start</span>
           <label className="inline-flex min-h-[36px] cursor-pointer items-center gap-2 text-xs text-ink">
@@ -447,6 +533,7 @@ function TaskFields({ n, task, roles, onChange, titleRef }: { n: number; task: D
             No due date
           </label>
         </div>
+        {outOfRange ? <p id={ids.offsetErr} className="mt-1 text-xs font-medium text-danger">{RANGE_HINT}</p> : null}
         <p id={ids.offsetNote} className="mt-1 text-xs text-ink-3">{offsetLabel(task.dueOffsetDays)}{noDate ? '' : '. A negative number is before the start.'}</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 sm:gap-2">
@@ -470,7 +557,7 @@ function TaskFields({ n, task, roles, onChange, titleRef }: { n: number; task: D
       </div>
       <div className="sm:col-span-2">
         <span className="mb-1 block text-xs font-semibold text-ink">Checklist <span className="font-normal text-ink-2">(optional)</span></span>
-        <ChecklistField items={task.checklist} onChange={(checklist) => onChange({ checklist })} />
+        <ChecklistField rows={task.checklist} onChange={(checklist) => onChange({ checklist })} pending={task.checklistPending} onPendingChange={(checklistPending) => onChange({ checklistPending })} />
       </div>
     </fieldset>
   );

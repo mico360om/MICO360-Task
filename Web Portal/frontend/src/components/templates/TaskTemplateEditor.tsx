@@ -9,7 +9,8 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SearchableSelect } from '../ui/SearchableSelect';
-import { ChecklistField } from '../task-form/ChecklistField';
+import { ChecklistField, checklistRows, checklistTexts } from '../task-form/ChecklistField';
+import { stayOnEnter } from '../../lib/enter-key';
 import { priorityOptions } from '../priority-option';
 import { TemplateGlyph } from './TemplateCard';
 
@@ -25,7 +26,15 @@ const bad = 'border-danger focus:border-danger focus:ring-danger/20';
 export function TaskTemplateEditor({ template, onClose }: { template: TaskTemplate | null; onClose: () => void }) {
   const qc = useQueryClient();
   const editing = !!template;
-  const start = { name: template?.name ?? '', title: template?.title ?? '', description: template?.description ?? '', priority: (template?.priority ?? 'NORMAL') as Priority, checklist: [...(template?.checklist ?? [])] };
+  const [start] = useState(() => ({
+    name: template?.name ?? '',
+    title: template?.title ?? '',
+    description: template?.description ?? '',
+    priority: (template?.priority ?? 'NORMAL') as Priority,
+    checklist: checklistRows(template?.checklist ?? []),
+    // Checklist text typed and not added yet: saved with the rest, and a change.
+    checklistPending: '',
+  }));
   const [draft, setDraft] = useState(start);
   const [errors, setErrors] = useState<{ name?: string; title?: string }>({});
   const [banner, setBanner] = useState<string | null>(null);
@@ -55,7 +64,7 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
     setSaving(true);
     setBanner(null);
     try {
-      const input = { name: draft.name.trim(), title: draft.title.trim(), description: draft.description.trim() || null, priority: draft.priority, checklist: draft.checklist.map((c) => c.trim()).filter(Boolean) };
+      const input = { name: draft.name.trim(), title: draft.title.trim(), description: draft.description.trim() || null, priority: draft.priority, checklist: checklistTexts(draft.checklist, draft.checklistPending) };
       if (editing) await templatesApi(apiClient).updateTaskTemplate(template!.id, input);
       else await templatesApi(apiClient).createTaskTemplate(input);
       void qc.invalidateQueries({ queryKey: TASK_TEMPLATES_KEY });
@@ -91,12 +100,12 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
               {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
               <div>
                 <label htmlFor={ids.name} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">Template name<span aria-hidden="true" className="text-danger">*</span></label>
-                <input id={ids.name} ref={nameRef} value={draft.name} onChange={(e) => { set({ name: e.target.value }); setErrors((x) => ({ ...x, name: undefined })); }} dir="auto" maxLength={TITLE_MAX} aria-required="true" aria-invalid={errors.name ? true : undefined} aria-describedby={errors.name ? `${ids.name}-err` : ids.nameNote} placeholder="e.g. Weekly site check" className={`${field} ${errors.name ? bad : ok}`} />
+                <input id={ids.name} ref={nameRef} value={draft.name} onChange={(e) => { set({ name: e.target.value }); setErrors((x) => ({ ...x, name: undefined })); }} onKeyDown={stayOnEnter} dir="auto" maxLength={TITLE_MAX} aria-required="true" aria-invalid={errors.name ? true : undefined} aria-describedby={errors.name ? `${ids.name}-err` : ids.nameNote} placeholder="e.g. Weekly site check" className={`${field} ${errors.name ? bad : ok}`} />
                 {errors.name ? <p id={`${ids.name}-err`} className="mt-1 text-xs font-medium text-danger">{errors.name}</p> : <p id={ids.nameNote} className="mt-1 text-xs text-ink-2">How it is listed in the New task form.</p>}
               </div>
               <div>
                 <label htmlFor={ids.title} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">Task title<span aria-hidden="true" className="text-danger">*</span></label>
-                <input id={ids.title} ref={titleRef} value={draft.title} onChange={(e) => { set({ title: e.target.value }); setErrors((x) => ({ ...x, title: undefined })); }} dir="auto" maxLength={TITLE_MAX} aria-required="true" aria-invalid={errors.title ? true : undefined} aria-describedby={errors.title ? `${ids.title}-err` : undefined} className={`${field} ${errors.title ? bad : ok}`} />
+                <input id={ids.title} ref={titleRef} value={draft.title} onChange={(e) => { set({ title: e.target.value }); setErrors((x) => ({ ...x, title: undefined })); }} onKeyDown={stayOnEnter} dir="auto" maxLength={TITLE_MAX} aria-required="true" aria-invalid={errors.title ? true : undefined} aria-describedby={errors.title ? `${ids.title}-err` : undefined} className={`${field} ${errors.title ? bad : ok}`} />
                 {errors.title ? <p id={`${ids.title}-err`} className="mt-1 text-xs font-medium text-danger">{errors.title}</p> : null}
               </div>
               <div>
@@ -109,7 +118,7 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
               </div>
               <div>
                 <span className="mb-1.5 block text-sm font-semibold text-ink">Checklist <span className="text-xs font-normal text-ink-2">(optional)</span></span>
-                <ChecklistField items={draft.checklist} onChange={(checklist) => set({ checklist })} />
+                <ChecklistField rows={draft.checklist} onChange={(checklist) => set({ checklist })} pending={draft.checklistPending} onPendingChange={(checklistPending) => set({ checklistPending })} />
               </div>
             </div>
             <div className="flex flex-none items-center gap-2 border-t border-line bg-surface px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end">

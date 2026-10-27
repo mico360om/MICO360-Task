@@ -287,13 +287,22 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
           };
           // From a template: the project, its board, its tasks and its team in one request.
           created = template
-            ? await templatesApi(apiClient).createProject(template.id, { ...input, startDate: template.startDate, roles: template.roles })
+            ? await templatesApi(apiClient).createProject(template.id, {
+                ...input,
+                startDate: template.startDate,
+                roles: template.roles,
+                // The template as the preview showed it: a change since then is refused, not made unseen.
+                ...(planQ.data?.template.id === template.id && planQ.data.template.updatedAt ? { expectedUpdatedAt: planQ.data.template.updatedAt } : {}),
+              })
             : await projectsApi(apiClient).create(input);
         } catch (err) {
-          if (template && err instanceof ApiError && (err.status === 404 || (err.details as { code?: string } | undefined)?.code === 'TEMPLATE_CHANGED')) {
+          if (template && err instanceof ApiError && (err.status === 404 || err.code === 'TEMPLATE_CHANGED' || (err.details as { code?: string } | undefined)?.code === 'TEMPLATE_CHANGED')) {
             // The template was deleted or changed meanwhile: show it as it is now.
-            setTemplate((t) => (t ? { ...t, roles: {} } : t));
-            void planQ.refetch();
+            // People picked for roles the template still has stay picked.
+            void planQ.refetch().then((r) => {
+              const still = new Set(err.status === 404 ? [] : (r.data?.template.roles ?? []).map((x) => x.id));
+              setTemplate((t) => (t ? { ...t, roles: Object.fromEntries(Object.entries(t.roles).filter(([roleId]) => still.has(roleId))) } : t));
+            });
             void qc.invalidateQueries({ queryKey: ['templates', 'projects'] });
             setBanner(err.status === 404 ? 'That template no longer exists. Choose another one, or start a blank project.' : err.message);
           } else if (err instanceof ApiError && err.status === 409) {

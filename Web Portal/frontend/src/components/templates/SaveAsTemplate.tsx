@@ -6,6 +6,8 @@ import { PROJECT_TEMPLATES_KEY, TASK_TEMPLATES_KEY, templatesApi } from '../../a
 import { ApiError } from '../../lib/api-client';
 import { useDialog } from '../../hooks/useDialog';
 import { dayLabel } from '../../lib/day-label';
+import { stayOnEnter } from '../../lib/enter-key';
+import { roleCounts } from './role-counts';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { count, TemplateGlyph } from './TemplateCard';
@@ -65,6 +67,19 @@ function Saved({ text, where }: { text: string; where: string }) {
   );
 }
 
+/** Said before saving: a template is company-wide. */
+const publishWarning = (what: string) => `Everyone in the company will be able to see this template’s ${what}.`;
+
+/** A plain tick box with its words (24px on touch screens: index.css). */
+function Tick({ checked, onChange, children }: { checked: boolean; onChange: (on: boolean) => void; children: ReactNode }) {
+  return (
+    <label className="flex min-h-[36px] cursor-pointer items-center gap-2.5 text-sm text-ink">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 accent-brand" />
+      {children}
+    </label>
+  );
+}
+
 const cancelClass = '!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none';
 
 /**
@@ -80,6 +95,8 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
   const [name, setName] = useState(projectName);
   const [description, setDescription] = useState('');
   const [roles, setRoles] = useState<Record<string, string>>({});
+  // Everyone can see a template: the saver may keep the tasks' descriptions out of it.
+  const [withDescriptions, setWithDescriptions] = useState(true);
   const [nameError, setNameError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -90,10 +107,15 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
   // What the server said about the project (anything else is treated as not read yet).
   const d = draftQ.data?.base && Array.isArray(draftQ.data.people) ? draftQ.data : undefined;
   const tooMany = !!d && d.taskCount > d.maxTasks;
+  const tooManyItems = !!d && d.checklistItems > d.maxChecklistItems;
+  const people = d?.people ?? [];
+  const counts = roleCounts(d?.assignments ?? [], people.map((p) => p.id), roles);
+  const assignedTo = (id: string) => (d?.assignments ?? []).filter((onTask) => onTask.includes(id)).length;
+  const roleTasks = (name: string) => counts.roles.find((r) => r.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase())?.tasks ?? 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (busy.current || !d || tooMany) return;
+    if (busy.current || !d || tooMany || tooManyItems) return;
     if (!name.trim()) {
       setNameError('Give the template a name.');
       nameRef.current?.focus();
@@ -107,6 +129,7 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
         name: name.trim(),
         description: description.trim() || null,
         roles: d.people.map((p) => ({ userId: p.id, name: (roles[p.id] ?? '').trim() })).filter((r) => r.name),
+        includeDescriptions: withDescriptions,
       });
       void qc.invalidateQueries({ queryKey: PROJECT_TEMPLATES_KEY });
       setSaved(t.name);
@@ -146,7 +169,7 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
       footer={
         <>
           <button type="button" onClick={onClose} disabled={saving} className={cancelClass}>Cancel</button>
-          <Button type="submit" form="save-project-template" loading={saving} disabled={!d || tooMany} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9rem]">
+          <Button type="submit" form="save-project-template" loading={saving} disabled={!d || tooMany || tooManyItems} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9rem]">
             Save template
           </Button>
         </>
@@ -156,7 +179,7 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
         {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
         <div>
           <label htmlFor={ids.name} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">Template name<span aria-hidden="true" className="text-danger">*</span></label>
-          <input id={ids.name} ref={nameRef} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); }} dir="auto" maxLength={NAME_MAX} aria-required="true" aria-invalid={nameError ? true : undefined} aria-describedby={nameError ? `${ids.name}-err` : undefined} className={field} />
+          <input id={ids.name} ref={nameRef} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); }} onKeyDown={stayOnEnter} dir="auto" maxLength={NAME_MAX} aria-required="true" aria-invalid={nameError ? true : undefined} aria-describedby={nameError ? `${ids.name}-err` : undefined} className={field} />
           {nameError ? <p id={`${ids.name}-err`} className="mt-1 text-xs font-medium text-danger">{nameError}</p> : null}
         </div>
         <div>
@@ -171,13 +194,26 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
         ) : (
           <>
             <div className="rounded-xl bg-ground px-3.5 py-3 text-sm text-ink-2">
-              <p>{`Saves its board (${count(d.columnCount, 'column')}) and its ${count(d.taskCount, 'task')}, with their descriptions, priorities and checklists.`}</p>
+              <p>{`Saves its board (${count(d.columnCount, 'column')}) and its ${count(d.taskCount, 'task')}, with their ${withDescriptions ? 'descriptions, ' : ''}priorities and checklists.`}</p>
               <p className="mt-1">
                 {d.base.from === 'start'
                   ? `Due dates are kept as days from the project’s start, ${longDay(d.base.day)}.`
                   : `Due dates are kept as days from the day the project was created, ${longDay(d.base.day)} (it has no start date).`}
               </p>
+              {d.columnsTotal > d.columnCount ? <p className="mt-1 font-medium text-warning">{`Only the first ${d.columnCount} of its ${d.columnsTotal} columns are kept.`}</p> : null}
+              {d.checklistTrimmed ? (
+                <p className="mt-1 font-medium text-warning">
+                  {d.checklistTrimmed === 1 ? '1 task has more than 100 checklist items: only its first 100 are kept.' : `${d.checklistTrimmed} tasks have more than 100 checklist items: only their first 100 are kept.`}
+                </p>
+              ) : null}
               {tooMany ? <p role="alert" className="mt-2 font-medium text-danger">{`This project has ${d.taskCount} tasks; a template can hold at most ${d.maxTasks}.`}</p> : null}
+              {tooManyItems ? (
+                <p role="alert" className="mt-2 font-medium text-danger">{`Its checklists hold ${d.checklistItems.toLocaleString('en-US')} items in all; a template can hold at most ${d.maxChecklistItems.toLocaleString('en-US')}.`}</p>
+              ) : null}
+            </div>
+            <div className="rounded-xl border border-warning/40 bg-warning-soft px-3.5 py-3">
+              <p className="text-sm font-medium text-ink">{publishWarning(withDescriptions ? 'task titles, descriptions and checklists' : 'task titles and checklists')}</p>
+              <Tick checked={withDescriptions} onChange={setWithDescriptions}>Include task descriptions</Tick>
             </div>
             {d.people.length ? (
               <fieldset aria-describedby={ids.people}>
@@ -185,18 +221,35 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
                 <p id={ids.people} className="mb-2 text-xs text-ink-2">
                   Name a role (e.g. Inspector) and their tasks will name it: whoever makes a project from the template picks who fills it. Left empty, their tasks are unassigned in the template and go to the new project’s owner. The same name for two people makes one role.
                 </p>
-                <ul className="flex flex-col gap-2">
+                <ul className="flex flex-col gap-3">
                   {d.people.map((p) => {
                     const who = p.name ?? 'Someone who has left';
+                    const role = (roles[p.id] ?? '').trim();
+                    const on = assignedTo(p.id);
+                    const gets = counts.fromPerson.get(p.id) ?? 0;
+                    const noteId = `${ids.people}-${p.id}`;
+                    // What naming this role really does, by the same rule the server saves with.
+                    const note = !role
+                      ? `On ${count(on, 'task')}.`
+                      : roleTasks(role) === 0
+                        ? `“${role}” won’t become a role: each of these tasks names another role first.`
+                        : gets === on
+                          ? `${role} gets ${on === 1 ? 'this task' : `all ${on} of these tasks`}.`
+                          : gets === 0
+                            ? `These tasks name another role first: ${role} gets its tasks from others.`
+                            : `${role} gets ${gets} of these ${on} tasks; the others name another role first.`;
                     return (
-                      <li key={p.id} className="grid items-center gap-1 sm:grid-cols-[minmax(0,1fr)_14rem] sm:gap-3">
-                        <span className="min-w-0 truncate text-sm text-ink">
-                          <bdi>{who}</bdi> <span className="text-xs text-ink-3">· {count(p.taskCount, 'task')}</span>
-                        </span>
+                      <li key={p.id} className="grid items-start gap-1 sm:grid-cols-[minmax(0,1fr)_14rem] sm:gap-3">
+                        <div className="min-w-0 sm:pt-2">
+                          <span className="block truncate text-sm text-ink"><bdi>{who}</bdi></span>
+                          <span id={noteId} data-testid={`role-for-${p.id}`} className={`block text-xs ${role && roleTasks(role) === 0 ? 'font-medium text-warning' : 'text-ink-3'}`}>{note}</span>
+                        </div>
                         <input
-                          aria-label={`Role for ${who} (${count(p.taskCount, 'task')})`}
+                          aria-label={`Role for ${who}`}
+                          aria-describedby={noteId}
                           value={roles[p.id] ?? ''}
                           onChange={(e) => setRoles((r) => ({ ...r, [p.id]: e.target.value }))}
+                          onKeyDown={stayOnEnter}
                           dir="auto"
                           maxLength={ROLE_MAX}
                           placeholder="No role"
@@ -206,6 +259,10 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
                     );
                   })}
                 </ul>
+                <p data-testid="role-summary" aria-live="polite" className="mt-3 text-xs text-ink-2">
+                  {counts.roles.some((r) => r.tasks) ? `${counts.roles.filter((r) => r.tasks).map((r) => `${r.name}: ${count(r.tasks, 'task')}`).join(' · ')}. ` : 'No roles yet. '}
+                  {counts.unassigned ? `${count(counts.unassigned, 'task')} will be unassigned (they go to the new project’s owner).` : ''}
+                </p>
               </fieldset>
             ) : (
               <p className="text-sm text-ink-2">Nobody is assigned to its tasks: they are saved unassigned.</p>
@@ -218,9 +275,23 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
 }
 
 /** "Save as template" for a task (whoever runs its project): its title, description, priority and checklist, under a name. */
-export function SaveTaskTemplateDialog({ taskId, taskTitle, checklistCount, onClose }: { taskId: string; taskTitle: string; checklistCount?: number; onClose: () => void }) {
+export function SaveTaskTemplateDialog({
+  taskId,
+  taskTitle,
+  checklistCount,
+  hasDescription = true,
+  onClose,
+}: {
+  taskId: string;
+  taskTitle: string;
+  checklistCount?: number;
+  /** The task has a description (else there is nothing to leave out). */
+  hasDescription?: boolean;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const [name, setName] = useState(taskTitle);
+  const [withDescription, setWithDescription] = useState(true);
   const [banner, setBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
@@ -234,7 +305,7 @@ export function SaveTaskTemplateDialog({ taskId, taskTitle, checklistCount, onCl
     setSaving(true);
     setBanner(null);
     try {
-      const t = await templatesApi(apiClient).saveTask(taskId, name.trim() || taskTitle);
+      const t = await templatesApi(apiClient).saveTask(taskId, { name: name.trim() || taskTitle, includeDescription: withDescription });
       void qc.invalidateQueries({ queryKey: TASK_TEMPLATES_KEY });
       setSaved(t.name);
     } catch (err) {
@@ -280,8 +351,12 @@ export function SaveTaskTemplateDialog({ taskId, taskTitle, checklistCount, onCl
       <form id="save-task-template" onSubmit={(e) => void submit(e)} noValidate className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
         {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
         <p className="text-sm text-ink-2">
-          {`Saves its title, description, priority and checklist${checklistCount ? ` (${count(checklistCount, 'item')})` : ''}. Its dates, people and project aren’t saved.`}
+          {`Saves its title, ${withDescription && hasDescription ? 'description, ' : ''}priority and checklist${checklistCount ? ` (${count(checklistCount, 'item')})` : ''}. Its dates, people and project aren’t saved.`}
         </p>
+        <div className="rounded-xl border border-warning/40 bg-warning-soft px-3.5 py-3">
+          <p className="text-sm font-medium text-ink">{publishWarning(withDescription && hasDescription ? 'task title, description and checklist' : 'task title and checklist')}</p>
+          {hasDescription ? <Tick checked={withDescription} onChange={setWithDescription}>Include its description</Tick> : null}
+        </div>
         <div>
           <label htmlFor={nameId} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">Template name</label>
           <input id={nameId} value={name} onChange={(e) => setName(e.target.value)} dir="auto" maxLength={NAME_MAX} className={field} />

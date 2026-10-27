@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ProjectTemplateEditor } from './ProjectTemplateEditor';
+import { ProjectTemplateEditor, draftProblems } from './ProjectTemplateEditor';
 import { useAuthStore } from '../../stores/auth-store';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -64,7 +64,7 @@ describe('Project template editor', () => {
     await userEvent.type(within(task).getByRole('textbox', { name: 'Title' }), 'Book the van');
     // A new task has no due date; typing a number gives it one.
     expect(within(task).getByRole('checkbox', { name: 'No due date' })).toBeChecked();
-    await userEvent.type(within(task).getByRole('spinbutton', { name: 'Days after the start' }), '3');
+    await userEvent.type(within(task).getByRole('textbox', { name: 'Days after the start' }), '3');
     expect(within(task).getByRole('checkbox', { name: 'No due date' })).not.toBeChecked();
     await userEvent.selectOptions(within(task).getByRole('combobox', { name: 'Who does it' }), 'Driver');
     await userEvent.type(within(task).getByRole('textbox', { name: 'Add a checklist item' }), 'Call the company{Enter}');
@@ -91,7 +91,7 @@ describe('Project template editor', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Edit task 2: Report' }));
     const task = within(dialog).getByRole('group', { name: 'Task 2' });
     await userEvent.click(within(task).getByRole('checkbox', { name: 'No due date' }));
-    expect(within(task).getByRole('spinbutton', { name: 'Days after the start' })).toHaveValue(0);
+    expect(within(task).getByRole('textbox', { name: 'Days after the start' })).toHaveValue('0');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save template' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     const put = requests.find((r) => r.method === 'PUT')!;
@@ -121,14 +121,93 @@ describe('Project template editor', () => {
     expect(requests.filter((r) => r.method === 'POST')).toHaveLength(0);
   });
 
-  it('moves tasks up and down, and removes them', async () => {
+  it('moves tasks up and down: focus stays on the moved task’s button (the other one at an end), and the move is announced', async () => {
     renderEditor('pt1');
     const dialog = await screen.findByRole('dialog', { name: 'Edit project template' });
     await waitFor(() => expect(within(dialog).getByText('Report')).toBeInTheDocument());
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Move task 2 up' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add a task' }));
+    await userEvent.type(within(within(dialog).getByRole('group', { name: 'Task 3' })).getByRole('textbox', { name: 'Title' }), 'Close out');
     const titles = () => within(within(dialog).getByRole('list', { name: 'Tasks' })).getAllByTestId('task-title').map((e) => e.textContent);
-    expect(titles()).toEqual(['Report', 'Inspect']);
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Remove task 1: Report' }));
-    expect(titles()).toEqual(['Inspect']);
+    const status = within(dialog).getByTestId('move-status');
+    // Task 3 up: now second, and its "up" button still has focus.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Move task 3 up' }));
+    expect(titles()).toEqual(['Inspect', 'Close out', 'Report']);
+    expect(within(dialog).getByRole('button', { name: 'Move task 2 up' })).toHaveFocus();
+    expect(status).toHaveTextContent('Moved “Close out” to position 2 of 3.');
+    // Up again: first, where "up" is unavailable — focus goes to its "down" button.
+    await userEvent.keyboard('{Enter}');
+    expect(titles()).toEqual(['Close out', 'Inspect', 'Report']);
+    expect(within(dialog).getByRole('button', { name: 'Move task 1 down' })).toHaveFocus();
+    expect(status).toHaveTextContent('Moved “Close out” to position 1 of 3.');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Remove task 1: Close out' }));
+    expect(titles()).toEqual(['Inspect', 'Report']);
+  });
+
+  it('moves board columns the same way, with arrows that match their names', async () => {
+    renderEditor(null);
+    const dialog = screen.getByRole('dialog', { name: 'New project template' });
+    const names = () => within(dialog).getAllByRole('textbox', { name: /^Column \d name$/ }).map((i) => (i as HTMLInputElement).value);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Move column 2 down' }));
+    expect(names()).toEqual(['Backlog', 'In Progress', 'To Do', 'Review', 'Done']);
+    expect(within(dialog).getByRole('button', { name: 'Move column 3 down' })).toHaveFocus();
+    expect(within(dialog).getByTestId('move-status')).toHaveTextContent('Moved column “To Do” to position 3 of 5.');
+    expect(within(dialog).queryByRole('button', { name: /left|right/i })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Move column 3 down' }).querySelector('[data-arrow]')!.getAttribute('data-arrow')).toBe('down');
+    expect(within(dialog).getByRole('button', { name: 'Move column 3 up' }).querySelector('[data-arrow]')!.getAttribute('data-arrow')).toBe('up');
+  });
+
+  it('Enter in the name, a task’s title or its day box neither saves nor closes the editor', async () => {
+    const { onClose } = renderEditor(null);
+    const dialog = screen.getByRole('dialog', { name: 'New project template' });
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), 'Office move{Enter}');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add a task' }));
+    const task = within(dialog).getByRole('group', { name: 'Task 1' });
+    await userEvent.type(within(task).getByRole('textbox', { name: 'Title' }), 'Book the van{Enter}');
+    await userEvent.type(within(task).getByRole('textbox', { name: 'Days after the start' }), '2{Enter}');
+    expect(requests.filter((r) => r.method === 'POST')).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('the day box: a leading “-” doesn’t tick “No due date”; an out-of-range number says so instead of being changed', async () => {
+    renderEditor('pt1');
+    const dialog = await screen.findByRole('dialog', { name: 'Edit project template' });
+    await waitFor(() => expect(within(dialog).getByText('Inspect')).toBeInTheDocument());
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Edit task 1: Inspect' }));
+    const task = within(dialog).getByRole('group', { name: 'Task 1' });
+    const box = within(task).getByRole('textbox', { name: 'Days after the start' });
+    await userEvent.tripleClick(box);
+    await userEvent.keyboard('-');
+    expect(within(task).getByRole('checkbox', { name: 'No due date' })).not.toBeChecked();
+    await userEvent.keyboard('2');
+    expect(within(dialog).getByText('Start − 2 · Inspector · 1 checklist item')).toBeInTheDocument();
+    await userEvent.clear(box);
+    await userEvent.type(box, '4000');
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(within(task).getByText('Use a number from −365 to 3650.')).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save template' }));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Task 1: the due day must be from 365 days before the start to 3650 days after it.');
+    expect(requests.filter((r) => r.method === 'PUT')).toHaveLength(0);
+  });
+
+  it('checklist text typed but not added is saved with the template, and counts as a change', async () => {
+    const { onClose } = renderEditor('pt1');
+    const dialog = await screen.findByRole('dialog', { name: 'Edit project template' });
+    await waitFor(() => expect(within(dialog).getByText('Inspect')).toBeInTheDocument());
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Edit task 1: Inspect' }));
+    await userEvent.type(within(within(dialog).getByRole('group', { name: 'Task 1' })).getByRole('textbox', { name: 'Add a checklist item' }), 'Pumps');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save template' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(requests.find((r) => r.method === 'PUT')!.body).toMatchObject({ tasks: [{ title: 'Inspect', checklist: ['Valves', 'Pumps'] }, { title: 'Report' }] });
+  });
+
+  it('a template holds at most 5,000 checklist items in all', () => {
+    const task = (i: number) => ({ id: `t${i}`, title: `T${i}`, description: '', priority: 'NORMAL' as const, dueOffsetDays: null, roleKey: null, checklist: Array.from({ length: 100 }, (_, j) => ({ id: `${i}-${j}`, text: `x${j}` })), checklistPending: '' });
+    const draft = { name: 'Big', description: '', columns: [{ key: 'c', name: 'To Do', category: 'TODO' as const, color: '#000000' }], roles: [], tasks: Array.from({ length: 51 }, (_, i) => task(i)) };
+    expect(draftProblems(draft)).toContain('A template holds at most 5,000 checklist items in all; this one has 5,100.');
+    expect(draftProblems({ ...draft, tasks: draft.tasks.slice(0, 50) })).toEqual([]);
   });
 });

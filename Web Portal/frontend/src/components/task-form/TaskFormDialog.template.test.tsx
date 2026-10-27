@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { TaskFormDialog } from './TaskFormDialog';
+import { ShortcutProvider } from '../shortcuts/ShortcutProvider';
 import type { ApiTask } from '../../api/tasks';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -47,7 +49,11 @@ function renderDialog(props: Partial<React.ComponentProps<typeof TaskFormDialog>
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={qc}>
-      <TaskFormDialog onClose={onClose} {...props} />
+      <MemoryRouter>
+        <ShortcutProvider>
+          <TaskFormDialog onClose={onClose} {...props} />
+        </ShortcutProvider>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return { onClose };
@@ -95,6 +101,37 @@ describe('New task from a task template', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /Create task/ }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(posts()[0]!.body).not.toHaveProperty('checklist');
+  });
+
+  it('checklist text typed but not added is created with the task — by the Create button', async () => {
+    const { onClose } = renderDialog({ taskTemplateId: 'tk1' });
+    const dialog = screen.getByRole('dialog', { name: 'New task' });
+    await waitFor(() => expect(checklistItems(dialog)).toEqual(['Gate', 'Fence']));
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Add a checklist item' }), 'Lights');
+    await userEvent.click(within(dialog).getByRole('button', { name: /Create task/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(posts()[0]!.body).toMatchObject({ checklist: ['Gate', 'Fence', 'Lights'] });
+  });
+
+  it('…and by Ctrl+Enter while still typing it', async () => {
+    const { onClose } = renderDialog({ taskTemplateId: 'tk1' });
+    const dialog = screen.getByRole('dialog', { name: 'New task' });
+    await waitFor(() => expect(checklistItems(dialog)).toEqual(['Gate', 'Fence']));
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Add a checklist item' }), 'Lights');
+    await userEvent.keyboard('{Control>}{Enter}{/Control}');
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(posts()[0]!.body).toMatchObject({ checklist: ['Gate', 'Fence', 'Lights'] });
+  });
+
+  it('checklist text typed but not added counts as a change: closing asks first', async () => {
+    templates = [];
+    const { onClose } = renderDialog();
+    const dialog = screen.getByRole('dialog', { name: 'New task' });
+    await ready();
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Add a checklist item' }), 'Half-typed');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('alertdialog', { name: 'Discard this task?' })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('editing a task offers neither (its checklist is edited in its panel)', async () => {

@@ -91,8 +91,17 @@ export interface ProjectTemplateDraft {
   /** The day the due offsets count from: the project's start, else the day it was created. */
   base: { day: string; from: 'start' | 'created' };
   taskCount: number;
+  /** Columns kept (the first 20 of its switched-on ones), out of `columnsTotal`. */
   columnCount: number;
+  columnsTotal: number;
   maxTasks: number;
+  /** Checklist items kept in all (the first 100 of each task's); at most `maxChecklistItems`. */
+  checklistItems: number;
+  maxChecklistItems: number;
+  /** Tasks with more than 100 checklist items (only their first 100 are kept). */
+  checklistTrimmed: number;
+  /** Each task's people, in the order they were assigned (what each role gets follows from it: role-counts). */
+  assignments: string[][];
   /** The people its tasks are assigned to, most tasks first. */
   people: { id: string; name: string | null; taskCount: number }[];
 }
@@ -120,7 +129,12 @@ export interface TaskTemplateInput {
 }
 
 /** A new project from a template: the New project form's fields, its start day and who fills each role (role id → person). */
-export type ProjectFromTemplateInput = NewProjectInput & { startDate: string; roles?: Record<string, string | null> };
+export type ProjectFromTemplateInput = NewProjectInput & {
+  startDate: string;
+  roles?: Record<string, string | null>;
+  /** The template's `updatedAt` as its preview showed it: a later change is refused (409 TEMPLATE_CHANGED). */
+  expectedUpdatedAt?: string;
+};
 
 export const PROJECT_TEMPLATES_KEY = ['templates', 'projects'] as const;
 export const TASK_TEMPLATES_KEY = ['templates', 'tasks'] as const;
@@ -134,7 +148,7 @@ export function templatesApi(client: ApiClient) {
     updateProjectTemplate: (id: string, input: ProjectTemplateInput) => client.put<{ data: ProjectTemplate }>(`/templates/projects/${id}`, input).then((r) => r.data),
     removeProjectTemplate: (id: string) => client.del<void>(`/templates/projects/${id}`),
     projectDraft: (projectId: string) => client.get<{ data: ProjectTemplateDraft }>(`/templates/projects/from-project/${projectId}`).then((r) => r.data),
-    saveProject: (projectId: string, input: { name: string; description?: string | null; roles: { userId: string; name: string }[] }) =>
+    saveProject: (projectId: string, input: { name: string; description?: string | null; roles: { userId: string; name: string }[]; includeDescriptions?: boolean }) =>
       client.post<{ data: ProjectTemplate }>(`/templates/projects/from-project/${projectId}`, input).then((r) => r.data),
     /** Make a project from a template: the project, its board, tasks, checklists and team in one go. */
     createProject: (templateId: string, input: ProjectFromTemplateInput) =>
@@ -143,7 +157,7 @@ export function templatesApi(client: ApiClient) {
     createTaskTemplate: (input: TaskTemplateInput) => client.post<{ data: TaskTemplate }>('/templates/tasks', input).then((r) => r.data),
     updateTaskTemplate: (id: string, input: TaskTemplateInput) => client.put<{ data: TaskTemplate }>(`/templates/tasks/${id}`, input).then((r) => r.data),
     removeTaskTemplate: (id: string) => client.del<void>(`/templates/tasks/${id}`),
-    saveTask: (taskId: string, name?: string) => client.post<{ data: TaskTemplate }>(`/templates/tasks/from-task/${taskId}`, name ? { name } : {}).then((r) => r.data),
+    saveTask: (taskId: string, input: { name?: string; includeDescription?: boolean } = {}) => client.post<{ data: TaskTemplate }>(`/templates/tasks/from-task/${taskId}`, input).then((r) => r.data),
   };
 }
 

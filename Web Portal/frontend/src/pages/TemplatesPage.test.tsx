@@ -69,7 +69,7 @@ describe('Templates page', () => {
     expect(within(card).getByText('2 roles')).toBeInTheDocument();
     expect(within(card).getByText('5 columns')).toBeInTheDocument();
     expect(within(card).getByText(/Omar Ahmed/)).toBeInTheDocument();
-    expect(within(card).getByRole('button', { name: 'Use Rig inspection' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Use template: Rig inspection' })).toBeInTheDocument();
     // Only templates you may change offer Edit and Delete.
     expect(within(card).getByRole('button', { name: 'More actions for Rig inspection' })).toBeInTheDocument();
     const other = screen.getByRole('heading', { name: 'Office move' }).closest('article')!;
@@ -117,7 +117,7 @@ describe('Templates page', () => {
   it('“Use” on a project template opens the New project form starting from it', async () => {
     renderPage();
     const card = (await screen.findByRole('heading', { name: 'Rig inspection' })).closest('article')!;
-    await userEvent.click(within(card).getByRole('button', { name: 'Use Rig inspection' }));
+    await userEvent.click(within(card).getByRole('button', { name: 'Use template: Rig inspection' }));
     const dialog = await screen.findByRole('dialog', { name: 'New project' });
     expect(within(dialog).getByRole('button', { name: /Template/ })).toHaveTextContent('Rig inspection');
   });

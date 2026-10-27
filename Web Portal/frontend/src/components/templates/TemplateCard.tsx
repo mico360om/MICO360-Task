@@ -88,7 +88,8 @@ export function TemplateCard({
       <div className="flex flex-wrap gap-1.5">{chips}</div>
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
         <p className="min-w-0 text-xs text-ink-3">{meta}</p>
-        <Button size="sm" variant="secondary" onClick={onUse} aria-label={`Use ${name}`} className="!min-h-[40px]">
+        {/* Its name starts with the words it shows (WCAG 2.5.3), then says which template. */}
+        <Button size="sm" variant="secondary" onClick={onUse} aria-label={`${useText}: ${name}`} className="!min-h-[40px]">
           {useText}
         </Button>
       </div>
