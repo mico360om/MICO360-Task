@@ -45,6 +45,8 @@ const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientV
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
 // Temporary: the forms manager moves to the Templates page's "Inspection forms" tab (not in the menu).
 const InspectionFormsPage = lazyPage(() => import('./pages/InspectionFormsPage'), 'InspectionFormsPage');
+// One inspection: carried out on a phone (it keeps working without signal) or at a desk.
+const InspectionPage = lazyPage(() => import('./pages/InspectionPage'), 'InspectionPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
 function RouteFallback() {
@@ -112,6 +114,7 @@ export function App() {
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/inspection-forms" element={<InspectionFormsPage />} />
+            <Route path="/inspections/:id" element={<InspectionPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />

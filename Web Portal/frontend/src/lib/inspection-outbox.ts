@@ -172,6 +172,28 @@ function problemWords(e: ApiError, stage: OutboxProblem['stage']): string {
   return e.message && !/^Request failed/.test(e.message) ? e.message : 'The server refused these changes.';
 }
 
+/** An inspection as read from the server, with nothing waiting on this device (shown when it keeps no record). */
+export function detailView(detail: InspectionDetail): DraftView {
+  const s = summarize(detail.structure, detail.answers);
+  return {
+    inspectionId: detail.id,
+    projectId: detail.projectId,
+    title: detail.title,
+    status: detail.status,
+    snapshot: detail,
+    answers: detail.answers,
+    counts: { total: s.total, answered: s.answered, passed: s.passed, failed: s.failed, na: s.na },
+    pending: { answers: 0, finish: false, followUps: 0 },
+    followUpsWaiting: [],
+    problem: null,
+    persisted: true,
+    locked: false,
+    finishedOffer: null,
+    savedAt: '',
+    sentAt: null,
+  };
+}
+
 export function createInspectionOutbox(deps: { storage: DraftStorage; api: OutboxApi; now?: () => Date; newId?: () => string }) {
   const { storage, api } = deps;
   const now = deps.now ?? (() => new Date());

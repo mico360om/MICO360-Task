@@ -408,3 +408,11 @@ describe('what waits on this phone', () => {
     off();
   });
 });
+
+describe('detailView', () => {
+  it('shows server data with nothing waiting', async () => {
+    const { detailView } = await import('./inspection-outbox');
+    const v = detailView(detail({ answers: [{ itemId: 'p', result: 'FAIL', reading: '170', note: null, editedAt: '2026-10-27T08:01:00.000Z' }] }));
+    expect(v).toMatchObject({ inspectionId: 'i1', counts: { answered: 1, failed: 1 }, pending: { answers: 0, finish: false, followUps: 0 }, persisted: true, locked: false });
+  });
+});
