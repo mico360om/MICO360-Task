@@ -119,7 +119,16 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return parsed.success ? parsed.data : true;
   }
 
-  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled };
+  /** The company week start and the weekly summary switch in one read (the public /config shows both). */
+  async function companySettings(): Promise<{ weekStart: 0 | 1 | 6; weeklySummaryEnabled: boolean }> {
+    const all = await settings.getAll();
+    const raw = (key: SettingKey) => all.find((s) => s.key === key)?.value;
+    const week = SETTING_SCHEMAS['company.weekStart'].safeParse(raw('company.weekStart'));
+    const on = SETTING_SCHEMAS['weeklySummary.enabled'].safeParse(raw('weeklySummary.enabled'));
+    return { weekStart: week.success ? week.data : DEFAULT_COMPANY_WEEK_START, weeklySummaryEnabled: on.success ? on.data : true };
+  }
+
+  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled, companySettings };
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;

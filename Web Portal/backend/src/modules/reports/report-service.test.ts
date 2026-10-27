@@ -144,3 +144,14 @@ describe('ReportService', () => {
     expect((await s.taskListReport({ userId: 'u2' })).map((r) => r.key)).toEqual(['MICO-2', 'RIG-1']);
   });
 });
+
+describe('the time series follows the company week (company.weekStart)', () => {
+  it('counts velocity in company weeks: Sunday until an administrator picks another day', async () => {
+    const done: ReportTask = { id: 'a', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: new Date('2026-10-01T08:00:00Z'), dueDate: null, completedAt: new Date('2026-10-26T08:00:00Z'), assigneeIds: [] };
+    const data = { async getTasks() { return [done]; }, async getUsers() { return []; } };
+    const sunday = await createReportService({ data, timeZone: 'Asia/Muscat' }).timeSeriesReport({ from: '2026-10-20', to: '2026-10-27' });
+    expect(sunday.velocity.map((v) => v.weekStart)).toEqual(['2026-10-18', '2026-10-25']);
+    const monday = await createReportService({ data, timeZone: 'Asia/Muscat', weekStart: async () => 1 }).timeSeriesReport({ from: '2026-10-20', to: '2026-10-27' });
+    expect(monday.velocity.map((v) => [v.weekStart, v.completed])).toEqual([['2026-10-19', 0], ['2026-10-26', 1]]);
+  });
+});

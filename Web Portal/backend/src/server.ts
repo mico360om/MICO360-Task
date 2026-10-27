@@ -469,7 +469,7 @@ async function main(): Promise<void> {
   });
   const deviceTokenService = createDeviceTokenService({ deviceTokens: deviceTokenRepository });
 
-  const reportService = createReportService({ data: createPrismaReportDataSource(prisma), timeZone: companyTz });
+  const reportService = createReportService({ data: createPrismaReportDataSource(prisma), timeZone: companyTz, weekStart: () => settingsService.companyWeekStart() });
 
   // Cache the (broad) search snapshot for a few seconds so bursty, debounced searches don't
   // reload every meeting/note/task per keystroke — important on low-memory hosts.
@@ -1422,6 +1422,8 @@ async function main(): Promise<void> {
       productName: env.PRODUCT_NAME,
       companyName: env.COMPANY_NAME,
       emailEnabled: emailService.isConfigured(),
+      // The company week start (everyone's default) and the weekly summary switch, read on each /config.
+      company: () => settingsService.companySettings(),
       // The APK this server hosts (the downloads folder, or the web root); otherwise ANDROID_APP_URL (if set).
       androidAppUrl: androidAppLink(env.ANDROID_APP_URL, env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null, downloadsDir),
       // The version inside that APK, in the order it is served (the downloads folder, then the web root).

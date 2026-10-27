@@ -117,6 +117,8 @@ export interface AppDeps extends AuthRouteDeps {
     androidAppUrl?: string | null;
     /** The version of the app file the site offers (read from the file; null: none or unknown). */
     androidAppVersion?: () => string | null;
+    /** The company week start (everyone's default) and whether the weekly management summary is on. */
+    company?: () => Promise<{ weekStart: 0 | 1 | 6; weeklySummaryEnabled: boolean }>;
   };
   /**
    * Live account state for the auth guard (token version, status, current roles). When set, a
@@ -413,6 +415,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // (readable by every role) plus the current server time to anchor the clock.
   app.get('/api/v1/config', async () => ({
     data: {
+      // The company's week start — everyone's default week start until they choose their own — and
+      // whether the weekly management summary is on. Read each time (an administrator can change them);
+      // Sunday and on when they can't be read.
+      ...(await (deps.appConfig?.company?.() ?? Promise.resolve({ weekStart: 0, weeklySummaryEnabled: true })).catch(() => ({ weekStart: 0, weeklySummaryEnabled: true }))),
       timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
       productName: deps.appConfig?.productName ?? 'MICO360 Tasks',
       companyName: deps.appConfig?.companyName ?? 'MICO360',

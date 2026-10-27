@@ -154,6 +154,21 @@ describe('public client config', () => {
     expect((await hosted.inject({ method: 'GET', url: '/api/v1/config' })).json().data.androidAppUrl).toBeNull();
   });
 
+  it('says the company week start and whether the weekly summary is on (asked each time: an administrator can change them)', async () => {
+    let company = { weekStart: 1 as 0 | 1 | 6, weeklySummaryEnabled: false };
+    const app = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', company: async () => company } });
+    expect((await app.inject({ method: 'GET', url: '/api/v1/config' })).json().data).toMatchObject({ weekStart: 1, weeklySummaryEnabled: false });
+    company = { weekStart: 6, weeklySummaryEnabled: true };
+    expect((await app.inject({ method: 'GET', url: '/api/v1/config' })).json().data).toMatchObject({ weekStart: 6, weeklySummaryEnabled: true });
+    // Not known (or not readable): Sunday and on, as before.
+    const none = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C' } });
+    expect((await none.inject({ method: 'GET', url: '/api/v1/config' })).json().data).toMatchObject({ weekStart: 0, weeklySummaryEnabled: true });
+    const broken = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', company: async () => { throw new Error('db'); } } });
+    const res = await broken.inject({ method: 'GET', url: '/api/v1/config' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ weekStart: 0, weeklySummaryEnabled: true });
+  });
+
   it('says which app version the download offers (asked each time: the file can be replaced), null when none', async () => {
     let offered: string | null = '1.3.3';
     const app = await buildApp({ authService, tokenService, appConfig: { timeZone: 'Asia/Muscat', productName: 'P', companyName: 'C', androidAppVersion: () => offered } });

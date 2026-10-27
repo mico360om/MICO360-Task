@@ -1,4 +1,5 @@
 import { buildTimeSeries, type TimeSeriesResult } from './report-timeseries';
+import type { WeekStart } from '../planning/timeline';
 import { completedOnTime, dueDayKey, isOverdue } from '../../lib/due-date';
 import { defaultCompanyTimeZone, isTaskDone } from '../tasks/task-status';
 
@@ -167,9 +168,11 @@ export interface ReportServiceDeps {
   /** Company time zone: defines "today", on-time days and the time-series day buckets. */
   timeZone?: string;
   now?: () => Date;
+  /** The company week start (system setting company.weekStart): the time series' velocity weeks. Sunday when absent. */
+  weekStart?: () => Promise<WeekStart>;
 }
 
-export function createReportService({ data, timeZone = defaultCompanyTimeZone(), now = () => new Date() }: ReportServiceDeps) {
+export function createReportService({ data, timeZone = defaultCompanyTimeZone(), now = () => new Date(), weekStart }: ReportServiceDeps) {
   const tasksFor = async (filter?: ReportFilter) => applyReportFilter(await data.getTasks(), filter);
 
   async function taskStatusReport(filter?: ReportFilter): Promise<Record<string, number>> {
@@ -216,7 +219,8 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
 
   /** Daily time series (completion, overdue trend, burndown + velocity) over a date range. */
   async function timeSeriesReport(opts: { from: string; to: string } & ReportFilter): Promise<TimeSeriesResult> {
-    return buildTimeSeries(await tasksFor(opts), opts.from, opts.to, timeZone);
+    const [tasks, week] = await Promise.all([tasksFor(opts), weekStart ? weekStart() : Promise.resolve<WeekStart>(0)]);
+    return buildTimeSeries(tasks, opts.from, opts.to, timeZone, week);
   }
   return { taskStatusReport, projectPerformanceReport, workloadReport, completionReport, timeSeriesReport, taskListReport, timeZone };
 }
