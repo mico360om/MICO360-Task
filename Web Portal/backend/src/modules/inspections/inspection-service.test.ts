@@ -721,4 +721,59 @@ describe('scheduled checks: a task that carries a form', () => {
     expect(task.repeats).toBe(false);
     expect(f.audit.find((a) => a.action === 'inspection-form.deleted')!.newValue).toEqual({ title: 'Rig daily check', schedulesStopped: 1 });
   });
+
+  it('a finish sent again after someone reopened the task by hand leaves it open: no second completion, nothing offered', async () => {
+    const { form, task } = await aCheck();
+    const { insp } = await finishFor(task.id, form.id);
+    expect(f.completions).toHaveLength(1);
+    f.now.at = new Date('2026-10-28T06:00:00Z');
+    f.reopenTask(task.id); // "redo it, the photos were wrong"
+    const again = await f.service.finish(as(inspector), insp.id, await finishBody(insp.id));
+    expect(again.status).toBe('FINISHED');
+    expect(again.taskCompleted).toBeNull();
+    expect(again.taskOffer).toBeNull();
+    expect(task.done).toBe(false);
+    expect(f.completions).toHaveLength(1);
+  });
+
+  it('a finish sent again completes a check its first finish couldn’t (nothing changed by hand since)', async () => {
+    const { form, task } = await aCheck();
+    f.noDoneColumn.add('P1');
+    const { insp } = await finishFor(task.id, form.id);
+    expect(task.done).toBe(false);
+    f.noDoneColumn.delete('P1');
+    const again = await f.service.finish(as(inspector), insp.id, await finishBody(insp.id));
+    expect(again.taskCompleted).toEqual({ id: task.id, key: task.key, title: task.title });
+  });
+
+  it('a finish sent again after the project was archived completes nothing (the archived rule)', async () => {
+    const { form, task } = await aCheck();
+    f.noDoneColumn.add('P1');
+    const { insp } = await finishFor(task.id, form.id);
+    f.noDoneColumn.delete('P1');
+    f.projects.get('P1')!.status = 'ARCHIVED';
+    const again = await f.service.finish(as(inspector), insp.id, await finishBody(insp.id));
+    expect(again.status).toBe('FINISHED');
+    expect(again.taskCompleted).toBeNull();
+    expect(task.done).toBe(false);
+    expect(f.completions).toEqual([]);
+  });
+
+  it('a completion whose later steps failed after the task was saved as done still says the task was completed', async () => {
+    const { form, task } = await aCheck();
+    f.completeMode.value = 'fails-after-save';
+    const { done } = await finishFor(task.id, form.id);
+    expect(task.done).toBe(true);
+    expect(done.taskCompleted).toEqual({ id: task.id, key: task.key, title: task.title });
+    expect(done.taskOffer).toBeNull();
+  });
+
+  it('a completion that failed before anything was saved leaves the check open, with today’s offer to mark it done', async () => {
+    const { form, task } = await aCheck();
+    f.completeMode.value = 'fails-before-save';
+    const { done } = await finishFor(task.id, form.id);
+    expect(task.done).toBe(false);
+    expect(done.taskCompleted).toBeNull();
+    expect(done.taskOffer).toMatchObject({ id: task.id, doneColumnId: 'P1-done' });
+  });
 });

@@ -239,12 +239,25 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     return updated;
   }
 
-  async function moveTask(id: string, columnId: string, position?: number, actorId?: string): Promise<TaskRecord> {
+  /**
+   * Move a task to a column (a status change when the column's stage differs). With
+   * `expectedVersion` it moves only if nobody changed the task since that version, in the same
+   * statement (VERSION_CONFLICT otherwise): two moves made from one reading can't both happen.
+   */
+  async function moveTask(id: string, columnId: string, position?: number, actorId?: string, opts: { expectedVersion?: number } = {}): Promise<TaskRecord> {
     const current = await getTask(id);
+    const stale = () => new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
+    if (opts.expectedVersion !== undefined && current.version !== opts.expectedVersion) throw stale();
     // Reordering within the same column is not a status change.
     const patch: UpdateTaskData = columnId === current.columnId ? { columnId } : await columnChange(current, columnId);
     if (position !== undefined) patch.position = position;
-    const moved = await tasks.update(id, patch);
+    let moved: TaskRecord;
+    try {
+      moved = await tasks.update(id, patch, opts.expectedVersion !== undefined ? { expectedVersion: opts.expectedVersion } : undefined);
+    } catch (err) {
+      if (err instanceof TaskVersionConflictError) throw stale();
+      throw err;
+    }
     await onMoved?.(moved, current.columnId, actorId);
     return moved;
   }

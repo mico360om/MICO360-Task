@@ -18,7 +18,7 @@ export interface InspectionPortDeps {
   tasks: {
     createTask(input: { title: string; description: string; projectId: string; columnId: string; createdById: string; assigneeIds: string[] }): Promise<TaskRecord>;
     /** The task service's move (the normal status path: history, notices, watchers, the next repeat copy). */
-    moveTask?(id: string, columnId: string, position?: number, actorId?: string): Promise<TaskRecord>;
+    moveTask?(id: string, columnId: string, position?: number, actorId?: string, opts?: { expectedVersion?: number }): Promise<TaskRecord>;
     getTask?(id: string): Promise<TaskRecord>;
   };
   /**
@@ -95,14 +95,33 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
     doneColumnOf,
     async completeTask(taskId, actorId) {
       if (!d.tasks.moveTask) return false;
-      const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true, completedAt: true, column: { select: { category: true } } } });
+      const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true, completedAt: true, version: true, column: { select: { category: true } } } });
       if (!t || isTaskDone({ completedAt: t.completedAt, columnCategory: t.column?.category ?? null })) return false;
       const done = await doneColumnOf(t.projectId);
       if (!done) return false;
-      // As a card moved to Done on the board: the same service call, and open boards are told.
-      const moved = await d.tasks.moveTask(taskId, done, undefined, actorId);
-      d.broadcast(moved.projectId, 'task:moved', moved);
-      return true;
+      // As a card moved to Done on the board: the same service call, and open boards are told. Only
+      // from the version read here (the database decides between two at once, any process).
+      try {
+        const moved = await d.tasks.moveTask(taskId, done, undefined, actorId, { expectedVersion: t.version });
+        d.broadcast(moved.projectId, 'task:moved', moved);
+        return true;
+      } catch (err) {
+        // Someone (or another finish) changed it first: not this one's move.
+        if ((err as { code?: unknown }).code === 'VERSION_CONFLICT') return false;
+        // A step after the save failed (a notice, the next copy): the task may be done all the same.
+        d.logger?.warn('inspections: completing the check: a step after the move failed', { err, taskId });
+        const after = d.tasks.getTask ? await d.tasks.getTask(taskId).catch(() => null) : null;
+        if (after && isTaskDone({ completedAt: after.completedAt, columnCategory: after.columnCategory ?? null })) {
+          d.broadcast(after.projectId, 'task:moved', after);
+          return true;
+        }
+        throw err;
+      }
+    },
+    async statusChangedSince(taskId, since) {
+      // Every status change made by someone (a move on the board, an edit, a move to another project,
+      // MICO AI) writes one of these lines (task-status-effects).
+      return (await prisma.activity.count({ where: { taskId, action: { in: ['REOPENED', 'MOVED'] }, createdAt: { gt: since } } })) > 0;
     },
     async deleteFormStoppingSchedules(formId, actorId) {
       // One transaction: the form is deleted and every schedule using it stops (its repeat cleared, as

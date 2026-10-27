@@ -33,6 +33,12 @@ export function createStatusChangeEffects(deps: StatusEffectsDeps) {
     const done = toCol?.category === 'DONE';
     const wasDone = fromCol?.category === 'DONE';
 
+    // The timeline line first: the change has happened, so a later step that fails can't lose it.
+    if (actorId) {
+      const action = done ? 'COMPLETED' : wasDone ? 'REOPENED' : 'MOVED';
+      await deps.record({ taskId: task.id, projectId: task.projectId, userId: actorId, action, meta: { from: fromCol?.name ?? null, to: toCol?.name ?? null } });
+    }
+
     if (task.recurrenceRule && done) {
       const next = await deps.nextCopy(task);
       if (next) await deps.announceCopy(next.id, task.projectId);
@@ -44,11 +50,6 @@ export function createStatusChangeEffects(deps: StatusEffectsDeps) {
       for (const userId of await deps.recipients(task.id, actorId)) {
         await deps.notify({ userId, type: 'TASK_STATUS', title: `Task moved to ${toCol?.name ?? 'a new stage'}`, body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
       }
-    }
-
-    if (actorId) {
-      const action = done ? 'COMPLETED' : wasDone ? 'REOPENED' : 'MOVED';
-      await deps.record({ taskId: task.id, projectId: task.projectId, userId: actorId, action, meta: { from: fromCol?.name ?? null, to: toCol?.name ?? null } });
     }
   };
 }

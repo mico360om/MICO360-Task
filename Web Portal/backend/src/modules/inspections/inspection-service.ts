@@ -98,6 +98,11 @@ export interface InspectionPorts {
    */
   completeTask?(taskId: string, actorId: string): Promise<boolean>;
   /**
+   * Did someone change the task's status by hand (moved or reopened it) after this time? A repeat of
+   * a finish then leaves the task as that person left it.
+   */
+  statusChangedSince?(taskId: string, since: Date): Promise<boolean>;
+  /**
    * Deletes the form and stops every schedule that uses it (their repeat cleared as a person stopping
    * it would, with the same history line), in one transaction. Without it, only the form is deleted.
    */
@@ -334,27 +339,38 @@ export function createInspectionService(deps: InspectionServiceDeps) {
   /**
    * A check (a task that carries a form) is completed by finishing an inspection for it: moved to its
    * project's first Done column, as the finisher, through the normal status path — once, however
-   * often the finish is sent. Returns the task when it is done now (null: not a check, can't be seen,
-   * or its project has no Done column). Reopening the inspection never reopens the task.
+   * often the finish is sent (the move itself is conditional on the task's version, so two at once
+   * make one move; this in-process queue only saves the second one a wasted try).
+   *
+   * `completed` is the task when it is done now; `offer` says whether today's "mark the task done
+   * too?" offer still applies (a task without a form, or a check that couldn't be completed).
+   * A repeat of a finish (`replay`) leaves alone a task someone moved or reopened by hand since the
+   * inspection was finished, and nothing is completed on an archived project. Reopening the
+   * inspection never reopens the task.
    */
-  async function completeCheck(actor: Actor, r: InspectionRecord): Promise<InspectionDetail['taskCompleted']> {
-    if (!r.taskId) return null;
+  async function completeCheck(actor: Actor, r: InspectionRecord, replay: boolean): Promise<{ completed: InspectionDetail['taskCompleted']; offer: boolean }> {
+    if (!r.taskId) return { completed: null, offer: true };
     const before = completing.get(r.taskId);
-    const run = (async () => {
+    const run = (async (): Promise<{ completed: InspectionDetail['taskCompleted']; offer: boolean }> => {
       if (before) await before.catch(() => undefined);
       const t = await ports.task(r.taskId!);
-      if (!t || !t.inspectionFormId || !(await ports.canViewTask(actor.id, actor.roles, t.id))) return null;
-      if (!t.done) {
-        let completed = false;
-        try {
-          completed = (await ports.completeTask?.(t.id, actor.id)) ?? false;
-        } catch (err) {
-          // The inspection is finished either way; the task can still be completed by hand.
-          ports.logger?.warn('inspections: the check could not be completed', { err, taskId: t.id });
-        }
-        if (!completed) return null;
+      if (!t || !t.inspectionFormId || !(await ports.canViewTask(actor.id, actor.roles, t.id))) return { completed: null, offer: true };
+      const ref = { id: t.id, key: t.key, title: t.title };
+      if (t.done) return { completed: ref, offer: false };
+      const project = await ports.project(r.projectId);
+      if (!project || project.status === 'ARCHIVED') return { completed: null, offer: false };
+      // Moved or reopened by hand since it was finished: left open on purpose, and nothing is offered.
+      if (replay && r.finishedAt && (await ports.statusChangedSince?.(t.id, r.finishedAt))) return { completed: null, offer: false };
+      try {
+        await ports.completeTask?.(t.id, actor.id);
+      } catch (err) {
+        // The inspection is finished either way; the task may be done all the same (a step after the
+        // move failed), or can still be completed by hand.
+        ports.logger?.warn('inspections: the check could not be completed', { err, taskId: t.id });
       }
-      return { id: t.id, key: t.key, title: t.title };
+      // Told as it is now: done by this finish, by another one at the same moment, or not at all.
+      const after = await ports.task(t.id);
+      return after?.done ? { completed: ref, offer: false } : { completed: null, offer: true };
     })();
     completing.set(r.taskId, run);
     try {
@@ -372,7 +388,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
     return doneColumnId ? { id: t.id, key: t.key, title: t.title, doneColumnId } : null;
   }
 
-  async function detail(actor: Actor, r: InspectionRecord, extra: { offer?: boolean; completed?: InspectionDetail['taskCompleted'] } = {}): Promise<InspectionDetail> {
+  async function detail(actor: Actor, r: InspectionRecord, extra: { offer?: boolean; completed?: InspectionDetail['taskCompleted']; noOffer?: boolean } = {}): Promise<InspectionDetail> {
     const [answers, signatures, earlier, followUps, project, manage] = await Promise.all([
       store.answers(r.id),
       store.signatures(r.id),
@@ -420,14 +436,14 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       earlierRevisions: earlierRevisionsOf(earlier),
       permissions,
       signatureRoles: signatureRolesOf(r.structure, requiredSignatures(r.structure)),
-      ...(extra.offer ? { taskCompleted: extra.completed ?? null, taskOffer: extra.completed ? null : await taskOffer(actor, r) } : {}),
+      ...(extra.offer ? { taskCompleted: extra.completed ?? null, taskOffer: extra.completed || extra.noOffer ? null : await taskOffer(actor, r) } : {}),
     };
   }
 
   /** A finished inspection as its finish (or a repeat of it) answers: its check completed, or the offer. */
-  async function finished(actor: Actor, r: InspectionRecord): Promise<InspectionDetail> {
-    const completed = await completeCheck(actor, r);
-    return detail(actor, r, { offer: true, completed });
+  async function finished(actor: Actor, r: InspectionRecord, replay: boolean): Promise<InspectionDetail> {
+    const { completed, offer } = await completeCheck(actor, r, replay);
+    return detail(actor, r, { offer: true, completed, noOffer: !offer });
   }
 
   // ── Forms ───────────────────────────────────────────────────────────────────────────────────
@@ -576,7 +592,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       const r = await viewable(actor, id);
       const input = parse(finishBody, body);
       // A repeat of the finish that was applied (its reply was lost): it is finished, whatever happened since.
-      if (r.status === 'FINISHED' && r.finishId === input.finishId) return finished(actor, r);
+      if (r.status === 'FINISHED' && r.finishId === input.finishId) return finished(actor, r, true);
       await writableProject(r.projectId);
       // Refused before any picture is looked at (the locked step below decides again).
       if (r.status === 'FINISHED') throw alreadyFinished();
@@ -621,7 +637,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         return unanswered.length || missingSignatures.length ? { code: 'INCOMPLETE', unanswered, missingSignatures } : null;
       };
       const out = await store.finish(r.id, actor.id, { finishId: input.finishId, revision: input.revision, at, signatures, check, count: counter(r.structure) });
-      if (out.kind === 'already') return finished(actor, out.inspection);
+      if (out.kind === 'already') return finished(actor, out.inspection, true);
       if (out.kind === 'finished-other') throw alreadyFinished();
       if (out.kind === 'stale-revision') throw reopenedSince();
       if (out.kind === 'problem') {
@@ -642,7 +658,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         signedBy: [...signatures].sort(byRole).map((s) => ({ role: s.role, name: s.name })),
       });
       if (r.taskId) await activity(r.taskId, actor.id, 'INSPECTION_FINISHED', { inspectionId: r.id, inspection: r.title, failed: c.failed });
-      return finished(actor, out.inspection);
+      return finished(actor, out.inspection, false);
     },
 
     async reopen(actor: Actor, id: string): Promise<InspectionDetail> {

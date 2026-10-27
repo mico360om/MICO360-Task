@@ -53,6 +53,10 @@ export interface Fixture {
   noDoneColumn: Set<string>;
   /** Schedules stopped by deleting their form, and the form deletions that went through the task port. */
   stopped: Array<{ formId: string; taskIds: string[]; actorId: string }>;
+  /** How the next completion goes: saved; saved, then a later step fails; or failed before the save. */
+  completeMode: { value: 'ok' | 'fails-after-save' | 'fails-before-save' };
+  /** A person moves the task by hand (e.g. back to "To do"), now: it is open again. */
+  reopenTask(taskId: string): void;
 }
 
 export const as = (id: string) => ({ id, roles: id === PEOPLE.admin ? ['ADMIN'] : ['EMPLOYEE'] });
@@ -88,6 +92,9 @@ export function makeFixture(): Fixture {
     return t;
   };
   const completions: Fixture['completions'] = [];
+  const completeMode: Fixture['completeMode'] = { value: 'ok' };
+  /** When each task last changed status by hand (a move or a reopen). */
+  const statusChanges = new Map<string, Date[]>();
   const noDoneColumn = new Set<string>();
   const stopped: Fixture['stopped'] = [];
   const isAdmin = (roles: string[]) => roles.includes('ADMIN');
@@ -121,10 +128,13 @@ export function makeFixture(): Fixture {
     completeTask: async (taskId, actorId) => {
       const t = tasks.get(taskId);
       if (!t || t.deleted || t.done || noDoneColumn.has(t.projectId)) return false;
+      if (completeMode.value === 'fails-before-save') throw new Error('database down');
       completions.push({ taskId, actorId });
       Object.assign(t, { done: true, completedAt: now.at });
+      if (completeMode.value === 'fails-after-save') throw new Error('a notice could not be written');
       return true;
     },
+    statusChangedSince: async (taskId, since) => (statusChanges.get(taskId) ?? []).some((at) => at.getTime() > since.getTime()),
     deleteFormStoppingSchedules: async (formId, actorId) => {
       if (!(await store.deleteForm(formId))) return { deleted: false, schedulesStopped: 0 };
       const heads = [...tasks.values()].filter((t) => !t.deleted && t.repeats && t.inspectionFormId === formId);
@@ -164,7 +174,11 @@ export function makeFixture(): Fixture {
     },
   };
   const service = createInspectionService({ store, ports, now: () => now.at, timeZone: 'Asia/Muscat', newId: (() => { let k = 0; return () => `id${++k}`; })() });
-  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, failTaskNumber, cleaned, cleanMode, addTask, completions, noDoneColumn, stopped };
+  const reopenTask = (taskId: string) => {
+    Object.assign(tasks.get(taskId)!, { done: false, completedAt: null });
+    statusChanges.set(taskId, [...(statusChanges.get(taskId) ?? []), new Date(now.at.getTime() + 1)]);
+  };
+  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, failTaskNumber, cleaned, cleanMode, addTask, completions, noDoneColumn, stopped, completeMode, reopenTask };
 }
 
 /** A form body: a reading with limits and two checks over two sections. */

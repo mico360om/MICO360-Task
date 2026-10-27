@@ -136,7 +136,9 @@ describe('repeat copies of a scheduled check (MySQL)', () => {
 
 // ── The whole server side: tasks, inspections, schedules, with the app's real access rules ──────────
 
-function world(clock: { at: Date }) {
+function world(clock: { at: Date }, opts: { noticesFail?: boolean } = {}) {
+  const warnings: Array<{ msg: string; ctx?: Record<string, unknown> }> = [];
+  const logger = { warn: (msg: string, ctx?: Record<string, unknown>) => void warnings.push({ msg, ctx }) };
   const notices: Array<{ userId: string; title: string; entityId: string }> = [];
   const lines: Array<{ taskId: string; userId: string; action: string; meta: Record<string, unknown> }> = [];
   const events: Array<{ event: string; id: string }> = [];
@@ -148,8 +150,15 @@ function world(clock: { at: Date }) {
     announceCopy: async () => {},
     followActionItems: async () => {},
     recipients: async (taskId, actorId) => (await prisma.taskAssignee.findMany({ where: { taskId } })).map((a) => a.userId).filter((u) => u !== actorId),
-    notify: async (x) => void notices.push({ userId: x.userId, title: x.title, entityId: x.entityId }),
-    record: async (e) => void lines.push({ taskId: e.taskId, userId: e.userId, action: e.action, meta: e.meta }),
+    notify: async (x) => {
+      if (opts.noticesFail) throw new Error('Deadlock found when trying to get lock');
+      notices.push({ userId: x.userId, title: x.title, entityId: x.entityId });
+    },
+    // Kept in the database too, as the app does (a repeat of a finish reads it).
+    record: async (e) => {
+      lines.push({ taskId: e.taskId, userId: e.userId, action: e.action, meta: e.meta });
+      await prisma.activity.create({ data: { taskId: e.taskId, projectId: e.projectId, userId: e.userId, action: e.action, meta: e.meta as Prisma.InputJsonValue } });
+    },
   });
   const onUpdated = async (before: TaskRecord, after: TaskRecord, actorId?: string) => {
     const meta = updateActivity(before, after, TZ);
@@ -158,22 +167,20 @@ function world(clock: { at: Date }) {
   const taskService = createTaskService({ tasks: createPrismaTaskRepository(prisma), projects: createPrismaProjectLookup(prisma), timeZone: TZ, now: nowFn, onMoved: (t, prev, actor) => effects(t, prev, actor), onUpdated });
   const managers = createPrismaProjectManagerLookup(prisma);
   const access = createProjectAccess({ projects: createPrismaProjectRepository(prisma), managers });
-  const inspections = createInspectionService({
-    store: createPrismaInspectionStore(prisma),
-    timeZone: TZ,
-    now: nowFn,
-    ports: createInspectionPorts({
+  const makePorts = (tasks: Parameters<typeof createInspectionPorts>[0]['tasks'] = taskService) =>
+    createInspectionPorts({
       prisma,
       access,
       authz: createProjectAuthz({ managers }),
-      tasks: taskService,
+      tasks,
       onTaskUpdated: onUpdated,
       columns: createColumnService({ columns: createPrismaColumnRepository(prisma) }),
       assignees: { eligibleAssignees: async (_p, ids) => ids, assertAssignable: async (_p, ids) => ids, notifyAssigned: async () => {} },
       broadcast: (_p, event, payload) => void events.push({ event, id: (payload as { id: string }).id }),
       userNames: async (ids) => new Map(ids.map((id) => [id, id])),
-    }),
-  });
+      logger,
+    });
+  const inspections = createInspectionService({ store: createPrismaInspectionStore(prisma), timeZone: TZ, now: nowFn, ports: makePorts() });
   const schedules = createInspectionScheduleService({
     source: createPrismaInspectionScheduleSource(prisma, { workingDays: async () => [0, 1, 2, 3, 4] }),
     canViewProject: (u, r, p) => access.canViewProject(u, r, p),
@@ -181,7 +188,7 @@ function world(clock: { at: Date }) {
     timeZone: TZ,
     now: nowFn,
   });
-  return { taskService, inspections, schedules, access, notices, lines, events };
+  return { taskService, inspections, schedules, access, notices, lines, events, warnings, makePorts };
 }
 
 const member = () => ({ id: mateId, roles: ['EMPLOYEE'] });
@@ -321,5 +328,63 @@ describe('who may see and set up schedules (MySQL, the app’s access rules)', (
     expect(await refused(w.schedules.dueChecks({ id: outsider.id, roles: ['EMPLOYEE'] }, projectId))).toBe(404);
     await w.taskService.updateTask(s.id, { recurrenceRule: null }, undefined, 'one', mateId);
     expect((await w.schedules.schedules(member(), projectId)).schedules).toEqual([]);
+  });
+});
+
+describe('completing a check: repeats, two at once, and failures after the move (MySQL)', () => {
+  it('a finish sent again after someone reopened the task by hand leaves it open: one COMPLETED line', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const task = await checkFor(w, form.id);
+    const { insp, body } = await finishCheck(w, clock, task.id, form.id);
+    clock.at = new Date('2026-10-01T09:00:00Z');
+    await w.taskService.moveTask(task.id, todoId, undefined, ownerId); // the supervisor: "redo it"
+    const again = await w.inspections.finish(member(), insp.id, body);
+    expect(again).toMatchObject({ status: 'FINISHED', taskCompleted: null, taskOffer: null });
+    const row = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(row.columnId).toBe(todoId);
+    expect(row.completedAt).toBeNull();
+    expect(await prisma.activity.count({ where: { taskId: task.id, action: 'COMPLETED' } })).toBe(1);
+  });
+
+  it('two completions at once (two server processes) make one move, one history line, one notice', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const task = await checkFor(w, form.id);
+    // Both have read the task (open, at its version) before either moves it.
+    let arrived = 0;
+    let release!: () => void;
+    const together = new Promise<void>((r) => (release = r));
+    const racing = {
+      ...w.taskService,
+      createTask: w.taskService.createTask,
+      getTask: w.taskService.getTask,
+      moveTask: async (...a: Parameters<typeof w.taskService.moveTask>) => {
+        if (++arrived === 2) release();
+        await together;
+        return w.taskService.moveTask(...a);
+      },
+    };
+    const [a, b] = [w.makePorts(racing), w.makePorts(racing)];
+    const results = await Promise.all([a.completeTask!(task.id, mateId), b.completeTask!(task.id, mateId)]);
+    expect(results.sort()).toEqual([false, true]);
+    expect(await prisma.activity.count({ where: { taskId: task.id, action: 'COMPLETED' } })).toBe(1);
+    expect(w.notices.filter((n) => n.entityId === task.id)).toHaveLength(1);
+    expect(w.events.filter((e) => e.event === 'task:moved' && e.id === task.id)).toHaveLength(1);
+  });
+
+  it('a step after the move fails (a notice): the task is done, the page is told so, boards are told, the history line is kept and the failure logged', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock, { noticesFail: true });
+    const form = await newForm();
+    const task = await checkFor(w, form.id);
+    const { done } = await finishCheck(w, clock, task.id, form.id);
+    expect(done.taskCompleted).toEqual({ id: task.id, key: task.key, title: task.title });
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).columnId).toBe(doneId);
+    expect(w.events.filter((e) => e.event === 'task:moved' && e.id === task.id)).toHaveLength(1);
+    expect(await prisma.activity.count({ where: { taskId: task.id, action: 'COMPLETED' } })).toBe(1);
+    expect(w.warnings.some((x) => /after the move/.test(x.msg))).toBe(true);
   });
 });
