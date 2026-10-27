@@ -213,3 +213,27 @@ describe('buildTimeline: changes made through MICO AI', () => {
     expect(buildTimeline([e('a1', 'CREATED', 'A', 1, { via: 'something' })])[0]!.text).toBe('created this task');
   });
 });
+
+describe('inspections in a task’s history', () => {
+  it('says an inspection was attached, finished (with its result), or that this task follows one up', () => {
+    const text = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Ivan Inspector', 1, meta)])[0]!.text;
+    expect(text('INSPECTION_ATTACHED', { inspection: 'Rig daily check' })).toBe('attached the inspection “Rig daily check”');
+    expect(text('INSPECTION_FINISHED', { inspection: 'Rig daily check', failed: 0 })).toBe('finished the inspection “Rig daily check”: passed');
+    expect(text('INSPECTION_FINISHED', { inspection: 'Rig daily check', failed: 1 })).toBe('finished the inspection “Rig daily check”: 1 item failed');
+    expect(text('INSPECTION_FINISHED', { inspection: 'Rig daily check', failed: 3 })).toBe('finished the inspection “Rig daily check”: 3 items failed');
+    expect(text('INSPECTION_FOLLOW_UP', { inspection: 'Rig daily check', item: 'Guard rails fitted' })).toBe('made this a follow-up of “Guard rails fitted” in the inspection “Rig daily check”');
+    expect(text('INSPECTION_FOLLOW_UP', { inspection: 'Rig daily check' })).toBe('made this a follow-up of the inspection “Rig daily check”');
+    expect(text('INSPECTION_ATTACHED')).toBe('attached an inspection');
+    expect(text('INSPECTION_FINISHED')).toBe('finished an inspection');
+    expect(text('INSPECTION_FOLLOW_UP')).toBe('made this a follow-up of an inspection');
+  });
+  it('keeps each one a line of its own', () => {
+    const items = buildTimeline([
+      e('a3', 'INSPECTION_FINISHED', 'Ivan', 1, { inspection: 'A', failed: 0 }),
+      e('a2', 'INSPECTION_ATTACHED', 'Ivan', 2, { inspection: 'B' }),
+      e('a1', 'INSPECTION_ATTACHED', 'Ivan', 3, { inspection: 'A' }),
+    ]);
+    expect(items).toHaveLength(3);
+    expect(items.every((i) => i.kind === 'other')).toBe(true);
+  });
+});
