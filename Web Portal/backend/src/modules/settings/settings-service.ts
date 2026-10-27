@@ -20,6 +20,9 @@ export const DEFAULT_WORKING_HOURS: WorkingHours = { days: [0, 1, 2, 3, 4], star
 /** Until an admin sets it: five open tasks due a day per person (the Workload page). */
 export const DEFAULT_DAILY_LIMIT = 5;
 
+/** Until an admin sets it: the company week starts on Sunday. */
+export const DEFAULT_COMPANY_WEEK_START = 0 as const;
+
 /**
  * The system settings that can be read and written through the generic settings API, each with
  * its own schema. Anything else in system_settings (e.g. `ai.config`, which holds provider API
@@ -38,6 +41,10 @@ export const SETTING_SCHEMAS = {
     .transform((h) => ({ days: [...new Set(h.days)].sort((a, c) => a - c), start: h.start, end: h.end })),
   // The Workload page: how many open tasks a person may have due on one working day.
   'workload.dailyLimit': z.number().int().min(1).max(50),
+  // The company week: the Management page's weeks and the weekly summary's day (0 Sunday, 1 Monday, 6 Saturday).
+  'company.weekStart': z.union([z.literal(0), z.literal(1), z.literal(6)]),
+  // The weekly management summary email, for everyone who can see the Management page (each can turn theirs off).
+  'weeklySummary.enabled': z.boolean(),
 } as const;
 
 export type SettingKey = keyof typeof SETTING_SCHEMAS;
@@ -100,7 +107,19 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return parsed.success ? parsed.data : DEFAULT_DAILY_LIMIT;
   }
 
-  return { getAll, get, set, getCarryForward, workingHours, dailyLimit };
+  /** The day the company week starts on (0 Sunday, 1 Monday, 6 Saturday), else Sunday (also when the stored value is broken). */
+  async function companyWeekStart(): Promise<0 | 1 | 6> {
+    const parsed = SETTING_SCHEMAS['company.weekStart'].safeParse(await get('company.weekStart'));
+    return parsed.success ? parsed.data : DEFAULT_COMPANY_WEEK_START;
+  }
+
+  /** The weekly management summary is sent (on unless an administrator turned it off; a broken value keeps it on). */
+  async function weeklySummaryEnabled(): Promise<boolean> {
+    const parsed = SETTING_SCHEMAS['weeklySummary.enabled'].safeParse(await get('weeklySummary.enabled'));
+    return parsed.success ? parsed.data : true;
+  }
+
+  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled };
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;

@@ -189,3 +189,28 @@ describe('settings routes', () => {
     await app.close();
   });
 });
+
+describe('SettingsService: the company week and the weekly management summary', () => {
+  it('companyWeekStart() is Sunday (0) until an admin picks Monday (1) or Saturday (6)', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    expect(await svc.companyWeekStart()).toBe(0);
+    await svc.set('company.weekStart', 1);
+    expect(await svc.companyWeekStart()).toBe(1);
+    await svc.set('company.weekStart', 6);
+    expect(await svc.companyWeekStart()).toBe(6);
+    for (const bad of [2, 7, -1, '1', null]) {
+      await expect(svc.set('company.weekStart', bad)).rejects.toMatchObject({ code: 'VALIDATION', status: 400 });
+    }
+    expect(await createSettingsService({ settings: inMemory({ 'company.weekStart': 'monday' }) }).companyWeekStart()).toBe(0);
+  });
+
+  it('weeklySummaryEnabled() is on until an admin turns it off', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    expect(await svc.weeklySummaryEnabled()).toBe(true);
+    await svc.set('weeklySummary.enabled', false);
+    expect(await svc.weeklySummaryEnabled()).toBe(false);
+    await expect(svc.set('weeklySummary.enabled', 'no')).rejects.toMatchObject({ code: 'VALIDATION' });
+    // A broken stored value never turns it off by accident.
+    expect(await createSettingsService({ settings: inMemory({ 'weeklySummary.enabled': 'off' }) }).weeklySummaryEnabled()).toBe(true);
+  });
+});

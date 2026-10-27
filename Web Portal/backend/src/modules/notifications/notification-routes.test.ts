@@ -113,6 +113,20 @@ describe('Notification preferences: daily task emails', () => {
     expect(after.reminderLeadMinutes).toBeUndefined();
   });
 
+  it('saves the weekly management summary switch, and saves that leave it out keep it', async () => {
+    const a = await appWithStore();
+    const auth = { authorization: `Bearer ${await token()}` };
+    expect((await a.inject({ method: 'GET', url: '/api/v1/notifications/preferences', headers: auth })).json().data.weeklySummary).toBe(true);
+    const off = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { weeklySummary: false } });
+    expect(off.statusCode).toBe(200);
+    expect(off.json().data.weeklySummary).toBe(false);
+    // The daily email settings and an older app's save (muted types only) leave it as it is.
+    await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { time: '07:00' } } });
+    await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { muted: ['TASK_COMMENT'] } });
+    expect((await a.inject({ method: 'GET', url: '/api/v1/notifications/preferences', headers: auth })).json().data).toMatchObject({ weeklySummary: false, muted: ['TASK_COMMENT'] });
+    expect((await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { weeklySummary: 'off' } })).statusCode).toBe(400);
+  });
+
   it('refuses a time that isn’t HH:MM', async () => {
     const a = await appWithStore();
     const res = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: { authorization: `Bearer ${await token()}` }, payload: { dailyEmails: { time: '6pm' } } });
