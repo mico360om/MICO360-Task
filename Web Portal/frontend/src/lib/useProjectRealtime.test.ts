@@ -38,6 +38,13 @@ describe('useProjectRealtime', () => {
     expect(onChange.mock.calls.map((c) => c[0])).toEqual(['tasks', 'tasks', 'meetings', 'meetings', 'meetings']);
   });
 
+  it('says when one of its inspections changed (started, answered, finished, reopened, deleted)', () => {
+    const onChange = vi.fn();
+    renderHook(() => useProjectRealtime('p1', onChange));
+    handlers['inspection:changed']!({ id: 'i1', projectId: 'p1' });
+    expect(onChange).toHaveBeenCalledWith('inspections');
+  });
+
   it('refreshes everything after a reconnect, and reports a lost connection', () => {
     const onChange = vi.fn();
     const { result } = renderHook(() => useProjectRealtime('p1', onChange));

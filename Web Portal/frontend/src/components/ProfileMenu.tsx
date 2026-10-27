@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { assetUrl } from '../api/client';
 import { useAuthStore } from '../stores/auth-store';
 import { failedChanges, pendingCount } from '../lib/offline-replay';
+import { inspectionOutbox } from '../lib/inspection-sync';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
 
 /** Header account button + dropdown menu: identity, profile, settings and log out. */
@@ -21,7 +22,9 @@ export function ProfileMenu() {
   }, [open]);
 
   function signOut(force = false) {
-    const unsynced = pendingCount() + failedChanges().length;
+    // Inspection changes still on this device count too (answers, signatures, follow-up requests).
+    const inspections = user ? inspectionOutbox.waiting(user.id).reduce((n, w) => n + w.pending.answers + w.pending.followUps + (w.pending.finish ? 1 : 0), 0) : 0;
+    const unsynced = pendingCount() + failedChanges().length + inspections;
     if (unsynced > 0 && !force) {
       setConfirmUnsynced(unsynced);
       return;

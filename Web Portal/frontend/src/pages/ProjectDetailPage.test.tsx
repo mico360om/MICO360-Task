@@ -80,6 +80,7 @@ beforeEach(() => {
     if (u.endsWith('/users')) return json({ error: { code: 'FORBIDDEN', message: 'Admins only' } }, 403);
     if (u.includes('/columns')) return json({ data: COLUMNS });
     if (u.endsWith('/meetings-overview')) return json({ data: overview });
+    if (u.endsWith('/projects/p1/inspections')) return json({ data: { inspections: [], canStart: true } });
     if (u.endsWith('/projects')) return json({ data: [PROJECT] });
     if (u.includes('/tasks')) return json({ data: [
       task('t1', { dueDate: '2026-09-30T00:00:00.000Z' }), // due today → not overdue
@@ -123,6 +124,14 @@ describe('ProjectDetailPage: the dashboard', () => {
     const next = screen.getByRole('region', { name: 'Next meeting' });
     expect(await within(next).findByRole('link', { name: 'Weekly sync' })).toHaveAttribute('href', '/meetings/weekly');
     expect(within(next).getByText(/1 upcoming · 1 held · 1 open action item/)).toBeInTheDocument();
+  });
+
+  it('has an Inspections tab, where the team starts one', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole('tab', { name: 'Inspections' }));
+    const panel = screen.getByRole('tabpanel', { name: 'Inspections' });
+    expect(await within(panel).findByRole('button', { name: 'Start an inspection' })).toBeInTheDocument();
+    expect(within(panel).getByRole('region', { name: 'In progress (0)' })).toBeInTheDocument();
   });
 
   it('filters the tasks: ongoing, pending, overdue, completed, milestones', async () => {

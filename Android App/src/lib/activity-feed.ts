@@ -136,6 +136,23 @@ function projectMoveText(e: FeedEntry): string {
   if (from && to) return `moved this task from ${from} to ${to}`;
   return to ? `moved this task to ${to}` : 'moved this task to another project';
 }
+/** An inspection named in a task's history: "the inspection “Rig daily check”", or "an inspection". */
+function inspectionName(e: FeedEntry): string {
+  const name = str(e.meta?.inspection);
+  return name ? `the inspection ${quote(name)}` : 'an inspection';
+}
+/** "finished the inspection “Rig daily check”: 2 items failed" (or ": passed"). */
+function inspectionFinishedText(e: FeedEntry): string {
+  const failed = typeof e.meta?.failed === 'number' ? e.meta.failed : null;
+  const result = failed === null ? '' : failed === 0 ? ': passed' : `: ${failed} ${failed === 1 ? 'item' : 'items'} failed`;
+  return `finished ${inspectionName(e)}${result}`;
+}
+/** "made this a follow-up of “Guard rails fitted” in the inspection “Rig daily check”". */
+function followUpText(e: FeedEntry): string {
+  const item = str(e.meta?.item);
+  return item && str(e.meta?.inspection) ? `made this a follow-up of ${quote(item)} in ${inspectionName(e)}` : `made this a follow-up of ${inspectionName(e)}`;
+}
+
 /** The old project's line: "moved RIG-4 to Operations (OPS-17)" — by the key the task had there. */
 function movedOutText(e: FeedEntry): string {
   const to = projectAndKey(e.meta?.toProject, e.meta?.toKey);
@@ -274,6 +291,10 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       // A move to another project is a line of its own (never merged with status moves or edits).
       if (newest.action === 'PROJECT_CHANGED') return { ...base, text: projectMoveText(newest) };
       if (newest.action === 'PROJECT_MOVED_OUT') return { ...base, text: movedOutText(newest) };
+      // Inspections: one carried out for this task, or the one whose failed item this task follows up.
+      if (newest.action === 'INSPECTION_ATTACHED') return { ...base, text: `attached ${inspectionName(newest)}` };
+      if (newest.action === 'INSPECTION_FINISHED') return { ...base, text: inspectionFinishedText(newest) };
+      if (newest.action === 'INSPECTION_FOLLOW_UP') return { ...base, text: followUpText(newest) };
       return { ...base, text: OTHER_TEXT[newest.action] ?? (newest.action || '').toLowerCase().replace(/[._]/g, ' ') };
   }
 }

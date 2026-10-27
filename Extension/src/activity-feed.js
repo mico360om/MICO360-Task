@@ -110,6 +110,23 @@ function projectMoveText(e) {
   if (from && to) return `moved this task from ${from} to ${to}`;
   return to ? `moved this task to ${to}` : 'moved this task to another project';
 }
+/** An inspection named in a task's history: "the inspection “Rig daily check”", or "an inspection". */
+function inspectionName(e) {
+  const name = str(metaOf(e)?.inspection);
+  return name ? `the inspection ${quote(name)}` : 'an inspection';
+}
+/** "finished the inspection “Rig daily check”: 2 items failed" (or ": passed"). */
+function inspectionFinishedText(e) {
+  const failed = typeof metaOf(e)?.failed === 'number' ? metaOf(e).failed : null;
+  const result = failed === null ? '' : failed === 0 ? ': passed' : `: ${failed} ${failed === 1 ? 'item' : 'items'} failed`;
+  return `finished ${inspectionName(e)}${result}`;
+}
+/** "made this a follow-up of “Guard rails fitted” in the inspection “Rig daily check”". */
+function followUpText(e) {
+  const item = str(metaOf(e)?.item);
+  return item && str(metaOf(e)?.inspection) ? `made this a follow-up of ${quote(item)} in ${inspectionName(e)}` : `made this a follow-up of ${inspectionName(e)}`;
+}
+
 /** The old project's line: "moved RIG-4 to Operations (OPS-17)" — by the key the task had there. */
 function movedOutText(e) {
   const to = projectAndKey(metaOf(e)?.toProject, metaOf(e)?.toKey);
@@ -240,6 +257,10 @@ function lineOf(kind, entries) {
       // A move to another project is a line of its own (never merged with status moves or edits).
       if (newest.action === 'PROJECT_CHANGED') return { ...base, text: projectMoveText(newest) };
       if (newest.action === 'PROJECT_MOVED_OUT') return { ...base, text: movedOutText(newest) };
+      // Inspections: one carried out for this task, or the one whose failed item this task follows up.
+      if (newest.action === 'INSPECTION_ATTACHED') return { ...base, text: `attached ${inspectionName(newest)}` };
+      if (newest.action === 'INSPECTION_FINISHED') return { ...base, text: inspectionFinishedText(newest) };
+      if (newest.action === 'INSPECTION_FOLLOW_UP') return { ...base, text: followUpText(newest) };
       return { ...base, text: OTHER_TEXT[newest.action] ?? (newest.action || '').toLowerCase().replace(/[._]/g, ' ') };
   }
 }

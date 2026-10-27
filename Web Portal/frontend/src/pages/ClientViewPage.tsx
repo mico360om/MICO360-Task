@@ -2,7 +2,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEven
 import { Link, useParams } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import logoW from '../assets/logo-w.png';
-import { clientViewApi, type ClientView, type ClientViewApi, type ClientViewItem, type ClientViewMinutes } from '../api/client-view';
+import { clientViewApi, type ClientInspection, type ClientView, type ClientViewApi, type ClientViewItem, type ClientViewMinutes } from '../api/client-view';
+import { ClientInspectionBody } from '../components/inspections/ClientInspectionBody';
 import { ApiError } from '../lib/api-client';
 import { downloadBlob } from '../lib/download';
 import { usePageName } from '../lib/page-meta';
@@ -388,6 +389,18 @@ function Project({ view, api, onSignedOut }: { view: ClientView; api: ClientView
         )}
       </Section>
 
+      <Section title="Inspection reports">
+        {(view.inspections ?? []).length === 0 ? (
+          <p className="text-sm text-ink-2">No inspection reports have been shared yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {(view.inspections ?? []).map((x, i) => (
+              <InspectionReport key={x.id} report={x} open={i === 0} api={api} />
+            ))}
+          </div>
+        )}
+      </Section>
+
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm text-ink-2">
         <span>
           Signed in on this device as <span className="font-semibold text-ink">{view.viewer.email}</span>
@@ -535,6 +548,61 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
           {problem ? <p role="alert" className="text-sm text-danger">{problem}</p> : null}
           <div>
             <Button type="button" size="sm" variant="secondary" loading={busy} onClick={() => void download()} aria-label={`Download the minutes of ${m.title} (PDF)`}>
+              Download PDF
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+/** A shown inspection report: its result, every item, the signatures, and its PDF (the client copy). */
+function InspectionReport({ report: x, open, api }: { report: ClientInspection; open: boolean; api: ClientViewApi }) {
+  const [expanded, setExpanded] = useState(open);
+  const panelId = useId();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const download = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const { blob, fileName } = await api.inspectionPdf(x.id);
+      downloadBlob(fileName, blob);
+    } catch {
+      setProblem('Couldn’t download the report. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="rounded-xl border border-line">
+      <h3 className="text-sm">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          onClick={() => setExpanded((v) => !v)}
+          className="flex min-h-[2.75rem] w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+        >
+          <span className="min-w-0">
+            <span dir="auto" className="block break-words font-semibold text-ink">{x.title}</span>
+            <span className="block text-xs font-normal text-ink-2">
+              {dayText(x.date)}
+              {x.place ? ` · ${x.place}` : ''} · {x.result}
+            </span>
+          </span>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-none text-ink-2 transition-transform ${expanded ? 'rotate-180' : ''}`}>
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      </h3>
+      {expanded ? (
+        <div id={panelId} className="flex flex-col gap-3 border-t border-line px-4 py-4">
+          <ClientInspectionBody inspection={x} />
+          {problem ? <p role="alert" className="text-sm text-danger">{problem}</p> : null}
+          <div>
+            <Button type="button" size="sm" variant="secondary" loading={busy} onClick={() => void download()} aria-label={`Download the inspection report ${x.title} (PDF)`}>
               Download PDF
             </Button>
           </div>

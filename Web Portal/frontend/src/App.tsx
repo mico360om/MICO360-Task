@@ -44,6 +44,9 @@ const TemplatesPage = lazyPage(() => import('./pages/TemplatesPage'), 'Templates
 // A client's read-only page for one shared project (no staff sign-in, no app shell).
 const ClientViewPage = lazyPage(() => import('./pages/ClientViewPage'), 'ClientViewPage');
 const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
+// Temporary: the forms manager moves to the Templates page's "Inspection forms" tab (not in the menu).
+// One inspection: carried out on a phone (it keeps working without signal) or at a desk.
+const InspectionPage = lazyPage(() => import('./pages/InspectionPage'), 'InspectionPage');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
 function RouteFallback() {
@@ -111,6 +114,9 @@ export function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/about" element={<AboutPage />} />
+            {/* Inspection forms live on the Templates page; the early address still opens them. */}
+            <Route path="/inspection-forms" element={<Navigate to="/templates?tab=inspections" replace />} />
+            <Route path="/inspections/:id" element={<InspectionPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/admin/settings" element={<SystemSettingsPage />} />

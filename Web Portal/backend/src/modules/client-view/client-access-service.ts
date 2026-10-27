@@ -7,6 +7,8 @@ import { ClientShareExistsError, type ClientShareRecord, type ClientShareStore }
 import type { ClientViewSource } from './client-view-source';
 import { buildClientView, type ClientProjectSource, type ClientView } from './client-view-payload';
 import { buildClientMinutesPdf } from './client-minutes-pdf';
+import type { ClientInspection } from '../inspections/inspection-client-copy';
+import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from '../inspections/inspection-report-pdf';
 import { clientMinutesContent } from './client-minutes-content';
 import { hashToken, isWellFormedToken, newToken, normalizeEmail, sameText } from './client-tokens';
 import { ClientCodeInvalidError, ClientEmailUnavailableError, ClientLinkEndedError, ClientSignInRequiredError } from './client-view-errors';
@@ -62,6 +64,11 @@ export interface ClientAccessDeps {
   runInBackground?: (task: () => Promise<void>) => void;
   logger?: { warn(msg: string, ctx?: Record<string, unknown>): void };
   limits?: Partial<ClientAccessLimits>;
+  /** Finished inspection reports marked "Show to client" (the inspections module decides which). */
+  inspections?: {
+    list(projectId: string): Promise<ClientInspection[]>;
+    one(projectId: string, inspectionId: string): Promise<ClientInspection | null>;
+  };
 }
 
 /** A client on the Share with client panel (never their link). */
@@ -341,8 +348,13 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       const { share, project } = await openSession(link, readSession);
       const at = now();
       if (!share.lastViewedAt || at.getTime() - share.lastViewedAt.getTime() >= MINUTE) await store.markViewed(share.id, at);
-      const [counts, items, minutes] = await Promise.all([source.counts(share.projectId), source.items(share.projectId), source.minutes(share.projectId)]);
-      return buildClientView({ viewer: { name: share.name, email: share.email }, project, counts, items, minutes, timeZone: deps.timeZone, now: at });
+      const [counts, items, minutes, inspections] = await Promise.all([
+        source.counts(share.projectId),
+        source.items(share.projectId),
+        source.minutes(share.projectId),
+        deps.inspections ? deps.inspections.list(share.projectId) : Promise.resolve([]),
+      ]);
+      return buildClientView({ viewer: { name: share.name, email: share.email }, project, counts, items, minutes, inspections, timeZone: deps.timeZone, now: at });
     },
 
     /** The client copy of a shown meeting's approved minutes (never the staff PDF). */
@@ -369,6 +381,22 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         generatedAt: now().toISOString(),
       });
       return { pdf, fileName: `minutes-${slugify(m.title)}.pdf` };
+    },
+
+    /** The client copy of a shown inspection report (never the staff PDF: no staff names but the signers'). */
+    async inspectionPdf(link: unknown, readSession: SessionReader, inspectionId: unknown): Promise<{ pdf: Buffer; fileName: string }> {
+      const { share, project } = await openSession(link, readSession);
+      const report = typeof inspectionId === 'string' && inspectionId && deps.inspections ? await deps.inspections.one(share.projectId, inspectionId) : null;
+      if (!report) throw new NotFoundError('This inspection report isn’t shared with you.');
+      const image = project.imageUrl && deps.projectImage ? await deps.projectImage(project.imageUrl).catch(() => null) : null;
+      const pdf = buildInspectionPdf({
+        brand: reportBrand(),
+        project: { name: project.name, code: project.code, number: project.number, clientName: project.clientName, color: project.color, icon: project.icon, image },
+        report,
+        timeZone: deps.timeZone,
+        generatedAt: now().toISOString(),
+      });
+      return { pdf, fileName: inspectionPdfFileName(report.title, report.date) };
     },
 
     /** Signs this device out of the page; returns the share, so its cookie can be cleared. */

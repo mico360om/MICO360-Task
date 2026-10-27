@@ -250,6 +250,16 @@ describe('PdfDocument — no clipping, no orphans', () => {
     expect(inspectPdf(doc.build()).contents[0]).toMatch(/0\.72\d* 0\.16\d* 0\.16\d* scn/);
   });
 
+  it('sets chosen cells in bold (e.g. a failed result), and only those', () => {
+    const doc = new PdfDocument();
+    doc.table([{ header: 'Item' }, { header: 'Result' }], [['Pressure', 'FAIL'], ['Valves', 'Pass']], { cellBold: (r, c) => c === 1 && r === 0, fit: {} });
+    const lines = inspectPdf(doc.build()).lines[0]!;
+    const fontsOf = (text: string) => lines.find((l) => l.text === text)!.fonts;
+    expect(fontsOf('FAIL').some((f) => /SemiBold/.test(f))).toBe(true);
+    expect(fontsOf('Pass').some((f) => /SemiBold/.test(f))).toBe(false);
+    expect(fontsOf('Pressure').some((f) => /SemiBold/.test(f))).toBe(false);
+  });
+
   it('can give the spare width to one column, so the others hug their content (an Arabic name sits by its own words)', () => {
     const cols = [{ header: 'Who' }, { header: 'What' }];
     const rows = [['سارة البلوشي', 'Moved the task'], ['Omar Ahmed', 'Commented']];

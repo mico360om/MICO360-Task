@@ -12,6 +12,7 @@ import { CurrentProjectProvider } from './CurrentProject';
 import { SyncStatus } from './SyncStatus';
 import { ProfileMenu } from './ProfileMenu';
 import { flushOfflineQueue } from '../lib/offline-replay';
+import { useInspectionOutboxSync } from '../lib/inspection-sync';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
 import { useDialog } from '../hooks/useDialog';
@@ -77,6 +78,9 @@ export function AppShell() {
       { replace: true },
     );
   };
+
+  // Inspections carried out without signal: their answers, signatures and follow-ups go once back online.
+  useInspectionOutboxSync();
 
   // Offline sync (Epic C): replay the signed-in user's queued changes — on load, when the browser
   // comes back online and when the tab is shown again — then refresh the task views they changed.

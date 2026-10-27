@@ -33,7 +33,7 @@ export function TemplatesPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Workspace" title="Templates" subtitle="Start projects and tasks the same way every time" />
+      <PageHeader eyebrow="Workspace" title="Templates" subtitle="Start projects, tasks and inspections the same way every time" />
       <div role="tablist" aria-label="Templates" onKeyDown={onKeyDown} className="-mb-px flex gap-1 overflow-x-auto border-b border-line">
         {tabs.map((t) => {
           const selected = t.key === current.key;

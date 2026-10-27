@@ -207,6 +207,7 @@ model Project {
   activities Activity[]
   taskKeyAliases TaskKeyAlias[]
   clientShares   ClientShare[]
+  inspections    Inspection[]
 
   @@index([status])
   @@index([managerId])
@@ -298,6 +299,9 @@ model Task {
   activities   Activity[]
   meeting      Meeting?         @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   keyAliases   TaskKeyAlias[]
+  /// Inspections carried out for this task, and the failed item this task follows up (if any).
+  inspections        Inspection[]        @relation("InspectionTask")
+  inspectionFollowUp InspectionFollowUp? @relation("InspectionFollowUpTask")
 
   @@index([projectId])
   @@index([columnId])
@@ -1277,4 +1281,144 @@ model TaskTemplate {
 
   @@index([createdById])
   @@map("task_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Inspection checklists
+// ---------------------------------------------------------------------------
+
+/// A checklist template: sections of Pass / Fail / N/A items and readings with limits, and the
+/// signatures it asks for. Administrators manage every form; whoever runs a project can create
+/// forms and edit or delete their own. Deleting one keeps every inspection made from it.
+model InspectionForm {
+  id                  String       @id @default(cuid())
+  title               String       @db.VarChar(150)
+  description         String?      @db.Text
+  /// The sections and their items (inspection-rules FormSection[]), checked on the way in.
+  sections            Json
+  /// NONE, OPTIONAL or REQUIRED: a client's / a supervisor's signature besides the inspector's.
+  clientSignature     String       @default("NONE") @db.VarChar(10)
+  supervisorSignature String       @default("NONE") @db.VarChar(10)
+  /// Goes up with each edit (an edit made from an older copy is refused).
+  version             Int          @default(1)
+  /// Who made it (a staff user id; kept when that person is gone).
+  createdById         String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  deletedAt           DateTime?
+  inspections         Inspection[]
+
+  @@index([deletedAt])
+  @@map("inspection_forms")
+}
+
+/// One inspection carried out on a project, from a form. The form's checklist is copied in when it
+/// starts (`structure`), so editing or deleting the form never changes it. One inspector at a time
+/// answers it; finishing signs it and makes it read-only (someone who runs the project may reopen it,
+/// which takes the signatures off).
+model Inspection {
+  id                     String                @id @default(cuid())
+  projectId              String
+  formId                 String?
+  formVersion            Int
+  title                  String                @db.VarChar(150)
+  description            String?               @db.Text
+  /// The form's sections and signature rules as they were when it started.
+  structure              Json
+  place                  String?               @db.VarChar(200)
+  /// The task it was carried out for ("Inspect rig 3"), if any.
+  taskId                 String?
+  /// IN_PROGRESS or FINISHED.
+  status                 String                @default("IN_PROGRESS") @db.VarChar(12)
+  /// The one person who answers it now (whoever started it, or took it over).
+  inspectorId            String
+  startedById            String
+  startedAt              DateTime              @default(now())
+  finishedAt             DateTime?
+  /// The device's id for the finish that was applied: sending the same finish again is a no-op.
+  finishId               String?               @db.VarChar(64)
+  /// Goes up with each reopen: a finish signed before a reopen (a reply lost, then sent again) is refused.
+  revision               Int                   @default(0)
+  /// Counts as of finishing (and kept up to date while in progress), for lists.
+  itemCount              Int                   @default(0)
+  passedCount            Int                   @default(0)
+  failedCount            Int                   @default(0)
+  naCount                Int                   @default(0)
+  /// A finished report shown on the project's client page. Cleared on reopen.
+  clientVisible          Boolean               @default(false)
+  /// The project it was shown to the client of: shown only while it is still that project's.
+  clientVisibleProjectId String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  deletedAt              DateTime?
+  project                Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  form                   InspectionForm?       @relation(fields: [formId], references: [id], onDelete: SetNull)
+  task                   Task?                 @relation("InspectionTask", fields: [taskId], references: [id], onDelete: SetNull)
+  answers                InspectionAnswer[]
+  signatures             InspectionSignature[]
+  followUps              InspectionFollowUp[]
+
+  @@index([projectId, deletedAt])
+  @@index([taskId])
+  @@map("inspections")
+}
+
+/// An inspection item's answer. One row per item; a write is kept only when it was made later on its
+/// device than the one stored (`editedAt`), so a late, repeated or out-of-order send changes nothing.
+model InspectionAnswer {
+  id           String     @id @default(cuid())
+  inspectionId String
+  itemId       String     @db.VarChar(40)
+  /// PASS, FAIL or NA (a reading's is worked out from its limits, never taken as sent); null: unanswered.
+  result       String?    @db.VarChar(4)
+  /// The reading as typed (a plain decimal).
+  reading      String?    @db.VarChar(32)
+  note         String?    @db.Text
+  /// When it was changed on the device that sent it.
+  editedAt     DateTime   @db.DateTime(3)
+  answeredById String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@unique([inspectionId, itemId])
+  @@map("inspection_answers")
+}
+
+/// A signature on a finished inspection: drawn (a PNG) or typed (the name alone), with the signer's
+/// typed name and when they signed. Written only together with finishing, removed only by a reopen.
+model InspectionSignature {
+  id           String     @id @default(cuid())
+  inspectionId String
+  /// INSPECTOR, CLIENT or SUPERVISOR.
+  role         String     @db.VarChar(12)
+  name         String     @db.VarChar(120)
+  /// DRAWN or TYPED.
+  method       String     @db.VarChar(6)
+  image        Bytes?     @db.MediumBlob
+  signedAt     DateTime
+  /// The staff member whose device took it.
+  capturedById String
+  createdAt    DateTime   @default(now())
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@unique([inspectionId, role])
+  @@map("inspection_signatures")
+}
+
+/// The follow-up task made from a failed item: at most one per item (the unique key makes a double
+/// tap or a replayed request return the same task).
+model InspectionFollowUp {
+  id           String     @id @default(cuid())
+  inspectionId String
+  itemId       String     @db.VarChar(40)
+  /// Null only while its task is being made.
+  taskId       String?    @unique
+  createdById  String
+  createdAt    DateTime   @default(now())
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  task         Task?      @relation("InspectionFollowUpTask", fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@unique([inspectionId, itemId])
+  @@map("inspection_follow_ups")
 }

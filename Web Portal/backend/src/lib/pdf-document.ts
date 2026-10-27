@@ -961,6 +961,8 @@ export class PdfDocument {
     options: {
       size?: number;
       cellColor?: (row: number, col: number) => RGB | null;
+      /** Body cells set in bold (e.g. a failed result, so it stands out by more than its colour). */
+      cellBold?: (row: number, col: number) => boolean;
       /** The column that takes the width left over (the others keep their natural width); by default every column gets a share. */
       wide?: number;
       /**
@@ -973,7 +975,7 @@ export class PdfDocument {
   ): this {
     const n = columns.length;
     if (n === 0) return this;
-    const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit);
+    const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit, options.cellBold);
     const { size, padX, padY, total, widths, numeric, header, body } = layout;
 
     // Lines [from, to) of a row: all of it, or the part of a too-tall row that goes on this page.
@@ -1021,13 +1023,24 @@ export class PdfDocument {
    * The height a table would take if drawn now on one page (header + every row, or just its first
    * `firstRows` rows — columns sized from all of them, as table() sizes them), in points.
    */
-  tableHeight(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, options: { size?: number; wide?: number; firstRows?: number; fit?: { minSize?: number } } = {}): number {
+  tableHeight(
+    columns: TableColumn[],
+    rows: ReadonlyArray<ReadonlyArray<string>>,
+    options: { size?: number; wide?: number; firstRows?: number; fit?: { minSize?: number }; cellBold?: (row: number, col: number) => boolean } = {},
+  ): number {
     if (columns.length === 0) return 0;
-    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit);
+    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit, options.cellBold);
     return header.height + body.slice(0, options.firstRows ?? body.length).reduce((s, r) => s + r.height, 0);
   }
 
-  private tableLayout(columns: TableColumn[], rows: ReadonlyArray<ReadonlyArray<string>>, baseSize: number, wide?: number, fit?: { minSize?: number }) {
+  private tableLayout(
+    columns: TableColumn[],
+    rows: ReadonlyArray<ReadonlyArray<string>>,
+    baseSize: number,
+    wide?: number,
+    fit?: { minSize?: number },
+    cellBold?: (row: number, col: number) => boolean,
+  ) {
     const padX = TABLE_PAD_X;
     const padY = 3;
     const total = this.contentWidth;
@@ -1054,8 +1067,8 @@ export class PdfDocument {
     });
 
     // Every line of every cell is kept: a row taller than a page continues on the next (see table()).
-    const layoutRow = (cells: ReadonlyArray<string>, bold: boolean): TableRowLayout => {
-      const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold, maxWidth: widths[ci]! - padX * 2 }));
+    const layoutRow = (cells: ReadonlyArray<string>, bold: boolean, ri?: number): TableRowLayout => {
+      const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold: bold || (ri !== undefined && cellBold?.(ri, ci) === true), maxWidth: widths[ci]! - padX * 2 }));
       const lines = Math.max(1, ...laid.map((l) => l.length));
       const rowBox = fit ? lineBox(null, size, laid.some((cell) => cell.some((ln) => ln.arabic))) : box;
       return { laid, lines, box: rowBox, height: lines * rowBox.height + padY * 2 };
@@ -1065,7 +1078,7 @@ export class PdfDocument {
       columns.map((c) => c.header),
       true,
     );
-    const body = rows.map((r) => layoutRow(r, false));
+    const body = rows.map((r, ri) => layoutRow(r, false, ri));
     return { size, padX, padY, total, widths, numeric, header, body };
   }
 

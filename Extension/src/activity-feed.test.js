@@ -76,6 +76,10 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['UPDATED', { changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }], via: 'mico-ai' }], ['COMPLETED', { from: 'Review', to: 'Done', via: 'mico-ai' }], ['UPDATED', { via: 'other' }],
     ['UPDATED', { changes: [{ field: 'clientVisible', from: false, to: true }] }], ['UPDATED', { changes: [{ field: 'clientVisible', from: true, to: false }] }],
     ['UPDATED', { changes: [{ field: 'milestone', from: true, to: false }, { field: 'clientVisible', from: true, to: false, reason: 'moved' }] }],
+    // Inspections: attached to a task, finished (passed, or with failed items), and a follow-up task's line.
+    ['INSPECTION_ATTACHED', { inspection: 'Rig daily check' }], ['INSPECTION_ATTACHED'], ['INSPECTION_FINISHED', { inspection: 'Rig daily check', failed: 0 }],
+    ['INSPECTION_FINISHED', { inspection: 'فحص يومي', failed: 1 }], ['INSPECTION_FINISHED', { inspection: 'A', failed: 4 }], ['INSPECTION_FINISHED'],
+    ['INSPECTION_FOLLOW_UP', { inspection: 'Rig daily check', item: 'Guard rails fitted' }], ['INSPECTION_FOLLOW_UP', { inspection: 'Rig daily check' }], ['INSPECTION_FOLLOW_UP'],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];
