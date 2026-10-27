@@ -434,9 +434,33 @@ describe('follow-ups on a finished inspection (no record kept on the phone)', ()
     await outbox.flush(OWNER, 'i1');
     expect(server.calls.map((c) => c.kind)).toEqual(['follow-ups']);
     expect(outbox.view(OWNER, 'i1')!.pending.followUps).toBe(0);
-    // Read again from the server: nothing waits, so nothing is kept.
+    // What happened is kept until the page has said so…
+    outbox.remember(OWNER, finished);
+    expect(outbox.view(OWNER, 'i1')!.followUpReport).toEqual([{ itemId: 'r', status: 'created', taskKey: 'RIG-r' }]);
+    outbox.ackFollowUpReport(OWNER, 'i1');
+    // …then, read again from the server: nothing waits, so nothing is kept.
     outbox.remember(OWNER, finished);
     expect(outbox.draft(OWNER, 'i1')).toBeNull();
+  });
+
+  it('says what happened to each item: made, already had one, being made, or no longer failed', async () => {
+    const finished = detail({ status: 'FINISHED' });
+    server.api.makeFollowUps = async (_id, input) => {
+      server.calls.push({ kind: 'follow-ups', body: input });
+      const word = { p: 'created', v: 'exists', r: 'not-failed' } as const;
+      return input.itemIds.map((itemId) => ({
+        itemId,
+        status: word[itemId as keyof typeof word],
+        task: itemId === 'r' ? null : { id: `t-${itemId}`, key: `RIG-${itemId}`, title: 'Follow up' },
+      }));
+    };
+    outbox.queueFollowUps(OWNER, 'i1', ['p', 'v', 'r'], undefined, finished);
+    await outbox.flush(OWNER, 'i1');
+    expect(outbox.view(OWNER, 'i1')!.followUpReport).toEqual([
+      { itemId: 'p', status: 'created', taskKey: 'RIG-p' },
+      { itemId: 'v', status: 'exists', taskKey: 'RIG-v' },
+      { itemId: 'r', status: 'not-failed', taskKey: null },
+    ]);
   });
 });
 
@@ -546,5 +570,41 @@ describe('review fixes', () => {
     expect(removeOwnerRecords(storage, OWNER)).toBe(1);
     expect(outbox.draft(OWNER, 'i1')).toBeNull();
     expect(outbox.draft('u-other', 'i9')).not.toBeNull();
+  });
+});
+
+describe('shared devices', () => {
+  it('keeps a copy only for someone who can answer it (a team member just looking leaves nothing)', () => {
+    outbox.remember(OWNER, detail({ permissions: { ...detail().permissions, canAnswer: false } }));
+    expect(outbox.draft(OWNER, 'i1')).toBeNull();
+    outbox.remember(OWNER, detail());
+    expect(outbox.draft(OWNER, 'i1')).not.toBeNull();
+    // Once there is a record (it was theirs, or they asked for follow-ups), it is kept up to date.
+    outbox.remember(OWNER, detail({ title: 'Renamed', permissions: { ...detail().permissions, canAnswer: false } }));
+    expect(outbox.draft(OWNER, 'i1')!.title).toBe('Renamed');
+  });
+
+  it('forgets changes held only in the page (storage full) when the person signs out', () => {
+    outbox.remember(OWNER, detail());
+    storage.full = true;
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    expect(outbox.view(OWNER, 'i1')!.persisted).toBe(false);
+    outbox.forgetUnsaved(OWNER);
+    storage.full = false;
+    // What was stored stays (signing out with the warning accepted clears that too); the change held in the page is gone.
+    expect(outbox.draft(OWNER, 'i1')!.answers.v).toBeUndefined();
+    expect(outbox.view(OWNER, 'i1')!.persisted).toBe(true);
+  });
+});
+
+describe('a second tab', () => {
+  it('can’t change an answer while a finish signed in another tab waits (the signatures stay good)', () => {
+    outbox.remember(OWNER, detail());
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    outbox.queueFinish(OWNER, 'i1', [{ role: 'INSPECTOR', name: 'Ivan', method: 'TYPED', signedAt: '2026-10-27T08:20:00.000Z' }]);
+    const otherTab = createInspectionOutbox({ storage, api: server.api, now: () => new Date(clock) });
+    expect(() => otherTab.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'FAIL', reading: null, note: null })).toThrow(/signed and waiting to finish/);
+    expect(outbox.draft(OWNER, 'i1')!.finish).not.toBeNull();
+    expect(outbox.draft(OWNER, 'i1')!.answers.v).toMatchObject({ result: 'PASS' });
   });
 });

@@ -145,8 +145,18 @@ interface Draft {
   lastFailure?: TransientState | null;
   /** A finish sent from here went through: its attached task, offered to be marked done (until answered). */
   finishedOffer?: InspectionDetail['taskOffer'] | null;
+  /** What became of the follow-up tasks asked for here, item by item (until the page has said so). */
+  followUpReport?: FollowUpOutcome[] | null;
   savedAt: string;
   sentAt: string | null;
+}
+
+/** One item's follow-up request, as the server answered it. */
+export interface FollowUpOutcome {
+  itemId: string;
+  /** created: made now · exists: it already had one · pending: another request is making it · not-failed: it no longer fails. */
+  status: FollowUpResult['status'];
+  taskKey: string | null;
 }
 
 export interface DraftView {
@@ -170,6 +180,7 @@ export interface DraftView {
   retryAt: string | null;
   lastFailure: TransientState | null;
   finishedOffer: InspectionDetail['taskOffer'] | null;
+  followUpReport: FollowUpOutcome[] | null;
   savedAt: string;
   sentAt: string | null;
 }
@@ -222,6 +233,7 @@ export function detailView(detail: InspectionDetail): DraftView {
     retryAt: null,
     lastFailure: null,
     finishedOffer: null,
+    followUpReport: null,
     savedAt: '',
     sentAt: null,
   };
@@ -260,6 +272,8 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
   }
 
   const hasWork = (d: Draft) => Object.keys(d.answers).length > 0 || d.finish !== null || Object.keys(d.followUps).length > 0;
+  /** Something the person still has to see or answer (a problem, the task offer, a follow-up report). */
+  const hasNews = (d: Draft) => !!d.problem || !!d.finishedOffer || !!d.followUpReport?.length;
 
   /** Other records of this person with nothing waiting: kept only so an inspection opens without signal. */
   function makeRoom(ownerId: string, keep: string): void {
@@ -267,7 +281,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       if (!key.startsWith(ownerPrefix(ownerId)) || key === keep) continue;
       try {
         const d = JSON.parse(storage.get(key) ?? 'null') as Draft | null;
-        if (d && !hasWork(d) && !d.problem && !d.finishedOffer) storage.remove(key);
+        if (d && !hasWork(d) && !hasNews(d)) storage.remove(key);
       } catch {
         storage.remove(key);
       }
@@ -354,12 +368,12 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       retryAt: d.retryAt ?? null,
       lastFailure: d.lastFailure ?? null,
       finishedOffer: d.finishedOffer ?? null,
+      followUpReport: d.followUpReport?.length ? d.followUpReport : null,
       savedAt: d.savedAt,
       sentAt: d.sentAt,
     };
   }
 
-  /** Records a refusal (or a pause): what flush() answers. */
   /**
    * Records a refusal (or a pause): what flush() answers. A refused follow-up request is dropped and
    * a refused finish is dropped (its signers sign again): each leaves a note, and neither holds the
@@ -441,8 +455,9 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       groups.set(k, g);
     }
     for (const g of groups.values()) {
+      let results: FollowUpResult[];
       try {
-        await api.makeFollowUps(inspectionId, g);
+        results = await api.makeFollowUps(inspectionId, g);
       } catch (e) {
         const out = failed(ownerId, inspectionId, e, 'follow-ups', g.itemIds);
         if (out.state === 'problem' && read(ownerId, inspectionId)?.problem?.stage === 'follow-ups') continue; // dropped with a note
@@ -451,6 +466,9 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       const after = read(ownerId, inspectionId);
       if (!after) return null;
       for (const itemId of g.itemIds) delete after.followUps[itemId];
+      const told = new Map((after.followUpReport ?? []).map((r) => [r.itemId, r]));
+      for (const r of results) told.set(r.itemId, { itemId: r.itemId, status: r.status, taskKey: r.task?.key ?? null });
+      after.followUpReport = [...told.values()];
       succeeded(after);
       save(after);
     }
@@ -528,7 +546,10 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
      * waiting changes stay over it — except those the server already has (as new, or newer).
      */
     remember(ownerId: string, detail: InspectionDetail): void {
-      const d: Draft = read(ownerId, detail.id) ?? fresh(ownerId, detail);
+      const had = read(ownerId, detail.id);
+      // On a shared computer nothing is left behind for someone who only looked at it.
+      if (!had && !detail.permissions.canAnswer) return;
+      const d: Draft = had ?? fresh(ownerId, detail);
       const server = new Map(detail.answers.map((a) => [a.itemId, a.editedAt]));
       for (const [itemId, w] of Object.entries(d.answers)) {
         const at = server.get(itemId);
@@ -544,7 +565,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       d.snapshot = { ...detail, answers: [...known.values()] };
       d.title = detail.title;
       d.projectId = detail.projectId;
-      if (detail.status === 'FINISHED' && !hasWork(d) && !d.problem && !d.finishedOffer) {
+      if (detail.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
         if (read(ownerId, detail.id)) {
           remove(ownerId, detail.id);
           notify();
@@ -557,6 +578,8 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     /** One answer changed on this device, worked out as the server will. */
     saveAnswer(ownerId: string, inspectionId: string, value: Content & { itemId: string }): { persisted: boolean } {
       const d = mustRead(ownerId, inspectionId);
+      // Signed (perhaps in another tab): changing an answer now would make the signatures wrong.
+      if (d.finish) throw new Error('This inspection is signed and waiting to finish, so its answers can’t change. Choose “Take the signatures back” first.');
       const item = itemsOf(d.snapshot.structure).find((i) => i.id === value.itemId);
       if (!item) throw new Error('That item isn’t on this inspection.');
       let reading: string | null = null;
@@ -610,6 +633,13 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       save(d);
     },
 
+    /** Signed out: changes held only in this page (the phone's storage was full) go with the person. */
+    forgetUnsaved(ownerId: string): void {
+      let gone = 0;
+      for (const key of [...unsaved.keys()]) if (key.startsWith(ownerPrefix(ownerId))) gone += unsaved.delete(key) ? 1 : 0;
+      if (gone) notify();
+    },
+
     /** Throws away what is saved on this device for the inspection. */
     discard(ownerId: string, inspectionId: string): void {
       remove(ownerId, inspectionId);
@@ -621,7 +651,18 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       const d = read(ownerId, inspectionId);
       if (!d) return;
       d.finishedOffer = null;
-      if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !d.problem) {
+      if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
+        remove(ownerId, inspectionId);
+        notify();
+      } else save(d);
+    },
+
+    /** The page has said what became of the follow-up tasks. */
+    ackFollowUpReport(ownerId: string, inspectionId: string): void {
+      const d = read(ownerId, inspectionId);
+      if (!d?.followUpReport) return;
+      d.followUpReport = null;
+      if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
         remove(ownerId, inspectionId);
         notify();
       } else save(d);

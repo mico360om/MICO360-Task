@@ -1,9 +1,9 @@
 import { ApiError } from '../lib/api-client';
 import { fileNameFromDisposition } from '../lib/download';
 import type { FinalMinutesContent } from './meetings';
-import type { ClientInspection } from './inspections';
+import type { ClientInspection, ClientInspectionSummary } from './inspections';
 
-export type { ClientInspection };
+export type { ClientInspection, ClientInspectionSummary };
 
 /**
  * The client page's own API: a client following one shared project, with no MICO360 account. It
@@ -48,7 +48,7 @@ export interface ClientView {
   tasks: ClientViewItem[];
   minutes: ClientViewMinutes[];
   /** Finished inspection reports someone who runs the project marked "Show to client" (an older server sends none). */
-  inspections?: ClientInspection[];
+  inspections?: ClientInspectionSummary[];
   generatedAt: string;
 }
 
@@ -98,6 +98,8 @@ export function clientViewApi(link: string, opts: { baseUrl?: string; fetch?: ty
       const res = await send(`/minutes/${encodeURIComponent(meetingId)}/pdf`);
       return { blob: await res.blob(), fileName: fileNameFromDisposition(res.headers.get('Content-Disposition')) ?? 'minutes.pdf' };
     },
+    /** One shown report in full (its items and signatures), read when it is opened. */
+    inspection: async (inspectionId: string): Promise<ClientInspection> => ((await (await send(`/inspections/${encodeURIComponent(inspectionId)}`)).json()) as { data: ClientInspection }).data,
     inspectionPdf: async (inspectionId: string): Promise<{ blob: Blob; fileName: string }> => {
       const res = await send(`/inspections/${encodeURIComponent(inspectionId)}/pdf`);
       return { blob: await res.blob(), fileName: fileNameFromDisposition(res.headers.get('Content-Disposition')) ?? 'inspection-report.pdf' };

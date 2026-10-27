@@ -2,8 +2,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEven
 import { Link, useParams } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import logoW from '../assets/logo-w.png';
-import { clientViewApi, type ClientInspection, type ClientView, type ClientViewApi, type ClientViewItem, type ClientViewMinutes } from '../api/client-view';
-import { ClientInspectionBody } from '../components/inspections/ClientInspectionBody';
+import { clientViewApi, type ClientInspection, type ClientInspectionSummary, type ClientView, type ClientViewApi, type ClientViewItem, type ClientViewMinutes } from '../api/client-view';
+import { ClientInspectionBody, revisionLine } from '../components/inspections/ClientInspectionBody';
 import { ApiError } from '../lib/api-client';
 import { downloadBlob } from '../lib/download';
 import { usePageName } from '../lib/page-meta';
@@ -389,17 +389,16 @@ function Project({ view, api, onSignedOut }: { view: ClientView; api: ClientView
         )}
       </Section>
 
-      <Section title="Inspection reports">
-        {(view.inspections ?? []).length === 0 ? (
-          <p className="text-sm text-ink-2">No inspection reports have been shared yet.</p>
-        ) : (
+      {/* Only when there are some: most projects have no inspections, and an empty section would ask why. */}
+      {view.inspections?.length ? (
+        <Section title="Inspection reports">
           <div className="flex flex-col gap-3">
-            {(view.inspections ?? []).map((x, i) => (
+            {view.inspections.map((x, i) => (
               <InspectionReport key={x.id} report={x} open={i === 0} api={api} />
             ))}
           </div>
-        )}
-      </Section>
+        </Section>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm text-ink-2">
         <span>
@@ -557,12 +556,31 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
   );
 }
 
-/** A shown inspection report: its result, every item, the signatures, and its PDF (the client copy). */
-function InspectionReport({ report: x, open, api }: { report: ClientInspection; open: boolean; api: ClientViewApi }) {
+/**
+ * A shown inspection report: listed by its title, day and result; opened, its items and signatures
+ * are read (only then), and its PDF downloads (the client copy).
+ */
+function InspectionReport({ report: x, open, api }: { report: ClientInspectionSummary; open: boolean; api: ClientViewApi }) {
   const [expanded, setExpanded] = useState(open);
   const panelId = useId();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [full, setFull] = useState<ClientInspection | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!expanded || full) return;
+    let live = true;
+    setLoadFailed(false);
+    api.inspection(x.id).then(
+      (r) => live && setFull(r),
+      () => live && setLoadFailed(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [expanded, full, api, x.id, attempt]);
+  const revision = revisionLine(x);
   const download = async () => {
     setBusy(true);
     setProblem(null);
@@ -591,6 +609,7 @@ function InspectionReport({ report: x, open, api }: { report: ClientInspection; 
               {dayText(x.date)}
               {x.place ? ` · ${x.place}` : ''} · {x.result}
             </span>
+            {revision ? <span className="block text-xs font-normal text-ink-2">{revision}</span> : null}
           </span>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`flex-none text-ink-2 transition-transform ${expanded ? 'rotate-180' : ''}`}>
             <path d="m6 9 6 6 6-6" />
@@ -599,7 +618,20 @@ function InspectionReport({ report: x, open, api }: { report: ClientInspection; 
       </h3>
       {expanded ? (
         <div id={panelId} className="flex flex-col gap-3 border-t border-line px-4 py-4">
-          <ClientInspectionBody inspection={x} />
+          {full ? (
+            <ClientInspectionBody inspection={full} showRevision={false} />
+          ) : loadFailed ? (
+            <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-danger">
+              Couldn’t load this report. Check your connection and try again.
+              <Button type="button" size="sm" variant="secondary" onClick={() => setAttempt((n) => n + 1)}>
+                Try again
+              </Button>
+            </p>
+          ) : (
+            <p className="text-sm text-ink-2" aria-live="polite">
+              Loading the report…
+            </p>
+          )}
           {problem ? <p role="alert" className="text-sm text-danger">{problem}</p> : null}
           <div>
             <Button type="button" size="sm" variant="secondary" loading={busy} onClick={() => void download()} aria-label={`Download the inspection report ${x.title} (PDF)`}>

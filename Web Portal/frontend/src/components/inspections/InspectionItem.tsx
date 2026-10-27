@@ -23,6 +23,9 @@ export interface InspectionItemProps {
   onMakeFollowUp?: () => void;
 }
 
+/** A note or reading being typed is saved this long after the last key (and at once when the box is left). */
+export const DRAFT_DELAY_MS = 700;
+
 const CHOICES: Array<{ value: ItemResult; label: string; on: string }> = [
   { value: 'PASS', label: 'Pass', on: 'border-success bg-success-soft text-success' },
   { value: 'FAIL', label: 'Fail', on: 'border-danger bg-danger-soft text-danger' },
@@ -42,6 +45,44 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
   const [readingError, setReadingError] = useState<string | null>(null);
   const editingReading = useRef(false);
   const editingNote = useRef(false);
+  // The newest answer and callback, for a save that runs a moment after typing stops.
+  const answerRef = useRef(answer);
+  answerRef.current = answer;
+  const onAnswerRef = useRef(onAnswer);
+  onAnswerRef.current = onAnswer;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  const drafts = useRef<Record<'note' | 'reading', { timer: ReturnType<typeof setTimeout>; run: () => void } | undefined>>({ note: undefined, reading: undefined });
+  const later = (which: 'note' | 'reading', run: () => void) => {
+    const was = drafts.current[which];
+    if (was) clearTimeout(was.timer);
+    drafts.current[which] = {
+      run,
+      timer: setTimeout(() => {
+        drafts.current[which] = undefined;
+        // Signed or finished meanwhile: nothing more to save.
+        if (!readOnlyRef.current) run();
+      }, DRAFT_DELAY_MS),
+    };
+  };
+  const cancel = (which: 'note' | 'reading') => {
+    const was = drafts.current[which];
+    if (was) clearTimeout(was.timer);
+    drafts.current[which] = undefined;
+  };
+  // Leaving the page (or the item going) saves what was being typed.
+  useEffect(
+    () => () => {
+      for (const which of ['note', 'reading'] as const) {
+        const was = drafts.current[which];
+        if (!was) continue;
+        clearTimeout(was.timer);
+        drafts.current[which] = undefined;
+        if (!readOnlyRef.current) was.run();
+      }
+    },
+    [],
+  );
 
   // A newer answer (sent from elsewhere, or sent back by the server) shows unless it is being typed.
   useEffect(() => {
@@ -52,7 +93,20 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
   }, [answer?.note]);
 
   const note = answer?.note ?? null;
-  const save = (next: Partial<ItemAnswer>) => onAnswer({ result: answer?.result ?? null, reading: answer?.reading ?? null, note, ...next });
+  const save = (next: Partial<ItemAnswer>) => {
+    const a = answerRef.current;
+    onAnswerRef.current({ result: a?.result ?? null, reading: a?.reading ?? null, note: a?.note ?? null, ...next });
+  };
+  /** A note as typed so far, if it differs from the one saved. */
+  const saveNoteText = (value: string) => {
+    const text = value.trim();
+    if ((text || null) !== (answerRef.current?.note ?? null)) save({ note: text || null });
+  };
+  /** A reading as typed so far, once it is a number (anything else waits for the box to be left). */
+  const saveReadingText = (value: string) => {
+    const v = value.trim() ? parseReading(value.trim()) : null;
+    if (v !== null && v !== answerRef.current?.reading) save({ reading: v, result: null });
+  };
 
   // A reading's result as it stands while typed (the server works it out the same way).
   const typed = item.kind === 'READING' && readingDraft.trim() ? parseReading(readingDraft) : null;
@@ -62,6 +116,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
   const failed = liveResult === 'FAIL';
 
   const commitReading = () => {
+    cancel('reading');
     editingReading.current = false;
     const text = readingDraft.trim();
     if (item.kind !== 'READING') return;
@@ -80,9 +135,9 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
   };
 
   const commitNote = () => {
+    cancel('note');
     editingNote.current = false;
-    const text = noteText.trim();
-    if ((text || null) !== (note ?? null)) save({ note: text || null });
+    saveNoteText(noteText);
   };
 
   return (
@@ -141,8 +196,10 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                       maxLength={INSPECTION_LIMITS.readingMax}
                       onChange={(e) => {
                         editingReading.current = true;
-                        setReadingDraft(e.target.value);
+                        const value = e.target.value;
+                        setReadingDraft(value);
                         if (readingError) setReadingError(null);
+                        later('reading', () => saveReadingText(value));
                       }}
                       onBlur={commitReading}
                       onKeyDown={(e) => {
@@ -162,6 +219,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                     <button
                       type="button"
                       onClick={() => {
+                        cancel('reading');
                         setReadingDraft('');
                         setReadingError(null);
                         save({ reading: null, result: 'NA' });
@@ -175,6 +233,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                     <button
                       type="button"
                       onClick={() => {
+                        cancel('reading');
                         setReadingDraft('');
                         setReadingError(null);
                         save({ reading: null, result: 'FAIL' });
@@ -222,7 +281,9 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                 value={noteText}
                 onChange={(e) => {
                   editingNote.current = true;
-                  setNoteText(e.target.value);
+                  const value = e.target.value;
+                  setNoteText(value);
+                  later('note', () => saveNoteText(value));
                 }}
                 onBlur={commitNote}
                 className="mt-0.5 block w-full rounded-lg border border-line bg-surface px-3 py-2 text-base text-ink outline-none focus:border-brand sm:text-sm"

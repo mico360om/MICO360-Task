@@ -5,6 +5,16 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { InspectionPage } from './InspectionPage';
 import { useAuthStore } from '../stores/auth-store';
+import type { ProjectChange } from '../lib/useProjectRealtime';
+
+// The project's live updates, driven by the tests.
+const realtime = vi.hoisted(() => ({ cb: null as null | ((change: ProjectChange, payload?: { id?: string }) => void) }));
+vi.mock('../lib/useProjectRealtime', () => ({
+  useProjectRealtime: (_projectId: string | undefined, cb: (change: ProjectChange, payload?: { id?: string }) => void) => {
+    realtime.cb = cb;
+    return { live: true };
+  },
+}));
 import type { AnswerWrite, InspectionDetail } from '../api/inspections';
 
 const ME = 'u-ivan';
@@ -53,7 +63,7 @@ function detail(over: Partial<InspectionDetail> = {}): InspectionDetail {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-let server: { detail: InspectionDetail; stored: Map<string, AnswerWrite>; offline: boolean; calls: string[] };
+let server: { detail: InspectionDetail; stored: Map<string, AnswerWrite>; offline: boolean; calls: string[]; followUpStatus: Record<string, string>; project: Record<string, unknown> };
 
 function stubFetch() {
   vi.stubGlobal(
@@ -80,9 +90,14 @@ function stubFetch() {
       if (method === 'POST' && u === '/inspections/i1/follow-ups') {
         const { itemIds } = JSON.parse(String(init!.body)) as { itemIds: string[] };
         server.detail = { ...server.detail, followUps: itemIds.map((itemId) => ({ itemId, task: { id: `t-${itemId}`, key: `RIG-9${itemId}`, title: 'Follow up', deleted: false, done: false }, pending: false })) };
-        return json({ data: itemIds.map((itemId) => ({ itemId, status: 'created', task: { id: `t-${itemId}`, key: `RIG-9${itemId}`, title: 'Follow up' } })) });
+        return json({
+          data: itemIds.map((itemId) => {
+            const status = server.followUpStatus[itemId] ?? 'created';
+            return { itemId, status, task: status === 'not-failed' || status === 'pending' ? null : { id: `t-${itemId}`, key: `RIG-9${itemId}`, title: 'Follow up' } };
+          }),
+        });
       }
-      if (u === '/projects/p1') return json({ data: { id: 'p1', name: 'Rig 3 overhaul', code: 'RIG', status: 'ACTIVE', ownerId: 'u-olivia' } });
+      if (u === '/projects/p1') return json({ data: server.project });
       if (u === '/projects/p1/members') return json({ data: [{ id: 'u-olivia', username: 'olivia', email: 'o@x', firstName: 'Olivia', lastName: 'Owner', role: 'MANAGER' }] });
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
     }),
@@ -104,7 +119,8 @@ function show() {
 
 beforeEach(() => {
   localStorage.clear();
-  server = { detail: detail(), stored: new Map(), offline: false, calls: [] };
+  server = { detail: detail(), stored: new Map(), offline: false, calls: [], followUpStatus: {}, project: { id: 'p1', name: 'Rig 3 overhaul', code: 'RIG', status: 'ACTIVE', ownerId: 'u-olivia' } };
+  realtime.cb = null;
   useAuthStore.getState().setSession({ user: { id: ME, email: 'ivan@x', username: 'ivan', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
   stubFetch();
 });
@@ -199,9 +215,112 @@ describe('carrying out an inspection', () => {
     server.detail = { ...server.detail, status: 'FINISHED', finishedAt: '2026-10-27T09:00:00.000Z', result: '1 failed', permissions: { ...server.detail.permissions, canAnswer: false, canFinish: false } };
     show();
     await userEvent.click(await screen.findByRole('button', { name: 'Create tasks for all failed items (1)' }));
-    expect(await screen.findByText('Follow-up task made.')).toBeInTheDocument();
+    expect(await screen.findByText('Follow-up task made: RIG-9v.')).toBeInTheDocument();
     const call = server.calls.find((c) => c === 'POST /inspections/i1/follow-ups');
     expect(call).toBeTruthy();
     expect(await screen.findByRole('link', { name: /RIG-9v/ })).toBeInTheDocument();
+  });
+});
+
+const finishedDetail = (over: Partial<InspectionDetail> = {}): InspectionDetail => ({
+  ...detail(),
+  status: 'FINISHED',
+  finishedAt: '2026-10-27T09:00:00.000Z',
+  result: 'Passed',
+  permissions: { ...detail().permissions, canAnswer: false, canFinish: false, canReopen: true },
+  signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'TYPED', image: null, signedAt: '2026-10-27T09:00:00.000Z' }],
+  ...over,
+});
+const OLIVIA = { id: 'u-olivia', name: 'Olivia Owner' };
+
+describe('follow-up tasks, item by item', () => {
+  it('says what became of each: made, already had one', async () => {
+    server.stored.set('p', { itemId: 'p', result: 'FAIL', reading: '162', note: null, editedAt: '2026-10-27T08:10:00.000Z' });
+    server.stored.set('v', { itemId: 'v', result: 'FAIL', reading: null, note: 'Leak', editedAt: '2026-10-27T08:11:00.000Z' });
+    server.detail = finishedDetail({ result: '2 failed' });
+    server.followUpStatus = { p: 'exists' };
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Create tasks for all failed items (2)' }));
+    expect(await screen.findByText('Follow-up tasks: Pressure: already had one (RIG-9p). Valves closed: made (RIG-9v).')).toBeInTheDocument();
+    // Said once: it isn't kept on the phone after that.
+    await waitFor(() => expect(localStorage.getItem('mico360.inspection.u-ivan.i1')).toBeNull());
+  });
+
+  it('one that no longer fails, or is being made by another request, says so', async () => {
+    server.stored.set('p', { itemId: 'p', result: 'FAIL', reading: '162', note: null, editedAt: '2026-10-27T08:10:00.000Z' });
+    server.stored.set('v', { itemId: 'v', result: 'FAIL', reading: null, note: null, editedAt: '2026-10-27T08:11:00.000Z' });
+    server.detail = finishedDetail({ result: '2 failed' });
+    server.followUpStatus = { p: 'not-failed', v: 'pending' };
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Create tasks for all failed items (2)' }));
+    expect(await screen.findByText('Follow-up tasks: Pressure: not made, it no longer fails. Valves closed: already being made.')).toBeInTheDocument();
+  });
+});
+
+describe('revisions', () => {
+  it('a reopened report signed again says which revision it is, and lists the earlier signatures', async () => {
+    server.detail = finishedDetail({
+      revision: 1,
+      reopened: { at: '2026-10-27T10:00:00.000Z', by: OLIVIA },
+      earlierRevisions: [{ number: 1, reopenedAt: '2026-10-27T10:00:00.000Z', signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'DRAWN', signedAt: '2026-10-27T09:00:00.000Z' }] }],
+    });
+    show();
+    expect(await screen.findByText(/Revision 2 · reopened on 27 Oct 2026 by/)).toHaveTextContent('Revision 2 · reopened on 27 Oct 2026 by Olivia Owner');
+    const earlier = screen.getByRole('region', { name: 'Earlier signed revisions' });
+    expect(within(earlier).getByText(/Revision 1/)).toBeInTheDocument();
+    expect(earlier).toHaveTextContent('Inspector: Ivan Inspector · signed 27 Oct 2026');
+  });
+
+  it('a first signing says nothing about revisions', async () => {
+    server.detail = finishedDetail();
+    show();
+    await screen.findByRole('heading', { name: 'Signatures' });
+    expect(screen.queryByText(/Revision/)).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Earlier signed revisions' })).toBeNull();
+  });
+});
+
+describe('an archived project', () => {
+  it('a report on the client page can be taken off, and says why it can’t go back', async () => {
+    server.detail = finishedDetail({ clientVisible: true, projectArchived: true, permissions: { ...finishedDetail().permissions, canReopen: false, canShowToClient: true } });
+    server.project = { ...server.project, status: 'ARCHIVED' };
+    show();
+    expect(await screen.findByText(/The project is archived/)).toHaveTextContent('The project is archived: you can take this report off the client page, but it can’t be put back.');
+    expect(screen.getByRole('switch', { name: 'Show to client' })).toBeEnabled();
+  });
+});
+
+describe('changed elsewhere while open', () => {
+  it('refreshes when this inspection changes (not for another one)', async () => {
+    show();
+    await screen.findByText('Valves closed');
+    const gets = () => server.calls.filter((c) => c === 'GET /inspections/i1').length;
+    const before = gets();
+    realtime.cb!('inspections', { id: 'other' });
+    realtime.cb!('tasks');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(gets()).toBe(before);
+    server.stored.set('v', { itemId: 'v', result: 'PASS', reading: null, note: null, editedAt: '2026-10-27T08:30:00.000Z' });
+    realtime.cb!('inspections', { id: 'i1' });
+    await waitFor(() => expect(gets()).toBe(before + 1));
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Pass' })).toBeChecked());
+  });
+
+  it('taken over by someone else: says so, and answering stops', async () => {
+    show();
+    await screen.findByText('Valves closed');
+    server.detail = { ...detail(), inspector: OLIVIA, permissions: { ...detail().permissions, canAnswer: false, canFinish: false } };
+    realtime.cb!('inspections', { id: 'i1' });
+    expect(await screen.findByText(/Olivia Owner took this inspection over/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('radio', { name: 'Pass' })).toBeNull());
+  });
+
+  it('reopened by someone else: says so', async () => {
+    server.detail = finishedDetail();
+    show();
+    await screen.findByRole('heading', { name: 'Signatures' });
+    server.detail = { ...detail(), revision: 1, reopened: { at: '2026-10-27T10:00:00.000Z', by: OLIVIA }, earlierRevisions: [] };
+    realtime.cb!('inspections', { id: 'i1' });
+    expect(await screen.findByText(/Olivia Owner reopened this inspection/)).toBeInTheDocument();
   });
 });

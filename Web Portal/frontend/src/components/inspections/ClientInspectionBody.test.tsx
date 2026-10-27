@@ -11,8 +11,10 @@ const report = (over: Partial<ClientInspection> = {}): ClientInspection => ({
   counts: { total: 3, passed: 1, failed: 2, na: 0 },
   result: '2 failed',
   sections: [{ title: 'Deck', items: [{ label: 'Rails', kind: 'CHECK', result: 'Fail', reading: null, limits: null, note: 'Told Omar Ahmed about it' }] }],
-  signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: null, typed: true }],
+  signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 11:30', image: null, typed: true }],
   unsigned: ['Client'],
+  revisionNumber: 1,
+  reopenedOn: null,
   ...over,
 });
 
@@ -28,6 +30,18 @@ describe('the client’s copy of a report', () => {
     expect(screen.getAllByText('Omar Ahmed').every((el) => el.tagName === 'MARK')).toBe(true);
     expect(notesNameSomeone(report(), ['Omar Ahmed'])).toBe(true);
     expect(notesNameSomeone(report(), ['Sara Ahmed'])).toBe(false);
+  });
+
+  it('says when it was signed as the company’s clock says it (as the PDF does)', () => {
+    render(<ClientInspectionBody inspection={report()} />);
+    expect(screen.getByText('Signed 27 Oct 2026, 11:30 · typed name')).toBeInTheDocument();
+  });
+
+  it('a reopened report signed again says which revision it is (no staff names)', () => {
+    const { rerender } = render(<ClientInspectionBody inspection={report()} />);
+    expect(screen.queryByText(/Revision/)).toBeNull();
+    rerender(<ClientInspectionBody inspection={report({ revisionNumber: 2, reopenedOn: '2026-10-27' })} />);
+    expect(screen.getByText('Revision 2 · reopened on 27 Oct 2026')).toBeInTheDocument();
   });
 
   it('says which asked-for signature wasn’t given', () => {

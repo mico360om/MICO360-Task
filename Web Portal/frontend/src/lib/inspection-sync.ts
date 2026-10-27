@@ -19,6 +19,12 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// Signed out on purpose: what was held only in this page (the phone's storage was full) goes with
+// the person (their stored records are removed by the sign-out itself). An expired session keeps it.
+useAuthStore.subscribe((state, prev) => {
+  if (prev.user && !state.user && state.endedBy === 'user') inspectionOutbox.forgetUnsaved(prev.user.id);
+});
+
 let version = 0;
 inspectionOutbox.subscribe(() => {
   version += 1;

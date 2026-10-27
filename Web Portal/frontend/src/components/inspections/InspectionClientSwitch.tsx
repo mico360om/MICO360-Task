@@ -77,7 +77,7 @@ function PreviewDialog({ inspectionId, busy, error, onConfirm, onClose }: { insp
  * project's client page (with a PDF), after a preview of exactly what the client will see. Others
  * see only that it is visible. Reopening it takes it off (the server clears it).
  */
-export function InspectionClientSwitch({ inspectionId, clientVisible, canChange, onChanged }: { inspectionId: string; clientVisible: boolean; canChange: boolean; onChanged: () => void }) {
+export function InspectionClientSwitch({ inspectionId, clientVisible, canChange, archived = false, onChanged }: { inspectionId: string; clientVisible: boolean; canChange: boolean; /** Its project is archived: a shown report can only be taken off. */ archived?: boolean; onChanged: () => void }) {
   const hint = useId();
   const [previewing, setPreviewing] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -102,12 +102,14 @@ export function InspectionClientSwitch({ inspectionId, clientVisible, canChange,
     <div className="rounded-xl border border-line p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-ink">Show to client</p>
-        <Toggle on={clientVisible} onChange={() => (clientVisible ? setM.mutate(false) : setPreviewing(true))} label="Show to client" describedBy={hint} disabled={setM.isPending} />
+        <Toggle on={clientVisible} onChange={() => (clientVisible ? setM.mutate(false) : setPreviewing(true))} label="Show to client" describedBy={hint} disabled={setM.isPending || (archived && !clientVisible)} />
       </div>
       <p id={hint} className="mt-1 text-xs leading-relaxed text-ink-2">
-        {clientVisible
-          ? 'Shown on the project’s client page, with its PDF. Reopening the inspection takes it off.'
-          : 'Puts this report on the project’s client page, with a PDF of it. You see exactly what the client will see first.'}
+        {archived
+          ? 'The project is archived: you can take this report off the client page, but it can’t be put back.'
+          : clientVisible
+            ? 'Shown on the project’s client page, with its PDF. Reopening the inspection takes it off.'
+            : 'Puts this report on the project’s client page, with a PDF of it. You see exactly what the client will see first.'}
       </p>
       {problem && !previewing ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{problem}</p> : null}
       {previewing ? <PreviewDialog inspectionId={inspectionId} busy={setM.isPending} error={problem} onConfirm={() => setM.mutate(true)} onClose={() => setPreviewing(false)} /> : null}
