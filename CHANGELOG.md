@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-10-27
+
 ### New features
 - Templates (a new page in the menu): start a project from a template with its board columns and
   standard tasks — each with its description, checklist, priority and a due date like "start + 5
