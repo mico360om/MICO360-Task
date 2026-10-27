@@ -1,4 +1,4 @@
-import { zonedDayKey } from '../../lib/due-date';
+import { shiftDayKey, zonedDayKey } from '../../lib/due-date';
 import { instantOf } from '../meetings/meeting-series';
 import type { EmailContent } from '../email/email-templates';
 import { dailyEmailPrefs, weeklySummaryOn, type NotificationPreferences } from '../notifications/notification-preferences';
@@ -26,8 +26,8 @@ export interface WeeklyRecipient {
 export interface WeeklySummaryDeps {
   repo: WeeklySummaryRepository;
   people: { list(): Promise<WeeklyRecipient[]>; find(id: string): Promise<WeeklyRecipient | null> };
-  /** The person's own figures (the Management page's, for their scope); null: nothing in scope. */
-  digest(viewer: ManagementViewer): Promise<WeeklyDigest | null>;
+  /** The person's own figures (the Management page's, for their scope) for this company week; null: nothing in scope. */
+  digest(viewer: ManagementViewer, week: string): Promise<WeeklyDigest | null>;
   /** Sends one email; throws when it can't be delivered. 'suppressed': the address is blocked. */
   send(to: string, content: EmailContent, template: string): Promise<'sent' | 'suppressed' | void>;
   /** False while no email provider is set up: nothing is attempted. */
@@ -86,6 +86,23 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
 
   type Outcome = 'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED';
 
+  /**
+   * Summaries that went but whose record couldn't be written (the database didn't answer): written at
+   * the next check — meanwhile their record is never taken again, so they are never sent a second time
+   * (the daily task emails' rule).
+   */
+  const unrecorded = new Map<string, { taken: WeeklySummaryRecord; patch: WeeklySummaryFinish }>();
+  async function writeUnrecorded(): Promise<void> {
+    for (const [id, { taken, patch }] of unrecorded) {
+      try {
+        await deps.repo.finish(taken, patch);
+        unrecorded.delete(id);
+      } catch {
+        /* still not answering: next time */
+      }
+    }
+  }
+
   async function attempt(taken: WeeklySummaryRecord, person: WeeklyRecipient | null): Promise<Outcome> {
     const at = now();
     const finish = (patch: WeeklySummaryFinish) => deps.repo.finish(taken, patch);
@@ -107,7 +124,7 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
     if (!person || !person.email || !weeklySummaryOn(person.prefs) || !canSee(person)) return skipped(person ? null : 'The account is no longer active.');
     let digest: WeeklyDigest | null;
     try {
-      digest = await deps.digest({ id: person.id, roles: person.roles });
+      digest = await deps.digest({ id: person.id, roles: person.roles }, taken.week);
     } catch (err) {
       return failed(err);
     }
@@ -120,17 +137,20 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
       return failed(err);
     }
     if (result === 'suppressed') return skipped(BLOCKED_ADDRESS);
+    const sent: WeeklySummaryFinish = { status: 'SENT', projectCount: digest.projects, sentAt: at, nextAttemptAt: null, lastError: null };
     try {
-      await finish({ status: 'SENT', projectCount: digest.projects, sentAt: at, nextAttemptAt: null, lastError: null });
+      await finish(sent);
     } catch (err) {
-      // It went: a problem writing that down must never send it again (the row stays SENDING until it is stale).
-      deps.logger?.warn('weekly management summary went, but writing that down failed', { userId: taken.userId, week: taken.week, error: messageOf(err) });
+      // It went: a problem writing that down must never send it again. Kept here and written at the next check.
+      unrecorded.set(taken.id, { taken, patch: sent });
+      deps.logger?.warn('weekly management summary went, but writing that down failed; it is written at the next check', { userId: taken.userId, week: taken.week, error: messageOf(err) });
     }
     return 'SENT';
   }
 
   async function runSweep(): Promise<Record<Outcome, number>> {
     const tally: Record<Outcome, number> = { SENT: 0, SKIPPED: 0, RETRY: 0, FAILED: 0 };
+    await writeUnrecorded();
     if (!deps.isConfigured()) {
       if (!warnedNotConfigured) deps.logger?.warn('The weekly management summary is waiting: email sending is not set up on this server');
       warnedNotConfigured = true;
@@ -140,7 +160,11 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
     if (!(await deps.enabled())) return tally;
     const at = now();
     const cal = await deps.calendar();
-    const due = (await deps.people.list()).filter((p) => p.email && weeklySummaryOn(p.prefs) && canSee(p)).map((p) => ({ p, ...timing(p, at, cal) })).filter((x) => x.due);
+    // Anyone's day is within a day of the company's: unless one of those three is a send day, nobody is
+    // due (six days out of seven), and the people aren't read at all.
+    const companyDay = zonedDayKey(at, deps.companyTimeZone);
+    const sendDayNear = [-1, 0, 1].map((n) => shiftDayKey(companyDay, n)).some((d) => firstWorkingDay(weekOf(d, cal.weekStart), cal.workingDays) === d);
+    const due = (sendDayNear ? await deps.people.list() : []).filter((p) => p.email && weeklySummaryOn(p.prefs) && canSee(p)).map((p) => ({ p, ...timing(p, at, cal) })).filter((x) => x.due);
     if (due.length) {
       const had = new Set((await deps.repo.forWeeks([...new Set(due.map((x) => x.week))])).map((r) => `${r.userId}|${r.week}`));
       for (const { p, week } of due) {
@@ -151,6 +175,7 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
     }
     // Leftover retries are tried even when nobody new is due.
     for (const row of await deps.repo.dueForRetry(at, new Date(at.getTime() - STUCK_AFTER_MS))) {
+      if (unrecorded.has(row.id)) continue; // it went: only writing that down is still to do
       const taken = await deps.repo.retake(row);
       if (!taken) continue;
       tally[await attempt(taken, await deps.people.find(taken.userId))]++;

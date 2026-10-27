@@ -37,7 +37,7 @@ export function createWeeklySummaryFromPrisma(
   return createWeeklySummaryService({
     repo: createPrismaWeeklySummaryRepository(prisma),
     people: createPrismaWeeklySummaryPeople(prisma),
-    digest: (viewer) => o.management.digest(viewer),
+    digest: (viewer, week) => o.management.digest(viewer, week),
     send: o.send,
     isConfigured: o.isConfigured,
     enabled: () => o.settings.weeklySummaryEnabled(),

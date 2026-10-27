@@ -8,14 +8,14 @@ const TZ = 'Asia/Muscat';
 const SUN_THU = [0, 1, 2, 3, 4];
 
 /** The unique (person, week) row the database keeps, in memory. */
-function memoryRepo(): WeeklySummaryRepository & { rows: WeeklySummaryRecord[] } {
+function memoryRepo(now: () => Date = () => new Date()): WeeklySummaryRepository & { rows: WeeklySummaryRecord[] } {
   const rows: WeeklySummaryRecord[] = [];
   let n = 0;
   return {
     rows,
     async claim(userId, week) {
       if (rows.some((r) => r.userId === userId && r.week === week)) return null;
-      const at = new Date();
+      const at = now();
       const row: WeeklySummaryRecord = { id: `w${++n}`, userId, week, status: 'SENDING', attempts: 1, projectCount: 0, nextAttemptAt: null, lastError: null, sentAt: null, createdAt: at, updatedAt: at };
       rows.push(row);
       return { ...row };
@@ -29,13 +29,13 @@ function memoryRepo(): WeeklySummaryRepository & { rows: WeeklySummaryRecord[] }
     async retake(row) {
       const r = rows.find((x) => x.id === row.id && x.status === row.status && x.attempts === row.attempts);
       if (!r) return null;
-      Object.assign(r, { status: 'SENDING', attempts: r.attempts + 1, nextAttemptAt: null });
+      Object.assign(r, { status: 'SENDING', attempts: r.attempts + 1, nextAttemptAt: null, updatedAt: now() });
       return { ...r };
     },
     async finish(taken, patch) {
       const r = rows.find((x) => x.id === taken.id && x.status === 'SENDING' && x.attempts === taken.attempts);
       if (!r) return false;
-      Object.assign(r, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
+      Object.assign(r, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)), { updatedAt: now() });
       return true;
     },
   };
@@ -80,14 +80,23 @@ const digestOf = (id: string): WeeklyDigest | null =>
 
 function setup(o: { people?: WeeklyRecipient[]; weekStart?: 0 | 1 | 6; enabled?: boolean; configured?: boolean; fail?: (to: string) => boolean } = {}) {
   let clock = new Date();
-  const repo = memoryRepo();
+  const repo = memoryRepo(() => clock);
   const sent: { to: string; content: EmailContent; template: string }[] = [];
   const digests: string[] = [];
+  const weeks: string[] = [];
+  let lists = 0;
   const svc = createWeeklySummaryService({
     repo,
-    people: { list: async () => o.people ?? PEOPLE, find: async (id) => (o.people ?? PEOPLE).find((p) => p.id === id) ?? null },
-    digest: async (viewer) => {
+    people: {
+      list: async () => {
+        lists += 1;
+        return o.people ?? PEOPLE;
+      },
+      find: async (id) => (o.people ?? PEOPLE).find((p) => p.id === id) ?? null,
+    },
+    digest: async (viewer, week) => {
       digests.push(`${viewer.id}:${viewer.roles.join(',')}`);
+      weeks.push(week);
       return digestOf(viewer.id);
     },
     send: async (to, content, template) => {
@@ -102,7 +111,7 @@ function setup(o: { people?: WeeklyRecipient[]; weekStart?: 0 | 1 | 6; enabled?:
     appUrl: 'https://task.mico360.com',
     now: () => clock,
   });
-  return { svc, repo, sent, digests, at: (iso: string) => (clock = new Date(iso)) };
+  return { svc, repo, sent, digests, weeks, lists: () => lists, at: (iso: string) => (clock = new Date(iso)) };
 }
 
 // Sunday 25 October 2026: 06:00 in Muscat is 02:00 UTC.
@@ -221,6 +230,49 @@ describe('the weekly management summary sweep', () => {
       await g.svc.runSweep();
     }
     expect(g.repo.rows.find((r) => r.userId === 'sara')).toMatchObject({ status: 'FAILED', attempts: 4 });
+  });
+
+  it('an email that went but whose record could not be written is never sent again (written down at the next check)', async () => {
+    const t = setup({ people: [person('sara', { runsProjects: true })] });
+    const finish = t.repo.finish.bind(t.repo);
+    let failSent = true;
+    t.repo.finish = async (taken, patch) => {
+      if (patch.status === 'SENT' && failSent) {
+        failSent = false;
+        throw new Error('database gone');
+      }
+      return finish(taken, patch);
+    };
+    t.at(SUN_0600);
+    await t.svc.runSweep();
+    expect(t.sent).toHaveLength(1);
+    expect(t.repo.rows[0]).toMatchObject({ status: 'SENDING' });
+    // 16 minutes on, the row looks stuck: it must be written down as sent, not sent again.
+    t.at('2026-10-25T02:16:00.000Z');
+    await t.svc.runSweep();
+    t.at('2026-10-25T02:40:00.000Z');
+    await t.svc.runSweep();
+    expect(t.sent).toHaveLength(1);
+    expect(t.repo.rows[0]).toMatchObject({ status: 'SENT', attempts: 1 });
+  });
+
+  it('asks for the figures of the week it is sent for — also for someone far ahead of the company (M-2)', async () => {
+    const t = setup({ people: [person('kiwi', { runsProjects: true, timeZone: 'Pacific/Auckland' })] });
+    // Sunday 25 October 06:00 in Auckland is still Saturday 24 October in Muscat.
+    t.at('2026-10-24T17:00:00.000Z');
+    await t.svc.runSweep();
+    expect(t.sent.map((s) => s.to)).toEqual(['kiwi@mico360.test']);
+    expect(t.weeks).toEqual(['2026-10-25']);
+  });
+
+  it('on a day that can’t be anyone’s send day, nothing is read but the retries (M-12)', async () => {
+    const t = setup();
+    t.at('2026-10-27T06:00:00.000Z'); // Tuesday
+    await t.svc.runSweep();
+    expect(t.lists()).toBe(0);
+    t.at('2026-10-24T17:00:00.000Z'); // Saturday 21:00 in Muscat: Sunday has begun far east of it
+    await t.svc.runSweep();
+    expect(t.lists()).toBe(1);
   });
 
   it('someone who turned it off before a retry gets nothing', async () => {
