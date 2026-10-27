@@ -13,12 +13,14 @@ const FORMS = [
   { id: 'f2', title: 'Fire extinguisher check', description: null, structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, version: 1, sectionCount: 1, itemCount: 4, createdBy: null, updatedAt: '', canEdit: false },
 ];
 
-type Call = { url: string; method: string; body: Record<string, unknown> | null };
+type Call = { url: string; method: string; body: Record<string, unknown> | null; key?: string };
 let calls: Call[];
 let putReply: (body: Record<string, unknown> | null) => Response;
+let postReply: () => Response | Promise<Response>;
 beforeEach(() => {
   calls = [];
   putReply = (body) => json({ data: { id: 't-head', key: 'RIG-31', ...body } });
+  postReply = () => json({ data: { id: 't-new', key: 'RIG-40' } }, 201);
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-28T06:00:00Z')); // Wednesday 28 Oct, 10:00 in Muscat
   vi.stubGlobal(
@@ -27,7 +29,7 @@ beforeEach(() => {
       const u = String(url).replace(/^.*\/api\/v1/, '');
       const method = init?.method ?? 'GET';
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
-      calls.push({ url: u, method, body });
+      calls.push({ url: u, method, body, key: (init?.headers as Record<string, string> | undefined)?.['Idempotency-Key'] });
       if (u === '/inspection-forms') return json({ data: { forms: FORMS, canCreate: false } });
       if (u === '/projects/p1/columns') return json({ data: [
         { id: 'c-done', projectId: 'p1', name: 'Done', category: 'DONE', position: 0, color: '#16a34a', enabled: true },
@@ -37,7 +39,7 @@ beforeEach(() => {
       if (u === '/projects/p1/members') return json({ data: [person('u-ali', 'Ali', 'Hassan', 'ali'), person('u-sara', 'Sara', 'Al Balushi', 'sara')] });
       if (u === '/users/directory') return json({ data: [] });
       if (u === '/config') return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: '' } });
-      if (u === '/tasks' && method === 'POST') return json({ data: { id: 't-new', key: 'RIG-40', title: body?.title } }, 201);
+      if (u === '/tasks' && method === 'POST') return postReply();
       if (u === '/tasks/t-head' && method === 'PUT') return putReply(body);
       if (u === '/tasks/t-head/assignees' && method === 'GET') return json({ data: [person('u-ali', 'Ali', 'Hassan', 'ali')] });
       if (u.startsWith('/tasks/t-head/assignees')) return json({ data: {} });
@@ -152,6 +154,38 @@ describe('the schedule dialog (new)', () => {
     await pickForm(/Fire extinguisher check/);
     expect(name).toHaveValue('فحص الحفار اليومي');
     expect(name).toHaveAttribute('dir', 'auto');
+  });
+
+  it('a retry after a lost reply sends the same key, so the server never makes a second schedule', async () => {
+    // The first try reached the server (it made the schedule), but the reply never came back.
+    let tries = 0;
+    postReply = () => (++tries === 1 ? Promise.reject(new TypeError('Failed to fetch')) : json({ data: { id: 't-new', key: 'RIG-40' } }, 201));
+    const { onSaved } = show();
+    await pickForm(/Rig daily check/);
+    await addInspector('Ali Hassan');
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Schedule it' }));
+    await within(dialog()).findByRole('alert');
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Schedule it' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const keys = calls.filter((c) => c.method === 'POST' && c.url === '/tasks').map((c) => c.key);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it('after the server refused (nothing was made), the next try is a new request', async () => {
+    let tries = 0;
+    postReply = () => (++tries === 1 ? json({ error: { code: 'VALIDATION', message: 'That inspection form isn’t there any more. Pick another form.' } }, 400) : json({ data: { id: 't-new', key: 'RIG-40' } }, 201));
+    const { onSaved } = show();
+    await pickForm(/Rig daily check/);
+    await addInspector('Ali Hassan');
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Schedule it' }));
+    expect(await within(dialog()).findByRole('alert')).toHaveTextContent('That inspection form isn’t there any more.');
+    await pickForm(/Fire extinguisher check/);
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Schedule it' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const keys = calls.filter((c) => c.method === 'POST' && c.url === '/tasks').map((c) => c.key);
+    expect(keys[1]).not.toBe(keys[0]);
   });
 
   it('needs a form and at least one inspector, and says so', async () => {

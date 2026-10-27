@@ -85,6 +85,10 @@ export function ScheduleDialog({
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
+  // One key for the dialog's life: a retry after a lost reply gets the schedule already made (the
+  // server answers it again), never a second one. Changed only once the server refused a try (a 4xx:
+  // nothing was made — and the server would otherwise answer that refusal again).
+  const idempotencyKey = useRef(newIdempotencyKey());
   const dialogRef = useDialog(saving ? () => {} : onClose);
 
   /** How the series ends is kept when the person picks another preset. */
@@ -139,7 +143,7 @@ export function ScheduleDialog({
           inspectionFormId: formId,
           inspectionPlace: place.trim() || null,
         };
-        await tasksApi(apiClient).create(input, { idempotencyKey: newIdempotencyKey() });
+        await tasksApi(apiClient).create(input, { idempotencyKey: idempotencyKey.current });
       } else {
         const patch: Parameters<ReturnType<typeof tasksApi>['update']>[1] = {};
         if (title !== schedule.title) patch.title = title;
@@ -160,6 +164,7 @@ export function ScheduleDialog({
       onSaved?.();
       onClose();
     } catch (e) {
+      if (!editing && e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 409) idempotencyKey.current = newIdempotencyKey();
       if (editing && isStaleSchedule(e) && onStale) {
         void qc.invalidateQueries({ queryKey: ['project-inspections', projectId] });
         onStale();
