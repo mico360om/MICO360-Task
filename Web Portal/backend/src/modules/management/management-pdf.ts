@@ -79,7 +79,7 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     { header: 'Why' },
   ];
   const healthRows = o.projects.map((p) => [
-    `• ${RAG_WORD[p.rag]}`, // a no-break space: the dot never parts from its word
+    `•\u00A0${RAG_WORD[p.rag]}`, // a no-break space: the dot never parts from its word
     `${p.name} (${p.code})`,
     p.owner?.name ?? '—',
     `${p.completionPct}%`,
