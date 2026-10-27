@@ -132,6 +132,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   // New projects only: the template it starts from, its start day and who fills each role.
   const [template, setTemplate] = useState<TemplateChoice | null>(() => (templateId && !project ? { id: templateId, startDate: today, roles: {} } : null));
   const planQ = useTemplatePlan(template);
+  const openedWith = useRef(JSON.stringify(template));
   // After "create" succeeds but its picture doesn't, the dialog carries on editing the new project.
   const [saved, setSaved] = useState<ApiProject | null>(project ?? null);
   const editing = !!saved;
@@ -152,7 +153,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const codeRef = useRef<HTMLInputElement>(null);
   const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId() };
 
-  const dirty = image.kind !== 'keep' || teamIds.length > 0 || (template !== null && template.id !== templateId) || JSON.stringify(draft) !== JSON.stringify(initial);
+  const dirty = image.kind !== 'keep' || teamIds.length > 0 || JSON.stringify(template) !== openedWith.current || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
     if (busy.current) return;
     if (dirty) setConfirmClose(true);

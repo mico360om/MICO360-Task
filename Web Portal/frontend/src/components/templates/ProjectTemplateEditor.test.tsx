@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProjectTemplateEditor } from './ProjectTemplateEditor';
 import { useAuthStore } from '../../stores/auth-store';
@@ -62,7 +62,10 @@ describe('Project template editor', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add a task' }));
     const task = within(dialog).getByRole('group', { name: 'Task 1' });
     await userEvent.type(within(task).getByRole('textbox', { name: 'Title' }), 'Book the van');
-    fireEvent.change(within(task).getByRole('spinbutton', { name: 'Days after the start' }), { target: { value: '3' } });
+    // A new task has no due date; typing a number gives it one.
+    expect(within(task).getByRole('checkbox', { name: 'No due date' })).toBeChecked();
+    await userEvent.type(within(task).getByRole('spinbutton', { name: 'Days after the start' }), '3');
+    expect(within(task).getByRole('checkbox', { name: 'No due date' })).not.toBeChecked();
     await userEvent.selectOptions(within(task).getByRole('combobox', { name: 'Who does it' }), 'Driver');
     await userEvent.type(within(task).getByRole('textbox', { name: 'Add a checklist item' }), 'Call the company{Enter}');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create template' }));

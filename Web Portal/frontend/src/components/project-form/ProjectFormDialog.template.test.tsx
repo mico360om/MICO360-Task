@@ -97,13 +97,15 @@ describe('New project from a template', () => {
     const list = await within(dialog).findByRole('list', { name: 'Tasks it will create' });
     const rows = within(list).getAllByRole('listitem');
     expect(rows).toHaveLength(3);
+    // A long list scrolls in its box: it can be reached from the keyboard to scroll it.
+    expect(list).toHaveAttribute('tabindex', '0');
     expect(rows[0]).toHaveTextContent('Kick-off');
     expect(rows[0]).toHaveTextContent('Site lead');
     expect(rows[2]).toHaveTextContent('No due date');
     expect(rows[2]).toHaveTextContent('Owner');
     expect(within(dialog).getByText(/3 tasks on a board of 3 columns/)).toBeInTheDocument();
     // Days off are named, so a moved date is no surprise.
-    expect(within(dialog).getByText(/Friday and Saturday/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Friday or Saturday/)).toBeInTheDocument();
   });
 
   it('picks people for roles (active people only), shows them on the tasks, and creates it all in one request', async () => {
@@ -158,6 +160,16 @@ describe('New project from a template', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /Create project/ }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(requests.some((r) => r.method === 'POST' && r.url.includes('/templates/'))).toBe(false);
+  });
+
+  it('closing after changing the start date (or the people for roles) asks first', async () => {
+    const { onClose } = renderForm({ templateId: 'pt1' });
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    await within(dialog).findByRole('list', { name: 'Tasks it will create' });
+    fireEvent.change(within(dialog).getByLabelText('Start date'), { target: { value: '2026-11-01' } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('editing a project offers no template', async () => {

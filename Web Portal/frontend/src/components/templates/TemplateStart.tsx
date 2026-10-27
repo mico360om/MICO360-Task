@@ -19,7 +19,7 @@ export interface TemplateChoice {
 }
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const listWords = (words: string[]) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`);
+const listWords = (words: string[], joiner = 'and') => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} ${joiner} ${words[words.length - 1]}`);
 
 /** "Sun 8 Nov" (the year too when it isn't this one). */
 const dueLabel = (key: string, today: string) => dayLabel(key, { year: key.slice(0, 4) !== today.slice(0, 4) });
@@ -114,7 +114,7 @@ export function TemplateStart({
             </div>
             <p id={ids.startNote} className="text-xs text-ink-2 sm:pt-8">
               Due dates count from this day.{' '}
-              {daysOff.length ? `A due day on a ${listWords(daysOff)} (days off) moves to the next working day.` : ''}
+              {daysOff.length ? `A due day on a ${listWords(daysOff, 'or')} (${daysOff.length === 1 ? 'a day off' : 'days off'}) moves to the next working day.` : ''}
             </p>
           </div>
 
@@ -160,7 +160,7 @@ export function TemplateStart({
                 </p>
               ) : null}
               {current.tasks.length ? (
-                <ol aria-label="Tasks it will create" className="mt-2 max-h-72 overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface">
+                <ol aria-label="Tasks it will create" tabIndex={0} className="mt-2 max-h-72 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface">
                   {current.tasks.map((t) => {
                     const role = t.roleId ? roles.find((r) => r.id === t.roleId) : undefined;
                     const filler = role ? nameOf(choice.roles[role.id]) : null;

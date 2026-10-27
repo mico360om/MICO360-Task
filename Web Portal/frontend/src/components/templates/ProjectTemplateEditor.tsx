@@ -433,12 +433,13 @@ function TaskFields({ n, task, roles, onChange, titleRef }: { n: number; task: D
             min={LIMITS.minOffset}
             max={LIMITS.maxOffset}
             step={1}
-            disabled={noDate}
             aria-label="Days after the start"
             aria-describedby={ids.offsetNote}
+            placeholder="—"
             value={noDate ? '' : task.dueOffsetDays!}
-            onChange={(e) => onChange({ dueOffsetDays: e.target.value === '' ? 0 : Math.trunc(Number(e.target.value)) || 0 })}
-            className={`${field} w-24 flex-none tabular-nums disabled:opacity-50`}
+            // Typing a number gives the task a due date; emptying the box takes it away.
+            onChange={(e) => onChange({ dueOffsetDays: e.target.value === '' ? null : Math.trunc(Number(e.target.value)) || 0 })}
+            className={`${field} !w-24 flex-none tabular-nums`}
           />
           <span className="text-xs text-ink-2">days after the start</span>
           <label className="inline-flex min-h-[36px] cursor-pointer items-center gap-2 text-xs text-ink">
