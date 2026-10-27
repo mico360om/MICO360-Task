@@ -9,16 +9,19 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 let allowed = true;
 let saved: unknown[] = [];
 let prefs: Record<string, unknown> = { muted: [], weeklySummary: true };
+let companyOn = true;
 
 beforeEach(() => {
   allowed = true;
   saved = [];
   prefs = { muted: [], weeklySummary: true };
+  companyOn = true;
   useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '', weekStart: 0, weeklySummaryEnabled: companyOn } });
       if (url.endsWith('/management/access')) return json({ data: allowed ? { allowed: true, scope: 'RUN' } : { allowed: false, scope: null } });
       if (url.endsWith('/notifications/preferences') && init?.method === 'PUT') {
         const body = JSON.parse(String(init.body));
@@ -56,6 +59,13 @@ describe('Settings → Weekly management summary', () => {
     renderIt();
     const toggle = await screen.findByRole('switch', { name: 'Weekly management summary email' });
     await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
+  });
+
+  it('says when an administrator has turned it off for everyone, and can’t be switched meanwhile (M-6)', async () => {
+    companyOn = false;
+    renderIt();
+    expect(await screen.findByText('Your administrator has turned the weekly summary off for everyone.')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Weekly management summary email' })).toBeDisabled();
   });
 
   it('is not shown to anyone else', async () => {

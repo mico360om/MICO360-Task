@@ -6,7 +6,7 @@ import { useSignOut } from '../lib/useSignOut';
 import { SignOutWarning } from '../components/SignOutWarning';
 import { PageHeader } from '../components/ui/PageHeader';
 import { apiClient, assetUrl } from '../api/client';
-import { notificationsApi } from '../api/notifications';
+import { notificationsApi, type NotificationPreferences } from '../api/notifications';
 import { usersApi } from '../api/users';
 import { useThemeChoice, type ThemeChoice } from '../lib/theme';
 import { DatePreferences } from '../components/DatePreferences';
@@ -103,13 +103,14 @@ export function SettingsPage() {
   const muted = prefs.muted ?? [];
 
   const setMut = useMutation({
-    // Always send the whole preferences object so changing one setting never drops another.
+    // Only the muted types and the reminder time (the server saves them together and keeps the rest),
+    // so a tab opened earlier can never send back an old daily email or weekly summary choice.
     mutationFn: (next: { muted: string[]; reminderLeadMinutes?: number }) => notificationsApi(apiClient).setPreferences(next),
     onMutate: async (next) => {
       setSaveProblem(null);
       await qc.cancelQueries({ queryKey: ['notification-prefs'] });
-      const prev = qc.getQueryData(['notification-prefs']);
-      qc.setQueryData(['notification-prefs'], next);
+      const prev = qc.getQueryData<NotificationPreferences>(['notification-prefs']);
+      qc.setQueryData<NotificationPreferences>(['notification-prefs'], { ...prev, ...next });
       return { prev };
     },
     onError: (_e, _v, ctx) => {
@@ -122,10 +123,10 @@ export function SettingsPage() {
 
   function toggle(type: string) {
     const isOn = !muted.includes(type);
-    setMut.mutate({ ...prefs, muted: isOn ? [...muted, type] : muted.filter((t) => t !== type) });
+    setMut.mutate({ muted: isOn ? [...muted, type] : muted.filter((t) => t !== type), reminderLeadMinutes: prefs.reminderLeadMinutes });
   }
   function setLead(minutes: number | undefined) {
-    setMut.mutate({ ...prefs, reminderLeadMinutes: minutes });
+    setMut.mutate({ muted, reminderLeadMinutes: minutes });
   }
 
   const initials = (user?.username ?? '?').slice(0, 2).toUpperCase();
