@@ -22,6 +22,8 @@ import { useProjectRealtime, type ProjectChange } from '../lib/useProjectRealtim
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
+import { SaveProjectTemplateDialog } from '../components/templates/SaveAsTemplate';
+import { TemplateGlyph } from '../components/templates/TemplateCard';
 import { ownerChoices } from '../components/project-form/owner-options';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { NewTaskModal } from '../components/NewTaskModal';
@@ -161,6 +163,8 @@ export function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
   // Share with client: whoever runs the project (the server checks too). Archived: read-only, Remove still there.
   const [sharing, setSharing] = useState(false);
+  // Save as template: whoever runs the project (the server checks too).
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const canShare = canEditProject && !!project;
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false, enabled: canShare });
 
@@ -305,6 +309,17 @@ export function ProjectDetailPage() {
         {canEditProject && project ? (
           <button
             type="button"
+            onClick={() => setSavingTemplate(true)}
+            title="Save this project’s board and tasks as a template for new projects"
+            className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+          >
+            {TemplateGlyph.save}
+            <span className="max-sm:sr-only">Save as template</span>
+          </button>
+        ) : null}
+        {canEditProject && project ? (
+          <button
+            type="button"
             onClick={() => setEditing(true)}
             title={editHint?.title('Edit project')}
             aria-keyshortcuts={editHint?.aria}
@@ -323,6 +338,7 @@ export function ProjectDetailPage() {
         <ClientSharePanel projectId={id} projectName={project.name} emailEnabled={configQ.data?.emailEnabled ?? true} archived={project.status === 'ARCHIVED'} onClose={() => setSharing(false)} />
       ) : null}
       {newTask ? <NewTaskModal projectId={id} onClose={() => setNewTask(false)} /> : null}
+      {savingTemplate && project ? <SaveProjectTemplateDialog projectId={id} projectName={project.name} onClose={() => setSavingTemplate(false)} /> : null}
 
       {/* Stat tiles — a snapshot of every task by where it stands */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

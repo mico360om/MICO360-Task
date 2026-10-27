@@ -272,6 +272,20 @@ describe('ProjectDetailPage', () => {
     expect(within(panel).queryByLabelText('Client’s name')).toBeNull();
   });
 
+  it('offers Save as template to someone who runs the project; a plain member doesn’t get it', async () => {
+    projectExtra = { canManage: true };
+    const { unmount } = renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    await userEvent.click(screen.getByRole('button', { name: /save as template/i }));
+    expect(await screen.findByRole('dialog', { name: 'Save as template' })).toBeInTheDocument();
+    unmount();
+    projectExtra = { canManage: false };
+    memberRole = 'MEMBER';
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    expect(screen.queryByRole('button', { name: /save as template/i })).not.toBeInTheDocument();
+  });
+
   it('doesn’t offer Share with client to a member who doesn’t run the project', async () => {
     projectExtra = { canManage: false };
     memberRole = 'MEMBER';

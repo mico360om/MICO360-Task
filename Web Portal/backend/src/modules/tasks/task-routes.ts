@@ -80,6 +80,8 @@ const createSchema = z.object({
   tags: z.array(z.string().max(VARCHAR_MAX)).max(50).optional(),
   /** Users to assign on creation. Present (even `[]`) means exactly these; absent defaults to the project owner. */
   assigneeIds: z.array(idString).max(100).optional(),
+  /** Its checklist's items, in order (a task template fills them in), written with the task. */
+  checklist: z.array(requiredText).max(100).optional(),
 });
 
 const updateSchema = z.object({

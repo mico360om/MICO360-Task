@@ -96,6 +96,8 @@ export interface TaskDrawerProps {
   onMoveToProject?: () => void;
   /** Why it can't be moved now: the item is shown, unavailable, saying so. */
   moveUnavailable?: string | null;
+  /** Save it as a task template (in “More actions”; whoever runs its project). */
+  onSaveAsTemplate?: () => void;
   /**
    * Show the task on (or take it off) the project's client page — offered to whoever runs the
    * project. Rejects with the reason to show when it couldn't be changed.
@@ -225,6 +227,7 @@ export function TaskDrawer({
   project,
   onMoveToProject,
   moveUnavailable,
+  onSaveAsTemplate,
   onSetClientVisible,
   onClose,
 }: TaskDrawerProps) {
@@ -319,7 +322,8 @@ export function TaskDrawer({
               onExport={onExport}
               onMoveToProject={onMoveToProject}
               moveUnavailable={moveUnavailable}
-              className={onMoveToProject ? '' : 'sm:hidden'}
+              onSaveAsTemplate={onSaveAsTemplate}
+              className={onMoveToProject || onSaveAsTemplate ? '' : 'sm:hidden'}
             />
             <button
               type="button"

@@ -19,6 +19,11 @@ import { AssigneeSelect } from '../task-form/AssigneeSelect';
 import { IdentityEditor, type ImageChoice } from './IdentityEditor';
 import { activePeople, ownerChoices, personName } from './owner-options';
 import { priorityOptions } from '../priority-option';
+import { templatesApi } from '../../api/templates';
+import { todayKey } from '../../lib/due-date';
+import { isWholeDate } from '../../lib/date-box';
+import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
+import { TemplateStart, useTemplatePlan, type TemplateChoice } from '../templates/TemplateStart';
 
 const NAME_MAX = 191;
 const DESCRIPTION_MAX = 20_000;
@@ -115,12 +120,19 @@ const input = (bad: boolean) =>
  * today). A new project also gets its team here: whoever creates it owns it unless they pick
  * someone else, and an employee who creates one is on its team as a manager either way. Saving
  * shows progress and can't be sent twice; what was typed stays after an error; closing with
- * changes asks first.
+ * changes asks first. A new project can start from a template (`templateId` picks one to begin
+ * with): its board and tasks, from a start day, with people chosen for its roles — one request.
  */
-export function ProjectFormDialog({ project, onClose, onSaved }: { project?: ApiProject | null; onClose: () => void; onSaved?: (p: ApiProject) => void }) {
+export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { project?: ApiProject | null; onClose: () => void; onSaved?: (p: ApiProject) => void; templateId?: string | null }) {
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user?.id ?? '');
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  const timeZone = useCompanyTimeZone();
+  const today = todayKey(timeZone);
+  // New projects only: the template it starts from, its start day and who fills each role.
+  const [template, setTemplate] = useState<TemplateChoice | null>(() => (templateId && !project ? { id: templateId, startDate: today, roles: {} } : null));
+  const planQ = useTemplatePlan(template);
+  const openedWith = useRef(JSON.stringify(template));
   // After "create" succeeds but its picture doesn't, the dialog carries on editing the new project.
   const [saved, setSaved] = useState<ApiProject | null>(project ?? null);
   const editing = !!saved;
@@ -139,9 +151,14 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
   const busy = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
+  const bannerRef = useRef<HTMLParagraphElement>(null);
+  // A message above a long form (Create is at its foot): brought into view when it appears.
+  useEffect(() => {
+    if (banner) bannerRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [banner]);
   const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId() };
 
-  const dirty = image.kind !== 'keep' || teamIds.length > 0 || JSON.stringify(draft) !== JSON.stringify(initial);
+  const dirty = image.kind !== 'keep' || teamIds.length > 0 || JSON.stringify(template) !== openedWith.current || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
     if (busy.current) return;
     if (dirty) setConfirmClose(true);
@@ -245,6 +262,10 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
     setErrors(problems);
     if (problems.name) return nameRef.current?.focus();
     if (problems.code) return codeRef.current?.focus();
+    if (!saved && template && !isWholeDate(template.startDate)) {
+      setBanner('Choose the day the project starts: the template’s due dates count from it.');
+      return;
+    }
 
     busy.current = true;
     setSaving(true);
@@ -253,7 +274,7 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
       if (!saved) {
         let created: ApiProject;
         try {
-          created = await projectsApi(apiClient).create({
+          const input = {
             code: draft.code,
             name: draft.name.trim(),
             ...(draft.number.trim() ? { number: draft.number.trim() } : {}),
@@ -268,9 +289,28 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
             // Only what differs from how every project starts (the server fills in the rest).
             ...(draft.carryForward ? {} : { carryForward: false }),
             ...(draft.defaultDueToday ? { defaultDueToday: true } : {}),
-          });
+          };
+          // From a template: the project, its board, its tasks and its team in one request.
+          created = template
+            ? await templatesApi(apiClient).createProject(template.id, {
+                ...input,
+                startDate: template.startDate,
+                roles: template.roles,
+                // The template as the preview showed it: a change since then is refused, not made unseen.
+                ...(planQ.data?.template.id === template.id && planQ.data.template.updatedAt ? { expectedUpdatedAt: planQ.data.template.updatedAt } : {}),
+              })
+            : await projectsApi(apiClient).create(input);
         } catch (err) {
-          if (err instanceof ApiError && err.status === 409) {
+          if (template && err instanceof ApiError && (err.status === 404 || err.code === 'TEMPLATE_CHANGED' || (err.details as { code?: string } | undefined)?.code === 'TEMPLATE_CHANGED')) {
+            // The template was deleted or changed meanwhile: show it as it is now.
+            // People picked for roles the template still has stay picked.
+            void planQ.refetch().then((r) => {
+              const still = new Set(err.status === 404 ? [] : (r.data?.template.roles ?? []).map((x) => x.id));
+              setTemplate((t) => (t ? { ...t, roles: Object.fromEntries(Object.entries(t.roles).filter(([roleId]) => still.has(roleId))) } : t));
+            });
+            void qc.invalidateQueries({ queryKey: ['templates', 'projects'] });
+            setBanner(err.status === 404 ? 'That template no longer exists. Choose another one, or start a blank project.' : err.message);
+          } else if (err instanceof ApiError && err.status === 409) {
             setErrors({ code: err.message || `${draft.code} is already used by another project.` });
             codeRef.current?.focus();
           } else {
@@ -338,7 +378,20 @@ export function ProjectFormDialog({ project, onClose, onSaved }: { project?: Api
 
           <form onSubmit={(e) => void submit(e)} noValidate className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
             <div className="keyboard-flow-body min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-              {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
+              {banner ? <p ref={bannerRef} role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
+
+              {!editing ? (
+                <TemplateStart
+                  choice={template}
+                  onChange={setTemplate}
+                  today={today}
+                  directory={directory}
+                  ownerId={draft.ownerId}
+                  plan={planQ.data}
+                  planError={planQ.isError}
+                  onRetry={() => void planQ.refetch()}
+                />
+              ) : null}
 
               {/* Identity: the picture beside the name and code. */}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start">

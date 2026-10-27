@@ -27,6 +27,8 @@ import { createPrismaColumnRepository } from './modules/projects/prisma-column-r
 import { createMemberService } from './modules/projects/member-service';
 import { createPrismaMemberRepository, createPrismaProjectExistsLookup, createPrismaProjectManagerLookup, projectRunnerIds } from './modules/projects/prisma-member-repository';
 import { createProjectAuthz } from './modules/projects/project-authz';
+import { createTemplateService } from './modules/templates/template-service';
+import { createPrismaTemplateRepository } from './modules/templates/prisma-template-repository';
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createTaskService } from './modules/tasks/task-service';
@@ -1374,6 +1376,16 @@ async function main(): Promise<void> {
     idempotencyStore: createPrismaIdempotencyStore(prisma),
     dataExporter: createPrismaDataExporter(prisma),
     clientView: { service: clientAccessService, secureCookies: env.NODE_ENV === 'production', tasks: clientFlags.tasks, minutes: clientFlags.minutes },
+    // Project and task templates: due dates skip the company's days off (the meeting hours' working days).
+    templateService: createTemplateService({
+      repo: createPrismaTemplateRepository(prisma),
+      canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+      canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
+      people: peopleLookup,
+      workingDays: async () => (await settingsService.workingHours()).days,
+      timeZone: companyTz,
+      names: resolveUserNames,
+    }),
   });
 
   // Serve uploaded attachment files from disk at /uploads/<key> (matches the stored url).

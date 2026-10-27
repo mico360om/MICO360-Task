@@ -21,6 +21,8 @@ const COLUMNS: Record<string, ColumnInfo> = {
 /** In-memory tasks; tags/assignees written on create land in the shared stores, like the real nested write. */
 function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?: Set<string> } = {}) {
   const rows = new Map<string, TaskRecord>();
+  /** Checklists written with a task on create (as the real nested write does). */
+  const checklists = new Map<string, string[]>();
   let seq = 0;
   const assigneesOf = (id: string) => [...(stores.links ?? [])].filter((l) => l.startsWith(`${id}:`)).map((l) => l.split(':')[1]!);
   const view = (t: TaskRecord): TaskRecord => ({ ...t, columnCategory: COLUMNS[t.columnId]?.category ?? null });
@@ -60,6 +62,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
         rec.tags = await stores.tags.listForTask(rec.id);
       }
       for (const userId of data.assigneeIds ?? []) stores.links?.add(`${rec.id}:${userId}`);
+      if (data.checklist?.length) checklists.set(rec.id, [...data.checklist]);
       return view(rec);
     },
     async findById(id) {
@@ -108,7 +111,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
     async getCodeById(id) { return id === 'p1' ? 'MICO' : id === 'p2' ? 'RIG' : null; },
     async getTaskSettings(id) { return id === 'p1' || id === 'p2' ? { defaultDueToday: stores.dueToday?.has(id) ?? false } : null; },
   };
-  return { tasks, projects, rows };
+  return { tasks, projects, rows, checklists };
 }
 
 const tokenService = createTokenService({
@@ -313,6 +316,20 @@ describe('Task routes', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.details).toEqual({ userIds: ['outsider'] });
     expect(mem.rows.size).toBe(0);
+  });
+
+  it('creates a task with its checklist in one call (a task template fills it in), and refuses a bad item before creating anything', async () => {
+    const mem = inMemory();
+    const app2 = await buildApp({ authService, tokenService, taskService: createTaskService(mem) });
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const res = await app2.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'Site check', projectId: 'p1', columnId: 'c1', checklist: ['Gate', '  Fence  '] } });
+    expect(res.statusCode).toBe(201);
+    expect(mem.checklists.get(res.json().data.id)).toEqual(['Gate', 'Fence']);
+    const blank = await app2.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'x', projectId: 'p1', columnId: 'c1', checklist: ['ok', '   '] } });
+    expect(blank.statusCode).toBe(400);
+    const tooMany = await app2.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'x', projectId: 'p1', columnId: 'c1', checklist: Array.from({ length: 101 }, (_, i) => `Item ${i}`) } });
+    expect(tooMany.statusCode).toBe(400);
+    expect(mem.rows.size).toBe(1);
   });
 
   it('rejects invalid tags before creating the task', async () => {

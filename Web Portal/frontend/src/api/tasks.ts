@@ -77,6 +77,8 @@ export interface NewTaskInput {
    * project's default (its owner); an explicit list — even [] — is used as-is.
    */
   assigneeIds?: string[];
+  /** Its checklist's items, in order (e.g. from a task template), created with the task. */
+  checklist?: string[];
 }
 
 export interface CreateTaskOptions {

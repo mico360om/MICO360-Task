@@ -107,6 +107,13 @@ const I = {
       <path d="M9 11.5l2 2 4-4" />
     </>
   ),
+  templates: (
+    <>
+      <rect x="7" y="3" width="14" height="13" rx="2" />
+      <path d="M3 7.5V18a3 3 0 0 0 3 3h10.5" />
+      <path d="M11.5 3v13M16.5 3v13" />
+    </>
+  ),
   ai: (
     <>
       <path d="M12 3l1.6 4.2L18 8.8l-4.4 1.6L12 15l-1.6-4.6L6 8.8l4.4-1.6z" />
@@ -126,6 +133,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'Workload', to: '/workload', icon: I.workload },
   { label: 'Meetings', to: '/meetings', icon: I.meetings },
   { label: 'My Action Items', to: '/my-action-items', icon: I.tasks },
+  { label: 'Templates', to: '/templates', icon: I.templates },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
 ];
 const COMMUNICATION: NavItem[] = [

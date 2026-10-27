@@ -31,7 +31,8 @@ const storedKey = (url: string | null | undefined) => (url && url.startsWith('/u
 const statusEnum = z.enum(['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'ARCHIVED']);
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
-const createSchema = z.object({
+/** A new project as asked for (also the project part of "make a project from a template"). */
+export const createSchema = z.object({
   code: z.string().max(40).transform(normalizeCode).refine((c) => CODE_PATTERN.test(c), CODE_RULE),
   // The project's own number (e.g. the client's job number): free text, up to 40 characters; empty = none.
   number: z.string().trim().max(40, 'A project number has at most 40 characters.').transform((n) => n || null).nullable().optional(),

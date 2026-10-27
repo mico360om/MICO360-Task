@@ -28,6 +28,13 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: 'Workload' })).toHaveAttribute('href', '/workload');
   });
 
+  it('shows Templates in the Workspace group to every user, after My Action Items', () => {
+    renderSidebar(false);
+    const names = screen.getAllByRole('link').map((l) => l.textContent);
+    expect(names[names.indexOf('My Action Items') + 1]).toBe('Templates');
+    expect(screen.getByRole('link', { name: 'Templates' })).toHaveAttribute('href', '/templates');
+  });
+
   it('shows MICO AI to every user', () => {
     renderSidebar(false);
     expect(screen.getByRole('link', { name: 'MICO AI' })).toHaveAttribute('href', '/mico-ai');

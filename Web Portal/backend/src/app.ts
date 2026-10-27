@@ -93,6 +93,8 @@ import type { MicoAiService } from './modules/mico-ai/mico-ai-service';
 import type { CorsOriginMatcher } from './lib/cors-origins';
 import type { DataExporter } from './modules/users/data-export';
 import { registerClientViewRoutes, type ClientViewRouteDeps } from './modules/client-view/client-view-routes';
+import { registerTemplateRoutes } from './modules/templates/template-routes';
+import type { TemplateService } from './modules/templates/template-service';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -254,6 +256,8 @@ export interface AppDeps extends AuthRouteDeps {
    * and the staff routes that share a project and mark its items "Show to client".
    */
   clientView?: Pick<ClientViewRouteDeps, 'service' | 'secureCookies' | 'tasks' | 'minutes' | 'rateLimits'>;
+  /** Project and task templates (the Templates page, “Start from a template”, “Save as template”). */
+  templateService?: TemplateService;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -704,6 +708,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.emailWebhookService) {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });
+      }
+      if (deps.templateService) {
+        await registerTemplateRoutes(api, { templateService: deps.templateService, guard, projectService: deps.projectService, audit: deps.auditService, notices: deps.projectNotices });
       }
       if (deps.clientView) {
         await registerClientViewRoutes(api, {

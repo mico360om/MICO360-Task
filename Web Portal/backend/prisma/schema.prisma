@@ -1201,3 +1201,80 @@ model MicoAiProposal {
   @@index([userId])
   @@map("mico_ai_proposals")
 }
+
+// ─────────────────────────────── Templates ───────────────────────────────
+// Company-wide starting points: a project's board and standard tasks, or one task. Creator ids are
+// scalar (like chat and meetings), so the User model stays untouched. A project made from a template
+// keeps no link to it: deleting or changing a template never touches projects made from it.
+
+/// A starting point for new projects: its board columns, the roles its tasks name, and its tasks.
+model ProjectTemplate {
+  id          String                @id @default(cuid())
+  name        String                @db.VarChar(191)
+  description String?               @db.Text
+  /// Its board, in order: [{ name, category, color }].
+  columns     Json
+  /// Who made it: they can change and delete it (administrators can change any). Kept when they're gone.
+  createdById String?
+  updatedById String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  roles       ProjectTemplateRole[]
+  tasks       ProjectTemplateTask[]
+
+  @@index([createdById])
+  @@map("project_templates")
+}
+
+/// A role a template's tasks name instead of a person ("Inspector"): filled when a project is made from it.
+model ProjectTemplateRole {
+  id         String                @id @default(cuid())
+  templateId String
+  name       String                @db.VarChar(80)
+  position   Int                   @default(0)
+  template   ProjectTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  tasks      ProjectTemplateTask[]
+
+  @@index([templateId])
+  @@map("project_template_roles")
+}
+
+/// One of a template's standard tasks, due `dueOffsetDays` calendar days after the project's start.
+model ProjectTemplateTask {
+  id            String               @id @default(cuid())
+  templateId    String
+  position      Int                  @default(0)
+  title         String               @db.VarChar(191)
+  description   String?              @db.Text
+  priority      Priority             @default(NORMAL)
+  /// Days after the project's start it is due (0 = the start day, negative = before it); null = no due date.
+  dueOffsetDays Int?
+  /// The role whose person does it; null = the project's usual default (its owner).
+  roleId        String?
+  /// Its checklist items' text, in order.
+  checklist     Json
+  template      ProjectTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  role          ProjectTemplateRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@index([templateId, position])
+  @@index([roleId])
+  @@map("project_template_tasks")
+}
+
+/// A starting point for one task: fills in the New task form's title, description, checklist and priority.
+model TaskTemplate {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(191)
+  title       String   @db.VarChar(191)
+  description String?  @db.Text
+  priority    Priority @default(NORMAL)
+  /// Its checklist items' text, in order.
+  checklist   Json
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+  @@map("task_templates")
+}
