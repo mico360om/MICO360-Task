@@ -20,4 +20,9 @@ export default tseslint.config(
     files: ['*.config.{ts,mjs,js}', 'vite.config.ts', 'scripts/**/*.mjs'],
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    // The service worker runs in its own scope: self, caches, fetch, URL…
+    files: ['public/sw.js'],
+    languageOptions: { globals: { ...globals.serviceworker } },
+  },
 );
