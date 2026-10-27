@@ -39,6 +39,8 @@ export interface NewTask {
   tagNames?: string[];
   /** Validated user ids, assigned in the same write as the task. */
   assigneeIds?: string[];
+  /** Checklist items' text, in order, written in the same write as the task. */
+  checklist?: string[];
 }
 
 export interface TaskServiceDeps {

@@ -81,6 +81,8 @@ export interface CreateTaskData {
   tagNames?: string[];
   /** Users to assign in the same write as the task (already validated). */
   assigneeIds?: string[];
+  /** Checklist items' text, in order, written in the same write as the task. */
+  checklist?: string[];
 }
 
 /** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */

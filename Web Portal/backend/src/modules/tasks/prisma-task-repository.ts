@@ -138,10 +138,11 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
     async create(data: CreateTaskData) {
       const tagNames = data.tagNames ?? [];
       const assigneeIds = [...new Set(data.assigneeIds ?? [])];
+      const checklist = data.checklist ?? [];
       // A key a task had before it moved project still finds that task: never give it to another one.
       if (await isOldKey(prisma, data.key)) throw new TaskKeyConflictError(data.key);
       try {
-        // Task, tags and assignees are one nested write — all of it lands or none of it does.
+        // Task, tags, assignees and checklist are one nested write — all of it lands or none of it does.
         const t = await prisma.task.create({
           include: withColumn,
           data: {
@@ -172,6 +173,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
                 }
               : {}),
             ...(assigneeIds.length ? { assignees: { create: assigneeIds.map((userId) => ({ userId })) } } : {}),
+            ...(checklist.length ? { checklist: { create: checklist.map((text, position) => ({ text, position })) } } : {}),
           },
         });
         return toRecord(t);

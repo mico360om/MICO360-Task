@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient, type Project } from '@prisma/client';
 import { ConflictError } from '../../lib/http-errors';
 import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
+import { writeStartingTasks } from './prisma-starting-content';
 
 function toRecord(p: Project): ProjectRecord {
   return {
@@ -28,30 +29,58 @@ function toRecord(p: Project): ProjectRecord {
   };
 }
 
+/** A new project's own fields (left out ones take the database's defaults). */
+function projectFields(data: CreateProjectData) {
+  return {
+    code: data.code,
+    number: data.number ?? undefined,
+    name: data.name,
+    createdById: data.createdById,
+    description: data.description ?? undefined,
+    clientName: data.clientName ?? undefined,
+    managerId: data.managerId ?? undefined,
+    ownerId: data.ownerId ?? undefined,
+    status: data.status ?? undefined,
+    priority: data.priority ?? undefined,
+    color: data.color ?? undefined,
+    icon: data.icon ?? undefined,
+    startDate: data.startDate ?? undefined,
+    targetDate: data.targetDate ?? undefined,
+    notes: data.notes ?? undefined,
+    carryForward: data.carryForward ?? undefined,
+    defaultDueToday: data.defaultDueToday ?? undefined,
+  };
+}
+
 export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepository {
   return {
     async create(data: CreateProjectData) {
       try {
+        const start = data.startWith;
+        // A project from a template: the project, the template's board, its tasks (with their
+        // checklists and people) and the first team in one transaction — all of it or none of it.
+        if (start) {
+          return await prisma.$transaction(
+            async (tx) => {
+              const p = await tx.project.create({
+                data: {
+                  ...projectFields(data),
+                  columns: { create: start.columns.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
+                  ...(data.members?.length ? { members: { create: data.members.map((m) => ({ userId: m.userId, role: m.role })) } } : {}),
+                },
+                include: { columns: { orderBy: { position: 'asc' }, select: { id: true, category: true } } },
+              });
+              const column = p.columns[start.startColumn] ?? p.columns[0]!;
+              await writeStartingTasks(tx, { id: p.id, code: p.code, ownerId: p.ownerId, createdById: p.createdById }, column, start);
+              return toRecord(p);
+            },
+            { timeout: 60_000, maxWait: 10_000 },
+          );
+        }
         // The project, its default board columns and its first team are one nested write (one transaction).
         const p = await prisma.project.create({
           data: {
-            code: data.code,
-            number: data.number ?? undefined,
-            name: data.name,
-            createdById: data.createdById,
-            description: data.description ?? undefined,
-            clientName: data.clientName ?? undefined,
-            managerId: data.managerId ?? undefined,
-            ownerId: data.ownerId ?? undefined,
-            status: data.status ?? undefined,
-            priority: data.priority ?? undefined,
-            color: data.color ?? undefined,
-            icon: data.icon ?? undefined,
-            startDate: data.startDate ?? undefined,
-            targetDate: data.targetDate ?? undefined,
-            notes: data.notes ?? undefined,
-            carryForward: data.carryForward ?? undefined,
-            defaultDueToday: data.defaultDueToday ?? undefined,
+            ...projectFields(data),
             columns: { create: DEFAULT_COLUMNS.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
             // Its team in the same write: a project never exists without the people it was made with.
             ...(data.members?.length ? { members: { create: data.members.map((m) => ({ userId: m.userId, role: m.role })) } } : {}),
