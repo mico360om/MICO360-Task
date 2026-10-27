@@ -141,6 +141,9 @@ describe('Management routes', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="management-overview-2026-10-27.pdf"');
     expect(res.headers['cache-control']).toBe('no-store');
     const text = inspectPdf(res.rawPayload).pages.flat().join('\n');
+    // Each mark is one whole line, "• Red" (a no-break space keeps the dot with its word; never "• Ambe" / "r").
+    const lines = inspectPdf(res.rawPayload).pages.flat();
+    for (const mark of ['• Red', '• Amber', '• Green']) expect(lines, mark).toContain(mark);
     for (const s of [
       'Management overview',
       'All projects',
@@ -148,7 +151,6 @@ describe('Management routes', () => {
       'Generated 27 Oct 2026, 10:00 (Asia/Muscat) by Aisha Khan',
       'Project health',
       'Rig Inspection Portal',
-      '• Red',
       'Milestone “Handover” is 3 days late',
       'مشروع الحفر',
       'Inspections',

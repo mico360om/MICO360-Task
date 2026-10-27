@@ -15,7 +15,7 @@ const TONE: Record<NonNullable<ItemRow['tone']>, string> = {
   success: 'text-success',
   neutral: 'text-ink-2',
 };
-const ROW = 'flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-3 py-2.5 text-start transition-colors hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:min-h-11';
+const ROW = 'flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-3 py-2.5 text-start transition-colors hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:!min-h-11';
 
 /** "Finished Wed 21 Oct, 12:00" in the company time zone. */
 function finishedText(at: string, timeZone: string): string {

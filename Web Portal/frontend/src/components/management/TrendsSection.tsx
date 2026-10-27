@@ -54,7 +54,8 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
           )}
         </figure>
       </div>
-      <div className="mt-4 max-h-72 overflow-auto rounded-xl border border-line">
+      {/* It scrolls: focusable, so the keyboard can scroll it too. */}
+      <div tabIndex={0} role="region" aria-label="Weekly figures, scrollable" className="mt-4 max-h-72 overflow-auto rounded-xl border border-line focus-visible:outline focus-visible:outline-2 focus-visible:outline-[rgb(var(--c-brand-text))]">
         <table className="w-full text-sm" aria-label="Weekly figures">
           <thead className="sticky top-0 bg-surface-2">
             <tr className="text-xs font-semibold uppercase tracking-wide text-ink-3">

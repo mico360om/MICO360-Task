@@ -5,7 +5,7 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import { DEFAULT_STATUSES, PERIODS, PROJECT_STATUSES, STATUS_LABEL, isDefaultFilters } from '../../lib/management';
 
 const CHIP =
-  'flex min-h-8 cursor-pointer select-none items-center rounded-full border px-3 py-1 text-sm transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] [@media(pointer:coarse)]:min-h-11';
+  'relative flex min-h-8 cursor-pointer select-none items-center rounded-full border px-3 py-1 text-sm transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] [@media(pointer:coarse)]:!min-h-11';
 
 /** Which projects: "Projects: All" / "Projects: 2 chosen", opening a list of tick boxes. */
 function ProjectPicker({ projects, chosen, onChange }: { projects: OptionProject[]; chosen: string[]; onChange: (ids: string[]) => void }) {
@@ -37,7 +37,7 @@ function ProjectPicker({ projects, chosen, onChange }: { projects: OptionProject
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
-        className={`flex min-h-9 max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors hover:border-brand/30 hover:bg-ground [@media(pointer:coarse)]:min-h-11 ${chosen.length ? 'border-brand/40 text-brand' : 'border-line text-ink'}`}
+        className={`flex min-h-9 max-w-full items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors hover:border-brand/30 hover:bg-ground [@media(pointer:coarse)]:!min-h-11 ${chosen.length ? 'border-brand/40 text-brand' : 'border-line text-ink'}`}
       >
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none">
           <path d="M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -78,7 +78,7 @@ function ProjectPicker({ projects, chosen, onChange }: { projects: OptionProject
           <ul className="max-h-72 overflow-y-auto">
             {listed.map((p) => (
               <li key={p.id}>
-                <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-sm text-ink hover:bg-ground [@media(pointer:coarse)]:min-h-11">
+                <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-sm text-ink hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
                   <input type="checkbox" checked={chosen.includes(p.id)} onChange={() => toggle(p.id)} aria-label={p.name} className="h-4 w-4 accent-[rgb(var(--c-brand))]" />
                   <ProjectAvatar project={p} size="xs" />
                   <span dir="auto" className="min-w-0 flex-1 truncate">{p.name}</span>
@@ -123,7 +123,7 @@ export function ManagementFilters({ filters, projects, owners, onChange }: { fil
           {PERIODS.map((w) => (
             <label
               key={w}
-              className={`flex min-h-8 cursor-pointer items-center rounded-md px-3 text-sm font-semibold transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] [@media(pointer:coarse)]:min-h-11 ${
+              className={`relative flex min-h-8 cursor-pointer items-center rounded-md px-3 text-sm font-semibold transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] [@media(pointer:coarse)]:!min-h-11 ${
                 filters.weeks === w ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:text-ink'
               }`}
             >

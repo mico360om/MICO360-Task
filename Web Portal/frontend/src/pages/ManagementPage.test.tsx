@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ManagementPage, ManagementRoute } from './ManagementPage';
 import { useAuthStore } from '../stores/auth-store';
@@ -202,12 +202,41 @@ describe('ManagementPage', () => {
     await waitFor(() => expect(overviewCalls().at(-1)).toContain('status=ACTIVE%2CARCHIVED'));
   });
 
+  it('follows the address when it changes on its own (back, forward, a link)', async () => {
+    let go: (to: string) => void = () => {};
+    function Nav() {
+      go = useNavigate();
+      return null;
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/management?weeks=4']}>
+          <Nav />
+          <Routes>
+            <Route path="/management" element={<ManagementPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('region', { name: 'Project health' });
+    expect(screen.getByRole('radio', { name: '4 weeks' })).toBeChecked();
+    act(() => go('/management?weeks=26&status=ARCHIVED'));
+    await waitFor(() => expect(screen.getByRole('radio', { name: '26 weeks' })).toBeChecked());
+    expect(screen.getByRole('checkbox', { name: 'Archived' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Active' })).not.toBeChecked();
+    await waitFor(() => expect(overviewCalls().at(-1)).toContain('status=ARCHIVED&weeks=26'));
+  });
+
   it('chooses projects and an owner', async () => {
     renderPage();
     await screen.findByRole('region', { name: 'Project health' });
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: /projects: all/i }));
-    await user.click(screen.getByRole('checkbox', { name: 'Rig Inspection Portal' }));
+    const box = screen.getByRole('checkbox', { name: 'Rig Inspection Portal' });
+    await user.click(box);
+    // Ticked at once — not only once the address has caught up (router updates are transitions).
+    expect(box).toBeChecked();
     await waitFor(() => expect(where).toContain('projects=rig'));
     await waitFor(() => expect(overviewCalls().at(-1)).toContain('projectIds=rig'));
     await user.keyboard('{Escape}');

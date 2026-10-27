@@ -59,7 +59,7 @@ export function NumberButton({
       onClick={(e) => onOpen(query, e.currentTarget)}
       aria-label={`${label}: show the list`}
       title="Show the list"
-      className={`inline-flex min-h-8 min-w-[2rem] items-center justify-center gap-1 rounded-lg px-2 py-1 font-semibold tabular-nums underline decoration-dotted underline-offset-4 transition-colors hover:bg-ground hover:decoration-solid [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 ${NUMBER_TONE[tone]}`}
+      className={`inline-flex min-h-8 min-w-[2rem] items-center justify-center gap-1 rounded-lg px-2 py-1 font-semibold tabular-nums underline decoration-dotted underline-offset-4 transition-colors hover:bg-ground hover:decoration-solid [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11 ${NUMBER_TONE[tone]}`}
     >
       {display ?? value}
       {suffix}

@@ -49,8 +49,22 @@ const clock = (at: string, timeZone: string) => new Intl.DateTimeFormat('en-GB',
  */
 export function ManagementPage() {
   const [params, setParams] = useSearchParams();
-  const filters = filtersFromParams(params);
-  const setFilters = (f: Filters) => setParams((prev) => withFilters(prev, f), { replace: true });
+  // The filters live in the address, mirrored here so a tick box or a period responds at once: the
+  // router applies address changes as a transition, which would leave a controlled control unticked
+  // until it caught up. Back/forward (the address changing on its own) is picked up during render.
+  const fromAddress = filtersFromParams(params);
+  const addressKey = withFilters(new URLSearchParams(), fromAddress).toString();
+  const [filters, setLocalFilters] = useState<Filters>(fromAddress);
+  // Only an actual change of the address resets them (never the render before the address catches up).
+  const [lastAddress, setLastAddress] = useState(addressKey);
+  if (addressKey !== lastAddress) {
+    setLastAddress(addressKey);
+    setLocalFilters(fromAddress);
+  }
+  const setFilters = (f: Filters) => {
+    setLocalFilters(f);
+    setParams((prev) => withFilters(prev, f), { replace: true });
+  };
   const openTask = (id: string) =>
     setParams((prev) => {
       const next = new URLSearchParams(prev);

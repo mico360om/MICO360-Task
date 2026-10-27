@@ -79,7 +79,7 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     { header: 'Why' },
   ];
   const healthRows = o.projects.map((p) => [
-    `• ${RAG_WORD[p.rag]}`,
+    `• ${RAG_WORD[p.rag]}`, // a no-break space: the dot never parts from its word
     `${p.name} (${p.code})`,
     p.owner?.name ?? '—',
     `${p.completionPct}%`,
@@ -96,8 +96,8 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     doc.table(healthCols, healthRows, {
       size: 8.5,
       fit: { minSize: 7 },
+      // Not bold: a balanced table measures body cells at the normal weight, and the mark must stay on one line.
       cellColor: (r, c) => (c === 0 ? RAG_COLOR[o.projects[r]!.rag] : c === 4 && o.projects[r]!.late > 0 ? DANGER : null),
-      cellBold: (_r, c) => c === 0,
     });
 
   // ── Inspections ──

@@ -234,7 +234,7 @@ export function SystemSettingsPage() {
               {WEEK_STARTS.map((w) => (
                 <label
                   key={w.value}
-                  className={`flex cursor-pointer select-none items-center rounded-full border px-3 py-1.5 text-sm transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] ${
+                  className={`relative flex cursor-pointer select-none items-center rounded-full border px-3 py-1.5 text-sm transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(var(--c-brand-text))] ${
                     weekStart === w.value ? 'border-brand bg-brand/10 text-brand' : 'border-line bg-surface text-ink-2 hover:border-brand/30'
                   }`}
                 >
