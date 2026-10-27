@@ -1,5 +1,5 @@
 import { zonedDayKey } from '../../lib/due-date';
-import { effectiveResult, limitsText, readingText, RESULT_LABEL, resultLabel, SIGNATURE_LABEL, summarize } from './inspection-rules';
+import { allowedSignatures, effectiveResult, limitsText, readingText, RESULT_LABEL, resultLabel, SIGNATURE_LABEL, summarize } from './inspection-rules';
 import type { AnswerRecord, InspectionRecord, SignatureRecord } from './inspection-store';
 import { byRole, dataUrl } from './inspection-views';
 
@@ -44,6 +44,8 @@ export interface ClientInspection {
   result: string;
   sections: Array<{ title: string; items: ClientInspectionItem[] }>;
   signatures: ClientInspectionSignature[];
+  /** Signatures the form asks for that weren't given ('Client', 'Supervisor'): "Not signed". */
+  unsigned: string[];
 }
 
 export function clientInspection(r: InspectionRecord, answers: AnswerRecord[], signatures: SignatureRecord[], timeZone: string): ClientInspection {
@@ -79,5 +81,8 @@ export function clientInspection(r: InspectionRecord, answers: AnswerRecord[], s
       image: sig.method === 'DRAWN' ? dataUrl(sig.image) : null,
       typed: sig.method === 'TYPED',
     })),
+    unsigned: allowedSignatures(r.structure)
+      .filter((role) => !signatures.some((sig) => sig.role === role))
+      .map((role) => SIGNATURE_LABEL[role]),
   };
 }

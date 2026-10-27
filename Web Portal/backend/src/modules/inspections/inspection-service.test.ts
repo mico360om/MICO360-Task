@@ -414,6 +414,7 @@ describe('Show to client: finished inspections only, by those who run the projec
     const p = await f.service.clientPreview(as(owner), s.insp.id);
     expect(p.inspection).toMatchObject({ id: s.insp.id, title: 'Rig daily check', place: 'Rig 3, north deck', counts: { passed: 1, failed: 2, na: 0, total: 3 }, result: '2 failed' });
     expect(p.inspection.signatures).toEqual([{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: expect.stringMatching(/^data:image\/png/), typed: false }]);
+    expect(p.inspection.unsigned).toEqual(['Client']);
     const text = JSON.stringify(p.inspection);
     for (const internal of ['Olivia', 'u-ivan', 'u-olivia', 'formId', 'inspectorId', 'followUp', 'RIG-']) expect(text, internal).not.toContain(internal);
     expect(p.names).toContain('Olivia Owner');
