@@ -190,8 +190,16 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     expectedVersion?: number,
     scope: 'one' | 'series' = 'one',
     actorId?: string,
+    /**
+     * `requireNewest`: the change is meant for its series' newest copy (a schedule's Stop or Edit):
+     * refused (409) when this is an earlier copy now — the repeat moved on — or it no longer repeats.
+     */
+    opts: { requireNewest?: boolean } = {},
   ): Promise<TaskRecord> {
     const current = await getTask(id);
+    if (opts.requireNewest && (current.recurrenceNextId || !current.recurrenceRule)) {
+      throw new ConflictError('This schedule changed meanwhile (its repeat moved on to a newer copy, or it was stopped). Look at it again.', 'RECURRENCE_NOT_NEWEST');
+    }
     // Optimistic concurrency (T4.3): reject a write based on a stale copy.
     if (expectedVersion !== undefined && current.version !== expectedVersion) {
       throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');

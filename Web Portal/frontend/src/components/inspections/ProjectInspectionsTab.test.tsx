@@ -266,12 +266,12 @@ describe('scheduled inspections on the Inspections tab', () => {
     expect(confirm).toHaveTextContent('Checks already created stay.');
     await userEvent.click(within(confirm).getByRole('button', { name: 'Stop scheduling' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'PUT')).toBeTruthy());
-    expect(calls.find((c) => c.method === 'PUT')).toMatchObject({ url: '/tasks/t-head', body: { recurrenceRule: null, expectedVersion: 4 } });
+    expect(calls.find((c) => c.method === 'PUT')).toMatchObject({ url: '/tasks/t-head', body: { recurrenceRule: null, expectedVersion: 4, requireNewest: true } });
   });
 
   it('Stop on a row that is out of date (the repeat moved on meanwhile): says so and reads the schedules again', async () => {
     schedules = { ...schedules, schedules: [SCHEDULE] };
-    stopReply = () => json({ error: { code: 'VERSION_CONFLICT', message: 'This task was changed by someone else. Reload and try again.' } }, 409);
+    stopReply = () => json({ error: { code: 'RECURRENCE_NOT_NEWEST', message: 'This schedule changed meanwhile.' } }, 409);
     show();
     const region = await screen.findByRole('region', { name: 'Schedules (1)' });
     await userEvent.click(within(region).getByRole('button', { name: /^Stop/ }));

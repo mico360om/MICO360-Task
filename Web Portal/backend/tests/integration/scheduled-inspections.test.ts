@@ -394,7 +394,7 @@ describe('completing a check: repeats, two at once, and failures after the move 
 });
 
 describe('a schedule row that is out of date (MySQL)', () => {
-  it('when the repeat moves on to the next copy, the old copy’s version goes up: a Stop or Edit sent for it is refused (409), not applied to the wrong copy', async () => {
+  it('when the repeat has moved on to the next copy, a Stop or Edit sent for the old row is refused (409), never applied to the wrong copy', async () => {
     const clock = { at: new Date('2026-10-01T08:00:00Z') };
     const w = world(clock);
     const form = await newForm();
@@ -402,11 +402,19 @@ describe('a schedule row that is out of date (MySQL)', () => {
     const row = (await w.schedules.schedules(member(), projectId)).schedules[0]!;
     expect(row).toMatchObject({ taskId: head.id, version: head.version });
     await recurrence.runSchedule(); // the next check is made: the repeat moves to it
-    expect((await prisma.task.findUniqueOrThrow({ where: { id: head.id } })).version).toBe(head.version + 1);
-    const refused = await w.taskService.updateTask(head.id, { recurrenceRule: null }, row.version, 'one', mateId).then(() => null, (e: { status?: number; code?: string }) => e);
-    expect(refused).toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
+    // The old copy's version is left alone (a client holding it from a move stays right); the
+    // schedule's Stop and Edit ask for the newest copy instead.
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: head.id } })).version).toBe(head.version);
+    const refusal = (p: Promise<unknown>) => p.then(() => null, (e: { status?: number; code?: string }) => e);
+    expect(await refusal(w.taskService.updateTask(head.id, { recurrenceRule: null }, row.version, 'one', mateId, { requireNewest: true }))).toMatchObject({ status: 409, code: 'RECURRENCE_NOT_NEWEST' });
+    expect(await refusal(w.taskService.updateTask(head.id, { title: 'Renamed' }, row.version, 'one', mateId, { requireNewest: true }))).toMatchObject({ status: 409, code: 'RECURRENCE_NOT_NEWEST' });
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: head.id } })).title).toBe(head.title);
     const fresh = (await w.schedules.schedules(member(), projectId)).schedules[0]!;
     expect(fresh.taskId).not.toBe(head.id);
+    // On the newest copy it goes through.
+    await expect(w.taskService.updateTask(fresh.taskId, { recurrenceRule: null }, fresh.version, 'one', mateId, { requireNewest: true })).resolves.toMatchObject({ recurrenceRule: null });
+    // A schedule stopped meanwhile (no repeat any more) is "changed" too.
+    expect(await refusal(w.taskService.updateTask(fresh.taskId, { title: 'Again' }, undefined, 'one', mateId, { requireNewest: true }))).toMatchObject({ code: 'RECURRENCE_NOT_NEWEST' });
   });
 });
 
@@ -464,5 +472,24 @@ describe('a form deleted while its schedule is being copied (MySQL)', () => {
     expect(made.filter((m) => m.projectId === projectId)).toEqual([]);
     expect(await prisma.task.count({ where: { recurrenceSourceId: head.id } })).toBe(0);
     expect(await prisma.task.count({ where: { inspectionFormId: form.id, deletedAt: null, NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] } })).toBe(0);
+  });
+});
+
+describe('completing a repeating task, then editing it with the version the move returned (MySQL)', () => {
+  it('the version the move answered with is still the task’s version (the repeat moving on doesn’t change it)', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    // An ordinary repeating task (no form): its next copy is made when it is done.
+    const weekly = { freq: 'WEEKLY', interval: 1 } as RecurrenceRule;
+    const onBoard = await w.taskService.createTask({ title: 'Weekly report', projectId, columnId: todoId, createdById: mateId, dueDate: new Date('2026-10-01T00:00:00.000Z'), recurrenceRule: weekly });
+    // Completed on the board (PATCH /tasks/:id/move), then a field fixed at once with the version it answered.
+    const moved = await w.taskService.moveTask(onBoard.id, doneId, undefined, mateId);
+    expect(await prisma.task.count({ where: { recurrenceSourceId: onBoard.id } })).toBe(1);
+    await expect(w.taskService.updateTask(onBoard.id, { title: 'Weekly report (sent)' }, moved.version, 'one', mateId)).resolves.toMatchObject({ title: 'Weekly report (sent)' });
+    // Completed from the task panel (PUT /tasks/:id with a Done column), then undone at once.
+    const inPanel = await w.taskService.createTask({ title: 'Weekly safety walk', projectId, columnId: todoId, createdById: mateId, dueDate: new Date('2026-10-01T00:00:00.000Z'), recurrenceRule: weekly });
+    const done = await w.taskService.updateTask(inPanel.id, { columnId: doneId }, inPanel.version, 'one', mateId);
+    expect(await prisma.task.count({ where: { recurrenceSourceId: inPanel.id } })).toBe(1);
+    await expect(w.taskService.updateTask(inPanel.id, { columnId: todoId }, done.version, 'one', mateId)).resolves.toMatchObject({ columnId: todoId });
   });
 });

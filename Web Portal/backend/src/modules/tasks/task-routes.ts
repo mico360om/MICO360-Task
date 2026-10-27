@@ -104,6 +104,8 @@ const updateSchema = z.object({
   expectedVersion: z.number().int().optional(),
   /** 'series' applies the edit to every occurrence of a recurring task. */
   scope: z.enum(['one', 'series']).optional(),
+  /** Meant for the series' newest copy (a schedule's Stop or Edit): 409 RECURRENCE_NOT_NEWEST otherwise. */
+  requireNewest: z.boolean().optional(),
   /** Changing the form only affects inspections started afterwards; null clears it. */
   inspectionFormId: idString.nullable().optional(),
   inspectionPlace: inspectionPlace.nullable().optional(),
@@ -322,9 +324,9 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     if (!(await assertTaskView(req, id))) {
       return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } });
     }
-    const { expectedVersion, scope, ...patch } = updateSchema.parse(req.body);
+    const { expectedVersion, scope, requireNewest, ...patch } = updateSchema.parse(req.body);
     // A `columnId` here is handled as a move (same project only, completion status follows).
-    const task = await taskService.updateTask(id, patch, expectedVersion, scope, req.user!.id);
+    const task = await taskService.updateTask(id, patch, expectedVersion, scope, req.user!.id, { requireNewest });
     deps.broadcast?.(task.projectId, 'task:updated', task);
     return { data: task };
   });

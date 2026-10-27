@@ -214,6 +214,8 @@ export function tasksApi(client: ApiClient) {
         scope?: 'one' | 'series';
         /** Reject with 409 VERSION_CONFLICT if the task changed since this version was read. */
         expectedVersion?: number;
+        /** Meant for its repeating series' newest copy (a schedule): 409 RECURRENCE_NOT_NEWEST otherwise. */
+        requireNewest?: boolean;
       },
     ) => client.put<{ data: ApiTask }>(`/tasks/${id}`, patch).then((r) => r.data),
     move: (id: string, columnId: string, position?: number) =>

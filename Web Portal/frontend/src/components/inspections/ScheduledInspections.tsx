@@ -247,8 +247,9 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
   const [notice, setNotice] = useState<string | null>(null);
   const STALE = 'This schedule changed — check it again.';
   const stopM = useMutation({
-    // With the version the list showed: a row that is out of date (the repeat moved on) is refused.
-    mutationFn: (s: InspectionSchedule) => tasksApi(apiClient).update(s.taskId, { recurrenceRule: null, expectedVersion: s.version }),
+    // Only on the series' newest copy, as the list showed it: a row that is out of date (the repeat
+    // moved on, or someone changed it) is refused.
+    mutationFn: (s: InspectionSchedule) => tasksApi(apiClient).update(s.taskId, { recurrenceRule: null, expectedVersion: s.version, requireNewest: true }),
     onSuccess: (_r, s) => {
       setStopping(null);
       setNotice(`Stopped “${s.title}”. Checks already made stay.`);

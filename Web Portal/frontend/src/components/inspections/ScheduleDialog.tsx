@@ -166,9 +166,10 @@ export function ScheduleDialog({
         if ((place.trim() || null) !== (schedule.place ?? null)) patch.inspectionPlace = place.trim() || null;
         // Compared with the rule as stored: one that waits for each check is put on schedule by saving.
         if (JSON.stringify(recurrenceRule) !== JSON.stringify(schedule.rule)) patch.recurrenceRule = recurrenceRule;
-        // Always sent, with the version the list showed: on a schedule that changed meanwhile (the repeat
-        // moved on to a newer copy) nothing is saved — not even the inspectors below.
-        await tasksApi(apiClient).update(schedule.taskId, { ...patch, expectedVersion: schedule.version });
+        // Always sent, only for the series' newest copy as the list showed it: on a schedule that changed
+        // meanwhile (the repeat moved on to a newer copy, an edit) nothing is saved — not even the
+        // inspectors below.
+        await tasksApi(apiClient).update(schedule.taskId, { ...patch, expectedVersion: schedule.version, requireNewest: true });
         const before = schedule.assignees.map((a) => a.id);
         const add = inspectorIds.filter((id) => !before.includes(id));
         if (add.length) await assigneesApi(apiClient).assignMany(schedule.taskId, add);

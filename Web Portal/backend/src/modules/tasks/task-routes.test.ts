@@ -885,4 +885,17 @@ describe('Task routes — a task that carries an inspection form (scheduled chec
     const other = (await post({ ...base, dueDate: '2026-10-28', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_COMPLETE' } })).json().data;
     expect(other.recurrenceRule.createNext).toBe('ON_COMPLETE');
   });
+
+  it('requireNewest: a change meant for a series’ newest copy (a schedule’s Stop or Edit) is refused on an earlier copy or one that no longer repeats', async () => {
+    const { post, put, mem } = await build();
+    const made = (await post({ ...base, inspectionFormId: 'f-live', dueDate: '2026-10-28', recurrenceRule: { freq: 'DAILY', interval: 1 } })).json().data;
+    expect((await put(made.id, { title: 'Renamed', requireNewest: true })).statusCode).toBe(200);
+    // The repeat moved on: this is an earlier copy now.
+    mem.rows.set(made.id, { ...mem.rows.get(made.id)!, recurrenceRule: null, recurrenceNextId: 't-next', recurrenceParentId: made.id });
+    const stale = await put(made.id, { recurrenceRule: null, requireNewest: true });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe('RECURRENCE_NOT_NEWEST');
+    // Without the flag, an ordinary edit of an earlier copy is as before.
+    expect((await put(made.id, { title: 'Old copy renamed' })).statusCode).toBe(200);
+  });
 });

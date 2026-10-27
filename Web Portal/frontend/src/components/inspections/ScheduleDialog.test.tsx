@@ -259,7 +259,7 @@ describe('the schedule dialog (edit)', () => {
     expect(within(dialog()).getByText('A check is created every day, due that day, for Sara Al Balushi.')).toBeInTheDocument();
     await userEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ title: 'Rig daily check – Rig 4', inspectionPlace: 'Rig 4', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' }, expectedVersion: 4 });
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ title: 'Rig daily check – Rig 4', inspectionPlace: 'Rig 4', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' }, expectedVersion: 4, requireNewest: true });
     expect(calls.find((c) => c.method === 'POST' && c.url === '/tasks/t-head/assignees')!.body).toEqual({ userIds: ['u-sara'] });
     expect(calls.some((c) => c.method === 'DELETE' && c.url === '/tasks/t-head/assignees/u-ali')).toBe(true);
   });
@@ -272,7 +272,7 @@ describe('the schedule dialog (edit)', () => {
     await addInspector('Sara Al Balushi');
     await userEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onStale).toHaveBeenCalled());
-    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ expectedVersion: 4 });
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ expectedVersion: 4, requireNewest: true });
     expect(calls.some((c) => c.url.startsWith('/tasks/t-head/assignees') && c.method !== 'GET')).toBe(false);
     expect(onSaved).not.toHaveBeenCalled();
   });
