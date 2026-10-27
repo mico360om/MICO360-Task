@@ -122,7 +122,7 @@ export function HealthSection({
     <Link to={`/projects/${encodeURIComponent(r.id)}`} className={`flex min-w-0 items-center gap-2 hover:underline ${TOUCH}`}>
       <ProjectAvatar project={r} size="sm" />
       <span className="min-w-0">
-        <span className="block truncate font-semibold text-ink">
+        <span className="line-clamp-2 font-semibold text-ink">
           <bdi>{r.name}</bdi>
         </span>
         <span className="block truncate text-xs text-ink-3">
@@ -194,7 +194,7 @@ export function HealthSection({
               </tbody>
             </table>
           </div>
-          <ul className="grid gap-3 sm:grid-cols-2 xl:hidden" aria-label="Projects">
+          <ul className="grid gap-3 lg:grid-cols-2 xl:hidden" aria-label="Projects">
             {shown.map((r) => (
               <li key={r.id} className="min-w-0 rounded-xl border border-line p-3">
                 <div className="flex items-start justify-between gap-2">

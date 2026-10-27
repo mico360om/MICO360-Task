@@ -72,7 +72,7 @@ export function PeopleSection({ people, week, limit, onOpen }: { people: PersonR
               </tbody>
             </table>
           </div>
-          <ul className="grid gap-2 sm:grid-cols-2 lg:hidden" aria-label="People">
+          <ul className="grid gap-2 sm:grid-cols-2 md:grid-cols-1 lg:hidden" aria-label="People">
             {people.map((p) => (
               <li key={p.id} className="min-w-0 rounded-xl border border-line p-3">
                 {who(p)}
