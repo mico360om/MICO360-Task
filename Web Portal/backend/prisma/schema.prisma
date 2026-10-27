@@ -310,10 +310,14 @@ model Task {
   inspectionFollowUp InspectionFollowUp? @relation("InspectionFollowUpTask")
 
   @@index([projectId])
+  /// A project's checks (scheduled inspections): its tasks that carry a form.
+  @@index([projectId, inspectionFormId])
   @@index([columnId])
   @@index([dueDate])
   @@index([meetingId])
   @@index([inspectionFormId])
+  /// A repeating series' copies (a schedule's figures, the repeat's own count).
+  @@index([recurrenceParentId])
   @@index([priority])
   @@index([boardDate])
   @@fulltext([title, description])

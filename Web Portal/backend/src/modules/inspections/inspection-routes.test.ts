@@ -232,8 +232,9 @@ describe('scheduled inspection routes', () => {
     const rows = [checkRow('1'), checkRow('2', { recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } })];
     const schedules = createInspectionScheduleService({
       source: {
-        checks: async (_p, o) => rows.filter((r) => (!o.schedulesOnly || r.recurrenceRule) && (!o.seriesIds || o.seriesIds.includes(r.id))) as never,
-        seriesSizes: async (ids) => new Map(ids.map((id) => [id, 1])),
+        schedules: async () => rows.filter((r) => r.recurrenceRule) as never,
+        seriesStats: async () => new Map(),
+        openChecks: async (_p, limit) => ({ rows: rows.slice(0, limit) as never, total: rows.length }),
         inProgress: async () => [],
         formUsage: async () => ({ schedules: 1, openChecks: 2 }),
         workingDays: async () => [0, 1, 2, 3, 4],

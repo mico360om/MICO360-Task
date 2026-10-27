@@ -43,14 +43,28 @@ export interface CheckRow {
   assignees: Person[];
 }
 
+/** One series' figures, counted in the database over the copies that name it (`recurrenceParentId`). */
+export interface SeriesStats {
+  /** Open copies (not done). */
+  open: number;
+  /** Open copies due before `dueBefore` (the start of today: due dates are stored as the UTC midnight of their day). */
+  late: number;
+  /** When a copy was last finished. */
+  lastDone: Date | null;
+  /** Every copy made, deleted ones too (a series with a set number of copies ends). */
+  size: number;
+}
+
 export interface InspectionScheduleSource {
+  /** The project's schedules: the newest copies that carry a repeat and a form. */
+  schedules(projectId: string): Promise<CheckRow[]>;
   /**
-   * The project's checks: only open ones (`openOnly`), only the schedules' newest copies
-   * (`schedulesOnly`), or only the members of these series (`seriesIds`: the first task's id).
+   * Each series' figures, in a few grouped queries (never every copy loaded). A series is named by
+   * its first task's id; a series with no copies yet has none (its only check is the schedule).
    */
-  checks(projectId: string, opts: { openOnly?: boolean; schedulesOnly?: boolean; seriesIds?: string[] }): Promise<CheckRow[]>;
-  /** How many copies each series has made (deleted ones too): a series with a set number ends. */
-  seriesSizes(seriesIds: string[]): Promise<Map<string, number>>;
+  seriesStats(projectId: string, seriesIds: string[], dueBefore: Date): Promise<Map<string, SeriesStats>>;
+  /** The project's open checks by due day (the earliest first, undated last): at most `limit`, and how many there are. */
+  openChecks(projectId: string, limit: number): Promise<{ rows: CheckRow[]; total: number }>;
   /** Inspections in progress for these tasks. */
   inProgress(taskIds: string[]): Promise<Array<{ taskId: string; inspectionId: string; inspectorId: string }>>;
   /** How many schedules use the form and how many of its checks are open; null when it isn't there. */
@@ -154,18 +168,22 @@ export function createInspectionScheduleService(deps: InspectionScheduleDeps) {
   return {
     async schedules(actor: { id: string; roles: string[] }, projectId: string): Promise<{ schedules: ScheduleView[]; workingDays: number[] }> {
       await mustView(actor, projectId);
-      const [heads, workingDays] = await Promise.all([source.checks(projectId, { schedulesOnly: true }), source.workingDays()]);
-      const seriesOf = (t: CheckRow) => t.recurrenceParentId ?? t.id;
-      const seriesIds = [...new Set(heads.map(seriesOf))];
-      const [members, sizes] = seriesIds.length ? await Promise.all([source.checks(projectId, { seriesIds }), source.seriesSizes(seriesIds)]) : [[], new Map<string, number>()];
+      const [heads, workingDays] = await Promise.all([source.schedules(projectId), source.workingDays()]);
       const at = now();
       const today = todayKey(timeZone, at);
+      // A series that has made copies is counted in the database; one that hasn't is its head alone.
+      const seriesIds = [...new Set(heads.flatMap((h) => (h.recurrenceParentId ? [h.recurrenceParentId] : [])))];
+      const counted = seriesIds.length ? await source.seriesStats(projectId, seriesIds, new Date(`${today}T00:00:00.000Z`)) : new Map<string, SeriesStats>();
+      const statsOf = (head: CheckRow): SeriesStats => {
+        const found = head.recurrenceParentId ? counted.get(head.recurrenceParentId) : undefined;
+        if (found) return found;
+        const open = !isCheckDone(head);
+        return { open: open ? 1 : 0, late: open && checkState(head, timeZone, at) === 'LATE' ? 1 : 0, lastDone: head.completedAt, size: 1 };
+      };
       const schedules = heads
         .filter((h) => h.recurrenceRule)
         .map((head): ScheduleView => {
-          const series = members.filter((m) => seriesOf(m) === seriesOf(head));
-          const open = series.filter((m) => !isCheckDone(m));
-          const done = series.filter((m) => isCheckDone(m) && m.completedAt).map((m) => m.completedAt!.getTime());
+          const stats = statsOf(head);
           const rule = head.recurrenceRule!;
           return {
             taskId: head.id,
@@ -179,10 +197,10 @@ export function createInspectionScheduleService(deps: InspectionScheduleDeps) {
             repeat: scheduleRepeatText(rule, workingDays),
             onSchedule: rule.createNext === 'ON_SCHEDULE',
             paused: !!rule.paused,
-            nextDue: nextDueOf(head, sizes.get(seriesOf(head)) ?? series.length, today),
-            lastDone: done.length ? new Date(Math.max(...done)).toISOString() : null,
-            openChecks: open.length,
-            lateChecks: open.filter((m) => checkState(m, timeZone, at) === 'LATE').length,
+            nextDue: nextDueOf(head, stats.size, today),
+            lastDone: stats.lastDone ? stats.lastDone.toISOString() : null,
+            openChecks: stats.open,
+            lateChecks: stats.late,
           };
         })
         .sort((a, b) => a.title.localeCompare(b.title) || a.key.localeCompare(b.key));
@@ -192,14 +210,14 @@ export function createInspectionScheduleService(deps: InspectionScheduleDeps) {
     async dueChecks(actor: { id: string; roles: string[] }, projectId: string, opts: { limit?: number } = {}): Promise<{ checks: CheckView[]; total: number }> {
       await mustView(actor, projectId);
       const at = now();
-      const open = (await source.checks(projectId, { openOnly: true })).filter((c) => !isCheckDone(c));
+      // Ordered and capped in the database; the order is settled here for checks due the same day.
+      const { rows, total } = await source.openChecks(projectId, opts.limit ?? DUE_CHECKS_LIMIT);
       const byDay = compareOpenChecks(timeZone);
-      open.sort((a, b) => byDay(a, b) || a.key.localeCompare(b.key, undefined, { numeric: true }));
-      const shown = open.slice(0, opts.limit ?? DUE_CHECKS_LIMIT);
+      const shown = rows.filter((c) => !isCheckDone(c)).sort((a, b) => byDay(a, b) || a.key.localeCompare(b.key, undefined, { numeric: true }));
       const started = shown.length ? await source.inProgress(shown.map((c) => c.id)) : [];
       const names = await deps.userNames([...new Set(started.map((s) => s.inspectorId))]);
       return {
-        total: open.length,
+        total,
         checks: shown.map((c): CheckView => {
           const s = started.find((x) => x.taskId === c.id);
           return {

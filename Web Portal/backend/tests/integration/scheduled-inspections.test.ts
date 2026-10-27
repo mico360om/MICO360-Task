@@ -409,3 +409,41 @@ describe('a schedule row that is out of date (MySQL)', () => {
     expect(fresh.taskId).not.toBe(head.id);
   });
 });
+
+describe('the schedules source counts and caps in the database (MySQL)', () => {
+  it('series figures by grouped queries: open, late (due before today), last done, copies made (deleted too)', async () => {
+    const form = await newForm();
+    const source = createPrismaInspectionScheduleSource(prisma, { workingDays: async () => [0, 1, 2, 3, 4] });
+    const mk = (key: string, over: Partial<Prisma.TaskUncheckedCreateInput>) =>
+      prisma.task.create({ data: { key, title: 'Daily rig check', projectId, columnId: todoId, createdById: ownerId, inspectionFormId: form.id, ...over } });
+    const first = await mk('SCHED-90', { dueDate: new Date('2026-09-28T00:00:00.000Z') });
+    await prisma.task.update({ where: { id: first.id }, data: { recurrenceParentId: first.id, columnId: doneId, completedAt: new Date('2026-09-28T07:00:00Z') } });
+    await mk('SCHED-91', { recurrenceParentId: first.id, dueDate: new Date('2026-09-29T00:00:00.000Z') }); // late, open
+    await mk('SCHED-92', { recurrenceParentId: first.id, dueDate: new Date('2026-09-30T00:00:00.000Z'), deletedAt: new Date() }); // skipped (deleted)
+    await mk('SCHED-93', { recurrenceParentId: first.id, dueDate: new Date('2026-10-01T00:00:00.000Z'), recurrenceRule: DAILY as unknown as Prisma.InputJsonValue }); // today's, open
+    const stats = await source.seriesStats(projectId, [first.id], new Date('2026-10-01T00:00:00.000Z'));
+    expect(stats.get(first.id)).toEqual({ open: 2, late: 1, lastDone: new Date('2026-09-28T07:00:00Z'), size: 4 });
+    expect((await source.schedules(projectId)).map((s) => s.key)).toEqual(['SCHED-93']);
+  });
+
+  it('open checks: ordered by due day with undated ones last, at most the limit, with the full count', async () => {
+    const form = await newForm();
+    const source = createPrismaInspectionScheduleSource(prisma, { workingDays: async () => [0, 1, 2, 3, 4] });
+    const mk = (key: string, due: string | null, over: Partial<Prisma.TaskUncheckedCreateInput> = {}) =>
+      prisma.task.create({ data: { key, title: key, projectId, columnId: todoId, createdById: ownerId, inspectionFormId: form.id, dueDate: due ? new Date(`${due}T00:00:00.000Z`) : null, ...over } });
+    await mk('SCHED-1', null);
+    await mk('SCHED-2', '2026-10-03');
+    await mk('SCHED-3', '2026-09-29');
+    await mk('SCHED-4', '2026-10-01');
+    await mk('SCHED-5', '2026-09-20', { columnId: doneId, completedAt: new Date() }); // done: not listed
+    await prisma.task.create({ data: { key: 'SCHED-6', title: 'Not a check', projectId, columnId: todoId, createdById: ownerId, dueDate: new Date('2026-09-01T00:00:00.000Z') } });
+    const all = await source.openChecks(projectId, 200);
+    expect(all.total).toBe(4);
+    expect(all.rows.map((r) => r.key)).toEqual(['SCHED-3', 'SCHED-4', 'SCHED-2', 'SCHED-1']);
+    const two = await source.openChecks(projectId, 2);
+    expect(two).toMatchObject({ total: 4 });
+    expect(two.rows.map((r) => r.key)).toEqual(['SCHED-3', 'SCHED-4']);
+    const four = await source.openChecks(projectId, 4);
+    expect(four.rows.map((r) => r.key)).toEqual(['SCHED-3', 'SCHED-4', 'SCHED-2', 'SCHED-1']);
+  });
+});

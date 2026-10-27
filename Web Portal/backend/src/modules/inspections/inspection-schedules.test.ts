@@ -19,9 +19,35 @@ const row = (over: Partial<CheckRow> = {}): CheckRow => {
   return { id, key: `RIG-${n}`, version: 3, title: 'Daily rig check – Rig 3', projectId: 'P1', dueDate: day('2026-10-28'), startDate: null, completedAt: null, columnCategory: 'TODO', recurrenceRule: null, recurrenceParentId: null, inspectionPlace: 'Rig 3', form: FORM, assignees: [IVAN], ...over };
 };
 
+/** What the service asked the source for (it counts and caps in the database, never loads everything). */
+let asked: { stats: Array<{ seriesIds: string[]; dueBefore: Date }>; openLimit: number[] };
+const open = (r: CheckRow) => !r.completedAt && r.columnCategory !== 'DONE';
 const source: InspectionScheduleSource = {
-  checks: async (projectId, opts) => rows.filter((r) => r.projectId === projectId && (!opts.schedulesOnly || r.recurrenceRule) && (!opts.seriesIds || opts.seriesIds.includes(r.recurrenceParentId ?? r.id)) && (!opts.openOnly || (!r.completedAt && r.columnCategory !== 'DONE'))),
-  seriesSizes: async (ids) => new Map(ids.map((id) => [id, rows.filter((r) => (r.recurrenceParentId ?? r.id) === id).length])),
+  schedules: async (projectId) => rows.filter((r) => r.projectId === projectId && r.recurrenceRule),
+  // As a GROUP BY over the copies that name their series (the first one names itself once copied).
+  seriesStats: async (projectId, seriesIds, dueBefore) => {
+    asked.stats.push({ seriesIds, dueBefore });
+    return new Map(
+      seriesIds.map((id) => {
+        const members = rows.filter((r) => r.projectId === projectId && r.recurrenceParentId === id);
+        const done = members.filter((r) => r.completedAt).map((r) => r.completedAt!.getTime());
+        return [
+          id,
+          {
+            open: members.filter(open).length,
+            late: members.filter((r) => open(r) && r.dueDate && r.dueDate < dueBefore).length,
+            lastDone: done.length ? new Date(Math.max(...done)) : null,
+            size: members.length,
+          },
+        ];
+      }),
+    );
+  },
+  openChecks: async (projectId, limit) => {
+    asked.openLimit.push(limit);
+    const all = rows.filter((r) => r.projectId === projectId && open(r)).sort((a, b) => (a.dueDate?.getTime() ?? Infinity) - (b.dueDate?.getTime() ?? Infinity));
+    return { rows: all.slice(0, limit), total: all.length };
+  },
   inProgress: async (taskIds) => inProgress.filter((x) => taskIds.includes(x.taskId)),
   formUsage: async (formId) => (formId === 'f1' ? { schedules: rows.filter((r) => r.form.id === formId && r.recurrenceRule).length, openChecks: rows.filter((r) => r.form.id === formId && !r.completedAt).length } : null),
   workingDays: async () => SUN_THU,
@@ -41,6 +67,7 @@ const outsider = { id: 'u-out', roles: ['EMPLOYEE'] };
 beforeEach(() => {
   rows = [];
   inProgress = [];
+  asked = { stats: [], openLimit: [] };
   n = 0;
   now = new Date('2026-10-28T06:00:00Z'); // Wednesday 28 Oct, 10:00 in Muscat
 });
@@ -142,11 +169,23 @@ describe('a project’s due checks', () => {
     expect((await service().dueChecks(ivan, 'P1')).checks[0]!.form).toEqual({ id: 'f-old', title: 'Old deck check', deleted: true });
   });
 
-  it('is capped, with the full count', async () => {
+  it('is capped before anything is loaded (the database orders and limits), with the full count', async () => {
     for (let i = 0; i < 12; i++) rows.push(row({ dueDate: day(`2026-10-${String(10 + i).padStart(2, '0')}`) }));
     const out = await service().dueChecks(ivan, 'P1', { limit: 5 });
+    expect(asked.openLimit).toEqual([5]);
     expect(out.total).toBe(12);
     expect(out.checks.map((c) => c.dueDate)).toEqual(['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14']);
+    await service().dueChecks(ivan, 'P1');
+    expect(asked.openLimit).toEqual([5, 200]);
+  });
+
+  it('schedules: the series are counted in the database (one ask for all of them; late = open and due before today)', async () => {
+    rows.push(row({ id: 'x1', dueDate: day('2026-10-26'), recurrenceParentId: 'x1' }), row({ id: 'x2', recurrenceParentId: 'x1', recurrenceRule: WORKING }), row({ id: 'y', recurrenceRule: WORKING }));
+    const out = (await service().schedules(ivan, 'P1')).schedules;
+    expect(asked.stats).toEqual([{ seriesIds: ['x1'], dueBefore: day('2026-10-28') }]);
+    expect(out.find((s) => s.taskId === 'x2')).toMatchObject({ openChecks: 2, lateChecks: 1 });
+    // A series with no copies yet: its only check is the schedule itself.
+    expect(out.find((s) => s.taskId === 'y')).toMatchObject({ openChecks: 1, lateChecks: 0, lastDone: null });
   });
 
   it('is for the project’s team and administrators', async () => {

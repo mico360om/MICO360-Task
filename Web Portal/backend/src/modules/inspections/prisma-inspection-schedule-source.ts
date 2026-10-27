@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import type { RecurrenceRule } from '../tasks/recurrence';
-import type { CheckRow, InspectionScheduleSource } from './inspection-schedules';
+import type { CheckRow, InspectionScheduleSource, SeriesStats } from './inspection-schedules';
 
 const displayName = (u: { username: string; firstName: string | null; lastName: string | null }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
@@ -42,35 +42,50 @@ const toCheck = (t: Row): CheckRow => ({
 
 /** Open: not completed and not in a Done column (inspection-checks' "done", in the query). */
 const openWhere = { completedAt: null, column: { category: { not: 'DONE' } } } satisfies Prisma.TaskWhereInput;
+/** A project's checks: its live tasks that carry a form. */
+const checksOf = (projectId: string) => ({ projectId, deletedAt: null, project: { is: { deletedAt: null } }, inspectionFormId: { not: null } }) satisfies Prisma.TaskWhereInput;
 
 /** Scheduled inspections read from the tasks table: a check is a live task with `inspectionFormId` set. */
 export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts: { workingDays: () => Promise<number[]> }): InspectionScheduleSource {
   return {
-    async checks(projectId, o) {
+    async schedules(projectId) {
       const rows = await prisma.task.findMany({
-        where: {
-          projectId,
-          deletedAt: null,
-          project: { is: { deletedAt: null } },
-          inspectionFormId: { not: null },
-          ...(o.openOnly ? openWhere : {}),
-          ...(o.schedulesOnly ? { NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] } : {}),
-          ...(o.seriesIds ? { OR: [{ id: { in: o.seriesIds } }, { recurrenceParentId: { in: o.seriesIds } }] } : {}),
-        },
+        where: { ...checksOf(projectId), NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] },
         select: checkSelect,
-        orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
+        orderBy: [{ title: 'asc' }, { createdAt: 'asc' }],
       });
       return rows.filter((t) => t.inspectionForm).map(toCheck);
     },
-    async seriesSizes(seriesIds) {
-      // Every copy made, deleted ones too — as the repeat itself counts them (countInstances).
-      const rows = await prisma.task.findMany({ where: { OR: [{ id: { in: seriesIds } }, { recurrenceParentId: { in: seriesIds } }] }, select: { id: true, recurrenceParentId: true } });
-      const sizes = new Map(seriesIds.map((id) => [id, 0]));
-      for (const r of rows) {
-        const series = r.recurrenceParentId ?? r.id;
-        if (sizes.has(series)) sizes.set(series, sizes.get(series)! + 1);
-      }
-      return sizes;
+    async seriesStats(projectId, seriesIds, dueBefore) {
+      // Grouped over the copies that name their series (tasks_recurrenceParentId_idx); the first task
+      // names itself once its first copy is made. Never every copy loaded.
+      const members = { projectId, recurrenceParentId: { in: seriesIds } } satisfies Prisma.TaskWhereInput;
+      const live = { ...members, deletedAt: null } satisfies Prisma.TaskWhereInput;
+      const [open, late, done, made] = await Promise.all([
+        prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, ...openWhere }, _count: { _all: true } }),
+        prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, ...openWhere, dueDate: { lt: dueBefore } }, _count: { _all: true } }),
+        prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, completedAt: { not: null } }, _max: { completedAt: true } }),
+        // Every copy made, deleted ones too — as the repeat itself counts them (countInstances).
+        prisma.task.groupBy({ by: ['recurrenceParentId'], where: members, _count: { _all: true } }),
+      ]);
+      const count = (rows: Array<{ recurrenceParentId: string | null; _count: { _all: number } }>, id: string) => rows.find((r) => r.recurrenceParentId === id)?._count._all ?? 0;
+      return new Map(
+        seriesIds.map((id): [string, SeriesStats] => [
+          id,
+          { open: count(open, id), late: count(late, id), lastDone: done.find((r) => r.recurrenceParentId === id)?._max.completedAt ?? null, size: count(made, id) },
+        ]),
+      );
+    },
+    async openChecks(projectId, limit) {
+      // By due day, the undated last (MySQL sorts NULL first): the dated ones, then as many undated
+      // as still fit — each capped in the query (tasks_projectId_inspectionFormId_idx).
+      const where = { ...checksOf(projectId), ...openWhere } satisfies Prisma.TaskWhereInput;
+      const [total, dated] = await Promise.all([
+        prisma.task.count({ where }),
+        prisma.task.findMany({ where: { ...where, dueDate: { not: null } }, select: checkSelect, orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }], take: limit }),
+      ]);
+      const undated = dated.length < limit ? await prisma.task.findMany({ where: { ...where, dueDate: null }, select: checkSelect, orderBy: [{ createdAt: 'asc' }], take: limit - dated.length }) : [];
+      return { rows: [...dated, ...undated].filter((t) => t.inspectionForm).map(toCheck), total };
     },
     async inProgress(taskIds) {
       const rows = await prisma.inspection.findMany({
