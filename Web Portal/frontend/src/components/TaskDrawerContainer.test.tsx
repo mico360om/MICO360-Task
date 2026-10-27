@@ -219,6 +219,34 @@ describe('TaskDrawerContainer', () => {
     expect(await screen.findByRole('button', { name: /delete task/i })).toBeInTheDocument();
   });
 
+  it('offers Save as template in More actions to someone who runs the project, not to a plain member', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    await screen.findByRole('button', { name: 'More actions' });
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.queryByRole('menuitem', { name: 'Save as template…' })).not.toBeInTheDocument();
+    unmount();
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/projects')) return json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO360 Platform', status: 'ACTIVE', color: '#8B1E1E', ownerId: 'u1', canManage: true }] });
+      return base(url, init);
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('button', { name: /delete task/i });
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save as template…' }));
+    expect(await screen.findByRole('dialog', { name: 'Save task as template' })).toBeInTheDocument();
+  });
+
   it('shows "not found" with a Close button (and closes on Escape) for a deleted task', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ error: { code: 'NOT_FOUND', message: 'Task not found.' } }, 404)));
     const onClose = vi.fn();

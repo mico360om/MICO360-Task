@@ -4,6 +4,7 @@ import { apiClient } from '../../api/client';
 import { PROJECT_TEMPLATES_KEY, templatesApi, type TemplatePlan } from '../../api/templates';
 import type { DirectoryUser } from '../../api/users';
 import { isWholeDate } from '../../lib/date-box';
+import { dayLabel } from '../../lib/day-label';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { Avatar } from '../ui/Avatar';
@@ -21,10 +22,7 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 const listWords = (words: string[]) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`);
 
 /** "Sun 8 Nov" (the year too when it isn't this one). */
-function dayLabel(key: string, today: string): string {
-  const d = new Date(`${key}T12:00:00.000Z`);
-  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(key.slice(0, 4) !== today.slice(0, 4) ? { year: 'numeric' } : {}), timeZone: 'UTC' }).format(d);
-}
+const dueLabel = (key: string, today: string) => dayLabel(key, { year: key.slice(0, 4) !== today.slice(0, 4) });
 
 /** The plan for the chosen template and start day (shared by the section and the form's submit). */
 export function useTemplatePlan(choice: TemplateChoice | null) {
@@ -64,7 +62,7 @@ export function TemplateStart({
 }) {
   const ids = { heading: useId(), start: useId(), startNote: useId(), roles: useId() };
   const listQ = useQuery({ queryKey: PROJECT_TEMPLATES_KEY, queryFn: () => templatesApi(apiClient).listProjects() });
-  const templates = Array.isArray(listQ.data) ? listQ.data : [];
+  const templates = Array.isArray(listQ.data) ? listQ.data.filter((t) => t && typeof t.name === 'string' && typeof t.taskCount === 'number') : [];
   const options = [
     { value: '', label: 'Blank project', hint: 'the usual board, no tasks' },
     ...templates.map((t) => ({ value: t.id, label: t.name, hint: count(t.taskCount, 'task') })),
@@ -175,8 +173,8 @@ export function TemplateStart({
                         <span className="flex-none text-xs text-ink-2">
                           {t.dueDate ? (
                             <>
-                              Due <time dateTime={t.dueDate} className={t.dueDate < current.today ? 'font-semibold text-danger' : ''}>{dayLabel(t.dueDate, current.today)}</time>
-                              {t.movedFrom ? <span className="text-ink-3"> (moved from {dayLabel(t.movedFrom, current.today).split(' ')[0]})</span> : null}
+                              Due <time dateTime={t.dueDate} className={t.dueDate < current.today ? 'font-semibold text-danger' : ''}>{dueLabel(t.dueDate, current.today)}</time>
+                              {t.movedFrom ? <span className="text-ink-3"> (moved from {dayLabel(t.movedFrom, { only: 'weekday' })})</span> : null}
                             </>
                           ) : (
                             'No due date'

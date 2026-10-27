@@ -23,6 +23,7 @@ import { useAuthStore } from '../stores/auth-store';
 import { TaskDrawer, type DrawerTaskRef } from './TaskDrawer';
 import { TaskFormDialog } from './task-form/TaskFormDialog';
 import { MoveTaskDialog, useMoveTargets } from './MoveTaskDialog';
+import { SaveTaskTemplateDialog } from './templates/SaveAsTemplate';
 import { projectsApi } from '../api/projects';
 import { clientSharesApi } from '../api/client-shares';
 import { moveAvailability, movedText } from '../lib/task-move';
@@ -68,6 +69,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   const [actionError, setActionError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -390,6 +392,8 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
             project={project ? { id: project.id, name: project.name, color: project.color, icon: project.icon, imageUrl: project.imageUrl } : undefined}
             onMoveToProject={canMove ? () => setMoving(true) : undefined}
             moveUnavailable={canMove?.reason}
+            // Save as template: whoever runs the project (the server checks too).
+            onSaveAsTemplate={canDelete ? () => setSavingTemplate(true) : undefined}
             // Show to client: whoever runs the project (the server checks too).
             onSetClientVisible={
               canDelete
@@ -444,6 +448,11 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
               refreshTaskViews();
             }}
           />
+        </div>
+      ) : null}
+      {savingTemplate && taskQ.data ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <SaveTaskTemplateDialog taskId={taskQ.data.id} taskTitle={taskQ.data.title} checklistCount={checklistQ.data?.items?.length} onClose={() => setSavingTemplate(false)} />
         </div>
       ) : null}
       {toast ? (

@@ -117,11 +117,19 @@ export const MoveIcon = () => (
   </svg>
 );
 
+export const TemplateIcon = () => (
+  <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true">
+    <rect x="6" y="3" width="15" height="14" rx="2" />
+    <path d="M3 7v11a3 3 0 0 0 3 3h11M13.5 7v6M10.5 10h6" />
+  </svg>
+);
+
 /**
  * "⋯ More actions": the header's secondary actions in one menu. Watching and exporting have header
  * buttons on wider screens, so the menu is the way to them on small ones; moving the task to another
- * project lives only here, so with it the menu shows on every screen. Unavailable, the move says why.
- * Choosing an item gives focus back to the menu button (a dialog it opens returns focus there).
+ * project and saving it as a template live only here, so with either the menu shows on every screen.
+ * Unavailable, the move says why. Choosing an item gives focus back to the menu button (a dialog it
+ * opens returns focus there).
  */
 export function MoreActionsMenu({
   watching,
@@ -129,6 +137,7 @@ export function MoreActionsMenu({
   onExport,
   onMoveToProject,
   moveUnavailable,
+  onSaveAsTemplate,
   className = '',
 }: {
   watching?: boolean;
@@ -138,12 +147,14 @@ export function MoreActionsMenu({
   onMoveToProject?: () => void;
   /** Why it can't be moved now (the item is shown, unavailable, with this reason). */
   moveUnavailable?: string | null;
+  /** Save the task as a task template ("Save as template…": whoever runs its project). */
+  onSaveAsTemplate?: () => void;
   className?: string;
 }) {
   const { open, setOpen, wrap, trigger } = useMenu();
-  if (!onToggleWatch && !onExport && !onMoveToProject) return null;
-  // With the move in it, the menu shows everywhere and these repeat header buttons on wider screens.
-  const headerToo = onMoveToProject ? 'sm:hidden' : '';
+  if (!onToggleWatch && !onExport && !onMoveToProject && !onSaveAsTemplate) return null;
+  // With the move or the template in it, the menu shows everywhere and these repeat header buttons on wider screens.
+  const headerToo = onMoveToProject || onSaveAsTemplate ? 'sm:hidden' : '';
   const choose = (act: () => void) => {
     setOpen(false);
     trigger.current?.focus();
@@ -193,6 +204,7 @@ export function MoreActionsMenu({
               item('Move to another project…', onMoveToProject, <MoveIcon />)
             )
           ) : null}
+          {onSaveAsTemplate ? item('Save as template…', onSaveAsTemplate, <TemplateIcon />) : null}
         </div>
       ) : null}
     </div>

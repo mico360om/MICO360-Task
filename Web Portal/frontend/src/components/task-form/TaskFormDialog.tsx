@@ -200,7 +200,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
 
   // ── Start from a task template (new tasks): it fills in the title, description, priority and checklist ──
   const templatesQ = useQuery({ queryKey: TASK_TEMPLATES_KEY, queryFn: () => templatesApi(apiClient).listTasks(), enabled: !editing, staleTime: 30_000 });
-  const taskTemplates = useMemo(() => (Array.isArray(templatesQ.data) ? templatesQ.data : []), [templatesQ.data]);
+  // Only well-formed templates (a server without templates answers something else, or nothing).
+  const taskTemplates = useMemo(
+    () => (Array.isArray(templatesQ.data) ? templatesQ.data.filter((t) => t && typeof t.name === 'string' && typeof t.title === 'string' && Array.isArray(t.checklist)) : []),
+    [templatesQ.data],
+  );
   const [usedTemplate, setUsedTemplate] = useState<TaskTemplate | null>(null);
   const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklist: [...t.checklist] });
   function applyTemplate(id: string) {
