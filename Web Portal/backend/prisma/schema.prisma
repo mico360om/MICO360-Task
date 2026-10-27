@@ -280,6 +280,11 @@ model Task {
   recurrenceSourceId String?  @unique // the task this copy was made from — unique, so a task never gets two next copies
   /// The meeting this task was created from (a Live note made into a task); the task links back to it.
   meetingId      String?
+  /// The inspection form this task is carried out with (a scheduled check, or a one-off task that
+  /// carries a form). Copies of a repeating task keep it. Cleared if the form row is ever removed.
+  inspectionFormId String?
+  /// Where the check is done ("Rig 3"); given to the inspection when it starts.
+  inspectionPlace  String? @db.VarChar(200)
   version        Int       @default(0) // optimistic concurrency (T4.3)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -298,6 +303,7 @@ model Task {
   dependedOnBy TaskDependency[] @relation("BlockingTask")
   activities   Activity[]
   meeting      Meeting?         @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  inspectionForm InspectionForm? @relation("TaskInspectionForm", fields: [inspectionFormId], references: [id], onDelete: SetNull)
   keyAliases   TaskKeyAlias[]
   /// Inspections carried out for this task, and the failed item this task follows up (if any).
   inspections        Inspection[]        @relation("InspectionTask")
@@ -307,6 +313,7 @@ model Task {
   @@index([columnId])
   @@index([dueDate])
   @@index([meetingId])
+  @@index([inspectionFormId])
   @@index([priority])
   @@index([boardDate])
   @@fulltext([title, description])
@@ -1307,6 +1314,8 @@ model InspectionForm {
   updatedAt           DateTime     @updatedAt
   deletedAt           DateTime?
   inspections         Inspection[]
+  /// Tasks that carry this form (scheduled checks and one-off tasks).
+  tasks               Task[]       @relation("TaskInspectionForm")
 
   @@index([deletedAt])
   @@map("inspection_forms")
