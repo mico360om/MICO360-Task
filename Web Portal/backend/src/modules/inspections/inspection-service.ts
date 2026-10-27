@@ -495,6 +495,11 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       return formView(saved, await formNames([saved]), true);
     },
 
+    /** May this person delete the form (its maker, or an administrator)? 404 when it isn't there, 403 otherwise. */
+    async assertMayDeleteForm(actor: Actor, id: string): Promise<void> {
+      await editableForm(actor, id);
+    },
+
     /** Deletes it, and stops the schedules that use it (checks already made can still be done). */
     async deleteForm(actor: Actor, id: string): Promise<void> {
       const f = await editableForm(actor, id);

@@ -58,7 +58,11 @@ export async function registerInspectionRoutes(app: FastifyInstance, deps: Inspe
   // ── Scheduled inspections (checks are tasks that carry a form) ─────────────────────────────
   const schedules = deps.schedules;
   if (schedules) {
-    app.get('/inspection-forms/:id/usage', auth, async (req) => ({ data: await schedules.formUsage(params(req).id) }));
+    // Company-wide counts, for the delete confirm: only to whoever may delete the form.
+    app.get('/inspection-forms/:id/usage', auth, async (req) => {
+      await service.assertMayDeleteForm(actor(req), params(req).id);
+      return { data: await schedules.formUsage(params(req).id) };
+    });
     app.get('/projects/:id/inspection-schedules', auth, async (req) => ({ data: await schedules.schedules(actor(req), params(req).id) }));
     app.get('/projects/:id/inspection-checks', auth, async (req) => {
       checksQuery.parse(req.query ?? {});

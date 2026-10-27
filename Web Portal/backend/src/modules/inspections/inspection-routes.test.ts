@@ -235,7 +235,7 @@ describe('scheduled inspection routes', () => {
         checks: async (_p, o) => rows.filter((r) => (!o.schedulesOnly || r.recurrenceRule) && (!o.seriesIds || o.seriesIds.includes(r.id))) as never,
         seriesSizes: async (ids) => new Map(ids.map((id) => [id, 1])),
         inProgress: async () => [],
-        formUsage: async (id) => (id === 'f1' ? { schedules: 1, openChecks: 2 } : null),
+        formUsage: async () => ({ schedules: 1, openChecks: 2 }),
         workingDays: async () => [0, 1, 2, 3, 4],
       },
       canViewProject: async (userId, _r, projectId) => projectId === 'P1' && userId !== outsider,
@@ -264,9 +264,14 @@ describe('scheduled inspection routes', () => {
     expect((await call('GET', '/projects/P1/inspection-checks?state=open', outsider)).statusCode).toBe(404);
   });
 
-  it('say how much a form is used, for the delete confirm', async () => {
+  it('say how much a form is used, for the delete confirm — only to those who may delete it (its maker, administrators)', async () => {
     await withSchedules();
-    expect((await call('GET', '/inspection-forms/f1/usage', member)).json().data).toEqual({ schedules: 1, openChecks: 2 });
-    expect((await call('GET', '/inspection-forms/nope/usage', member)).statusCode).toBe(404);
+    const form = (await call('POST', '/inspection-forms', owner, FORM_BODY)).json().data;
+    expect((await call('GET', `/inspection-forms/${form.id}/usage`, owner)).json().data).toEqual({ schedules: 1, openChecks: 2 });
+    expect((await call('GET', `/inspection-forms/${form.id}/usage`, PEOPLE.admin)).statusCode).toBe(200);
+    // Anyone else on the staff: no company-wide counts.
+    expect((await call('GET', `/inspection-forms/${form.id}/usage`, member)).statusCode).toBe(403);
+    expect((await call('GET', `/inspection-forms/${form.id}/usage`, outsider)).statusCode).toBe(403);
+    expect((await call('GET', '/inspection-forms/nope/usage', owner)).statusCode).toBe(404);
   });
 });
