@@ -199,4 +199,12 @@ describe('inspection routes', () => {
     expect(third.json().error.code).toBe('RATE_LIMITED');
     expect((await pdf(owner)).statusCode).toBe(404);
   });
+
+  it('check the sign-in before reading a big body (an unsigned-in request’s 5 MB is never parsed)', async () => {
+    const huge = JSON.stringify({ answers: [{ note: 'x'.repeat(5 * 1024 * 1024) }] });
+    for (const url of ['/api/v1/inspections/x/answers', '/api/v1/inspections/x/finish']) {
+      const r = await app.inject({ method: url.endsWith('answers') ? 'PUT' : 'POST', url, headers: { 'content-type': 'application/json' }, payload: huge });
+      expect(r.statusCode, url).toBe(401);
+    }
+  });
 });

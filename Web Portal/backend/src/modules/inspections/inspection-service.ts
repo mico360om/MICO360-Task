@@ -98,7 +98,10 @@ export interface InspectionPorts {
   peopleNames(projectId: string): Promise<string[]>;
   recordActivity?: RecordTaskActivity;
   audit?: { record(entry: CreateAuditData): Promise<unknown> };
-  /** Re-draws a signature as a clean PNG on white (null: keep it as it came, its header checked). */
+  /**
+   * Re-draws a signature as a clean PNG on white. Null: the picture library isn't there (the PNG is
+   * kept as it came, its header checked). Throws: the library couldn't read it (it is refused).
+   */
   cleanSignature?: (png: Buffer) => Promise<Buffer | null>;
   logger?: { warn(msg: string, ctx?: Record<string, unknown>): void };
 }
@@ -509,7 +512,15 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         if (s.method === 'DRAWN') {
           const png = s.image ? decodePng(s.image) : null;
           if (!png) throw new ValidationError('The drawn signature couldn’t be read. Clear it and sign again.');
-          image = (await ports.cleanSignature?.(png).catch(() => null)) ?? png;
+          // Re-drawn on white by the picture library; one it can't read is refused (its bytes are
+          // never stored). Without the library, the checked PNG is kept as it came.
+          let cleaned: Buffer | null = null;
+          try {
+            cleaned = (await ports.cleanSignature?.(png)) ?? null;
+          } catch {
+            throw new ValidationError('The drawn signature couldn’t be read. Clear it and sign again.');
+          }
+          image = cleaned ?? png;
         }
         const signedAt = new Date(clamp(Date.parse(s.signedAt), r.startedAt.getTime(), at.getTime()));
         signatures.push({ role: s.role, name: s.name, method: s.method, image, signedAt, capturedById: actor.id });

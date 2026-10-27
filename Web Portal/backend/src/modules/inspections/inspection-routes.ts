@@ -23,7 +23,7 @@ export interface InspectionRouteDeps {
 const visibleBody = z.object({ visible: z.boolean() });
 const answersBody = z.object({ answers: z.unknown() });
 /** A finish carries up to three drawn signatures; a phone sending a whole inspection's answers at once carries long notes. */
-const BIG_BODY = { bodyLimit: 4 * 1024 * 1024 };
+const BIG_BODY_LIMIT = 4 * 1024 * 1024;
 
 /**
  * Inspection checklists over HTTP (staff only: a client sees a finished, shown inspection through
@@ -33,6 +33,9 @@ const BIG_BODY = { bodyLimit: 4 * 1024 * 1024 };
 export async function registerInspectionRoutes(app: FastifyInstance, deps: InspectionRouteDeps): Promise<void> {
   const { service, guard } = deps;
   const auth = { preHandler: guard.authenticate };
+  // The sign-in is checked before a big body is read (onRequest runs before parsing), so nobody
+  // signed out can make the server parse 4 MB.
+  const bigBody = { onRequest: guard.authenticate, bodyLimit: BIG_BODY_LIMIT };
   const actor = (req: FastifyRequest): Actor => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
   const changed = (projectId: string, id: string) => deps.broadcast?.(projectId, 'inspection:changed', { id, projectId });
   const params = (req: FastifyRequest) => req.params as { id: string };
@@ -59,14 +62,14 @@ export async function registerInspectionRoutes(app: FastifyInstance, deps: Inspe
   app.get('/inspections/:id', auth, async (req) => ({ data: await service.get(actor(req), params(req).id) }));
 
   // Idempotent by nature: each answer is kept only if it was edited later than the stored one.
-  app.put('/inspections/:id/answers', { ...auth, ...BIG_BODY }, async (req) => {
+  app.put('/inspections/:id/answers', bigBody, async (req) => {
     const { answers } = answersBody.parse(req.body ?? {});
     const out = await service.answer(actor(req), params(req).id, answers);
     if (out.results.some((r) => r.status === 'applied')) changed(out.inspection.projectId, out.inspection.id);
     return { data: out };
   });
 
-  app.post('/inspections/:id/finish', { ...auth, ...BIG_BODY }, async (req) => {
+  app.post('/inspections/:id/finish', bigBody, async (req) => {
     const done = await service.finish(actor(req), params(req).id, req.body ?? {});
     changed(done.projectId, done.id);
     return { data: done };

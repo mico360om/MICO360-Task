@@ -536,3 +536,16 @@ describe('review fixes', () => {
     expect(r.results[0]!.answer.editedAt).toBe(f.now.at.toISOString());
   });
 });
+
+describe('drawn signatures the picture library can’t read', () => {
+  it('are refused (nothing is stored); without the library a checked PNG is kept as it came', async () => {
+    const s = await started();
+    await answeredAll(s);
+    f.cleanMode.value = 'unreadable';
+    const err = (await rejects(f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id)), 400)) as { message: string };
+    expect(err.message).toMatch(/couldn’t be read/);
+    expect((await f.service.get(as(inspector), s.insp.id)).status).toBe('IN_PROGRESS');
+    f.cleanMode.value = 'unavailable';
+    await expect(f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id))).resolves.toMatchObject({ status: 'FINISHED', signatures: [{ method: 'DRAWN' }] });
+  });
+});
