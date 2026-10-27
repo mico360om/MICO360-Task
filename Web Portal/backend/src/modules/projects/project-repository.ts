@@ -49,6 +49,33 @@ export interface CreateProjectData {
   createdById: string;
   /** Its team from the start, written with the project in one go (one row per person). */
   members?: NewProjectMember[];
+  /** A project made from a template: its board and tasks instead of DEFAULT_COLUMNS, in the same transaction. */
+  startWith?: StartingContent;
+}
+
+/** A task a new project starts with (from a template). */
+export interface StartingTask {
+  title: string;
+  description: string | null;
+  priority: Priority;
+  startDate: Date | null;
+  dueDate: Date | null;
+  /** Who does it; null = the project's owner (the usual default for a new task), when it has one. */
+  assigneeIds: string[] | null;
+  /** Its checklist items' text, in order (none done). */
+  checklist: string[];
+}
+
+/** What a project made from a template starts with: its board and its tasks, keyed CODE-1, CODE-2… in order. */
+export interface StartingContent {
+  columns: { name: string; category: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'REVIEW' | 'DONE'; color: string }[];
+  /** The column (its place in `columns`) every task starts in. */
+  startColumn: number;
+  tasks: StartingTask[];
+  /** The board day the tasks appear on (today: per-date boards). */
+  boardDate: Date;
+  /** The template's name, noted on each task's "created" line in its history. */
+  templateName: string;
 }
 
 /** A person put on a new project's team. */
@@ -87,7 +114,7 @@ export const DEFAULT_COLUMNS = [
 ] as const;
 
 export interface ProjectRepository {
-  /** Create a project together with its DEFAULT_COLUMNS, in one transaction. */
+  /** Create a project with its DEFAULT_COLUMNS and team — or, `startWith`, a template's board and tasks — in one transaction. */
   create(data: CreateProjectData): Promise<ProjectRecord>;
   findById(id: string): Promise<ProjectRecord | null>;
   findByCode(code: string): Promise<ProjectRecord | null>;
