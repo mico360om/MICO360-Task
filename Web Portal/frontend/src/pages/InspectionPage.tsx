@@ -138,7 +138,12 @@ export function InspectionPage() {
 
   const makeFollowUps = (itemIds: string[]) => {
     if (!ownerId || !itemIds.length) return;
-    outbox.queueFollowUps(ownerId, id, itemIds, assignee === '~default' ? undefined : assignee === '~nobody' ? null : assignee);
+    try {
+      outbox.queueFollowUps(ownerId, id, itemIds, assignee === '~default' ? undefined : assignee === '~nobody' ? null : assignee, d);
+    } catch (e) {
+      setProblem(problemText(e, 'The follow-up tasks couldn’t be saved. Please try again.'));
+      return;
+    }
     void send().then((state) => {
       if (state === 'sent') setNotice(itemIds.length === 1 ? 'Follow-up task made.' : `${itemIds.length} follow-up tasks made.`);
     });

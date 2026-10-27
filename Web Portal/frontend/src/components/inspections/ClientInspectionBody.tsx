@@ -36,7 +36,8 @@ export function ClientInspectionBody({ inspection: x, names = [] }: { inspection
     <div className="flex flex-col gap-3">
       <p className="text-sm text-ink">
         <span className={`font-semibold ${x.counts.failed ? 'text-danger' : 'text-success'}`}>{x.result}</span>
-        <span className="text-ink-2"> · {x.counts.passed} passed · {x.counts.failed} failed · {x.counts.na} N/A</span>
+        {/* The result already says how many failed: the rest of the count, without saying it twice. */}
+        <span className="text-ink-2"> · {x.counts.total} {x.counts.total === 1 ? 'item' : 'items'}: {x.counts.passed} passed{x.counts.failed ? '' : `, ${x.counts.failed} failed`}, {x.counts.na} N/A</span>
       </p>
       {failed.length ? (
         <div>
@@ -105,3 +106,7 @@ export function ClientInspectionBody({ inspection: x, names = [] }: { inspection
   );
 }
 
+/** Whether any note of the report names one of these people (the preview says so only then). */
+export function notesNameSomeone(x: ClientInspection, names: string[]): boolean {
+  return x.sections.some((s) => s.items.some((i) => !!i.note && highlightNames(i.note, names).some((p) => p.name)));
+}

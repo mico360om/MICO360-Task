@@ -76,6 +76,11 @@ function stubFetch() {
         return json({ data: { ...server.detail, answers: [...server.stored.values()], taskOffer: { id: 't1', key: 'RIG-1', title: 'Inspect rig 3', doneColumnId: 'c-done' } } });
       }
       if (method === 'PATCH' && u === '/tasks/t1/move') return json({ data: { id: 't1' } });
+      if (method === 'POST' && u === '/inspections/i1/follow-ups') {
+        const { itemIds } = JSON.parse(String(init!.body)) as { itemIds: string[] };
+        server.detail = { ...server.detail, followUps: itemIds.map((itemId) => ({ itemId, task: { id: `t-${itemId}`, key: `RIG-9${itemId}`, title: 'Follow up', deleted: false, done: false }, pending: false })) };
+        return json({ data: itemIds.map((itemId) => ({ itemId, status: 'created', task: { id: `t-${itemId}`, key: `RIG-9${itemId}`, title: 'Follow up' } })) });
+      }
       if (u === '/projects/p1') return json({ data: { id: 'p1', name: 'Rig 3 overhaul', code: 'RIG', status: 'ACTIVE', ownerId: 'u-olivia' } });
       if (u === '/projects/p1/members') return json({ data: [{ id: 'u-olivia', username: 'olivia', email: 'o@x', firstName: 'Olivia', lastName: 'Owner', role: 'MANAGER' }] });
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
@@ -154,5 +159,17 @@ describe('carrying out an inspection', () => {
     const offer = await screen.findByRole('alertdialog', { name: 'Mark RIG-1 done?' });
     await userEvent.click(within(offer).getByRole('button', { name: 'Mark it done' }));
     await waitFor(() => expect(server.calls).toContain('PATCH /tasks/t1/move'));
+  });
+
+  it('makes follow-up tasks for a finished inspection’s failed items', async () => {
+    server.stored.set('p', { itemId: 'p', result: 'PASS', reading: '120', note: null, editedAt: '2026-10-27T08:10:00.000Z' });
+    server.stored.set('v', { itemId: 'v', result: 'FAIL', reading: null, note: 'Leak', editedAt: '2026-10-27T08:11:00.000Z' });
+    server.detail = { ...server.detail, status: 'FINISHED', finishedAt: '2026-10-27T09:00:00.000Z', result: '1 failed', permissions: { ...server.detail.permissions, canAnswer: false, canFinish: false } };
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Create tasks for all failed items (1)' }));
+    expect(await screen.findByText('Follow-up task made.')).toBeInTheDocument();
+    const call = server.calls.find((c) => c === 'POST /inspections/i1/follow-ups');
+    expect(call).toBeTruthy();
+    expect(await screen.findByRole('link', { name: /RIG-9v/ })).toBeInTheDocument();
   });
 });

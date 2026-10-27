@@ -271,6 +271,24 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     return ok;
   }
 
+  /** A new record for an inspection as read from the server, with nothing waiting. */
+  function fresh(ownerId: string, detail: InspectionDetail): Draft {
+    return {
+      v: 1,
+      ownerId,
+      inspectionId: detail.id,
+      projectId: detail.projectId,
+      title: detail.title,
+      snapshot: detail,
+      answers: {},
+      finish: null,
+      followUps: {},
+      problem: null,
+      savedAt: isoNow(now),
+      sentAt: null,
+    };
+  }
+
   function mustRead(ownerId: string, inspectionId: string): Draft {
     const d = read(ownerId, inspectionId);
     if (!d) throw new Error('Open the inspection first.');
@@ -439,20 +457,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
      * waiting changes stay over it — except those the server already has (as new, or newer).
      */
     remember(ownerId: string, detail: InspectionDetail): void {
-      const d: Draft = read(ownerId, detail.id) ?? {
-        v: 1,
-        ownerId,
-        inspectionId: detail.id,
-        projectId: detail.projectId,
-        title: detail.title,
-        snapshot: detail,
-        answers: {},
-        finish: null,
-        followUps: {},
-        problem: null,
-        savedAt: isoNow(now),
-        sentAt: null,
-      };
+      const d: Draft = read(ownerId, detail.id) ?? fresh(ownerId, detail);
       const server = new Map(detail.answers.map((a) => [a.itemId, a.editedAt]));
       for (const [itemId, w] of Object.entries(d.answers)) {
         const at = server.get(itemId);
@@ -509,8 +514,12 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       save(d);
     },
 
-    queueFollowUps(ownerId: string, inspectionId: string, itemIds: string[], assigneeId: string | null | undefined): { persisted: boolean } {
-      const d = mustRead(ownerId, inspectionId);
+    /**
+     * Follow-up tasks to ask for. A finished inspection keeps no record on the phone once nothing
+     * waits, so `detail` (the inspection as shown) starts one when there is none.
+     */
+    queueFollowUps(ownerId: string, inspectionId: string, itemIds: string[], assigneeId: string | null | undefined, detail?: InspectionDetail): { persisted: boolean } {
+      const d = read(ownerId, inspectionId) ?? (detail && detail.id === inspectionId ? fresh(ownerId, detail) : mustRead(ownerId, inspectionId));
       for (const itemId of itemIds) if (!d.followUps[itemId]) d.followUps[itemId] = { ...(assigneeId !== undefined ? { assigneeId } : {}), queuedAt: isoNow(now) };
       return { persisted: save(d) };
     },

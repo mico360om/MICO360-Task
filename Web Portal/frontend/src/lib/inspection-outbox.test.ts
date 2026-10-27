@@ -416,3 +416,19 @@ describe('detailView', () => {
     expect(v).toMatchObject({ inspectionId: 'i1', counts: { answered: 1, failed: 1 }, pending: { answers: 0, finish: false, followUps: 0 }, persisted: true, locked: false });
   });
 });
+
+describe('follow-ups on a finished inspection (no record kept on the phone)', () => {
+  it('starts a record from the inspection as shown, and sends the request', async () => {
+    const finished = detail({ status: 'FINISHED', answers: [{ itemId: 'r', result: 'FAIL', reading: null, note: null, editedAt: '2026-10-27T08:01:00.000Z' }] });
+    outbox.remember(OWNER, finished);
+    expect(outbox.draft(OWNER, 'i1')).toBeNull();
+    outbox.queueFollowUps(OWNER, 'i1', ['r'], undefined, finished);
+    expect(outbox.view(OWNER, 'i1')!.pending.followUps).toBe(1);
+    await outbox.flush(OWNER, 'i1');
+    expect(server.calls.map((c) => c.kind)).toEqual(['follow-ups']);
+    expect(outbox.view(OWNER, 'i1')!.pending.followUps).toBe(0);
+    // Read again from the server: nothing waits, so nothing is kept.
+    outbox.remember(OWNER, finished);
+    expect(outbox.draft(OWNER, 'i1')).toBeNull();
+  });
+});

@@ -30,17 +30,24 @@ function Row({ x, timeZone }: { x: InspectionListItem; timeZone: string }) {
           <Link to={`/inspections/${encodeURIComponent(x.id)}`} className="break-words font-semibold text-ink hover:text-brand">
             <bdi>{x.title}</bdi>
           </Link>
-          <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-2">
-            {x.place ? <span dir="auto">{x.place}</span> : null}
-            <span>{finished ? `Finished ${dayText(x.finishedAt, timeZone)}` : `Started ${dayText(x.startedAt, timeZone)}`}</span>
-            <span>
-              · <bdi>{x.inspector.name}</bdi>
-            </span>
-            {x.task ? (
-              <span>
-                · For <span className="font-mono">{x.task.key}</span>
-              </span>
-            ) : null}
+          <p className="mt-0.5 flex flex-wrap gap-x-1.5 text-xs text-ink-2">
+            {[
+              x.place ? <span dir="auto">{x.place}</span> : null,
+              <span>{finished ? `Finished ${dayText(x.finishedAt, timeZone)}` : `Started ${dayText(x.startedAt, timeZone)}`}</span>,
+              <bdi>{x.inspector.name}</bdi>,
+              x.task ? (
+                <span>
+                  For <span className="font-mono">{x.task.key}</span>
+                </span>
+              ) : null,
+            ]
+              .filter(Boolean)
+              .map((part, i) => (
+                <span key={i} className="inline-flex gap-x-1.5">
+                  {i > 0 ? <span aria-hidden="true">·</span> : null}
+                  {part}
+                </span>
+              ))}
           </p>
         </div>
         <div className="flex flex-none flex-wrap items-center gap-1.5">

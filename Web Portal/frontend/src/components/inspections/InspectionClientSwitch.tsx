@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { inspectionsApi } from '../../api/inspections';
-import { ClientInspectionBody } from './ClientInspectionBody';
+import { ClientInspectionBody, notesNameSomeone } from './ClientInspectionBody';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
@@ -41,7 +41,7 @@ function PreviewDialog({ inspectionId, busy, error, onConfirm, onClose }: { insp
             {q.isError ? <p role="alert" className="text-sm text-danger">{problemText(q.error, 'Couldn’t load the report. Close this and try again.')}</p> : null}
             {p ? (
               <>
-                {p.names.length ? (
+                {notesNameSomeone(p.inspection, p.names) ? (
                   <p className="rounded-lg bg-ground px-3 py-2 text-xs leading-relaxed text-ink-2">
                     <span className="rounded bg-warning-soft px-0.5 font-semibold text-ink">Highlighted</span>: names of people on the project, in the notes. If the client shouldn’t see them, cancel, reopen the inspection and change the notes.
                   </p>
