@@ -8,6 +8,7 @@ import { inspectionsApi, type InspectionDetail, type SignatureInput } from '../a
 import { membersApi } from '../api/members';
 import { projectsApi } from '../api/projects';
 import { tasksApi } from '../api/tasks';
+import { invalidateTaskQueries } from '../lib/task-cache';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { usePageName } from '../lib/page-meta';
@@ -111,6 +112,9 @@ export function InspectionPage() {
     completedNote.current = `Finished. Task ${completed.key} completed.`;
     setNotice(completedNote.current);
     outbox.ackFinished(ownerId, id);
+    // Every view of the task shows it done now (sent from here, or later from the outbox).
+    void invalidateTaskQueries(qc);
+    void qc.invalidateQueries({ queryKey: ['task', completed.id] });
     void qc.invalidateQueries({ queryKey: ['task-inspections'] });
   }, [completed, ownerId, id, outbox, qc]);
 
@@ -149,9 +153,11 @@ export function InspectionPage() {
   });
   const doneM = useMutation({
     mutationFn: (offer: NonNullable<DraftView['finishedOffer']>) => tasksApi(apiClient).move(offer.id, offer.doneColumnId),
-    onSuccess: () => {
+    onSuccess: (_r, offer) => {
       if (ownerId) outbox.ackFinished(ownerId, id);
       setNotice('The task is marked done.');
+      void invalidateTaskQueries(qc);
+      void qc.invalidateQueries({ queryKey: ['task', offer.id] });
       void qc.invalidateQueries({ queryKey: ['task-inspections'] });
     },
     onError: (e) => setProblem(problemText(e, 'Couldn’t mark the task done. You can do it from the task.')),

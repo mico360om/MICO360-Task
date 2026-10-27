@@ -104,8 +104,12 @@ function stubFetch() {
   );
 }
 
+let qc: QueryClient;
+/** The query keys the page asked to refresh. */
+const refreshed = () => (vi.mocked(qc.invalidateQueries).mock.calls as unknown as Array<[{ queryKey?: unknown[] } | undefined]>).map(([f]) => JSON.stringify(f?.queryKey ?? null));
 function show() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { networkMode: 'always' } } });
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { networkMode: 'always' } } });
+  vi.spyOn(qc, 'invalidateQueries');
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/inspections/i1']}>
@@ -207,6 +211,7 @@ describe('carrying out an inspection', () => {
     const offer = await screen.findByRole('alertdialog', { name: 'Mark RIG-1 done?' });
     await userEvent.click(within(offer).getByRole('button', { name: 'Mark it done' }));
     await waitFor(() => expect(server.calls).toContain('PATCH /tasks/t1/move'));
+    await waitFor(() => expect(refreshed()).toEqual(expect.arrayContaining(['["my-tasks"]', '["board"]', '["task","t1"]'])));
   });
 
   it('finishing a check (a task that carries a form) says the task was completed — no offer', async () => {
@@ -221,6 +226,8 @@ describe('carrying out an inspection', () => {
     expect(await screen.findByText('Finished. Task RIG-1 completed.')).toBeInTheDocument();
     expect(screen.queryByRole('alertdialog', { name: /Mark RIG-1 done/ })).toBeNull();
     expect(server.calls).not.toContain('PATCH /tasks/t1/move');
+    // Every view of the task shows it done now: My Tasks, boards, the task itself, the Inspections tab.
+    await waitFor(() => expect(refreshed()).toEqual(expect.arrayContaining(['["my-tasks"]', '["board"]', '["task","t1"]', '["project-inspections"]'])));
   });
 
   it('makes follow-up tasks for a finished inspection’s failed items', async () => {
