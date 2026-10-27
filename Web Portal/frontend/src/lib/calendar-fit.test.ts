@@ -43,12 +43,14 @@ describe('chipSlots', () => {
 });
 
 describe('month cell sizes', () => {
-  // 22px entries 3px apart: each entry's 24px target circle clears its neighbours with room to spare,
-  // even when a cell sits on a fraction of a pixel (2px apart sat exactly on the limit).
-  it('keeps entries 3px apart', () => {
-    expect(MONTH_CELL.gap).toBe(3);
-    expect(MONTH_CELL.pitch).toBe(25);
-    expect(MONTH_CELL.chrome).toBe(36);
-    expect(MONTH_CELL_TOUCH.pitch).toBe(31);
+  // One-line entries and "+N more" are 24px tall: a full WCAG 2.2 target on their own, without
+  // counting on the gap around them (a 22px entry failed axe's spacing check beside other entries).
+  it('makes entries and "+N more" 24px tall, 2px apart', () => {
+    expect(MONTH_CELL.gap).toBe(2);
+    expect(MONTH_CELL.pitch).toBe(26);
+    expect(MONTH_CELL.more).toBe(24);
+    expect(MONTH_CELL.chrome).toBe(35);
+    expect(MONTH_CELL_TOUCH.pitch).toBe(30);
+    expect(MONTH_CELL_TOUCH.more).toBe(28);
   });
 });

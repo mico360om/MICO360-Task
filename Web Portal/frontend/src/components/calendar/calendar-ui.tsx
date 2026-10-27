@@ -148,7 +148,7 @@ export function MeetingChip({ meeting: m, color, meta, lines = 1 }: { meeting: C
       aria-label={meetingName(m)}
       title={`${m.time} · ${m.title}`}
       style={color ? { borderInlineStartColor: color } : undefined}
-      className={`flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 text-start text-xs transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${lines === 1 && !meta ? 'py-0.5 leading-4 [@media(pointer:coarse)]:py-[5px]' : 'py-1 leading-snug'} ${MEETING_CHIP} ${m.cancelled ? 'opacity-70' : ''}`}
+      className={`flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 text-start text-xs transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${lines === 1 && !meta ? 'py-[3px] leading-4 [@media(pointer:coarse)]:py-[5px]' : 'py-1 leading-snug'} ${MEETING_CHIP} ${m.cancelled ? 'opacity-70' : ''}`}
     >
       <span className="mt-px">{MEETING_ICON}</span>
       <span className="min-w-0 flex-1">
@@ -214,7 +214,7 @@ export function TaskChip({
       aria-label={itemName(item)}
       title={`${item.task.key} · ${item.task.title}`}
       style={color ? { borderInlineStartColor: color } : undefined}
-      className={`group/chip flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 text-start text-xs transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${lines === 1 && !meta ? 'py-0.5 leading-4 [@media(pointer:coarse)]:py-[5px]' : 'py-1 leading-snug'} ${s.chip} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      className={`group/chip flex w-full min-w-0 items-start gap-1.5 rounded-md border border-s-[3px] px-1.5 text-start text-xs transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${lines === 1 && !meta ? 'py-[3px] leading-4 [@media(pointer:coarse)]:py-[5px]' : 'py-1 leading-snug'} ${s.chip} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       <span className="mt-px">{s.icon}</span>
       <span className="min-w-0 flex-1">
