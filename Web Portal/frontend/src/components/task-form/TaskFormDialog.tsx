@@ -34,6 +34,8 @@ import { pastedFiles } from '../../lib/clipboard-files';
 import { isTypingTarget } from '../../lib/shortcuts';
 import { MilestoneIcon } from '../TaskCard';
 import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/templates';
+import { inspectionsApi } from '../../api/inspections';
+import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from './ChecklistField';
 
 export interface TaskFormDialogProps {
@@ -74,6 +76,9 @@ interface Draft {
   checklist: ChecklistRow[];
   /** Checklist text typed in "Add an item" and not added yet: saved with the rest, and a change. */
   checklistPending: string;
+  /** The inspection form the task is carried out with ('' = none), and where. */
+  formId: string;
+  place: string;
 }
 
 export const TITLE_MAX = 191;
@@ -136,7 +141,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId() };
 
   const start = (): Draft =>
     task
@@ -152,8 +157,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           milestone: !!task.isMilestone,
           checklist: [],
           checklistPending: '',
+          formId: task.inspectionFormId ?? '',
+          place: task.inspectionPlace ?? '',
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '' };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '', formId: '', place: '' };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -317,6 +324,18 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, boardDate, today);
   const dueWhen = draft.dueDate || autoDue || '';
 
+  // ── An inspection form (a check): finishing its inspection completes the task ──
+  const formsQ = useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms(), staleTime: 30_000 });
+  const formOptions = useMemo(() => {
+    const live = Array.isArray(formsQ.data?.forms) ? formsQ.data!.forms : [];
+    const opts = [{ value: '', label: 'No form' }, ...live.map((f) => ({ value: f.id, label: f.title, hint: `${f.itemCount} ${f.itemCount === 1 ? 'item' : 'items'}` }))];
+    // A task whose form was deleted since keeps it (the check can still be done): shown, marked.
+    const carried = task?.inspectionForm;
+    if (carried && !live.some((f) => f.id === carried.id)) opts.push({ value: carried.id, label: carried.deleted ? `${carried.title} (deleted)` : carried.title, hint: '' });
+    return opts;
+  }, [formsQ.data, task?.inspectionForm]);
+  const chosenForm = formOptions.find((o) => o.value === draft.formId && o.value);
+
   // ── Repeat ──
   const inSeries = !!(task?.recurrenceRule || task?.recurrenceParentId);
   const canRepeat = !task?.recurrenceNextId;
@@ -370,6 +389,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
       ...(boardDate ? { boardDate } : {}),
+      ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
     };
     // One key per attempt: the offline queue reuses it, so a create that did reach the server is never duplicated.
     const idempotencyKey = newIdempotencyKey();
@@ -443,12 +463,16 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (draft.priority !== done.priority) fields.priority = draft.priority;
       if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
       if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
+      if (draft.formId !== done.formId) fields.inspectionFormId = draft.formId || null;
+      // Without a form there is no place; with one, the place as typed (blank: none).
+      const placeNow = draft.formId ? draft.place.trim() || null : null;
+      if (placeNow !== (done.place.trim() || null)) fields.inspectionPlace = placeNow;
       const ruleChanged = canRepeat && !sameRule(draft.rule, done.rule);
       if (ruleChanged && !series) fields.recurrenceRule = draft.rule;
       if (Object.keys(fields).length) {
         latest = await tasksApi(apiClient).update(t.id, { ...fields, ...(version.current != null ? { expectedVersion: version.current } : {}), ...(series ? { scope: 'series' } : {}) });
         version.current = latest.version ?? version.current;
-        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
+        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, formId: draft.formId, place: draft.formId ? draft.place : '', ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
       }
       // The repeat rule lives on the series' newest copy only: it is never sent "for the whole series".
       if (ruleChanged && series) {
@@ -626,6 +650,30 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 </div>
               ) : null}
 
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <Label optional>Inspection form</Label>
+                  <SearchableSelect
+                    size="lg"
+                    ariaLabel="Inspection form"
+                    describedBy={ids.formNote}
+                    placeholder={formsQ.isLoading ? 'Loading…' : 'No form'}
+                    options={formOptions}
+                    value={draft.formId}
+                    onChange={(v) => set({ formId: v })}
+                  />
+                  <p id={ids.formNote} className="mt-1 text-xs text-ink-2">
+                    {chosenForm ? 'The task opens this checklist; finishing it completes the task.' : 'A check carried out with a checklist (optional).'}
+                  </p>
+                </div>
+                {draft.formId ? (
+                  <div className="min-w-0">
+                    <Label htmlFor={ids.place}>Place (optional)</Label>
+                    <input id={ids.place} dir="auto" value={draft.place} maxLength={INSPECTION_LIMITS.placeMax} onChange={(e) => set({ place: e.target.value })} placeholder="e.g. Rig 3" className={`${fieldClass()} h-11`} />
+                  </div>
+                ) : null}
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="min-w-0">
                   <Label>Priority</Label>
@@ -646,7 +694,17 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 <div className="min-w-0">
                   <Label>Repeat</Label>
                   {canRepeat ? (
-                    <SearchableSelect size="lg" ariaLabel="Repeat" options={repeatOptions} value={draft.rule?.freq ?? 'NONE'} onChange={(v) => set({ rule: withFrequency(draft.rule, v) })} />
+                    <SearchableSelect
+                      size="lg"
+                      ariaLabel="Repeat"
+                      options={repeatOptions}
+                      value={draft.rule?.freq ?? 'NONE'}
+                      onChange={(v) => {
+                        const rule = withFrequency(draft.rule, v);
+                        // A check that starts repeating is made on its days, done or not (it can still be changed).
+                        set({ rule: rule && !draft.rule && draft.formId ? { ...rule, createNext: 'ON_SCHEDULE' } : rule });
+                      }}
+                    />
                   ) : (
                     <p className="flex min-h-[44px] items-center rounded-xl bg-ground px-3.5 text-xs text-ink-2">
                       An earlier copy of a repeating series — change the repeat on its newest copy.

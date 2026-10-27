@@ -771,3 +771,61 @@ describe('New task form — the date a due-today project will give, from the boa
     expect(within(screen.getByRole('group', { name: 'Repeat schedule' })).getByText('Set a due date to see the next dates.')).toBeInTheDocument();
   });
 });
+
+describe('Task form — an inspection form (a check)', () => {
+  const FORMS = [
+    { id: 'f1', title: 'Rig daily check', description: null, structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, version: 1, sectionCount: 2, itemCount: 12, createdBy: null, updatedAt: '', canEdit: false },
+  ];
+  beforeEach(() => {
+    override = (url) => (url.endsWith('/inspection-forms') ? json({ data: { forms: FORMS, canCreate: false } }) : undefined);
+  });
+
+  it('a new task can carry a form and a place; turning on Repeat then makes the checks on schedule', async () => {
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Daily rig check');
+    expect(screen.queryByRole('textbox', { name: 'Place (optional)' })).toBeNull();
+    await pick('Inspection form', /Rig daily check/);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Place (optional)' }), 'Rig 3 – الحفار');
+    expect(screen.getByRole('textbox', { name: 'Place (optional)' })).toHaveAttribute('dir', 'auto');
+    await pick('Repeat', 'Daily');
+    expect(screen.getByLabelText('Create the next copy')).toHaveValue('ON_SCHEDULE');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ title: 'Daily rig check', inspectionFormId: 'f1', inspectionPlace: 'Rig 3 – الحفار', recurrenceRule: { freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE' } });
+  });
+
+  it('without a form nothing changes: no form sent, and a repeat still waits for the task to be done', async () => {
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Weekly report');
+    await pick('Repeat', 'Weekly');
+    expect(screen.getByLabelText('Create the next copy')).toHaveValue('ON_COMPLETE');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).not.toHaveProperty('inspectionFormId');
+  });
+
+  it('editing: shows the form it carries (even one deleted since), changes the place, and can take the form off', async () => {
+    renderDialog({ task: { ...TASK, inspectionFormId: 'f-old', inspectionPlace: 'Rig 3', inspectionForm: { id: 'f-old', title: 'Old deck check', deleted: true } } });
+    await ready();
+    expect(screen.getByRole('button', { name: 'Inspection form' })).toHaveTextContent('Old deck check (deleted)');
+    const place = screen.getByRole('textbox', { name: 'Place (optional)' });
+    await userEvent.clear(place);
+    await userEvent.type(place, 'Rig 4');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ inspectionPlace: 'Rig 4' });
+    expect(calls.find((c) => c.method === 'PUT')!.body).not.toHaveProperty('inspectionFormId');
+  });
+
+  it('editing: taking the form off sends no form and no place', async () => {
+    renderDialog({ task: { ...TASK, inspectionFormId: 'f1', inspectionPlace: 'Rig 3', inspectionForm: { id: 'f1', title: 'Rig daily check', deleted: false } } });
+    await ready();
+    await pick('Inspection form', 'No form');
+    expect(screen.queryByRole('textbox', { name: 'Place (optional)' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ inspectionFormId: null, inspectionPlace: null });
+  });
+});
