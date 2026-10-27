@@ -82,8 +82,8 @@ export interface InspectionPorts {
   project(projectId: string): Promise<ProjectInfo | null>;
   /** A live task. */
   task(taskId: string): Promise<{ id: string; key: string; title: string; projectId: string; done: boolean } | null>;
-  /** Tasks by id, deleted ones too (marked). */
-  taskSummaries(ids: string[]): Promise<Map<string, { key: string; title: string; deleted: boolean; done: boolean }>>;
+  /** Tasks by id, deleted ones too (marked), with the project each is in now. */
+  taskSummaries(ids: string[]): Promise<Map<string, TaskSummary>>;
   canViewTask(userId: string, roles: string[], taskId: string): Promise<boolean>;
   /** The project's first Done column (where "mark the task done" moves it); null when it has none. */
   doneColumnOf(projectId: string): Promise<string | null>;
@@ -101,6 +101,15 @@ export interface InspectionPorts {
   /** Re-draws a signature as a clean PNG on white (null: keep it as it came, its header checked). */
   cleanSignature?: (png: Buffer) => Promise<Buffer | null>;
   logger?: { warn(msg: string, ctx?: Record<string, unknown>): void };
+}
+
+export interface TaskSummary {
+  key: string;
+  title: string;
+  /** The project it is in now (a task can be moved to another project). */
+  projectId: string;
+  deleted: boolean;
+  done: boolean;
 }
 
 export interface InspectionServiceDeps {
@@ -137,6 +146,8 @@ const answerBody = z
   .max(L.itemsMax);
 const finishBody = z.object({
   finishId: z.string().min(1).max(64),
+  /** The inspection's revision the signers saw: a finish signed before a reopen is refused. */
+  revision: z.number().int().min(0),
   seen: z.array(z.object({ itemId: z.string().min(1).max(40), editedAt: iso })).max(L.itemsMax),
   signatures: z
     .array(
@@ -170,7 +181,11 @@ function validated<T>(check: () => T): T {
 const parse = <S extends ZodTypeAny>(schema: S, body: unknown): z.infer<S> => validated(() => schema.parse(body));
 
 const gone = () => new HttpError('This inspection isn’t there any more: it was deleted, or the link is wrong.', 'INSPECTION_GONE', 404);
-const notFound = () => new NotFoundError('Inspection not found.');
+const alreadyFinished = () => new ConflictError('This inspection was already finished (on another device, or by another finish).', 'ALREADY_FINISHED');
+const reopenedSince = () =>
+  new ConflictError('This inspection was reopened after it was signed, so that signing no longer counts. Look at it again and sign again.', 'INSPECTION_REOPENED');
+/** Device edit times before this are a clock that was reset: the server's time is used. */
+const OLDEST_EDIT = Date.UTC(2001, 0, 1);
 const archived = () => new ConflictError('This project is archived, so its inspections are read-only.', 'PROJECT_ARCHIVED');
 const notFinished = () => new ConflictError('Finish the inspection first.', 'INSPECTION_NOT_FINISHED');
 const MANAGE_REFUSED = 'Only this project’s owner, its managers or an administrator can do that.';
@@ -233,7 +248,8 @@ export function createInspectionService(deps: InspectionServiceDeps) {
   async function viewable(actor: Actor, id: string): Promise<InspectionRecord> {
     const r = await store.findInspection(id);
     if (!r) throw gone();
-    if (!(await ports.canViewProject(actor.id, actor.roles, r.projectId))) throw notFound();
+    // The same answer as for one that isn't there: nobody outside learns that an id exists.
+    if (!(await ports.canViewProject(actor.id, actor.roles, r.projectId))) throw gone();
     return r;
   }
   /** The project, which must still take changes (404 when gone, 409 when archived). */
@@ -255,13 +271,30 @@ export function createInspectionService(deps: InspectionServiceDeps) {
 
   // ── Views ───────────────────────────────────────────────────────────────────────────────────
 
-  async function listItems(records: InspectionRecord[]): Promise<InspectionListItem[]> {
+  /**
+   * Tasks by id as this reader may see them: one moved to another project is named only to someone
+   * who can open it there (anyone else gets `hidden`), as the rest of the app does.
+   */
+  async function tasksFor(actor: Actor, projectId: string, ids: string[]): Promise<Map<string, TaskSummary & { hidden: boolean }>> {
+    const unique = [...new Set(ids)];
+    const found = unique.length ? await ports.taskSummaries(unique) : new Map<string, TaskSummary>();
+    const out = new Map<string, TaskSummary & { hidden: boolean }>();
+    for (const [id, t] of found) {
+      const hidden = t.projectId !== projectId && !(await ports.canViewTask(actor.id, actor.roles, id));
+      out.set(id, { ...t, hidden });
+    }
+    return out;
+  }
+
+  async function listItems(actor: Actor, records: InspectionRecord[]): Promise<InspectionListItem[]> {
     const names = await ports.userNames([...new Set(records.map((r) => r.inspectorId))]);
-    const taskIds = [...new Set(records.map((r) => r.taskId).filter((t): t is string => !!t))];
-    const tasks = taskIds.length ? await ports.taskSummaries(taskIds) : new Map();
+    const byProject = new Map<string, string[]>();
+    for (const r of records) if (r.taskId) byProject.set(r.projectId, [...(byProject.get(r.projectId) ?? []), r.taskId]);
+    const tasks = new Map<string, TaskSummary & { hidden: boolean }>();
+    for (const [projectId, ids] of byProject) for (const [id, t] of await tasksFor(actor, projectId, ids)) tasks.set(id, t);
     return records.map((r) => {
       const t = r.taskId ? tasks.get(r.taskId) : undefined;
-      return listItem(r, names, t && !t.deleted ? { id: r.taskId!, key: t.key, title: t.title, done: t.done } : null);
+      return listItem(r, names, t && !t.deleted && !t.hidden ? { id: r.taskId!, key: t.key, title: t.title, done: t.done } : null);
     });
   }
 
@@ -284,7 +317,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
     const names = await ports.userNames([...new Set([r.inspectorId, r.startedById])]);
     const followTaskIds = followUps.map((x) => x.taskId).filter((t): t is string => !!t);
     const taskIds = [...new Set([...followTaskIds, ...(r.taskId ? [r.taskId] : [])])];
-    const tasks = taskIds.length ? await ports.taskSummaries(taskIds) : new Map<string, { key: string; title: string; deleted: boolean; done: boolean }>();
+    const tasks = await tasksFor(actor, r.projectId, taskIds);
     const attached = r.taskId ? tasks.get(r.taskId) : undefined;
     const inProgress = r.status === 'IN_PROGRESS';
     const readOnly = !project || project.status === 'ARCHIVED';
@@ -294,11 +327,11 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       canFinish: inProgress && mine && !readOnly,
       canReopen: !inProgress && manage && !readOnly,
       canTakeOver: inProgress && manage && !mine && !readOnly,
-      canDelete: manage || (inProgress && mine),
+      canDelete: (manage || (inProgress && mine)) && !readOnly,
       canShowToClient: !inProgress && manage,
       canMakeFollowUps: !readOnly,
     };
-    const base = listItem(r, names, attached && !attached.deleted ? { id: r.taskId!, key: attached.key, title: attached.title, done: attached.done } : null, answers);
+    const base = listItem(r, names, attached && !attached.deleted && !attached.hidden ? { id: r.taskId!, key: attached.key, title: attached.title, done: attached.done } : null, answers);
     return {
       ...base,
       description: r.description,
@@ -310,8 +343,10 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       signatures: [...signatures].sort(byRole).map(signatureView),
       followUps: followUps.map((x) => {
         const t = x.taskId ? tasks.get(x.taskId) : undefined;
+        if (t?.hidden) return { itemId: x.itemId, task: null, pending: false, moved: true };
         return { itemId: x.itemId, task: x.taskId && t ? { id: x.taskId, key: t.key, title: t.title, deleted: t.deleted, done: t.done } : null, pending: x.taskId === null };
       }),
+      revision: r.revision,
       permissions,
       signatureRoles: signatureRolesOf(r.structure, requiredSignatures(r.structure)),
       ...(extra.offer ? { taskOffer: await taskOffer(actor, r) } : {}),
@@ -378,7 +413,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       if (!(await ports.canViewProject(actor.id, actor.roles, projectId))) throw new NotFoundError('Project not found.');
       const project = await ports.project(projectId);
       if (!project) throw new NotFoundError('Project not found.');
-      return { inspections: await listItems(await store.listForProject(projectId)), canStart: project.status !== 'ARCHIVED' };
+      return { inspections: await listItems(actor, await store.listForProject(projectId)), canStart: project.status !== 'ARCHIVED' };
     },
 
     async start(actor: Actor, projectId: string, body: unknown): Promise<InspectionDetail> {
@@ -435,13 +470,15 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         const note = w.note?.trim() ? w.note.trim() : null;
         if (note && note.length > L.noteMax) throw new ValidationError(`A note can have at most ${L.noteMax} characters.`);
         const result: ItemResult | null = effectiveResult(item, { result: w.result, reading });
-        // A device clock running ahead can't make its edits win every later one.
-        const editedAt = new Date(Math.min(Date.parse(w.editedAt), at));
+        // A device clock running ahead can't make its edits win every later one; one that was reset
+        // (a date before 2001) is held to the server's time too.
+        const sent = Date.parse(w.editedAt);
+        const editedAt = new Date(sent < OLDEST_EDIT || sent > at ? at : sent);
         return { itemId: item.id, result, reading, note, editedAt };
       });
       const out = await store.writeAnswers(r.id, actor.id, writes, counter(r.structure));
       if (out.kind !== 'ok') return refused(out);
-      const [item] = await listItems([out.inspection]);
+      const [item] = await listItems(actor, [out.inspection]);
       return { results: out.results.map((x) => ({ itemId: x.itemId, status: x.status, answer: answerView(x.answer) })), inspection: item! };
     },
 
@@ -452,8 +489,14 @@ export function createInspectionService(deps: InspectionServiceDeps) {
      */
     async finish(actor: Actor, id: string, body: unknown): Promise<InspectionDetail> {
       const r = await viewable(actor, id);
-      await writableProject(r.projectId);
       const input = parse(finishBody, body);
+      // A repeat of the finish that was applied (its reply was lost): it is finished, whatever happened since.
+      if (r.status === 'FINISHED' && r.finishId === input.finishId) return detail(actor, r, { offer: true });
+      await writableProject(r.projectId);
+      // Refused before any picture is looked at (the locked step below decides again).
+      if (r.status === 'FINISHED') throw alreadyFinished();
+      if (r.inspectorId !== actor.id) return refused({ kind: 'not-inspector', inspectorId: r.inspectorId });
+      if (r.revision !== input.revision) throw reopenedSince();
       const allowed = new Set(allowedSignatures(r.structure));
       const roles = new Set<SignatureRole>();
       const at = now();
@@ -484,9 +527,10 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         const missingSignatures = required.filter((role) => !roles.has(role));
         return unanswered.length || missingSignatures.length ? { code: 'INCOMPLETE', unanswered, missingSignatures } : null;
       };
-      const out = await store.finish(r.id, actor.id, { finishId: input.finishId, at, signatures, check, count: counter(r.structure) });
+      const out = await store.finish(r.id, actor.id, { finishId: input.finishId, revision: input.revision, at, signatures, check, count: counter(r.structure) });
       if (out.kind === 'already') return detail(actor, out.inspection, { offer: true });
-      if (out.kind === 'finished-other') throw new ConflictError('This inspection was already finished (on another device, or by another finish).', 'ALREADY_FINISHED');
+      if (out.kind === 'finished-other') throw alreadyFinished();
+      if (out.kind === 'stale-revision') throw reopenedSince();
       if (out.kind === 'problem') {
         const p = out.problem;
         if (p.code === 'CHANGED') {
@@ -536,6 +580,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       const manage = await ports.canManageProject(actor.id, actor.roles, r.projectId);
       const ownInProgress = r.status === 'IN_PROGRESS' && r.inspectorId === actor.id;
       if (!manage && !ownInProgress) throw new ForbiddenError('Only the inspector (while it is in progress), this project’s owner, its managers or an administrator can delete it.');
+      await writableProject(r.projectId);
       if (await store.deleteInspection(r.id)) await audit(actor, 'inspections', 'inspection.deleted', r.id, { projectId: r.projectId, title: r.title, status: r.status, ...(r.clientVisible ? { wasShownToClient: true } : {}) });
     },
 
@@ -556,34 +601,42 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       type Made = { itemId: string; status: 'created' | 'exists' | 'pending' | 'not-failed'; task: { id: string; key: string; title: string } | null };
       const results: Made[] = [];
       const created: Array<{ key: string; item: string }> = [];
-      for (const itemId of itemIds) {
-        const { item, section } = sections.get(itemId)!;
-        const answer = answers.get(itemId);
-        if (effectiveResult(item, answer) !== 'FAIL') {
-          results.push({ itemId, status: 'not-failed', task: null });
-          continue;
+      try {
+        for (const itemId of itemIds) {
+          const { item, section } = sections.get(itemId)!;
+          const answer = answers.get(itemId);
+          if (effectiveResult(item, answer) !== 'FAIL') {
+            results.push({ itemId, status: 'not-failed', task: null });
+            continue;
+          }
+          const at = now();
+          const claim = await store.claimFollowUp(r.id, itemId, actor.id, at, new Date(at.getTime() - CLAIM_STALE_MS));
+          if (!claim.claimed) {
+            const t = claim.existing.taskId ? (await tasksFor(actor, r.projectId, [claim.existing.taskId])).get(claim.existing.taskId) : undefined;
+            results.push(
+              claim.existing.taskId ? { itemId, status: 'exists', task: t && !t.hidden ? { id: claim.existing.taskId, key: t.key, title: t.title } : null } : { itemId, status: 'pending', task: null },
+            );
+            continue;
+          }
+          let task: { id: string; key: string; title: string };
+          try {
+            const title = `Follow up: ${item.label}`.slice(0, 191);
+            task = await ports.createTask({ projectId: r.projectId, title, description: followUpDescription(r, section, item, answer), createdById: actor.id, assigneeIds });
+          } catch (err) {
+            await store.releaseFollowUp(r.id, itemId).catch(() => undefined);
+            throw err;
+          }
+          // The task exists now: its item must point at it (tried twice; a claim left without its task
+          // would be taken over later and a second task made).
+          await store.completeFollowUp(r.id, itemId, task.id).catch(() => store.completeFollowUp(r.id, itemId, task.id));
+          await activity(task.id, actor.id, 'INSPECTION_FOLLOW_UP', { inspectionId: r.id, inspection: r.title, item: item.label });
+          results.push({ itemId, status: 'created', task: { id: task.id, key: task.key, title: task.title } });
+          created.push({ key: task.key, item: item.label });
         }
-        const at = now();
-        const claim = await store.claimFollowUp(r.id, itemId, actor.id, at, new Date(at.getTime() - CLAIM_STALE_MS));
-        if (!claim.claimed) {
-          const t = claim.existing.taskId ? (await ports.taskSummaries([claim.existing.taskId])).get(claim.existing.taskId) : undefined;
-          results.push(claim.existing.taskId && t ? { itemId, status: 'exists', task: { id: claim.existing.taskId, key: t.key, title: t.title } } : { itemId, status: 'pending', task: null });
-          continue;
-        }
-        let task: { id: string; key: string; title: string };
-        try {
-          const title = `Follow up: ${item.label}`.slice(0, 191);
-          task = await ports.createTask({ projectId: r.projectId, title, description: followUpDescription(r, section, item, answer), createdById: actor.id, assigneeIds });
-        } catch (err) {
-          await store.releaseFollowUp(r.id, itemId).catch(() => undefined);
-          throw err;
-        }
-        await store.completeFollowUp(r.id, itemId, task.id);
-        await activity(task.id, actor.id, 'INSPECTION_FOLLOW_UP', { inspectionId: r.id, inspection: r.title, item: item.label });
-        results.push({ itemId, status: 'created', task: { id: task.id, key: task.key, title: task.title } });
-        created.push({ key: task.key, item: item.label });
+      } finally {
+        // Tasks made before a failure are audited too (a retry finds them made and says "exists").
+        if (created.length) await audit(actor, 'inspections', 'inspection.follow-ups', r.id, { projectId: r.projectId, tasks: created.map((c) => c.key), items: created.map((c) => c.item) });
       }
-      if (created.length) await audit(actor, 'inspections', 'inspection.follow-ups', r.id, { projectId: r.projectId, tasks: created.map((c) => c.key), items: created.map((c) => c.item) });
       return results;
     },
 
@@ -597,9 +650,9 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       let followUpOf: { inspection: InspectionListItem; item: string } | null = null;
       if (of && (await ports.canViewProject(actor.id, actor.roles, of.inspection.projectId))) {
         const label = itemsOf(of.inspection.structure).find((i) => i.id === of.itemId)?.label ?? 'An item';
-        followUpOf = { inspection: (await listItems([of.inspection]))[0]!, item: label };
+        followUpOf = { inspection: (await listItems(actor, [of.inspection]))[0]!, item: label };
       }
-      return { attached: await listItems(visible), followUpOf };
+      return { attached: await listItems(actor, visible), followUpOf };
     },
 
     // ── Client view ─────────────────────────────────────────────────────────────────────────
@@ -644,9 +697,13 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       if (!project) throw new NotFoundError('Project not found.');
       const names = await ports.userNames([r.inspectorId]);
       const taskIds = [...new Set([...followUps.map((x) => x.taskId).filter((t): t is string => !!t), ...(r.taskId ? [r.taskId] : [])])];
-      const tasks = taskIds.length ? await ports.taskSummaries(taskIds) : new Map<string, { key: string; title: string; deleted: boolean; done: boolean }>();
-      const followUpKeys = new Map(followUps.flatMap((x) => (x.taskId && tasks.get(x.taskId) && !tasks.get(x.taskId)!.deleted ? [[x.itemId, tasks.get(x.taskId)!.key] as const] : [])));
-      const attached = r.taskId ? tasks.get(r.taskId) : undefined;
+      const tasks = await tasksFor(actor, r.projectId, taskIds);
+      const shown = (taskId: string | null) => {
+        const t = taskId ? tasks.get(taskId) : undefined;
+        return t && !t.deleted && !t.hidden ? t : undefined;
+      };
+      const followUpKeys = new Map(followUps.flatMap((x) => (shown(x.taskId) ? [[x.itemId, shown(x.taskId)!.key] as const] : [])));
+      const attached = shown(r.taskId);
       return {
         project,
         report: clientInspection(r, answers, signatures, timeZone),
@@ -654,7 +711,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
           inspector: personOf(r.inspectorId, names).name,
           startedAt: r.startedAt.toISOString(),
           finishedAt: r.finishedAt?.toISOString() ?? null,
-          task: attached && !attached.deleted ? `${attached.key} · ${attached.title}` : null,
+          task: attached ? `${attached.key} · ${attached.title}` : null,
           followUps: r.structure.sections.map((s) => s.items.map((i) => followUpKeys.get(i.id) ?? null)),
         },
         counts: countsOf(r, answers),

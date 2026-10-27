@@ -1260,6 +1260,8 @@ model Inspection {
   finishedAt             DateTime?
   /// The device's id for the finish that was applied: sending the same finish again is a no-op.
   finishId               String?               @db.VarChar(64)
+  /// Goes up with each reopen: a finish signed before a reopen (a reply lost, then sent again) is refused.
+  revision               Int                   @default(0)
   /// Counts as of finishing (and kept up to date while in progress), for lists.
   itemCount              Int                   @default(0)
   passedCount            Int                   @default(0)

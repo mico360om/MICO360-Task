@@ -56,9 +56,9 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
     async taskSummaries(ids) {
       const rows = await prisma.task.findMany({
         where: { id: { in: ids } },
-        select: { id: true, key: true, title: true, deletedAt: true, completedAt: true, column: { select: { category: true } } },
+        select: { id: true, key: true, title: true, projectId: true, deletedAt: true, completedAt: true, column: { select: { category: true } } },
       });
-      return new Map(rows.map((t) => [t.id, { key: t.key, title: t.title, deleted: t.deletedAt !== null, done: isTaskDone({ completedAt: t.completedAt, columnCategory: t.column?.category ?? null }) }]));
+      return new Map(rows.map((t) => [t.id, { key: t.key, title: t.title, projectId: t.projectId, deleted: t.deletedAt !== null, done: isTaskDone({ completedAt: t.completedAt, columnCategory: t.column?.category ?? null }) }]));
     },
     canViewTask: (u, r, t) => d.access.canViewTask(u, r, t),
     async doneColumnOf(projectId) {

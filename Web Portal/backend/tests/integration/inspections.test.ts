@@ -85,7 +85,7 @@ describe('inspections in the database', () => {
     const late = { ...edits[19]!, editedAt: new Date(Date.UTC(2026, 9, 27, 9)) };
     const [w, fin] = await Promise.all([
       store.writeAnswers(i.id, ownerId, [late], count),
-      store.finish(i.id, ownerId, { finishId: 'f1', at: new Date(), signatures: [], check: (all) => (all.length === 20 ? null : `only ${all.length}`), count }),
+      store.finish(i.id, ownerId, { finishId: 'f1', revision: 0, at: new Date(), signatures: [], check: (all) => (all.length === 20 ? null : `only ${all.length}`), count }),
     ]);
     const stored = await store.answers(i.id);
     const after = (await store.findInspection(i.id))!;
@@ -120,6 +120,7 @@ describe('inspections in the database', () => {
     await store.writeAnswers(i.id, ownerId, all, count);
     const fin = await store.finish(i.id, ownerId, {
       finishId: 'f1',
+      revision: 0,
       at: new Date(),
       signatures: [{ role: 'INSPECTOR', name: 'عمر أحمد', method: 'DRAWN', image, signedAt: new Date(), capturedById: ownerId }],
       check: () => null,

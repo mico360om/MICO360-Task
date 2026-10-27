@@ -66,7 +66,7 @@ export function inspectionStoreContract(name: string, setup: () => Promise<Inspe
     const write = (id: string, itemId: string, editedAt: string, value: Partial<AnswerRecord> = {}, actor = 'u-insp') =>
       store.writeAnswers(id, actor, [{ itemId, result: 'PASS', reading: null, note: null, editedAt: t(editedAt), ...value }], countAll);
     const finish = (id: string, finishId = 'fin-1', check: (a: AnswerRecord[]) => string | null = () => null, actor = 'u-insp') =>
-      store.finish(id, actor, { finishId, at: t('2026-10-27T09:31:00Z'), signatures: [sig('INSPECTOR', 'Omar Ahmed'), sig('CLIENT', 'Fatma Al Balushi', null)], check, count: countAll });
+      store.finish(id, actor, { finishId, revision: 0, at: t('2026-10-27T09:31:00Z'), signatures: [sig('INSPECTOR', 'Omar Ahmed'), sig('CLIENT', 'Fatma Al Balushi', null)], check, count: countAll });
 
     describe('forms', () => {
       it('keeps a form with its checklist, and lists the live ones by title', async () => {
@@ -182,9 +182,26 @@ export function inspectionStoreContract(name: string, setup: () => Promise<Inspe
 
         expect(await finish(i.id, 'fin-1')).toMatchObject({ kind: 'already' });
         // Another finish (other signatures) can't replace them.
-        const other = await store.finish(i.id, 'u-insp', { finishId: 'fin-2', at: t('2026-10-27T10:00:00Z'), signatures: [sig('INSPECTOR', 'Someone Else')], check: () => null, count: countAll });
+        const other = await store.finish(i.id, 'u-insp', { finishId: 'fin-2', revision: 0, at: t('2026-10-27T10:00:00Z'), signatures: [sig('INSPECTOR', 'Someone Else')], check: () => null, count: countAll });
         expect(other).toMatchObject({ kind: 'finished-other' });
         expect((await store.signatures(i.id)).find((s) => s.role === 'INSPECTOR')!.name).toBe('Omar Ahmed');
+      });
+
+      it('a finish signed before a reopen can’t finish it again (its revision moved on)', async () => {
+        const i = await start();
+        expect(i.revision).toBe(0);
+        await write(i.id, 'c', '2026-10-27T08:10:00Z');
+        await finish(i.id, 'fin-1');
+        expect(await store.reopen(i.id)).toBe(true);
+        expect((await store.findInspection(i.id))!.revision).toBe(1);
+        // The same finish again (its reply was lost before the reopen): refused, nothing changes.
+        const replay = await finish(i.id, 'fin-1');
+        expect(replay).toMatchObject({ kind: 'stale-revision', revision: 1 });
+        expect((await store.findInspection(i.id))!.status).toBe('IN_PROGRESS');
+        expect(await store.signatures(i.id)).toEqual([]);
+        // Signed again for this revision: it finishes.
+        const again = await store.finish(i.id, 'u-insp', { finishId: 'fin-2', revision: 1, at: t('2026-10-27T09:40:00Z'), signatures: [sig('INSPECTOR', 'Omar Ahmed')], check: () => null, count: countAll });
+        expect(again).toMatchObject({ kind: 'ok', inspection: { status: 'FINISHED', revision: 1 } });
       });
 
       it('lets only its inspector finish it', async () => {

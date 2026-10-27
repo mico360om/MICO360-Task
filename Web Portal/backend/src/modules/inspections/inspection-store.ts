@@ -43,6 +43,8 @@ export interface InspectionRecord {
   startedAt: Date;
   finishedAt: Date | null;
   finishId: string | null;
+  /** Goes up with each reopen (a finish says which revision it signed). */
+  revision: number;
   counts: Counts;
   clientVisible: boolean;
   clientVisibleProjectId: string | null;
@@ -98,6 +100,8 @@ export type FinishResult<P> =
   | { kind: 'already'; inspection: InspectionRecord }
   /** Finished already by another finish. */
   | { kind: 'finished-other'; inspection: InspectionRecord }
+  /** Reopened since it was signed (a finish signed for an earlier revision). */
+  | { kind: 'stale-revision'; revision: number }
   | { kind: 'problem'; problem: P }
   | { kind: 'ok'; inspection: InspectionRecord };
 
@@ -143,15 +147,16 @@ export interface InspectionStore {
    */
   writeAnswers(inspectionId: string, actorId: string, writes: AnswerWrite[], count: (answers: AnswerRecord[]) => Counts): Promise<WriteResult>;
   /**
-   * Finishes it, with these signatures, if `check` (given every stored answer) finds no problem. A
-   * repeat of the finish that was applied (`finishId`) is 'already'.
+   * Finishes it, with these signatures, if it is still at the revision it was signed at and `check`
+   * (given every stored answer) finds no problem. A repeat of the finish that was applied
+   * (`finishId`) is 'already'.
    */
   finish<P>(
     inspectionId: string,
     actorId: string,
-    input: { finishId: string; at: Date; signatures: SignatureRecord[]; check: (answers: AnswerRecord[]) => P | null; count: (answers: AnswerRecord[]) => Counts },
+    input: { finishId: string; revision: number; at: Date; signatures: SignatureRecord[]; check: (answers: AnswerRecord[]) => P | null; count: (answers: AnswerRecord[]) => Counts },
   ): Promise<FinishResult<P>>;
-  /** Back in progress, without its signatures and off the client page. False unless it was finished. */
+  /** Back in progress (a new revision), without its signatures and off the client page. False unless it was finished. */
   reopen(inspectionId: string): Promise<boolean>;
   /** A new inspector, while in progress (false otherwise). */
   takeOver(inspectionId: string, userId: string): Promise<boolean>;
@@ -263,6 +268,7 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
         startedAt: d.at,
         finishedAt: null,
         finishId: null,
+        revision: 0,
         counts: { itemCount: d.itemCount, passed: 0, failed: 0, na: 0 },
         clientVisible: false,
         clientVisibleProjectId: null,
@@ -317,6 +323,7 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
       if (r && r.status === 'FINISHED') return r.finishId === input.finishId ? { kind: 'already', inspection: strip(r) } : { kind: 'finished-other', inspection: strip(r) };
       const refused = refusal(r, actorId);
       if (refused) return refused;
+      if (r!.revision !== input.revision) return { kind: 'stale-revision', revision: r!.revision };
       const all = [...answersOf(id).values()].map(copy);
       const problem = input.check(all);
       if (problem !== null) return { kind: 'problem', problem };
@@ -328,7 +335,7 @@ export function createMemoryInspectionStore(opts: { now?: () => Date } = {}): Me
       const r = live(id);
       if (!r || r.status !== 'FINISHED') return false;
       signatures.delete(id);
-      Object.assign(r, { status: 'IN_PROGRESS', finishedAt: null, finishId: null, clientVisible: false, clientVisibleProjectId: null, updatedAt: now() });
+      Object.assign(r, { status: 'IN_PROGRESS', finishedAt: null, finishId: null, revision: r.revision + 1, clientVisible: false, clientVisibleProjectId: null, updatedAt: now() });
       return true;
     },
     async takeOver(id, userId) {

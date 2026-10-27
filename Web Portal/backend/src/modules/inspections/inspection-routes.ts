@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { HttpError } from '../../lib/http-errors';
 import type { AuthGuard } from '../auth/auth-guard';
 import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from './inspection-report-pdf';
 import type { Actor, InspectionService } from './inspection-service';
@@ -99,11 +100,26 @@ export async function registerInspectionRoutes(app: FastifyInstance, deps: Inspe
 
   app.get('/tasks/:id/inspections', auth, async (req) => ({ data: await service.forTask(actor(req), params(req).id) }));
 
-  const perUser = {
-    config: { rateLimit: { max: deps.pdfsPerMinute ?? 20, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `inspection-pdf:${req.user?.id ?? req.ip}` } },
+  // A PDF takes real work to make: each person gets `pdfsPerMinute` a minute. Counted here, after the
+  // sign-in check, so it is per person — the rate-limit plugin runs before it and would only see the
+  // address, which a whole office shares.
+  const pdfLimit = deps.pdfsPerMinute ?? 20;
+  const pdfsMade = new Map<string, number[]>();
+  const allowPdf = (userId: string): boolean => {
+    const at = Date.now();
+    const recent = (pdfsMade.get(userId) ?? []).filter((t) => at - t < 60_000);
+    if (recent.length >= pdfLimit) {
+      pdfsMade.set(userId, recent);
+      return false;
+    }
+    recent.push(at);
+    pdfsMade.set(userId, recent);
+    if (pdfsMade.size > 5000) for (const [k, v] of pdfsMade) if (!v.some((t) => at - t < 60_000)) pdfsMade.delete(k);
+    return true;
   };
-  app.get('/inspections/:id/report.pdf', { ...auth, ...perUser }, async (req, reply) => {
+  app.get('/inspections/:id/report.pdf', auth, async (req, reply) => {
     const who = actor(req);
+    if (!allowPdf(who.id)) throw new HttpError('Too many reports in a minute. Please wait a moment and try again.', 'RATE_LIMITED', 429);
     const r = await service.reportOf(who, params(req).id, deps.timeZone);
     const image = r.project.imageUrl && deps.projectImage ? await deps.projectImage(r.project.imageUrl).catch(() => null) : null;
     const pdf = buildInspectionPdf({

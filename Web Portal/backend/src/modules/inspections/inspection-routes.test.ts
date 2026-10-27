@@ -121,7 +121,7 @@ describe('inspection routes', () => {
       ],
     });
     const seen = (await call('GET', `/inspections/${insp.id}`, inspector)).json().data.answers.map((a: { itemId: string; editedAt: string }) => ({ itemId: a.itemId, editedAt: a.editedAt }));
-    const body = { finishId: 'b8b2c8c0-finish', seen, signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'DRAWN', image: await pngDataUrl(600, 200), signedAt: '2026-10-27T08:30:00Z' }] };
+    const body = { finishId: 'b8b2c8c0-finish', revision: 0, seen, signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'DRAWN', image: await pngDataUrl(600, 200), signedAt: '2026-10-27T08:30:00Z' }] };
     expect((await call('GET', `/inspections/${insp.id}/report.pdf`, member)).statusCode).toBe(409);
     const done = await call('POST', `/inspections/${insp.id}/finish`, inspector, body);
     expect(done.statusCode).toBe(200);
@@ -143,7 +143,7 @@ describe('inspection routes', () => {
   it('refuse a finish whose body is too big, rather than storing it', async () => {
     const { insp } = await startedByIvan();
     const huge = `data:image/png;base64,${'A'.repeat(5 * 1024 * 1024)}`;
-    const r = await call('POST', `/inspections/${insp.id}/finish`, inspector, { finishId: 'x1', seen: [], signatures: [{ role: 'INSPECTOR', name: 'I', method: 'DRAWN', image: huge, signedAt: '2026-10-27T08:30:00Z' }] });
+    const r = await call('POST', `/inspections/${insp.id}/finish`, inspector, { finishId: 'x1', revision: 0, seen: [], signatures: [{ role: 'INSPECTOR', name: 'I', method: 'DRAWN', image: huge, signedAt: '2026-10-27T08:30:00Z' }] });
     expect([400, 413]).toContain(r.statusCode);
   });
 
@@ -167,7 +167,7 @@ describe('inspection routes', () => {
     });
     expect((await call('GET', `/inspections/${insp.id}/client-visibility/preview`, owner)).statusCode).toBe(409);
     const seen = (await call('GET', `/inspections/${insp.id}`, inspector)).json().data.answers.map((a: { itemId: string; editedAt: string }) => ({ itemId: a.itemId, editedAt: a.editedAt }));
-    await call('POST', `/inspections/${insp.id}/finish`, inspector, { finishId: 'fin-x', seen, signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'TYPED', signedAt: '2026-10-27T08:30:00Z' }] });
+    await call('POST', `/inspections/${insp.id}/finish`, inspector, { finishId: 'fin-x', revision: 0, seen, signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'TYPED', signedAt: '2026-10-27T08:30:00Z' }] });
     expect((await call('GET', `/inspections/${insp.id}/client-visibility/preview`, member)).statusCode).toBe(403);
     const preview = (await call('GET', `/inspections/${insp.id}/client-visibility/preview`, owner)).json().data;
     expect(preview.inspection).toMatchObject({ title: 'Rig daily check', result: 'Passed', signatures: [{ role: 'Inspector', name: 'Ivan Inspector', typed: true }] });
@@ -187,5 +187,16 @@ describe('inspection routes', () => {
     const gone = await call('GET', `/inspections/${insp.id}`, owner);
     expect(gone.statusCode).toBe(404);
     expect(gone.json().error.code).toBe('INSPECTION_GONE');
+  });
+
+  it('limit report PDFs per person, not per office (everyone behind one address)', async () => {
+    const limited = await buildApp({ tokenService, authService, rateLimitMax: 100_000, inspections: { service: f.service, timeZone: 'Asia/Muscat', pdfsPerMinute: 2 } });
+    const pdf = async (who: string) => limited.inject({ method: 'GET', url: '/api/v1/inspections/nope/report.pdf', headers: await bearer(who) });
+    expect((await pdf(member)).statusCode).toBe(404);
+    expect((await pdf(member)).statusCode).toBe(404);
+    const third = await pdf(member);
+    expect(third.statusCode).toBe(429);
+    expect(third.json().error.code).toBe('RATE_LIMITED');
+    expect((await pdf(owner)).statusCode).toBe(404);
   });
 });

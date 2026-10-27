@@ -42,7 +42,7 @@ async function answeredAll(s: Awaited<ReturnType<typeof started>>, pressure = '1
 const seenOf = (detail: { answers: Array<{ itemId: string; editedAt: string }> }) => detail.answers.map((a) => ({ itemId: a.itemId, editedAt: a.editedAt }));
 async function finishBody(id: string, over: Record<string, unknown> = {}) {
   const detail = await f.service.get(as(inspector), id);
-  return { finishId: 'fin-1', seen: seenOf(detail), signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'DRAWN', image: await pngDataUrl(), signedAt: '2026-10-27T08:30:00Z' }], ...over };
+  return { finishId: 'fin-1', revision: detail.revision, seen: seenOf(detail), signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'DRAWN', image: await pngDataUrl(), signedAt: '2026-10-27T08:30:00Z' }], ...over };
 }
 
 describe('forms: who may manage them', () => {
@@ -454,5 +454,85 @@ describe('reading an inspection', () => {
     expect((await f.service.get(as(member), s.insp.id)).permissions).toEqual({ canAnswer: false, canFinish: false, canReopen: false, canTakeOver: false, canDelete: false, canShowToClient: false, canMakeFollowUps: true });
     expect((await f.service.get(as(owner), s.insp.id)).permissions).toMatchObject({ canAnswer: false, canTakeOver: true, canDelete: true });
     await rejects(f.service.get(as(outsider), s.insp.id), 404);
+  });
+});
+
+describe('review fixes', () => {
+  async function finished() {
+    const s = await started();
+    await answeredAll(s);
+    const body = await finishBody(s.insp.id);
+    await f.service.finish(as(inspector), s.insp.id, body);
+    return { ...s, body };
+  }
+
+  it('a finish whose reply was lost, sent again after a reopen, doesn’t finish it again with the old signatures', async () => {
+    const s = await finished();
+    await f.service.reopen(as(manager), s.insp.id);
+    const err = (await rejects(f.service.finish(as(inspector), s.insp.id, s.body), 409, 'INSPECTION_REOPENED')) as { message: string };
+    expect(err.message).toMatch(/reopened/);
+    const now = await f.service.get(as(inspector), s.insp.id);
+    expect(now).toMatchObject({ status: 'IN_PROGRESS', signatures: [], revision: 1 });
+    expect(f.audit.filter((a) => a.action === 'inspection.finished')).toHaveLength(1);
+    // Signed again for the new revision, it finishes.
+    await expect(f.service.finish(as(inspector), s.insp.id, await finishBody(s.insp.id, { finishId: 'fin-2' }))).resolves.toMatchObject({ status: 'FINISHED', revision: 1 });
+  });
+
+  it('says the same "not there" to someone outside the project as for a deleted one', async () => {
+    const s = await started();
+    const outside = (await rejects(f.service.get(as(outsider), s.insp.id), 404)) as { code: string; message: string };
+    const missing = (await rejects(f.service.get(as(outsider), 'no-such-inspection'), 404)) as { code: string; message: string };
+    expect([outside.code, outside.message]).toEqual([missing.code, missing.message]);
+  });
+
+  it('keeps an archived project’s inspections: they can’t be deleted', async () => {
+    const s = await started();
+    f.projects.get('P1')!.status = 'ARCHIVED';
+    expect((await f.service.get(as(owner), s.insp.id)).permissions.canDelete).toBe(false);
+    await rejects(f.service.remove(as(owner), s.insp.id), 409, 'PROJECT_ARCHIVED');
+  });
+
+  it('a finish sent again after the project was archived still says it is finished', async () => {
+    const s = await finished();
+    f.projects.get('P1')!.status = 'ARCHIVED';
+    await expect(f.service.finish(as(inspector), s.insp.id, s.body)).resolves.toMatchObject({ status: 'FINISHED' });
+  });
+
+  it('refuses someone who isn’t the inspector before looking at their signature', async () => {
+    const s = await started();
+    await answeredAll(s);
+    const body = await finishBody(s.insp.id);
+    const before = f.cleaned.count;
+    await rejects(f.service.finish(as(member), s.insp.id, body), 409, 'NOT_THE_INSPECTOR');
+    expect(f.cleaned.count).toBe(before);
+    await f.service.finish(as(inspector), s.insp.id, body);
+    expect(f.cleaned.count).toBe(before + 1);
+  });
+
+  it('writes the audit line for the tasks made before one failed, and makes no second task for them', async () => {
+    const s = await started();
+    await f.service.answer(as(inspector), s.insp.id, [edit(s.valves, { result: 'FAIL' }), edit(s.rails, { result: 'FAIL' })]);
+    f.failTaskNumber.n = 2;
+    await expect(f.service.makeFollowUps(as(member), s.insp.id, { itemIds: [s.valves, s.rails] })).rejects.toThrow('database down');
+    expect(f.audit.find((a) => a.action === 'inspection.follow-ups')).toMatchObject({ newValue: { tasks: [[...f.tasks.values()][0]!.key] } });
+    await f.service.makeFollowUps(as(member), s.insp.id, { itemIds: [s.valves, s.rails] });
+    expect([...f.tasks.values()].map((t) => t.title)).toEqual(['Follow up: Valves closed', 'Follow up: Guard rails fitted']);
+  });
+
+  it('names a follow-up task moved to a project the reader can’t see only as moved', async () => {
+    const s = await started();
+    await f.service.answer(as(inspector), s.insp.id, [edit(s.rails, { result: 'FAIL' })]);
+    const [made] = await f.service.makeFollowUps(as(member), s.insp.id, { itemIds: [s.rails] });
+    f.tasks.get(made!.task!.id)!.projectId = 'P2';
+    const forMember = await f.service.get(as(member), s.insp.id);
+    expect(forMember.followUps).toEqual([{ itemId: s.rails, task: null, pending: false, moved: true }]);
+    const forAdmin = await f.service.get(as(admin), s.insp.id);
+    expect(forAdmin.followUps[0]!.task).toMatchObject({ key: made!.task!.key });
+  });
+
+  it('holds an absurd device date (a phone whose clock was reset) to the server’s time', async () => {
+    const s = await started();
+    const r = await f.service.answer(as(inspector), s.insp.id, [edit(s.valves, { result: 'PASS' }, '0999-01-01T00:00:00.000Z')]);
+    expect(r.results[0]!.answer.editedAt).toBe(f.now.at.toISOString());
   });
 });

@@ -46,6 +46,7 @@ const toInspection = (r: InspectionRow): InspectionRecord => ({
   startedAt: r.startedAt,
   finishedAt: r.finishedAt,
   finishId: r.finishId,
+  revision: r.revision,
   counts: { itemCount: r.itemCount, passed: r.passedCount, failed: r.failedCount, na: r.naCount },
   clientVisible: r.clientVisible,
   clientVisibleProjectId: r.clientVisibleProjectId,
@@ -253,6 +254,7 @@ export function createPrismaInspectionStore(prisma: PrismaClient): InspectionSto
         }
         const refused = refusal(r, actorId);
         if (refused) return refused;
+        if (r!.revision !== input.revision) return { kind: 'stale-revision' as const, revision: r!.revision };
         const all = (await tx.inspectionAnswer.findMany({ where: { inspectionId: id }, orderBy: { id: 'asc' } })).map(toAnswer);
         const problem = input.check(all);
         if (problem !== null) return { kind: 'problem' as const, problem };
@@ -276,7 +278,7 @@ export function createPrismaInspectionStore(prisma: PrismaClient): InspectionSto
         const r = await lockLive(tx, id);
         if (!r || r.status !== 'FINISHED') return false;
         await tx.inspectionSignature.deleteMany({ where: { inspectionId: id } });
-        await tx.inspection.update({ where: { id }, data: { status: 'IN_PROGRESS', finishedAt: null, finishId: null, clientVisible: false, clientVisibleProjectId: null } });
+        await tx.inspection.update({ where: { id }, data: { status: 'IN_PROGRESS', finishedAt: null, finishId: null, revision: { increment: 1 }, clientVisible: false, clientVisibleProjectId: null } });
         return true;
       }, TX);
     },

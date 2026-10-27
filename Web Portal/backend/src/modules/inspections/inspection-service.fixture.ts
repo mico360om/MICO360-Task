@@ -33,6 +33,10 @@ export interface Fixture {
   /** Makes createTask wait for this before it answers (to send two requests at once). */
   gate: { wait: Promise<void> | null };
   failNextTask: { yes: boolean };
+  /** Makes the n-th task made from now fail (1: the next one; 0: none). */
+  failTaskNumber: { n: number };
+  /** How many signatures were cleaned (drawn ones go through the picture library). */
+  cleaned: { count: number };
   addTask(projectId: string, title?: string): FakeTask;
 }
 
@@ -59,6 +63,8 @@ export function makeFixture(): Fixture {
   const audit: Fixture['audit'] = [];
   const gate: Fixture['gate'] = { wait: null };
   const failNextTask = { yes: false };
+  const failTaskNumber = { n: 0 };
+  const cleaned = { count: 0 };
   let n = 0;
   const addTask = (projectId: string, title = 'Inspect rig 3'): FakeTask => {
     const t: FakeTask = { id: `t${++n}`, key: `RIG-${n}`, title, projectId, description: null, assigneeIds: [], createdById: PEOPLE.owner, done: false, deleted: false };
@@ -81,7 +87,8 @@ export function makeFixture(): Fixture {
       const t = tasks.get(taskId);
       return t && !t.deleted ? { id: t.id, key: t.key, title: t.title, projectId: t.projectId, done: t.done } : null;
     },
-    taskSummaries: async (ids) => new Map(ids.flatMap((id) => (tasks.has(id) ? [[id, { key: tasks.get(id)!.key, title: tasks.get(id)!.title, deleted: tasks.get(id)!.deleted, done: tasks.get(id)!.done }] as const] : []))),
+    taskSummaries: async (ids) =>
+      new Map(ids.flatMap((id) => (tasks.has(id) ? [[id, { key: tasks.get(id)!.key, title: tasks.get(id)!.title, projectId: tasks.get(id)!.projectId, deleted: tasks.get(id)!.deleted, done: tasks.get(id)!.done }] as const] : []))),
     canViewTask: async (userId, roles, taskId) => {
       const t = tasks.get(taskId);
       return !!t && !t.deleted && (isAdmin(roles) || onTeam(userId, t.projectId));
@@ -101,6 +108,7 @@ export function makeFixture(): Fixture {
         failNextTask.yes = false;
         throw new Error('database down');
       }
+      if (failTaskNumber.n > 0 && --failTaskNumber.n === 0) throw new Error('database down');
       const t = addTask(input.projectId, input.title);
       t.description = input.description;
       t.assigneeIds = input.assigneeIds;
@@ -111,9 +119,13 @@ export function makeFixture(): Fixture {
     peopleNames: async () => ['Olivia Owner', 'Olivia', 'Mona Manager', 'Mona', 'Ivan Inspector', 'Ivan', 'Sam Member', 'Sam'],
     recordActivity: async (e) => void activity.push({ taskId: e.taskId, userId: e.userId, action: e.action, meta: e.meta }),
     audit: { record: async (e) => void audit.push({ userId: e.userId ?? null, action: e.action, module: e.module, entityId: e.entityId, newValue: e.newValue }) },
+    cleanSignature: async (png) => {
+      cleaned.count += 1;
+      return png;
+    },
   };
   const service = createInspectionService({ store, ports, now: () => now.at, newId: (() => { let k = 0; return () => `id${++k}`; })() });
-  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, addTask };
+  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, failTaskNumber, cleaned, addTask };
 }
 
 /** A form body: a reading with limits and two checks over two sections. */

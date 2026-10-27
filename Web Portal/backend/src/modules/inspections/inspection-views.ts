@@ -69,6 +69,8 @@ export interface FollowUpView {
   task: { id: string; key: string; title: string; deleted: boolean; done: boolean } | null;
   /** Its task is being made right now. */
   pending: boolean;
+  /** Its task was moved to a project the reader can't see (so it isn't named). */
+  moved?: boolean;
 }
 
 export interface InspectionPermissions {
@@ -93,6 +95,8 @@ export interface InspectionDetail extends InspectionListItem {
   permissions: InspectionPermissions;
   /** Signatures this form takes, and the ones finishing needs. */
   signatureRoles: { allowed: SignatureRole[]; required: SignatureRole[] };
+  /** Goes up with each reopen: a finish sends the revision its signers saw. */
+  revision: number;
   /** After finishing: the attached task, offered to be marked done (null when there is none, or it is done). */
   taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
 }
