@@ -117,7 +117,7 @@ export function ManagementFilters({ filters, projects, owners, onChange }: { fil
             set({ projectIds, statuses: add.length ? PROJECT_STATUSES.filter((s) => filters.statuses.includes(s) || add.includes(s)) : filters.statuses });
           }}
         />
-        <div className="w-full min-w-0 sm:w-56 [@media(pointer:coarse)]:[&>button]:!min-h-11">
+        <div className="w-full min-w-0 sm:w-56 [@media(pointer:coarse)]:[&_button]:!min-h-11">
           <SearchableSelect
             ariaLabel="Owner"
             value={filters.ownerId ?? ''}

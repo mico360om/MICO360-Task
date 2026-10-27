@@ -281,6 +281,10 @@ describe('ManagementPage', () => {
     const table = within(trends).getByRole('table', { name: /weekly figures/i });
     expect(within(table).getAllByRole('row')).toHaveLength(4);
     expect(table).toHaveTextContent('90%');
+    // On a narrow screen the table scrolls sideways, so the keyboard must be able to reach its box.
+    const box = within(trends).getByRole('region', { name: /weekly figures/i });
+    expect(box).toContainElement(table);
+    expect(box).toHaveAttribute('tabindex', '0');
   });
 
   it('says when there are no projects in scope, and when there are no inspections yet', async () => {
