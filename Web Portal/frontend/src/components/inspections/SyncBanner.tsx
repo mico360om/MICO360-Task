@@ -1,4 +1,5 @@
 import type { DraftView } from '../../lib/inspection-outbox';
+import { useEffect, useRef, useState } from 'react';
 import type { SyncState } from '../../lib/inspection-sync';
 import { InspectIcon } from './inspection-ui';
 
@@ -78,23 +79,30 @@ export function SyncBanner({
   let icon = InspectIcon.cloud;
   let text: string;
   let action: { label: string; run: () => void } | null = null;
-  if (!view.persisted) {
+  const state = syncWord(view, sync, online);
+  if (state === 'memory') {
     tone = 'border-warning/40 bg-warning-soft text-warning';
     icon = InspectIcon.alert;
     text = 'This phone’s storage is full, so your changes are only in this page. Keep it open until they’re sent.';
-  } else if (!waiting) {
+  } else if (state === 'sent') {
     text = view.sentAt ? 'All changes sent.' : 'Saved.';
-  } else if (sync === 'sending') {
+  } else if (state === 'sending') {
     text = `Sending ${waitingWords(pending)}…`;
-  } else if (sync === 'signed-out') {
+  } else if (state === 'signed-out') {
     tone = 'border-warning/40 bg-warning-soft text-warning';
     icon = InspectIcon.phone;
     text = `Saved on this phone: ${waitingWords(pending)}. Sign in again to send them.`;
-  } else if (sync === 'retry') {
+  } else if (state === 'unreachable') {
+    tone = 'border-info/30 bg-info-soft text-info';
     icon = InspectIcon.phone;
-    text = `Saved on this phone: ${waitingWords(pending)}. The server didn’t answer; trying again shortly.`;
+    text = `Can’t reach the server, will keep trying. Saved on this phone: ${waitingWords(pending)}.`;
     action = { label: 'Try now', run: onRetry };
-  } else if (!online || sync === 'offline') {
+  } else if (state === 'retry') {
+    tone = 'border-info/30 bg-info-soft text-info';
+    icon = InspectIcon.phone;
+    text = `The server had a problem, will keep trying. Saved on this phone: ${waitingWords(pending)}.`;
+    action = { label: 'Try now', run: onRetry };
+  } else if (state === 'offline') {
     tone = 'border-info/30 bg-info-soft text-info';
     icon = InspectIcon.phone;
     text = `Saved on this phone, will send when online: ${waitingWords(pending)}.`;
@@ -106,7 +114,7 @@ export function SyncBanner({
   return (
     <>
       {note}
-      <div role="status" aria-live="polite" data-sync={!view.persisted ? 'memory' : waiting ? (online && sync !== 'offline' ? sync : 'offline') : 'sent'} className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${tone}`}>
+      <div data-testid="sync-state" data-sync={state} className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${tone}`}>
         <p className="flex items-start gap-2">
           <span className="mt-0.5 flex-none">{icon}</span>
           <span>{text}</span>
@@ -118,5 +126,53 @@ export function SyncBanner({
         ) : null}
       </div>
     </>
+  );
+}
+
+export type SyncWord = 'memory' | 'sent' | 'sending' | 'signed-out' | 'unreachable' | 'retry' | 'offline' | 'soon';
+
+/** Where the changes are, in one word (what the banner shows, and what a screen reader is told when it changes). */
+export function syncWord(view: DraftView, sync: SyncState, online: boolean): SyncWord {
+  const waiting = view.pending.answers > 0 || view.pending.followUps > 0 || view.pending.finish;
+  if (!view.persisted) return 'memory';
+  if (!waiting) return 'sent';
+  if (sync === 'sending') return 'sending';
+  if (sync === 'signed-out') return 'signed-out';
+  // A failure the page saw just now, or the one the device remembers (after a reload).
+  const failure = sync === 'offline' || sync === 'unreachable' || sync === 'retry' ? sync : view.lastFailure;
+  if (!online || failure === 'offline') return 'offline';
+  if (failure === 'unreachable') return 'unreachable';
+  if (failure === 'retry') return 'retry';
+  return 'soon';
+}
+
+const ANNOUNCE: Partial<Record<SyncWord, string>> = {
+  offline: 'No signal. Changes are saved on this phone and sent when you’re back online.',
+  unreachable: 'Can’t reach the server. Changes are saved on this phone; it keeps trying.',
+  retry: 'The server had a problem. Changes are saved on this phone; it keeps trying.',
+  memory: 'This phone’s storage is full: changes are only in this page.',
+  'signed-out': 'Signed out. Changes are saved on this phone; sign in again to send them.',
+};
+const AWAY = new Set<SyncWord>(['offline', 'unreachable', 'retry', 'signed-out', 'memory']);
+
+/**
+ * What a screen reader hears: only when it matters — the changes can't be sent (and why), or they
+ * all went once that was over. Not every "Sending…" after every tap.
+ */
+export function SyncAnnouncer({ view, sync, online }: { view: DraftView | null; sync: SyncState; online: boolean }) {
+  const word = view ? syncWord(view, sync, online) : null;
+  const last = useRef<SyncWord | null>(null);
+  const [said, setSaid] = useState('');
+  useEffect(() => {
+    if (!word || word === 'sending' || word === 'soon' || word === last.current) return;
+    const before = last.current;
+    last.current = word;
+    if (AWAY.has(word)) setSaid(ANNOUNCE[word]!);
+    else if (word === 'sent' && before && AWAY.has(before)) setSaid('Back online: all changes sent.');
+  }, [word]);
+  return (
+    <p role="status" aria-live="polite" className="sr-only">
+      {said}
+    </p>
   );
 }

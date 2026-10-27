@@ -119,7 +119,7 @@ describe('carrying out an inspection', () => {
     await userEvent.click(await screen.findByRole('radio', { name: 'Pass' }));
     expect(JSON.parse(localStorage.getItem('mico360.inspection.u-ivan.i1')!).answers.v).toMatchObject({ result: 'PASS' });
     await waitFor(() => expect(server.calls).toContain('PUT /inspections/i1/answers'));
-    await waitFor(() => expect(screen.getByRole('status', { name: '' })).toHaveTextContent('All changes sent.'));
+    await waitFor(() => expect(screen.getByTestId('sync-state')).toHaveTextContent('All changes sent.'));
     expect(server.stored.get('v')).toMatchObject({ result: 'PASS' });
   });
 

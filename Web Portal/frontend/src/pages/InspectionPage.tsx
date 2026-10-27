@@ -17,7 +17,7 @@ import { Button } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { InspectionItem, type ItemAnswer } from '../components/inspections/InspectionItem';
-import { SyncBanner } from '../components/inspections/SyncBanner';
+import { SyncAnnouncer, SyncBanner } from '../components/inspections/SyncBanner';
 import { SignFinishDialog } from '../components/inspections/SignFinishDialog';
 import { InspectionClientSwitch } from '../components/inspections/InspectionClientSwitch';
 import { dateTimeText, InspectIcon, OutcomePill, problemText } from '../components/inspections/inspection-ui';
@@ -248,6 +248,7 @@ export function InspectionPage() {
         </div>
       </div>
 
+      <SyncAnnouncer view={view} sync={sync} online={online} />
       <div className="sticky top-14 z-20 mt-3">
         <SyncBanner
           view={view}
@@ -255,7 +256,7 @@ export function InspectionPage() {
           online={online}
           onRetry={() => {
             if (ownerId) outbox.clearProblem(ownerId, id);
-            void send();
+            void send({ force: true });
           }}
           onDiscard={() => setConfirm('discard')}
           onLookAgain={() => {

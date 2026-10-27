@@ -33,8 +33,9 @@ export interface DraftStorage {
 }
 
 const PREFIX = 'mico360.inspection.';
-/** Server errors in a row before a send is shown as a problem (the person may then try again or throw it away). */
-const MAX_RETRIES = 6;
+/** Waits between tries after a failed send: 5 s, doubling each time, at most 5 minutes. */
+const FIRST_WAIT_MS = 5_000;
+const LONGEST_WAIT_MS = 5 * 60_000;
 /** A problem that holds every send back (the answers were refused). */
 const blocks = (d: { problem: OutboxProblem | null }) => d.problem?.stage === 'answers';
 const keyOf = (ownerId: string, inspectionId: string) => `${PREFIX}${ownerId}.${inspectionId}`;
@@ -136,8 +137,12 @@ interface Draft {
   finish: QueuedFinish | null;
   followUps: Record<string, { assigneeId?: string | null; queuedAt: string }>;
   problem: OutboxProblem | null;
-  /** Server errors in a row (they become a problem after a few, instead of trying for ever). */
-  retries?: number;
+  /** Sends that failed for a reason that passes (no signal, the server unreachable or in trouble), in a row. */
+  failures?: number;
+  /** Not tried again before this (it waits longer after each failure, up to 5 minutes). */
+  retryAt?: string | null;
+  /** Why the last send failed, while it waits. */
+  lastFailure?: TransientState | null;
   /** A finish sent from here went through: its attached task, offered to be marked done (until answered). */
   finishedOffer?: InspectionDetail['taskOffer'] | null;
   savedAt: string;
@@ -161,12 +166,20 @@ export interface DraftView {
   persisted: boolean;
   /** Signed and waiting to finish: no more answers until it is sent or taken back. */
   locked: boolean;
+  /** After a failed send: when it is tried again (null: not waiting). */
+  retryAt: string | null;
+  lastFailure: TransientState | null;
   finishedOffer: InspectionDetail['taskOffer'] | null;
   savedAt: string;
   sentAt: string | null;
 }
 
-export type FlushState = 'sent' | 'offline' | 'signed-out' | 'retry' | 'problem';
+/**
+ * sent: nothing waits. offline: no signal. unreachable: the server can't be reached (502/503/504).
+ * retry: the server had trouble (5xx, 429). signed-out: sign in again. problem: refused (see `problem`).
+ */
+export type FlushState = 'sent' | 'offline' | 'unreachable' | 'retry' | 'signed-out' | 'problem';
+type TransientState = 'offline' | 'unreachable' | 'retry';
 
 export interface WaitingInspection {
   inspectionId: string;
@@ -206,6 +219,8 @@ export function detailView(detail: InspectionDetail): DraftView {
     problem: null,
     persisted: true,
     locked: false,
+    retryAt: null,
+    lastFailure: null,
     finishedOffer: null,
     savedAt: '',
     sentAt: null,
@@ -336,6 +351,8 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       problem: d.problem,
       persisted: !unsaved.has(keyOf(d.ownerId, d.inspectionId)),
       locked: d.finish !== null,
+      retryAt: d.retryAt ?? null,
+      lastFailure: d.lastFailure ?? null,
       finishedOffer: d.finishedOffer ?? null,
       savedAt: d.savedAt,
       sentAt: d.sentAt,
@@ -349,35 +366,42 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
    * answers back. A refusal of the answers stops everything until the person decides.
    */
   function failed(ownerId: string, inspectionId: string, e: unknown, stage: OutboxProblem['stage'], itemIds: string[] = []): { state: FlushState } {
-    if (!(e instanceof ApiError)) return { state: 'offline' };
-    if (e.status === 401) return { state: 'signed-out' };
+    if (e instanceof ApiError && e.status === 401) return { state: 'signed-out' };
+    // Reasons that pass: kept as they are and tried again later, waiting longer each time. They
+    // never become a problem, and never stop anyone answering.
+    const passing: TransientState | null = !(e instanceof ApiError)
+      ? 'offline'
+      : e.status === 502 || e.status === 503 || e.status === 504
+        ? 'unreachable'
+        : e.status === 408 || e.status === 429 || e.status >= 500 || e.code === 'IDEMPOTENCY_IN_PROGRESS'
+          ? 'retry'
+          : null;
     const d = read(ownerId, inspectionId);
-    if (e.status === 408 || e.status === 429 || e.status >= 500 || e.code === 'IDEMPOTENCY_IN_PROGRESS') {
-      if (!d) return { state: 'retry' };
-      d.retries = (d.retries ?? 0) + 1;
-      if (d.retries < MAX_RETRIES) {
+    if (passing) {
+      if (d) {
+        d.failures = (d.failures ?? 0) + 1;
+        d.retryAt = new Date(now().getTime() + Math.min(LONGEST_WAIT_MS, FIRST_WAIT_MS * 2 ** (d.failures - 1))).toISOString();
+        d.lastFailure = passing;
         save(d);
-        return { state: 'retry' };
       }
-      d.retries = 0;
-      d.problem = { code: 'SERVER_ERROR', message: 'The server keeps failing to take these changes. Try again later, or throw them away.', stage: 'answers', at: isoNow(now) };
-      save(d);
-      return { state: 'problem' };
+      return { state: passing };
     }
+    const refused = e as ApiError;
     if (d) {
-      d.problem = { code: e.code, message: problemWords(e, stage), stage, at: isoNow(now) };
+      d.problem = { code: refused.code, message: problemWords(refused, stage), stage, at: isoNow(now) };
       // Signatures were given for answers that the server now holds differently: they sign again.
       if (stage === 'finish') d.finish = null;
       if (stage === 'follow-ups') for (const itemId of itemIds) delete d.followUps[itemId];
-      d.retries = 0;
       save(d);
     }
     return { state: 'problem' };
   }
 
-  /** A send went through: server errors in a row start counting afresh. */
+  /** A send went through: the waits start afresh. */
   function succeeded(d: Draft): void {
-    d.retries = 0;
+    d.failures = 0;
+    d.retryAt = null;
+    d.lastFailure = null;
     d.sentAt = isoNow(now);
   }
 
@@ -469,9 +493,11 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     return null;
   }
 
-  async function run(ownerId: string, inspectionId: string): Promise<{ state: FlushState }> {
+  async function run(ownerId: string, inspectionId: string, force: boolean): Promise<{ state: FlushState }> {
     const d = read(ownerId, inspectionId);
     if (!d) return { state: 'sent' };
+    // Waiting after a failed send (unless asked to try now: back online, "Try now").
+    if (!force && d.retryAt && Date.parse(d.retryAt) > now().getTime() && hasWork(d)) return { state: d.lastFailure ?? 'retry' };
     // Only a refusal of the answers holds everything back (the rest would be refused the same way).
     if (blocks(d)) return { state: 'problem' };
     for (const step of [sendAnswers, sendFollowUps, sendFinish]) {
@@ -602,11 +628,11 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     },
 
     /** Sends what waits for one inspection (one send at a time per inspection). */
-    flush(ownerId: string, inspectionId: string): Promise<{ state: FlushState }> {
+    flush(ownerId: string, inspectionId: string, opts: { force?: boolean } = {}): Promise<{ state: FlushState }> {
       const key = keyOf(ownerId, inspectionId);
       const going = flights.get(key);
       if (going) return going;
-      const p = run(ownerId, inspectionId).finally(() => flights.delete(key));
+      const p = run(ownerId, inspectionId, opts.force === true).finally(() => flights.delete(key));
       flights.set(key, p);
       return p;
     },
@@ -626,13 +652,13 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     },
 
     /** Sends everything the person has waiting (on load, when back online, after signing in). */
-    async flushAll(ownerId: string): Promise<{ sent: number; waiting: number }> {
+    async flushAll(ownerId: string, opts: { force?: boolean } = {}): Promise<{ sent: number; waiting: number }> {
       let sent = 0;
       for (const w of this.waiting(ownerId)) {
         if (w.problem?.stage === 'answers') continue;
-        const r = await this.flush(ownerId, w.inspectionId);
+        const r = await this.flush(ownerId, w.inspectionId, opts);
         if (r.state === 'sent') sent += 1;
-        if (r.state === 'offline' || r.state === 'signed-out') break;
+        if (r.state === 'offline' || r.state === 'unreachable' || r.state === 'signed-out') break;
       }
       return { sent, waiting: this.waiting(ownerId).length };
     },
