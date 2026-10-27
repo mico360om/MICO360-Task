@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, assetUrl } from '../api/client';
 import { usersApi } from '../api/users';
 import { useAuthStore } from '../stores/auth-store';
+import { useSignOut } from '../lib/useSignOut';
+import { SignOutWarning } from '../components/SignOutWarning';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -99,7 +101,8 @@ export function ProfilePage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const setSession = useAuthStore((s) => s.setSession);
-  const logout = useAuthStore((s) => s.logout);
+  // Every sign-out asks first when changes are still on this device (see useSignOut).
+  const { signOut, unsent, cancel } = useSignOut();
 
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const me = Array.isArray(dirQ.data) ? dirQ.data.find((d) => d.id === user?.id) : undefined;
@@ -221,12 +224,13 @@ export function ProfilePage() {
                 Appearance
               </Link>
               <button
-                onClick={logout}
+                onClick={() => signOut()}
                 className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-danger transition-colors hover:border-danger/40 hover:bg-danger-soft"
               >
                 Sign out
               </button>
             </div>
+            {unsent !== null ? <SignOutWarning unsent={unsent} onConfirm={() => signOut({ force: true })} onCancel={cancel} className="mt-3" /> : null}
           </section>
         </div>
       </div>

@@ -2,36 +2,26 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { assetUrl } from '../api/client';
 import { useAuthStore } from '../stores/auth-store';
-import { failedChanges, pendingCount } from '../lib/offline-replay';
-import { inspectionOutbox } from '../lib/inspection-sync';
+import { useSignOut } from '../lib/useSignOut';
+import { SignOutWarning } from './SignOutWarning';
 import { ShortcutHint, useShortcutSettings } from './shortcuts/ShortcutProvider';
 
 /** Header account button + dropdown menu: identity, profile, settings and log out. */
 export function ProfileMenu() {
-  const { user, isAdmin, logout } = useAuthStore();
+  const { user, isAdmin } = useAuthStore();
   const [open, setOpen] = useState(false);
   const { openHelp } = useShortcutSettings();
-  // Unsynced offline changes are discarded on sign-out, so ask first when there are any.
-  const [confirmUnsynced, setConfirmUnsynced] = useState<number | null>(null);
+  // Changes still on this device are discarded on sign-out, so ask first when there are any.
+  const { signOut: signOutNow, unsent, cancel } = useSignOut();
   const ref = useRef<HTMLDivElement>(null);
   const initials = (user?.username ?? '?').slice(0, 2).toUpperCase();
   const admin = isAdmin();
 
   useEffect(() => {
-    if (!open) setConfirmUnsynced(null);
+    if (!open) cancel();
   }, [open]);
 
-  function signOut(force = false) {
-    // Inspection changes still on this device count too (answers, signatures, follow-up requests).
-    const inspections = user ? inspectionOutbox.waiting(user.id).reduce((n, w) => n + w.pending.answers + w.pending.followUps + (w.pending.finish ? 1 : 0), 0) : 0;
-    const unsynced = pendingCount() + failedChanges().length + inspections;
-    if (unsynced > 0 && !force) {
-      setConfirmUnsynced(unsynced);
-      return;
-    }
-    setOpen(false);
-    logout('user');
-  }
+  const signOut = (force = false) => signOutNow({ force, before: () => setOpen(false) });
 
   useEffect(() => {
     if (!open) return;
@@ -123,22 +113,7 @@ export function ProfileMenu() {
             </Link>
           </div>
           <div className="border-t border-line p-1.5">
-            {confirmUnsynced !== null ? (
-              <div role="alert" className="mb-1.5 rounded-lg bg-warning-soft px-2.5 py-2 text-xs text-warning">
-                <p>
-                  {confirmUnsynced} change{confirmUnsynced === 1 ? '' : 's'} made offline {confirmUnsynced === 1 ? 'hasn’t' : 'haven’t'} synced yet and will be
-                  lost if you log out now.
-                </p>
-                <div className="mt-1.5 flex gap-2">
-                  <button type="button" onClick={() => signOut(true)} className="rounded-md bg-danger px-2 py-1 font-semibold text-white">
-                    Log out anyway
-                  </button>
-                  <button type="button" onClick={() => setConfirmUnsynced(null)} className="rounded-md px-2 py-1 font-medium text-ink-2 hover:bg-ground">
-                    Stay signed in
-                  </button>
-                </div>
-              </div>
-            ) : null}
+            {unsent !== null ? <SignOutWarning unsent={unsent} onConfirm={() => signOut(true)} onCancel={cancel} className="mb-1.5" /> : null}
             <button
               type="button"
               role="menuitem"
